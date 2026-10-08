@@ -1161,7 +1161,17 @@
               "value_name": "OBSERVE",
               "possible_values": [],
               "default": null,
-              "help": "Observe a same-Team agent tab or cron run",
+              "help": "Observe a same-Team tab or cron run; shells require terminal-pattern or output-settled",
+              "aliases": []
+            },
+            {
+              "name": "output-settled",
+              "positional": false,
+              "required": false,
+              "value_name": "OUTPUT_SETTLED",
+              "possible_values": [],
+              "default": null,
+              "help": "Fire when terminal output settles for this many milliseconds (10..60000)",
               "aliases": []
             },
             {
@@ -1238,6 +1248,16 @@
               "aliases": []
             },
             {
+              "name": "session",
+              "positional": false,
+              "required": false,
+              "value_name": "SESSION",
+              "possible_values": [],
+              "default": null,
+              "help": "Keep exchanges outside transition/action budgets; stop at 16384 exchanges or 120/minute",
+              "aliases": []
+            },
+            {
               "name": "set",
               "positional": false,
               "required": false,
@@ -1255,6 +1275,16 @@
               "possible_values": [],
               "default": null,
               "help": "JSON or YAML pipeline specification, or `-` to read standard input",
+              "aliases": []
+            },
+            {
+              "name": "terminal-pattern",
+              "positional": false,
+              "required": false,
+              "value_name": "TERMINAL_PATTERN",
+              "possible_values": [],
+              "default": null,
+              "help": "Fire with the new terminal output delta when this regex matches",
               "aliases": []
             },
             {
@@ -1329,6 +1359,44 @@
               "possible_values": [],
               "default": null,
               "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "input",
+          "about": "Deliver a text body to a running text input stage",
+          "aliases": [],
+          "args": [
+            {
+              "name": "from-pad",
+              "positional": false,
+              "required": false,
+              "value_name": "FROM_PAD",
+              "possible_values": [],
+              "default": null,
+              "help": "Read a UTF-8 body from the caller's Agent Pad",
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "text-file",
+              "positional": false,
+              "required": false,
+              "value_name": "TEXT_FILE",
+              "possible_values": [],
+              "default": null,
+              "help": "Read a UTF-8 body from a file",
               "aliases": []
             }
           ],
