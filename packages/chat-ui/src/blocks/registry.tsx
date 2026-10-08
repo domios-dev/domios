@@ -1,7 +1,11 @@
 import React from "react";
 import { GuideDirective, parseGuideDirective } from "../GuideDirective";
+import { ConnectBlock } from "./ConnectBlock";
+import { parseBridgeId } from "./connectBlockModel";
 import { PluginBlock } from "./PluginBlock";
 import { parsePluginId } from "./pluginBlockModel";
+import { SettingBlock } from "./SettingBlock";
+import { parseSettingKey } from "./settingBlockModel";
 
 /** One `@ds-<name> <argument>` chat block: a parser that validates the argument and a renderer for it. */
 export interface ChatBlockDefinition<P> {
@@ -31,6 +35,16 @@ export const CHAT_BLOCKS: readonly ChatBlockDefinition<unknown>[] = [
     name: "plugin",
     parse: (argument) => parsePluginId(argument),
     render: (pluginId, source) => <PluginBlock pluginId={pluginId} source={source} />,
+  }),
+  defineChatBlock<string>({
+    name: "connect",
+    parse: (argument) => parseBridgeId(argument),
+    render: (bridgeId, source) => <ConnectBlock bridgeId={bridgeId} source={source} />,
+  }),
+  defineChatBlock<string>({
+    name: "setting",
+    parse: (argument) => parseSettingKey(argument),
+    render: (settingKey, source) => <SettingBlock settingKey={settingKey} source={source} />,
   }),
 ];
 

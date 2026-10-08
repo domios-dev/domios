@@ -131,8 +131,8 @@ function fakeHost(initial: Record<string, PluginBlockState>) {
     const asked: string[] = [];
     const pinned: string[] = [];
     await withRender("@ds-plugin telegram-client", { plugins: host }, async (element) => {
-      assert(!element.querySelector('[aria-label^="Ask about"]') && !element.querySelector('[aria-label^="Pin "]'), "extras shown without a tab scope");
-      assert(element.querySelector('[aria-label^="Copy link"]'), "copy link missing");
+      assert(!element.querySelector('[data-testid="chat-block-extras"]'), "extras shown without a tab scope");
+      assert(!element.querySelector('[aria-label^="Copy link"]'), "copy link must not be offered");
     });
     await withRender("@ds-plugin telegram-client", { plugins: host, askAbout: (text) => asked.push(text), pin: (source) => pinned.push(source) }, async (element) => {
       await act(async () => {
@@ -141,6 +141,7 @@ function fakeHost(initial: Record<string, PluginBlockState>) {
       });
       assert(asked.length === 1 && asked[0].includes("@ds-plugin telegram-client"), "ask did not reference the block");
       assert(pinned[0] === "@ds-plugin telegram-client", "pin did not receive the block source");
+      assert(!element.querySelector('[aria-label^="Copy link"]'), "copy link must not be offered in a tab scope");
     });
   });
 

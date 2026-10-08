@@ -64,12 +64,12 @@ plain text. Inline mentions never become blocks.
 @ds-guide messenger-plugins
 @ds-plugin telegram-client
 @ds-plugin teams-client
+@ds-connect telegram
 ```
 
 Every block shares one frame: an icon, a title and a status chip; a one-line
-summary with a Details toggle; an actions row; and extras to copy the block
-line, ask about it in the composer, pin it to the tab's side panel, and open
-its full page. The card reads the real state when it appears and follows it
+summary with a Details toggle; an actions row; and extras to ask about it in the
+composer, pin it to the tab's side panel, and open its full page. The card reads the real state when it appears and follows it
 afterwards, so it never shows a stale snapshot. Showing a card changes nothing:
 every action runs only when the user clicks it, risky actions ask first, and
 the result appears in the card.
@@ -83,15 +83,18 @@ say a plugin is installed when its card shows otherwise.
 |---|---|
 | `@ds-guide <section-id>` | Point the user at an in-app Guide section that explains a feature or a setup. |
 | `@ds-plugin <plugin-id>` | Offer a plugin the user may need, with its install status and an Install, Update or Open button. |
+| `@ds-connect <bridge-id>` | Show whether a messenger bridge is connected, and let the user connect it in place. |
+| `@ds-setting <config.key>` | Show one setting with its current value, so the user can change it in place. |
 
 ### `@ds-guide`
 
 Renders the Guide section's title and summary with an Open guide action that
 opens Settings > Guide, scrolls to the section and focuses its heading. An
 unknown id shows a notice and opens the first section. Useful ids include
-`overview`, `agents`, `memory`, `supporter-agent`, `mesh`, `integrations`,
-`phone` (answer agents from a Telegram bot) and `messenger-plugins` (let agents
-use the owner's Telegram and Teams accounts).
+`overview`, `agents`, `memory`, `supporter-agent`, `mesh`, `messengers` (the
+Telegram bot bridge in Settings > General > Messengers), `phone` (answer agents
+from a Telegram bot) and `messenger-plugins` (let agents use the owner's
+Telegram and Teams accounts).
 
 ### `@ds-plugin`
 
@@ -103,6 +106,30 @@ path and permissions as the Plugins view and run only on the user's click;
 installed plugins with a page offer Open. Open in Plugins shows the full plugin
 page. An id that no channel lists renders a small "not found" note, so check
 the id before emitting it.
+
+### `@ds-connect`
+
+The id names a messenger bridge; `telegram` is the one available today. The
+card shows Connected (with the bot it acts as), Connecting, Not responding or
+Not connected. When it is not connected, the user pastes the @BotFather token
+into the card and presses Connect: the token goes to the secret store, never to
+a config file or the chat, and the bridge starts. A saved token connects
+without being entered again. Disconnect asks first and keeps the token. Open
+Messengers settings shows Settings > General > Messengers, where allowed users
+live. Never ask the user to paste a token into the chat; offer this card.
+
+### `@ds-setting`
+
+The key is a dot path into the config, the same one `codeterm config set`
+takes, for a setting that a plugin or agent provider declares in its settings
+schema: `plugins.<plugin-id>.<key>` or `agents.<provider-id>.<key>`. The card
+shows the setting's label and description from the schema and a control for its
+type: a switch for a boolean, side-by-side options or a list for a choice, minus
+and plus buttons for a number, and a field with Save for text. A change is
+written once, through the config set path, when the user clicks; a change made
+elsewhere shows in the card. Secrets, tokens, keys and any key the schema does
+not declare render a muted "not available" note, so use the setting's exact
+schema key.
 
 ## File-backed HTML fences
 
@@ -192,4 +219,4 @@ The rendered document carries a visible `Local untrusted HTML` banner. Use
 ct.file.renderHtml({ target: '#canvas', maxBytes: 2 * 1024 * 1024 })
 ```
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

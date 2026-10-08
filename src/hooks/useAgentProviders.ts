@@ -33,7 +33,7 @@ export function agentProvidersFromResponse(result: unknown): ProviderDescriptor[
   return Array.isArray(result) ? (result as ProviderDescriptor[]) : [];
 }
 
-async function fetchAgentProviders(): Promise<ProviderDescriptor[]> {
+export async function fetchAgentProviders(): Promise<ProviderDescriptor[]> {
   const result = await invoke<unknown>("list_agent_providers");
   return agentProvidersFromResponse(result);
 }
