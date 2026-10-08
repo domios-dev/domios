@@ -6,61 +6,25 @@ impl ChatSendLedger {
     }
 
     pub(crate) fn bind_rpc_send(&self, send_id: &str, binding: SendLiveBinding) -> bool {
-        self.bind_rpc_group(&[send_id], binding)
-    }
-
-    pub(crate) fn bind_rpc_group(&self, ids: &[&str], binding: SendLiveBinding) -> bool {
         let mut state = self.state.lock();
-        let Some(first) = ids.first().and_then(|id| state.by_id.get(*id)) else {
-            return false;
-        };
-        let tab = &first.tab_id;
-        let unique = ids
-            .iter()
-            .copied()
-            .collect::<std::collections::HashSet<_>>();
-        if unique.len() != ids.len()
-            || ids.iter().any(|id| {
-                !state.by_id.get(*id).is_some_and(|status| {
-                    status.state == ChatSendState::Pending && &status.tab_id == tab
-                }) || state.rpc_by_id.contains_key(*id)
-            })
+        if !state
+            .by_id
+            .get(send_id)
+            .is_some_and(|status| status.state == ChatSendState::Pending)
+            || state.rpc_by_id.contains_key(send_id)
         {
             return false;
         }
-        let members = ids.iter().map(|id| id.to_string()).collect();
-        state.rpc_groups.insert(ids[0].into(), members);
-        for send_id in ids.iter().copied() {
-            state.payload_by_id.remove(send_id);
-            state.anchor_by_id.remove(send_id);
-            state.absence_witness_by_id.remove(send_id);
-            state.deferred_first_turn_by_id.remove(send_id);
-            state.sessionless_first_turn_by_id.remove(send_id);
-            state
-                .live_binding_by_id
-                .insert(send_id.into(), binding.clone());
-            state.rpc_by_id.insert(send_id.into(), binding.clone());
-        }
+        state.payload_by_id.remove(send_id);
+        state.anchor_by_id.remove(send_id);
+        state.absence_witness_by_id.remove(send_id);
+        state.deferred_first_turn_by_id.remove(send_id);
+        state.sessionless_first_turn_by_id.remove(send_id);
+        state
+            .live_binding_by_id
+            .insert(send_id.into(), binding.clone());
+        state.rpc_by_id.insert(send_id.into(), binding.clone());
         true
-    }
-
-    pub(crate) fn confirm_rpc_group(
-        &self,
-        tab: &str,
-        thread: &str,
-        nonce: &str,
-        client_id: &str,
-    ) -> Vec<ChatSendStatus> {
-        let ids = self
-            .state
-            .lock()
-            .rpc_groups
-            .get(client_id)
-            .cloned()
-            .unwrap_or_default();
-        ids.iter()
-            .filter_map(|id| self.confirm_rpc_send(tab, thread, nonce, id))
-            .collect()
     }
 
     pub(crate) fn mark_rpc_accepted(&self, send_id: &str) -> Option<ChatSendStatus> {

@@ -80,14 +80,12 @@ pub async fn interrupt(tab: &str) -> Option<Result<bool, String>> {
         return Some(Ok(false));
     }
     let mut settled = sidecar.turn_settled.subscribe();
-    for (thread, turn) in &turns {
-        if let Err(error) = sidecar
-            .client
-            .request("turn/interrupt", json!({"threadId":thread,"turnId":turn}))
-            .await
-        {
-            return Some(Err(rpc_error(error)));
-        }
+    if let Err(error) = interrupt_turns(&turns, |method, params| {
+        sidecar.client.request(method, params)
+    })
+    .await
+    {
+        return Some(Err(rpc_error(error)));
     }
     let confirmed = tokio::time::timeout(std::time::Duration::from_secs(10), async {
         loop {
@@ -108,6 +106,20 @@ pub async fn interrupt(tab: &str) -> Option<Result<bool, String>> {
     .await
     .unwrap_or(false);
     Some(Ok(confirmed))
+}
+
+pub(super) async fn interrupt_turns<F, Fut>(
+    turns: &[(String, String)],
+    mut request: F,
+) -> Result<(), super::client::ClientError>
+where
+    F: FnMut(&'static str, Value) -> Fut,
+    Fut: std::future::Future<Output = Result<Value, super::client::ClientError>>,
+{
+    for (thread, turn) in turns {
+        request("turn/interrupt", json!({"threadId":thread,"turnId":turn})).await?;
+    }
+    Ok(())
 }
 
 pub fn settled(svc: &crate::service::ServiceContext, tab: &str) {
