@@ -4,6 +4,7 @@ import { focusLost } from "./focus";
 import type { PresenceState } from "../Canvas/usePresence";
 import { AUTOMATION_LABEL } from "./styles";
 import { CodeBlock } from "@codeterm/chat-ui";
+import { NodeFiles } from "./NodeFiles";
 import { nodeInspector } from "./nodeInspector";
 import type { ActionLeaf } from "./projection";
 import type { AutomationNode } from "./types";
@@ -63,6 +64,7 @@ export function AutomationDetails({ node, action, nodes, onClose, panelRef, pres
       <Facts>{view.properties.map(([name, value]) => <Fragment key={name}><dt>{name}</dt><dd>{value}</dd></Fragment>)}</Facts>
       {view.code && <section aria-label="Node code"><CodeBlock text={view.code.text} language={view.code.language} fullscreenScope="viewport" />{view.code.truncated && <p className="text-xs text-[var(--ct-muted-fg)]">Code preview truncated at the source.</p>}</section>}
       {view.codeUnavailable && <p className="text-xs text-[var(--ct-muted-fg)]">Code is unavailable in this view.</p>}
+      {view.code && node.identity.kind === "sentinel" && <NodeFiles key={JSON.stringify([node.identity, node.sentinel_definition?.definition_version, action?.bucket, action?.handler?.id])} identity={node.identity} bucket={action?.bucket ?? null} handler={action?.handler?.id ?? null} />}
       <Disclosure title="Details"><Facts><dt>ID</dt><dd className="break-all font-mono text-xs">{action?.handler?.id ?? node.identity.id}</dd></Facts></Disclosure>
     </div>
   </DetailsFrame>;

@@ -1,5 +1,7 @@
 /** Native-only IPC commands — honest web degradation via webCapability(). */
 export const WEB_UNSUPPORTED: Record<string, string> = {
+  automation_node_files: "Node file inspection is available only in the desktop app",
+  reveal_file: "Revealing a file in the OS file manager is available only in the desktop app",
   bridge_thread_state:
     "Telegram thread menu state is a desktop Tauri command; a REST route would let a bearer token bypass caller-tab authority",
   bridge_thread_open:
