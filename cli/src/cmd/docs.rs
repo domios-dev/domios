@@ -135,6 +135,11 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "../../../prod-docs/TAB-LIFECYCLE.md"
     ),
     doc!(
+        "SURFACES",
+        "Plugin surface tabs: declaring, opening and closing app tabs",
+        "../../../prod-docs/SURFACES.md"
+    ),
+    doc!(
         "MESH",
         "Peer discovery, trust, and remote routing",
         "../../../prod-docs/MESH.md"
