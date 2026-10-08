@@ -108,7 +108,7 @@ export function PluginDetailPanel({
       )}
 
       {action.reason && action.disabled && (
-        <div style={{ fontSize: 11.5, color: "#fca5a5", marginBottom: 14 }} data-testid="extensions-action-disabled-reason">{action.reason}</div>
+        <div style={{ fontSize: 11.5, color: "var(--ct-red)", marginBottom: 14 }} data-testid="extensions-action-disabled-reason">{action.reason}</div>
       )}
 
       {entry.capabilities?.chat_backend && entry.installed && !entry.pendingReload && (

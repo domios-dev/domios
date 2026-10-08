@@ -51,6 +51,7 @@ pub(crate) mod launch_diagnostics;
 pub(crate) mod launch_input_gate;
 pub(crate) mod launch_readiness;
 pub(crate) mod launch_session_detection;
+pub(crate) mod local_preview;
 pub mod message_gateway;
 pub mod messenger;
 pub mod model_providers;

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ClipboardCopy, ExternalLink, FolderOpen, Info } from "lucide-react";
 import { FileDiffCards } from "@codeterm/chat-ui";
 import type { ChangesTurn, RecordedFileChange, ToolEvent } from "@codeterm/chat-core";
-import { invoke } from "../../../lib/bridge";
+import { IS_WEB, invoke } from "../../../lib/bridge";
 import { requestChatMessageReveal, useChatReveal } from "../../../lib/chatMessageReveal";
 import { setClientTabUiMode } from "../../../lib/clientTabUiMode";
 import { CHANGE_STATUS, changeReference, changesFilePath, hunkHeader, hunkReference, turnNumber, unifiedDiffText } from "../changesViewModel";
@@ -40,8 +40,8 @@ export function ChangeDetail({ tabId, file, currentFile, turns, path, cwd, displ
   const hasHunks = file.diffs.some((diff) => diff.hunks.length > 0);
   const missingTurn = reveal?.tabId === tabId && file.turnIds.includes(reveal.messageId) && (reveal.outcome === "missing" || reveal.outcome === "no_chat");
   return <PanelPage onBack={onBack} bar={<BackBar path={path} onBack={onBack} actions={<>
-    <IconAction label="Open file" icon={ExternalLink} disabled={!target || deleted} onClick={() => perform("open_folder")} />
-    <IconAction label="Show in Explorer/Finder" icon={FolderOpen} disabled={!target || deleted} onClick={() => perform("reveal_file")} />
+    <IconAction label="Open file" icon={ExternalLink} disabled={IS_WEB || !target || deleted} title={IS_WEB ? "Opening files in the OS is available only in the desktop app" : undefined} onClick={() => perform("open_folder")} />
+    <IconAction label="Show in Explorer/Finder" icon={FolderOpen} disabled={IS_WEB || !target || deleted} title={IS_WEB ? "Opening files in the OS is available only in the desktop app" : undefined} onClick={() => perform("reveal_file")} />
     <CopyAction label="Copy diff" icon={ClipboardCopy} disabled={!hasHunks} copy={() => copyText(unifiedDiffText({ ...file, diffs }))} />
     <ChatAction label={`Ask about the change to ${path}`} text="Ask" onClick={() => askAboutChange(tabId, file, path, cwd, currentFile)} />
   </>} />}>

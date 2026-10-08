@@ -42,6 +42,8 @@ export {
   shortSha,
 } from "./codeterm/reportOutcome";
 export type { ReportOutcomeClass, ReportTaskOutcome } from "./codeterm/reportOutcome";
+export { LocalArtifactScope } from "./LocalArtifactScope";
+export { localArtifactOpeningAvailable } from "./localArtifactLoader";
 export { ChatBlockFrame } from "./blocks/ChatBlockFrame";
 export type { ChatBlockAction, ChatBlockFrameProps, ChatBlockStatus, ChatBlockTone } from "./blocks/ChatBlockFrame";
 export { ChatBlockHostProvider, useChatBlockHost } from "./blocks/ChatBlockHost";

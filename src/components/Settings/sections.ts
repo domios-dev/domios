@@ -73,7 +73,7 @@ export interface SettingsCardRoute {
 
 const HELP_SETTINGS_ROUTES: Record<HelpSettingsTarget, SettingsCardRoute> = {
   "supporter-agent": { section: "agents", card: "supporter-agent" },
-  "telegram-bridge": { section: "integrations", card: "telegram-bridge" },
+  "telegram-bridge": { section: "general", card: "telegram-bridge" },
 };
 
 export function settingsRouteForHelpTarget(target: HelpSettingsTarget): SettingsCardRoute {

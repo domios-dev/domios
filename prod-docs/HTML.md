@@ -36,6 +36,20 @@ excluded from image previews because it can contain active or external content.
 Windows paths may use either backslashes or forward slashes; both forms are
 preserved exactly when the preview file is resolved.
 
+## User attachments
+
+Files the user pastes or attaches in the chat composer reach you as one tag per
+file, inline in the message text:
+
+```text
+<ds-attachment kind="image" path="C:\Users\me\AppData\Local\Temp\codeterm-chat\ab12-pasted-image.png" />
+```
+
+`kind` is `image` or `file`; `path` is the absolute local path, so open it with
+your file or image tool. `&`, `"`, `<`, and `>` inside the path are escaped as
+`&amp;`, `&quot;`, `&lt;`, and `&gt;`. The user's chat shows these tags as an
+attachment strip, not as text.
+
 ## Chat blocks
 
 A chat block is a live card for a Domios object. Write each block as its own
@@ -175,4 +189,4 @@ The rendered document carries a visible `Local untrusted HTML` banner. Use
 ct.file.renderHtml({ target: '#canvas', maxBytes: 2 * 1024 * 1024 })
 ```
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

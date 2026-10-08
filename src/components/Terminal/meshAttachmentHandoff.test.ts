@@ -1,3 +1,4 @@
+import { formatAttachmentMarker } from "@codeterm/chat-core";
 import assert from "node:assert/strict";
 import {
   AttachmentTransferError,
@@ -64,7 +65,7 @@ async function main() {
     assert.equal(transfers.length, 0, "same-machine sends never transfer");
     assert.deepEqual(transcribed, [sourceVoice]);
     assert.deepEqual(parts, {
-      parts: [`local-voice-marker(${sourceVoice})`, quote(sourceImage)],
+      parts: [`local-voice-marker(${sourceVoice})`, formatAttachmentMarker(sourceImage)],
       transcribeFailed: false,
     });
   }
@@ -73,7 +74,7 @@ async function main() {
     const { deps } = harness({ transcribeLocal: async () => { throw new Error("no engine"); } });
     const parts = await resolveAttachmentParts(local, plans, deps);
     assert.equal(parts.transcribeFailed, true);
-    assert.deepEqual(parts.parts, [quote(sourceVoice), quote(sourceImage)]);
+    assert.deepEqual(parts.parts, [formatAttachmentMarker(sourceVoice), formatAttachmentMarker(sourceImage)]);
   }
 
   {
@@ -87,7 +88,7 @@ async function main() {
       ],
     );
     assert.equal(transcribed.length, 0, "voice is transcribed on the target host, not the origin");
-    assert.deepEqual(parts.parts, [`voice-marker(${targetVoice})`, targetImage]);
+    assert.deepEqual(parts.parts, [`voice-marker(${targetVoice})`, formatAttachmentMarker(targetImage)]);
     const composed = parts.parts.join(" ");
     assert.ok(!composed.includes(sourceVoice) && !composed.includes(sourceImage));
   }
