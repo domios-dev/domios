@@ -1,6 +1,32 @@
 use super::{ChatSendLedger, ChatSendState, ChatSendStatus, SendLiveBinding};
 
 impl ChatSendLedger {
+    pub(crate) fn trace_rpc_turn(
+        &self,
+        tab: &str,
+        thread: &str,
+        nonce: &str,
+        client_id: &str,
+        turn: &str,
+        provider: &str,
+    ) {
+        if !crate::flow_trace::enabled() {
+            return;
+        }
+        let state = self.state.lock();
+        if state
+            .by_id
+            .get(client_id)
+            .is_some_and(|status| status.tab_id == tab)
+            && state.rpc_by_id.get(client_id).is_some_and(|binding| {
+                binding.session_id.as_deref() == Some(thread)
+                    && binding.binding_nonce.as_deref() == Some(nonce)
+            })
+        {
+            crate::flow_trace::link_rpc(client_id, tab, provider, thread, nonce, turn);
+        }
+    }
+
     pub(crate) fn has_rpc_handoff(&self, send_id: &str) -> bool {
         self.state.lock().rpc_by_id.contains_key(send_id)
     }

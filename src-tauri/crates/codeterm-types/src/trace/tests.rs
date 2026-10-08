@@ -16,6 +16,43 @@ fn default_sink_never_creates_a_directory_or_file() {
 }
 
 #[test]
+fn an_answer_from_another_flow_does_not_hide_a_missing_assistant_stage() {
+    let events = [
+        Event::new("one", "send.delivered", "tab", "provider", "exact_turn"),
+        Event::new(
+            "two",
+            "transcript.assistant",
+            "tab",
+            "provider",
+            "source_user_turn",
+        ),
+    ];
+    let missing = gaps(&events);
+    assert_eq!(missing.len(), 1);
+    assert!(missing[0].starts_with("one:"));
+}
+
+#[test]
+fn an_exact_source_link_retained_before_since_still_resolves_the_answer() {
+    let mut start = Event::new("send", "send.started", "tab", "provider", "accepted");
+    start.ts = 1;
+    let mut link =
+        Event::new("send", "trace.link", "tab", "provider", "exact_turn").related(Some("source"));
+    link.ts = 2;
+    let mut answer = Event::new(
+        "source",
+        "transcript.assistant",
+        "tab",
+        "provider",
+        "source_user_turn",
+    );
+    answer.ts = 3;
+    let chain = select(&[start, link, answer], "send", 3);
+    assert_eq!(chain.len(), 1);
+    assert_eq!(chain[0].trace_id, "send");
+}
+
+#[test]
 fn flow_round_trip_orders_links_and_flags_missing_stages() {
     let dir = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
     let mut sink = Sink::open(&dir, true).unwrap();

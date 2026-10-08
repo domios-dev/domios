@@ -371,7 +371,9 @@ impl ChatSendLedger {
         send_id: &str,
         claim: crate::service::pty_io::submit_transaction::SubmitCycleClaim,
     ) {
-        self.submit_claims.lock().insert(send_id.to_string(), claim);
+        self.submit_claims
+            .lock()
+            .insert(send_id.to_string(), claim.with_trace_id(send_id));
     }
 
     pub(crate) fn take_user_submit_claim(
