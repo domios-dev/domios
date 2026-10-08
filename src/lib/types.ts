@@ -152,6 +152,7 @@ export interface TabBootStageEvent {
 
 export interface Tab {
   purpose?: import("./shellCommandState").ShellPurpose;
+  icon?: string | null;
   shell_command_state?: import("./shellCommandState").ShellCommandState;
   context?: { used_tokens: number; window_tokens: number; cost_usd: number | null; source: string };
   provider_signals?: ProviderSignals;

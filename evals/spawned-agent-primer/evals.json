@@ -53,7 +53,7 @@
       "id": 5,
       "name": "notify-escalation-role-and-trigger",
       "response_mode": "text",
-      "prompt": "Without running commands, answer three independent scenarios and name exact commands where relevant. (a) You are a Worker tab and you just finished your assigned task normally \u2014 do you send the user a notification, and what do you do instead if not? (b) You are an Orchestrator blocked because only the user can make a required decision and no autonomous path remains \u2014 how do you reach the user? (c) You are a solo agent, the user earlier said 'notify me when the build finishes', and the build just finished \u2014 what do you do?",
+      "prompt": "Without running commands, answer three independent scenarios and name exact commands where relevant. (a) You are a Worker tab and you just finished your assigned task normally — do you send the user a notification, and what do you do instead if not? (b) You are an Orchestrator blocked because only the user can make a required decision and no autonomous path remains — how do you reach the user? (c) You are a solo agent, the user earlier said 'notify me when the build finishes', and the build just finished — what do you do?",
       "expected_output": "Role-scoped rare-escalation policy: Workers never notify the user directly; solo agents and Orchestrators use codeterm notify send only for genuine user-attention need or an explicit user request.",
       "expectations": [
         "In scenario (a) does NOT send the user a notification for routine Worker completion and instead reports through its reporting channel",
@@ -136,6 +136,19 @@
         "Does not invent a shell probe or a separate tab target for the cron run"
       ],
       "response_mode": "text"
+    },
+    {
+      "id": 12,
+      "name": "utility-tabs-have-purpose-description-and-an-end",
+      "response_mode": "text",
+      "prompt": "You are an Orchestrator. Without running commands, show how you would open a build utility tab and a test utility tab, then replace the command in an existing idle test tab named qa-id and clean it up when finished. Mention which purpose you would choose for a server. Keep it brief.",
+      "expected_output": "Utility tabs identify their purpose and activity, and are reused and closed.",
+      "expectations": [
+        "Uses purpose build for builds, qa for tests, and dev for servers",
+        "Includes --description on each tab new command",
+        "Uses codeterm tab restart --tab qa-id for the existing idle test tab instead of opening another test tab",
+        "Closes the utility tab when finished"
+      ]
     }
   ]
 }

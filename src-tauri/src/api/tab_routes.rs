@@ -11,6 +11,8 @@ use send::wait_for_pty_link as await_pty_link;
 mod exec;
 mod send;
 mod stop;
+#[cfg(test)]
+mod utility_tests;
 
 pub use exec::exec_in_tab;
 pub use send::{chat_send_status, chat_send_text, send_text};
@@ -230,10 +232,11 @@ pub async fn inspect_tabs(
     Ok(Json(result.into_json()))
 }
 
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 pub struct CreateShellTabBody {
     #[serde(default)]
     pub purpose: crate::multiplexer::types::ShellPurpose,
+    pub icon: Option<String>,
     pub workspace_id: Option<String>,
     pub cwd: Option<String>,
     pub title: Option<String>,
@@ -324,47 +327,48 @@ pub async fn create_shell_tab(
         }
         None => TabCommand::Shell,
     };
-    let handle = state
-        .svc
-        .spawn_tab(SpawnTabSpec {
-            purpose: body.purpose,
-            workspace_id: body.workspace_id,
-            team_id: body.team_id,
-            creator_tab_id: body.creator_tab_id,
-            detach_from_team: body.detach_from_team,
-            cwd: body.cwd,
-            title: body.title,
-            description: body
-                .description
-                .map(|s| crate::service::normalize_tab_description(&s))
-                .transpose()
-                .map_err(|e| (StatusCode::BAD_REQUEST, e))?
-                .flatten(),
-            visibility: TabVisibility::Visible,
-            eager: body.eager,
-            command,
-            ..Default::default()
-        })
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    if let Some(cmd) = body.cmd {
-        // bare shells which haven't armed DECSET ?2004 yet.
-        state
-            .svc
-            .send_shell_cmd(&handle.tab_id, &cmd)
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Tab created (id={}) but --cmd failed: {}", handle.tab_id, e),
-                )
-            })?;
-    }
-    // per-resource naming. Both fields hold the same value.
+    let spec = SpawnTabSpec {
+        purpose: body.purpose,
+        icon: body.icon,
+        cmd: body.cmd,
+        workspace_id: body.workspace_id,
+        team_id: body.team_id,
+        creator_tab_id: body.creator_tab_id,
+        detach_from_team: body.detach_from_team,
+        cwd: body.cwd,
+        title: body.title,
+        description: body
+            .description
+            .map(|s| crate::service::normalize_tab_description(&s))
+            .transpose()
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?
+            .flatten(),
+        visibility: TabVisibility::Visible,
+        eager: body.eager,
+        command,
+        ..Default::default()
+    };
+    let svc = state.svc.clone();
+    let handle = tokio::task::spawn_blocking(move || svc.spawn_tab(spec))
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .map_err(|error| {
+            let status = if error.starts_with("utility_tab_limit:") {
+                StatusCode::CONFLICT
+            } else if error.starts_with("Unknown Lucide icon") {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (status, error)
+        })?;
+
     let mut resp = serde_json::json!({
         "id": handle.tab_id,
         "tab_id": handle.tab_id,
         "workspace_id": handle.workspace_id,
-        "tab_id": handle.tab_id,
         "pty_id": handle.pty_id,
+        "description": handle.description,
     });
     if let Some(ref notice) = handle.budget_notice {
         resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();

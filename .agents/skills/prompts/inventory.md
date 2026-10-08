@@ -30,6 +30,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `plan_task_flags.md` | `PLAN_TASK_FLAGS` | Task lifecycle flags | — | `prompts.rs` — composed into plan task guidance |
 | `plugin_discovery_rule.md` | `PLUGIN_DISCOVERY_RULE` | Capability discovery pointer | — | `prompts.rs` — composed into agent control guidance |
 | `agent_codeterm_primer.md` | `AGENT_CODETERM_PRIMER` | Spawned-agent system primer, including the task test/QA lifecycle boundary | — | `service/orchestrator/prompt_compose.rs` — prepended once before assignment and role contract for PTY and ChatBackend launches |
+| `utility_tab_guidance.md` | `UTILITY_TAB_GUIDANCE` | Three-line utility purpose, description and reuse guidance | — | `service/orchestrator/prompt_compose.rs` — non-Worker launches only |
 | `worker_codeterm_context.md` | `WORKER_CODETERM_CONTEXT` | Worker Domios context | — | `service/orchestrator/prompt_compose.rs` — injected once into Worker launches before assignment work |
 | `rich_rendering_guidance.md` | `RICH_RENDERING_GUIDANCE` | Shared rendering capability | — | `service/orchestrator/prompt_compose.rs` — included for capable spawned agents |
 | `agent_pad_rule.md` | `AGENT_PAD_RULE` | Shared AgentPad contract — the one semantic source | — | `service/orchestrator/prompt_compose.rs` for every spawned class; `service/general_agent/instructions.rs` (`general_cli_reference`) for the GA; `commands/skills.rs` renders it into the `codeterm` skill via `{agent_pad_rule}` |

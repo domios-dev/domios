@@ -23,6 +23,10 @@ cursor_blink = true
 scrollback = 10000
 copy_on_select = false
 
+# Optional per-Team utility limits; omitted purposes are unlimited.
+[utility_tabs.max_per_team]
+build = 2
+qa = 2
 [diagnostics]
 terminal_transport = false
 protocol_recording = false
@@ -231,4 +235,5 @@ Codex structured control is enabled by default in 1.12.4. The provider declares 
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`. Provider updates run automatically on the production instance; named and non-production instances join only with `updater.allow_provider_updates_in_non_prod = true`.
 
-<!-- revision: 98 -->
+Utility limits apply to each Team and purpose. At the limit, creation restarts the oldest confirmed idle tab with the new command and description; busy or unknown tabs are refused. Use `codeterm tab new --description "Runs focused tests" --purpose qa --icon bug`; icon names are Lucide kebab-case names.
+<!-- revision: 99 -->

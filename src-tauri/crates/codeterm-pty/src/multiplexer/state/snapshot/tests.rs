@@ -12,6 +12,8 @@ mod role_restore;
 fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
         purpose: Default::default(),
+        icon: None,
+        utility_created_at: 0,
         tab_id: tab_id.into(),
         cwd: None,
         title: Some("LM Studio".into()),
@@ -395,6 +397,8 @@ fn stale_legacy_pty_snapshot_restores_sandboxed_without_chatbackend_fields() {
     // backing on round-trip.
     let leaf = SplitNodeSnapshot::Leaf {
         purpose: Default::default(),
+        icon: None,
+        utility_created_at: 0,
         tab_id: "p2".into(),
         cwd: None,
         title: Some("claude".into()),
@@ -485,6 +489,8 @@ fn automation_audience_round_trips_and_legacy_defaults_fail_closed() {
 fn tab_description_round_trips_through_snapshot() {
     let leaf = SplitNodeSnapshot::Leaf {
         purpose: Default::default(),
+        icon: None,
+        utility_created_at: 0,
         tab_id: "p-desc".into(),
         cwd: None,
         title: Some("Worker".into()),
@@ -549,6 +555,8 @@ fn tab_description_round_trips_through_snapshot() {
 fn spawned_by_and_report_target_restore_intact_not_none() {
     let leaf = SplitNodeSnapshot::Leaf {
         purpose: Default::default(),
+        icon: None,
+        utility_created_at: 0,
         tab_id: "worker-1".into(),
         cwd: None,
         title: Some("Worker".into()),
@@ -602,6 +610,8 @@ fn spawned_by_and_report_target_restore_intact_not_none() {
 fn legacy_tab_title_seeds_default_provider_tab_title() {
     let leaf = SplitNodeSnapshot::Leaf {
         purpose: Default::default(),
+        icon: None,
+        utility_created_at: 0,
         tab_id: "legacy-worker".into(),
         cwd: None,
         title: Some("claude".into()),
@@ -925,6 +935,8 @@ fn spawned_by_round_trips_through_snapshot() {
     // state → snapshot → state preserves the hierarchy linkage fields.
     let leaf = SplitNodeSnapshot::Leaf {
         purpose: Default::default(),
+        icon: None,
+        utility_created_at: 0,
         tab_id: "w".into(),
         cwd: None,
         title: Some("Worker".into()),

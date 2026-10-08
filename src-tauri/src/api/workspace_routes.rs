@@ -44,11 +44,7 @@ pub(crate) struct CreateWorkspaceBody {
     provision: bool,
 }
 
-#[derive(Deserialize, Default)]
-pub(crate) struct CreateTabBody {
-    #[serde(default)]
-    eager: bool,
-}
+pub(crate) type CreateTabBody = crate::api::tab_routes::CreateShellTabBody;
 
 pub async fn create_workspace(
     AxumState(state): AxumState<AppState>,
@@ -344,37 +340,19 @@ pub async fn create_tab(
     headers: HeaderMap,
     Path(workspace_id): Path<String>,
     OptionalJson(body): OptionalJson<CreateTabBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let tab_id = state
-        .svc
-        .create_tab_with_activate(&workspace_id, false)
-        .map_err(|_| {
-            state.svc.log_workspace_not_found(&workspace_id);
-            (StatusCode::NOT_FOUND, "Workspace not found")
-        })?;
-    let eager = body.map(|b| b.eager).unwrap_or(false);
-    let pty_id = if eager {
-        state
-            .svc
-            .ensure_tab_pty_for_send(&tab_id)
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to spawn PTY"))?;
-        state
-            .svc
-            .mux
-            .write()
-            .get_tab(&tab_id)
-            .and_then(|p| p.pty_id.clone())
-    } else {
-        None
-    };
-    let title = state.svc.mux.read().display_label_for_tab(&tab_id);
-    Ok(Json(serde_json::json!({
-        "id": tab_id.clone(),
-        "title": title,
-        "tab_id": tab_id,
-        "pty_id": pty_id
-    })))
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let mut body = body.unwrap_or_default();
+    body.workspace_id = Some(workspace_id);
+    let response =
+        crate::api::tab_routes::create_shell_tab(AxumState(state.clone()), headers, Json(body))
+            .await?;
+    let mut value = response.0;
+    let tab_id = value["tab_id"].as_str().map(str::to_owned);
+    if let Some(tab_id) = tab_id {
+        value["title"] =
+            serde_json::Value::String(state.svc.mux.read().display_label_for_tab(&tab_id));
+    }
+    Ok(Json(value))
 }
 
 #[cfg(test)]
