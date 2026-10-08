@@ -9,6 +9,14 @@ export function timelineItemKey(item: TimelineItem): string {
   return item.kind === "message" ? item.message.id : item.event.message.id;
 }
 
+export function chatMessageAnchor(items: readonly TimelineItem[], sourceMessageId: string): string | null {
+  const item = items.find((candidate) => {
+    const message = candidate.kind === "message" ? candidate.message : candidate.event.message;
+    return (message.sourceMessageId ?? message.id) === sourceMessageId;
+  });
+  return item ? timelineItemKey(item) : null;
+}
+
 export interface ChatWindowRange {
   start: number;
   end: number;

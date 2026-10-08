@@ -1,5 +1,6 @@
 import { ComposerContextMeter } from "./ComposerContextMeter";
 import { DocumentsButton } from "./DocumentsPanel";
+import { ChangesButton } from "./ChangesPanel";
 import { planSidePanelStore } from "../Canvas/planSidePanelStore";
 import { ShellPurposeIcon, ShellStatus } from "../shared/ShellStatus";
 import { isUtilityShell } from "../../lib/shellCommandState";
@@ -255,6 +256,7 @@ export function TabTopBar({
         )}
         <ComposerContextMeter tabId={tabId} />
         <DocumentsButton tabId={tabId} />
+        <ChangesButton tabId={tabId} />
         {entries.length > 0 && (
           <TabActionsMenu
             entries={entries}

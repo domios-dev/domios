@@ -1,6 +1,6 @@
-import { planSidePanelStore } from "../Canvas/planSidePanelStore";
 import { documentsFromTranscript } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
+import { chatChangesStore } from "./chatChangesStore";
 import { RemovedChatPlugin } from "./RemovedChatPlugin";
 import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
@@ -223,6 +223,7 @@ export function TabSessionChat({
     backfillLoading,
     loadOlder,
     showLatest,
+    prepareMessage,
     setHistoryReading,
     addOptimistic,
     updateOptimistic,
@@ -238,10 +239,14 @@ export function TabSessionChat({
     followTailRef: chatFollowTailRef,
   });
   useEffect(() => {
+    chatChangesStore.bind(tabId, JSON.stringify([agentSessionId, tab?.session_binding_nonce]));
+  }, [tabId, agentSessionId, tab?.session_binding_nonce]);
+  useEffect(() => {
+    if (!isActive) return;
     const documents = documentsFromTranscript(allMessages);
     chatDocumentsStore.set(tabId, documents);
-    if (!documents.length && planSidePanelStore.get()?.target.documentsTabId === tabId) planSidePanelStore.close();
-  }, [tabId, allMessages]);
+    chatChangesStore.set(tabId, allMessages);
+  }, [tabId, allMessages, isActive]);
   const bootSetupView = chatSetupView(tab, attachmentState === "attached");
   const hasTranscript = enrichedMessages.length > 0;
   // 'Loading chat' gates on the CHAT channel only (transcript authority + chat
@@ -279,6 +284,7 @@ export function TabSessionChat({
     ready: isActive && !chatChannelLoading,
     contentVersion: enrichedMessages,
     revealMessage,
+    prepareMessage,
   });
 
   // A detached reader stays on its content through a send; only a followed tail

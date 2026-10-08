@@ -302,13 +302,20 @@ fn codex_rpc_rich_tools_diffs_and_agent_receivers_preserve_details() {
     let edit = super::super::transcript::normalize_entry(&mut normalizer,"t",&entry(json!({
         "id":"patch","type":"fileChange","status":"completed","changes":[
             {"path":"old.rs","kind":{"type":"update","move_path":"new.rs"},"diff":"@@ -2,1 +2,2 @@\n-old\n+new\n+extra\n"},
-            {"path":"gone.rs","kind":{"type":"delete"},"diff":"removed\n"}]}))).unwrap();
+            {"path":"gone.rs","kind":{"type":"delete"},"diff":"removed\n"},
+            {"path":"image.png","kind":{"type":"add"},"diff":"GIT binary patch\nencoded\n"}]}))).unwrap();
     let diffs = edit.file_diffs.unwrap();
     assert_eq!(diffs[0]["movePath"], "new.rs");
+    assert_eq!(diffs[0]["kind"], "rename");
     assert_eq!(diffs[0]["additions"], 2);
     assert_eq!(diffs[0]["deletions"], 1);
     assert_eq!(diffs[0]["hunks"][0]["oldStart"], 2);
     assert_eq!(diffs[1]["hunks"][0]["lines"][0], "-removed");
+    assert_eq!(diffs[1]["kind"], "delete");
+    assert!(diffs[1].get("movePath").is_none());
+    assert_eq!(diffs[2]["binary"], true);
+    assert_eq!(diffs[2]["hunks"], json!([]));
+    assert_eq!(diffs[2]["additions"], 0);
     let agents = normalizer.apply_all(&Frame::Notification { method:"item/completed".into(),params:json!({"threadId":"t","turnId":"turn",
         "item":{"id":"collab","type":"collabAgentToolCall","receiverThreadIds":["a","b"],"agentsStates":{"a":{"status":"running"},"b":{"status":"errored","message":"failed"}}}}) });
     assert_eq!(agents.len(), 2);

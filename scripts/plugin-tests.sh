@@ -51,6 +51,7 @@ case "${1:-all}" in
       plugins/provider-codex/tests/account-home.test.ts
       plugins/provider-codex/tests/user-images.test.ts
       plugins/provider-opencode/tests/plugin.test.ts
+      plugins/provider-opencode/tests/file-diffs.test.ts
       plugins/provider-opencode/tests/lifecycle.test.ts
       plugins/provider-opencode/tests/opencodeConfig.test.ts
       plugins/provider-opencode/tests/modelProviders.test.ts
@@ -120,6 +121,7 @@ case "${1:-all}" in
   provider-opencode)
     tests=(
       plugins/provider-opencode/tests/plugin.test.ts
+      plugins/provider-opencode/tests/file-diffs.test.ts
       plugins/provider-opencode/tests/lifecycle.test.ts
       plugins/provider-opencode/tests/opencodeConfig.test.ts
       plugins/provider-opencode/tests/modelProviders.test.ts
