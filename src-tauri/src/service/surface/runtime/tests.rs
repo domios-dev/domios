@@ -199,6 +199,19 @@ fn surface_sse_payload_names_events_and_base64s_frames() {
     assert_eq!(name, "state");
 }
 
+#[test]
+fn surface_notice_preview_paused_carries_kind_and_technical_detail() {
+    assert_eq!(
+        serde_json::to_value(SurfaceNotice::preview_paused("no frame: x")).unwrap(),
+        json!({ "text": PREVIEW_PAUSED_TEXT, "kind": "preview_paused", "detail": "no frame: x" })
+    );
+    assert_eq!(
+        serde_json::to_value(SurfaceNotice::plain("x")).unwrap(),
+        json!({ "text": "x" }),
+        "untyped notices keep their wire shape"
+    );
+}
+
 enum Teardown {
     Graceful(std::time::Duration),
     KilledAfterGrace,

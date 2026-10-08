@@ -32,25 +32,53 @@ pub(crate) enum NoticeTone {
     Error,
 }
 
+/// Lets the viewer render a recurring condition in place instead of as a notice bar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum NoticeKind {
+    PreviewPaused,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct SurfaceNotice {
     pub text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tone: Option<NoticeTone>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<NoticeKind>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
+pub(crate) const PREVIEW_PAUSED_TEXT: &str = "Preview paused while the window is hidden";
+
 impl SurfaceNotice {
-    pub(crate) fn info(text: impl Into<String>) -> Self {
+    fn toned(text: impl Into<String>, tone: Option<NoticeTone>) -> Self {
         Self {
             text: text.into(),
-            tone: Some(NoticeTone::Info),
+            tone,
+            kind: None,
+            detail: None,
         }
     }
 
+    pub(crate) fn plain(text: impl Into<String>) -> Self {
+        Self::toned(text, None)
+    }
+
+    pub(crate) fn info(text: impl Into<String>) -> Self {
+        Self::toned(text, Some(NoticeTone::Info))
+    }
+
     pub(crate) fn error(text: impl Into<String>) -> Self {
+        Self::toned(text, Some(NoticeTone::Error))
+    }
+
+    pub(crate) fn preview_paused(detail: impl Into<String>) -> Self {
         Self {
-            text: text.into(),
-            tone: Some(NoticeTone::Error),
+            kind: Some(NoticeKind::PreviewPaused),
+            detail: Some(detail.into()),
+            ..Self::plain(PREVIEW_PAUSED_TEXT)
         }
     }
 }

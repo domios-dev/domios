@@ -37,6 +37,7 @@ import {
 } from "./surfaceChromeModel";
 import { SurfaceFlowLine } from "./SurfaceFlowLine";
 import { SurfaceNoticeBar } from "./SurfaceNoticeBar";
+import { SurfacePreviewPaused } from "./SurfacePreviewPaused";
 import { inputArgs, SURFACE_METHOD, type ScreenshotResult, type SurfaceNotice, type SurfaceStreamTransport } from "./surfaceStreamTransport";
 import { SurfaceToolbar } from "./SurfaceToolbar";
 import { useSurfaceStream } from "./useSurfaceStream";
@@ -251,6 +252,7 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
         onCancelPick={cancelPick}
         onError={(error) => report("Frame", error)}
       >
+        {stream.paused && <SurfacePreviewPaused notice={stream.paused} />}
         {shownNotice && <SurfaceNoticeBar notice={shownNotice} onDismiss={() => (notice ? setNotice(null) : setDismissedNeed(needKind))} />}
         {picked && (
           <PointAndAsk

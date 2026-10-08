@@ -156,3 +156,25 @@ async fn browser_screencast_closed_hub_ends_subscriptions() {
     assert!(viewer.next().await.is_none());
     assert!(!hub.publish(0, vec![1], metadata(), false));
 }
+
+#[test]
+fn browser_screencast_hub_tags_still_failures_as_preview_paused() {
+    let hub = FrameHub::new(params(1280));
+    let mut notices = hub.notices();
+    hub.notice("screencast could not start: x");
+    hub.preview_paused("no frame: window not rendering (timeout)");
+    assert_eq!(
+        notices.try_recv().unwrap(),
+        HubNotice {
+            kind: HubNoticeKind::Plain,
+            text: "screencast could not start: x".into()
+        }
+    );
+    assert_eq!(
+        notices.try_recv().unwrap(),
+        HubNotice {
+            kind: HubNoticeKind::PreviewPaused,
+            text: "no frame: window not rendering (timeout)".into()
+        }
+    );
+}
