@@ -1,5 +1,6 @@
-import { useEffect, useState, type KeyboardEvent, type RefObject } from "react";
-import { Maximize2, X } from "lucide-react";
+import { SidePanelFrame } from "./SidePanelFrame";
+import { useEffect, useState, type RefObject } from "react";
+import { Maximize2 } from "lucide-react";
 import type { ApiConfig, Tab } from "../../../lib/types";
 import { DetailContent } from "../canvasRender/DetailContent";
 import type { PlanSidePanelTarget } from "../planSidePanelStore";
@@ -37,6 +38,7 @@ export function PlanSidePanel({
   state,
   panelRef,
 }: PlanSidePanelProps) {
+  useEffect(() => { panelRef.current?.focus(); }, [panelRef, target]);
   const contentKey = `${target.planId}/${target.taskId ?? ""}`;
   const [content, setContent] = useState({ key: contentKey, replaced: false });
   if (content.key !== contentKey) setContent({ key: contentKey, replaced: true });
@@ -49,20 +51,9 @@ export function PlanSidePanel({
     canonicalProjectPath: target.canonicalProjectPath,
   };
 
-  useEffect(() => {
-    panelRef.current?.focus();
-  }, [panelRef, target]);
-
   const showFull = () => onOpenPlanTarget({ ...route, taskId: task?.id ?? taskRef, presentation: "full" });
   const openFullPlan = () => onOpenPlanTarget({ ...route, presentation: "full" });
   const openTask = (taskId: string) => onOpenPlanTarget({ ...route, taskId });
-
-  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key !== "Escape" || event.defaultPrevented) return;
-    event.preventDefault();
-    event.stopPropagation();
-    onClose();
-  };
 
   const title = key ? task?.name : plan?.title;
   const subject = key ? `Task ${key}` : "plan";
@@ -72,23 +63,9 @@ export function PlanSidePanel({
     : (loading ? "Loading plan…" : "This plan is not available.");
 
   return (
-    <aside
-      ref={panelRef}
-      data-plan-side-panel=""
-      role="dialog"
-      aria-modal="false"
-      aria-label={dialogLabel}
-      tabIndex={-1}
-      data-testid="plan-side-panel"
-      data-kind={key ? "task" : "plan"}
-      data-plan-id={target.planId}
-      data-task-id={task?.id ?? taskRef}
-      data-state={state}
-      inert={state === "closing" || undefined}
-      className="plan-side-panel"
-      onKeyDown={onKeyDown}
-    >
-      <header className="plan-side-panel__header">
+    <SidePanelFrame panelRef={panelRef} state={state} label={dialogLabel} closeLabel={`Close ${subject}`} onClose={onClose} contentKey={contentKey} replaced={content.replaced}
+      data-testid="plan-side-panel" data-kind={key ? "task" : "plan"} data-plan-id={target.planId} data-task-id={task?.id ?? taskRef}
+      title={<>
         {key && (
           <span data-testid="plan-side-panel-key" className="plan-task-segment__key">
             {key}
@@ -114,23 +91,8 @@ export function PlanSidePanel({
         >
           <Maximize2 size={14} aria-hidden />
         </button>
-        <button
-          type="button"
-          data-testid="plan-side-panel-close"
-          aria-label={`Close ${subject}`}
-          title="Close (Esc)"
-          className="plan-side-panel__action"
-          onClick={onClose}
-        >
-          <X size={15} aria-hidden />
-        </button>
-      </header>
-      <div
-        key={contentKey}
-        data-testid="plan-side-panel-body"
-        data-replaced={content.replaced ? "" : undefined}
-        className="plan-side-panel__body plan-detail-selectable"
-      >
+      </>}
+    >
         {plan && (!key || task) ? (
           <DetailContent
             kind={task ? "task" : "plan"}
@@ -148,7 +110,6 @@ export function PlanSidePanel({
             {missing}
           </p>
         )}
-      </div>
-    </aside>
+    </SidePanelFrame>
   );
 }

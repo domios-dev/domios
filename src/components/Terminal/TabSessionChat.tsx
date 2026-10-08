@@ -1,3 +1,6 @@
+import { planSidePanelStore } from "../Canvas/planSidePanelStore";
+import { documentsFromTranscript } from "./chatDocuments";
+import { chatDocumentsStore } from "./chatDocumentsStore";
 import { RemovedChatPlugin } from "./RemovedChatPlugin";
 import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
@@ -234,6 +237,11 @@ export function TabSessionChat({
     allowUnboundAuthority: effectiveChatBackend,
     followTailRef: chatFollowTailRef,
   });
+  useEffect(() => {
+    const documents = documentsFromTranscript(allMessages);
+    chatDocumentsStore.set(tabId, documents);
+    if (!documents.length && planSidePanelStore.get()?.target.documentsTabId === tabId) planSidePanelStore.close();
+  }, [tabId, allMessages]);
   const bootSetupView = chatSetupView(tab, attachmentState === "attached");
   const hasTranscript = enrichedMessages.length > 0;
   // 'Loading chat' gates on the CHAT channel only (transcript authority + chat
