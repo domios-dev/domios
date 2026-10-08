@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ComponentType, type 
 import { Check, Copy, Hash, ListChecks, MessageSquarePlus, Quote } from "lucide-react";
 import { messageClipboard, messageMarkdownClipboard, sourceDiffersFromVisible, type ClipMessage } from "@codeterm/chat-core";
 import { writeClipboardFlavours } from "@codeterm/chat-ui";
+import { createPortal } from "react-dom";
 
 export type DotSide = "start" | "end";
 type OpenedBy = "hover" | "focus" | "click";
@@ -47,7 +48,8 @@ function MenuItem({ label, icon: Icon, hint, done, onSelect }: {
 }
 
 /** The quiet gutter dot of one message and the small menu it opens on hover, focus, click or Enter. */
-export function MessageActionsDot({ clip, whole = false, hasParts = false, onScopeChange, side, open, onOpenChange, actions, hint, onHintEnd }: {
+export function MessageActionsDot({ clip, touch = false, whole = false, hasParts = false, onScopeChange, side, open, onOpenChange, actions, hint, onHintEnd }: {
+  touch?: boolean;
   whole?: boolean;
   hasParts?: boolean;
   onScopeChange?: (whole: boolean) => void;
@@ -82,7 +84,7 @@ export function MessageActionsDot({ clip, whole = false, hasParts = false, onSco
     openedBy.current = null;
     setCopied(null);
     onOpenChange(false);
-    if (refocus) buttonRef.current?.focus({ preventScroll: true });
+    if (refocus) (touch ? wrapRef.current?.closest<HTMLElement>("[data-message-id]") : buttonRef.current)?.focus({ preventScroll: true });
   };
 
   const items = () => Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>("[role='menuitem'], [role='menuitemradio']") ?? []);
@@ -92,18 +94,19 @@ export function MessageActionsDot({ clip, whole = false, hasParts = false, onSco
   };
 
   useLayoutEffect(() => {
-    if (!open || !focusItem.current) return;
-    focusMenuItem(focusItem.current);
+    if (!open || (!focusItem.current && !touch)) return;
+    if (!menuRef.current?.contains(document.activeElement)) focusMenuItem(focusItem.current ?? "first");
     focusItem.current = null;
   });
 
   useEffect(() => {
     if (!open) return;
-    const onPress = (event: MouseEvent) => {
-      if (!wrapRef.current?.contains(event.target as Node)) hide();
+    const onPress = (event: Event) => {
+      if (!wrapRef.current?.contains(event.target as Node) && !menuRef.current?.contains(event.target as Node)) hide();
     };
     document.addEventListener("mousedown", onPress);
-    return () => document.removeEventListener("mousedown", onPress);
+    document.addEventListener("pointerdown", onPress);
+    return () => { document.removeEventListener("mousedown", onPress); document.removeEventListener("pointerdown", onPress); };
   });
 
   const copy = (kind: "copy" | "markdown") => {
@@ -140,6 +143,26 @@ export function MessageActionsDot({ clip, whole = false, hasParts = false, onSco
     } else if (event.code === "Tab") hide();
   };
 
+  const menu = open && (
+        <div className={touch ? "ct-msg-sheet-wrap" : "ct-msg-menu-wrap"} data-side={side} data-placement={placement}>
+          <div ref={menuRef} role="menu" aria-label="Message actions" className="ct-msg-menu" onKeyDown={onMenuKey}>
+            {touch && <div className="ct-msg-menu__preview" role="note" aria-label="Action preview">{messageClipboard(clip).plain}</div>}
+            {hasParts && <div className="ct-msg-scope" role="group" aria-label="Action target">
+              <button type="button" role="menuitemradio" tabIndex={-1} aria-checked={!whole} onClick={() => { setCopied(null); onScopeChange?.(false); }}>This part</button>
+              <button type="button" role="menuitemradio" tabIndex={-1} aria-checked={whole} onClick={() => { setCopied(null); onScopeChange?.(true); }}>Whole message</button>
+            </div>}
+            <MenuItem label={copied === "copy" ? "Copied" : "Copy"} icon={copied === "copy" ? Check : Copy} done={copied === "copy"} onSelect={() => copy("copy")} />
+            {sourceDiffersFromVisible(clip) && <MenuItem label={copied === "markdown" ? "Copied as Markdown" : "Copy as Markdown"} icon={copied === "markdown" ? Check : Hash} done={copied === "markdown"} onSelect={() => copy("markdown")} />}
+            <div role="separator" className="ct-msg-menu__rule" />
+            <MenuItem label="Quote into composer" icon={Quote} onSelect={() => { hide(); actions.quote(clip); }} />
+            <MenuItem label="Ask about this" icon={MessageSquarePlus} onSelect={() => { hide(); actions.ask(clip); }} />
+            <div role="separator" className="ct-msg-menu__rule" />
+            <MenuItem label="Select" icon={ListChecks} hint={touch ? undefined : "Shift-click"} onSelect={() => { hide(); actions.select(); }} />
+            {touch && <button type="button" role="menuitem" className="ct-msg-menu__item" onClick={() => hide(true)}>Close actions</button>}
+          </div>
+        </div>
+  );
+
   return (
     <div
       ref={wrapRef}
@@ -150,7 +173,7 @@ export function MessageActionsDot({ clip, whole = false, hasParts = false, onSco
       onPointerEnter={(event) => { if (event.pointerType === "mouse") show("hover"); }}
       onPointerLeave={(event) => { if (event.pointerType === "mouse" && openedBy.current === "hover") hide(); }}
       onBlur={(event) => {
-        if (openedBy.current !== "hover" && !wrapRef.current?.contains(event.relatedTarget as Node | null)) hide();
+        if (openedBy.current !== "hover" && !wrapRef.current?.contains(event.relatedTarget as Node | null) && !menuRef.current?.contains(event.relatedTarget as Node | null)) hide();
       }}
     >
       <button
@@ -166,30 +189,7 @@ export function MessageActionsDot({ clip, whole = false, hasParts = false, onSco
       >
         <span aria-hidden="true" className="ct-msg-dot__more" onAnimationEnd={onHintEnd}><i /><i /><i /></span>
       </button>
-      {open && (
-        <div className="ct-msg-menu-wrap" data-side={side} data-placement={placement}>
-          <div ref={menuRef} role="menu" aria-label="Message actions" className="ct-msg-menu" onKeyDown={onMenuKey}>
-            {hasParts && <div className="ct-msg-scope" role="group" aria-label="Action target">
-              <button type="button" role="menuitemradio" tabIndex={-1} aria-checked={!whole} onClick={() => { setCopied(null); onScopeChange?.(false); }}>This part</button>
-              <button type="button" role="menuitemradio" tabIndex={-1} aria-checked={whole} onClick={() => { setCopied(null); onScopeChange?.(true); }}>Whole message</button>
-            </div>}
-            <MenuItem label={copied === "copy" ? "Copied" : "Copy"} icon={copied === "copy" ? Check : Copy} done={copied === "copy"} onSelect={() => copy("copy")} />
-            {sourceDiffersFromVisible(clip) && (
-              <MenuItem
-                label={copied === "markdown" ? "Copied as Markdown" : "Copy as Markdown"}
-                icon={copied === "markdown" ? Check : Hash}
-                done={copied === "markdown"}
-                onSelect={() => copy("markdown")}
-              />
-            )}
-            <div role="separator" className="ct-msg-menu__rule" />
-            <MenuItem label="Quote into composer" icon={Quote} onSelect={() => { hide(); actions.quote(clip); }} />
-            <MenuItem label="Ask about this" icon={MessageSquarePlus} onSelect={() => { hide(); actions.ask(clip); }} />
-            <div role="separator" className="ct-msg-menu__rule" />
-            <MenuItem label="Select" icon={ListChecks} hint="Shift-click" onSelect={() => { hide(); actions.select(); }} />
-          </div>
-        </div>
-      )}
+      {touch ? createPortal(menu, document.body) : menu}
     </div>
   );
 }

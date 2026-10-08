@@ -230,6 +230,12 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef }: {
       return at >= 0 && selected.has(id) && selected.has(order[at + 1]);
     },
     select,
+    toggle: (id) => dispatch({ type: "toggle", id }),
+    range: (from, to, start) => {
+      if (start) dispatch({ type: "dragStart", id: from, order, extend: false });
+      dispatch({ type: "dragTo", id: to, order });
+    },
+    endRange: () => dispatch({ type: "dragEnd" }),
     rowMouseDown,
     quote: (clip) => quoteMessages(tabId, [clip]),
     ask: (clip) => askAboutMessages(tabId, [clip]),
