@@ -3,7 +3,7 @@ import { GenericCard } from "./GenericCard";
 import { assertThemeTokens, event, render } from "./cardTestSetup";
 
 const host = await render(<GenericCard event={event({ kind: "generic", result: '{"raw":"secret"}', phase: "result", status: "success" })} expanded onToggle={() => {}} />);
-if (host.textContent?.includes('{"raw"') || !host.textContent?.includes("Structured tool output")) throw new Error("generic JSON leak regression");
+if (!host.textContent?.includes('"raw": "secret"')) throw new Error("expanded generic result must show formatted JSON");
 assertThemeTokens(["--ct-muted-fg", "--ct-fg", "--ct-border", "--ct-surface"]);
 
 const imageResult = JSON.stringify([{ type: "image_url", image_url: { url: "data:image/png;base64,cmVk" } }]);

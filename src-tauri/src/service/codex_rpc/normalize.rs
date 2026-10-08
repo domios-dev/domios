@@ -3,6 +3,9 @@ use crate::agent::chat_types::ChatMsg;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
+mod diffs;
+mod items;
+
 #[derive(Default)]
 pub struct Normalizer {
     items: HashMap<(String, String), ChatMsg>,
@@ -11,6 +14,50 @@ pub struct Normalizer {
 }
 
 impl Normalizer {
+    pub fn apply_all(&mut self, frame: &Frame) -> Vec<ChatMsg> {
+        let mut messages = Vec::new();
+        if let Frame::Notification { method, params } = frame {
+            let receivers = params["item"]["receiverThreadIds"]
+                .as_array()
+                .filter(|receivers| {
+                    matches!(method.as_str(), "item/started" | "item/completed")
+                        && params["item"]["type"] == "collabAgentToolCall"
+                        && !receivers.is_empty()
+                });
+            if let Some(receivers) = receivers {
+                for receiver in receivers {
+                    let mut params = params.clone();
+                    let id = format!(
+                        "{}:{}",
+                        params["item"]["id"].as_str().unwrap_or_default(),
+                        receiver.as_str().unwrap_or_default()
+                    );
+                    params["item"]["id"] = serde_json::json!(id);
+                    params["item"]["receiverThreadIds"] = serde_json::json!([receiver]);
+                    messages.extend(self.apply(&Frame::Notification {
+                        method: method.clone(),
+                        params,
+                    }));
+                }
+                return messages;
+            }
+            if method == "turn/completed"
+                && params
+                    .pointer("/turn/error")
+                    .is_some_and(|error| !error.is_null())
+            {
+                let error = Frame::Notification {
+                    method: "error".into(),
+                    params: serde_json::json!({
+                    "threadId":params["threadId"],"turnId":params["turn"]["id"],"error":params["turn"]["error"]}),
+                };
+                messages.extend(self.apply(&error));
+            }
+        }
+        messages.extend(self.apply(frame));
+        messages
+    }
+
     pub fn from_history(thread: &str, messages: Vec<ChatMsg>) -> Self {
         Self {
             restored: messages
@@ -45,6 +92,14 @@ impl Normalizer {
             return None;
         };
         let thread = params.get("threadId")?.as_str()?;
+        if let Some(item) = items::notification_item(method, params) {
+            let mut params = params.clone();
+            params["item"] = item;
+            return self.apply(&Frame::Notification {
+                method: "item/completed".into(),
+                params,
+            });
+        }
         let item = params.get("item");
         let id = item
             .and_then(|item| item.get("id"))
@@ -62,6 +117,19 @@ impl Normalizer {
             from_delta(method, params, previous)?
         };
         message.id = id.into();
+        message.tool_flow_id = params
+            .get("turnId")
+            .or_else(|| params.pointer("/turn/id"))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or(message.tool_flow_id);
+        if method == "item/completed"
+            && message.kind == "tool_call"
+            && message.tool_error.is_none()
+            && item?.get("status").is_none()
+        {
+            message.tool_error = Some(false);
+        }
         if let Some(previous) = previous {
             message.seq = previous.seq;
             message.timestamp = previous.timestamp.clone();
@@ -114,6 +182,11 @@ fn from_item(item: &Value, previous: Option<&ChatMsg>) -> Option<ChatMsg> {
                 .filter_map(|part| part.get("text").and_then(Value::as_str))
                 .collect::<Vec<_>>()
                 .join("\n");
+            message.attachments = items::attachments(item);
+            if let Some(subtype) = items::system_subtype(&message.content) {
+                message.kind = "system".into();
+                message.system_subtype = Some(subtype.into());
+            }
         }
         "reasoning" => {
             message.kind = "thinking".into();
@@ -125,7 +198,7 @@ fn from_item(item: &Value, previous: Option<&ChatMsg>) -> Option<ChatMsg> {
         }
         "commandExecution" => {
             message.kind = "tool_call".into();
-            message.tool_kind = Some("shell".into());
+            message.tool_kind = Some("command".into());
             message.tool_name = Some("commandExecution".into());
             message.tool_id = item.get("id").and_then(Value::as_str).map(str::to_owned);
             message.tool_input = Some(item.clone());
@@ -134,12 +207,17 @@ fn from_item(item: &Value, previous: Option<&ChatMsg>) -> Option<ChatMsg> {
                 .and_then(Value::as_str)
                 .map(str::to_owned);
             message.tool_args = message.tool_summary.clone();
+            message.tool_detail = message.tool_summary.clone();
             if let Some(output) = item.get("aggregatedOutput").and_then(Value::as_str) {
                 message.tool_result = Some(output.into());
             }
             message.tool_exit_code = item.get("exitCode").and_then(Value::as_i64);
             message.tool_duration_ms = item.get("durationMs").and_then(Value::as_u64);
-            message.tool_error = message.tool_exit_code.map(|code| code != 0);
+            message.tool_error = if message.tool_exit_code.is_some_and(|code| code != 0) {
+                Some(true)
+            } else {
+                items::outcome(item).or_else(|| message.tool_exit_code.map(|code| code != 0))
+            };
             message.tool_interrupted = item
                 .get("status")
                 .and_then(Value::as_str)
@@ -153,24 +231,29 @@ fn from_item(item: &Value, previous: Option<&ChatMsg>) -> Option<ChatMsg> {
             message.tool_name = Some("fileChange".into());
             message.tool_id = item.get("id").and_then(Value::as_str).map(str::to_owned);
             message.tool_input = Some(item.clone());
-            message.tool_edits = item.get("changes").cloned();
-            message.file_diffs = item.get("changes").cloned();
+            message.file_diffs = Some(diffs::file_diffs(item.get("changes")));
+            message.tool_edits = Some(diffs::edits(message.file_diffs.as_ref()));
+            message.tool_summary = Some(diffs::paths(item.get("changes")));
+            message.tool_detail = message.tool_summary.clone();
             message.tool_error = item
                 .get("status")
                 .and_then(Value::as_str)
                 .map(|status| matches!(status, "failed" | "declined"));
             message.collapsed = true;
         }
-        _ => return None,
+        _ => return items::from_item(item, previous),
     }
     Some(message)
 }
 
 fn from_delta(method: &str, params: &Value, previous: Option<&ChatMsg>) -> Option<ChatMsg> {
-    let delta = params.get("delta")?.as_str()?;
+    let delta = params
+        .get("delta")
+        .or_else(|| params.get("message"))?
+        .as_str()?;
     let mut message = previous.cloned().unwrap_or_default();
     match method {
-        "item/agentMessage/delta" => {
+        "item/agentMessage/delta" | "item/plan/delta" => {
             message.kind = "assistant".into();
             message.content.push_str(delta);
         }
@@ -180,10 +263,31 @@ fn from_delta(method: &str, params: &Value, previous: Option<&ChatMsg>) -> Optio
         }
         "item/commandExecution/outputDelta" | "item/fileChange/outputDelta" => {
             message.kind = "tool_call".into();
+            message.tool_id = params
+                .get("itemId")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            message.tool_kind = Some(
+                if method == "item/commandExecution/outputDelta" {
+                    "command"
+                } else {
+                    "edit"
+                }
+                .into(),
+            );
             message
                 .tool_result
                 .get_or_insert_with(String::new)
                 .push_str(delta);
+        }
+        "item/mcpToolCall/progress" => {
+            message.kind = "tool_call".into();
+            message.tool_kind.get_or_insert_with(|| "generic".into());
+            message.tool_id = params
+                .get("itemId")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            message.tool_detail = Some(delta.into());
         }
         _ => return None,
     }
