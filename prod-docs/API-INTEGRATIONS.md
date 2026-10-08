@@ -6,7 +6,7 @@ REST endpoints for bridges, setup hooks, cron, and external integrations.
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/bridge/state` | `?service=telegram` | Bridge runtime + config snapshot for live migration / health |
-| POST | `/api/bridge/start` | `{service?, ensure_token?, wait_for_lock_ms?}` | Start the messaging supervisor; optionally pull token from vault and wait for the upstream lock |
+| POST | `/api/bridge/start` | `{service?, ensure_token?, replace_token?, wait_for_lock_ms?}` | Start the messaging supervisor; optionally pull token from vault and wait for the upstream lock |
 | POST | `/api/bridge/stop` | `{service?, timeout_ms?}` | Stop the messaging supervisor and persist `telegram_enabled=false` |
 | POST | `/api/bridge/announce` | `{service?, chat_id, text}` | One-shot outbound text via the running bridge (used by `bridge migrate --announce`) |
 | POST | `/api/bridge/send` | `{text, chat_id?, service?, append?, type?, file?, caption?, filename?}` | Send message or media to external service (Telegram) |
@@ -22,6 +22,7 @@ REST endpoints for bridges, setup hooks, cron, and external integrations.
 | `active` | `bool` | Supervisor is running and the poller task is alive. |
 | `config_enabled` | `bool` | `integrations.telegram_enabled` from `config.toml`. |
 | `token_present` | `bool` | `~/.codeterm/secrets/telegram.token` exists on disk. |
+| `bot_id` | `int?` | The bot's public user id, read from the token's prefix; `null` without a token. Never the secret half. |
 | `has_secret_in_vault` | `bool` | The local secret store reports an entry named `secret_name`. Metadata only — value never decrypted. |
 | `secret_name` | `string` | Vault key the bridge would resolve to (`"telegram_bot_token"`). |
 | `started_at` | `string?` | RFC3339 timestamp of the last successful start. |
@@ -36,6 +37,7 @@ REST endpoints for bridges, setup hooks, cron, and external integrations.
 |-------|------|---------|-------------|
 | `service` | `string` | `"telegram"` | Service to start. `400` if unsupported. |
 | `ensure_token` | `bool` | `false` | If `true` and the local token file is missing, the daemon pulls `telegram_bot_token` from the local secret vault and writes it to `~/.codeterm/secrets/telegram.token` (mode `0600` on Unix). Returns `412` if the secret is not in the vault. |
+| `replace_token` | `bool` | `false` | Pull the vault token even when the token file exists, so a token just saved to the vault replaces the old file. Returns `412` if the secret is not in the vault. |
 | `wait_for_lock_ms` | `u64` | `10000` | How long to wait (ms) for the supervisor's `last_poll_ok` to advance past `started_at`, confirming the Telegram long-poll lock was claimed (no other poller fighting for it). |
 
 Side effect: persists `integrations.telegram_enabled = true` to `config.toml` (so the supervisor auto-starts on next boot). Returns `200` once `last_poll_ok >= started_at`:
@@ -206,4 +208,4 @@ Recurring schedules must contain exactly five fields and have a fire time within
 
 Service registration, health, usage, logs, and activity: `codeterm docs API-SERVICES`. Notifications and webhooks: `codeterm docs API-TABS`. Secret storage and updates: `codeterm docs API-STATE`.
 
-<!-- revision: 31 -->
+<!-- revision: 32 -->

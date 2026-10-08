@@ -1,5 +1,5 @@
 import React, { useId, useRef, useState } from "react";
-import { Check, ChevronRight, Link2, Loader2, MessageSquarePlus, Pin } from "lucide-react";
+import { ChevronRight, Loader2, MessageSquarePlus, Pin } from "lucide-react";
 import { useChatBlockHost } from "./ChatBlockHost";
 import { useLiveBinding } from "./liveBinding";
 
@@ -31,6 +31,8 @@ export interface ChatBlockFrameProps {
   accent?: string | null;
   status?: ChatBlockStatus;
   summary?: React.ReactNode;
+  /** Inline controls between the header and the actions row. */
+  body?: React.ReactNode;
   details?: React.ReactNode;
   actions?: readonly ChatBlockAction[];
   fullPage?: { label: string; open(): void };
@@ -47,11 +49,18 @@ const TONE_COLOR: Record<ChatBlockTone, string> = {
   muted: "var(--ct-muted-fg, #8b949e)",
 };
 
-const FOCUS_RING = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]";
+export const FOCUS_RING = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]";
 
-/** The shared chrome every chat block renders in: header, compact body, expandable details, actions and extras. */
+/** A compact field that sits on the block surface. */
+export const BLOCK_INPUT = `h-7 min-w-0 rounded-md border bg-transparent px-2 text-xs placeholder:text-[var(--ct-muted-fg)] disabled:opacity-50 ${FOCUS_RING}`;
+export const BLOCK_INPUT_STYLE: React.CSSProperties = {
+  borderColor: "color-mix(in srgb, var(--ct-muted-fg) 30%, transparent)",
+  color: "var(--ct-fg)",
+};
+
+/** The shared chrome every chat block renders in: header, inline body, expandable details, actions and extras. */
 export function ChatBlockFrame({
-  name, source, title, icon, accent, status, summary, details, actions = [], fullPage, askText, muted = false,
+  name, source, title, icon, accent, status, summary, body, details, actions = [], fullPage, askText, muted = false,
 }: ChatBlockFrameProps) {
   const host = useChatBlockHost();
   const pinned = useLiveBinding(host.pinned, source, false);
@@ -119,6 +128,8 @@ export function ChatBlockFrame({
         <BlockExtras source={source} title={title} askText={askText} pinned={pinned} />
       </header>
 
+      {body && <div data-testid="chat-block-body" className="min-w-0 px-3 pt-2.5">{body}</div>}
+
       {details && expanded && (
         <div id={detailsId} data-testid="chat-block-details" className="mx-3 mt-2 border-t pt-2 text-xs leading-relaxed" style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg) 18%, transparent)", color: "var(--ct-muted-fg)" }}>
           {details}
@@ -178,7 +189,7 @@ export function ChatBlockFrame({
   );
 }
 
-function BlockButton({ primary = false, children, className = "", ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { primary?: boolean; "data-block-action"?: string }) {
+export function BlockButton({ primary = false, children, className = "", ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { primary?: boolean; "data-block-action"?: string }) {
   return (
     <button
       type="button"
@@ -186,7 +197,7 @@ function BlockButton({ primary = false, children, className = "", ...props }: Re
       className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-[filter,background-color] disabled:cursor-default disabled:opacity-50 motion-reduce:transition-none ${primary ? "hover:enabled:brightness-110" : "border hover:enabled:bg-[var(--ct-hover,rgba(127,127,127,0.12))]"} ${FOCUS_RING} ${className}`}
       style={primary
         ? { background: "var(--ct-accent, #58a6ff)", color: "var(--ct-on-accent, #fff)" }
-        : { borderColor: "color-mix(in srgb, var(--ct-muted-fg) 30%, transparent)", color: "var(--ct-fg)" }}
+        : { border: "1px solid color-mix(in srgb, var(--ct-muted-fg) 30%, transparent)", color: "var(--ct-fg)" }}
     >
       {children}
     </button>
@@ -195,20 +206,9 @@ function BlockButton({ primary = false, children, className = "", ...props }: Re
 
 function BlockExtras({ source, title, askText, pinned }: { source: string; title: string; askText?: string; pinned: boolean }) {
   const host = useChatBlockHost();
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(source);
-      setCopied(true);
-    } catch {
-      setCopied(false);
-    }
-  };
+  if (!host.askAbout && !host.pin) return null;
   return (
     <div className="-mr-1 flex shrink-0 items-center" data-testid="chat-block-extras">
-      <ExtraButton label={copied ? "Link copied" : `Copy link to ${title}`} onClick={() => void copy()} onBlur={() => setCopied(false)}>
-        {copied ? <Check size={13} aria-hidden="true" /> : <Link2 size={13} aria-hidden="true" />}
-      </ExtraButton>
       {host.askAbout && (
         <ExtraButton label={`Ask about ${title}`} onClick={() => host.askAbout?.(askText ?? `About ${title} (\`${source}\`): `)}>
           <MessageSquarePlus size={13} aria-hidden="true" />

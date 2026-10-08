@@ -41,6 +41,9 @@ pub async fn bridge_state(
 
     let snap = state.svc.bridge_supervisor.snapshot();
     let token_present = bridge::telegram::token_path(&AppAttachmentStorePort).exists();
+    let bot_id = bridge::telegram::read_token(&AppAttachmentStorePort)
+        .map(|token| codeterm_bridge::bridge::threads::transport::bot_id_from_token(&token))
+        .filter(|id| *id != 0);
 
     let has_secret_in_vault = state
         .svc
@@ -64,6 +67,7 @@ pub async fn bridge_state(
         "active": snap.active,
         "config_enabled": config_enabled,
         "token_present": token_present,
+        "bot_id": bot_id,
         "has_secret_in_vault": has_secret_in_vault,
         "secret_name": TELEGRAM_SECRET_NAME,
         "started_at": snap.started_at.map(|t| t.to_rfc3339()),
@@ -131,6 +135,9 @@ pub struct StartBody {
     pub service: String,
     #[serde(default)]
     pub ensure_token: bool,
+    /// Copy the vault token over an existing token file, so a newly saved token wins.
+    #[serde(default)]
+    pub replace_token: bool,
     #[serde(default = "default_wait_for_lock_ms")]
     pub wait_for_lock_ms: u64,
 }
@@ -149,7 +156,8 @@ pub async fn bridge_start(
 
     let _op = state.svc.bridge_supervisor.op_guard().await;
 
-    if body.ensure_token && !bridge::telegram::token_path(&AppAttachmentStorePort).exists() {
+    let token_file_exists = bridge::telegram::token_path(&AppAttachmentStorePort).exists();
+    if copies_vault_token(body.ensure_token, body.replace_token, token_file_exists) {
         let store = state.svc.secrets.read().await;
         match store.get(TELEGRAM_SECRET_NAME).await {
             Ok(value) => {
@@ -218,6 +226,10 @@ pub async fn bridge_start(
             "error": last_error.unwrap_or_else(|| "no successful poll within wait window".to_string()),
         })))
     }
+}
+
+fn copies_vault_token(ensure_token: bool, replace_token: bool, token_file_exists: bool) -> bool {
+    replace_token || (ensure_token && !token_file_exists)
 }
 
 fn persist_telegram_enabled(state: &AppState, enabled: bool) {
@@ -322,6 +334,15 @@ mod tests {
         cfg.integrations.telegram_enabled = true;
         cfg.integrations.telegram_allowed_users = vec!["42".to_string()];
         Mutex::new(cfg)
+    }
+
+    #[test]
+    fn vault_token_is_copied_when_missing_or_explicitly_replaced() {
+        assert!(copies_vault_token(true, false, false));
+        assert!(!copies_vault_token(true, false, true));
+        assert!(copies_vault_token(false, true, true));
+        assert!(copies_vault_token(true, true, true));
+        assert!(!copies_vault_token(false, false, false));
     }
 
     #[test]
