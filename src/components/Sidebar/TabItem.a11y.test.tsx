@@ -87,9 +87,9 @@ describe("tab row accessibility surface", () => {
     expect(html).toContain('role="img"');
   });
 
-  it("puts the collapse chevron, the row activation and the row menu in visual order", () => {
+  it("puts the agent collapse chevron, row activation and row menu in visual order", () => {
     const html = render(
-      { title: "release cut" },
+      { title: "release cut", agent_type: "claude" },
       { groupCollapsible: true, collapsed: false, onToggleCollapse: () => undefined },
     );
     const [chevron, activation, menu] = orderOf(html, [
@@ -100,8 +100,8 @@ describe("tab row accessibility surface", () => {
     expect(chevron >= 0 && activation > chevron && menu > activation).toBe(true);
   });
 
-  it("keeps the activation control ahead of the row menu without a chevron", () => {
-    const html = render({ title: "release cut" });
+  it("keeps the agent activation control ahead of the row menu without a chevron", () => {
+    const html = render({ title: "release cut", agent_type: "claude" });
     const [activation, menu] = orderOf(html, ["sidebar-tab-activation", 'aria-label="Tab actions"']);
     expect(activation >= 0 && menu > activation).toBe(true);
   });
