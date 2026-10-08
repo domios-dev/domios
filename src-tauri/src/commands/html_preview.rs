@@ -110,6 +110,29 @@ pub fn read_local_preview_file_core(path: &str, kind: &str) -> Result<LocalPrevi
     }
 }
 
+#[derive(Debug, Serialize)]
+pub struct LocalPreviewFiles {
+    paths: Vec<String>,
+    home: Option<String>,
+}
+
+fn check_local_preview_files_core(paths: Vec<String>) -> LocalPreviewFiles {
+    LocalPreviewFiles {
+        paths: paths
+            .into_iter()
+            .filter(|path| canonical_preview_file(path, "Local").is_ok())
+            .collect(),
+        home: dirs::home_dir().map(|path| path.to_string_lossy().into_owned()),
+    }
+}
+
+#[tauri::command]
+pub async fn check_local_preview_files(paths: Vec<String>) -> Result<LocalPreviewFiles, String> {
+    tokio::task::spawn_blocking(move || check_local_preview_files_core(paths))
+        .await
+        .map_err(|error| format!("Local preview inspection task failed: {error}"))
+}
+
 #[tauri::command]
 pub async fn read_html_preview_file(path: String) -> Result<String, String> {
     tokio::task::spawn_blocking(move || read_html_preview_file_core(&path))
@@ -130,6 +153,24 @@ pub async fn read_local_preview_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batch_preview_check_excludes_missing_relative_and_directory_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("notes.md");
+        std::fs::write(&file, "# Notes").unwrap();
+        let file = file.to_string_lossy().into_owned();
+        let result = check_local_preview_files_core(vec![
+            file.clone(),
+            temp.path()
+                .join("missing.md")
+                .to_string_lossy()
+                .into_owned(),
+            temp.path().to_string_lossy().into_owned(),
+            "relative.md".into(),
+        ]);
+        assert_eq!(result.paths, vec![file]);
+    }
 
     #[test]
     fn reads_only_bounded_absolute_html_files() {

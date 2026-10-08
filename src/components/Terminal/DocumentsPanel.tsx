@@ -1,10 +1,11 @@
-import { useState, type RefObject } from "react";
+import { useEffect, useState, type RefObject } from "react";
 import { FileText, Maximize2, FolderOpen } from "lucide-react";
 import { LocalArtifactBlock, RichMarkdown, openLocalArtifact } from "@codeterm/chat-ui";
 import { SidePanelFrame } from "../Canvas/planView/SidePanelFrame";
 import { planSidePanelStore, usePlanSidePanelEntry } from "../Canvas/planSidePanelStore";
 import type { PresenceState } from "../Canvas/usePresence";
-import { useChatDocuments } from "./chatDocumentsStore";
+import { chatDocumentsStore, useChatDocumentSnapshot, useChatDocuments } from "./chatDocumentsStore";
+import { DocumentsTree } from "./DocumentsTree";
 
 export function DocumentsButton({ tabId }: { tabId: string }) {
   const documents = useChatDocuments(tabId);
@@ -14,23 +15,24 @@ export function DocumentsButton({ tabId }: { tabId: string }) {
   return <button type="button" aria-label={`Documents (${documents.length})`} aria-expanded={open} title="Documents" className="inline-flex items-center gap-1 rounded px-1.5 text-xs text-[var(--ct-muted-fg)]" onClick={() => open ? planSidePanelStore.close() : planSidePanelStore.open({ planId: "", documentsTabId: tabId })}><FileText size={14} aria-hidden />{documents.length}</button>;
 }
 
+function useRefreshDocuments(tabId: string, open: boolean) {
+  useEffect(() => { if (open) void chatDocumentsStore.refresh(tabId); }, [tabId, open]);
+}
+
 export function DocumentsPanel({ tabId, panelRef, state, onClose }: { tabId: string; panelRef: RefObject<HTMLElement | null>; state: PresenceState; onClose: () => void }) {
-  const documents = useChatDocuments(tabId);
+  const { documents, home } = useChatDocumentSnapshot(tabId);
+  useRefreshDocuments(tabId, state !== "closing");
   const [fullscreenRequest, setFullscreenRequest] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const active = documents.find((item) => item.path === selected) ?? documents[0];
+  function select(path: string) { setSelected(path); setFullscreenRequest(0); }
+  function fullscreen(path: string) { setSelected(path); setFullscreenRequest((value) => value + 1); }
   return <SidePanelFrame panelRef={panelRef} state={state} label="Documents" onClose={onClose} contentKey={tabId} title={<h2 className="plan-side-panel__title">Documents</h2>}>
-    <nav aria-label="Tab documents" className="mb-3 flex flex-col gap-2">
-      {documents.map((item) => <div key={item.path} className="flex items-center gap-1 rounded border border-[var(--ct-border)] p-2 text-xs">
-        <button type="button" aria-pressed={active?.path === item.path} onClick={() => { setSelected(item.path); setFullscreenRequest(0); }} className="min-w-0 flex-1 text-left">
-          <span className="block font-medium">{item.name}</span><span className="block truncate" title={item.path}>{item.path}</span>
-          {item.shownAt != null && <time className="opacity-60">{new Date(item.shownAt).toLocaleString()}</time>}
-        </button>
-        <button type="button" aria-label={`Fullscreen ${item.name}`} onClick={() => { setSelected(item.path); setFullscreenRequest((value) => value + 1); }}><Maximize2 size={14} aria-hidden /></button>
-        <button type="button" aria-label={`Reveal ${item.name}`} onClick={() => void openLocalArtifact(item.path).catch((failure: unknown) => setError(String(failure)))}><FolderOpen size={14} aria-hidden /></button>
-      </div>)}
-    </nav>
+    <DocumentsTree key={tabId} documents={documents} home={home} selected={active?.path} onSelect={select} onFullscreen={fullscreen} renderActions={(item) => <>
+      <button type="button" aria-label={`Fullscreen ${item.name}`} title="Fullscreen" onClick={() => fullscreen(item.path)}><Maximize2 size={14} aria-hidden /></button>
+      <button type="button" aria-label={`Reveal ${item.name}`} title="Reveal in file manager" onClick={() => void openLocalArtifact(item.path).catch((failure: unknown) => setError(String(failure)))}><FolderOpen size={14} aria-hidden /></button>
+    </>} />
     {error && <p role="alert">{error}</p>}
     {active && <LocalArtifactBlock key={active.path} directive={active} fullscreenRequest={fullscreenRequest} fullscreenHostSelector={`[data-tab-id="${tabId}"]`} renderMarkdown={(text) => <RichMarkdown text={text} />} />}
   </SidePanelFrame>;
