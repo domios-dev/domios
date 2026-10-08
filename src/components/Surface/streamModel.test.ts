@@ -7,6 +7,7 @@ import {
   clickInput,
   decideKey,
   decodeBase64,
+  frameMatchesViewport,
   keyInput,
   layoutStream,
   letterboxRect,
@@ -75,6 +76,18 @@ assert.ok(sameViewport({ w: 1, h: 2, dpr: 1 }, { w: 1, h: 2, dpr: 1 }));
 assert.ok(!sameViewport({ w: 1, h: 2, dpr: 1 }, { w: 1, h: 2, dpr: 2 }));
 assert.ok(!sameViewport(null, { w: 1, h: 2, dpr: 1 }));
 assert.ok(sameViewport(null, null));
+
+const frameCases: Array<[string, Parameters<typeof frameMatchesViewport>[0], boolean]> = [
+  ["exact size matches", { deviceWidth: 640, deviceHeight: 480 }, true],
+  ["a 1px rounding difference matches", { deviceWidth: 641, deviceHeight: 479 }, true],
+  ["another client's width mismatches", { deviceWidth: 1280, deviceHeight: 480 }, false],
+  ["another client's height mismatches", { deviceWidth: 640, deviceHeight: 482 }, false],
+  ["missing metadata cannot mismatch", null, true],
+  ["a zero device size cannot mismatch", { deviceWidth: 0, deviceHeight: 0 }, true],
+];
+for (const [name, frameMeta, expected] of frameCases) {
+  assert.equal(frameMatchesViewport(frameMeta, { w: 640, h: 480, dpr: 2 }), expected, name);
+}
 
 const vp = { w: 640, h: 480, dpr: 2 };
 const viewportCases: Array<[string, boolean, typeof vp | null, typeof vp | null, ReturnType<typeof viewportAction>]> = [
