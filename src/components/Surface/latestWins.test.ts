@@ -45,7 +45,7 @@ async function main() {
   failing.push(2);
   await flush();
   assert.equal(errors.length, 1, "a failing item reports its error");
-  assert.equal(started.at(-1), 2, "a failure does not stall the queue");
+  assert.equal(started[started.length - 1], 2, "a failure does not stall the queue");
 
   const disposedRuns: number[] = [];
   const disposable = createLatestWins<number>(async (item) => { disposedRuns.push(item); });
