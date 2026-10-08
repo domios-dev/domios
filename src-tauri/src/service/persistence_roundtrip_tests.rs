@@ -1,4 +1,5 @@
 mod automation;
+mod blueprint_sharing;
 mod desk;
 mod sidecars;
 
