@@ -78,14 +78,225 @@ fn codex_rpc_normalize_recorded_file_changes_and_reasoning() {
     ));
     let edit = &messages["exec-114e8eef-018a-444d-8542-aa0232ff1f38"];
     assert_eq!(edit.tool_name.as_deref(), Some("fileChange"));
-    assert_eq!(edit.file_diffs.as_ref().unwrap()[0]["kind"]["type"], "add");
+    assert_eq!(edit.file_diffs.as_ref().unwrap()[0]["additions"], 1);
     assert_eq!(
-        edit.file_diffs.as_ref().unwrap()[0]["diff"],
-        "codex app-server approval fixture.\n"
+        edit.file_diffs.as_ref().unwrap()[0]["hunks"][0]["lines"][0],
+        "+codex app-server approval fixture."
     );
     assert!(messages
         .values()
         .any(|message| message.kind == "thinking" && !message.content.is_empty()));
+}
+
+#[test]
+fn codex_rpc_mixed_turn_live_and_history_match_chat_wire_contract() {
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/mixed-turn.json")).unwrap();
+    let items = fixture["items"].as_array().unwrap();
+    let mut live = Normalizer::default();
+    let mut history = Normalizer::default();
+    for item in items {
+        let mut started = item.clone();
+        if item["type"] == "commandExecution" {
+            started["status"] = json!("inProgress");
+            started["aggregatedOutput"] = Value::Null;
+            started["exitCode"] = Value::Null;
+            started["durationMs"] = Value::Null;
+        }
+        live.apply(&Frame::Notification {
+            method: "item/started".into(),
+            params: json!({"threadId":"thread","turnId":"turn","item":started}),
+        })
+        .unwrap();
+        if item["type"] == "commandExecution" {
+            let delta = live.apply(&Frame::Notification { method:"item/commandExecution/outputDelta".into(),
+                params: json!({"threadId":"thread","turnId":"turn","itemId":item["id"],"delta":"blueprint one\n"}) }).unwrap();
+            assert_eq!(delta.tool_result.as_deref(), Some("blueprint one\n"));
+            assert_eq!(delta.tool_kind.as_deref(), Some("command"));
+            assert_eq!(delta.tool_error, None);
+        }
+        let entry = json!({"item":item,"turnId":"turn"});
+        super::super::transcript::normalize_entry(&mut live, "thread", &entry).unwrap();
+        super::super::transcript::normalize_entry(&mut history, "thread", &entry).unwrap();
+    }
+    assert_eq!(live.snapshot("thread"), history.snapshot("thread"));
+    assert_eq!(
+        serde_json::to_value(live.snapshot("thread")).unwrap(),
+        fixture["messages"]
+    );
+}
+
+#[test]
+fn codex_rpc_all_schema_items_have_live_and_history_models() {
+    let schema: Value =
+        serde_json::from_str(include_str!("../schema/v2/ItemStartedNotification.json")).unwrap();
+    for variant in schema["definitions"]["ThreadItem"]["oneOf"]
+        .as_array()
+        .unwrap()
+    {
+        let kind = variant["properties"]["type"]["enum"][0].as_str().unwrap();
+        let item = json!({"id":kind,"type":kind,"content":[],"text":"body","summary":["summary"],
+            "changes":[],"arguments":{"key":"value"},"tool":"skill","server":"codeterm",
+            "query":"query","path":"image.png","review":"review","fragments":[{"text":"hook"}]});
+        let frame = |method: &str| Frame::Notification {
+            method: method.into(),
+            params: json!({"threadId":"thread","turnId":"turn","item":item}),
+        };
+        let mut live = Normalizer::default();
+        live.apply(&frame("item/started"))
+            .unwrap_or_else(|| panic!("missing started {kind}"));
+        let completed = live
+            .apply(&frame("item/completed"))
+            .unwrap_or_else(|| panic!("missing completed {kind}"));
+        let replay = super::super::transcript::normalize_entry(
+            &mut Normalizer::default(),
+            "thread",
+            &json!({"item":item,"turnId":"turn"}),
+        )
+        .unwrap();
+        assert_eq!(completed, replay, "{kind}");
+        if completed.kind == "tool_call" {
+            assert!(
+                matches!(
+                    completed.tool_kind.as_deref(),
+                    Some("command" | "edit" | "generic" | "web" | "image" | "agent")
+                ),
+                "{kind}"
+            );
+            assert!(completed.collapsed);
+        }
+    }
+}
+
+#[test]
+fn codex_rpc_mcp_results_errors_progress_and_arguments_keep_exact_content() {
+    let mut normalizer = Normalizer::default();
+    let event = |method: &str, item: Value| Frame::Notification {
+        method: method.into(),
+        params: json!({"threadId":"t","turnId":"turn","item":item}),
+    };
+    let item = json!({"type":"mcpToolCall","id":"mcp","server":"codeterm","tool":"skill",
+        "arguments":{"name":"style"},"status":"inProgress","result":null,"error":null});
+    let started = normalizer
+        .apply(&event("item/started", item.clone()))
+        .unwrap();
+    assert_eq!(started.tool_kind.as_deref(), Some("generic"));
+    assert_eq!(started.tool_title.as_deref(), Some("codeterm · skill"));
+    assert_eq!(started.tool_summary.as_deref(), Some("name: style"));
+    assert_eq!(started.tool_error, None);
+    let progress = normalizer
+        .apply(&Frame::Notification {
+            method: "item/mcpToolCall/progress".into(),
+            params: json!({"threadId":"t","itemId":"mcp","message":"loading"}),
+        })
+        .unwrap();
+    assert_eq!(progress.tool_detail.as_deref(), Some("loading"));
+    let mut completed = item;
+    completed["status"] = json!("completed");
+    completed["result"] =
+        json!({"content":[{"type":"text","text":"skill body"}],"structuredContent":{"count":2}});
+    let done = normalizer
+        .apply(&event("item/completed", completed.clone()))
+        .unwrap();
+    assert_eq!(done.tool_error, Some(false));
+    assert_eq!(
+        serde_json::from_str::<Value>(done.tool_result.as_deref().unwrap()).unwrap(),
+        completed["result"]
+    );
+    completed["status"] = json!("failed");
+    completed["error"] = json!({"message":"unavailable"});
+    let failed = normalizer
+        .apply(&event("item/completed", completed))
+        .unwrap();
+    assert_eq!(failed.tool_error, Some(true));
+    assert!(failed.tool_result.unwrap().contains("unavailable"));
+}
+
+#[test]
+fn codex_rpc_user_images_compaction_plans_and_turn_errors_are_preserved() {
+    let mut normalizer = Normalizer::default();
+    let user = super::super::transcript::normalize_entry(&mut normalizer,"t",&json!({"id":"u","type":"userMessage",
+        "content":[{"type":"text","text":"look"},{"type":"image","url":"data:image/jpeg;base64,YQ=="},{"type":"localImage","path":"/shot.webp"}]})).unwrap();
+    assert_eq!(user.content, "look");
+    let images = user.attachments.unwrap();
+    assert_eq!(images.len(), 2);
+    assert_eq!(images[0].mime_type, "image/jpeg");
+    assert_eq!(images[0].data.as_deref(), Some("YQ=="));
+    assert_eq!(images[1].path.as_deref(), Some("/shot.webp"));
+    let compact = super::super::transcript::normalize_entry(
+        &mut normalizer,
+        "t",
+        &json!({"id":"c","type":"contextCompaction"}),
+    )
+    .unwrap();
+    assert_eq!(
+        compact.timeline_marker,
+        Some(crate::agent::chat_types::ChatTimelineMarker::ContextCompaction)
+    );
+    let plan = normalizer
+        .apply(&Frame::Notification {
+            method: "turn/plan/updated".into(),
+            params: json!({"threadId":"t","turnId":"turn",
+        "explanation":"inspect","plan":[{"step":"read","status":"inProgress"}]}),
+        })
+        .unwrap();
+    assert_eq!(plan.tool_name.as_deref(), Some("update_plan"));
+    assert!(plan.tool_result.unwrap().contains("inProgress"));
+    let errors = normalizer.apply_all(&Frame::Notification {
+        method: "turn/completed".into(),
+        params: json!({"threadId":"t",
+        "turn":{"id":"turn","status":"failed","error":{"message":"failed request"}}}),
+    });
+    assert_eq!(errors.len(), 2);
+    assert_eq!(errors[0].kind, "system");
+    assert_eq!(errors[0].content, "failed request");
+    assert_eq!(errors[1].kind, "tool_flow");
+    assert_eq!(errors[1].content, "end");
+}
+
+#[test]
+fn codex_rpc_rich_tools_diffs_and_agent_receivers_preserve_details() {
+    let mut normalizer = Normalizer::default();
+    let entry = |item| json!({"turnId":"turn","item":item});
+    let web = super::super::transcript::normalize_entry(&mut normalizer,"t",&entry(json!({
+        "id":"web","type":"webSearch","query":"rust","action":{"type":"search"},"results":[{"url":"https://example.com"}]}))).unwrap();
+    assert_eq!(web.tool_kind.as_deref(), Some("web"));
+    assert_eq!(web.tool_rich_result.unwrap()["resultCount"], 1);
+    let image = super::super::transcript::normalize_entry(&mut normalizer,"t",&entry(json!({
+        "id":"image","type":"imageGeneration","savedPath":"/generated.png","result":"YQ==","status":"completed"}))).unwrap();
+    assert_eq!(
+        image.tool_result.as_deref(),
+        Some("data:image/png;base64,YQ==")
+    );
+    assert_eq!(image.tool_rich_result.unwrap()["path"], "/generated.png");
+    let edit = super::super::transcript::normalize_entry(&mut normalizer,"t",&entry(json!({
+        "id":"patch","type":"fileChange","status":"completed","changes":[
+            {"path":"old.rs","kind":{"type":"update","move_path":"new.rs"},"diff":"@@ -2,1 +2,2 @@\n-old\n+new\n+extra\n"},
+            {"path":"gone.rs","kind":{"type":"delete"},"diff":"removed\n"}]}))).unwrap();
+    let diffs = edit.file_diffs.unwrap();
+    assert_eq!(diffs[0]["movePath"], "new.rs");
+    assert_eq!(diffs[0]["additions"], 2);
+    assert_eq!(diffs[0]["deletions"], 1);
+    assert_eq!(diffs[0]["hunks"][0]["oldStart"], 2);
+    assert_eq!(diffs[1]["hunks"][0]["lines"][0], "-removed");
+    let agents = normalizer.apply_all(&Frame::Notification { method:"item/completed".into(),params:json!({"threadId":"t","turnId":"turn",
+        "item":{"id":"collab","type":"collabAgentToolCall","receiverThreadIds":["a","b"],"agentsStates":{"a":{"status":"running"},"b":{"status":"errored","message":"failed"}}}}) });
+    assert_eq!(agents.len(), 2);
+    assert_eq!(agents[0].tool_kind.as_deref(), Some("agent"));
+    assert_eq!(agents[0].tool_input.as_ref().unwrap()["agent_id"], "a");
+    assert_eq!(
+        agents[1].tool_input.as_ref().unwrap()["agent_state"],
+        "failed"
+    );
+    let goal = normalizer
+        .apply(&Frame::Notification {
+            method: "thread/goal/updated".into(),
+            params: json!({"threadId":"t","goal":{"objective":"inspect"}}),
+        })
+        .unwrap();
+    assert_eq!(
+        goal.session_intent.unwrap().goal.as_deref(),
+        Some("inspect")
+    );
 }
 
 #[test]

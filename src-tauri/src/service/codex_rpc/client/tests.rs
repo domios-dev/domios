@@ -132,7 +132,11 @@ async fn codex_rpc_control_history_paginates_turns_and_items_without_jsonl() {
             "thread/items/list",
             Some("item-page"),
             Some("old"),
-            json!({"data":[{"turnId":"old","item":{"id":"answer-id","type":"agentMessage","text":"opaque-answer"}}]}),
+            json!({"data":[
+                {"turnId":"old","item":{"id":"command-id","type":"commandExecution","command":"codeterm blueprint list","status":"completed","exitCode":0,"aggregatedOutput":"one\ntwo\n"}},
+                {"turnId":"old","item":{"id":"mcp-id","type":"mcpToolCall","server":"codeterm","tool":"skill","arguments":{"name":"style"},"status":"completed","result":{"content":[{"type":"text","text":"skill body"}]}}},
+                {"turnId":"old","item":{"id":"answer-id","type":"agentMessage","text":"opaque-answer"}}
+            ]}),
         ),
         (
             "thread/items/list",
@@ -146,6 +150,7 @@ async fn codex_rpc_control_history_paginates_turns_and_items_without_jsonl() {
             Some("queued"),
             json!({"data":[]}),
         ),
+        ("thread/goal/get", None, None, json!({"goal":null})),
     ] {
         let Message::Text(text) = outgoing.recv().await.unwrap() else {
             panic!("expected request")
@@ -172,7 +177,25 @@ async fn codex_rpc_control_history_paginates_turns_and_items_without_jsonl() {
             .iter()
             .map(|message| message.id.as_str())
             .collect::<Vec<_>>(),
-        ["user-id", "answer-id"]
+        [
+            "old:turn/started",
+            "user-id",
+            "command-id",
+            "mcp-id",
+            "answer-id",
+            "old:turn/completed",
+            "active:turn/started",
+        ]
+    );
+    assert_eq!(history.messages[2].tool_kind.as_deref(), Some("command"));
+    assert_eq!(history.messages[2].tool_exit_code, Some(0));
+    assert_eq!(
+        history.messages[2].tool_result.as_deref(),
+        Some("one\ntwo\n")
+    );
+    assert_eq!(
+        history.messages[3].tool_name.as_deref(),
+        Some("codeterm · skill")
     );
     assert_eq!(history.active_turn.as_deref(), Some("active"));
     assert_eq!(history.completed_turns, ["old"]);

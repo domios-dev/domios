@@ -1,4 +1,5 @@
 [
+  "src/components/AgentRun/codexStructuredTools.test.tsx",
   "src/components/Terminal/ManagedTabBar.test.tsx",
   "src/lib/providerCli.test.ts",
   "src/components/Settings/ProviderInstallCard.test.tsx",
