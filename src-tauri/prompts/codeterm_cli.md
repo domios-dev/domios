@@ -54,6 +54,7 @@ Each command's `--help` has the flags; the Docs column has the depth.
 | Config | `config get [key]`, `config set` | `docs CONFIG` |
 | Notifying the user | `notify send "title" --from-pad PATH --level verbose\|action_needed\|failure` | `docs CONFIG` |
 | Plugins, provider CLIs | `plugin list` / `install` / `update`, `agent cli status <provider>` | `docs API-CLI` |
+| Plugin app tabs (surfaces) | `surface list`, `surface open <plugin>:<surface>`, `surface close --tab <ID>`; surfaces take no `send` | `docs SURFACES` |
 | Model endpoints, presets | `model-provider --help`; keys go in on stdin only | `docs INTEGRATIONS` |
 | Updates | `update check`, `update install --auto` | — |
 | Payload between machines | `paste put`, `paste get <id>` (not `mem save`) | — |
