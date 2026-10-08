@@ -51,6 +51,50 @@ pub fn requested(svc: &ServiceContext, provider: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn selected(svc: &ServiceContext, tab: &str, provider: &str, extra_args: bool) -> bool {
+    if !requested(svc, provider) {
+        return false;
+    }
+    if extra_args {
+        super::diagnostics::fallback(svc, tab, provider, "unsupported extra terminal arguments");
+        return false;
+    }
+    true
+}
+
+pub(crate) fn selection_plan(
+    svc: &ServiceContext,
+    tab: &str,
+    provider: &str,
+    cwd: &str,
+    params: &crate::agent::provider::AgentLaunchParams,
+    selection: Selection,
+) -> Option<Spawn> {
+    if !selected(svc, tab, provider, selection.extra_args) {
+        return None;
+    }
+    let instructions = svc
+        .agent_registry
+        .with_provider(provider, |provider| {
+            crate::service::launch_delivery::command_task(provider, params.task.as_deref())
+                .system_prompt
+        })
+        .flatten();
+    Some(selection.spawn(provider, cwd, instructions, params.skip_permissions))
+}
+
+pub(crate) fn prepare_selection(svc: &ServiceContext, tab: &str, spawn: Spawn) -> Option<String> {
+    let provider = spawn.provider.clone();
+    match tauri::async_runtime::block_on(super::lifecycle::ensure_for_spawn(svc, tab, spawn)) {
+        Ok(sidecar) => Some(remote_command(&sidecar)),
+        Err(error) => {
+            log::error!("[codex-rpc] launch tab={tab} fallback: {error}");
+            super::diagnostics::fallback(svc, tab, &provider, &error);
+            None
+        }
+    }
+}
+
 pub fn defer(
     svc: &ServiceContext,
     tab: &str,
@@ -59,11 +103,12 @@ pub fn defer(
     task: Option<&str>,
     injected: Option<&str>,
 ) -> Option<String> {
-    if !requested(svc, provider) {
-        return None;
-    }
-    if params.args.as_ref().is_some_and(|args| !args.is_empty()) {
-        super::diagnostics::fallback(svc, tab, provider, "unsupported extra terminal arguments");
+    if !selected(
+        svc,
+        tab,
+        provider,
+        params.args.as_ref().is_some_and(|args| !args.is_empty()),
+    ) {
         return None;
     }
     super::delivery::begin(tab, &svc.ensure_session_binding_nonce(tab));
@@ -209,4 +254,9 @@ mod selection_tests {
 
 pub fn clear_tab(tab: &str) {
     PLANS.lock().remove(tab);
+}
+
+#[cfg(test)]
+pub(crate) fn deferred_params(tab: &str) -> Option<SpawnAgentParams> {
+    PLANS.lock().get(tab).map(|plan| plan.params.clone())
 }
