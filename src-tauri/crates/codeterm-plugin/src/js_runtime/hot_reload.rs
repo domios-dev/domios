@@ -168,9 +168,9 @@ impl CapabilityRegistries {
             self.tab_menu
                 .register(id.clone(), Arc::new(caps.tab_menu.clone()));
         }
-        if caps.view && !caps.surfaces.is_empty() {
-            self.surfaces
-                .register(id.clone(), Arc::new(caps.surfaces.clone()));
+        let renderable = renderable_surfaces(caps);
+        if !renderable.is_empty() {
+            self.surfaces.register(id.clone(), Arc::new(renderable));
         }
         if vm.agent_commands_allowed() {
             self.agent_command.register(
@@ -217,6 +217,15 @@ impl CapabilityRegistries {
         self.tab_menu.unregister(id);
         self.surfaces.unregister(id);
     }
+}
+
+/// A view surface needs the plugin's view; a stream surface renders from a core runtime instead.
+fn renderable_surfaces(caps: &super::manifest::Capabilities) -> Vec<crate::surfaces::SurfaceDecl> {
+    caps.surfaces
+        .iter()
+        .filter(|surface| caps.view || surface.stream_runtime().is_some())
+        .cloned()
+        .collect()
 }
 
 pub struct HotReloadRegistry {
