@@ -19,6 +19,8 @@ export interface CapsuleRequest {
   kind: AttachmentKind;
   path: string;
   label?: string;
+  /** What a numbered quote refers to: "quote1 · <detail>". */
+  detail?: string;
   lines?: number;
 }
 
@@ -26,14 +28,14 @@ export const EMPTY_CAPSULES: CapsuleRegistry = Object.freeze({});
 export const LONG_PASTE_CHARS = 2000;
 export const LONG_PASTE_LINES = 40;
 
-// A token is a bidi isolate around the label: zero-width ends nobody types, and non-breaking
-// figure/no-break spaces reserve the icon slot and padding so the painted capsule matches the text width.
+// A token is a bidi isolate around the label: zero-width ends nobody types, and non-breaking spaces
+// reserve the icon slot (two figure + one no-break) and the trailing pad, so the painted capsule matches the text width.
 const OPEN = "\u2068";
 const CLOSE = "\u2069";
 const PAD = "\u2007";
-export const CAPSULE_LEAD = `${OPEN}${PAD}${PAD}`;
+export const CAPSULE_LEAD = `${OPEN}${PAD}${PAD} `;
 export const CAPSULE_TRAIL = `\u00A0${CLOSE}`;
-const TOKEN = /\u2068\u2007\u2007([^\u2068\u2069\n]+?)\u00A0\u2069/g;
+const TOKEN = /\u2068\u2007\u2007\u00A0([^\u2068\u2069\n]+?)\u00A0\u2069/g;
 const LABEL_MAX = 32;
 
 /** A label as the token spells it: spaces become no-break spaces so a capsule never wraps. */
@@ -89,9 +91,17 @@ function linesSuffix(lines: number): string {
   return ` · ${lines} ${lines === 1 ? "line" : "lines"}`;
 }
 
+const NUMBERED_KINDS: ReadonlySet<AttachmentKind> = new Set(["image", "text", "quote"]);
+
+function quoteDetail(request: CapsuleRequest): string {
+  const detail = request.detail ?? request.label?.split(" · ").slice(1).join(" · ") ?? "";
+  return detail ? ` · ${cleanLabel(detail)}` : "";
+}
+
 function generatedLabel(registry: CapsuleRegistry, request: CapsuleRequest): string {
   if (request.kind === "image") return numberedLabel(registry, "image");
   if (request.kind === "text") return numberedLabel(registry, "text", request.lines ? linesSuffix(request.lines) : "");
+  if (request.kind === "quote") return numberedLabel(registry, "quote", quoteDetail(request));
   return cleanLabel(baseName(request.path)) || request.kind;
 }
 
@@ -112,7 +122,9 @@ export function addCapsule(registry: CapsuleRegistry, request: CapsuleRequest): 
   const existing = Object.values(registry).find((capsule) => capsule.kind === request.kind && samePath(capsule.path, request.path));
   if (existing) return { registry, capsule: existing };
   const preferred = request.label ? cleanLabel(request.label) : "";
-  const label = preferred && !registry[preferred] ? preferred : uniqueLabel(registry, generatedLabel(registry, request));
+  const label = preferred && !registry[preferred]
+    ? preferred
+    : uniqueLabel(registry, preferred && !NUMBERED_KINDS.has(request.kind) ? preferred : generatedLabel(registry, request));
   const capsule: ComposerCapsule = { label, kind: request.kind, path: request.path };
   return { registry: { ...registry, [label]: capsule }, capsule };
 }
@@ -120,12 +132,12 @@ export function addCapsule(registry: CapsuleRegistry, request: CapsuleRequest): 
 /** Capsule tokens for paths, in order, separated by spaces. */
 export function capsulesForPaths(
   registry: CapsuleRegistry,
-  items: ReadonlyArray<{ path: string; kind?: AttachmentKind }>,
+  items: ReadonlyArray<{ path: string; kind?: AttachmentKind; label?: string; detail?: string }>,
 ): { registry: CapsuleRegistry; text: string } {
   let next = registry;
   const tokens: string[] = [];
   for (const item of items) {
-    const added = addCapsule(next, { kind: item.kind ?? attachmentKindForPath(item.path), path: item.path });
+    const added = addCapsule(next, { kind: item.kind ?? attachmentKindForPath(item.path), path: item.path, label: item.label, detail: item.detail });
     next = added.registry;
     tokens.push(capsuleToken(added.capsule.label));
   }

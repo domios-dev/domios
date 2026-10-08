@@ -367,6 +367,7 @@ mod tests {
                         icon: None,
                         shell_profile: None,
                         utility_created_at: 0,
+                        close_restore: None,
                         tab_id: "tab-picker".into(),
                         cwd: None,
                         title: Some("Get started".into()),

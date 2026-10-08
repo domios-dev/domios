@@ -42,6 +42,7 @@ import { ComposerApprovalDock } from "./ComposerApprovalDock";
 import { PendingPromptCard } from "./PendingPromptCard";
 import { AutoConfirmedPromptRows, autoConfirmationsForSession } from "./PermissionAutoConfirm";
 import { AgentStateIndicator } from "./AgentStateIndicator";
+import { TabStatusLineModelPicker } from "./StatusLineModelPicker";
 import type { AgentState } from "./AgentStateIndicator";
 import { useSteadyAgentState } from "./useSteadyAgentState";
 import { useAttachments } from "./useAttachments";
@@ -71,6 +72,15 @@ import { useSessionBindingSurface } from "./useSessionBindingSurface";
 import { SessionBindingRecoveryForm } from "./SessionBindingRecoveryForm";
 import { BlueprintChatCards } from "./BlueprintChatCards";
 import { useTabChatBlockHost } from "./pinnedBlocks";
+import { interruptAgentArgs } from "../../lib/agentInterrupt";
+import { useTabChoiceHost } from "./useTabChoiceHost";
+import { ChatMessageRow } from "./ChatMessageRow";
+import { MessageSelectionBar } from "./MessageSelectionBar";
+import { useChatMessageSelection } from "./useChatMessageSelection";
+import { HelperMomentCard } from "./HelperMomentCard";
+import { helperMoments } from "../../lib/helperMoments/helperMomentsWiring";
+import { latestAnswerText } from "../../lib/helperMoments/helperBlocks";
+import { isGeneralAgent } from "../../lib/roleKind";
 
 interface Props {
   tabId: string;
@@ -159,7 +169,7 @@ export function TabSessionChat({
   }
 
   const touchMode = useTouchOptimizedUi();
-  const chatBlockHost = useTabChatBlockHost(tabId);
+  const tabBlockHost = useTabChatBlockHost(tabId);
   const lastStopAtRef = useRef(0);
   const chatRootRef = useRef<HTMLDivElement>(null);
   const chatFollowTailRef = useRef(true);
@@ -300,6 +310,14 @@ export function TabSessionChat({
     showLatest();
     rawFollowSentMessage();
   }, [showLatest, rawFollowSentMessage]);
+  const choiceHost = useTabChoiceHost(tabId, { messages: allMessages, addOptimistic, followSentMessage, observeChatSendStatus });
+  const chatBlockHost = useMemo(() => ({ ...tabBlockHost, choice: choiceHost }), [tabBlockHost, choiceHost]);
+
+  const generalAgent = isGeneralAgent(tab);
+  const willSendMessage = useCallback((text: string) => {
+    followSentMessage();
+    if (generalAgent) void helperMoments.observe({ kind: "user-message", text, at: Date.now() });
+  }, [followSentMessage, generalAgent]);
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
   const [bindingRecoveryOpen, setBindingRecoveryOpen] = useState(false);
@@ -340,7 +358,7 @@ export function TabSessionChat({
     void invoke("write_pty_string", { ptyId: currentPtyId, data: command + "\r", raw: false }).catch(
       (e) => showComposerError(e instanceof Error ? e.message : String(e)),
     );
-  }, [currentPtyId, showComposerError, tab?.id, tab?.managed]);
+  }, [currentPtyId, showComposerError, tabId, tab?.managed]);
 
   const handleJumpToShellCommand = useCallback(() => {
     onOpenTerminalFallback?.();
@@ -351,7 +369,8 @@ export function TabSessionChat({
   }, []);
 
   const handleStopAgent = useCallback(() => {
-    if (!currentPtyId) {
+    const args = interruptAgentArgs({ id: tabId, pty_id: currentPtyId, managed: tab?.managed });
+    if (!args) {
       showComposerError("Tab has no PTY");
       return;
     }
@@ -360,10 +379,10 @@ export function TabSessionChat({
       return;
     }
     lastStopAtRef.current = now;
-    void invoke("interrupt_agent", { ptyId: currentPtyId, ...(tab?.managed && !tab.managed.manager_closed ? { tabId: tab.id } : {}) }).catch((e) =>
+    void invoke("interrupt_agent", args).catch((e) =>
       showComposerError(e instanceof Error ? e.message : String(e)),
     );
-  }, [currentPtyId, showComposerError, tab?.id, tab?.managed]);
+  }, [currentPtyId, showComposerError, tabId, tab?.managed]);
 
   const handleStopReminder = useCallback(async (id: string) => {
     try {
@@ -504,6 +523,7 @@ export function TabSessionChat({
     () => enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg)),
     [enrichedMessages],
   );
+  const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef });
   const agentTimeMessageIds = useMemo(
     () => agentMessageTimeIds(renderedEnrichedMessages.map(({ msg }) => msg)),
     [renderedEnrichedMessages],
@@ -705,6 +725,10 @@ export function TabSessionChat({
     return liveAgentState;
   }, [bootSetupView.kind, chatChannelLoading, error, hasTranscript, liveAgentState, provider?.displayName, sessionBindingSurface.agentState, tab, transcriptUnavailable]);
   const steadyStatusRowState = useSteadyAgentState(statusRowState);
+  const helperAnswer = useMemo(
+    () => (generalAgent ? latestAnswerText(renderedEnrichedMessages.map(({ msg }) => msg)) : null),
+    [generalAgent, renderedEnrichedMessages],
+  );
   const showEmptyState = setupView.kind === "none"
     && !chatLoading
     && renderedEnrichedMessages.length === 0
@@ -759,6 +783,8 @@ export function TabSessionChat({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
+        onKeyDown={messageSelection.onKeyDown}
+        data-selecting={messageSelection.active || undefined}
         className="ct-hover-reveal-scrollbar ct-chat-surface absolute inset-0 overflow-y-auto overscroll-contain p-3 select-text"
         data-testid="tab-session-chat-messages"
         role="log"
@@ -804,16 +830,17 @@ export function TabSessionChat({
         {renderedEnrichedMessages.map(({ msg, item, origin }, messageIndex) => {
           const originProps = originPropsById.get(msg.id);
           const following = reportPlacement.afterIndex.get(messageIndex) ?? [];
+          const nextId = renderedEnrichedMessages[messageIndex + 1]?.msg.id;
           return (
             <Fragment key={msg.id}>
-            <div
-              key={msg.id}
-              data-testid="chat-message"
-              data-message-role={msg.type}
-              data-message-id={msg.id}
-              data-source-message-id={msg.sourceMessageId ?? msg.id}
-              role="article"
-              aria-label={chatMessageAccessibleName(msg.type, msg.content)}
+            <ChatMessageRow
+              msg={msg}
+              ariaLabel={chatMessageAccessibleName(msg.type, msg.content)}
+              selected={messageSelection.selected.has(msg.id)}
+              joinNext={nextId !== undefined && following.length === 0 && messageSelection.selected.has(nextId)}
+              selecting={messageSelection.active}
+              cursor={messageSelection.cursor ? messageSelection.cursor === msg.id : messageIndex === renderedEnrichedMessages.length - 1}
+              handlers={messageSelection.rowHandlers}
             >
               <MessageBubble
                 message={msg}
@@ -835,7 +862,7 @@ export function TabSessionChat({
                 onOriginClick={originProps?.onOriginClick}
                 onFocusTab={resolveFocusTab}
               />
-            </div>
+            </ChatMessageRow>
               {following.map(renderOutboundReport)}
               {(askPlacement.afterIndex.get(messageIndex) ?? []).map(renderAsk)}
             </Fragment>
@@ -843,6 +870,7 @@ export function TabSessionChat({
         })}
         {reportPlacement.trailing.map(renderOutboundReport)}
         {askPlacement.trailing.map(renderAsk)}
+        {generalAgent && <HelperMomentCard idle={steadyStatusRowState.state === "idle"} latestAnswer={helperAnswer} />}
         <ChatSetupState
           tab={tab}
           view={setupView}
@@ -855,6 +883,13 @@ export function TabSessionChat({
         <AutoConfirmedPromptRows records={autoConfirmations} />
         </div>
       </div>
+      <MessageSelectionBar
+        count={messageSelection.count}
+        onCopy={messageSelection.copySelection}
+        onQuote={messageSelection.quoteSelection}
+        onAsk={messageSelection.askSelection}
+        onClear={messageSelection.clear}
+      />
       {showScrollDown && (
         <ScrollToLatestButton
           testId="chat-scroll-bottom"
@@ -888,6 +923,7 @@ export function TabSessionChat({
           onRebind={sessionBindingSurface.showRecoveryAction
             ? () => setBindingRecoveryOpen(true)
             : undefined}
+          renderIdentity={tab ? (label) => <TabStatusLineModelPicker tab={tab} label={label} /> : undefined}
         />        {bindingRecoveryOpen && (
           <SessionBindingRecoveryForm
             tabId={tabId}
@@ -910,7 +946,7 @@ export function TabSessionChat({
         clearAttachments={clearAttachments}
         handlePasteEvent={handlePasteEvent}
         inlineAttachmentSink={inlineSinkRef}
-        onWillSendMessage={followSentMessage}
+        onWillSendMessage={willSendMessage}
         addOptimistic={addOptimistic}
         updateOptimistic={updateOptimistic}
         observeChatSendStatus={observeChatSendStatus}

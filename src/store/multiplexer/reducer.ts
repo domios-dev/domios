@@ -268,6 +268,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         activeTabIds,
         // Prefer the authoritative recently closed list when it is present.
         recently_closed: action.state.recently_closed ?? state.recently_closed,
+        closed_structures: action.state.closed_structures ?? [],
         // Keep newer live status events when a snapshot omits them.
         tabStatuses: reconcileTabStatuses(
           state.tabStatuses,

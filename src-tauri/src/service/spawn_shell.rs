@@ -94,6 +94,10 @@ impl ServiceContext {
                 tab.shell_profile = profile.clone();
                 tab.audience = spec.audience;
                 tab.purpose = spec.purpose;
+                tab.close_restore = Some(crate::multiplexer::types::CloseRestoreTabState {
+                    command: spec.cmd.clone(),
+                    ..Default::default()
+                });
                 tab.icon = spec.icon.clone();
                 if let Some(ref dir) = resolved_cwd {
                     tab.cwd = Some(dir.clone());

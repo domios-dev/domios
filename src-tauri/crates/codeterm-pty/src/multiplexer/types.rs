@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 mod shell;
-pub use shell::{ShellActivity, ShellCommandState, ShellPurpose};
+pub use shell::{CloseRestoreTabState, ShellActivity, ShellCommandState, ShellPurpose};
 mod managed_tab;
 mod model_identity;
 mod restorable_launch;
@@ -538,6 +538,8 @@ pub struct Tab {
     pub shell_profile: Option<crate::pty::shell_profiles::ShellProfile>,
     #[serde(skip)]
     pub utility_command_pending: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub close_restore: Option<CloseRestoreTabState>,
     #[serde(default, skip_deserializing)]
     pub shell_command_state: ShellCommandState,
     #[serde(skip_serializing_if = "Option::is_none", default)]

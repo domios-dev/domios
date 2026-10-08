@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { partToChatMsg } from "../src/helpers";
 import { opencodeFileDiffs } from "../src/fileDiffs";
 import { sessionChanges, type NormalizedChatMessage } from "@codeterm/chat-core";
@@ -31,3 +32,13 @@ const pending = partToChatMsg({ type: "tool", tool: "edit", state: { status: "ru
   input: { filePath: "a.ts", oldString: "x", newString: "y" } } }, "assistant", "pending", 1) as NormalizedChatMessage;
 assert.equal(sessionChanges([pending]).cumulative.length, 0);
 console.log("OpenCode file diff mapping passed");
+
+const fixtures = JSON.parse(readFileSync(new URL("../../../tests/fixtures/opencode-file-diffs.json", import.meta.url), "utf8")) as {
+  name: string; input: Record<string, unknown>; metadata: Record<string, unknown>; expected: unknown;
+}[];
+for (const fixture of fixtures) {
+  const result = partToChatMsg({ type: "tool", tool: "edit", state: {
+    status: "completed", input: fixture.input, metadata: fixture.metadata,
+  } }, "assistant", fixture.name, 1) as NormalizedChatMessage;
+  assert.deepEqual(result.fileDiffs, fixture.expected, fixture.name);
+}

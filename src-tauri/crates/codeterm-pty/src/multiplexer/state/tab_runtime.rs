@@ -28,6 +28,7 @@ impl MultiplexerState {
                 .unwrap_or_default()
                 .as_micros() as u64,
             utility_command_pending: false,
+            close_restore: None,
             shell_command_state: Default::default(),
             pending_delivery,
             title: "Terminal".to_string(),

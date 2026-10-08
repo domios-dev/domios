@@ -1,7 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { formatAttachmentMarker, type NormalizedChatMessage } from "@codeterm/chat-core";
+import { DOMIOS_TEXT_MIME, formatAttachmentMarker, type NormalizedChatMessage } from "@codeterm/chat-core";
 import { LocalArtifactScope } from "./LocalArtifactScope";
 import { MessageBubble } from "./MessageBubble";
 import { configureLocalArtifactLoader, configureLocalArtifactOpener } from "./localArtifactLoader";
@@ -41,6 +41,27 @@ async function render(content: string): Promise<HTMLElement> {
   await act(async () => { await Promise.resolve(); });
   return host;
 }
+
+function select(start: Node, startOffset: number, end: Node, endOffset: number) {
+  const range = document.createRange();
+  range.setStart(start, startOffset);
+  range.setEnd(end, endOffset);
+  window.getSelection()!.removeAllRanges();
+  window.getSelection()!.addRange(range);
+}
+
+async function copy(target: Element) {
+  const written: Record<string, string> = {};
+  const event = Object.assign(new Event("copy", { bubbles: true, cancelable: true }), {
+    clipboardData: { setData: (format: string, value: string) => { written[format] = value; } },
+  });
+  await act(async () => { target.dispatchEvent(event); });
+  window.getSelection()!.removeAllRanges();
+  return { written, prevented: event.defaultPrevented };
+}
+
+const inlineText = (host: HTMLElement) => host.querySelector<HTMLElement>('[data-testid="chat-inline-attachment-text"]')!;
+const textNode = (element: Element, fragment: string) => [...element.childNodes].find((node) => node.nodeType === Node.TEXT_NODE && node.nodeValue?.includes(fragment))!;
 
 const capsules = (host: HTMLElement) => [...host.querySelectorAll<HTMLButtonElement>('[data-testid="chat-inline-attachment"]')];
 
@@ -87,5 +108,57 @@ describe("inline attachment capsules in the user bubble", () => {
     const host = await render("plain words, no capsules");
     expect(capsules(host)).toHaveLength(0);
     expect(host.textContent).toBe("plain words, no capsules");
+  });
+
+  it("copies a selection as inline labels for other apps and as attachment tags for a composer", async () => {
+    const image = formatAttachmentMarker(SHOT, "image", "image1");
+    const notes = formatAttachmentMarker(NOTES, "text", "text1 · 312 lines");
+    const host = await render(`compare ${image} with ${notes} please`);
+    const text = inlineText(host);
+    select(textNode(text, "compare"), 2, textNode(text, "please"), 5);
+    const { written, prevented } = await copy(text);
+    expect(prevented).toBe(true);
+    expect(written["text/plain"]).toBe("mpare image1 with text1 · 312 lines plea");
+    expect(written[DOMIOS_TEXT_MIME]).toBe(`mpare ${image} with ${notes} plea`);
+  });
+
+  it("copies a capsule whole when the selection starts inside its label", async () => {
+    const image = formatAttachmentMarker(SHOT, "image", "image1");
+    const host = await render(`see ${image} now`);
+    const [capsule] = capsules(host);
+    const label = [...capsule.querySelectorAll("span")].flatMap((span) => [...span.childNodes]).find((node) => node.nodeValue === "image1")!;
+    const text = inlineText(host);
+    select(label, 3, textNode(text, "now"), 4);
+    const { written } = await copy(text);
+    expect(written["text/plain"]).toBe("image1 now");
+    expect(written[DOMIOS_TEXT_MIME]).toBe(`${image} now`);
+  });
+
+  it("leaves a copy without capsules to the browser", async () => {
+    const host = await render(`plain start ${formatAttachmentMarker(SHOT, "image", "image1")}`);
+    const text = inlineText(host);
+    select(textNode(text, "plain"), 0, textNode(text, "plain"), 5);
+    const { written, prevented } = await copy(text);
+    expect(prevented).toBe(false);
+    expect(written).toEqual({});
+  });
+});
+
+describe("context capsules", () => {
+  it("preview the head of their stored text on focus and name the capsule, not its temp file", async () => {
+    const QUOTE = "/tmp/codeterm-chat/q1-quote-notes.md";
+    configureLocalArtifactLoader(vi.fn(async (path: string) => {
+      if (path !== QUOTE) throw new Error("missing");
+      return { data: "From `/d/notes.md:3`:\n> First paragraph here.", media_type: "text/markdown" };
+    }));
+    configureLocalArtifactOpener(async () => {});
+    const host = await render(`see ${formatAttachmentMarker(QUOTE, "quote", "quote1 · notes.md:3")}`);
+    const [capsule] = capsules(host);
+    expect(capsule.dataset.attachmentKind).toBe("quote");
+    await act(async () => capsule.focus());
+    await act(async () => { await Promise.resolve(); });
+    expect(host.querySelector('[data-testid="capsule-preview-text"]')?.textContent).toBe("From `/d/notes.md:3`:\n> First paragraph here.");
+    expect(host.textContent).toContain("Quote");
+    expect(host.textContent).not.toContain("q1-quote-notes.md");
   });
 });

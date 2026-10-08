@@ -1,7 +1,7 @@
 import { useId } from "react";
 import { Bell, Play, Workflow } from "lucide-react";
 import type { PipelineView, PipelineViewNode } from "./pipelineModel";
-import { layoutPipelineChain, PIPELINE_CANVAS_HEIGHT, PIPELINE_CARD_HEIGHT, PIPELINE_CARD_WIDTH } from "./layout";
+import { layoutPipelineChain, PIPELINE_CANVAS_HEIGHT, PIPELINE_CARD_HEIGHT, PIPELINE_CARD_WIDTH } from "./pipelineLayout";
 
 function stateTone(state: string, current: boolean): string {
   if (current || state === "running" || state === "delivering") return "text-[var(--ct-accent)]";

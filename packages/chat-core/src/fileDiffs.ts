@@ -36,3 +36,14 @@ export function wellFormedFileDiffs(value: unknown): FileDiff[] | undefined {
   if (valid.length === 0) return undefined;
   return valid.length === value.length ? (value as FileDiff[]) : valid;
 }
+
+export function hunkHeader(hunk: FileDiffHunk): string {
+  return `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`;
+}
+
+/** One file's hunks as unified diff text with `---`/`+++` headers. */
+export function fileDiffText(diff: FileDiff): string {
+  const before = diff.kind === "add" ? "/dev/null" : `a/${diff.path}`;
+  const after = diff.kind === "delete" ? "/dev/null" : `b/${diff.movePath ?? diff.path}`;
+  return [`--- ${before}`, `+++ ${after}`, ...diff.hunks.flatMap((hunk) => [hunkHeader(hunk), ...hunk.lines])].join("\n");
+}

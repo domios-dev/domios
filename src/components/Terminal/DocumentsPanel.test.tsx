@@ -130,7 +130,7 @@ it("reader actions open fullscreen, reveal, copy the path and content, and add t
   await act(async () => button("Copy content").click());
   expect(writeText.mock.calls).toEqual([["/report.md"], ["# Report\n\nBody line"]]);
   await act(async () => button("Ask about report.md").click());
-  expect(composerInsertionStore.take("actions")).toEqual([{ attachments: ["/report.md"] }]);
+  expect(composerInsertionStore.take("actions")).toEqual([{ kind: "document", path: "/report.md" }]);
 });
 
 it("selected reader text offers Copy and Add to chat with a file line reference", async () => {
@@ -149,7 +149,7 @@ it("selected reader text offers Copy and Add to chat with a file line reference"
   const toolbar = host.querySelector('[role="toolbar"][aria-label="Selected text"]')!;
   expect(toolbar).toBeTruthy();
   await act(async () => Array.from(toolbar.querySelectorAll("button")).find((item) => item.textContent === "Add to chat")?.click());
-  expect(composerInsertionStore.take("select")).toEqual([{ text: "From `/notes.md:3`:\n> First paragraph here." }]);
+  expect(composerInsertionStore.take("select")).toEqual([{ kind: "quote", detail: "notes.md:3", content: "From `/notes.md:3`:\n> First paragraph here." }]);
 });
 
 it("skips missing files and checks again when the panel is reopened during its close animation", async () => {

@@ -214,6 +214,7 @@ fn leaf(id: &str) -> SplitNodeSnapshot {
         icon: None,
         shell_profile: None,
         utility_created_at: 0,
+        close_restore: None,
         tab_id: id.into(),
         cwd: None,
         title: None,

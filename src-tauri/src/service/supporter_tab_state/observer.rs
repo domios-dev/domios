@@ -806,6 +806,19 @@ pub(crate) fn prepare_observation_with_parent_and_identity<H: ShadowHost>(
         return Err("stale capture".into());
     }
     let frame_hash = frame_hash(&screen.to_string());
+    if parent_observation_id.is_none()
+        && !matches!(
+            trigger,
+            ObservationTrigger::UserDeliveryReadiness
+                | ObservationTrigger::PromptEstablished
+                | ObservationTrigger::PromptConfirmation
+                | ObservationTrigger::SentinelRequest
+        )
+        && !super::admission::claim(tab_id, &metadata.session_key, frame_hash, trigger)
+    {
+        capture.pending = false;
+        return Err("unchanged frame or per-tab classification rate bound".into());
+    }
     let ledgers = host.ledger_snapshot(tab_id);
     let prompt = metadata
         .tab_snapshot
