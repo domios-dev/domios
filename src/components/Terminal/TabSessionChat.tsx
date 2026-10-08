@@ -11,7 +11,7 @@ import {
   OutboundReportCard,
   sessionIntentFromMessages,
 } from "@codeterm/chat-ui";
-import { extractPlanRefs } from "@codeterm/chat-ui";
+import { ChatBlockHostProvider, extractPlanRefs } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler, OutboundReportDescriptor } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
 import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
@@ -67,6 +67,7 @@ import { useChatMessageReveal } from "./useChatMessageReveal";
 import { useSessionBindingSurface } from "./useSessionBindingSurface";
 import { SessionBindingRecoveryForm } from "./SessionBindingRecoveryForm";
 import { BlueprintChatCards } from "./BlueprintChatCards";
+import { useTabChatBlockHost } from "./pinnedBlocks";
 
 interface Props {
   tabId: string;
@@ -155,6 +156,7 @@ export function TabSessionChat({
   }
 
   const touchMode = useTouchOptimizedUi();
+  const chatBlockHost = useTabChatBlockHost(tabId);
   const lastStopAtRef = useRef(0);
   const chatRootRef = useRef<HTMLDivElement>(null);
   const chatFollowTailRef = useRef(true);
@@ -704,6 +706,7 @@ export function TabSessionChat({
     && !inlinePrompt;
 
   return (
+    <ChatBlockHostProvider value={chatBlockHost}>
     <div
       ref={chatRootRef}
       className="w-full h-full flex flex-col relative"
@@ -911,5 +914,6 @@ export function TabSessionChat({
       )}
       </div>
     </div>
+    </ChatBlockHostProvider>
   );
 }

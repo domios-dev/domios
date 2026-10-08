@@ -1,3 +1,4 @@
+import { PluginBlock } from "@codeterm/chat-ui";
 import type { AppConfig } from "../lib/types";
 import { renderKbd } from "../components/Settings/shared";
 import { resolveHelpShortcut } from "./shortcuts";
@@ -61,6 +62,8 @@ export function HelpBlockView({ block, config, onOpenSettings }: HelpBlockViewPr
       return onOpenSettings ? (
         <SettingsLinkButton label={block.label} target={block.target} onOpen={onOpenSettings} />
       ) : null;
+    case "plugin":
+      return <PluginBlock pluginId={block.pluginId} source={`@ds-plugin ${block.pluginId}`} />;
     case "details":
       return (
         <HelpDetails summary={block.summary}>
