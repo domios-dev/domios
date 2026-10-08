@@ -11,6 +11,27 @@ use std::{
 #[cfg(test)]
 mod diagnostics;
 
+#[cfg(all(test, windows))]
+mod windows_tests;
+
+#[cfg(windows)]
+mod windows_spawn;
+#[cfg(not(windows))]
+use std::process::Child as CapturedChild;
+#[cfg(windows)]
+use windows_spawn::Child as CapturedChild;
+
+fn spawn(command: &mut Command) -> std::io::Result<CapturedChild> {
+    #[cfg(windows)]
+    {
+        windows_spawn::spawn(command)
+    }
+    #[cfg(not(windows))]
+    {
+        command.spawn()
+    }
+}
+
 const OUTPUT_LIMIT: u64 = 1_048_576;
 pub(super) fn capture(
     binary: &Path,
@@ -50,7 +71,7 @@ pub(super) fn capture_command(
     command.stderr(Stdio::piped());
     let mut tree = super::super::provider_update::ProcessTree::prepare(&mut command)
         .map_err(|_| ProbeFailure::Spawn)?;
-    let mut child = command.spawn().map_err(|_| ProbeFailure::Spawn)?;
+    let mut child = spawn(&mut command).map_err(|_| ProbeFailure::Spawn)?;
     if tree.record_spawn(&child).is_err() {
         let _ = child.kill();
         let _ = child.wait();

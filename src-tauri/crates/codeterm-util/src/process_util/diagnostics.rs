@@ -1,8 +1,8 @@
 use serde_json::{json, Value};
-use std::{io, os::windows::io::AsRawHandle, process::Child};
+use std::{io, os::windows::io::AsRawHandle};
 use winapi::um::{
     handleapi::{CloseHandle, INVALID_HANDLE_VALUE},
-    processthreadsapi::{GetProcessTimes, OpenThread},
+    processthreadsapi::{GetProcessId, GetProcessTimes, OpenThread},
     tlhelp32::{
         CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
     },
@@ -20,7 +20,8 @@ extern "system" {
     ) -> i32;
 }
 
-pub fn snapshot(child: &Child) -> Value {
+pub fn snapshot(child: &impl AsRawHandle) -> Value {
+    let pid = unsafe { GetProcessId(child.as_raw_handle().cast()) };
     let cpu = unsafe {
         let mut created = std::mem::zeroed();
         let mut exited = std::mem::zeroed();
@@ -42,7 +43,7 @@ pub fn snapshot(child: &Child) -> Value {
             })
         }
     };
-    json!({"pid": child.id(), "cpu": cpu, "threads": threads(child.id())})
+    json!({"pid": pid, "cpu": cpu, "threads": threads(pid)})
 }
 
 fn threads(pid: u32) -> Value {

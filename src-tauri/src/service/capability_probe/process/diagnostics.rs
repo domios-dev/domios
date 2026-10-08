@@ -4,11 +4,13 @@ use std::{io, process::ExitStatus, thread::JoinHandle};
 pub(super) struct Stderr(JoinHandle<io::Result<Vec<u8>>>);
 
 impl Stderr {
-    pub(super) fn capture(child: &mut std::process::Child) -> Self {
+    pub(super) fn capture(child: &mut CapturedChild) -> Self {
         let mut stderr = child.stderr.take().expect("diagnostic stderr pipe");
         Self(std::thread::spawn(move || {
             let mut prefix = Vec::new();
-            stderr.by_ref().take(4096).read_to_end(&mut prefix)?;
+            Read::by_ref(&mut stderr)
+                .take(4096)
+                .read_to_end(&mut prefix)?;
             io::copy(&mut stderr, &mut io::sink())?;
             Ok(prefix)
         }))

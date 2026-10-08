@@ -2,6 +2,29 @@ use std::process::{Child, Command};
 #[cfg(windows)]
 use std::time::Instant;
 
+pub(crate) trait ProcessChild {
+    fn id(&self) -> u32;
+    #[cfg(windows)]
+    fn kill(&mut self) -> std::io::Result<()>;
+    #[cfg(windows)]
+    fn process_handle(&self) -> windows_sys::Win32::Foundation::HANDLE;
+}
+
+impl ProcessChild for Child {
+    fn id(&self) -> u32 {
+        Child::id(self)
+    }
+    #[cfg(windows)]
+    fn kill(&mut self) -> std::io::Result<()> {
+        Child::kill(self)
+    }
+    #[cfg(windows)]
+    fn process_handle(&self) -> windows_sys::Win32::Foundation::HANDLE {
+        use std::os::windows::io::AsRawHandle;
+        self.as_raw_handle().cast()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BoundaryCompletion {
     #[cfg(unix)]
@@ -106,7 +129,7 @@ impl ProcessTree {
         }
     }
 
-    pub(crate) fn record_spawn(&mut self, child: &Child) -> Result<(), String> {
+    pub(crate) fn record_spawn(&mut self, child: &impl ProcessChild) -> Result<(), String> {
         if self.leader != LeaderOwnership::Unspawned
             || child.id() <= 1
             || child.id() > i32::MAX as u32
@@ -117,7 +140,7 @@ impl ProcessTree {
         Ok(())
     }
 
-    pub(crate) fn attach(&mut self, child: &Child) -> Result<(), String> {
+    pub(crate) fn attach(&mut self, child: &impl ProcessChild) -> Result<(), String> {
         if self.leader != LeaderOwnership::Retained(child.id()) {
             return Err("updater leader ownership lost before attach".into());
         }
@@ -136,12 +159,11 @@ impl ProcessTree {
     #[cfg(windows)]
     fn attach_with_resume(
         &mut self,
-        child: &Child,
+        child: &impl ProcessChild,
         resume: impl FnOnce(windows_sys::Win32::Foundation::HANDLE) -> i32,
     ) -> Result<(), String> {
-        use std::os::windows::io::AsRawHandle;
         use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
-        let process = child.as_raw_handle().cast();
+        let process = child.process_handle();
         if unsafe { AssignProcessToJobObject(self.job, process) } == 0 {
             return Err(std::io::Error::last_os_error().to_string());
         }
@@ -155,7 +177,7 @@ impl ProcessTree {
         Ok(())
     }
 
-    pub(crate) fn reaped(&mut self, child: &Child) {
+    pub(crate) fn reaped(&mut self, child: &impl ProcessChild) {
         self.leader = match self.leader {
             LeaderOwnership::Retained(id) if id == child.id() => LeaderOwnership::Retired(id),
             _ => LeaderOwnership::Lost,
@@ -281,7 +303,7 @@ impl ProcessTree {
         self.termination_error = enabled;
     }
 
-    pub(crate) fn terminate(&self, child: &mut Child) -> Result<(), String> {
+    pub(crate) fn terminate(&self, child: &mut impl ProcessChild) -> Result<(), String> {
         #[cfg(test)]
         if self.termination_error {
             return Err("injected termination API error".into());
