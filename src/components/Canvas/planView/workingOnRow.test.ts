@@ -106,7 +106,7 @@ test("age chip is separate from branch", () => {
     status_changed_at: 60_000,
   });
   const row = deriveWorkingOnRow(t, tab("p1", "P"), 180_000)!;
-  assert(chip(row.chips, "age")?.label === "2m", "2m age");
+  assert(chip(row.chips, "age")?.label === "2m ago", "2m age");
   assert(chip(row.chips, "branch")?.label === "lane/foo", "branch separate");
 });
 

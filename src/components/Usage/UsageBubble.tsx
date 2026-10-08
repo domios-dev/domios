@@ -9,6 +9,7 @@ import { groupSpendSnapshot, hasGroupSpend } from "./groupSpend";
 import { UsageDetail, UsageSpendDetail } from "./UsageDetail";
 import { UsageHistoryModal } from "./UsageHistoryModal";
 import { usageMetricsAriaLabel, visibleUsageMetrics, type VisibleUsageMetric } from "./metrics";
+import { formatAge } from "../../lib/timeLabels";
 
 interface UsageBubbleProps {
   api?: ApiConfig;
@@ -90,7 +91,8 @@ export function UsageBubble({
   }, [open]);
 
   if (!trackingEnabled || !active) return null;
-  const ageMs = Date.now() - active.captured_at;
+  const now = Date.now();
+  const ageMs = now - active.captured_at;
   if (!active.parsed_ok && ageMs > ONE_HOUR_MS) return null;
 
   const isStale = ageMs > STALE_MS;
@@ -166,7 +168,7 @@ export function UsageBubble({
             />
           ))
         )}
-        {isStale && <span className="stale-age">·{formatAgeShort(ageMs)}</span>}
+        {isStale && <span className="stale-age">·{formatAge(active.captured_at, now)}</span>}
       </button>
 
       {open && isSpend && (
@@ -240,8 +242,3 @@ function formatPct(pct: number | null | undefined): string {
   return `${Math.round(pct)}%`;
 }
 
-function formatAgeShort(ms: number): string {
-  const m = Math.floor(ms / 60_000);
-  if (m < 60) return `${m}m`;
-  return `${Math.floor(m / 60)}h`;
-}

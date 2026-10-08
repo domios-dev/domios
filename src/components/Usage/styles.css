@@ -18,8 +18,8 @@
   --u-track: var(--u-overlay-2);
   --u-track-bright: var(--u-overlay-3);
   --u-bg-elev: var(--ct-bg-elev, var(--ct-bg, #0d1117));
-  --u-session: #93a6c8;
-  --u-weekly: #a78bfa;
+  --u-session: color-mix(in srgb, var(--ct-blue) 60%, var(--ct-muted-fg));
+  --u-weekly: var(--ct-bright-magenta);
   --u-font-ui: "Space Grotesk", ui-sans-serif, sans-serif;
   --u-font-mono: "JetBrains Mono", ui-monospace, monospace;
 }
