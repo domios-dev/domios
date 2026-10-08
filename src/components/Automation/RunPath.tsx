@@ -1,3 +1,4 @@
+import { NodeKindBadge } from "./NodeKindBadge";
 import { useMemo } from "react";
 import type { GraphRun } from "../../lib/blueprintRun";
 import { useRunReplay } from "./useRunReplay";
@@ -9,6 +10,7 @@ export function RunPath({ run }: { run: GraphRun }) {
   const selection = useMemo(() => ({ key: run.key, edges: steps.flatMap((step, index) => step.toNext && index < steps.length - 1 ? [String(index)] : []) }), [run.key, steps]);
   const replay = useRunReplay(selection);
   return <div aria-label="Run path" className="mt-2 max-h-64 overflow-auto">
+    {run.events.some((event) => event.classifier) && <div className="mb-1 flex flex-wrap gap-1">{Array.from(new Map(run.events.filter((event) => event.classifier).map((event) => [event.classifier!.label, event.classifier!])).values()).map((kind) => <NodeKindBadge key={kind.label} kind={kind} />)}</div>}
     <ol className="flex min-w-max items-center gap-1 py-1">{steps.map((step, index) => <li key={index} className="flex items-center gap-1">
       <span className="max-w-40 rounded border border-[var(--ct-border)] bg-[var(--ct-bg)] px-2 py-1 text-xs">
         <span className="block truncate font-medium">{step.name}</span>

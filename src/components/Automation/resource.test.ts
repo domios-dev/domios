@@ -8,7 +8,7 @@ const tests: Array<[string, () => void | Promise<void>]> = [];
 function test(name: string, run: () => void | Promise<void>) { tests.push([name, run]); }
 test("Blueprint presentation preserves stored graph identity", () => {
   const stored = { ...sentinelIdentity };
-  assert.equal(automationKindLabel(stored.kind), "blueprint");
+  assert.equal(automationKindLabel(stored.kind), "node");
   assert.equal(automationKindLabel(cronIdentity.kind), "cron");
   assert.deepEqual(stored, sentinelIdentity);
 });

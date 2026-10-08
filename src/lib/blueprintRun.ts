@@ -1,4 +1,7 @@
 export interface RunEvent {
+  classifier?: { ai: boolean; label: string; detail?: string } | null;
+  confidence?: number | null;
+  reason?: string | null;
   at: number;
   node: string;
   outcome: string;
