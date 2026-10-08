@@ -1,6 +1,8 @@
 import type { LocalArtifactKind } from "./localArtifactDirective";
 
 export const ATTACHMENT_KINDS = ["image", "file", "text", "folder"] as const;
+/** Clipboard flavour carrying text with attachment tags, so a composer paste rebuilds the capsules. */
+export const DOMIOS_TEXT_MIME = "application/x-domios-text";
 export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number];
 
 function isAttachmentKind(value: string | undefined): value is AttachmentKind {

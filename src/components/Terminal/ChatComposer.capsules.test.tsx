@@ -1,7 +1,8 @@
 import { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
-import { formatAttachmentMarker } from "@codeterm/chat-core";
+import { DOMIOS_TEXT_MIME, formatAttachmentMarker, type NormalizedChatMessage } from "@codeterm/chat-core";
+import { LocalArtifactScope, MessageBubble } from "@codeterm/chat-ui";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { MuxStateStoreContext } from "../../store/multiplexer/context";
@@ -78,14 +79,24 @@ async function key(el: HTMLTextAreaElement, code: string) {
   await act(async () => { el.dispatchEvent(new KeyboardEvent("keydown", { key: code, code, bubbles: true, cancelable: true })); });
 }
 
-async function paste(el: HTMLTextAreaElement, text: string) {
+async function paste(el: HTMLTextAreaElement, data: string | Record<string, string>) {
+  const flavours = typeof data === "string" ? { "text/plain": data } : data;
   const event = Object.assign(new Event("paste", { bubbles: true, cancelable: true }), {
-    clipboardData: { items: [], getData: (type: string) => (type === "text/plain" ? text : "") },
+    clipboardData: { items: [], getData: (type: string) => flavours[type] ?? "" },
   });
   await act(async () => { el.dispatchEvent(event); });
   await act(async () => { await Promise.resolve(); });
   await act(async () => { await Promise.resolve(); });
   return event;
+}
+
+async function copyFrom(target: Element, type: "copy" | "cut" = "copy") {
+  const written: Record<string, string> = {};
+  const event = Object.assign(new Event(type, { bubbles: true, cancelable: true }), {
+    clipboardData: { setData: (format: string, value: string) => { written[format] = value; } },
+  });
+  await act(async () => { target.dispatchEvent(event); });
+  return { written, prevented: event.defaultPrevented };
 }
 
 async function sendAndRead(textarea: HTMLTextAreaElement, calls: Call[]) {
@@ -168,4 +179,40 @@ it("leaves an old plain draft untouched", async () => {
   expect(textarea.value).toBe("an older draft");
   expect(mirror()).toBeNull();
   expect(await sendAndRead(textarea, calls)).toEqual(["an older draft"]);
+});
+
+it("copying a composer selection with capsules writes their tags in the plain and Domios flavours", async () => {
+  const { textarea, sink } = await renderComposer("capsule-copy");
+  await setValue(textarea, "see ");
+  await act(async () => sink.current?.([{ path: SHOT_1, kind: "image" }]));
+  textarea.setSelectionRange(0, textarea.value.length);
+  const tagged = `see ${formatAttachmentMarker(SHOT_1, "image", "image1")}`;
+  const { written, prevented } = await copyFrom(textarea);
+  expect(prevented).toBe(true);
+  expect(written["text/plain"].trimEnd()).toBe(tagged);
+  expect(written[DOMIOS_TEXT_MIME]).toBe(written["text/plain"]);
+});
+
+it("a selection copied from a sent bubble pastes back as inline capsules", async () => {
+  const sent = `посмотри ${formatAttachmentMarker(SHOT_1, "image", "image1")} как и ${formatAttachmentMarker(TEXT_FILE, "text", "text1 · 702 lines")} ура`;
+  const bubbleHost = document.createElement("div");
+  document.body.append(bubbleHost);
+  const bubbleRoot = createRoot(bubbleHost);
+  const message: NormalizedChatMessage = { id: "u1", type: "user", content: sent };
+  await act(async () => bubbleRoot.render(<LocalArtifactScope tabId="owner"><MessageBubble message={message} /></LocalArtifactScope>));
+  const text = bubbleHost.querySelector('[data-testid="chat-inline-attachment-text"]')!;
+  const range = document.createRange();
+  range.selectNodeContents(text);
+  window.getSelection()!.removeAllRanges();
+  window.getSelection()!.addRange(range);
+  const { written } = await copyFrom(text);
+  window.getSelection()!.removeAllRanges();
+  await act(async () => bubbleRoot.unmount());
+  bubbleHost.remove();
+  expect(written["text/plain"]).toBe("посмотри image1 как и text1 · 702 lines ура");
+
+  const { textarea, calls } = await renderComposer("capsule-bubble-paste");
+  await paste(textarea, written);
+  expect(textarea.value).toBe(`посмотри ${capsuleToken("image1")} как и ${capsuleToken("text1 · 702 lines")} ура`);
+  expect(await sendAndRead(textarea, calls)).toEqual([sent]);
 });

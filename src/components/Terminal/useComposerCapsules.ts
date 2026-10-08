@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, type ClipboardEvent, type KeyboardEvent, type MutableRefObject, type RefObject } from "react";
-import type { AttachmentKind } from "@codeterm/chat-core";
+import { DOMIOS_TEXT_MIME, type AttachmentKind } from "@codeterm/chat-core";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
 import { storeBlob } from "./voice/audio";
 import {
@@ -109,7 +109,7 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError }: {
   const handlePaste = useCallback((event: ClipboardEvent<HTMLTextAreaElement>): boolean => {
     const data = event.clipboardData;
     if (!data || Array.from(data.items ?? []).some((item) => item.kind === "file")) return false;
-    const text = data.getData("text/plain");
+    const text = data.getData(DOMIOS_TEXT_MIME) || data.getData("text/plain");
     if (!text) return false;
     const el = event.currentTarget;
     const absorbed = absorbAttachmentTags(text, registryRef.current);
@@ -132,7 +132,9 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError }: {
     const slice = el.value.slice(start, end);
     if (!hasCapsuleTokens(slice)) return;
     event.preventDefault();
-    event.clipboardData.setData("text/plain", serializeCapsuleDraft(slice, registryRef.current));
+    const portable = serializeCapsuleDraft(slice, registryRef.current);
+    event.clipboardData.setData("text/plain", portable);
+    event.clipboardData.setData(DOMIOS_TEXT_MIME, portable);
     if (cut) replaceTextareaRange(el, start, end, "");
   }, []);
 
