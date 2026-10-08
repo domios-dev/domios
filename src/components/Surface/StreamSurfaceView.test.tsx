@@ -18,6 +18,7 @@ import {
   type SurfaceState,
 } from "./surfaceChromeModel";
 import { resizeArgs, SURFACE_METHOD, type ScreenshotResult, type StreamFrame } from "./surfaceStreamTransport";
+import { PREVIEW_PAUSED_TEXT } from "./SurfacePreviewPaused";
 import { FRAME_HEAL_INTERVAL_MS } from "./useSurfaceStream";
 import { changeValue, flushAsync, getByRole, queryByRole, render, resizeStages, testSuite } from "./surfaceTestDom.testdata";
 
@@ -229,6 +230,41 @@ for (const [name, overrides] of [
     await unmount();
   });
 }
+
+const pausedNotice = { text: PREVIEW_PAUSED_TEXT, kind: "preview_paused", detail: "no frame: window not rendering (timeout)" } as const;
+const byTestId = (scope: ParentNode, id: string) => scope.querySelector<HTMLElement>(`[data-testid='${id}']`);
+
+suite.test("a paused preview shows a quiet inline state, never the notice bar, and clears on the next frame", async () => {
+  const { fake, region, unmount } = await mount();
+  await resizeStages(640, 480);
+  await act(async () => fake.emitNotice(pausedNotice));
+  const paused = byTestId(region(), "surface-preview-paused");
+  assert.ok(paused, "the canvas shows the paused state");
+  assert.equal(paused.textContent?.startsWith(PREVIEW_PAUSED_TEXT), true);
+  assert.equal(byTestId(region(), "surface-notice"), null, "a recurring condition is not a notice bar");
+  await act(async () => fake.emitNotice({ text: "boom", tone: "error" }));
+  assert.ok(byTestId(region(), "surface-notice"), "other notices keep the bar");
+  assert.ok(byTestId(region(), "surface-preview-paused"), "and do not clear the paused state");
+  await act(async () => fake.emitFrame(frameAt(640, 480)));
+  assert.equal(byTestId(region(), "surface-preview-paused"), null, "the next frame clears it");
+  await flushAsync();
+  await unmount();
+});
+
+suite.test("the paused state hides its technical text behind Details", async () => {
+  const { fake, region, unmount } = await mount();
+  await resizeStages(640, 480);
+  await act(async () => fake.emitNotice(pausedNotice));
+  const toggle = getByRole(region(), "button", "Details");
+  assert.equal(toggle.getAttribute("aria-expanded"), "false");
+  assert.ok(!region().textContent?.includes(pausedNotice.detail), "the detail starts hidden");
+  await act(async () => toggle.click());
+  assert.equal(toggle.getAttribute("aria-expanded"), "true");
+  assert.equal(document.getElementById(toggle.getAttribute("aria-controls")!)?.textContent, pausedNotice.detail);
+  await act(async () => toggle.click());
+  assert.ok(!region().textContent?.includes(pausedNotice.detail), "Details collapses again");
+  await unmount();
+});
 
 suite.test("the owner tab's name labels the surface over the pushed owner", async () => {
   const { fake, host, unmount } = await mount([], "Mira");

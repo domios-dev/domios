@@ -1,7 +1,7 @@
 import type { SseMessage } from "./sseParser";
 import type { FrameMetadata, StreamViewport } from "./streamModel";
 import type { SurfaceState } from "./surfaceChromeModel";
-import type { StreamFrame, SurfaceNotice } from "./surfaceStreamTransport";
+import { NOTICE_KIND, type StreamFrame, type SurfaceNotice, type SurfaceNoticeKind } from "./surfaceStreamTransport";
 
 export type SurfaceStreamEvent =
   | { type: "state"; state: SurfaceState }
@@ -79,9 +79,15 @@ function toFrame(value: Record<string, unknown>): StreamFrame | null {
   return { data: value.data, metadata: metadata as unknown as FrameMetadata };
 }
 
+const NOTICE_KINDS: readonly unknown[] = Object.values(NOTICE_KIND);
+
 function toNotice(value: Record<string, unknown>): SurfaceNotice | null {
   if (typeof value.text !== "string") return null;
-  return value.tone === "error" || value.tone === "info" ? { text: value.text, tone: value.tone } : { text: value.text };
+  const notice: SurfaceNotice = { text: value.text };
+  if (value.tone === "error" || value.tone === "info") notice.tone = value.tone;
+  if (NOTICE_KINDS.includes(value.kind)) notice.kind = value.kind as SurfaceNoticeKind;
+  if (typeof value.detail === "string") notice.detail = value.detail;
+  return notice;
 }
 
 export function surfaceStreamEvent(message: SseMessage): SurfaceStreamEvent | null {

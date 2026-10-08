@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createFrameFeed, type FrameFeed } from "./frameFeed";
 import { frameMatchesViewport, viewportAction, type FrameMetadata, type StreamViewport } from "./streamModel";
 import type { SurfaceState } from "./surfaceChromeModel";
-import { resizeArgs, SURFACE_METHOD, type Disconnect, type StreamFrame, type SurfaceNotice, type SurfaceStreamTransport } from "./surfaceStreamTransport";
+import { isPreviewPaused, resizeArgs, SURFACE_METHOD, type Disconnect, type StreamFrame, type SurfaceNotice, type SurfaceStreamTransport } from "./surfaceStreamTransport";
 
 export interface SurfaceStream {
   state: SurfaceState;
   notice: SurfaceNotice | null;
+  /** Set by a preview_paused notice and cleared by the next frame. */
+  paused: SurfaceNotice | null;
   frames: FrameFeed;
   setNotice(notice: SurfaceNotice | null): void;
   onViewport(viewport: StreamViewport): void;
@@ -32,6 +34,8 @@ function documentActive(): boolean {
 export function useSurfaceStream(transport: SurfaceStreamTransport, initialState: SurfaceState): SurfaceStream {
   const [state, setState] = useState<SurfaceState>(initialState);
   const [notice, setNotice] = useState<SurfaceNotice | null>(null);
+  const [paused, setPaused] = useState<SurfaceNotice | null>(null);
+  const pausedRef = useRef(false);
   const [feed] = useState(createFrameFeed);
   const connection = useRef<Connection>({ disconnect: null, sent: null, latest: null, healedAt: Number.NEGATIVE_INFINITY });
 
@@ -59,9 +63,20 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
       frame: (frame: StreamFrame) => {
         feed.publish(frame);
         heal(frame.metadata);
+        if (pausedRef.current) {
+          pausedRef.current = false;
+          setPaused(null);
+        }
       },
       state: setState,
-      notice: setNotice,
+      notice: (next: SurfaceNotice) => {
+        if (!isPreviewPaused(next)) {
+          setNotice(next);
+          return;
+        }
+        pausedRef.current = true;
+        setPaused(next);
+      },
       // A reconnect reuses the original connect params, so the current size is re-sent on every open.
       open: () => { if (current.latest) sendResize(current.latest); },
     });
@@ -89,5 +104,5 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
     connection.current.sent = null;
   }, []);
 
-  return { state, notice, frames: feed, setNotice, onViewport, onHidden };
+  return { state, notice, paused, frames: feed, setNotice, onViewport, onHidden };
 }

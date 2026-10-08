@@ -163,6 +163,51 @@
   font-size: 12px;
 }
 
+.ct-surface-paused {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  max-width: min(360px, 80%);
+  transform: translate(-50%, -50%);
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.ct-surface-paused__toggle {
+  border: 0;
+  border-radius: var(--ct-radius-sm);
+  padding: 1px 6px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  font: inherit;
+  font-size: 10px;
+  opacity: 0.75;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.ct-surface-paused__toggle:hover,
+.ct-surface-paused__toggle:focus-visible {
+  color: var(--ct-fg);
+  opacity: 1;
+}
+
+.ct-surface-paused__detail {
+  font-family: var(--ct-font-mono);
+  font-size: 10px;
+  opacity: 0.7;
+  overflow-wrap: anywhere;
+  user-select: text;
+  pointer-events: auto;
+}
+
 .ct-surface-notice[data-tone="error"] .ct-surface-notice__text {
   color: var(--ct-red);
 }

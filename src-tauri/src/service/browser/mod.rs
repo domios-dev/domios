@@ -14,7 +14,7 @@ use parking_lot::Mutex;
 use process::{CloseOutcome, ProcessExit};
 use profile::{ProfileKind, ProfileLayout, ProfileLease};
 use runtime::{BrowserMode, Runtime};
-use screencast::{FrameHub, ScreencastFrame, ScreencastParams, ScreencastSubscription};
+use screencast::{FrameHub, HubNotice, ScreencastFrame, ScreencastParams, ScreencastSubscription};
 use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -298,7 +298,7 @@ impl BrowserHost {
         self.frames.latest()
     }
 
-    pub fn notices(&self) -> broadcast::Receiver<String> {
+    pub fn notices(&self) -> broadcast::Receiver<HubNotice> {
         self.frames.notices()
     }
 

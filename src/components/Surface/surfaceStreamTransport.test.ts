@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { clickInput, keyInput, MODIFIER, wheelInput } from "./streamModel";
-import { inputArgs, resizeArgs } from "./surfaceStreamTransport";
+import { inputArgs, isPreviewPaused, resizeArgs } from "./surfaceStreamTransport";
 
 assert.deepEqual(resizeArgs({ w: 640, h: 480, dpr: 2 }), { width: 640, height: 480, dpr: 2 });
 
@@ -21,5 +21,9 @@ assert.deepEqual(
   inputArgs({ kind: "key", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, modifiers: MODIFIER.alt | MODIFIER.meta }),
   { kind: "key", key: "Tab", shift: false, ctrl: false, alt: true, meta: true },
 );
+
+assert.ok(isPreviewPaused({ text: "Preview paused", kind: "preview_paused" }));
+assert.ok(!isPreviewPaused({ text: "boom", tone: "error" }), "an untyped notice is not a paused preview");
+assert.ok(!isPreviewPaused(null));
 
 console.log("✓ surfaceStreamTransport tests green");

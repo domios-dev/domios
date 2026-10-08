@@ -194,6 +194,19 @@ pub struct ScreencastFrame {
     pub still: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HubNoticeKind {
+    Plain,
+    /// The window is occluded or minimised, so no still could be captured; clears with the next frame.
+    PreviewPaused,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HubNotice {
+    pub kind: HubNoticeKind,
+    pub text: String,
+}
+
 #[derive(Debug)]
 pub struct FrameDelivery {
     pub frame: Arc<ScreencastFrame>,
@@ -219,7 +232,7 @@ struct HubState {
 /// Host-level frame source: survives browser relaunches, so viewers never resubscribe.
 pub struct FrameHub {
     frames: watch::Sender<Option<Arc<ScreencastFrame>>>,
-    notices: broadcast::Sender<String>,
+    notices: broadcast::Sender<HubNotice>,
     state: Mutex<HubState>,
 }
 
@@ -329,10 +342,18 @@ impl FrameHub {
     }
 
     pub fn notice(&self, text: impl Into<String>) {
-        let _ = self.notices.send(text.into());
+        self.send_notice(HubNoticeKind::Plain, text.into());
     }
 
-    pub fn notices(&self) -> broadcast::Receiver<String> {
+    pub fn preview_paused(&self, detail: impl Into<String>) {
+        self.send_notice(HubNoticeKind::PreviewPaused, detail.into());
+    }
+
+    fn send_notice(&self, kind: HubNoticeKind, text: String) {
+        let _ = self.notices.send(HubNotice { kind, text });
+    }
+
+    pub fn notices(&self) -> broadcast::Receiver<HubNotice> {
         self.notices.subscribe()
     }
 
@@ -523,9 +544,7 @@ async fn push_still(page: &PageChannel, hub: &FrameHub, generation: u64, params:
             .and_then(Value::as_str)
             .map(str::to_string),
         Err(error) => {
-            hub.notice(format!(
-                "no frame: window not rendering ({error}). Bring the app window on screen."
-            ));
+            hub.preview_paused(format!("no frame: window not rendering ({error})"));
             return;
         }
     };
@@ -534,7 +553,7 @@ async fn push_still(page: &PageChannel, hub: &FrameHub, generation: u64, params:
             .decode(data.as_bytes())
             .ok()
     }) else {
-        hub.notice("no frame: the still capture returned no image");
+        hub.preview_paused("no frame: the still capture returned no image");
         return;
     };
     hub.publish(

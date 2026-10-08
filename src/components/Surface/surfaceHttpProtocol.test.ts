@@ -40,6 +40,16 @@ assert.equal(surfaceStreamEvent({ event: "frame", data: JSON.stringify({ data: 1
 
 assert.deepEqual(surfaceStreamEvent({ event: "notice", data: "{\"text\":\"hi\",\"tone\":\"error\"}" }), { type: "notice", notice: { text: "hi", tone: "error" } });
 assert.deepEqual(surfaceStreamEvent({ event: "notice", data: "{\"text\":\"hi\",\"tone\":\"loud\"}" }), { type: "notice", notice: { text: "hi" } }, "an unknown tone is dropped");
+assert.deepEqual(
+  surfaceStreamEvent({ event: "notice", data: JSON.stringify({ text: "Preview paused while the window is hidden", kind: "preview_paused", detail: "no frame: x" }) }),
+  { type: "notice", notice: { text: "Preview paused while the window is hidden", kind: "preview_paused", detail: "no frame: x" } },
+  "a typed notice keeps its kind and technical detail",
+);
+assert.deepEqual(
+  surfaceStreamEvent({ event: "notice", data: JSON.stringify({ text: "hi", kind: "mystery", detail: 3 }) }),
+  { type: "notice", notice: { text: "hi" } },
+  "an unknown kind and a non-string detail are dropped",
+);
 assert.equal(surfaceStreamEvent({ event: "notice", data: "not json" }), null, "malformed JSON is ignored");
 assert.equal(surfaceStreamEvent({ event: "message", data: "{}" }), null, "unknown events are ignored");
 

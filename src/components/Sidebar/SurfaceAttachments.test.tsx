@@ -86,7 +86,9 @@ describe("surface owner block", () => {
     expect(all("attachment-row").map((row) => row.getAttribute("data-id"))).toEqual(["s1", "s2"]);
     const strands = all("surface-tether");
     expect(strands.map((strand) => strand.getAttribute("data-state"))).toEqual(["idle", "idle"]);
-    expect(strands[0].getAttribute("d")).toBe("M22 22V33.5Q22 39.5 28 39.5H28");
+    expect(strands[0].getAttribute("d")).toBe("M22 22.5C22 31 28.75 39.5 35.5 39.5");
+    expect(strands[1].getAttribute("d")).toBe("M22 22.5C22 41 28.75 59.5 35.5 59.5");
+    expect(all("surface-tether-clearing").map((disc) => disc.getAttribute("cy"))).toEqual(["39.5", "59.5"]);
     expect(all("surface-tether-droplet")).toHaveLength(0);
   });
 

@@ -6,9 +6,20 @@ export interface StreamFrame {
   metadata: FrameMetadata;
 }
 
+export const NOTICE_KIND = { previewPaused: "preview_paused" } as const;
+
+export type SurfaceNoticeKind = (typeof NOTICE_KIND)[keyof typeof NOTICE_KIND];
+
 export interface SurfaceNotice {
   text: string;
   tone?: "info" | "warn" | "error";
+  kind?: SurfaceNoticeKind;
+  detail?: string;
+}
+
+/** A recurring condition the canvas shows in place; it never belongs in the notice bar. */
+export function isPreviewPaused(notice: SurfaceNotice | null | undefined): notice is SurfaceNotice & { kind: "preview_paused" } {
+  return notice?.kind === NOTICE_KIND.previewPaused;
 }
 
 export interface StreamHandlers {
