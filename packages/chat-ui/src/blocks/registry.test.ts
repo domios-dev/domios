@@ -50,6 +50,16 @@ test("consecutive_block_lines_render_as_stacked_blocks_and_any_text_line_cancels
   assert(parseChatBlocks("@ds-plugin telegram-client\nInstall it first.") === null, "mixed paragraph became blocks");
 });
 
+test("connect_and_setting_directives_are_registered_and_validate_their_argument", () => {
+  assert(parseChatBlock("@ds-connect telegram")?.source === "@ds-connect telegram", "connect block lost");
+  assert(parseChatBlock("@ds-setting plugins.chat-preprocessor.enabled")?.name === "setting", "setting block lost");
+  for (const source of ["@ds-connect Telegram", "@ds-connect tele gram", "@ds-setting enabled", "@ds-setting a..b", "@ds-setting plugins.x.y now"]) {
+    assert(parseChatBlock(source) === null, `accepted ${JSON.stringify(source)}`);
+  }
+  const stacked = parseChatBlocks("@ds-guide phone\n@ds-connect telegram\n@ds-setting plugins.x.enabled");
+  assert(stacked?.map((block) => block.name).join(",") === "guide,connect,setting", "stacked new blocks lost");
+});
+
 test("a_new_block_plugs_in_with_a_parser_and_renderer", () => {
   const rendered: string[] = [];
   const choice: ChatBlockDefinition<string[]> = {

@@ -165,6 +165,11 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "../../../prod-docs/HTML.md"
     ),
     doc!(
+        "CHAT-BLOCKS",
+        "Live @ds- chat block catalog",
+        "../../../prod-docs/CHAT-BLOCKS.md"
+    ),
+    doc!(
         "SKILLS",
         "Domios skills and agent integration",
         "../../../prod-docs/SKILLS.md"

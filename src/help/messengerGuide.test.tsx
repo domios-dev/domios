@@ -3,7 +3,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
-import { ChatBlockHostProvider, type PluginBlockState } from "@codeterm/chat-ui";
+import { ChatBlockHostProvider, type ConnectBlockState, type PluginBlockState } from "@codeterm/chat-ui";
 import { HelpPanel } from "./HelpPanel";
 import type { AppConfig } from "../lib/types";
 
@@ -34,6 +34,20 @@ function ready(id: string, name: string): PluginBlockState {
     openInPlugins: () => {},
   };
   const opened: string[] = [];
+  const connects: Array<string | undefined> = [];
+  const telegram: ConnectBlockState = {
+    kind: "ready",
+    bridge: {
+      id: "telegram", name: "Telegram", description: "Message your General Agent from Telegram.", phase: "disconnected", tokenStored: true,
+      method: { kind: "token", label: "Bot token", placeholder: "123:AA", help: "Paste the token." },
+    },
+  };
+  const connect = {
+    binding: { subscribe: () => () => {}, read: () => telegram, refresh: () => {} },
+    connect: async (_id: string, token?: string) => { connects.push(token); },
+    disconnect: async () => {},
+    openSettings: () => {},
+  };
 
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -41,7 +55,7 @@ function ready(id: string, name: string): PluginBlockState {
   let failed = 0;
   try {
     await act(async () => root.render(
-      <ChatBlockHostProvider value={{ plugins }}>
+      <ChatBlockHostProvider value={{ plugins, connect }}>
         <HelpPanel config={{ keybindings: {} } as AppConfig} onOpenSettings={(target) => opened.push(target)} />
       </ChatBlockHostProvider>,
     ));
@@ -54,10 +68,19 @@ function ready(id: string, name: string): PluginBlockState {
     await act(async () => (cards[0].querySelector('[data-block-action="install"]') as HTMLButtonElement).click());
     assert(runs.join(",") === "telegram-client", "embedded card install did not reach the host once");
 
-    const connect = host.querySelector('[data-help-section-id="phone"] [data-help-settings-target="telegram-bridge"]') as HTMLButtonElement | null;
-    assert(connect, "phone guide lacks the Telegram connect action");
-    await act(async () => connect.click());
-    assert(opened.join(",") === "telegram-bridge", "connect did not deep-link to the Telegram settings");
+    const phone = host.querySelector('[data-help-section-id="phone"]');
+    const phoneBlocks = phone?.querySelectorAll('[data-chat-block]');
+    const last = phoneBlocks?.[phoneBlocks.length - 1];
+    assert(last?.getAttribute("data-chat-block") === "connect", "phone guide must end with the Telegram connect block");
+    assert(connects.length === 0, "rendering the guide connected Telegram");
+    await act(async () => (last.querySelector('[data-block-action="connect"]') as HTMLButtonElement).click());
+    assert(JSON.stringify(connects) === "[null]", "the guide's connect block did not reach the host once with the saved token");
+
+    assert(!host.querySelector('[data-help-section-id="integrations"]'), "the retired integrations section is still listed");
+    const settings = host.querySelector('[data-help-section-id="messengers"] [data-help-settings-target="telegram-bridge"]') as HTMLButtonElement | null;
+    assert(settings, "messengers guide lacks the Messengers settings link");
+    await act(async () => settings.click());
+    assert(opened.join(",") === "telegram-bridge", "messengers guide did not deep-link to General > Messengers");
     console.log("  ✓ guide_embeds_plugin_cards_and_connects_telegram");
   } catch (error) {
     failed++;
