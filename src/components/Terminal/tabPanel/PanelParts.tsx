@@ -26,16 +26,14 @@ export function PanelPage({ bar, onBack, reader, children }: { bar?: ReactNode; 
 
 export function BackBar({ path, onBack, actions }: { path: string; onBack: () => void; actions?: ReactNode }) {
   const segments = breadcrumbSegments(path);
+  const name = segments[segments.length - 1] ?? path;
   return <>
     <div className="tab-panel__bar-main">
       <button type="button" className="tab-panel__back" aria-label="Back to list" title="Back (Esc)" onClick={onBack}>
         <ChevronLeft size={15} aria-hidden />Back
       </button>
       <nav aria-label="Path" className="tab-panel__crumbs" title={path}>
-        {segments.map((segment, index) => <span key={`${index}:${segment}`} className="contents">
-          {index > 0 && <span className="tab-panel__crumb-sep" aria-hidden>/</span>}
-          <span className="tab-panel__crumb" aria-current={index === segments.length - 1 ? "page" : undefined}>{segment}</span>
-        </span>)}
+        <span className="tab-panel__crumb" aria-current="page">{name}</span>
       </nav>
     </div>
     {actions && <div className="tab-panel__bar-actions">{actions}</div>}
