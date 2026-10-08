@@ -210,7 +210,7 @@ function BlockExtras({ source, title, askText, pinned }: { source: string; title
         {copied ? <Check size={13} aria-hidden="true" /> : <Link2 size={13} aria-hidden="true" />}
       </ExtraButton>
       {host.askAbout && (
-        <ExtraButton label={`Ask about ${title}`} onClick={() => host.askAbout?.(askText ?? `About ${title} (\`${source}\`): `)}>
+        <ExtraButton label={`Ask about ${title}`} onClick={() => host.askAbout?.({ title, text: askText ?? `About ${title} (\`${source}\`)` })}>
           <MessageSquarePlus size={13} aria-hidden="true" />
         </ExtraButton>
       )}

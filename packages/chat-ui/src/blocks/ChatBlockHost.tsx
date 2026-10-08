@@ -13,7 +13,8 @@ export interface PluginBlockHost {
 
 /** Scope-wide services for chat blocks. Absent fields hide the matching control instead of faking it. */
 export interface ChatBlockHost {
-  askAbout?(text: string): void;
+  /** Adds the block to the tab composer as context; `text` is what the agent reads. */
+  askAbout?(request: { title: string; text: string }): void;
   pin?(source: string): void;
   pinned?: LiveBindingSource<boolean>;
   plugins?: PluginBlockHost;
