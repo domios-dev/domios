@@ -2,6 +2,7 @@
 
 mod readiness;
 
+use super::launch_files::general_agent_env_vars;
 use super::{binding_wait, general_dir, instructions, launch_lock, state, GENERAL_ALIAS};
 use codeterm_types::pty::BootStage;
 use readiness::{await_agent_launch_evidence, await_agent_output};
@@ -453,6 +454,7 @@ pub fn start_general_agent(
 
     let cols = 120u16;
     let rows = 40u16;
+    crate::service::codex_rpc::lifecycle::stop_tab(&tab_id);
     let pad = match svc.ensure_agent_pad(&tab_id) {
         Ok(pad) => pad,
         Err(error) => {
@@ -473,11 +475,17 @@ pub fn start_general_agent(
             return;
         }
     }
+    crate::service::codex_rpc::lifecycle::launch_env_for_provider(
+        svc,
+        &tab_id,
+        provider_name,
+        &mut env_vars,
+    );
     crate::service::launch_diagnostics::log_launch_environment("general_agent", &tab_id, &env_vars);
 
     let pty_id = {
         let mut manager = pty.lock();
-        match manager.spawn_with_id(None, None, Some(general_cwd), cols, rows, env_vars) {
+        match manager.spawn_with_id(None, None, Some(general_cwd.clone()), cols, rows, env_vars) {
             Ok((id, _)) => id,
             Err(e) => {
                 log::error!("[general-agent] Failed to spawn PTY: {}", e);
@@ -564,9 +572,25 @@ pub fn start_general_agent(
 
     let use_resume = session_id.is_some();
     let mut startup_message = None;
+    let mut structured_starter = None;
     let cmd = if use_resume {
         let sid = session_id.as_ref().unwrap();
-        match super::launch_files::resume(svc, &tab_id, provider_name, sid, permission_bypass) {
+        match super::launch_files::command(
+            svc,
+            &tab_id,
+            provider_name,
+            &general_cwd,
+            &mut crate::agent::provider::AgentLaunchParams {
+                task: Some(instructions::render_system_prompt(
+                    provider_name,
+                    Some(&svc.mem),
+                )),
+                starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
+                skip_permissions: permission_bypass,
+                ..Default::default()
+            },
+            Some(sid),
+        ) {
             Some(cmd) => cmd,
             None => {
                 let reason = format!(
@@ -642,19 +666,15 @@ pub fn start_general_agent(
             launch_marker: None,
             instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
         };
-        let command = match crate::service::launch_session_detection::marked_provider_launch_command_for_service(
+        structured_starter =
+            super::launch_files::starter(svc, provider_name, params.starter_prompt);
+        let command = match super::launch_files::command(
             svc,
-            &svc.agent_registry,
-            provider_name,
             &tab_id,
-            Some(&ga_cwd),
-            crate::service::launch_session_detection::canonical_project_for_tab(
-                &svc.plan_store,
-                &tab_id,
-                &ga_cwd,
-            )
-            .as_deref(),
+            provider_name,
+            &ga_cwd,
             &mut params,
+            None,
         ) {
             Some(cmd) => cmd,
             None => {
@@ -704,6 +724,20 @@ pub fn start_general_agent(
         log::error!("[general-agent] Failed to write launch command: {}", e);
         fail_general_agent_start(svc, mux, &tab_id, &e.to_string());
         return;
+    }
+
+    match super::launch_files::finish_structured(
+        svc,
+        &tab_id,
+        &pty_id,
+        startup_message.as_deref().or(structured_starter.as_deref()),
+    ) {
+        Ok(true) => startup_message = None,
+        Ok(false) => {}
+        Err(error) => {
+            fail_general_agent_start(svc, mux, &tab_id, &error);
+            return;
+        }
     }
 
     let launched = await_agent_launch_evidence(
@@ -1137,43 +1171,6 @@ fn defer_general_agent_start(
         ),
     }
     svc.emit_state_changed();
-}
-
-fn general_agent_env_vars(
-    tab_id: &str,
-    pad_dir: String,
-    session_binding_nonce: String,
-    config: &crate::config::ConfigState,
-) -> std::collections::HashMap<String, String> {
-    let mut env = std::collections::HashMap::new();
-    env.insert("CODETERM_TAB_ID".to_string(), tab_id.to_string());
-    env.insert("CODETERM_PAD_DIR".to_string(), pad_dir);
-    // Per-launch binding nonce so the session-start hook report can prove it owns this tab.
-    env.insert(
-        "CODETERM_SESSION_BINDING_NONCE".to_string(),
-        session_binding_nonce,
-    );
-    env.insert(
-        "CODETERM_SOCKET_PATH".to_string(),
-        crate::socket::server::socket_display_path(),
-    );
-    env.insert(
-        "CODETERM_MACHINE_AGENT_IDENTITY".to_string(),
-        "general_agent".to_string(),
-    );
-    // Derive URL+port from the daemon config, not a parent CodeTerm env leak —
-    // an inherited prod CODETERM_API_URL (7685) 401s this instance's token.
-    let (api_url, api_port) = crate::config::api_callback_url(&config.lock().api);
-    env.insert("CODETERM_API_URL".to_string(), api_url);
-    env.insert("CODETERM_API_PORT".to_string(), api_port);
-    // Hook callbacks POST to our REST API. Without the token they'd 401 on any non-loopback bind and silently swallow the failure via `curl … || true`.
-    let tok: Option<String> = config.lock().api.token.clone();
-    if let Some(tok) = tok {
-        if !tok.is_empty() {
-            env.insert("CODETERM_API_TOKEN".to_string(), tok);
-        }
-    }
-    env
 }
 
 #[cfg(test)]
