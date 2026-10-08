@@ -691,17 +691,24 @@ fn unknown_context_owner_fails_the_parse_instead_of_defaulting() {
 }
 
 #[test]
-fn parse_agent_doc_field() {
-    // would reject it without the schema entry → plugin fails to load.
+fn parse_agent_guide_field() {
+    // deny_unknown_fields would reject it without the schema entry.
     let json = r#"{
             "id": "codeterm-npc",
             "version": "0.1.0",
             "displayName": "Dread NPCs",
-            "agentDoc": "AGENT.md",
+            "agentGuide": "docs/AGENT.md",
             "capabilities": { "chatBackend": true }
         }"#;
-    let m: PluginManifest = serde_json::from_str(json).expect("parse agentDoc");
-    assert_eq!(m.agent_doc.as_deref(), Some("AGENT.md"));
+    let m: PluginManifest = serde_json::from_str(json).expect("parse agentGuide");
+    assert_eq!(m.agent_guide.as_deref(), Some("docs/AGENT.md"));
+}
+
+#[test]
+fn agent_guide_defaults_to_absent() {
+    let json = r#"{ "id": "p", "version": "0", "displayName": "P" }"#;
+    let m: PluginManifest = serde_json::from_str(json).expect("parse");
+    assert!(m.agent_guide.is_none());
 }
 
 #[test]
