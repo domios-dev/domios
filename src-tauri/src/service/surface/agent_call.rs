@@ -214,6 +214,8 @@ mod tests {
                 surface_id: surface_id.into(),
                 instance_id: tab.clone(),
                 owner_label: true,
+                resume_url: None,
+                resume_profile: None,
             });
             surface.parent_tab_id = Some(parent.clone());
         }

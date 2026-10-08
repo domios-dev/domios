@@ -5,13 +5,17 @@ use serde_json::Value;
 use tokio::sync::{broadcast, watch};
 
 use super::heuristics::{needs_human, IDLE, NEEDS_NONE};
+use super::resume::{resumable_profile, resumable_url};
 use crate::service::browser::cdp_wire::CdpEvent;
 use crate::service::browser::snapshot::Snapshot;
 use crate::service::browser::{EventStream, PageChannel};
-use crate::service::surface::runtime::{SurfaceNotice, SurfaceState};
+use crate::service::surface::runtime::{SurfaceNotice, SurfaceResume, SurfaceState};
+
+const ATTACHED_PROFILE: &str = "attached";
 
 pub(super) const PAGE_EVENTS: &[&str] = &[
     "Page.frameNavigated",
+    "Page.navigatedWithinDocument",
     "Target.targetInfoChanged",
     "Page.javascriptDialogOpening",
     "Page.javascriptDialogClosed",
@@ -20,6 +24,7 @@ pub(super) const PAGE_EVENTS: &[&str] = &[
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum PageUpdate {
     Navigated { url: String },
+    SameDocument { url: String },
     TargetInfo { title: String, url: String },
     Dialog(bool),
 }
@@ -37,6 +42,12 @@ pub(super) fn page_update(method: &str, params: &Value, target_id: &str) -> Opti
                     url: text(frame.get("url")),
                 })
         }
+        // A page target's main frame id is its target id.
+        "Page.navigatedWithinDocument" => (params.get("frameId").and_then(Value::as_str)
+            == Some(target_id))
+        .then(|| PageUpdate::SameDocument {
+            url: text(params.get("url")),
+        }),
         "Target.targetInfoChanged" => {
             let info = params.get("targetInfo")?;
             let ours = info.get("targetId").and_then(Value::as_str) == Some(target_id)
@@ -65,6 +76,7 @@ struct PageSession {
 pub(super) struct PageShared {
     state: watch::Sender<SurfaceState>,
     notices: broadcast::Sender<SurfaceNotice>,
+    resume: watch::Sender<SurfaceResume>,
     session: Mutex<PageSession>,
 }
 
@@ -80,8 +92,44 @@ impl PageShared {
         Arc::new(Self {
             state: watch::channel(state).0,
             notices: broadcast::channel(16).0,
+            resume: watch::channel(SurfaceResume::default()).0,
             session: Mutex::new(PageSession::default()),
         })
+    }
+
+    pub(super) fn seed_resume(&self, resume: SurfaceResume) {
+        self.resume.send_replace(resume);
+    }
+
+    pub(super) fn subscribe_resume(&self) -> watch::Receiver<SurfaceResume> {
+        self.resume.subscribe()
+    }
+
+    /// Committed top-level pages only; anything not worth reopening keeps the previous one.
+    fn remember_url(&self, url: &str) {
+        if self.state.borrow().profile == ATTACHED_PROFILE {
+            return;
+        }
+        let Some(url) = resumable_url(url) else {
+            return;
+        };
+        self.resume.send_if_modified(|resume| {
+            let changed = resume.url.as_deref() != Some(url.as_str());
+            resume.url = Some(url);
+            changed
+        });
+    }
+
+    pub(super) fn remember_profile(&self, label: &str) {
+        if label == ATTACHED_PROFILE {
+            return;
+        }
+        let profile = resumable_profile(label);
+        self.resume.send_if_modified(|resume| {
+            let changed = resume.profile != profile;
+            resume.profile = profile;
+            changed
+        });
     }
 
     pub(super) fn state(&self) -> SurfaceState {
@@ -160,13 +208,16 @@ impl PageShared {
             match &update {
                 PageUpdate::Navigated { .. } => session.snapshot = None,
                 PageUpdate::Dialog(open) => session.dialog = *open,
-                PageUpdate::TargetInfo { .. } => {}
+                PageUpdate::TargetInfo { .. } | PageUpdate::SameDocument { .. } => {}
             }
             session.dialog
         };
+        if let PageUpdate::Navigated { url } | PageUpdate::SameDocument { url } = &update {
+            self.remember_url(url);
+        }
         self.update(|state| {
             match update {
-                PageUpdate::Navigated { url } => state.url = url,
+                PageUpdate::Navigated { url } | PageUpdate::SameDocument { url } => state.url = url,
                 PageUpdate::TargetInfo { title, url } => {
                     state.title = title;
                     state.url = url;
@@ -292,6 +343,96 @@ mod tests {
             },
         );
         assert_eq!(shared.state().url, "https://a.dev");
+    }
+
+    #[test]
+    fn browser_page_same_document_navigation_counts_only_the_main_frame() {
+        assert_eq!(
+            page_update(
+                "Page.navigatedWithinDocument",
+                &json!({ "frameId": "t", "url": "https://a.dev/#/inbox" }),
+                "t"
+            ),
+            Some(PageUpdate::SameDocument {
+                url: "https://a.dev/#/inbox".into()
+            })
+        );
+        assert_eq!(
+            page_update(
+                "Page.navigatedWithinDocument",
+                &json!({ "frameId": "child", "url": "https://ads/#x" }),
+                "t"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn browser_page_remembers_committed_resumable_pages_only() {
+        let shared = PageShared::new("Jev");
+        shared.seed_resume(SurfaceResume {
+            url: Some("https://before.dev/".into()),
+            profile: Some("work".into()),
+        });
+        let mut updates = shared.subscribe_resume();
+        shared.session.lock().bound_session = Some("s".into());
+        shared.apply(
+            "s",
+            PageUpdate::TargetInfo {
+                title: "T".into(),
+                url: "https://title-tick.dev/".into(),
+            },
+        );
+        shared.apply(
+            "s",
+            PageUpdate::Navigated {
+                url: "about:blank".into(),
+            },
+        );
+        shared.apply(
+            "stale",
+            PageUpdate::Navigated {
+                url: "https://stale.dev/".into(),
+            },
+        );
+        assert!(!updates.has_changed().unwrap());
+        assert_eq!(updates.borrow().url.as_deref(), Some("https://before.dev/"));
+        shared.apply(
+            "s",
+            PageUpdate::Navigated {
+                url: "https://a.dev/".into(),
+            },
+        );
+        shared.apply(
+            "s",
+            PageUpdate::SameDocument {
+                url: "https://a.dev/#/route".into(),
+            },
+        );
+        assert!(updates.has_changed().unwrap());
+        let resume = updates.borrow_and_update().clone();
+        assert_eq!(resume.url.as_deref(), Some("https://a.dev/#/route"));
+        assert_eq!(resume.profile.as_deref(), Some("work"));
+        shared.remember_profile("clean");
+        assert_eq!(updates.borrow_and_update().profile, None);
+    }
+
+    #[test]
+    fn browser_page_attach_mode_remembers_nothing() {
+        let shared = PageShared::new("Jev");
+        shared.update(|state| state.profile = ATTACHED_PROFILE.into());
+        shared.session.lock().bound_session = Some("s".into());
+        shared.apply(
+            "s",
+            PageUpdate::Navigated {
+                url: "https://app.local/".into(),
+            },
+        );
+        shared.remember_profile(ATTACHED_PROFILE);
+        assert_eq!(
+            *shared.subscribe_resume().borrow(),
+            SurfaceResume::default()
+        );
     }
 
     #[test]

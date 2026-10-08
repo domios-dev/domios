@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use codeterm_plugin::surfaces::SurfaceDecl;
+use codeterm_plugin::surfaces::{SurfaceDecl, SurfaceRestore};
 use serde_json::Value;
 
 use super::model::SurfaceError;
-use super::runtime::{SurfaceCallCtx, SurfaceEffect, SurfaceEvents, SurfaceRuntime};
+use super::runtime::{SurfaceCallCtx, SurfaceEffect, SurfaceEvents, SurfaceResume, SurfaceRuntime};
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::browser::viewport::ViewportRequest;
 use crate::service::message_gateway::DeliveryClass;
@@ -20,6 +20,9 @@ pub(crate) struct StreamBinding {
     pub runtime: String,
     pub owner_tab_id: Option<String>,
     pub owner_name: String,
+    /// The surface relaunches after a restart, so its resume point is applied and kept.
+    pub relaunch: bool,
+    pub resume: Option<SurfaceResume>,
 }
 
 pub(crate) fn stream_binding(
@@ -36,14 +39,21 @@ pub(crate) fn stream_binding(
     let surface = tab
         .surface()
         .ok_or_else(|| SurfaceError::NotAStreamSurface(tab_id.clone()))?;
-    let runtime = declared(&surface.plugin_id)
+    let (runtime, restore) = declared(&surface.plugin_id)
         .and_then(|surfaces| {
             surfaces
                 .iter()
                 .find(|decl| decl.id == surface.surface_id)
-                .and_then(|decl| decl.stream_runtime().map(str::to_string))
+                .and_then(|decl| {
+                    decl.stream_runtime()
+                        .map(|runtime| (runtime.to_string(), decl.restore))
+                })
         })
         .ok_or_else(|| SurfaceError::NotAStreamSurface(tab_id.clone()))?;
+    let relaunch = restore == SurfaceRestore::Relaunch;
+    let resume = relaunch
+        .then(|| super::resume::backing_resume(surface))
+        .flatten();
     let owner_tab_id = tab.parent_tab_id.clone();
     let owner_name = owner_tab_id
         .as_deref()
@@ -56,6 +66,8 @@ pub(crate) fn stream_binding(
         runtime,
         owner_tab_id,
         owner_name,
+        relaunch,
+        resume,
     })
 }
 
@@ -79,12 +91,18 @@ impl ServiceContext {
                     .map(|declared| declared.to_vec())
             })?
         };
-        let runtime = self.surface_runtimes.get_or_create(
+        let (runtime, created) = self.surface_runtimes.get_or_create(
             &binding.tab_id,
             &binding.runtime,
             &binding.owner_name,
+            binding.resume.clone(),
         )?;
         runtime.set_owner_name(&binding.owner_name);
+        if created && binding.relaunch {
+            if let Some(updates) = runtime.resume_updates() {
+                self.follow_surface_resume(binding.tab_id.clone(), updates);
+            }
+        }
         Ok((runtime, binding))
     }
 
@@ -174,12 +192,16 @@ async fn deliver_annotation(
 
 #[cfg(test)]
 mod tests {
-    use codeterm_plugin::surfaces::{SurfaceRenderer, SurfaceRestore};
+    use codeterm_plugin::surfaces::SurfaceRenderer;
 
     use super::*;
     use crate::multiplexer::types::{SurfaceBacking, TabBacking};
 
     fn decl(id: &str, runtime: Option<&str>) -> SurfaceDecl {
+        decl_restoring(id, runtime, SurfaceRestore::Placeholder)
+    }
+
+    fn decl_restoring(id: &str, runtime: Option<&str>, restore: SurfaceRestore) -> SurfaceDecl {
         SurfaceDecl {
             id: id.into(),
             title: "Browser".into(),
@@ -189,7 +211,7 @@ mod tests {
                 SurfaceRenderer::View
             },
             agent_bound: true,
-            restore: SurfaceRestore::Placeholder,
+            restore,
             runtime: runtime.map(str::to_string),
             chrome: None,
         }
@@ -206,6 +228,8 @@ mod tests {
             surface_id: surface_id.into(),
             instance_id: "i".into(),
             owner_label: true,
+            resume_url: None,
+            resume_profile: None,
         });
         tab.parent_tab_id = Some(owner_id.clone());
         (mux, owner_id, tab_id)
@@ -221,6 +245,55 @@ mod tests {
         assert_eq!(binding.runtime, "browser");
         assert_eq!(binding.owner_tab_id.as_deref(), Some(owner_id.as_str()));
         assert_eq!(binding.owner_name, "Jev");
+    }
+
+    fn remember(mux: &mut MultiplexerState, tab_id: &str) {
+        let TabBacking::Surface(backing) = &mut mux.get_tab_mut(tab_id).unwrap().backing else {
+            panic!("expected a surface");
+        };
+        backing.resume_url = Some("https://a.dev/inbox".into());
+        backing.resume_profile = Some("work".into());
+    }
+
+    #[test]
+    fn surface_stream_binding_resumes_only_relaunching_surfaces() {
+        let (mut mux, _, tab_id) = mux_with_surface("browser");
+        remember(&mut mux, &tab_id);
+        let with = |restore| {
+            stream_binding(&mux, &tab_id, move |_| {
+                Some(vec![decl_restoring("browser", Some("browser"), restore)])
+            })
+            .unwrap()
+        };
+        let relaunch = with(SurfaceRestore::Relaunch);
+        assert!(relaunch.relaunch);
+        assert_eq!(
+            relaunch.resume,
+            Some(SurfaceResume {
+                url: Some("https://a.dev/inbox".into()),
+                profile: Some("work".into()),
+            })
+        );
+        for restore in [SurfaceRestore::Placeholder, SurfaceRestore::Discard] {
+            let binding = with(restore);
+            assert!(!binding.relaunch);
+            assert_eq!(binding.resume, None);
+        }
+    }
+
+    #[test]
+    fn surface_stream_binding_has_no_resume_for_a_fresh_surface() {
+        let (mux, _, tab_id) = mux_with_surface("browser");
+        let binding = stream_binding(&mux, &tab_id, |_| {
+            Some(vec![decl_restoring(
+                "browser",
+                Some("browser"),
+                SurfaceRestore::Relaunch,
+            )])
+        })
+        .unwrap();
+        assert!(binding.relaunch);
+        assert_eq!(binding.resume, None);
     }
 
     #[test]

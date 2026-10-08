@@ -7,6 +7,7 @@ use super::*;
 
 struct FakeRuntime {
     owner: Mutex<String>,
+    resume: Option<SurfaceResume>,
 }
 
 #[async_trait::async_trait]
@@ -18,6 +19,11 @@ impl SurfaceRuntime for FakeRuntime {
     fn state(&self) -> SurfaceState {
         SurfaceState {
             owner: self.owner.lock().clone(),
+            url: self
+                .resume
+                .as_ref()
+                .and_then(|resume| resume.url.clone())
+                .unwrap_or_default(),
             ..Default::default()
         }
     }
@@ -52,9 +58,10 @@ impl SurfaceRuntime for FakeRuntime {
 struct FakeFactory;
 
 impl SurfaceRuntimeFactory for FakeFactory {
-    fn create(&self, owner_name: &str) -> Arc<dyn SurfaceRuntime> {
+    fn create(&self, owner_name: &str, resume: Option<SurfaceResume>) -> Arc<dyn SurfaceRuntime> {
         Arc::new(FakeRuntime {
             owner: Mutex::new(owner_name.to_string()),
+            resume,
         })
     }
 }
@@ -68,18 +75,40 @@ fn registry() -> SurfaceRuntimeRegistry {
 #[test]
 fn surface_runtime_registry_keeps_one_instance_per_tab() {
     let registry = registry();
-    let first = registry.get_or_create("t1", "fake", "Jev").unwrap();
-    let again = registry.get_or_create("t1", "fake", "Other").unwrap();
+    let (first, created) = registry.get_or_create("t1", "fake", "Jev", None).unwrap();
+    assert!(created);
+    let (again, created) = registry.get_or_create("t1", "fake", "Other", None).unwrap();
+    assert!(!created);
     assert!(Arc::ptr_eq(&first, &again));
     assert_eq!(again.state().owner, "Jev");
-    let other = registry.get_or_create("t2", "fake", "Ann").unwrap();
+    let (other, _) = registry.get_or_create("t2", "fake", "Ann", None).unwrap();
     assert!(!Arc::ptr_eq(&first, &other));
+}
+
+#[test]
+fn surface_runtime_registry_seeds_resume_only_into_a_new_instance() {
+    let registry = registry();
+    let resume = |url: &str| {
+        Some(SurfaceResume {
+            url: Some(url.into()),
+            profile: None,
+        })
+    };
+    let (first, _) = registry
+        .get_or_create("t1", "fake", "Jev", resume("https://a.dev/"))
+        .unwrap();
+    assert_eq!(first.state().url, "https://a.dev/");
+    let (again, created) = registry
+        .get_or_create("t1", "fake", "Jev", resume("https://b.dev/"))
+        .unwrap();
+    assert!(!created);
+    assert_eq!(again.state().url, "https://a.dev/");
 }
 
 #[test]
 fn surface_runtime_registry_refuses_an_unregistered_runtime() {
     let registry = registry();
-    let error = match registry.get_or_create("t1", "missing", "Jev") {
+    let error = match registry.get_or_create("t1", "missing", "Jev", None) {
         Err(error) => error,
         Ok(_) => panic!("unregistered runtime created"),
     };
@@ -90,8 +119,8 @@ fn surface_runtime_registry_refuses_an_unregistered_runtime() {
 #[test]
 fn surface_runtime_registry_hands_back_instances_of_closed_tabs() {
     let registry = registry();
-    registry.get_or_create("live", "fake", "Jev").unwrap();
-    registry.get_or_create("gone", "fake", "Jev").unwrap();
+    registry.get_or_create("live", "fake", "Jev", None).unwrap();
+    registry.get_or_create("gone", "fake", "Jev", None).unwrap();
     let closed = registry.take_closed(|tab_id| tab_id == "live");
     assert_eq!(closed.len(), 1);
     assert!(registry.take_closed(|_| true).is_empty());

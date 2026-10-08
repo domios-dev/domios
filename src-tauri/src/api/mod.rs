@@ -37,6 +37,7 @@ pub mod notification_routes;
 pub(crate) mod optional_json;
 pub mod os_notify;
 pub mod output_stream;
+pub(crate) mod peer_redaction;
 pub mod pasteboard_routes;
 pub(crate) mod permission_auto_confirm_routes;
 pub mod plan_routes;

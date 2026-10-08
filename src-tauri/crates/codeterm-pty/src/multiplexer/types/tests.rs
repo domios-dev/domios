@@ -324,6 +324,8 @@ fn surface_backing(owner_label: bool) -> TabBacking {
         surface_id: "board".into(),
         instance_id: "inst-1".into(),
         owner_label,
+        resume_url: None,
+        resume_profile: None,
     })
 }
 

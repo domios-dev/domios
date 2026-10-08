@@ -373,7 +373,7 @@ pub async fn auth_middleware(
                     .into_response();
             }
             if authorize_peer_request(&state, access_level, instance_id, &method, &path) {
-                next.run(req).await
+                super::peer_redaction::redact_peer_response(next.run(req).await).await
             } else {
                 log::warn!(
                     "[auth] Access denied for peer {} ({:?}) on {} {}",

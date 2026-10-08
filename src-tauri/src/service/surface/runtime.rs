@@ -61,6 +61,19 @@ pub(crate) enum SurfaceEvent {
     Notice(SurfaceNotice),
 }
 
+/// Where a relaunched surface picks up: its last page and, for the browser, its profile.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct SurfaceResume {
+    pub url: Option<String>,
+    pub profile: Option<String>,
+}
+
+impl SurfaceResume {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.url.is_none() && self.profile.is_none()
+    }
+}
+
 /// Dropping the stream disconnects the viewer; the last viewer leaving stops frame production.
 pub(crate) type SurfaceEvents = Pin<Box<dyn Stream<Item = SurfaceEvent> + Send>>;
 
@@ -126,6 +139,10 @@ pub(crate) trait SurfaceRuntime: Send + Sync {
         args: &[String],
     ) -> Result<String, String>;
     fn annotation_delivered(&self, id: &str);
+    /// Resume points worth persisting; `None` when the runtime has nothing to resume.
+    fn resume_updates(&self) -> Option<tokio::sync::watch::Receiver<SurfaceResume>> {
+        None
+    }
     async fn dispose(&self);
 }
 
@@ -149,8 +166,8 @@ pub(crate) fn sse_payload(event: &SurfaceEvent) -> (&'static str, String) {
 }
 
 pub(crate) trait SurfaceRuntimeFactory: Send + Sync {
-    /// Must stay cheap: nothing launches until the runtime is first used.
-    fn create(&self, owner_name: &str) -> Arc<dyn SurfaceRuntime>;
+    /// Must stay cheap: nothing launches until the runtime is first used, which applies `resume`.
+    fn create(&self, owner_name: &str, resume: Option<SurfaceResume>) -> Arc<dyn SurfaceRuntime>;
 }
 
 struct Instance {
@@ -187,12 +204,14 @@ impl SurfaceRuntimeRegistry {
         names
     }
 
+    /// The tab's live instance, or a new one seeded with `resume`; the flag says it was created.
     pub(crate) fn get_or_create(
         &self,
         tab_id: &str,
         runtime_name: &str,
         owner_name: &str,
-    ) -> Result<Arc<dyn SurfaceRuntime>, SurfaceError> {
+        resume: Option<SurfaceResume>,
+    ) -> Result<(Arc<dyn SurfaceRuntime>, bool), SurfaceError> {
         let factory = self
             .factories
             .get(runtime_name)
@@ -202,9 +221,9 @@ impl SurfaceRuntimeRegistry {
             .get(tab_id)
             .filter(|instance| instance.runtime_name == runtime_name)
         {
-            return Ok(instance.runtime.clone());
+            return Ok((instance.runtime.clone(), false));
         }
-        let runtime = factory.create(owner_name);
+        let runtime = factory.create(owner_name, resume);
         instances.insert(
             tab_id.to_string(),
             Instance {
@@ -212,7 +231,7 @@ impl SurfaceRuntimeRegistry {
                 runtime: runtime.clone(),
             },
         );
-        Ok(runtime)
+        Ok((runtime, true))
     }
 
     /// Removes every instance whose tab is gone; the caller disposes what it gets back.

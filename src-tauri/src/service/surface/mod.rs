@@ -4,6 +4,7 @@ mod agent_call;
 mod browser;
 mod model;
 mod ops;
+pub(crate) mod resume;
 pub(crate) mod runtime;
 mod stream_ops;
 mod transport;
