@@ -51,7 +51,7 @@ it("renders the selected document and lets a list entry open fullscreen or revea
   configureLocalArtifactOpener(async (path) => { revealed.push(path); });
   chatDocumentsStore.set("reader", documentsFromTranscript([{ content: "@ds-document /old.md\n@ds-document /new.md" }]));
   await render(<DocumentsPanel tabId="reader" panelRef={{ current: null }} state="open" onClose={() => {}} />);
-  const nav = host.querySelector("nav")!;
+  const nav = host.querySelector('nav[aria-label="Tab documents"]')!;
   expect(nav.querySelectorAll('button[role="treeitem"]')).toHaveLength(2);
   await act(async () => Array.from(nav.querySelectorAll("button")).find((item) => item.textContent?.includes("old.md"))?.click());
   expect(host.querySelector("h1")?.textContent).toBe("/old.md");
@@ -141,4 +141,23 @@ it("checks once again when an open panel is reopened during its close animation"
   expect(vi.mocked(invoke)).toHaveBeenCalledTimes(2);
   await act(async () => root?.render(panel("open")));
   expect(vi.mocked(invoke)).toHaveBeenCalledTimes(2);
+});
+
+it("switches from the document tree to Changes and opens Documents from the shared slot", async () => {
+  configureLocalArtifactLoader(async () => ({ data: "# Live", media_type: "text/markdown" }));
+  vi.mocked(invoke).mockResolvedValue({ paths: ["/live.md"], home: null });
+  chatDocumentsStore.set("shared", documentsFromTranscript([{ content: "@ds-document /live.md\n@ds-document /gone.md" }]));
+  planSidePanelStore.open({ planId: "", documentsTabId: "shared" });
+  await render(<><DocumentsButton tabId="shared" /><DocumentsPanel tabId="shared" panelRef={{ current: null }} state="open" onClose={() => {}} /></>);
+  expect(button("Documents (1)").getAttribute("aria-expanded")).toBe("true");
+  expect(host.querySelector('[aria-label="Open live.md"]')).toBeTruthy();
+  expect(host.querySelector('[aria-label="Open gone.md"]')).toBeNull();
+  const navigation = host.querySelector('nav[aria-label="Tab side panel views"]')!;
+  const changes = Array.from(navigation.querySelectorAll("button")).find((item) => item.textContent === "Changes")!;
+  await act(async () => changes.click());
+  expect(planSidePanelStore.get()?.target).toEqual({ planId: "", documentsTabId: "shared", tabView: "changes" });
+  expect(button("Documents (1)").getAttribute("aria-expanded")).toBe("false");
+  await act(async () => button("Documents (1)").click());
+  expect(planSidePanelStore.get()?.target).toEqual({ planId: "", documentsTabId: "shared" });
+  expect(button("Documents (1)").getAttribute("aria-expanded")).toBe("true");
 });

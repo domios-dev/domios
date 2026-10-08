@@ -7,6 +7,7 @@ import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
 import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 import { writeTerminalHistory } from "./terminalHistoryWrite";
+import { writeTerminalOutput } from "./terminalOutputWrite";
 import { writeTerminalInput } from "./terminalInputWrite";
 import {
   captureTerminalViewport,
@@ -285,7 +286,7 @@ export function usePtyConnection({
         };
         let cancelled = false;
         cancelActiveWrite = () => { cancelled = true; };
-        term.write(payload, () => {
+        writeTerminalOutput(term, payload, () => {
           if (!cancelled) completeWrite();
         });
 

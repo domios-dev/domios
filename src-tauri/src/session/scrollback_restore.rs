@@ -60,14 +60,22 @@ pub(crate) fn seed_scrollback_tail_before_link(
             reason: "backend_reader_already_attached",
         };
     }
+    let replay = shell_scrollback_replay(tail);
     let mut buffer = output_buf.lock();
     if buffer.total_written(pty_id) > 0 {
         return ScrollbackRestoreOutcome::Skipped {
             reason: "output_already_written",
         };
     }
-    buffer.prepend(pty_id, tail);
+    buffer.prepend(pty_id, &replay);
     ScrollbackRestoreOutcome::Seeded { bytes: tail.len() }
+}
+
+pub(crate) fn shell_scrollback_replay(tail: &[u8]) -> Vec<u8> {
+    let mut replay = tail.to_vec();
+    // The viewer knows its viewport size; ConPTY's spawn dimensions may differ.
+    replay.extend_from_slice(b"\x1b]777;codeterm;restored-shell-viewport\x07");
+    replay
 }
 
 #[cfg(test)]

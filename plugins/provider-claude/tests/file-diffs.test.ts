@@ -38,7 +38,7 @@ assert.equal(rows[10].blocks[0].data.text, "Both files are updated.", "records a
 const resultData = (index: number) => rows[index].blocks[0].data;
 assert.equal(rows[1].blocks[0].kind, "tool_result");
 assert.deepEqual(resultData(1).file_diffs, [{
-  path: "src/shared.ts",
+  path: "src/shared.ts", kind: "modify",
   additions: 1,
   deletions: 1,
   hunks: [{ oldStart: 1, oldLines: 3, newStart: 1, newLines: 3, lines: [" a", "-b", "+c", " d"] }],
@@ -49,7 +49,7 @@ assert.deepEqual(
   "hunk lines are the provider's own lines",
 );
 assert.deepEqual(resultData(3).file_diffs, [{
-  path: "src/created.ts",
+  path: "src/created.ts", kind: "add",
   additions: 2,
   deletions: 0,
   hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 2, lines: ["+x", "+y"] }],
@@ -76,6 +76,6 @@ assert.deepEqual(claudeFileDiffs(null), []);
 assert.deepEqual(claudeFileDiffs({ filePath: "src/x.ts" }), [], "a result without structuredPatch has no diff");
 assert.deepEqual(claudeFileDiffs({ type: "update", filePath: "src/x.ts", structuredPatch: [] }), [], "an empty patch on an update is not a diff");
 assert.deepEqual(claudeFileDiffs({ filePath: "src/x.ts", structuredPatch: [{ oldStart: "1", oldLines: 1, newStart: 1, newLines: 1, lines: ["+a"] }] }), [], "non-numeric hunk ranges are malformed");
-assert.deepEqual(claudeFileDiffs({ type: "create", filePath: "src/empty.ts", content: "", structuredPatch: [] }), [{ path: "src/empty.ts", additions: 0, deletions: 0, hunks: [] }]);
+assert.deepEqual(claudeFileDiffs({ type: "create", filePath: "src/empty.ts", content: "", structuredPatch: [] }), [{ path: "src/empty.ts", kind: "add", additions: 0, deletions: 0, hunks: [] }]);
 
 console.log("Claude file diff fixtures passed");

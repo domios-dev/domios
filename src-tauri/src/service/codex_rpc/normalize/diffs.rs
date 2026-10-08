@@ -68,7 +68,9 @@ pub(super) fn file_diffs(changes: Option<&Value>) -> Value {
         .filter_map(|change| {
             let path = change["path"].as_str()?;
             let kind = change["kind"]["type"].as_str()?;
-            let hunks = hunks(change["diff"].as_str()?, kind);
+            let diff = change["diff"].as_str()?;
+            let binary = diff.lines().any(|line| line.starts_with("Binary files") || line == "GIT binary patch");
+            let hunks = if binary { Vec::new() } else { hunks(diff, kind) };
             let count = |marker| {
                 hunks
                     .iter()
@@ -78,8 +80,16 @@ pub(super) fn file_diffs(changes: Option<&Value>) -> Value {
                     .filter(|line| line.starts_with(marker))
                     .count()
             };
-            Some(json!({"path":path,"movePath":change["kind"]["move_path"],
-            "additions":count('+'),"deletions":count('-'),"hunks":hunks}))
+            let mut result = json!({"path":path,"kind": if kind == "update" { "modify" } else { kind },
+                "additions":count('+'),"deletions":count('-'),"hunks":hunks});
+            if let Some(destination) = change["kind"]["move_path"].as_str() {
+                result["movePath"] = json!(destination);
+                result["kind"] = json!("rename");
+            }
+            if binary {
+                result["binary"] = json!(true);
+            }
+            Some(result)
         })
         .collect();
     json!(diffs)
