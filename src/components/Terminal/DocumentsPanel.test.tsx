@@ -2,14 +2,18 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { configureLocalArtifactLoader, configureLocalArtifactOpener, LocalArtifactBlock, RichMarkdown } from "@codeterm/chat-ui";
-import { DocumentsButton, DocumentsPanel } from "./DocumentsPanel";
+import { DocumentsButton } from "./DocumentsPanel";
 import { chatDocumentsStore } from "./chatDocumentsStore";
 import { planSidePanelStore } from "../Canvas/planSidePanelStore";
 import { documentsFromTranscript } from "./chatDocuments";
+import { composerInsertionStore } from "./composerInsertion";
+import { TabSidePanel } from "./tabPanel/TabSidePanel";
+import { tabPanelNavigationStore } from "./tabPanel/tabPanelNavigation";
+import { themeToCSS, DEFAULT_THEME } from "../../lib/themeCss";
 
 vi.mock("../../lib/bridge", () => ({ invoke: vi.fn() }));
 import { invoke } from "../../lib/bridge";
-beforeEach(() => { vi.mocked(invoke).mockImplementation(async (_command, args) => ({ paths: args?.paths ?? [], home: null })); });
+beforeEach(() => { vi.mocked(invoke).mockImplementation(async (_command, args) => ({ paths: (args as { paths?: string[] })?.paths ?? [], home: null })); });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | null = null;
@@ -21,15 +25,22 @@ async function render(ui: ReactElement) {
 }
 function button(label: string) {
   const result = Array.from(document.querySelectorAll("button")).find((element) => element.getAttribute("aria-label") === label);
-  expect(result).toBeTruthy();
+  expect(result, label).toBeTruthy();
   return result!;
 }
+const key = async (code: string, target: Element | null = document.activeElement) => {
+  await act(async () => target?.dispatchEvent(new KeyboardEvent("keydown", { code, bubbles: true, cancelable: true })));
+};
+const panel = (tabId: string, onClose = () => {}, state: "open" | "closing" | "entering" = "open") =>
+  <TabSidePanel tabId={tabId} view="documents" panelRef={{ current: null }} state={state} onClose={onClose} />;
 afterEach(async () => {
   await act(async () => root?.unmount()); root = null; host?.remove();
-  planSidePanelStore.close(); planSidePanelStore.resetDocuments(); chatDocumentsStore.clear(); vi.clearAllMocks();
+  planSidePanelStore.close(); planSidePanelStore.resetDocuments(); chatDocumentsStore.clear(); tabPanelNavigationStore.clear(); composerInsertionStore.clear(); vi.clearAllMocks();
   configureLocalArtifactLoader(null); configureLocalArtifactOpener(null);
+  document.documentElement.removeAttribute("style");
 });
-it("hides the header control for an empty transcript and opens the document slot with the deduplicated count", async () => {
+
+it("hides the header control for an empty transcript and opens the panel with a deduplicated count", async () => {
   chatDocumentsStore.set("docs", []);
   await render(<DocumentsButton tabId="docs" />);
   expect(host.querySelector("button")).toBeNull();
@@ -37,6 +48,7 @@ it("hides the header control for an empty transcript and opens the document slot
   await act(async () => button("Documents (2)").click());
   expect(planSidePanelStore.get()?.target.documentsTabId).toBe("docs");
 });
+
 it("remembers each tab's open state without reopening a dismissed panel", () => {
   planSidePanelStore.open({ planId: "", documentsTabId: "a" });
   planSidePanelStore.activateTab("b"); expect(planSidePanelStore.get()).toBeNull();
@@ -45,23 +57,150 @@ it("remembers each tab's open state without reopening a dismissed panel", () => 
   planSidePanelStore.activateTab("a"); expect(planSidePanelStore.get()?.target.documentsTabId).toBe("a");
   planSidePanelStore.activateTab("b"); expect(planSidePanelStore.get()).toBeNull();
 });
-it("renders the selected document and lets a list entry open fullscreen or reveal its file", async () => {
-  const revealed: string[] = [];
+
+it("opens a document from the tree into a reader, and Back, Escape or Backspace return to the focused row", async () => {
+  const onClose = vi.fn();
   configureLocalArtifactLoader(async (path) => ({ data: `# ${path}`, media_type: "text/markdown" }));
-  configureLocalArtifactOpener(async (path) => { revealed.push(path); });
-  chatDocumentsStore.set("reader", documentsFromTranscript([{ content: "@ds-document /old.md\n@ds-document /new.md" }]));
-  await render(<DocumentsPanel tabId="reader" panelRef={{ current: null }} state="open" onClose={() => {}} />);
-  const nav = host.querySelector('nav[aria-label="Tab documents"]')!;
-  expect(nav.querySelectorAll('button[role="treeitem"]')).toHaveLength(2);
-  await act(async () => Array.from(nav.querySelectorAll("button")).find((item) => item.textContent?.includes("old.md"))?.click());
-  expect(host.querySelector("h1")?.textContent).toBe("/old.md");
-  await act(async () => button("Fullscreen new.md").click());
-  expect(document.querySelector('[role="dialog"][aria-label="Fullscreen new.md"] h1')?.textContent).toBe("/new.md");
-  await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })));
-  expect(document.querySelector('[aria-label="Fullscreen new.md"][role="dialog"]')).toBeNull();
-  await act(async () => button("Reveal old.md").click());
-  expect(revealed).toEqual(["/old.md"]);
+  chatDocumentsStore.set("reader", documentsFromTranscript([{ content: "@ds-document /work/old.md\n@ds-document /work/new.md" }]));
+  await render(panel("reader", onClose));
+  expect(host.querySelectorAll('[role="tree"] [role="treeitem"]')).toHaveLength(3);
+  await act(async () => button("Open old.md").click());
+  expect(host.querySelector('[role="tree"]')).toBeNull();
+  expect(host.querySelector("h1")?.textContent).toBe("/work/old.md");
+  expect(host.querySelector('nav[aria-label="Path"]')?.textContent).toContain("old.md");
+  await act(async () => button("Back to list").click());
+  expect(document.activeElement).toBe(button("Open old.md"));
+  await act(async () => button("Open new.md").click());
+  await key("Escape", host.querySelector("h1"));
+  expect(onClose).not.toHaveBeenCalled();
+  expect(document.activeElement).toBe(button("Open new.md"));
+  await act(async () => button("Open new.md").click());
+  await key("Backspace", button("Back to list"));
+  expect(host.querySelector('[role="tree"]')).toBeTruthy();
+  await key("Escape", button("Open new.md"));
+  expect(onClose).toHaveBeenCalledTimes(1);
 });
+
+it("keeps the open document per tab across remounts", async () => {
+  configureLocalArtifactLoader(async () => ({ data: "# Kept", media_type: "text/markdown" }));
+  chatDocumentsStore.set("kept", documentsFromTranscript([{ content: "@ds-document /kept.md" }]));
+  await render(panel("kept"));
+  await act(async () => button("Open kept.md").click());
+  await act(async () => root?.unmount());
+  root = createRoot(host);
+  await act(async () => root?.render(panel("kept")));
+  expect(host.querySelector("h1")?.textContent).toBe("Kept");
+});
+
+it("moves focus through visible rows, opens with Enter and collapses folders with the arrows", async () => {
+  configureLocalArtifactLoader(async (path) => ({ data: `# ${path}`, media_type: "text/markdown" }));
+  chatDocumentsStore.set("keys", documentsFromTranscript([{ content: "@ds-document /work/a.md\n@ds-document /work/b.md" }]));
+  await render(panel("keys"));
+  await act(async () => button("/work").focus());
+  await key("ArrowDown");
+  expect(document.activeElement).toBe(button("Open a.md"));
+  await key("End");
+  expect(document.activeElement).toBe(button("Open b.md"));
+  await key("ArrowLeft");
+  expect(document.activeElement).toBe(button("/work"));
+  await key("ArrowLeft");
+  expect(host.querySelectorAll('[role="treeitem"]')).toHaveLength(1);
+  await key("ArrowRight");
+  expect(host.querySelectorAll('[role="treeitem"]')).toHaveLength(3);
+  await key("ArrowDown");
+  await key("Enter");
+  expect(host.querySelector("h1")?.textContent).toBe("/work/a.md");
+});
+
+it("reader actions open fullscreen, reveal, copy the path and content, and add the document to chat without sending", async () => {
+  const revealed: string[] = [];
+  const writeText = vi.fn(async () => {});
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  configureLocalArtifactLoader(async () => ({ data: "# Report\n\nBody line", media_type: "text/markdown" }));
+  configureLocalArtifactOpener(async (path) => { revealed.push(path); });
+  chatDocumentsStore.set("actions", documentsFromTranscript([{ content: "@ds-document /report.md" }]));
+  await render(panel("actions"));
+  await act(async () => button("Open report.md").click());
+  await act(async () => button("Fullscreen report.md").click());
+  expect(document.querySelector('[role="dialog"][aria-label="Fullscreen report.md"] h1')?.textContent).toBe("Report");
+  await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })));
+  await act(async () => button("Reveal report.md").click());
+  expect(revealed).toEqual(["/report.md"]);
+  await act(async () => button("Copy path").click());
+  await act(async () => button("Copy content").click());
+  expect(writeText.mock.calls).toEqual([["/report.md"], ["# Report\n\nBody line"]]);
+  await act(async () => button("Ask about report.md").click());
+  expect(composerInsertionStore.take("actions")).toEqual([{ attachments: ["/report.md"] }]);
+});
+
+it("selected reader text offers Copy and Add to chat with a file line reference", async () => {
+  configureLocalArtifactLoader(async () => ({ data: "# Title\n\nFirst paragraph here.", media_type: "text/markdown" }));
+  chatDocumentsStore.set("select", documentsFromTranscript([{ content: "@ds-document /notes.md" }]));
+  await render(panel("select"));
+  await act(async () => button("Open notes.md").click());
+  const paragraph = Array.from(host.querySelectorAll("p")).find((item) => item.textContent === "First paragraph here.")!;
+  await act(async () => {
+    const range = document.createRange();
+    range.selectNodeContents(paragraph);
+    document.getSelection()?.removeAllRanges();
+    document.getSelection()?.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  const toolbar = host.querySelector('[role="toolbar"][aria-label="Selected text"]')!;
+  expect(toolbar).toBeTruthy();
+  await act(async () => Array.from(toolbar.querySelectorAll("button")).find((item) => item.textContent === "Add to chat")?.click());
+  expect(composerInsertionStore.take("select")).toEqual([{ text: "From `/notes.md:3`:\n> First paragraph here." }]);
+});
+
+it("skips missing files and checks again when the panel is reopened during its close animation", async () => {
+  let paths = ["/work/live.md"];
+  vi.mocked(invoke).mockImplementation(async () => ({ paths, home: null }));
+  configureLocalArtifactLoader(async () => ({ data: "# Existing", media_type: "text/markdown" }));
+  chatDocumentsStore.set("missing", documentsFromTranscript([{ content: "@ds-document /work/gone.md\n@ds-document /work/live.md" }]));
+  await render(<><DocumentsButton tabId="missing" />{panel("missing")}</>);
+  expect(button("Documents (1)")).toBeTruthy();
+  expect(host.querySelector('[aria-label="Open gone.md"]')).toBeNull();
+  const calls = vi.mocked(invoke).mock.calls.length;
+  await act(async () => root?.render(<><DocumentsButton tabId="missing" />{panel("missing", () => {}, "closing")}</>));
+  expect(vi.mocked(invoke).mock.calls.length).toBe(calls);
+  paths = [];
+  await act(async () => root?.render(<><DocumentsButton tabId="missing" />{panel("missing", () => {}, "entering")}</>));
+  expect(vi.mocked(invoke).mock.calls.length).toBe(calls + 1);
+  expect(host.querySelector('[aria-label^="Documents ("]')).toBeNull();
+  expect(host.textContent).toContain("Documents the agent shows in this tab appear here.");
+});
+
+it("switches views from the segmented control in the shared slot", async () => {
+  vi.mocked(invoke).mockResolvedValue({ paths: ["/live.md"], home: null });
+  chatDocumentsStore.set("shared", documentsFromTranscript([{ content: "@ds-document /live.md" }]));
+  planSidePanelStore.open({ planId: "", documentsTabId: "shared" });
+  await render(<><DocumentsButton tabId="shared" />{panel("shared")}</>);
+  expect(button("Documents (1)").getAttribute("aria-expanded")).toBe("true");
+  const tabs = host.querySelector('[role="tablist"][aria-label="Side panel view"]')!;
+  const changes = tabs.querySelector<HTMLButtonElement>('[role="tab"][data-value="changes"]')!;
+  expect(tabs.querySelector('[role="tab"][data-value="documents"]')?.getAttribute("aria-selected")).toBe("true");
+  await act(async () => changes.click());
+  expect(planSidePanelStore.get()?.target).toEqual({ planId: "", documentsTabId: "shared", tabView: "changes" });
+  expect(button("Documents (1)").getAttribute("aria-expanded")).toBe("false");
+});
+
+it("renders both views under light and dark themes without errors", async () => {
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  configureLocalArtifactLoader(async () => ({ data: "# Themed", media_type: "text/markdown" }));
+  chatDocumentsStore.set("themed", documentsFromTranscript([{ content: "@ds-document /themed.md" }]));
+  const light = { ...DEFAULT_THEME, name: "light", background: "#ffffff", foreground: "#24292f", black: "#24292f", bright_black: "#6e7781", white: "#ffffff", bright_white: "#ffffff" };
+  for (const theme of [DEFAULT_THEME, light]) {
+    for (const [name, value] of Object.entries(themeToCSS(theme))) document.documentElement.style.setProperty(name, value);
+    for (const view of ["documents", "changes"] as const) {
+      await render(<TabSidePanel tabId="themed" view={view} panelRef={{ current: null }} state="open" onClose={() => {}} />);
+      expect(host.querySelector(`[data-testid="tab-side-panel"][data-view="${view}"]`)).toBeTruthy();
+      await act(async () => root?.unmount()); root = null; host.remove();
+    }
+  }
+  expect(errors).not.toHaveBeenCalled();
+  errors.mockRestore();
+});
+
 it("the embedded document fullscreen closes with Escape and restores its opener", async () => {
   configureLocalArtifactLoader(async () => ({ data: "# Readable document", media_type: "text/markdown" }));
   await render(<LocalArtifactBlock directive={{ kind: "document", path: "/report.md" }} renderMarkdown={(text) => <RichMarkdown text={text} />} />);
@@ -71,93 +210,4 @@ it("the embedded document fullscreen closes with Escape and restores its opener"
   await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })));
   expect(document.querySelector('[role="dialog"]')).toBeNull();
   expect(document.activeElement).toBe(opener);
-});
-
-
-it("skips missing files in both the badge and tree, and hides the icon after the last file disappears", async () => {
-  let paths = ["/work/live.md"];
-  vi.mocked(invoke).mockImplementation(async () => ({ paths, home: null }));
-  chatDocumentsStore.set("missing", documentsFromTranscript([{ content: "@ds-document /work/gone.md\n@ds-document /work/live.md" }]));
-  configureLocalArtifactLoader(async () => ({ data: "# Existing", media_type: "text/markdown" }));
-  await render(<><DocumentsButton tabId="missing" /><DocumentsPanel tabId="missing" panelRef={{ current: null }} state="open" onClose={() => {}} /></>);
-  expect(button("Documents (1)")).toBeTruthy();
-  expect(host.querySelector('[aria-label="Open gone.md"]')).toBeNull();
-  expect(host.querySelector('[aria-label="Open live.md"]')).toBeTruthy();
-  paths = [];
-  await act(async () => { await chatDocumentsStore.refresh("missing"); });
-  expect(host.querySelector('[aria-label^="Documents ("]')).toBeNull();
-  expect(host.querySelector('[aria-label="Open live.md"]')).toBeNull();
-});
-
-it("moves focus through visible rows, opens with Enter, collapses folders and opens fullscreen with Space", async () => {
-  configureLocalArtifactLoader(async (path) => ({ data: `# ${path}`, media_type: "text/markdown" }));
-  chatDocumentsStore.set("keys", documentsFromTranscript([{ content: "@ds-document /work/a.md\n@ds-document /work/b.md" }]));
-  await render(<DocumentsPanel tabId="keys" panelRef={{ current: null }} state="open" onClose={() => {}} />);
-  const key = async (code: string) => { await act(async () => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { code, bubbles: true }))); };
-  await act(async () => button("/work").focus());
-  await key("ArrowDown");
-  expect(document.activeElement).toBe(button("Open a.md"));
-  await key("Enter");
-  expect(button("Open a.md").getAttribute("aria-selected")).toBe("true");
-  expect(host.querySelector("h1")?.textContent).toBe("/work/a.md");
-  await key("ArrowDown");
-  expect(document.activeElement).toBe(button("Open b.md"));
-  await key("Space");
-  expect(document.querySelector('[role="dialog"][aria-label="Fullscreen b.md"] h1')?.textContent).toBe("/work/b.md");
-  await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })));
-  await act(async () => button("/work").focus());
-  await key("ArrowLeft");
-  expect(host.querySelectorAll('[role="treeitem"]')).toHaveLength(1);
-  await key("ArrowRight");
-  expect(host.querySelectorAll('[role="treeitem"]')).toHaveLength(3);
-});
-
-it("keeps file actions reachable on keyboard focus and reveals the selected file once", async () => {
-  const revealed: string[] = [];
-  configureLocalArtifactLoader(async () => ({ data: "# Report", media_type: "text/markdown" }));
-  configureLocalArtifactOpener(async (path) => { revealed.push(path); });
-  chatDocumentsStore.set("actions", documentsFromTranscript([{ content: "@ds-document /report.md", timestamp: "2026-10-01T10:00:00Z" }]));
-  await render(<DocumentsPanel tabId="actions" panelRef={{ current: null }} state="open" onClose={() => {}} />);
-  await act(async () => button("Open report.md").focus());
-  const reveal = button("Reveal report.md");
-  expect(reveal.tabIndex).toBe(0);
-  await act(async () => { reveal.focus(); reveal.click(); });
-  expect(revealed).toEqual(["/report.md"]);
-  expect(button("Open report.md").title).toContain("/report.md\nLast shown:");
-});
-
-it("checks once again when an open panel is reopened during its close animation", async () => {
-  configureLocalArtifactLoader(async () => ({ data: "# Live", media_type: "text/markdown" }));
-  chatDocumentsStore.set("reopen", documentsFromTranscript([{ content: "@ds-document /live.md" }]));
-  await chatDocumentsStore.refresh("reopen");
-  vi.mocked(invoke).mockClear();
-  const panelRef = { current: null };
-  const panel = (state: "open" | "closing" | "entering") => <DocumentsPanel tabId="reopen" panelRef={panelRef} state={state} onClose={() => {}} />;
-  await render(panel("open"));
-  expect(vi.mocked(invoke)).toHaveBeenCalledTimes(1);
-  await act(async () => root?.render(panel("closing")));
-  expect(vi.mocked(invoke)).toHaveBeenCalledTimes(1);
-  await act(async () => root?.render(panel("entering")));
-  expect(vi.mocked(invoke)).toHaveBeenCalledTimes(2);
-  await act(async () => root?.render(panel("open")));
-  expect(vi.mocked(invoke)).toHaveBeenCalledTimes(2);
-});
-
-it("switches from the document tree to Changes and opens Documents from the shared slot", async () => {
-  configureLocalArtifactLoader(async () => ({ data: "# Live", media_type: "text/markdown" }));
-  vi.mocked(invoke).mockResolvedValue({ paths: ["/live.md"], home: null });
-  chatDocumentsStore.set("shared", documentsFromTranscript([{ content: "@ds-document /live.md\n@ds-document /gone.md" }]));
-  planSidePanelStore.open({ planId: "", documentsTabId: "shared" });
-  await render(<><DocumentsButton tabId="shared" /><DocumentsPanel tabId="shared" panelRef={{ current: null }} state="open" onClose={() => {}} /></>);
-  expect(button("Documents (1)").getAttribute("aria-expanded")).toBe("true");
-  expect(host.querySelector('[aria-label="Open live.md"]')).toBeTruthy();
-  expect(host.querySelector('[aria-label="Open gone.md"]')).toBeNull();
-  const navigation = host.querySelector('nav[aria-label="Tab side panel views"]')!;
-  const changes = Array.from(navigation.querySelectorAll("button")).find((item) => item.textContent === "Changes")!;
-  await act(async () => changes.click());
-  expect(planSidePanelStore.get()?.target).toEqual({ planId: "", documentsTabId: "shared", tabView: "changes" });
-  expect(button("Documents (1)").getAttribute("aria-expanded")).toBe("false");
-  await act(async () => button("Documents (1)").click());
-  expect(planSidePanelStore.get()?.target).toEqual({ planId: "", documentsTabId: "shared" });
-  expect(button("Documents (1)").getAttribute("aria-expanded")).toBe("true");
 });

@@ -76,5 +76,6 @@
   "src/components/Terminal/NewSessionPicker.modal.test.tsx",
   "src/components/Terminal/DocumentsPanel.test.tsx",
   "src/components/Terminal/ChangesPanel.test.tsx",
+  "src/components/Terminal/ChatComposer.insertion.test.tsx",
   "src/components/Terminal/useChatMessageReveal.test.tsx"
 ]
