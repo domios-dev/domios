@@ -228,6 +228,9 @@ pub(crate) fn goto_href(target: &str) -> Result<String, String> {
         return Ok(target.to_string());
     }
     let lower = target.to_ascii_lowercase();
+    if lower.starts_with("about:") || lower.starts_with("data:") {
+        return Ok(target.to_string());
+    }
     if lower.starts_with("localhost") || lower.starts_with("127.0.0.1") {
         return Ok(format!("http://{target}"));
     }
