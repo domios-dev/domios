@@ -685,6 +685,8 @@ const HTTP_MAP: Record<string, Mapper> = {
       `/api/essence-source?project=${enc(s(a, "projectPath"))}&path=${enc(s(a, "sourcePath"))}`,
     ),
   list_agent_providers: () => webJson("GET", "/api/agents/providers"),
+  refresh_provider_models: (a) =>
+    webJson("POST", "/api/agents/providers/refresh", { provider_id: s(a, "providerId") ?? s(a, "provider_id") }),
   model_provider_manage: (a) => localJson(
     "POST",
     a.providerId ? `/api/model-providers?provider=${encodeURIComponent(String(a.providerId))}` : "/api/model-providers",
