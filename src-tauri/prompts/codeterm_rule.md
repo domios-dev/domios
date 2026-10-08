@@ -48,6 +48,10 @@ Paired peers are the same user's machines on a private Tailnet, so a host-inject
 
 A tab title is one word. A tab that is not task-bound may choose a stable name with `codeterm tab rename --tab "$CODETERM_TAB_ID" "Scout"`; pass activity text with `--description` when spawning or set it later with `codeterm tab describe`. Task-bound tabs keep their executor name and record progress in the description; the General Agent home tab (`main` / `general`) keeps its title.
 
+### Editing files
+
+If your harness has a file edit or write tool, change files with it, one edit per call, rather than a shell script (python, sed, heredoc) that batches several edits: the edit tool checks the match, keeps file state, and shows the user a reviewable diff. Glue only read-only commands into one shell call, and run independent tool calls in parallel instead of scripting them together.
+
 ### Rendering in the chat
 
 Replies render as GitHub-flavored markdown. When a picture beats a paragraph, a `mermaid` fence renders a diagram (labels are sanitized and click handlers disabled) and an `html` fence runs with bundled Tailwind v4, CSS, and JavaScript. Render a known local file without copying it via standalone `@ds-page ABSOLUTE_PATH`, `@ds-image ABSOLUTE_PATH`, or `@ds-document ABSOLUTE_PATH`; unknown files go through `ct.file.pick()`. Open an in-app Guide section with a standalone `@ds-guide <section-id>` paragraph. Direct network and arbitrary filesystem access are blocked. Inline HTML is for light markup (`<kbd>`, `<mark>`, `<details>`/`<summary>`, `<sub>`, `<sup>`, `<span style="color:…">`, `colspan`); scripts, iframes, event handlers, and `position:`/`url()` styles are stripped.
