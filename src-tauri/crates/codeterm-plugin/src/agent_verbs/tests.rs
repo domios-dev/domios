@@ -137,3 +137,43 @@ fn a_changed_manifest_replaces_the_item() {
         .contains("codeterm plugin opaque-plugin zz-gamma"));
     assert!(plan.removals.is_empty());
 }
+
+const GUIDE_TOKEN: &str = "guide-token-q7";
+
+#[test]
+fn a_catalog_without_a_guide_composes_the_unguided_body() {
+    let plain = compose_plugin_skill(&catalog("opaque-plugin"));
+    for absent in [None, Some("  \n".to_string())] {
+        let item = compose_plugin_skill(&catalog("opaque-plugin").with_guide(absent));
+        assert_eq!(item, plain);
+    }
+    assert!(!plain.body.contains(AGENT_GUIDE_HEADING));
+}
+
+#[test]
+fn a_guide_is_appended_after_the_unguided_body() {
+    let plain = compose_plugin_skill(&catalog("opaque-plugin"));
+    let guided = compose_plugin_skill(
+        &catalog("opaque-plugin").with_guide(Some(format!("\n{GUIDE_TOKEN}\n"))),
+    );
+    assert!(guided.body.starts_with(&plain.body));
+    let tail = &guided.body[plain.body.len()..];
+    assert_eq!(tail, format!("{AGENT_GUIDE_HEADING}{GUIDE_TOKEN}\n"));
+    assert_eq!(guided.title, plain.title);
+    assert_eq!(guided.source, plain.source);
+}
+
+#[test]
+fn a_changed_guide_replaces_the_item_and_an_unchanged_one_does_not() {
+    let unguided = compose_plugin_skill(&catalog("opaque-plugin"));
+    let guided = [catalog("opaque-plugin").with_guide(Some(GUIDE_TOKEN.to_string()))];
+    let plan = plan_plugin_skill_sync(&guided, &[stored(&unguided, "mem-1")]);
+    assert_eq!(plan.upserts.len(), 1);
+    assert!(plan.upserts[0].body.contains(GUIDE_TOKEN));
+
+    let current = stored(&plan.upserts[0], "mem-1");
+    assert_eq!(
+        plan_plugin_skill_sync(&guided, &[current]),
+        PluginSkillPlan::default()
+    );
+}
