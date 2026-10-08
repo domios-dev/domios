@@ -658,7 +658,8 @@ function ChatComposerImpl({
               color: "var(--ct-fg, #c9d1d9)",
               border: "none",
               lineHeight: `${COMPOSER_MIN_HEIGHT}px`,
-              margin: 0,
+              // Margin, not padding: padding would feed back into the scrollHeight autosize.
+              margin: composerLayout.editorPx > COMPOSER_MIN_HEIGHT ? "8px 0" : 0,
               overflowY: "auto",
             }}
           />
