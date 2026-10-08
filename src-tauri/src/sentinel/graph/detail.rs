@@ -62,7 +62,7 @@ fn definition(job: &Sentinel) -> Value {
             }
         }
     }
-    let definition = json!({"probe":(!job.probe.is_empty()).then_some(probe),"probe_truncated":probe_truncated,
+    let definition = json!({"probe":(!job.probe.is_empty()).then_some(probe),"probe_truncated":probe_truncated,"language":if cfg!(windows) {"powershell"} else {"bash"},
         "question":question,"buckets":buckets,"commands":commands});
     if definition.to_string().len() > MAX_DEFINITION_BYTES {
         json!({"unavailable":"definition_exceeds_v1_bounds"})
@@ -121,7 +121,7 @@ pub(super) fn project(
         "creator":if job.creator_tab_id.is_empty() {Value::Null} else {json!({"tab_id":job.creator_tab_id,"name":creator_name})},
         "team":job.team_id.as_ref().map(|id| json!({"id":id,"name":team_name})),
         "observe_target":if job.input.is_some() {None} else {job.observe.as_ref()},"next_check_at_ms":scheduled.then_some(job.next_run),
-        "definition":if exact_scope && team.is_some() {definition(job)} else {json!({"unavailable":"team_view_required"})},
+        "definition":if exact_scope {definition(job)} else {json!({"unavailable":"team_view_required"})},
         "decisions":{"history_complete":history_complete,"adapter_used":adapter_used}})
 }
 

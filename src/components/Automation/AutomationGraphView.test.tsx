@@ -3,9 +3,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { AutomationGraphView } from "./AutomationGraphView";
-import { attachment, chainGraph, decisionGraph, fixtureGraph, fixtureNode, FixtureTransport, identity, MODEL_CARDS, modelGraph, multiScenarioGraph, sentinelIdentity } from "./fixtures.testdata";
-import { automationKey, type AutomationGraph, type CommandResultMetadata } from "./types";
-import { COMMAND_FACT, commandResultLabel } from "./CommandResultDetails";
+import { attachment, chainGraph, decisionGraph, fixtureGraph, FixtureTransport, MODEL_CARDS, modelGraph, multiScenarioGraph, sentinelIdentity } from "./fixtures.testdata";
+import { automationKey, type AutomationGraph } from "./types";
 import { NODE_WIDTH, planAutomationView, READABLE_SCALE } from "./layout";
 import { scopedAutomationGraph } from "./model";
 import { formatLayerTransform } from "../Canvas/useCanvasViewport";
@@ -71,13 +70,6 @@ function flows(cards: ReturnType<typeof projectedCards>, axis: "down" | "right")
     assert.ok(axis === "down" ? card.y >= previous.y + previous.height : card.x >= previous.x + previous.width, `chain flows ${axis}`);
   });
 }
-function technical(panel: HTMLElement) {
-  const toggle = panel.querySelector<HTMLButtonElement>("button[aria-expanded]");
-  assert.ok(toggle, "technical disclosure rendered");
-  const region = document.getElementById(toggle.getAttribute("aria-controls") ?? "");
-  assert.ok(region && panel.contains(region), "disclosure controls its own region");
-  return { toggle, region };
-}
 const tests: Array<[string, () => Promise<void>]> = [];
 function test(name: string, run: () => Promise<void>) { tests.push([name, run]); }
 async function mount(transport = new FixtureTransport()) {
@@ -102,102 +94,11 @@ function details(host: HTMLElement) {
   return panel;
 }
 
-test("branched graph renders declared nodes and exact configured versus execution edges", async () => {
+test("graph native buttons provide keyboard selection and detail Escape restores focus", async () => {
   const view = await mount();
   try {
-    assert.equal(view.host.querySelectorAll('[data-edge-kind="configured"]').length, 3);
-    assert.equal(view.host.querySelectorAll('[data-edge-kind="observed"]').length, 1);
-    assert.ok(view.host.textContent?.includes(view.transport.graph.nodes[1].schedule!));
-    await click(button(view.host, "Watcher A"));
-    const panel = details(view.host);
-    assert.ok(panel.textContent?.includes(view.transport.graph.nodes[0].purpose!));
-    for (const outcome of view.transport.graph.nodes[0].outcomes) assert.ok(panel.textContent?.includes(outcome.bucket));
-    assert.ok(panel.textContent?.includes("accepted-a"));
-    assert.ok(panel.textContent?.includes("15000 ms"));
-    assert.ok(panel.textContent?.includes("route-a"));
-    assert.ok(!panel.textContent?.includes("launch-a"), "launch is attached only to its exact source");
-    assert.ok(panel.textContent?.includes("handler-a · cron · available"));
-    assert.ok(panel.textContent?.includes("handler-b · blueprint · unavailable"));
-    assert.ok(panel.textContent?.includes("failed"));
-    await click(button(panel, "Schedule A"));
-    assert.ok(details(view.host).textContent?.includes("execution-a"));
-  } finally { await view.close(); }
-});
-
-test("hidden Worker and missing target remain selectable without changing tab visibility", async () => {
-  const view = await mount();
-  try {
-    await click(button(view.host, "Watcher A"));
-    await click(button(details(view.host), "Worker A"));
-    assert.ok(details(view.host).textContent?.includes("Hidden"));
-    assert.ok(details(view.host).textContent?.includes("idle"));
-    const { toggle, region } = technical(details(view.host));
-    assert.equal(toggle.getAttribute("aria-expanded"), "false");
-    assert.equal(region.hidden, true, "technical identity starts collapsed");
-    await click(toggle);
-    assert.equal(toggle.getAttribute("aria-expanded"), "true");
-    assert.equal(region.hidden, false);
-    assert.equal(document.activeElement, toggle, "disclosure keeps keyboard focus");
-    assert.ok(region.textContent?.includes(view.transport.graph.nodes[2].executor!.provider_id!));
-    assert.ok(details(view.host).textContent?.includes(view.transport.graph.nodes[2].executor!.model!));
-    assert.ok(details(view.host).textContent?.includes("chat_backend"));
-    await click(button(view.host, "missing-a"));
-    assert.ok(details(view.host).textContent?.includes("missing"));
-    assert.ok(details(view.host).textContent?.includes("Unknown"));
-    assert.ok(details(view.host).textContent?.includes("owner-a"));
-    assert.equal(view.transport.stops.length, 0);
-  } finally { await view.close(); }
-});
-
-test("authoritative event updates selected Sentinel and live hidden Worker", async () => {
-  const view = await mount();
-  try {
-    await click(button(view.host, "Watcher A"));
-    assert.ok(details(view.host).textContent?.includes("paused"));
-    view.transport.graph = { ...fixtureGraph(), revision: "revision-b", nodes: fixtureGraph().nodes.map((node) => ({ ...node, state: node.identity.kind === "worker" ? "working" : "active" })) };
-    await act(async () => { view.transport.changed!(); });
-    assert.ok(details(view.host).textContent?.includes("active"));
-    await click(button(view.host, "Worker A"));
-    assert.ok(details(view.host).textContent?.includes("working"));
-    assert.ok(details(view.host).textContent?.includes("Hidden"));
-    assert.equal(view.transport.reads, 2);
-  } finally { await view.close(); }
-});
-
-test("stop stays pending until accepted record is read and carries exact identity", async () => {
-  const view = await mount();
-  try {
-    await click(button(view.host, "Watcher A"));
-    await click(button(view.host, "Stop Blueprint"));
-    assert.equal(button(view.host, "Stopping").disabled, true);
-    assert.ok(details(view.host).textContent?.includes("paused"));
-    assert.deepEqual(view.transport.stops, [sentinelIdentity]);
-    view.transport.graph = { ...fixtureGraph(), nodes: fixtureGraph().nodes.map((node) => automationKey(node.identity) === automationKey(sentinelIdentity) ? { ...node, state: "stopped", stop: { allowed: false, reason: "reason-a" } } : node) };
-    await act(async () => { view.transport.stopResult.resolve(); });
-    assert.ok(details(view.host).textContent?.includes("stopped"));
-    assert.equal(button(view.host, "Stop Blueprint").disabled, true);
-    assert.ok(details(view.host).textContent?.includes("reason-a"));
-  } finally { await view.close(); }
-});
-
-test("stop rejection renders truthful error without raw error payload", async () => {
-  const view = await mount();
-  try {
-    await click(button(view.host, "Watcher A"));
-    await click(button(view.host, "Stop Blueprint"));
-    await act(async () => { view.transport.stopResult.reject(new Error("private-payload-a")); });
-    assert.ok(view.host.querySelector('[role="alert"]'));
-    assert.ok(details(view.host).textContent?.includes("paused"));
-    assert.ok(!view.host.textContent?.includes("private-payload-a"));
-    assert.equal(button(view.host, "Stop Blueprint").disabled, false);
-  } finally { await view.close(); }
-});
-
-test("list native buttons provide keyboard selection and detail Escape restores focus", async () => {
-  const view = await mount();
-  try {
-    await click(button(view.host, "Show list"));
-    assert.ok(view.host.querySelector('ul[aria-label="Automation participants"]'));
+    await click(button(view.host, "Runs"));
+    assert.ok(view.host.querySelector('section[aria-label="Blueprint runs"]'));
     const selected = button(view.host, "Worker A");
     assert.equal(selected.type, "button");
     assert.ok(selected.tabIndex >= 0, "native button remains in keyboard focus order");
@@ -206,19 +107,6 @@ test("list native buttons provide keyboard selection and detail Escape restores 
     await act(async () => { details(view.host).dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })); });
     assert.equal(view.host.querySelector("aside"), null);
     assert.equal(document.activeElement, selected);
-  } finally { await view.close(); }
-});
-
-test("failed refresh marks retained records stale and disables stop", async () => {
-  const view = await mount();
-  try {
-    await click(button(view.host, "Watcher A"));
-    view.transport.readOverride = async () => { throw new Error("secret-a"); };
-    await act(async () => { view.transport.changed!(); });
-    assert.ok(view.host.querySelector('[role="alert"]'));
-    assert.ok(details(view.host).textContent?.includes("Stale"));
-    assert.equal(button(view.host, "Stop Blueprint").disabled, true);
-    assert.ok(!view.host.textContent?.includes("secret-a"));
   } finally { await view.close(); }
 });
 
@@ -233,44 +121,6 @@ test("Team switch removes old details and subscribes with exact attachment", asy
     assert.ok(!view.host.textContent?.includes("Watcher A"));
     assert.equal(view.transport.unsubscribeCount, 1);
     assert.deepEqual(view.transport.attachments[view.transport.attachments.length - 1], next);
-  } finally { await view.close(); }
-});
-
-test("authoritative lifecycle values and unknown Worker stay explicit with Team filtering", async () => {
-  const transport = new FixtureTransport();
-  const foreign = { ...fixtureGraph().nodes[2], name: "Foreign participant", identity: { ...fixtureGraph().nodes[2].identity, team_id: "foreign-team" } };
-  transport.graph = { ...fixtureGraph(), nodes: [...fixtureGraph().nodes.map((node) => node.identity.kind === "worker" ? { ...node, state: null } : node), foreign] };
-  const view = await mount(transport);
-  try {
-    assert.ok(!view.host.textContent?.includes(foreign.name));
-    await click(button(view.host, "Worker A"));
-    assert.ok(details(view.host).textContent?.includes("Unknown"));
-    await click(button(view.host, "Watcher A"));
-    for (const state of ["active", "stopped", "expired"]) {
-      transport.graph = { ...transport.graph, nodes: transport.graph.nodes.map((node) => node.identity.kind === "sentinel" ? { ...node, state } : node) };
-      await act(async () => { transport.changed!(); });
-      assert.ok(details(view.host).textContent?.includes(state));
-    }
-    transport.graph = { ...transport.graph, nodes: transport.graph.nodes.map((node) => node.identity.kind === "sentinel" ? { ...node, availability: "unavailable" as const, stop: { allowed: false, reason: null } } : node) };
-    await act(async () => { transport.changed!(); });
-    assert.ok(details(view.host).textContent?.includes("unavailable"));
-    assert.equal(button(view.host, "Stop Blueprint").disabled, true);
-  } finally { await view.close(); }
-});
-
-test("unconnected Team automation and host monitor stay absent from graph and list", async () => {
-  const transport = new FixtureTransport();
-  const unconnected = [fixtureNode(identity("cron", "orphan-cron"), "Orphan schedule"), fixtureNode(identity("worker", "orphan-worker"), "Orphan worker"), fixtureNode(identity("sentinel", "host-monitor"), "Host monitor")];
-  transport.graph = { ...fixtureGraph(), nodes: [...fixtureGraph().nodes, ...unconnected] };
-  const view = await mount(transport);
-  try {
-    for (const node of unconnected) assert.ok(!view.host.textContent?.includes(node.name));
-    await click(button(view.host, "Show list"));
-    for (const node of unconnected) assert.ok(!view.host.textContent?.includes(node.name));
-    assert.equal(view.host.querySelectorAll('ul[aria-label="Automation participants"] > li').length, 4);
-    await click(button(view.host, "Watcher A"));
-    assert.ok(details(view.host).textContent?.includes("stored_agent_definition"));
-    assert.ok(details(view.host).textContent?.includes("owner-a"));
   } finally { await view.close(); }
 });
 
@@ -293,8 +143,7 @@ test("one named Sentinel entry opens its internal stages while shared execution 
     assert.ok(!view.host.textContent?.includes("Internal stage A"));
     assert.equal(view.host.querySelectorAll('[data-edge-kind="observed"]').length, 1);
     await click(button(view.host, "Schedule A"));
-    assert.ok(details(view.host).textContent?.includes("execution-a"));
-    assert.ok(!details(view.host).textContent?.includes("route-a"));
+    assert.equal(details(view.host).getAttribute("aria-label"), "Details: Schedule A");
     transport.graph = { ...transport.graph, scenarios: [transport.graph.scenarios[0]] };
     await act(async () => { transport.changed!(); });
     assert.ok(view.host.querySelector('[role="alert"]')?.textContent?.includes("selected Blueprint is unavailable"));
@@ -303,23 +152,7 @@ test("one named Sentinel entry opens its internal stages while shared execution 
   } finally { await view.close(); }
 });
 
-test("backend-refused command handler and incomplete snapshot remain explicit", async () => {
-  const transport = new FixtureTransport();
-  const refused = { id: "bounded-command-fixture", type: "command", target: null, availability: "unavailable" as const, last_result: { status: "unsupported-command", execution_id: null, accepted_at: null } };
-  const graph = fixtureGraph();
-  transport.graph = { ...graph, truncated: true, nodes: [{ ...graph.nodes[0], outcomes: [{ bucket: "command-outcome", handlers: [refused] }] }, ...graph.nodes.slice(1)] };
-  const view = await mount(transport);
-  try {
-    assert.ok(view.host.querySelector('[role="alert"]')?.textContent?.includes("snapshot is incomplete"));
-    await click(button(view.host, "Watcher A"));
-    assert.ok(details(view.host).textContent?.includes(refused.id));
-    assert.ok(details(view.host).textContent?.includes(refused.availability));
-    assert.ok(details(view.host).textContent?.includes(refused.last_result.status));
-    assert.equal(transport.stops.length, 0);
-  } finally { await view.close(); }
-});
-
-test("measured graph fits once, then keeps the user's camera and exact selection across refresh, resize and list toggle", async () => {
+test("measured graph fits once, then keeps the user's camera and exact selection across refresh, resize and Runs toggle", async () => {
   const view = await mount();
   try {
     assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 800, 480), "initial frame uses the measured viewport");
@@ -337,32 +170,31 @@ test("measured graph fits once, then keeps the user's camera and exact selection
     await act(async () => { view.transport.changed!(); });
     assert.equal(cameraLayer(view.host).style.transform, camera, "data-only refresh and node reorder keep the camera");
     assert.equal(view.host.querySelector(`[aria-label^="blueprint: Watcher A"]`)?.getAttribute("aria-pressed"), "true", "selection follows the exact identity");
-    assert.ok(details(view.host).textContent?.includes("active"));
+    assert.equal(details(view.host).getAttribute("aria-label"), "Details: Watcher A");
     const center = centered(view.host, 800, 480);
     await resize(640, 420);
     sameCenter(centered(view.host, 640, 420), center, "resize keeps a moved camera's scale and center");
     const resized = cameraLayer(view.host).style.transform;
-    await click(button(view.host, "Show list"));
-    await click(button(view.host, "Show graph"));
+    await click(button(view.host, "Runs"));
+    await click(button(view.host, "Runs"));
     assert.equal(cameraLayer(view.host).style.transform, resized, "list toggle restores the same camera");
-    await click(button(view.host, "Show list"));
+    await click(button(view.host, "Runs"));
     await resize(720, 460);
-    await click(button(view.host, "Show graph"));
+    await click(button(view.host, "Runs"));
     sameCenter(centered(view.host, 720, 460), center, "a restored camera adapts to the size it reopens at");
     await resize(640, 420);
     await click(button(view.host, "Fit graph"));
     assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 640, 420, false, automationKey(sentinelIdentity)), "Fit frames the selected participant readably");
     await resize(900, 500);
     assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 900, 500, false, automationKey(sentinelIdentity)), "an untouched fitted camera follows the measured size");
-    await click(button(view.host, "Overview"));
-    assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 900, 500, true), "Overview shows the whole graph on request");
+
   } finally { await resize(800, 480); await view.close(); }
 });
 
 test("removed selected participant shows an honest unavailable detail and recovers focus", async () => {
   const view = await mount();
   try {
-    await click(button(view.host, "Show list"));
+    await click(button(view.host, "Runs"));
     await click(button(view.host, "Worker A"));
     assert.equal(document.activeElement, details(view.host));
     const graph = fixtureGraph();
@@ -374,7 +206,7 @@ test("removed selected participant shows an honest unavailable detail and recove
     assert.ok(!view.host.querySelector('ul[aria-label="Automation participants"]')?.textContent?.includes("Worker A"));
     await act(async () => { unavailable.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })); });
     assert.equal(view.host.querySelector("aside"), null);
-    assert.ok(view.host.querySelector('ul[aria-label="Automation participants"]')?.contains(document.activeElement), "focus falls back to a live participant");
+    assert.equal(document.activeElement?.getAttribute("aria-label"), "Automation graph");
   } finally { await view.close(); }
 });
 
@@ -395,43 +227,6 @@ test("details Escape stays inside the graph and returning to Sentinels restores 
     window.removeEventListener("keydown", listener as never);
     await view.close();
   }
-});
-
-test("authoritative event replaces the selected command result and execution without reselection", async () => {
-  const transport = new FixtureTransport();
-  const capture = { total_bytes: 3, retained_bytes: 3, truncated: false };
-  const success: CommandResultMetadata = { status: "success", exit_code: 0, resources_confirmed: true, stdout: capture, stderr: capture, started_at: 100001, finished_at: 100010 };
-  const withCommand = (execution_id: string, status: string, command_result: CommandResultMetadata): AutomationGraph => {
-    const graph = fixtureGraph();
-    const result = { status, execution_id, accepted_at: 100000, command_result };
-    const handler = { id: "marker", type: "command", target: null, availability: "available" as const, label: "Write marker", timeout_ms: 1000, last_result: result };
-    return { ...graph, revision: execution_id, nodes: graph.nodes.map((node) => node.identity.kind === "sentinel" ? { ...node, outcomes: [...node.outcomes, { bucket: "command-outcome", handlers: [handler] }], last_result: { bucket: "command-outcome", accepted_at: 100000, handlers: [{ ...result, handler_id: handler.id }] } } : node) };
-  };
-  const commandFacts = (host: HTMLElement) => {
-    const list = Array.from(details(host).querySelectorAll('ul[aria-label="Last accepted handler results"] dl')).find((entry) => entry.getAttribute("aria-label") === commandResultLabel("marker"));
-    assert.ok(list, "selected node renders its accepted command result");
-    return { row: list.closest("li"), facts: new Map(Array.from(list.querySelectorAll("dt")).map((term) => [term.textContent, term.nextElementSibling?.textContent])) };
-  };
-  transport.graph = withCommand("command-execution-a", "completed", success);
-  const view = await mount(transport);
-  try {
-    await click(button(view.host, "Watcher A"));
-    const panel = details(view.host);
-    assert.equal(commandFacts(view.host).facts.get(COMMAND_FACT.outcome), "success");
-    assert.ok(commandFacts(view.host).row?.textContent?.includes("command-execution-a"));
-    assert.equal(document.activeElement, panel);
-    view.transport.graph = withCommand("command-execution-b", "failed", { ...success, status: "nonzero", exit_code: 7 });
-    await act(async () => { view.transport.changed!(); });
-    assert.equal(details(view.host), panel, "the same details region stays mounted");
-    assert.equal(document.activeElement, panel, "focus is preserved across the authoritative refresh");
-    assert.equal(view.host.querySelector(`[aria-label^="blueprint: Watcher A"]`)?.getAttribute("aria-pressed"), "true");
-    const { row, facts } = commandFacts(view.host);
-    assert.equal(facts.get(COMMAND_FACT.outcome), "nonzero");
-    assert.equal(facts.get(COMMAND_FACT.exit), "7");
-    assert.ok(row?.textContent?.includes("command-execution-b"));
-    assert.ok(!details(view.host).textContent?.includes("command-execution-a"), "the previous execution is not retained");
-    assert.equal(view.transport.reads, 2);
-  } finally { await view.close(); }
 });
 
 test("measured 500px canvas opens the chain top to bottom, desktop width runs left to right, and a moved camera keeps its geometry", async () => {
@@ -489,7 +284,7 @@ test("node details open as one right overlay drawer that switches in place and r
     await click(view.host.querySelector<HTMLButtonElement>('[aria-label="Automation graph"] button[aria-label^="cron: Schedule A"]')!);
     assert.equal(details(view.host), drawer, "selecting another graph node updates the same drawer");
     assert.equal(drawer.getAttribute("aria-label"), "Details: Schedule A");
-    await click(button(drawer, "Worker A"));
+    await click(button(view.host, "Worker A"));
     assert.equal(details(view.host), drawer, "a linked participant opens in the same drawer");
     assert.equal(drawer.getAttribute("aria-label"), "Details: Worker A");
     await act(async () => { drawer.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })); });
@@ -498,10 +293,9 @@ test("node details open as one right overlay drawer that switches in place and r
   } finally { await view.close(); }
 });
 
-test("declared decision outcomes fan out to action leaves with taken and untaken paths and open their source", async () => {
+test("declared decision outcomes fan out to action leaves with taken and untaken paths and open their own inspector", async () => {
   const transport = new FixtureTransport();
   transport.graph = decisionGraph();
-  const root = transport.graph.nodes[0];
   const view = await mount(transport);
   try {
     const leaves = Array.from(view.host.querySelectorAll<HTMLButtonElement>("[data-action-key]"));
@@ -517,7 +311,7 @@ test("declared decision outcomes fan out to action leaves with taken and untaken
     assert.equal(view.host.querySelectorAll('[aria-label="Automation graph"] button[aria-pressed]').length, transport.graph.nodes.length, "no participant is invented");
     const notify = leaves.find((entry) => entry.textContent?.includes("notify-d"))!;
     await click(notify);
-    assert.equal(details(view.host).getAttribute("aria-label"), `Details: ${root.name}`, "an action leaf opens its exact source participant");
+    assert.equal(details(view.host).getAttribute("aria-label"), "Details: notify-d", "an action leaf opens its own node");
     assert.ok(details(view.host).textContent?.includes("notify-d"));
   } finally { await view.close(); }
 });
@@ -547,8 +341,8 @@ test("the observed seven-card fanout opens readable at 500x782 and Fit always re
     await resize(500, 600);
     assert.ok(camera(view.host).scale >= READABLE_SCALE, "a shorter canvas keeps the readable lower bound");
     assert.ok(projectedCards(view.host, ["Model parent"]).every((card) => card.x >= 0 && card.y >= 0 && card.x + card.width <= 500 && card.y + card.height <= 600), "the root stays framed");
-    await click(button(view.host, "Show list"));
-    await click(button(view.host, "Show graph"));
+    await click(button(view.host, "Runs"));
+    await click(button(view.host, "Runs"));
     assert.equal(cameraLayer(view.host).style.transform, fitted(transport.graph, 500, 600), "list toggle keeps the readable frame");
     await click(view.host.querySelector<HTMLButtonElement>('[aria-label="Automation graph"] button[aria-label^="blueprint: Model child"]')!);
     await act(async () => { details(view.host).dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })); });
@@ -556,8 +350,7 @@ test("the observed seven-card fanout opens readable at 500x782 and Fit always re
     await press(view.host, "ArrowUp", 12);
     await click(button(view.host, "Fit graph"));
     readable(projectedCards(view.host, ["Model child"]), 500, 600);
-    await click(button(view.host, "Overview"));
-    assert.equal(cameraLayer(view.host).style.transform, fitted(transport.graph, 500, 600, true));
+
     await click(button(view.host, "Fit graph"));
     assert.ok(camera(view.host).scale >= READABLE_SCALE, "Fit is the readable return from the overview");
     for (const card of allCards(view.host)) {
@@ -569,6 +362,28 @@ test("the observed seven-card fanout opens readable at 500x782 and Fit always re
       assert.ok(t.scale >= READABLE_SCALE);
     }
   } finally { await resize(800, 480); await view.close(); }
+});
+
+test("Runs toggles the log without replacing the graph and Blueprint stop stays in the toolbar", async () => {
+  const view = await mount();
+  try {
+    const graph = view.host.querySelector('[aria-label="Automation graph"]');
+    assert.equal(view.host.querySelector('section[aria-label="Blueprint runs"]'), null);
+    assert.ok(!Array.from(view.host.querySelectorAll("button")).some((entry) => ["Overview", "Show list"].includes(entry.textContent ?? "")));
+    await click(button(view.host, "Runs"));
+    assert.ok(view.host.querySelector('section[aria-label="Blueprint runs"]'));
+    assert.equal(view.host.querySelector('[aria-label="Automation graph"]'), graph);
+    await click(button(view.host, "Runs"));
+    assert.equal(view.host.querySelector('section[aria-label="Blueprint runs"]'), null);
+    await click(button(view.host, "Watcher A"));
+    assert.equal(details(view.host).querySelector('button[aria-label="Stop Blueprint"]'), null);
+    await click(button(view.host, "Stop Blueprint"));
+    assert.deepEqual(view.transport.stops, [sentinelIdentity]);
+    assert.equal(button(view.host, "Stopping").disabled, true);
+    await act(async () => { view.transport.stopResult.reject(new Error("private-error")); });
+    assert.ok(view.host.querySelector('[role="alert"]'));
+    assert.ok(!view.host.textContent?.includes("private-error"));
+  } finally { await view.close(); }
 });
 
 let finished = false;

@@ -8,7 +8,7 @@ import type { MeshInventoryView } from "../MeshPanel/servicesView";
 import type { Service } from "../MeshPanel/types";
 import type { MeshResourceActionAdapter } from "../MeshPanel/meshResourceActions";
 import { attachment, FixtureTransport, multiScenarioGraph } from "../Automation/fixtures.testdata";
-import type { AutomationGraph } from "../Automation/types";
+import { ALL_JOBS_SCOPE, type AutomationGraph } from "../Automation/types";
 
 async function main() {
   const win = new Window({ url: "http://localhost/" });
@@ -82,6 +82,7 @@ async function main() {
   function workspaceTransport(graph: AutomationGraph = new FixtureTransport().graph) {
     const transport = new FixtureTransport();
     transport.graph = workspaceGraph(graph);
+    transport.readOverride = async (scope) => scope.team_id === ALL_JOBS_SCOPE ? transport.graph : { ...transport.graph, all_teams: false, team_id: scope.team_id };
     return transport;
   }
 
@@ -280,7 +281,7 @@ async function main() {
       assert.deepEqual(cronJobCalls.filter((call) => call.startsWith("delete:")), [`delete:${stoppedCron.id}`]);
       assert.deepEqual(transport.deletes.map((identity) => identity.id), [graph.scenarios[0].root.id]);
       assert.equal(clear.disabled, true, "the header action reflects the refreshed filter");
-      assert.equal(document.activeElement, clear, "the bulk action restores header focus");
+      assert.ok(document.activeElement === view.host.querySelector('section[aria-label="Jobs"]'), "empty Jobs receives focus when the refreshed bulk action is disabled");
     } finally {
       await view.close();
       cronList = async () => [teamCron, unteamedCron, otherTeamCron];
@@ -313,7 +314,7 @@ async function main() {
       assert.ok(view.host.querySelectorAll("[data-edge-kind]").length > 0, "scenario graph rendered");
       await act(async () => buttonWith(view.host, "All jobs").click());
       assert.equal(document.activeElement, entry(view.host, `scenario:${scenario.id}`));
-      assert.equal(transport.unsubscribeCount, 0, "list and graph share one live subscription");
+      assert.equal(transport.unsubscribeCount, 1, "closing the graph releases its exact-scope definition subscription");
     } finally { await view.close(); }
   });
 
