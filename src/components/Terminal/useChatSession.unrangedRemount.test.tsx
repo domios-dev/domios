@@ -28,7 +28,7 @@ async function scenario(source: string, unbound = false) {
     handler = callback as typeof handler;
     return () => { handler = undefined; };
   });
-  __setInvokeForTest(async (command, args) => {
+  const invoke = async (command: string, args?: Record<string, unknown>): Promise<unknown> => {
     if (command === "chat_send_status") return [];
     if (command === "chat_stop") { stops++; return; }
     if (command === "chat_start") {
@@ -38,7 +38,8 @@ async function scenario(source: string, unbound = false) {
         subscription_id: args?.subscriptionId };
     }
     return {};
-  });
+  };
+  __setInvokeForTest(invoke as Parameters<typeof __setInvokeForTest>[0]);
   const host = document.createElement("main");
   document.body.append(host);
   function Harness() {
@@ -67,6 +68,7 @@ async function scenario(source: string, unbound = false) {
   root = await mount();
   assert.deepEqual(rendered(), expected, `${source}: empty store replay discarded streamed history`);
   await act(async () => root.unmount());
+  clearTranscriptWindows();
   snapshot = rows;
   root = await mount();
   assert.deepEqual(rendered(), expected, `${source}: snapshot replay changed retained history`);

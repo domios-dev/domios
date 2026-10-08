@@ -2,6 +2,51 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn completed_tool_diffs_match_plugin_fixtures_and_reject_unfinished_edits() {
+    let fixtures: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/opencode-file-diffs.json"
+    )))
+    .unwrap();
+    for fixture in fixtures.as_array().unwrap() {
+        for status in ["completed", "running", "pending", "error"] {
+            let update = ChatPartUpdate {
+                session_id: "own".into(),
+                message_id: "message".into(),
+                part_id: "part".into(),
+                delta: None,
+                event: ChatPartEvent::Updated,
+                part: json!({"type":"tool","tool":"edit","state":{
+                    "status":status,"input":fixture["input"],"metadata":fixture["metadata"]
+                }}),
+            };
+            let message = MessageMeta {
+                session_id: "own".into(),
+                message_id: "message".into(),
+                role: "assistant".into(),
+                timestamp: None,
+            };
+            let result = normalize_chat_part(&update, &message, None).unwrap();
+            if status == "completed" {
+                assert_eq!(
+                    result.file_diffs,
+                    Some(fixture["expected"].clone()),
+                    "{}",
+                    fixture["name"]
+                );
+                assert_eq!(result.tool_error, Some(false));
+            } else {
+                assert_eq!(result.file_diffs, None);
+                assert_eq!(
+                    result.tool_error,
+                    if status == "error" { Some(true) } else { None }
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn parses_question_asked_into_prompt_and_route() {
     // Real shape from the W3 spike doc.
     let event = json!({
