@@ -110,7 +110,7 @@ export interface AutomationRun {
   root_node: string;
   root_transition: string;
   started_at: number;
-  state: "running" | "completed";
+  state: "running" | "completed" | "unconfirmed";
   incomplete: boolean;
   transitions: readonly { node: AutomationIdentity; transition_id: string; parent: CausalRunContext["parent"] }[];
 }

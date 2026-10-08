@@ -1,28 +1,10 @@
 import { projectAutomationGraph, type PresentationEdge } from "./projection";
 import { automationKey, type AutomationGraph, type AutomationTransition, type AutomationNode } from "./types";
 
-export interface RunEvent {
-  at: number;
-  node: string;
-  outcome: string;
-  target: string | null;
-  status: string;
-  duration: number | null;
-  edgeId: string | null;
-}
+import type { GraphRun, RunEvent } from "../../lib/blueprintRun";
+export type { GraphRun, RunEvent } from "../../lib/blueprintRun";
 
-export interface GraphRun {
-  key: string;
-  at: number;
-  name: string;
-  events: RunEvent[];
-  state: "running" | "completed" | "unlinked";
-  incomplete: boolean;
-}
-
-function eventEdge(edges: readonly PresentationEdge[], source: string, transition: AutomationTransition, handlerId: string) {
-  return edges.find((edge) => edge.from === source && edge.bucket === transition.bucket && edge.handler_id === handlerId);
-}
+const routeKey = (source: string, bucket: string, handler: string | null) => JSON.stringify([source, bucket, handler]);
 
 function transitionKey(node: AutomationNode, transition: AutomationTransition) {
   return JSON.stringify([automationKey(node.identity), transition.id]);
@@ -32,10 +14,17 @@ export function graphRuns(graph: AutomationGraph): GraphRun[] {
   const presentation = projectAutomationGraph(graph);
   const names = new Map(presentation.nodes.map((node) => [node.key, node.participant?.name ?? node.action?.handler?.label ?? node.action?.handler?.id ?? node.action?.bucket ?? "Action"]));
   const pieces = graph.nodes.flatMap((node) => [...(node.history ?? [])].reverse().map((transition) => ({ node, transition, key: transitionKey(node, transition) })));
+  const byTransition = new Map(pieces.map((piece) => [piece.key, piece]));
+  const roots = new Map(graph.nodes.filter((node) => node.identity.kind === "sentinel").map((node) => [node.identity.id, node]));
+  const routes = new Map<string, PresentationEdge>();
+  for (const edge of presentation.edges) {
+    const key = routeKey(edge.from, edge.bucket, edge.handler_id);
+    if (!routes.has(key)) routes.set(key, edge);
+  }
   const eventsFor = ({ node, transition }: typeof pieces[number]): RunEvent[] => {
     const source = automationKey(node.identity);
     const events: RunEvent[] = transition.handlers.map((handler) => {
-      const edge = transition.routes_current === false ? undefined : eventEdge(presentation.edges, source, transition, handler.handler_id);
+      const edge = transition.routes_current === false ? undefined : routes.get(routeKey(source, transition.bucket, handler.handler_id));
       const command = handler.command_result;
       const duration = command && Number.isSafeInteger(command.started_at) && Number.isSafeInteger(command.finished_at) && command.started_at >= 0 && command.finished_at >= command.started_at ? command.finished_at - command.started_at : null;
       return {
@@ -49,12 +38,20 @@ export function graphRuns(graph: AutomationGraph): GraphRun[] {
     return events;
   };
   const runs: GraphRun[] = (graph.runs ?? []).flatMap((run) => {
-    const root = graph.nodes.find((node) => node.identity.kind === "sentinel" && node.identity.id === run.root_node);
+    const root = roots.get(run.root_node);
     if (!root) return [];
     const entries = run.transitions.flatMap((entry) => {
-      const piece = pieces.find((piece) => automationKey(piece.node.identity) === automationKey(entry.node) && piece.transition.id === entry.transition_id);
+      const piece = byTransition.get(JSON.stringify([automationKey(entry.node), entry.transition_id]));
       return piece ? [{ ...piece, parent: entry.parent }] : [];
     });
+    const children = new Map<string, typeof entries>();
+    for (const entry of entries) {
+      if (!entry.parent) continue;
+      const key = routeKey(entry.parent.node, entry.parent.transition, entry.parent.handler);
+      const siblings = children.get(key) ?? [];
+      siblings.push(entry);
+      children.set(key, siblings);
+    }
     const visited = new Set<string>();
     const events: RunEvent[] = [];
     const visit = (entry: typeof entries[number]) => {
@@ -63,7 +60,7 @@ export function graphRuns(graph: AutomationGraph): GraphRun[] {
       eventsFor(entry).forEach((event, index) => {
         events.push(event);
         const handler = entry.transition.handlers[index];
-        if (handler) entries.filter((child) => child.parent?.node === entry.node.identity.id && child.parent.transition === entry.transition.id && child.parent.handler === handler.handler_id).forEach(visit);
+        if (handler) children.get(routeKey(entry.node.identity.id, entry.transition.id, handler.handler_id))?.forEach(visit);
       });
     };
     entries.filter((entry) => entry.parent === null).forEach(visit);

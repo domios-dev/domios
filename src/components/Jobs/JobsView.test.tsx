@@ -101,8 +101,8 @@ async function main() {
     return { host, root, close: async () => { await act(async () => root.unmount()); host.remove(); } };
   }
 
-  function jobsView(transport: FixtureTransport, initialScenarioId?: string, teamId: string | null = attachment.team_id) {
-    return <JobsView workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: attachment.workspace_id, teamId }} adapter={transport} initialScenarioId={initialScenarioId} cronActionAdapter={cronActions} jobActionAdapter={jobActions} />;
+  function jobsView(transport: FixtureTransport, initialScenarioId?: string, teamId: string | null = attachment.team_id, initialRunId?: string) {
+    return <JobsView workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: attachment.workspace_id, teamId }} adapter={transport} initialScenarioId={initialScenarioId} initialRunId={initialRunId} cronActionAdapter={cronActions} jobActionAdapter={jobActions} />;
   }
 
   function entry(host: HTMLElement, key: string) {
@@ -331,6 +331,21 @@ async function main() {
       assert.equal(document.activeElement, alert, "focus does not fall to the document body");
       assert.equal(entry(view.host, `scenario:${target.id}`), null);
       assert.ok(entry(view.host, `scenario:${transport.graph.scenarios[0].id}`), "remaining jobs stay reachable");
+    } finally { await view.close(); }
+  });
+
+  test("a run deep link opens the requested scenario with Runs expanded and that run selected", async () => {
+    const transport = workspaceTransport();
+    const root = transport.graph.nodes[0];
+    const context = { id: "linked-run", root_node: root.identity.id, root_transition: "accepted", started_at: 10, parent: null };
+    transport.graph = { ...transport.graph,
+      nodes: [{ ...root, history: [{ id: "accepted", bucket: "branch-a", accepted_at: 10, causal_run: context, handlers: [] }] }, ...transport.graph.nodes.slice(1)],
+      runs: [{ id: context.id, root_node: context.root_node, root_transition: context.root_transition, started_at: 10, state: "completed", incomplete: false, transitions: [{ node: root.identity, transition_id: "accepted", parent: null }] }],
+    };
+    const view = await mount(jobsView(transport, transport.graph.scenarios[0].id, attachment.team_id, context.id));
+    try {
+      await settle(() => view.host.querySelector('[aria-label="Blueprint runs"] button[aria-pressed="true"]') !== null);
+      assert.ok(view.host.querySelector('[aria-controls="blueprint-run-log"][aria-expanded="true"]'));
     } finally { await view.close(); }
   });
 

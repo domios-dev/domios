@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { RichMarkdown } from "@codeterm/chat-ui";
 import { runNotificationAction } from "../../lib/notificationActions";
@@ -6,6 +6,8 @@ import type { Notification, NotificationAction } from "../../lib/types";
 import { Check, X } from "lucide-react";
 import { PluginIcon } from "../Extensions/PluginIcon";
 import { notificationLevel, notificationTone } from "../../lib/notifyLevels";
+import { RunPath } from "../Automation/RunPath";
+import { requestOpenJob } from "../Jobs/openJobEvent";
 import { levelIcon } from "./levelIcon";
 
 const AUTO_DISMISS_MS = 5000;
@@ -22,6 +24,13 @@ interface ToastItemProps {
 function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }: ToastItemProps) {
   const [closing, setClosing] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const expandedPanel = useRef<HTMLDivElement>(null);
+  const runOpener = useRef<HTMLButtonElement>(null);
+  const isRun = !!notification.blueprint_run;
+  useLayoutEffect(() => {
+    if (expanded && isRun) expandedPanel.current?.querySelector<HTMLButtonElement>("button")?.focus();
+  }, [expanded, isRun]);
+  const closeExpanded = () => { setExpanded(false); if (isRun) runOpener.current?.focus(); };
   // A choice is answered from the bell and the chat card, which keep it as a
   // log of decisions; a toast that vanishes must not offer one.
   const runnable = notification.actions?.filter((action) =>
@@ -37,9 +46,9 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
   }, []);
 
   const handleClick = useCallback(() => {
-    if (!notification.read) onMarkRead?.(notification.id);
+    if (!notification.read && !notification.blueprint_run) onMarkRead?.(notification.id);
     setExpanded(true);
-  }, [notification.id, notification.read, onMarkRead]);
+  }, [notification.id, notification.read, notification.blueprint_run, onMarkRead]);
 
   const runAction = useCallback(async (action: NotificationAction) => {
     await runNotificationAction(action);
@@ -87,6 +96,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
           </div>
         )}
       </div>
+      {notification.blueprint_run && <button ref={runOpener} type="button" className="shrink-0 text-[10px] text-[var(--ct-accent)]" onClick={(event) => { event.stopPropagation(); setExpanded(true); }}>View run</button>}
       {hasActions && (
         <div className="flex shrink-0 gap-1">
           {compactRunnable.map((action, i) => (
@@ -114,7 +124,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
     </>
   );
 
-  if (embedded) {
+  if (embedded || notification.blueprint_run) {
     return (
       <>
         <div
@@ -139,17 +149,27 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
         </div>
         {expanded && createPortal(
           <div
+            ref={expandedPanel}
             data-testid="notification-toast-expanded"
             role="dialog"
             aria-label={notification.title}
             className="fixed right-2 top-[calc(2rem+var(--ct-safe-top,0px)+6px)] z-[70] w-[min(420px,calc(100vw-16px))] rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] p-3 shadow-2xl ct-float"
             style={{ ["--toast-accent" as string]: tone }}
+            onKeyDown={(event) => { if (event.code === "Escape") { event.stopPropagation(); closeExpanded(); } }}
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start gap-2">
               <LevelIcon className="mt-0.5 shrink-0" style={{ color: tone }} />
               <div className="min-w-0 flex-1">
                 <div className="font-medium text-[var(--ct-fg)]">{notification.title}</div>
+                {notification.blueprint_run && <>
+                  <RunPath run={notification.blueprint_run.run} />
+                  <button type="button" className="mt-2 rounded border border-[var(--ct-border)] px-2 py-1 text-xs text-[var(--ct-fg)]" onClick={() => {
+                    const data = notification.blueprint_run!;
+                    requestOpenJob({ workspaceId: data.workspaceId, target: { teamId: data.teamId, scenarioId: data.scenarioId, runId: data.run.key } });
+                    setExpanded(false);
+                  }}>Open full graph</button>
+                </>}
                 {notification.body && (
                   <div className="mt-2 max-h-[min(420px,60vh)] overflow-y-auto break-words text-[12px] leading-5 text-[var(--ct-muted-fg)]">
                     <RichMarkdown text={notification.body} />
@@ -181,7 +201,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
                 type="button"
                 aria-label="Close expanded notification"
                 className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-                onClick={() => setExpanded(false)}
+                onClick={closeExpanded}
               >
                 <X size={13} />
               </button>

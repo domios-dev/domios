@@ -734,7 +734,9 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
                 .store
                 .lock()
                 .stage_claim_handler(job, transition, handler);
-            staged.settle(&handle.store)
+            let claimed = staged.settle(&handle.store);
+            handle.notify();
+            claimed
         },
         |job, transition, handler, verdict| {
             use super::handlers::Status;

@@ -341,6 +341,7 @@ export interface NotificationAnswer {
 }
 
 export interface Notification {
+  blueprint_run?: import("./blueprintRun").BlueprintRunPopup;
   id: string;
   key?: string;
   tab_id: string | null;
