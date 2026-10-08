@@ -10,6 +10,7 @@ pub const PLUGIN_SKILL_SOURCE_PREFIX: &str = "plugin-agent-verbs:";
 pub const AGENT_COMMANDS_CONTRIBUTION_KIND: &str = "agent_commands";
 pub const PLUGIN_SKILL_TAG: &str = "plugin-agent-verbs";
 const CONFIG_HELP_VERBS_MARKER: &str = "Agent verbs:";
+const AGENT_GUIDE_HEADING: &str = "\n## Agent guide\n\n";
 const MAX_KEYWORDS: usize = 24;
 const MIN_KEYWORD_LEN: usize = 3;
 const STOPWORDS: &[&str] = &[
@@ -26,6 +27,10 @@ pub struct AgentVerbCatalog {
     /// Usage shapes such as `send <chat-id> [--key <k>] <text>`.
     pub verbs: Vec<String>,
     pub keywords: Vec<String>,
+    /// The plugin's bounded `agentGuide` markdown, when it ships one. Kept out of
+    /// the `codeterm capabilities` listing; the mem item and `plugin get` carry it.
+    #[serde(skip)]
+    pub guide: Option<String>,
 }
 
 impl AgentVerbCatalog {
@@ -68,7 +73,15 @@ impl AgentVerbCatalog {
             description,
             verbs,
             keywords,
+            guide: None,
         }
+    }
+
+    pub fn with_guide(mut self, guide: Option<String>) -> Self {
+        self.guide = guide
+            .map(|g| g.trim().to_string())
+            .filter(|g| !g.is_empty());
+        self
     }
 
     pub fn invocation(&self) -> String {
@@ -172,6 +185,11 @@ pub fn compose_plugin_skill(catalog: &AgentVerbCatalog) -> PluginSkillItem {
     }
     if !catalog.keywords.is_empty() {
         body.push_str(&format!("\nKeywords: {}\n", catalog.keywords.join(", ")));
+    }
+    if let Some(guide) = &catalog.guide {
+        body.push_str(AGENT_GUIDE_HEADING);
+        body.push_str(guide);
+        body.push('\n');
     }
 
     let mut tags = vec![
