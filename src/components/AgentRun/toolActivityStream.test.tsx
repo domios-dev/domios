@@ -423,7 +423,7 @@ describe("chained commands inside a stream", () => {
     expect(members[1].querySelectorAll('[data-testid="chat-command-tree-operator"]')).toHaveLength(0);
   });
 
-  it("opens the clicked segment inside the member's group with the raw command visible", async () => {
+  it("opens the clicked segment inside the member's group while raw commands stay collapsed", async () => {
     const view = await render(chainTurn);
     const [stream] = streams(view);
     await click(stream.querySelector('button[aria-label="Expand 2 actions"]'));
@@ -437,7 +437,12 @@ describe("chained commands inside a stream", () => {
     expect(group?.querySelectorAll('[data-testid="chat-command-tree-detail"]')).toHaveLength(1);
     expect(lines[1].querySelector('[data-testid="chat-command-tree-detail"]')).not.toBeNull();
     expect(group?.querySelector('[data-testid="chat-command-group-title"]')?.textContent).not.toBe(PLAN_CHAIN);
+    expect(group?.querySelector('[data-testid="message-raw-content"]')).toBeNull();
+    const rawToggle = group?.querySelector('[data-testid="raw-command-disclosure"] > button');
+    expect(rawToggle?.getAttribute("aria-expanded")).toBe("false");
+    await click(rawToggle);
     expect(group?.querySelector('[data-testid="message-raw-content"]')?.textContent).toBe(PLAN_CHAIN);
+    expect(lines[1].querySelector('[data-testid="chat-command-tree-detail"]')).not.toBeNull();
   });
 
   it("renders one member per call id when the source reports a call twice", async () => {
