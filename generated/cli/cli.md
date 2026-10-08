@@ -253,7 +253,8 @@ Classify a bounded probe or same-Team agent observation
 - `--max-actions` — Finite action-attempt budget (maximum 1024)
 - `--max-transitions` — Finite accepted transition budget (maximum 256)
 - `--name` — Short meaningful name describing what is watched and what happens
-- `--observe` — Observe a same-Team agent tab or cron run
+- `--observe` — Observe a same-Team tab or cron run; shells require terminal-pattern or output-settled
+- `--output-settled` — Fire when terminal output settles for this many milliseconds (10..60000)
 - `--owner` — Assign the pipeline to its creator tab or Team
 - `--paused` — Create a dormant downstream stage; its lifetime starts now
 - `--probe`
@@ -261,8 +262,10 @@ Classify a bounded probe or same-Team agent observation
 - `--rearm-on-change` — Route again when this bucket's output changes without changing buckets
 - `--recipe` — Create from a named pipeline recipe
 - `--route` — Inline routes: bucket=notify|blueprint:<exact-id>|send:<tab>|cron:<name>|stop|none; use --handlers-file for command, respond_prompt and escalation handlers
+- `--session` — Keep exchanges outside transition/action budgets; stop at 16384 exchanges or 120/minute
 - `--set` — Replace recipe placeholders with key=value pairs
 - `--spec` — JSON or YAML pipeline specification, or `-` to read standard input
+- `--terminal-pattern` — Fire with the new terminal output delta when this regex matches
 - `--timeout` — End the blueprint after this duration
 - `--until` — Stop after this bucket's first confident transition
 
@@ -282,6 +285,14 @@ Release a held stage and re-evaluate its observation
 Show immutable definition versions
 
 - `<id>`
+
+#### `codeterm blueprint input`
+
+Deliver a text body to a running text input stage
+
+- `--from-pad` — Read a UTF-8 body from the caller's Agent Pad
+- `<id>`
+- `--text-file` — Read a UTF-8 body from a file
 
 #### `codeterm blueprint list`
 
@@ -2850,7 +2861,7 @@ Configure plugin settings. Non-secret fields use the comment-preserving config.y
 
 #### `codeterm plugin get`
 
-Show a plugin's agent-facing config: its config.yaml, settings schema, secret field presence, and installed/configured/reload state
+Show a plugin's agent-facing config and guidance: its config.yaml, settings schema, secret field presence, configHelp, agent verbs, agent guide, and installed/configured/reload state
 
 - `<id>`
 
@@ -3321,8 +3332,10 @@ Plain shell tab, inheriting the calling tab's workspace and Team. For an AI tab 
 - `--description` — Activity summary shown below the tab title
 - `--eager` — Spawn the shell PTY immediately on the daemon for headless/API use
 - `--icon` — Lucide icon name (for example bug or flask-conical)
+- `--list-shells` — List available shell profiles without creating a tab
 - `--no-team` — Keep the new shell outside the calling tab's Team
 - `--purpose` — Utility shell purpose shown in the sidebar
+- `--shell` — Shell profile id (discover with --list-shells)
 - `--team` — Explicit Team membership cross-check. Ordinary shells already inherit the calling Tab's Team
 - `--title` — Tab title
 - `--workspace` — Target workspace id. Defaults to the calling tab's own workspace, then the focused workspace for a caller with no tab identity

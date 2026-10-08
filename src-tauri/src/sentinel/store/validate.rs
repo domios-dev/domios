@@ -87,8 +87,9 @@ pub(in crate::sentinel) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>
             || job.max_actions == 0
             || job.max_actions > 1024
             || job.transitions.len() > MAX_LIFETIME_TRANSITIONS
-            || job.run_transitions > job.max_transitions
-            || (!matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_)))
+            || (!job.session && job.run_transitions > job.max_transitions)
+            || (!job.session
+                && !matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_)))
                 && job.transitions.len() > usize::from(job.max_transitions))
             || job
                 .transitions
@@ -96,7 +97,7 @@ pub(in crate::sentinel) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>
                 .flat_map(|t| &t.handlers)
                 .filter(|r| r.claim_id.is_some())
                 .count()
-                > usize::from(job.max_actions)
+                > super::action_limit(job)
         {
             return Err("invalid blueprint budgets or retention".into());
         }
@@ -224,6 +225,8 @@ impl Store {
             | codeterm_types::blueprint_pipeline::Trigger::Input { .. } => "20s".into(),
         };
         let create = Create {
+            terminal: None,
+            session: false,
             name: Some(spec.name.clone()),
             probe: Some(PIPELINE_SOURCE.into()),
             observe: None,
@@ -347,6 +350,9 @@ impl Store {
             &uuid::Uuid::new_v4().simple().to_string()[..12]
         );
         let job = Sentinel {
+            terminal: params.terminal,
+            session: params.session,
+            causal_run: None,
             id: id.clone(),
             team_id: team,
             creator_tab_id: creator,

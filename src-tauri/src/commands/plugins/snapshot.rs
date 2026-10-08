@@ -203,6 +203,9 @@ fn enrich_from_manifest_with_icon(
         if let Some(desc) = m.get("description").and_then(|v| v.as_str()) {
             obj.insert("description".into(), serde_json::json!(desc));
         }
+        if let Some(pitch) = m.get("pitch").and_then(|v| v.as_str()) {
+            obj.insert("pitch".into(), serde_json::json!(pitch));
+        }
         // Configure-with-AI is opt-in. A description alone does not imply configurability.
         if let Some(help) = m.get("configHelp").and_then(|v| v.as_str()) {
             obj.insert("config_help".into(), serde_json::json!(help));
@@ -612,6 +615,7 @@ mod tests {
             "version": "0.2.0",
             "displayName": "Demo",
             "description": "Does a demo thing.",
+            "pitch": "Demo things happen for you.",
             "homepage": "https://example.com/demo",
             "capabilities": { "statusBubble": true },
         });
@@ -623,6 +627,10 @@ mod tests {
         assert_eq!(
             entry["description"],
             serde_json::json!("Does a demo thing.")
+        );
+        assert_eq!(
+            entry["pitch"],
+            serde_json::json!("Demo things happen for you.")
         );
         assert_eq!(
             entry["homepage"],

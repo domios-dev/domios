@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { useTauriFileDrop, materializeDroppedPaths } from "../../hooks/terminal";
-import { useWebFileDrop } from "./composerFiles";
+import { classifyAttachmentPaths, useWebFileDrop } from "./composerFiles";
+import type { InlineAttachment, InlineAttachmentSink } from "./useComposerCapsules";
 import { storeBlob } from "./voice/audio";
 
 const IMAGE_EXT: Record<string, string> = {
@@ -12,6 +13,8 @@ const IMAGE_EXT: Record<string, string> = {
   "image/bmp": "bmp",
   "image/svg+xml": "svg",
 };
+
+const handledPastes = new WeakSet<ClipboardEvent>();
 
 function imageExt(mime: string): string {
   return IMAGE_EXT[mime] ?? (mime.split("/")[1]?.split(";")[0] || "png");
@@ -74,7 +77,21 @@ export function useAttachments({
 
   const clearAttachments = useCallback(() => setAttachments([]), []);
 
+  const inlineSinkRef = useRef<InlineAttachmentSink | null>(null);
+  const deliver = useCallback((items: InlineAttachment[]) => {
+    if (items.length === 0) return;
+    const sink = inlineSinkRef.current;
+    if (sink) sink(items);
+    else addAttachments(items.map((item) => item.path));
+  }, [addAttachments]);
+  const deliverPaths = useCallback(async (paths: string[]) => {
+    const clean = paths.map((p) => p.trim()).filter((p, i, all) => p.length > 0 && all.indexOf(p) === i);
+    if (clean.length) deliver(await classifyAttachmentPaths(clean));
+  }, [deliver]);
+
   const handlePasteEvent = useCallback(async (e: ClipboardEvent) => {
+    if (handledPastes.has(e)) return;
+    handledPastes.add(e);
     const cd = e.clipboardData;
     // synchronous event dispatch; the async reads below would see it emptied.
     const syncImageFile = cd
@@ -90,7 +107,7 @@ export function useAttachments({
       const paths = await invoke<string[]>("read_clipboard_files");
       if (paths && paths.length > 0) {
         e.preventDefault();
-        addAttachments(await materializeDroppedPaths(paths));
+        await deliverPaths(await materializeDroppedPaths(paths));
         return;
       }
     } catch {
@@ -102,18 +119,19 @@ export function useAttachments({
       e.preventDefault();
       try {
         const path = await storeBlob(image.blob, `pasted-image-${Date.now()}.${image.ext}`);
-        if (path.trim()) addAttachments([path]);
+        if (path.trim()) deliver([{ path, kind: "image" }]);
       } catch (err) {
         onError(err instanceof Error ? err.message : String(err));
       }
     }
-  }, [addAttachments, onError]);
+  }, [deliver, deliverPaths, onError]);
 
   useEffect(() => {
     const onWindowPaste = (e: ClipboardEvent) => {
       if (
-        chatRootRef.current &&
-        !chatRootRef.current.contains(document.activeElement)
+        e.defaultPrevented ||
+        (chatRootRef.current &&
+        !chatRootRef.current.contains(document.activeElement))
       ) {
         return;
       }
@@ -126,11 +144,11 @@ export function useAttachments({
   useTauriFileDrop({
     containerRef: chatRootRef as React.RefObject<HTMLElement | null>,
     enabled,
-    onPaths: (paths) => addAttachments(paths),
+    onPaths: (paths) => void deliverPaths(paths),
   });
 
   const { dragOver: webDragOver, handlers: webDropHandlers } = useWebFileDrop(
-    addAttachments,
+    (paths) => void deliverPaths(paths),
     onError,
   );
 
@@ -140,6 +158,7 @@ export function useAttachments({
     removeAttachment,
     clearAttachments,
     handlePasteEvent,
+    inlineSinkRef,
     webDragOver,
     webDropHandlers,
   };

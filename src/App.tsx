@@ -9,7 +9,8 @@ import { Sidebar } from "./components/Sidebar/Sidebar";
 import { TabContent } from "./components/Terminal/TabContent";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
 import type { SectionId } from "./components/Settings/sections";
-import { GuideNavigationProvider } from "@codeterm/chat-ui";
+import { ChatBlockHostProvider, GuideNavigationProvider } from "@codeterm/chat-ui";
+import { appChatBlockHost } from "./lib/chatBlocks/appChatBlockHost";
 import { GUIDE_SECTIONS, guideRequest, type GuideRequest } from "./help/guideNavigation";
 import type { AgentLevelChoice } from "./lib/types";
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
@@ -32,6 +33,7 @@ import { EssenceMapCanvas } from "./components/Canvas/EssenceMapCanvas";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
 import { PlanSidePanelHost } from "./components/Canvas/PlanSidePanelHost";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
+import { useBlueprintRunPopups } from "./components/Automation/useBlueprintRunPopups";
 import { JobsView, type JobsTarget } from "./components/Jobs/JobsView";
 import { OPEN_JOB_EVENT, type OpenJobDetail } from "./components/Jobs/openJobEvent";
 import { jobsEntryFilter, jobsOpenEntry, type JobsOpenScope } from "./components/Jobs/jobsLayout";
@@ -223,9 +225,11 @@ function AppInner() {
     clearNotifications,
     answerNotification,
     dismissToast,
+    upsertToast,
     spawnClaudeTab,
   } = useMultiplexer();
   const state = useMuxState();
+  useBlueprintRunPopups(state.workspaces, state.generation, state.toasts, upsertToast);
   const navigateToNotificationTab = useCallback(
     (tabId: string, workspaceId: string | null) => {
       if (workspaceId) {
@@ -585,6 +589,7 @@ function AppInner() {
 
   return (
     <GuideNavigationProvider sections={GUIDE_SECTIONS} onOpen={openGuide}>
+    <ChatBlockHostProvider value={appChatBlockHost}>
     <div
       className={`flex flex-col w-screen overflow-hidden ${isCRT ? "crt-mode" : ""}`}
       style={{
@@ -765,7 +770,7 @@ function AppInner() {
           )}
           {automationWorkspaceId && mainView === "workspace" && (
             <div className="absolute inset-0" style={{ zIndex: 26 }}>
-              <JobsView key={`${automationWorkspaceId}:${jobsScope}:${jobsTarget?.request ?? 0}`} workspaces={state.workspaces} teams={state.teams} tabs={state.tabs} initialFilter={jobsEntryFilter(jobsOpenEntry(automationWorkspaceId, jobsScope, jobsTarget?.teamId))} initialScenarioId={jobsTarget?.scenarioId} initialCronId={jobsTarget?.cronId} initialBlueprintId={jobsTarget?.blueprintId} onClose={closeWorkspaceAutomation} />
+              <JobsView key={`${automationWorkspaceId}:${jobsScope}:${jobsTarget?.request ?? 0}`} workspaces={state.workspaces} teams={state.teams} tabs={state.tabs} initialFilter={jobsEntryFilter(jobsOpenEntry(automationWorkspaceId, jobsScope, jobsTarget?.teamId))} initialScenarioId={jobsTarget?.scenarioId} initialRunId={jobsTarget?.runId} initialCronId={jobsTarget?.cronId} initialBlueprintId={jobsTarget?.blueprintId} onClose={closeWorkspaceAutomation} />
             </div>
           )}
           {workspaceMapWorkspaceId && mainView === "workspace" && (
@@ -879,6 +884,7 @@ function AppInner() {
 
       <UpdateProgressLayer />
     </div>
+    </ChatBlockHostProvider>
     </GuideNavigationProvider>
   );
 }

@@ -164,6 +164,7 @@ export interface TabBootStageEvent {
 }
 
 export interface Tab {
+  shell_profile?: ShellProfile | null;
   purpose?: import("./shellCommandState").ShellPurpose;
   icon?: string | null;
   shell_command_state?: import("./shellCommandState").ShellCommandState;
@@ -354,6 +355,7 @@ export interface NotificationAnswer {
 }
 
 export interface Notification {
+  blueprint_run?: import("./blueprintRun").BlueprintRunPopup;
   id: string;
   key?: string;
   tab_id: string | null;
@@ -448,6 +450,13 @@ export interface GraphWorkerInfo {
   color: string;
   report: string | null;
   done_at: number | null;
+  last_observed_at?: number | null;
+  extraction_retry?: {
+    attempt: number;
+    parked: boolean;
+    retry_after: number | null;
+    reason: string | null;
+  } | null;
   log_path?: string | null;
   agent_provider?: string | null;
   model?: string | null;
@@ -552,7 +561,16 @@ export interface FontConfig {
   ligatures: boolean;
 }
 
+export interface ShellProfile {
+  id: string;
+  name: string;
+  executable: string;
+  args: string[];
+  wsl_distro: string | null;
+}
+
 export interface TerminalConfigSettings {
+  default_shell?: string | null;
   cursor_style: string;
   cursor_blink: boolean;
   scrollback: number;
@@ -647,6 +665,7 @@ export interface ApiConfig {
   token: string | null;
   cors: boolean;
   cors_allow_origins?: string[];
+  preview_secret_paths?: string[];
 }
 
 export interface GeneralAgentConfig {
@@ -1085,6 +1104,8 @@ export interface ProviderDescriptor {
   notifications_schema: SettingField[];
   supports_lazy_skills: boolean;
   has_hooks: boolean;
+  /** Provider writes custom model endpoints into its own config. */
+  supports_model_endpoints?: boolean;
   supports_permission_bypass?: boolean;
   /// Provider can render a tab as chat (JSONL sessions or structured/DB-backed
   /// chat). Gates the chat/terminal toggle — replaces the old hardcoded set.

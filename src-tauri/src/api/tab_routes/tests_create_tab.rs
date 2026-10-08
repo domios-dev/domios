@@ -97,3 +97,15 @@ fn post_tabs_rejects_watcher_mode_chatbackend_config() {
         "watcher Tabs spawn via codeterm agent spawn --role Watcher"
     );
 }
+
+#[test]
+fn shell_profile_create_body_preserves_wire_selection() {
+    let body: super::CreateShellTabBody = serde_json::from_value(serde_json::json!({
+        "shell": "wsl:Ubuntu", "purpose": "qa", "cmd": "uname -a"
+    }))
+    .unwrap();
+    assert_eq!(body.shell.as_deref(), Some("wsl:Ubuntu"));
+    assert_eq!(body.cmd.as_deref(), Some("uname -a"));
+    let body: super::CreateShellTabBody = serde_json::from_value(serde_json::json!({})).unwrap();
+    assert!(body.shell.is_none());
+}

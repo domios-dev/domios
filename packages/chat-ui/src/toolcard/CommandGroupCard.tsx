@@ -1,9 +1,8 @@
-import { toolCommand, type ShellScript, type ToolEvent } from "@codeterm/chat-core";
+import type { ShellScript, ToolEvent } from "@codeterm/chat-core";
 import { ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { commandGroupSummary, type CommandRow } from "../codeterm/commandShape";
-import { RawCommandDisclosure } from "../codeterm/RawCommandDisclosure";
 import { DIFF_HIGHLIGHT_MAX_LINES } from "../MarkdownBody";
 import { SYNTAX_HIGHLIGHT_ROOT_CLASS, themeAwarePrismStyle } from "../syntaxTheme";
 import { ToolOutputContent } from "../ToolOutputContent";
@@ -122,14 +121,6 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
         renderDetail={(index) => <SegmentDetail event={event} row={rows[index]} index={index} navigation={navigation} />}
       />
       <div id={regionId} role="region" aria-label="Command output" hidden={!expanded} className="px-3 pb-2">
-        {expanded && (
-          <RawCommandDisclosure
-            raw={event.commandBatch ? event.detail ?? "" : toolCommand(event).command}
-          >
-            {event.status === "pending" && <div data-testid="toolcard-spinner" className="font-mono text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>Running…</div>}
-            {event.result && <div data-testid="toolcard-result"><ToolOutputContent text={event.result} maxHeight="12rem" /></div>}
-          </RawCommandDisclosure>
-        )}
       </div>
     </section>
   );

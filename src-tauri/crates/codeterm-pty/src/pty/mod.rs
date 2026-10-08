@@ -8,6 +8,7 @@ pub mod manager;
 pub mod screen_state;
 pub mod scrollback_capture;
 pub mod shell_integration;
+pub mod shell_profiles;
 mod spawn_gate;
 mod teardown;
 #[cfg(all(test, target_os = "windows"))]

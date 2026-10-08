@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatAge } from "../../lib/timeLabels";
 import type { ApiConfig } from "../../lib/types";
 import type { MemNode } from "./types";
 import { colorForKind } from "./nodeKind";
@@ -20,15 +21,7 @@ type SortKey = "recent" | "oldest" | "importance" | "title";
 const KINDS = ["skill", "fact", "note", "learning", "rule", "preference", "conversation", "peer", "script", "daily", "summary"];
 
 function relTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 30) return `${days}d ago`;
-  return `${Math.floor(days / 30)}mo ago`;
+  return formatAge(new Date(iso).getTime(), Date.now());
 }
 
 const PAGE_SIZE = 50;

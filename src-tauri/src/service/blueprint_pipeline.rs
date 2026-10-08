@@ -287,6 +287,10 @@ impl super::ServiceContext {
 
     pub(crate) fn blueprint_pipeline_nodes(&self) -> Value {
         let mut nodes = vec![
+            json!({"kind":"source", "type":"terminal", "title":"Terminal output", "params_schema":{"observe":"tab:<same-Team tab>","terminal_pattern":"optional regex","output_settled":"optional idle milliseconds (10..60000)"}, "payload_schema":{"type":"text","max_bytes":32768}}),
+            json!({"kind":"handler", "type":"send", "title":"Send body to terminal or agent", "params_schema":{"target":"same-Team tab"}, "payload_schema":{"source":"stage output or graph text input"}}),
+            json!({"kind":"source", "type":"text_input", "title":"Graph text input", "params_schema":{"command":"blueprint input <id> --from-pad <path>"}, "payload_schema":{"type":"text","max_bytes":32768}}),
+            json!({"kind":"mode", "type":"session", "title":"Conversation", "params_schema":{"session":true,"safety_limit":16384,"rate_limit_per_minute":120}}),
             json!({"kind":"trigger", "type":"schedule", "title":"Schedule", "params_schema":{"every":{"type":"duration","minimum":"10s"}}}),
             json!({"kind":"trigger", "type":"event", "title":"Event", "params_schema":{"kind":"event source kind","params":"event source schema"}}),
             json!({"kind":"trigger", "type":"input", "title":"Input", "params_schema":{"kind":"text|file|audio|video|image","source":"text|file|url"}}),

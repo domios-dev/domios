@@ -1,5 +1,5 @@
 import type { BoardTaskCardModel } from "./boardModel";
-import { formatRelativeAge } from "./boardModel";
+import { formatSpan } from "../../../lib/timeLabels";
 import { TaskStatus, type Task, type TaskStatus as TaskStatusType } from "../types";
 import { middleTruncateSlug } from "./textTruncate";
 
@@ -31,7 +31,7 @@ function branchRow(branch: string): TaskCardMetaRow {
 function ageRow(task: Task, now: number): TaskCardMetaRow | null {
   const ts = activityTs(task);
   if (!ts) return null;
-  return { kind: "age", label: "Age", value: formatRelativeAge(ts, now) };
+  return { kind: "age", label: "Age", value: formatSpan(now - ts) };
 }
 
 // Per-status secondary metadata — liveness chips live in workingOn only.

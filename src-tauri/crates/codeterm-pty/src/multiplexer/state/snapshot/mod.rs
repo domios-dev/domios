@@ -144,6 +144,7 @@ impl MultiplexerState {
             SplitNodeSnapshot::Leaf {
                 purpose: tab.map(|p| p.purpose).unwrap_or_default(),
                 icon: tab.and_then(|p| p.icon.clone()),
+                shell_profile: tab.and_then(|p| p.shell_profile.clone()),
                 utility_created_at: tab.map(|p| p.utility_created_at).unwrap_or_default(),
                 tab_id: tab_id.to_string(),
                 cwd: tab.and_then(|p| normalized_snapshot_cwd(p.cwd.as_deref())),
@@ -472,6 +473,7 @@ fn install_leaf(
         purpose,
         icon,
         utility_created_at,
+        shell_profile,
         tab_id,
         cwd,
         title,
@@ -593,6 +595,7 @@ fn install_leaf(
             tab_type: TabType::Terminal,
             purpose: *purpose,
             icon: icon.clone(),
+            shell_profile: shell_profile.clone(),
             utility_created_at: *utility_created_at,
             utility_command_pending: false,
             shell_command_state: Default::default(),

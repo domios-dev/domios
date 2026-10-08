@@ -987,8 +987,8 @@ function claudeFileDiffs(result) {
     if (!hunk) return [];
     hunks.push(hunk);
   }
-  if (hunks.length > 0) return [fileDiff(path, hunks)];
-  return record2.type === "create" && typeof record2.content === "string" ? [fileDiff(path, createdHunks(record2.content))] : [];
+  if (hunks.length > 0) return [{ ...fileDiff(path, hunks), kind: record2.type === "create" ? "add" : "modify" }];
+  return record2.type === "create" && typeof record2.content === "string" ? [{ ...fileDiff(path, createdHunks(record2.content)), kind: "add" }] : [];
 }
 
 // plugins/provider-claude/src/toolFields.ts

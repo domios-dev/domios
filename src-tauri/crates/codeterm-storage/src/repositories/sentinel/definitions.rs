@@ -318,9 +318,9 @@ pub(super) fn insert_version(
         "INSERT INTO sentinel_definitions (sentinel_id, version, provenance, name, source_kind, \
          source_spec, pipeline_spec, probe, observe_kind, observe_ref, question, interval_ms, until_bucket, \
          escalation_timeout_ms, max_transitions, max_actions, replaced_version, author_tab_id, \
-         cause_transition_id, authored_at, created_revision) \
+         cause_transition_id, authored_at, created_revision, terminal_spec, session) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
-         ?18, ?19, ?20, ?21)",
+         ?18, ?19, ?20, ?21, ?22, ?23)",
         params![
             id,
             sql_version,
@@ -342,7 +342,9 @@ pub(super) fn insert_version(
             amendment.map(|amendment| amendment.author_tab_id.as_str()),
             amendment.and_then(|amendment| amendment.cause_transition_id.as_deref()),
             authored_at,
-            created
+            created,
+            definition.terminal.as_ref().map(serde_json::to_string).transpose().map_err(|_| StorageError::invalid("terminal", "cannot be encoded"))?,
+            definition.session
         ],
     )?;
     for (ordinal, bucket) in (0_i64..).zip(&definition.buckets) {
@@ -474,12 +476,12 @@ pub(super) fn latest_version(conn: &Connection, id: &str) -> Result<u64, Storage
 /// `(max_transitions, max_actions)` of the current head version.
 pub(super) fn head_budgets(conn: &Connection, id: &str) -> Result<(u64, u64), StorageError> {
     conn.prepare_cached(
-        "SELECT d.max_transitions, d.max_actions FROM sentinel_heads h \
+        "SELECT CASE WHEN d.session THEN ?2 ELSE d.max_transitions END, CASE WHEN d.session THEN ?2 ELSE d.max_actions END FROM sentinel_heads h \
          JOIN sentinel_definitions d ON d.sentinel_id = h.sentinel_id AND d.version = h.version \
          WHERE h.sentinel_id = ?1",
     )
     .and_then(|mut statement| {
-        statement.query_row([id], |row| {
+        statement.query_row(params![id, codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT as i64], |row| {
             Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
         })
     })
@@ -516,6 +518,8 @@ pub(super) fn head_handler(
 }
 
 struct Header {
+    terminal_spec: Option<String>,
+    session: bool,
     provenance: String,
     name: Option<String>,
     source_kind: String,
@@ -548,7 +552,7 @@ pub(super) fn load_version(
             "SELECT provenance, name, source_kind, source_spec, pipeline_spec, probe, observe_kind, \
              observe_ref, question, interval_ms, until_bucket, escalation_timeout_ms, \
              max_transitions, max_actions, replaced_version, author_tab_id, \
-             cause_transition_id, authored_at, created_revision \
+             cause_transition_id, authored_at, created_revision, terminal_spec, session \
              FROM sentinel_definitions WHERE sentinel_id = ?1 AND version = ?2",
         )
         .and_then(|mut statement| {
@@ -574,6 +578,8 @@ pub(super) fn load_version(
                         cause_transition_id: row.get(16)?,
                         authored_at: row.get(17)?,
                         created_revision: row.get(18)?,
+                        terminal_spec: row.get(19)?,
+                        session: row.get(20)?,
                     })
                 })
                 .optional()
@@ -601,6 +607,14 @@ pub(super) fn load_version(
             header.authored_at,
         )?,
         definition: StageDefinition {
+            terminal: header
+                .terminal_spec
+                .map(|spec| {
+                    serde_json::from_str(&spec)
+                        .map_err(|_| corrupt("terminal spec does not decode"))
+                })
+                .transpose()?,
+            session: header.session,
             name: header.name,
             source: source_from(
                 &header.source_kind,

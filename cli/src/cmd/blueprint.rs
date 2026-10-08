@@ -23,6 +23,25 @@ fn assignments(values: Vec<String>) -> Result<BTreeMap<String, String>, String> 
     Ok(pairs)
 }
 
+fn read_text_input_file(path: &std::path::Path) -> Result<String, String> {
+    use std::io::Read;
+    let file = std::fs::File::open(path)
+        .map_err(|error| format!("cannot read text input {}: {error}", path.display()))?;
+    let metadata = file.metadata().map_err(|error| error.to_string())?;
+    let limit = codeterm_types::blueprint_terminal::MAX_PAYLOAD_BYTES;
+    if !metadata.is_file() || metadata.len() > limit as u64 {
+        return Err("text input must be a regular file of at most 32768 bytes".into());
+    }
+    let mut bytes = Vec::new();
+    file.take((limit + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    if bytes.len() > limit {
+        return Err("text input exceeds 32768 bytes".into());
+    }
+    String::from_utf8(bytes).map_err(|_| "text input is not UTF-8".into())
+}
+
 fn render(job: &Value) {
     if let Some(pipeline) = job.get("pipeline") {
         let current_step = job["current_step"]
@@ -280,6 +299,13 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
         render_history(&result);
         return;
     }
+    if method == "blueprint.input" {
+        println!(
+            "Accepted text input for {}.",
+            result["id"].as_str().unwrap_or("?")
+        );
+        return;
+    }
     if method == "blueprint.update" || method == "blueprint.pipeline.update" {
         println!(
             "Updated {} to definition version {}.",
@@ -345,6 +371,9 @@ fn request(
             name,
             probe,
             observe,
+            terminal_pattern,
+            output_settled,
+            session,
             input,
             input_file,
             input_url,
@@ -368,6 +397,9 @@ fn request(
         } => {
             if spec.is_some() || recipe.is_some() {
                 if name.is_some()
+                    || terminal_pattern.is_some()
+                    || output_settled.is_some()
+                    || session
                     || probe.is_some()
                     || observe.is_some()
                     || input.is_some()
@@ -424,7 +456,11 @@ fn request(
                 convert_to,
                 convert_timeout,
             )?;
+            let terminal = (terminal_pattern.is_some() || output_settled.is_some())
+                .then(|| json!({"pattern": terminal_pattern, "idle_ms": output_settled}));
             params["create"] = json!({ "name": name.ok_or("--name is required")?, "probe": probe, "observe": observe, "input": input, "question": question.ok_or("--question is required")?, "buckets": buckets.ok_or("--buckets is required")?, "every": every.unwrap_or_else(|| "20s".into()), "routes": routes, "handlers": handlers, "rearm_on_change": rearm_on_change, "escalation_timeout_ms": escalation_timeout_ms, "paused": paused, "max_transitions": max_transitions, "max_actions": max_actions, "matches": assignments(matches)?, "until": until, "timeout": timeout });
+            params["create"]["terminal"] = json!(terminal);
+            params["create"]["session"] = json!(session);
             if dry_run {
                 "blueprint.validate.create"
             } else {
@@ -432,6 +468,26 @@ fn request(
             }
         }
         BlueprintAction::List => "blueprint.list",
+        BlueprintAction::Input {
+            id,
+            from_pad,
+            text_file,
+        } => {
+            let text = match (from_pad, text_file) {
+                (Some(path), None) => crate::cmd::payload_source::read_from_pad(&path)?,
+                (None, Some(path)) => read_text_input_file(&path)?,
+                _ => return Err("provide --from-pad or --text-file".into()),
+            };
+            if text.is_empty()
+                || text.contains('\0')
+                || text.len() > codeterm_types::blueprint_terminal::MAX_PAYLOAD_BYTES
+            {
+                return Err("blueprint text must contain 1..32768 UTF-8 bytes".into());
+            }
+            params["id"] = json!(id);
+            params["text"] = json!(text);
+            "blueprint.input"
+        }
         BlueprintAction::Nodes => "blueprint.pipeline.nodes",
         BlueprintAction::Show { id } => {
             params["id"] = json!(id);

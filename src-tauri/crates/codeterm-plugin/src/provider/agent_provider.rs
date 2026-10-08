@@ -1021,6 +1021,7 @@ pub trait AgentProvider: Send + Sync {
             notifications_schema: self.notifications_schema(),
             supports_lazy_skills: self.supports_lazy_skills(),
             has_hooks: self.has_hooks(),
+            supports_model_endpoints: self.model_provider_config().is_some(),
             supports_permission_bypass: !self.auto_approve_flags().is_empty(),
             cli_binary: self.cli_binary().map(|s| s.to_string()),
             install_command: self.install_command(platform),

@@ -247,7 +247,7 @@ describe("mission control board visual system", () => {
       for (const row of rows) {
         expect(textLeaves(row).filter((leaf) => /%$/.test(leaf.textContent?.trim() ?? ""))).toEqual([row.children[2]]);
       }
-      expect(rows.map((row) => row.children[1]?.textContent)).toEqual(["2.4M", "1.4M", "67.5K"]);
+      expect(rows.map((row) => row.children[1]?.textContent)).toEqual(["2.4M", "1.4M", "68k"]);
       const words = (models.textContent ?? "").toLowerCase();
       for (const banned of ["output", "total", "bytes", "·", "needs"]) {
         expect(words).not.toContain(banned);

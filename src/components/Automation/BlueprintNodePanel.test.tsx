@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
+import { AutomationCanvas } from "./AutomationCanvas";
+import { createAutomationCamera } from "./useAutomationViewport";
 import { AutomationDetails } from "./AutomationDetails";
 import { RunLog } from "./RunLog";
 import { fixtureGraph } from "./fixtures.testdata";
@@ -48,14 +50,24 @@ try {
   assert.equal(document.querySelector('[role="dialog"]'), null);
   assert.equal(closed, 0, "fullscreen Escape leaves the node inspector open");
   assert.equal(document.activeElement, opener);
+  const classifier = { adapter_id: "typesafe-jev", model: "jev-latest" };
+  const classified = { ...node, detail: { definition: { ...node.detail.definition, question: "branch-a: first path; branch-b: second path", buckets: [{ name: "branch-a", pattern: null }, { name: "branch-b", pattern: null }] } } };
+  await act(async () => root.render(<AutomationDetails node={classified} nodes={[classified]} classifier={classifier} onClose={() => closed++} />));
+  assert.ok(host.querySelector('header [aria-label="AI: Jev \u00b7 jev-latest"]'));
+  assert.equal(host.querySelector('[aria-label="Routes"] dl')?.children.length, 2);
+  const classifiedGraph = { ...graph, configured_fallback: classifier, nodes: [classified, graph.nodes[2]] };
+  await act(async () => root.render(<AutomationCanvas graph={classifiedGraph} selected={null} camera={createAutomationCamera()} onSelect={() => {}} />));
+  assert.ok(host.querySelector('button[aria-label^="Agent node:"] [aria-label="AI: Jev \u00b7 jev-latest"]'));
   const withHistory = { ...graph, nodes: [{ ...node, history: [
     { id: "first", bucket: "branch-a", accepted_at: 100, handlers: [] },
-    { id: "second", bucket: "branch-b", accepted_at: 200, handlers: [{ handler_id: "handler-c", status: "completed", execution_id: "execution", accepted_at: 201 }] },
+    { id: "second", decided_by: "adapter" as const, adapter_id: "typesafe-jev", model: "jev-latest", confidence: 0.87, bucket: "branch-b", accepted_at: 200, handlers: [{ handler_id: "handler-c", status: "completed", execution_id: "execution", accepted_at: 201 }] },
   ] }] };
   let replayed: string[] = [];
   await act(async () => root.render(<RunLog graph={withHistory} selected={null} onReplay={(run) => { replayed = run.events.flatMap((event) => event.edgeId ? [event.edgeId] : []); }} />));
   const runs = host.querySelectorAll('section > ol > li');
   assert.equal(runs.length, 2);
+  assert.ok(runs[0].querySelector('[aria-label="AI: Jev \u00b7 jev-latest"]'));
+  assert.ok(host.querySelector('input[aria-label="Run log height"]'));
   await click(runs[0].querySelector<HTMLButtonElement>("button")!);
   assert.deepEqual(replayed, ["edge-b"]);
   const selection = { key: "run", edges: ["edge-a", "edge-b"] };

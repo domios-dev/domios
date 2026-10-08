@@ -557,3 +557,176 @@ fn model_provider_config_failure_cleans_the_new_secret() {
     );
     assert!(!adapter.adapter.path.exists());
 }
+
+#[test]
+fn model_provider_scoped_owner_requires_the_declared_capability() {
+    use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
+    let manifest: PluginManifest = serde_json::from_value(json!({
+        "id":"scoped-owner", "version":"0.1.0", "displayName":"Fixture",
+        "capabilities":{"agentProvider":true,"modelProviderConfig":true}
+    }))
+    .unwrap();
+    let provider: Arc<dyn AgentProvider> = Arc::new(JsProvider::new(
+        manifest,
+        Arc::new(
+            PluginVm::from_source("scoped-owner", "module.exports.default = {};".into()).unwrap(),
+        ),
+    ));
+    let native: Arc<dyn AgentProvider> =
+        Arc::new(codeterm_plugin::agent_claude::provider::ClaudeProvider::new());
+    let providers = [native.clone(), provider.clone(), provider];
+    assert!(matches!(
+        select_owner_for(&providers, None),
+        Err(ModelProviderError::Ambiguous)
+    ));
+    assert_eq!(
+        select_owner_for(&providers, Some("scoped-owner"))
+            .unwrap()
+            .id(),
+        "scoped-owner"
+    );
+    assert!(matches!(
+        select_owner_for(&providers, Some(native.id())),
+        Err(ModelProviderError::Unsupported)
+    ));
+}
+
+#[test]
+fn model_provider_update_rewrites_endpoint_and_rotates_owned_key_outside_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = adapter(dir.path().join("opencode.json"));
+    let store = store();
+    let first = ["first", "fixture", "value"].join("-");
+    execute(
+        &store,
+        "owner",
+        &adapter,
+        ModelProviderRequest::Add {
+            provider: definition(),
+            value: SecretString::from(first),
+        },
+    )
+    .unwrap();
+    let rotated = ["rotated", "fixture", "value"].join("-");
+    let mut patch = definition();
+    patch.base_url = "http://localhost:4321/v1".into();
+    patch.models = vec!["model-b".into(), "model-c".into()];
+    patch.secret_name = None;
+    let updated = execute(
+        &store,
+        "owner",
+        &adapter,
+        ModelProviderRequest::Update {
+            provider: patch,
+            value: Some(SecretString::from(rotated.clone())),
+        },
+    )
+    .unwrap();
+    assert!(!updated.to_string().contains(&rotated));
+    let bytes = std::fs::read_to_string(&adapter.path).unwrap();
+    assert!(!bytes.contains(&rotated));
+    let providers = adapter.read(&read_config(&adapter.path).unwrap()).unwrap();
+    assert_eq!(providers.len(), 1);
+    assert_eq!(providers[0].base_url, "http://localhost:4321/v1");
+    assert_eq!(providers[0].models, vec!["model-b", "model-c"]);
+    assert_eq!(providers[0].secret_name.as_deref(), Some("slot"));
+    let env = launch_env(&store, "owner", &adapter, &providers).unwrap();
+    assert_eq!(
+        env,
+        HashMap::from([("DOMIOS_PROVIDER_DEMO_KEY".into(), rotated)])
+    );
+}
+
+#[test]
+fn model_provider_update_refuses_unknown_endpoint_and_foreign_owner() {
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = adapter(dir.path().join("opencode.json"));
+    let store = store();
+    let update = || ModelProviderRequest::Update {
+        provider: definition(),
+        value: Some(SecretString::from("opaque-fixture")),
+    };
+    assert!(matches!(
+        execute(&store, "owner", &adapter, update()),
+        Err(ModelProviderError::NotFound)
+    ));
+    execute(
+        &store,
+        "owner",
+        &adapter,
+        ModelProviderRequest::Add {
+            provider: definition(),
+            value: SecretString::from("original-fixture"),
+        },
+    )
+    .unwrap();
+    let before = std::fs::read(&adapter.path).unwrap();
+    assert!(matches!(
+        execute(&store, "intruder", &adapter, update()),
+        Err(ModelProviderError::SecretOwnership)
+    ));
+    assert_eq!(std::fs::read(&adapter.path).unwrap(), before);
+}
+
+#[test]
+fn model_provider_discover_needs_exactly_one_key_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = adapter(dir.path().join("opencode.json"));
+    let store = store();
+    let discover = |value: Option<&str>, source_secret: Option<&str>| {
+        execute(
+            &store,
+            "owner",
+            &adapter,
+            ModelProviderRequest::Discover {
+                kind: EndpointKind::OpenaiCompatible,
+                base_url: "http://localhost:1234/v1".into(),
+                value: value.map(SecretString::from),
+                source_secret: source_secret.map(str::to_owned),
+            },
+        )
+    };
+    assert!(matches!(
+        discover(None, None),
+        Err(ModelProviderError::InvalidRequest)
+    ));
+    assert!(matches!(
+        discover(Some("opaque"), Some("source")),
+        Err(ModelProviderError::InvalidRequest)
+    ));
+    assert!(matches!(
+        discover(Some(""), None),
+        Err(ModelProviderError::InvalidRequest)
+    ));
+    assert!(matches!(
+        discover(None, Some("missing")),
+        Err(ModelProviderError::NotFound)
+    ));
+    assert!(!adapter.path.exists());
+}
+
+#[test]
+fn model_provider_wire_accepts_update_and_discover_without_a_key() {
+    let update: ModelProviderRequest = serde_json::from_value(json!({
+        "action":"update",
+        "provider":{"id":"demo","kind":"anthropic","baseUrl":"https://example.test","models":[]}
+    }))
+    .unwrap();
+    assert!(matches!(
+        update,
+        ModelProviderRequest::Update { value: None, .. }
+    ));
+    let discover: ModelProviderRequest = serde_json::from_value(json!({
+        "action":"discover","kind":"openai-compatible","base_url":"https://example.test",
+        "source_secret":"saved"
+    }))
+    .unwrap();
+    assert!(matches!(
+        discover,
+        ModelProviderRequest::Discover {
+            value: None,
+            source_secret: Some(_),
+            ..
+        }
+    ));
+}

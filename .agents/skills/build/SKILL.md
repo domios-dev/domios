@@ -85,6 +85,20 @@ A generated artifact is produced from a source of truth and is never hand-edited
 
 A lane Worker runs isolated checks only. When a generator needs the checkout's built CLI (`essence-map` also refuses a linked worktree), list the exact regeneration and verification commands under `GATES REQUESTED` for the Orchestrator's canonical wave batch.
 
+## Cache retention and troubleshooting
+
+Gateway acquisition triggers retention at most once per hour; there are no timers or background sweep jobs. `cache-retention.json` in the machine gateway records the last completed run. Exceptional targets carry `.codeterm-cache.json` with their physical checkout path, last-use timestamp, measured byte count, and live build-owner PIDs. Preparation refreshes the marker even for exceptional commands that run outside the gateway.
+
+Missing-checkout targets and targets unused for `CODETERM_CACHE_MAX_AGE_DAYS` (default **3**) are removed first. Unmarked targets older than **2 days** are eligible. Remaining idle targets are evicted in least-recently-used order until they fit `CODETERM_EXCEPTIONAL_CACHE_GB` (default **40 GiB**). The current checkout and targets with live build owners are protected, including during manual GC; protection can temporarily exceed the cap and is reported. PID reuse conservatively protects a cache rather than risking removal of an active build.
+
+At the same hook, installed `cargo-sweep` prunes the current checkout's `src-tauri/target` and `cli/target` with the same configurable age. An unavailable sweep tool prints one installation hint; sweep failures do not fail a build. `SCCACHE_CACHE_SIZE` is explicitly exported with default **10G** before starting sccache. An already-running server retains its startup configuration: apply changed sccache limits only by restarting it with the gateway idle, never during compilation.
+
+Run `./build.sh gc --dry-run` to preview or `./build.sh gc` to reclaim immediately (Windows: `.\build.ps1 gc --dry-run` / `.\build.ps1 gc`). Manual GC acquires the machine gateway, bypasses the hourly throttle, and reports exceptional bytes reclaimed plus sweep output. Dry-run preserves artifacts and the hourly timestamp. Normal targets have an age policy; current artifacts and protected exceptional targets can exceed their usual retained size.
+
+Every candidate is physically resolved using `pwd -P` and must be a direct child of the exceptional target root, or the checkout's exact target directory for sweep. Empty, root, parent, symlink/junction, redirected ancestor, and nested-link paths are refused. Deletion does not follow links. If retention reports an unsafe path, inspect and remove the redirection separately; never relax the boundary to make GC pass. Retention and marker updates use an exclusive gateway metadata lock and refuse concurrent modification. Automatic failures print a hint and let builds continue; explicit GC returns failure for invalid configuration or an unavailable lock.
+
+Canonical shell policy verification: `bash scripts/check-build-gateway-policy.sh`. Its retention fixture suite checks marker persistence, removed checkouts, configurable expiry, legacy grace, LRU cap order, live-owner/current-checkout protection, hourly throttle, dry-run, and unsafe paths including real Windows junctions. It requires no Rust compilation.
+
 ## Local production build and self-install
 
 Use this only when testing a production-mode build on this Windows machine. It

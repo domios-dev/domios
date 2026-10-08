@@ -28,7 +28,7 @@ function same(a: ViewportTransform, b: ViewportTransform): boolean {
 interface Arrangement { orientation: AutomationOrientation; wrap: number }
 
 /** `focus` is the selected participant that a readable Fit frames; without it Fit frames the root. */
-export function useAutomationViewport(graph: AutomationGraph, camera: AutomationCamera, focus: string | null) {
+export function useAutomationViewport(graph: AutomationGraph, camera: AutomationCamera, focus: string | null, panelOpen = false) {
   const [size, setSize] = useState<CanvasSize | null>(null);
   const [arrangement, setArrangement] = useState<Arrangement>({ orientation: camera.orientation ?? "horizontal", wrap: camera.wrap ?? Number.POSITIVE_INFINITY });
   const layouts = useMemo(() => layoutAutomationOrientations(graph, arrangement.wrap), [graph, arrangement.wrap]);
@@ -89,6 +89,11 @@ export function useAutomationViewport(graph: AutomationGraph, camera: Automation
   }, [graph, size, setTransform]);
   const fit = useCallback(() => settle(false, focus), [settle, focus]);
   const showOverview = useCallback(() => settle(true, null), [settle]);
+  const panelWasOpen = useRef(false);
+  useLayoutEffect(() => {
+    if (panelOpen && !panelWasOpen.current && size) settle(true, null);
+    panelWasOpen.current = panelOpen && size !== null;
+  }, [panelOpen, size, settle]);
 
   // A moved camera keeps its scale and the world point at the viewport center when the canvas resizes.
   const follow = useRef(() => {});

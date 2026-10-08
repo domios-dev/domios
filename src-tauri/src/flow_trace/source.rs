@@ -74,6 +74,74 @@ impl PtyFlow {
         }
     }
 
+    pub(crate) fn watch_unledgered(&self, svc: &crate::service::ServiceContext, text: &str) {
+        let bound = {
+            let mux = svc.mux.read();
+            mux.get_tab(&self.tab).and_then(|tab| {
+                let nonce = tab.session_binding_nonce.as_ref()?;
+                if tab.reported_session_binding_nonce.as_ref() != Some(nonce) {
+                    return None;
+                }
+                Some((
+                    tab.agent_type.clone()?,
+                    tab.cwd.clone().unwrap_or_default(),
+                    tab.agent_session_id.clone()?,
+                    nonce.clone(),
+                ))
+            })
+        };
+        let Some((provider, cwd, session, nonce)) = bound else {
+            self.observer("binding_unavailable");
+            return;
+        };
+        let captured = svc.agent_registry.with_provider(&provider, |provider| {
+            (
+                provider.session_jsonl_path(&cwd, &session),
+                provider.turn_evidence_normalization(),
+            )
+        });
+        let Some((Some(path), normalization)) = captured else {
+            self.observer("path_unavailable");
+            return;
+        };
+        let source = svc.chat_registry.jsonl_source(&self.tab);
+        let Some(window) = super::watch::capture_window(&source, &session, &path) else {
+            self.observer("source_unreadable");
+            return;
+        };
+        let anchor = SendEvidenceAnchor {
+            provider_id: provider,
+            cwd,
+            session_id: session,
+            window,
+            turn_normalization: normalization,
+        };
+        super::watch::ensure_unledgered(
+            svc,
+            &self.tab,
+            &anchor,
+            Some(&nonce),
+            self.clone(),
+            text,
+            path,
+        );
+    }
+
+    pub(super) fn observer(&self, outcome: &str) {
+        record(
+            &self.id,
+            "trace.observer",
+            &self.tab,
+            &self.provider,
+            outcome,
+            None,
+        );
+    }
+
+    pub(super) fn id(&self) -> &str {
+        &self.id
+    }
+
     pub(crate) fn start(id: Option<&str>, tab: &str, provider: &str) -> Option<Self> {
         if !enabled() {
             return None;
@@ -155,6 +223,64 @@ impl PtyFlow {
     }
 }
 
+pub(crate) struct UnledgeredObservation {
+    flow: PtyFlow,
+    payload: String,
+    user: Option<String>,
+    source_seen: bool,
+}
+
+impl UnledgeredObservation {
+    pub(super) fn observer(&self, outcome: &str) {
+        self.flow.observer(outcome);
+    }
+
+    pub(crate) fn new(flow: PtyFlow, payload: String, anchor: &SendEvidenceAnchor) -> Self {
+        Self {
+            flow,
+            payload: crate::service::chat_send_transaction::normalize_turn_evidence_with(
+                &payload,
+                anchor.turn_normalization,
+            ),
+            user: None,
+            source_seen: false,
+        }
+    }
+
+    pub(crate) fn observe(
+        &mut self,
+        anchor: &SendEvidenceAnchor,
+        nonce: Option<&str>,
+        messages: &[ChatMsg],
+        source: &SourceCursor,
+    ) -> bool {
+        if !self.source_seen && !messages.is_empty() {
+            self.observer("first_append");
+            self.source_seen = true;
+        }
+        if self.user.is_none() && !self.payload.is_empty() {
+            self.user = messages
+                .iter()
+                .find(|message| {
+                    message.kind == "user"
+                        && !message.id.is_empty()
+                        && crate::service::chat_send_transaction::normalize_turn_evidence_with(
+                            &message.content,
+                            anchor.turn_normalization,
+                        ) == self.payload
+                })
+                .map(|message| message.id.clone());
+            if let Some(user) = self.user.as_deref() {
+                self.flow.confirmed(anchor, nonce, Some(user));
+                self.payload.clear();
+            }
+        }
+        self.user
+            .as_deref()
+            .is_some_and(|user| source.answered(&self.flow.tab, &anchor.session_id, nonce, user))
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct SourceCursor {
     user: Option<String>,
@@ -162,6 +288,17 @@ pub(crate) struct SourceCursor {
 }
 
 impl SourceCursor {
+    pub(super) fn answered(
+        &self,
+        tab: &str,
+        session: &str,
+        nonce: Option<&str>,
+        user: &str,
+    ) -> bool {
+        let source = source_id("pty", tab, session, nonce, user);
+        self.seen.iter().any(|(id, _)| id == &source)
+    }
+
     pub(crate) fn pty(
         &mut self,
         tab: &str,

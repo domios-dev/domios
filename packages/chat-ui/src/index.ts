@@ -8,12 +8,14 @@ export {
   sessionIntentFromMessages,
   TimelineMarkerRow,
 } from "./timelineMarkers";
+export { LocalArtifactBlock, parseLocalArtifactDirective } from "./LocalArtifactBlock";
 export { RichMarkdown } from "./MarkdownBody";
 export { GuideNavigationProvider } from "./GuideDirective";
 export { HtmlPreviewBlock, buildHtmlPreviewDocument } from "./HtmlPreviewBlock";
 export { configureHtmlFileLoader } from "./htmlFileLoader";
 export type { HtmlFileLoader } from "./htmlFileLoader";
-export { configureLocalArtifactLoader } from "./localArtifactLoader";
+export { configureLocalArtifactLoader, configureLocalArtifactOpener, openLocalArtifact } from "./localArtifactLoader";
+export { FileDiffCards } from "./toolcard/FileDiffCards";
 export type { LocalArtifactLoader, LocalArtifactKind, LocalPreviewFile } from "./localArtifactLoader";
 export { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, sanitizeStyleValue } from "./htmlSanitize";
 export { AttachedDiscussionDocView } from "./AttachedDiscussionDoc";
@@ -40,3 +42,19 @@ export {
   shortSha,
 } from "./codeterm/reportOutcome";
 export type { ReportOutcomeClass, ReportTaskOutcome } from "./codeterm/reportOutcome";
+export { LocalArtifactScope } from "./LocalArtifactScope";
+export { AttachmentCapsule, CAPSULE_DETAIL_STYLE, CAPSULE_ICONS, CAPSULE_TONE, CapsulePreview, capsuleLabelParts } from "./AttachmentCapsule";
+export { localArtifactOpeningAvailable } from "./localArtifactLoader";
+export { ChatBlockFrame } from "./blocks/ChatBlockFrame";
+export type { ChatBlockAction, ChatBlockFrameProps, ChatBlockStatus, ChatBlockTone } from "./blocks/ChatBlockFrame";
+export { ChatBlockHostProvider, useChatBlockHost } from "./blocks/ChatBlockHost";
+export type { ChatBlockHost, PluginBlockHost } from "./blocks/ChatBlockHost";
+export { useLiveBinding } from "./blocks/liveBinding";
+export type { LiveBindingSource } from "./blocks/liveBinding";
+export { CHAT_BLOCKS, parseChatBlock, parseChatBlocks } from "./blocks/registry";
+export type { ChatBlockDefinition, ParsedChatBlock } from "./blocks/registry";
+export { PluginBlock } from "./blocks/PluginBlock";
+export { parsePluginId, pluginPrimaryAction, pluginStatus } from "./blocks/pluginBlockModel";
+export type { PluginBlockInfo, PluginBlockState, PluginLifecycleKind } from "./blocks/pluginBlockModel";
+export { PluginNameProvider } from "./codeterm/PluginNames";
+export type { PluginNameResolver } from "./codeterm/pluginAction";

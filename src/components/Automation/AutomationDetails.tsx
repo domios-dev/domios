@@ -1,9 +1,12 @@
+import { NodeKindBadge } from "./NodeKindBadge";
+import type { ClassifierConfig } from "./nodeDecision";
 import { Fragment, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { ChevronRight, X } from "lucide-react";
 import { focusLost } from "./focus";
 import type { PresenceState } from "../Canvas/usePresence";
 import { AUTOMATION_LABEL } from "./styles";
 import { CodeBlock } from "@codeterm/chat-ui";
+import { NodeFiles } from "./NodeFiles";
 import { nodeInspector } from "./nodeInspector";
 import type { ActionLeaf } from "./projection";
 import type { AutomationNode } from "./types";
@@ -48,7 +51,8 @@ function DetailsFrame({ label, title, onClose, children, focusWhenLost = false, 
   </aside>;
 }
 
-export function AutomationDetails({ node, action, nodes, onClose, panelRef, presence }: {
+export function AutomationDetails({ node, action, nodes, onClose, panelRef, presence, classifier }: {
+  classifier?: ClassifierConfig;
   node: AutomationNode | null; action?: ActionLeaf | null;
   nodes: readonly AutomationNode[]; onClose: () => void;
   panelRef?: RefObject<HTMLElement | null>; presence?: PresenceState;
@@ -56,13 +60,16 @@ export function AutomationDetails({ node, action, nodes, onClose, panelRef, pres
   if (!node) return <DetailsFrame label="Details: unavailable participant" title={<h3>Participant unavailable</h3>} onClose={onClose} panelRef={panelRef} presence={presence} focusWhenLost>
     <p role="status">The selected node is no longer available.</p>
   </DetailsFrame>;
-  const view = nodeInspector(node, action ?? null, nodes);
-  return <DetailsFrame label={`Details: ${view.name}`} title={<h3 className="text-[length:var(--ct-font-size-lg)] font-semibold">{view.name}</h3>} onClose={onClose} panelRef={panelRef} presence={presence}>
+  const view = nodeInspector(node, action ?? null, nodes, classifier);
+  return <DetailsFrame label={`Details: ${view.name}`} title={<><h3 className="text-[length:var(--ct-font-size-lg)] font-semibold">{view.name}</h3><NodeKindBadge kind={view.badge} /></>} onClose={onClose} panelRef={panelRef} presence={presence}>
     <div className="space-y-5">
       <p className="leading-relaxed">{view.purpose}</p>
       <Facts>{view.properties.map(([name, value]) => <Fragment key={name}><dt>{name}</dt><dd>{value}</dd></Fragment>)}</Facts>
-      {view.code && <section aria-label="Node code"><CodeBlock text={view.code.text} language={view.code.language} fullscreenScope="viewport" />{view.code.truncated && <p className="text-xs text-[var(--ct-muted-fg)]">Code preview truncated at the source.</p>}</section>}
+      {view.routes.length > 0 && <section aria-label="Routes"><h4 className={AUTOMATION_LABEL}>Routes</h4><dl className="mt-2 space-y-2">{view.routes.map((route) => <div key={route.name}><dt className="font-medium">{route.name}</dt><dd className="text-[var(--ct-muted-fg)]">{route.description}</dd></div>)}</dl></section>}
+      {view.contract && <Disclosure title="Classifier contract"><p className="whitespace-pre-wrap break-words">{view.contract}</p></Disclosure>}
+      {view.code && <section aria-label="Node code"><CodeBlock text={view.code.text} language={view.code.language} fullscreenScope="viewport" wrapLines />{view.code.truncated && <p className="text-xs text-[var(--ct-muted-fg)]">Code preview truncated at the source.</p>}</section>}
       {view.codeUnavailable && <p className="text-xs text-[var(--ct-muted-fg)]">Code is unavailable in this view.</p>}
+      {view.code && node.identity.kind === "sentinel" && <NodeFiles key={JSON.stringify([node.identity, node.sentinel_definition?.definition_version, action?.bucket, action?.handler?.id])} identity={node.identity} bucket={action?.bucket ?? null} handler={action?.handler?.id ?? null} />}
       <Disclosure title="Details"><Facts><dt>ID</dt><dd className="break-all font-mono text-xs">{action?.handler?.id ?? node.identity.id}</dd></Facts></Disclosure>
     </div>
   </DetailsFrame>;

@@ -6,8 +6,10 @@ import type { HelpSectionId } from "../../help/types";
 import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
-import { ProviderInstallCard, ProviderCliControls } from "./ProviderInstallCard";
-import { ModelProvidersPanel } from "./ModelProvidersPanel";
+import { ProviderInstallCard } from "./ProviderInstallCard";
+import { ProviderIntegrationHealthCard } from "./ProviderIntegrationHealthCard";
+import { ModelEndpointsCard } from "./model_endpoints/ModelEndpointsCard";
+import { providerPageSections, providerSummary } from "./providerPageSections";
 import { SupporterAgentCard } from "./SupporterAgentCard";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import type { SettingsCardAnchorId } from "./sections";
@@ -47,7 +49,6 @@ export function AgentsOverview({
       </SettingsCard>
 
       <OrchestrationGroup config={config} onUpdate={onUpdate} />
-      <ModelProvidersPanel />
 
       <SettingsCardAnchor id="supporter-agent" focused={focusCard === "supporter-agent"}>
         <SupporterAgentCard
@@ -107,11 +108,10 @@ export function AgentsOverview({
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="text-[13px] font-medium text-[var(--ct-fg)]">{p.display_name}</div>
-                  <div className="text-[11px] text-[var(--ct-muted-fg)] mt-0.5">{p.id}</div>
+                  <div className="text-[11px] text-[var(--ct-muted-fg)] mt-0.5">{providerSummary(p)}</div>
                 </div>
                 <ChevronRight size={14} className="shrink-0 text-[var(--ct-muted)]" />
               </Button>
-            <ProviderCliControls providerId={p.id} compact />
             </div>
           ))}
         </div>
@@ -162,6 +162,7 @@ export function AgentProviderScreen({
 
   const providerCfg = fullConfig.agents?.[provider.id] ?? {};
   const visibleInMenu = providerCfg.visible_in_menu !== false;
+  const sections = providerPageSections(provider);
 
   return (
     <div className="flex flex-col gap-5" data-testid="settings-agent-provider-screen" data-provider-id={provider.id}>
@@ -171,9 +172,14 @@ export function AgentProviderScreen({
         </div>
         <div className="min-w-0">
           <div className="text-xs font-medium text-[var(--ct-fg)]">{provider.display_name}</div>
-          <div className="text-[11px] text-[var(--ct-muted-fg)]">{provider.id}</div>
+          <div className="text-[11px] text-[var(--ct-muted-fg)]">{providerSummary(provider)}</div>
         </div>
       </div>
+      <ProviderInstallCard provider={provider} />
+      {sections.integration && <ProviderIntegrationHealthCard provider={provider} />}
+      {sections.modelEndpoints && (
+        <ModelEndpointsCard providerId={provider.id} harnessName={provider.display_name} daemonApi={fullConfig.api} />
+      )}
       <SettingsCard
         icon={<Eye size={16} />}
         title="Visibility"
@@ -185,7 +191,6 @@ export function AgentProviderScreen({
           onChange={(v) => onProviderConfigChange(provider.id, { visible_in_menu: v })}
         />
       </SettingsCard>
-      <ProviderInstallCard provider={provider} />
       <SchemaRenderer
         schema={provider.settings_schema}
         providerId={provider.id}

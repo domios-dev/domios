@@ -10,7 +10,6 @@ import {
   deriveBoardPlanSummary,
   deriveBoardSpecSummary,
   DONE_COLUMN_COLLAPSED_LIMIT,
-  formatRelativeAge,
   groupTasksIntoColumns,
   orderPlansByActivity,
   planActivityFreshness,
@@ -279,13 +278,6 @@ test("task card carries branch-only lane and latest note, never lane worktree pa
   assert(!serialized.includes("worktree_path"), "lane worktree path not in derived card fields");
   assert(!("worktree" in card) && !("latestMilestone" in card), "no worktree/milestone object fields");
   assert(card.latestNote === "secret worktree /tmp/codeterm-board-v2 detail", "latest note carries milestone text");
-});
-
-test("formatRelativeAge buckets seconds/minutes/hours/days", () => {
-  assert(formatRelativeAge(0, 5_000) === "5s", "seconds");
-  assert(formatRelativeAge(0, 120_000) === "2m", "minutes");
-  assert(formatRelativeAge(0, 7_200_000) === "2h", "hours");
-  assert(formatRelativeAge(0, 172_800_000) === "2d", "days");
 });
 
 test("orderPlansByActivity sorts freshest first with deterministic tiebreak", () => {

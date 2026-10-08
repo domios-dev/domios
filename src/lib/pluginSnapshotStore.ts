@@ -105,14 +105,19 @@ async function fetchSnapshot({
   return inFlight;
 }
 
+export function subscribePluginSnapshotStore(listener: Listener): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+export function getPluginSnapshotState(): PluginSnapshotStoreState {
+  return snapshotState;
+}
+
 export function usePluginSnapshotStore(): PluginSnapshotStoreState {
-  return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    () => snapshotState,
-  );
+  return useSyncExternalStore(subscribePluginSnapshotStore, getPluginSnapshotState);
 }
 
 export function ensurePluginSnapshot(options?: { force?: boolean; background?: boolean }) {

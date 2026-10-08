@@ -80,6 +80,13 @@ plan/task/attempt identifiers. Accept the report on the origin before running
 `plan task merge-remote-lane <plan> <task> <attempt>` to fetch the signed peer
 bundle at the accepted report SHA and merge into the clean dispatch-time branch.
 
+## Plan recipes
+
+- Too big once started: `plan task split <plan> <task> --child "<name>"` (repeat); dispatch each child into its own lane. The parent closes when every child is done or cancelled.
+- Order work with `--group` and `--depends-on`, never by pausing tasks; record what shipped with `plan milestone add`.
+- Move reviews forward in the same turn: `plan review accept` when the proof holds, `bounce` with the failing check when it does not, `hold` only while a named gate is pending. A task does not sit in `in_review` waiting for a convenient moment.
+- `blocked` is the last resort: use it only when the task cannot move until a named owner or outside event acts, and name that owner and trigger. Prefer a bounce, a hold, a dependency or deferring the task.
+
 ## Owner decision holds
 
 Pause only when an owner decision blocks all tasks. Ask once with
@@ -88,4 +95,4 @@ Pause only when an owner decision blocks all tasks. Ask once with
 Paused plans have no heartbeat or reminders. Resume with
 `codeterm plan resume <plan_id>` and continue the frontier.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

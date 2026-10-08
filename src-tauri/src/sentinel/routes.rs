@@ -170,6 +170,14 @@ pub fn resolve(svc: &ServiceContext, job: &Sentinel, route: &Route) -> Result<Ro
             let Route::Send(target) = resolve_send(&svc.mux.read(), job, target)? else {
                 return Err("blueprint escalation target did not resolve to an agent".into());
             };
+            if !svc
+                .mux
+                .read()
+                .get_tab(&target)
+                .is_some_and(|tab| tab.agent_type.is_some())
+            {
+                return Err("blueprint escalation requires an agent target".into());
+            }
             Ok(Route::Escalate(EscalateTarget::Agent(target)))
         }
     }
@@ -216,13 +224,54 @@ pub(super) fn resolve_send(
     let tab = mux
         .get_tab(&target)
         .ok_or("blueprint send target not found")?;
-    if tab.agent_type.is_none()
-        || tab.team_id != job.team_id
+    if tab.team_id != job.team_id
         || mux.find_workspace_for_tab(&target).as_deref() != Some(&job.workspace_id)
     {
-        return Err("blueprint send requires an agent in the creator's Team and workspace".into());
+        return Err("blueprint send requires a tab in the creator's Team and workspace".into());
     }
     Ok(Route::Send(target))
+}
+
+pub(super) fn deliver_body(
+    svc: &ServiceContext,
+    target: &str,
+    job: &Sentinel,
+    output: &str,
+) -> Result<(), String> {
+    let agent = svc
+        .mux
+        .read()
+        .get_tab(target)
+        .ok_or("send target disappeared")?
+        .agent_type
+        .is_some();
+    deliver_body_with(
+        agent,
+        output,
+        |body| svc.send_text(target, body),
+        |body| {
+            svc.gateway_deliver(
+                target,
+                MessageEnvelope::codeterm_reminder(format!("blueprint:{}", job.id)),
+                body,
+                DeliveryClass::SystemNotice,
+            )
+            .map(|_| ())
+        },
+    )
+}
+
+pub(super) fn deliver_body_with(
+    agent: bool,
+    body: &str,
+    shell: impl FnOnce(&str) -> Result<(), String>,
+    routed: impl FnOnce(&str) -> Result<(), String>,
+) -> Result<(), String> {
+    if agent {
+        routed(body)
+    } else {
+        shell(body)
+    }
 }
 
 fn send_file(
@@ -341,9 +390,7 @@ pub fn run(
                 Ok(None)
             }
         }
-        Route::Send(target) => {
-            send_file(svc, &target, job, verdict, output, transition_id).map(|()| None)
-        }
+        Route::Send(target) => deliver_body(svc, &target, job, output).map(|()| None),
         Route::Cron(id) => {
             let cron = svc
                 .app_handle

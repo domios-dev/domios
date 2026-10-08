@@ -4,7 +4,20 @@ use super::spawn::{resolve_spawn_workspace_id, SpawnTabSpec, TabHandle};
 use super::ServiceContext;
 
 impl ServiceContext {
+    pub(crate) fn resolve_shell_profile(
+        &self,
+        requested: Option<&str>,
+    ) -> Result<Option<crate::pty::shell_profiles::ShellProfile>, String> {
+        let default = crate::config::load_config().terminal.default_shell;
+        let Some(id) = requested.or(default.as_deref()).filter(|id| !id.is_empty()) else {
+            return Ok(None);
+        };
+        let profiles = crate::pty::shell_profiles::catalog().load_blocking(false);
+        crate::pty::shell_profiles::select(&profiles, Some(id), None)
+    }
+
     pub(crate) fn spawn_visible_shell_impl(&self, spec: SpawnTabSpec) -> Result<TabHandle, String> {
+        let profile = self.resolve_shell_profile(spec.shell.as_deref())?;
         let _spawn_guard = super::utility_tabs::SPAWN_LOCK.lock();
         let (ws_id, ws_cwd) = {
             let mux = self.mux.write();
@@ -26,7 +39,27 @@ impl ServiceContext {
             &ws_id,
             spec.detach_from_team,
         )?;
-        let (resolved_cwd, warning) = Self::resolve_agent_cwd(&spec.cwd, &ws_cwd);
+        let (resolved_cwd, warning) = if let Some(profile) = profile
+            .as_ref()
+            .filter(|profile| profile.wsl_distro.is_some())
+        {
+            let cwd = spec
+                .cwd
+                .as_ref()
+                .or(ws_cwd.as_ref())
+                .map(|cwd| {
+                    if cwd.starts_with('/') {
+                        profile.host_cwd(cwd)
+                    } else {
+                        Ok(Self::normalize_resolved_agent_cwd(cwd))
+                    }
+                })
+                .transpose()?;
+            profile.launch(cwd.as_deref())?;
+            (cwd, None)
+        } else {
+            Self::resolve_agent_cwd(&spec.cwd, &ws_cwd)
+        };
 
         let limit = super::utility_tabs::limit_for(
             &super::utility_tabs::configured_limits(&self.app_handle),
@@ -46,6 +79,9 @@ impl ServiceContext {
             None
         };
         if let Some(tab_id) = reused.as_deref() {
+            if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
+                tab.shell_profile = profile.clone();
+            }
             self.restart_shell_tab(tab_id, resolved_cwd.clone())?;
         }
         let tab_id = {
@@ -55,6 +91,7 @@ impl ServiceContext {
                 None => mux.create_tab(&ws_id)?,
             };
             if let Some(tab) = mux.get_tab_mut(&result) {
+                tab.shell_profile = profile.clone();
                 tab.audience = spec.audience;
                 tab.purpose = spec.purpose;
                 tab.icon = spec.icon.clone();
@@ -117,7 +154,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn spawn_hidden_shell_impl(&self, spec: SpawnTabSpec) -> Result<TabHandle, String> {
-        use std::collections::HashMap;
+        let profile = self.resolve_shell_profile(spec.shell.as_deref())?;
 
         let ws_id = {
             let mux = self.mux.write();
@@ -136,6 +173,24 @@ impl ServiceContext {
             .clone()
             .or(ws_cwd)
             .map(|cwd| Self::normalize_resolved_agent_cwd(&cwd));
+        let resolved_cwd = if let Some(profile) = profile
+            .as_ref()
+            .filter(|profile| profile.wsl_distro.is_some())
+        {
+            let cwd = resolved_cwd
+                .map(|cwd| {
+                    if cwd.starts_with('/') {
+                        profile.host_cwd(&cwd)
+                    } else {
+                        Ok(cwd)
+                    }
+                })
+                .transpose()?;
+            profile.launch(cwd.as_deref())?;
+            cwd
+        } else {
+            resolved_cwd
+        };
 
         let tab_id = {
             let mut mux = self.mux.write();
@@ -143,6 +198,7 @@ impl ServiceContext {
             if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.hidden = true;
                 tab.show_in_tabbar = false;
+                tab.shell_profile = profile.clone();
                 tab.audience = spec.audience;
                 tab.purpose = spec.purpose;
                 if let Some(ref dir) = resolved_cwd {
@@ -152,27 +208,20 @@ impl ServiceContext {
             result
         };
 
-        let mut env_vars: HashMap<String, String> = HashMap::new();
-        env_vars.insert("CODETERM_TAB_ID".into(), tab_id.clone());
-        env_vars.insert(
-            "CODETERM_SESSION_BINDING_NONCE".into(),
-            self.ensure_session_binding_nonce(&tab_id),
-        );
-        env_vars.insert(
-            "CODETERM_SOCKET_PATH".into(),
-            crate::socket::server::socket_display_path(),
-        );
-        let api_cfg = crate::config::load_config().api;
-        let (api_url, api_port) = crate::config::api_callback_url(&api_cfg);
-        env_vars.insert("CODETERM_API_URL".into(), api_url);
-        env_vars.insert("CODETERM_API_PORT".into(), api_port);
-        if let Some(ref tok) = api_cfg.token {
-            env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
-        }
+        let env_vars = self.tab_env(&tab_id);
 
         let pty_id = {
             let mut pty = self.pty.lock();
-            match pty.spawn(None, resolved_cwd, 120, 40, env_vars) {
+            let built = crate::pty::manager::build_session_with_profile(
+                pty.spawn_gate(),
+                None,
+                resolved_cwd,
+                120,
+                40,
+                env_vars,
+                profile.as_ref(),
+            );
+            match built.map(|built| pty.register_session(None, built)) {
                 Ok((id, _)) => id,
                 Err(error) => {
                     drop(pty);

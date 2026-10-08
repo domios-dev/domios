@@ -35,6 +35,7 @@ struct Header {
     run_tab_id: Option<String>,
     run_bound_at: Option<i64>,
     run_transitions: Option<i64>,
+    causal_run_json: Option<String>,
 }
 
 fn header(conn: &Connection, id: &str) -> Result<Option<Header>, StorageError> {
@@ -42,7 +43,7 @@ fn header(conn: &Connection, id: &str) -> Result<Option<Header>, StorageError> {
         "SELECT s.ordinal, s.creator_tab_id, s.workspace_id, s.team_id, s.cwd, \
          s.agent_authored, s.scenario_id, s.revision, h.version, r.generation, r.next_run, \
          r.expires_at, r.paused, r.stopped, r.last_hash, r.last_bucket, r.last_reason, \
-         r.held, r.run_id, r.run_tab_id, r.run_bound_at, r.run_transitions \
+         r.held, r.run_id, r.run_tab_id, r.run_bound_at, r.run_transitions, r.causal_run_json \
          FROM sentinels s LEFT JOIN sentinel_heads h ON h.sentinel_id = s.id \
          LEFT JOIN sentinel_runtime r ON r.sentinel_id = s.id WHERE s.id = ?1",
     )
@@ -72,6 +73,7 @@ fn header(conn: &Connection, id: &str) -> Result<Option<Header>, StorageError> {
                     run_tab_id: row.get(19)?,
                     run_bound_at: row.get(20)?,
                     run_transitions: row.get(21)?,
+                    causal_run_json: row.get(22)?,
                 })
             })
             .optional()
@@ -99,6 +101,7 @@ pub(super) fn load_one(
         _ => return Err(corrupt("partial run binding")),
     };
     let runtime = StageRuntime {
+        causal_run_json: header.causal_run_json,
         generation: from_sql_u64("generation", header.generation.ok_or_else(missing)?)?,
         next_run: from_sql_u64("next run", header.next_run.ok_or_else(missing)?)?,
         expires_at: header
@@ -258,7 +261,7 @@ fn load_transitions(conn: &Connection, id: &str) -> Result<Vec<TransitionRecord>
     }
     let mut statement = conn
         .prepare_cached(
-            "SELECT transition_id, bucket, accepted_at, terminal, definition_version, decision_json \
+            "SELECT transition_id, bucket, accepted_at, terminal, definition_version, decision_json, causal_run_json \
              FROM sentinel_transitions WHERE sentinel_id = ?1 ORDER BY ordinal",
         )
         .map_err(|e| sqlite_error("read sentinel transitions", e))?;
@@ -271,14 +274,16 @@ fn load_transitions(conn: &Connection, id: &str) -> Result<Vec<TransitionRecord>
                 row.get::<_, bool>(3)?,
                 row.get::<_, Option<i64>>(4)?,
                 row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<String>>(6)?,
             ))
         })
         .map_err(|e| sqlite_error("read sentinel transitions", e))?;
     let mut transitions = Vec::new();
     for row in rows {
-        let (transition, bucket, accepted_at, terminal, version, decision_json) =
+        let (transition, bucket, accepted_at, terminal, version, decision_json, causal_run_json) =
             row.map_err(|e| sqlite_error("read sentinel transitions", e))?;
         transitions.push(TransitionRecord {
+            causal_run_json,
             decision_json,
             handlers: results.remove(&transition).unwrap_or_default(),
             id: transition,

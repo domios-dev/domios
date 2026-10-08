@@ -73,6 +73,7 @@ fn identity(id: &str) -> SentinelIdentity {
 
 fn runtime() -> StageRuntime {
     StageRuntime {
+        causal_run_json: None,
         generation: 0,
         next_run: 1_000,
         expires_at: None,
@@ -89,6 +90,8 @@ fn runtime() -> StageRuntime {
 
 fn definition(source: StageSource) -> StageDefinition {
     StageDefinition {
+        terminal: None,
+        session: false,
         name: Some("source-round-trip".into()),
         source,
         pipeline: None,

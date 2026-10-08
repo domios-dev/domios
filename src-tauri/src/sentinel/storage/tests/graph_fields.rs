@@ -244,6 +244,77 @@ fn sentinel_schema_v4_graph_fields_round_trip_on_both_backends() {
 }
 
 #[test]
+fn blueprint_terminal_session_definition_and_budgets_survive_typed_reload() {
+    let root = temp_root();
+    let storage = open(root.path());
+    let clock = MockClock::starting_at(1_000);
+    let store = typed(&storage, &clock);
+    let mut job = fixture(FRESH);
+    job.terminal = Some(codeterm_types::blueprint_terminal::Config {
+        pattern: Some("ready".into()),
+        idle_ms: Some(200),
+    });
+    job.session = true;
+    job.max_transitions = 1;
+    job.max_actions = 1;
+    job.on_other.clear();
+    job.escalation_timeout_ms = None;
+    job.routes = std::collections::BTreeMap::from([("trust".into(), vec![])]);
+    crate::sentinel::store::validate(vec![job.clone()]).expect("valid terminal session fixture");
+    let inserted = commit(&store, |store| store.stage_insert(job.clone())).unwrap();
+    assert_eq!(inserted.terminal, job.terminal);
+    for index in 0..3 {
+        let live = store.lock().get(&job.id).unwrap().clone();
+        let staged =
+            store
+                .lock()
+                .stage_accept_transition(&live, "trust", &format!("exchange-{index}"));
+        assert!(staged.settle(&store).unwrap());
+    }
+    crate::sentinel::store::validate(vec![codec::decode(&stored(&storage, &job.id))])
+        .expect("persisted terminal session remains valid beyond the ordinary budget");
+    drop(store);
+    close(storage);
+    let storage = open(root.path());
+    let store = typed(&storage, &clock);
+    let live = store.lock().get(&job.id).unwrap().clone();
+    assert_eq!(live.terminal, job.terminal);
+    assert!(live.session);
+    assert_eq!(live.transitions.len(), 3);
+    assert!(!super::super::super::store::transition_budget_spent(&live));
+    drop(store);
+    close(storage);
+}
+
+#[test]
+fn blueprint_insert_refuses_orphan_escalation_timeout_before_persistence() {
+    let root = temp_root();
+    let storage = open(root.path());
+    let clock = MockClock::starting_at(1_000);
+    let typed_store = typed(&storage, &clock);
+    let legacy = Arc::new(Mutex::new(Store::new(
+        root.path().join("sentinels.json"),
+        clock.clone(),
+    )));
+    let mut job = fixture(FRESH);
+    job.on_other.clear();
+    for store in [&typed_store, &legacy] {
+        let revision = storage.revision();
+        let error = commit(store, |store| store.stage_insert(job.clone())).unwrap_err();
+        assert_eq!(error, "invalid blueprint escalation");
+        assert!(store.lock().get(&job.id).is_none());
+        assert_eq!(storage.revision(), revision);
+    }
+    drop(typed_store);
+    close(storage);
+    let storage = open(root.path());
+    let store = typed(&storage, &clock);
+    assert!(store.lock().list().is_empty());
+    drop(store);
+    close(storage);
+}
+
+#[test]
 fn sentinel_schema_v4_update_definition_appends_lineage_and_advances_generation_once() {
     let root = temp_root();
     let storage = open(root.path());
@@ -277,6 +348,7 @@ fn sentinel_schema_v4_update_definition_appends_lineage_and_advances_generation_
     assert_eq!(
         record.runtime,
         StageRuntime {
+            causal_run_json: None,
             generation: base.runtime.generation + head - 1,
             ..base.runtime.clone()
         },

@@ -61,18 +61,22 @@ export interface AutomationExecutor {
 }
 
 export interface AgentSentinelDefinition {
+  definition_version?: number;
   source: "stored_agent_definition";
   definition_id: string;
   creator_tab_id: string;
 }
 
 export interface AutomationNode {
+  conversation?: import("../../lib/blueprintRun").ConversationCounts;
   source?: { type: string; kind?: string; display_name?: string };
   detail?: {
     observe_target?: { kind: string; id: string } | null;
     definition?: {
       unavailable?: string;
       language?: string;
+      question?: string;
+      buckets?: readonly { name: string; pattern: string | null }[];
       probe?: string | null;
       probe_truncated?: boolean;
       commands?: readonly { bucket: string; handler_id: string; label: string; command: string; command_truncated: boolean; timeout_ms: number }[];
@@ -96,7 +100,31 @@ export interface AutomationNode {
   stop: { allowed: boolean; reason: string | null };
 }
 
+export interface CausalRunContext {
+  id: string;
+  root_node: string;
+  root_transition: string;
+  started_at: number;
+  parent: { node: string; transition: string; handler: string } | null;
+}
+
+export interface AutomationRun {
+  id: string;
+  root_node: string;
+  root_transition: string;
+  started_at: number;
+  state: "running" | "completed" | "unconfirmed";
+  incomplete: boolean;
+  transitions: readonly { node: AutomationIdentity; transition_id: string; parent: CausalRunContext["parent"] }[];
+}
+
 export interface AutomationTransition {
+  decided_by?: "adapter" | "pattern" | null;
+  adapter_id?: string | null;
+  model?: string | null;
+  confidence?: number | null;
+  reason?: string | null;
+  causal_run?: CausalRunContext | null;
   routes_current?: boolean;
   id: string;
   bucket: string;
@@ -122,6 +150,7 @@ export interface AutomationScenario {
 }
 
 export interface AutomationGraph extends AutomationScope {
+  configured_fallback?: { adapter_id: string; model: string | null } | null;
   all_teams?: boolean;
   truncated?: boolean;
   scenarios: readonly AutomationScenario[];
@@ -129,6 +158,7 @@ export interface AutomationGraph extends AutomationScope {
   nodes: readonly AutomationNode[];
   edges: readonly AutomationEdge[];
   blueprints?: readonly BlueprintSnapshot[];
+  runs?: readonly AutomationRun[];
 }
 
 export type BlueprintOwnerKind = "tab" | "team";
@@ -195,5 +225,5 @@ export function sameScope(a: AutomationScope, b: AutomationScope): boolean {
 }
 
 export function automationKindLabel(kind: string): string {
-  return kind === "sentinel" ? "blueprint" : kind;
+  return kind === "sentinel" ? "node" : kind;
 }

@@ -323,7 +323,7 @@ run_nextest_scope() {
 }
 
 case "$CMD" in
-  gateway-*|help) ;;
+  gateway-*|help|gc) ;;
   *) setup_env ;;
 esac
 
@@ -550,6 +550,9 @@ run_build_gateway_log_reader() {
 
 enter_build_gateway() {
   ct_gateway_acquire "$*"
+  if [ "$CMD" != gc ]; then
+    ct_cache_retention auto || echo "[cache-policy] retention refused; build continues" >&2
+  fi
   local gateway_log
   gateway_log="$(ct_gateway_log_path)"
   echo "Build gateway job $CT_BUILD_JOB_ID log: $gateway_log"
@@ -727,6 +730,7 @@ prepare_exceptional_worktree_target() {
   export CARGO_INCREMENTAL=0
   export CODETERM_ALLOW_EXTERNAL_TARGET=1
   mkdir -p "$CARGO_TARGET_DIR"
+  ct_mark_exceptional_target
   ct_verify_target_dir
   ct_require_prestarted_sccache
   echo "[cache-policy] exceptional worktree target=$CARGO_TARGET_DIR"
@@ -1607,6 +1611,7 @@ CodeTerm build commands
   install-local               Build and install locally
   build                       Build production artifacts
   gateway-status              Show the machine build owner
+  gc [--dry-run]              Reclaim expired build caches and sweep checkout targets
 
 Gateway-backed commands fail fast when the slot is busy. Add --wait-build only
 when blocking this terminal is intentional.
@@ -1614,6 +1619,14 @@ EOF
     ;;
   env)
     # Already loaded above. Use: source build.sh env
+    ;;
+  gc)
+    if [ "$#" -gt 2 ] || { [ "$#" -eq 2 ] && [ "$2" != "--dry-run" ]; }; then
+      echo "Usage: ./build.sh gc [--dry-run]" >&2
+      exit 2
+    fi
+    enter_build_gateway "gc"
+    ct_cache_retention gc "${2:-}"
     ;;
   fmt-check)
     cargo fmt --manifest-path src-tauri/Cargo.toml --check

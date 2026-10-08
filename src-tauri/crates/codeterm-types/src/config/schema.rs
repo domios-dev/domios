@@ -155,6 +155,7 @@ pub struct ApiConfig {
     pub token: Option<String>,
     pub cors: bool,
     pub cors_allow_origins: Vec<String>,
+    pub preview_secret_paths: Vec<String>,
 }
 
 impl Default for ApiConfig {
@@ -173,6 +174,7 @@ impl Default for ApiConfig {
             token: None,
             cors: false,
             cors_allow_origins: Vec::new(),
+            preview_secret_paths: Vec::new(),
         }
     }
 }
@@ -252,6 +254,7 @@ impl Default for FontConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TerminalConfig {
+    pub default_shell: Option<String>,
     pub cursor_style: String,
     pub cursor_blink: bool,
     pub scrollback: u32,
@@ -268,6 +271,7 @@ pub struct DiagnosticsConfig {
 impl Default for TerminalConfig {
     fn default() -> Self {
         Self {
+            default_shell: None,
             cursor_style: "block".to_string(),
             cursor_blink: true,
             scrollback: 10000,

@@ -87,6 +87,7 @@ fn tab_purpose_rest_description_icon_and_unknown_icon_refusal() {
     }))
     .unwrap();
     let mut spec = SpawnTabSpec {
+        shell: None,
         purpose: body.purpose,
         icon: body.icon,
         description: body.description,
@@ -107,6 +108,17 @@ fn tab_purpose_rest_description_icon_and_unknown_icon_refusal() {
         role_profile: None,
         can_spawn: None,
         watcher: None,
+    };
+    assert!(super::prepare_tab_identity(&mut spec).is_err());
+}
+
+#[test]
+fn shell_profile_selection_refuses_agent_backing() {
+    use super::super::{AgentSpawnSpec, SpawnTabSpec, TabCommand};
+    let mut spec = SpawnTabSpec {
+        shell: Some("wsl:Ubuntu".into()),
+        command: TabCommand::Agent(AgentSpawnSpec::default()),
+        ..Default::default()
     };
     assert!(super::prepare_tab_identity(&mut spec).is_err());
 }

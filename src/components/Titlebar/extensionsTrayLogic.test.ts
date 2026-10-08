@@ -4,6 +4,7 @@ import { Window } from "happy-dom";
 import {
   selectExtension,
   SELECT_EXTENSION_EVENT,
+  takePendingExtensionSelection,
 } from "./extensionsTrayLogic";
 
 const tests: Array<[string, () => void]> = [];
@@ -33,6 +34,13 @@ test("selectExtension dispatches the deep-link event and opens", () => {
   window.removeEventListener(SELECT_EXTENSION_EVENT, handler);
   assert(events.length === 2 && events[0] === "bitwarden" && events[1] === null, "should dispatch id then null");
   assert(opened === 2, "onOpen must fire each time");
+});
+
+test("a selection made before Extensions mounts is kept once for the first mount", () => {
+  takePendingExtensionSelection();
+  selectExtension("telegram-client", () => {});
+  assert(takePendingExtensionSelection() === "telegram-client", "cold mount lost the requested plugin");
+  assert(takePendingExtensionSelection() === undefined, "pending selection must be consumed once");
 });
 
 let failed = 0;

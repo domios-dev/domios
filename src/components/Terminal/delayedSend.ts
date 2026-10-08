@@ -1,3 +1,4 @@
+import { formatUntil } from "../../lib/timeLabels";
 import { invoke } from "../../lib/bridge";
 
 export type DelayedMessageState = "queued" | "stashed" | "sending" | "failed";
@@ -97,22 +98,7 @@ export function formatClock(ms: number): string {
 }
 
 export function formatRelative(ms: number, nowMs: number = Date.now()): string {
-  const diff = ms - nowMs;
-  const past = diff < 0;
-  const abs = Math.abs(diff);
-  const mins = Math.round(abs / 60_000);
-  let body: string;
-  if (mins < 1) body = "<1 min";
-  else if (mins < 60) body = `${mins} min`;
-  else if (mins < 60 * 24) {
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    body = m ? `${h}h ${m}m` : `${h}h`;
-  } else {
-    const days = Math.round(mins / (60 * 24));
-    body = `${days}d`;
-  }
-  return past ? `${body} ago` : `in ${body}`;
+  return formatUntil(ms, nowMs);
 }
 
 export interface QuickPreset {

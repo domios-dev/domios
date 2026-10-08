@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { FullscreenOverlay, useFullscreenKeyboard } from "./FullscreenOverlay";
 import { createPortal } from "react-dom";
 import { ChevronDown, Copy, Check, Maximize2, Minimize2, RotateCcw, Scan } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -139,6 +140,7 @@ type CodeContentProps = {
   displayedText: string;
   language: string;
   mermaidMode: boolean;
+  wrapLines?: boolean;
   forcePlainText?: boolean;
   mermaidSvg: string | null;
   shouldDisplayMermaid: boolean;
@@ -161,6 +163,7 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
   displayedText,
   language,
   mermaidMode,
+  wrapLines = false,
   forcePlainText = false,
   mermaidSvg,
   shouldDisplayMermaid,
@@ -188,7 +191,9 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
           style={{
             background: "var(--ct-bg)",
             color: "var(--ct-fg)",
-            whiteSpace: "pre",
+            whiteSpace: wrapLines ? "pre-wrap" : "pre",
+            width: wrapLines ? "100%" : undefined,
+            overflowWrap: wrapLines ? "anywhere" : undefined,
           }}
         >
           {displayedText}
@@ -257,19 +262,19 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
               fontSize: "0.75rem",
               lineHeight: "1.4",
               background: fullSize ? "var(--ct-bg)" : "var(--ct-bg)",
-              width: "max-content",
+              width: wrapLines ? "100%" : "max-content",
               minWidth: "100%",
-              maxWidth: "none",
-              whiteSpace: "pre",
-              overflowWrap: "normal",
-              wordBreak: "normal",
+              maxWidth: wrapLines ? "100%" : "none",
+              whiteSpace: wrapLines ? "pre-wrap" : "pre",
+              overflowWrap: wrapLines ? "anywhere" : "normal",
+              wordBreak: wrapLines ? "break-word" : "normal",
             }}
             codeTagProps={{
               style: {
                 fontFamily: "inherit",
-                whiteSpace: "pre",
-                overflowWrap: "normal",
-                wordBreak: "normal",
+                whiteSpace: wrapLines ? "pre-wrap" : "pre",
+                overflowWrap: wrapLines ? "anywhere" : "normal",
+                wordBreak: wrapLines ? "break-word" : "normal",
               },
             }}
           >
@@ -288,6 +293,7 @@ export function CodeBlock({
   collapsible = false,
   collapseAfterLines = 20,
   fullscreenScope = "container",
+  wrapLines = false,
 }: {
   text: string;
   language?: string;
@@ -295,6 +301,7 @@ export function CodeBlock({
   collapsible?: boolean;
   collapseAfterLines?: number;
   fullscreenScope?: "container" | "viewport";
+  wrapLines?: boolean;
 }) {
   const normalizedText = useMemo(() => text.replace(/\r/g, ""), [text]);
   const codeLines = useMemo(() => normalizedText.replace(/\n$/, "").split("\n"), [normalizedText]);
@@ -506,40 +513,8 @@ export function CodeBlock({
     };
   }, [mermaidMode, expanded, shouldUsePlainRenderer, mermaidRenderKey, mermaidNodeId, mermaidCandidates.length]);
 
-  useEffect(() => {
-    if (!isFullscreen) return;
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    fullscreenRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
-    const close = (event: KeyboardEvent) => {
-      if (event.code === "Tab") {
-        const controls = Array.from(fullscreenRef.current?.querySelectorAll<HTMLButtonElement>("button") ?? []);
-        const index = controls.indexOf(document.activeElement as HTMLButtonElement);
-        if (controls.length && (index < 0 || (!event.shiftKey && index === controls.length - 1) || (event.shiftKey && index === 0))) {
-          event.preventDefault();
-          controls[event.shiftKey ? controls.length - 1 : 0].focus();
-        }
-        return;
-      }
-      if (event.code !== "Escape") return;
-      event.stopImmediatePropagation();
-      event.preventDefault();
-      setIsFullscreen(false);
-      opener?.focus();
-    };
-    window.addEventListener("keydown", close, true);
-    return () => { window.removeEventListener("keydown", close, true); opener?.focus(); };
-  }, [isFullscreen]);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !isFullscreen) {
-      return;
-    }
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, [isFullscreen]);
+  const dismissFullscreen = useCallback(() => setIsFullscreen(false), []);
+  useFullscreenKeyboard(isFullscreen, fullscreenRef, dismissFullscreen);
 
   useEffect(() => {
     if (!isFullscreen) {
@@ -855,6 +830,7 @@ export function CodeBlock({
           </button>
         </div>
         <CodeBlockContent
+          wrapLines={wrapLines}
           fullSize={false}
           maxHeight={maxHeight}
           displayedText={displayedText}
@@ -881,19 +857,7 @@ export function CodeBlock({
         )}
       </div>
       {isFullscreen && fullscreenSurface(
-        <div
-          ref={fullscreenRef}
-          className="fixed z-50 bg-black/85 backdrop-blur-sm"
-          style={fullscreenHostStyle ?? { inset: "0px" }}
-          onClick={closeFullscreen}
-          role="dialog"
-          aria-modal="true"
-          aria-label={mermaidMode ? "Fullscreen Mermaid diagram" : "Fullscreen code"}
-        >
-          <div
-            className="mx-auto flex h-full w-full flex-col border border-[var(--ct-border)] bg-[var(--ct-bg)] p-2 shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
+        <FullscreenOverlay panelRef={fullscreenRef} style={fullscreenHostStyle ?? undefined} onClose={dismissFullscreen} label={mermaidMode ? "Fullscreen Mermaid diagram" : "Fullscreen code"}>
             <div
               className="flex select-none items-center gap-1.5 px-2 py-1.5 text-xs"
               style={{
@@ -960,6 +924,7 @@ export function CodeBlock({
             </div>
             <div className="min-h-0 flex-1 overflow-hidden">
               <CodeBlockContent
+                wrapLines={wrapLines}
                 fullSize
                 maxHeight={maxHeight}
                 displayedText={displayedText}
@@ -981,8 +946,7 @@ export function CodeBlock({
                 onMermaidDoubleClick={fitMermaidView}
               />
             </div>
-          </div>
-        </div>,
+        </FullscreenOverlay>,
       )}
     </div>
   );

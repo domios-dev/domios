@@ -212,6 +212,7 @@ fn leaf(id: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
         purpose: Default::default(),
         icon: None,
+        shell_profile: None,
         utility_created_at: 0,
         tab_id: id.into(),
         cwd: None,

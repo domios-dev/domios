@@ -5,6 +5,7 @@ use crate::repositories::sentinel::records::{
     BatchFence, Fence, MutationOutcome, SentinelCommit, SentinelId,
 };
 use crate::repositories::to_sql_u64;
+use codeterm_types::blueprint_run::Context;
 use rusqlite::{params, Connection, OptionalExtension};
 
 type ScopeRow = (String, String, Option<String>);
@@ -53,6 +54,24 @@ pub(super) fn activate_target(
     if claimed == 0 {
         return fenced(cx.conn, Fence::NotClaimed, source);
     }
+    let (context, handler): (Option<String>, String) = cx.conn.query_row(
+        "SELECT t.causal_run_json, r.handler_id FROM sentinel_transitions t \
+         JOIN sentinel_handler_results r ON r.sentinel_id = t.sentinel_id AND r.transition_id = t.transition_id \
+         JOIN sentinel_heads h ON h.sentinel_id = t.sentinel_id \
+         JOIN sentinel_handlers hd ON hd.sentinel_id = h.sentinel_id AND hd.version = h.version AND hd.handler_id = r.handler_id AND hd.bucket = t.bucket \
+         WHERE t.sentinel_id = ?1 AND t.transition_id = ?2 AND hd.kind = 'sentinel' AND hd.target_ref = ?3 \
+         AND r.claim_id IS NOT NULL AND r.status = 'unconfirmed' ORDER BY r.ordinal LIMIT 1",
+        params![source, fence.transition_id, target],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).map_err(|e| sqlite_error("read activation run context", e))?;
+    let context = context
+        .map(|json| {
+            let run: Context =
+                serde_json::from_str(&json).map_err(|_| corrupt("invalid causal run context"))?;
+            serde_json::to_string(&run.child(source, &fence.transition_id, &handler))
+                .map_err(|_| corrupt("invalid causal run context"))
+        })
+        .transpose()?;
     let Some(target_scope) = scope_row(cx.conn, target)? else {
         return Ok(SentinelCommit::fenced(Fence::Missing, None));
     };
@@ -81,13 +100,13 @@ pub(super) fn activate_target(
     }
     if let Some(next_run) = input_due_at {
         cx.write(
-            "UPDATE sentinel_runtime SET paused = 0, generation = generation + 1, next_run = ?2 WHERE sentinel_id = ?1",
-            params![target, to_sql_u64("input activation due time", next_run)?],
+            "UPDATE sentinel_runtime SET paused = 0, generation = generation + 1, next_run = ?2, causal_run_json = ?3 WHERE sentinel_id = ?1",
+            params![target, to_sql_u64("input activation due time", next_run)?, context],
         )?;
     } else {
         cx.write(
-            "UPDATE sentinel_runtime SET paused = 0, generation = generation + 1 WHERE sentinel_id = ?1",
-            [target],
+            "UPDATE sentinel_runtime SET paused = 0, generation = generation + 1, causal_run_json = ?2 WHERE sentinel_id = ?1",
+            params![target, context],
         )?;
     }
     touch(cx, target)?;

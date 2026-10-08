@@ -180,6 +180,8 @@ pub struct BucketDefinition {
 /// Authored configuration of one stage; runtime state never lives here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StageDefinition {
+    pub terminal: Option<codeterm_types::blueprint_terminal::Config>,
+    pub session: bool,
     pub name: Option<String>,
     pub source: StageSource,
     pub pipeline: Option<codeterm_types::blueprint_pipeline::BlueprintSpec>,
@@ -241,6 +243,7 @@ pub struct RunRecord {
 /// definition version and from the Storage commit revision.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StageRuntime {
+    pub causal_run_json: Option<String>,
     pub generation: u64,
     pub next_run: u64,
     pub expires_at: Option<u64>,
@@ -466,6 +469,7 @@ pub struct HandlerResultRecord {
 /// `definition_version` is `None` for transitions accepted before versioned history.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransitionRecord {
+    pub causal_run_json: Option<String>,
     pub decision_json: Option<String>,
     pub id: String,
     pub bucket: String,
@@ -538,6 +542,7 @@ pub struct RuntimeOutcome {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewTransition {
+    pub causal_run_json: Option<String>,
     pub decision_json: Option<String>,
     pub id: String,
     pub bucket: String,
@@ -737,6 +742,18 @@ impl HandlerDefinition {
 
 impl StageDefinition {
     pub(super) fn validate(&self) -> Result<(), StorageError> {
+        if let Some(terminal) = &self.terminal {
+            terminal
+                .validate()
+                .map_err(|error| StorageError::invalid("terminal", error))?;
+            if !matches!(&self.source, StageSource::Observe(observe) if observe.kind == ObserveKind::Tab)
+            {
+                return Err(StorageError::invalid(
+                    "terminal",
+                    "requires a direct tab observation",
+                ));
+            }
+        }
         optional_text("sentinel name", &self.name)?;
         match &self.source {
             StageSource::Probe(command) => text("sentinel probe", command)?,
@@ -891,6 +908,7 @@ impl DefinitionUpdate {
 
 impl StageRuntime {
     pub(super) fn validate(&self) -> Result<(), StorageError> {
+        optional_text("causal run", &self.causal_run_json)?;
         integer("runtime generation", self.generation)?;
         integer("runtime next run", self.next_run)?;
         if let Some(expires_at) = self.expires_at {
@@ -916,6 +934,7 @@ impl StageRuntime {
 
     fn cost(&self) -> usize {
         RECORD_OVERHEAD
+            + optional_len(&self.causal_run_json)
             + optional_len(&self.last_hash)
             + optional_len(&self.last_bucket)
             + optional_len(&self.last_reason)
@@ -1119,7 +1138,7 @@ fn validate_run_transition_count(
         &definition.source,
         StageSource::Observe(observe) if observe.kind == ObserveKind::CronRun
     );
-    if runtime.run_transitions > definition.max_transitions
+    if (!definition.session && runtime.run_transitions > definition.max_transitions)
         || (runtime.run_transitions > 0 && (!cron_run || runtime.run.is_none()))
     {
         return Err(StorageError::invalid(

@@ -106,6 +106,11 @@ for (const [cmd, reason] of Object.entries(WEB_UNSUPPORTED)) {
   assert(`WEB_UNSUPPORTED ${cmd} has justification`, reason.trim().length > 0);
 }
 
+for (const command of ["read_local_preview_file", "read_html_preview_file", "check_local_preview_files"]) {
+  assert(`${command} uses REST and is no longer native-only`, http.has(command) && !unsupported.has(command));
+}
+assert("preview REST calls require tab identity", bridgeSource.includes('if (!tabId) throw new Error("Local previews require a tab identity")'));
+
 const staleUnsupported = [...unsupported].filter((c) => !invoked.has(c)).sort();
 assert(
   staleUnsupported.length === 0

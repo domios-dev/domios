@@ -26,7 +26,7 @@ export interface MultiplexerActionsContextType {
   reorderTabs: (args: { workspaceId?: string; parentTabId?: string; orderedTabIds: string[] }) => void;
   /** Reorder the workspace list to the given order. */
   reorderWorkspaces: (orderedWorkspaceIds: string[]) => void;
-  createTab: (workspaceId: string, cwd?: string) => Promise<{ id: string } | void>;
+  createTab: (workspaceId: string, cwd?: string, shell?: string) => Promise<{ id: string } | void>;
   attachRemoteTab?: (workspaceId: string, peer: RemotePeerTabs, tab: RemotePeerTabs["tabs"][number]) => void;
   closeTab: (workspaceId: string, tabId: string) => void;
   /** Reopen a recently-closed tab (index 0 = most recent). */

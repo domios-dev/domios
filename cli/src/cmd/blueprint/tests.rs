@@ -1,6 +1,80 @@
 use super::*;
 
 #[test]
+fn blueprint_text_input_wire_preserves_file_body_and_identity() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("input.txt");
+    let body = "'quotes' $() `ticks`\n\u{03bb}";
+    std::fs::write(&path, body).unwrap();
+    let (method, params) = request(
+        BlueprintAction::Input {
+            id: "graph".into(),
+            from_pad: None,
+            text_file: Some(path),
+        },
+        Some("caller".into()),
+        Some("nonce".into()),
+    )
+    .unwrap();
+    assert_eq!(method, "blueprint.input");
+    assert_eq!(
+        params,
+        json!({"id":"graph","text":body,"caller_tab_id":"caller","session_binding_nonce":"nonce"})
+    );
+}
+
+#[test]
+fn blueprint_terminal_session_cli_wire_carries_options() {
+    use clap::Parser;
+    let cli = crate::args::cli::Cli::try_parse_from([
+        "codeterm",
+        "blueprint",
+        "create",
+        "--name",
+        "terminal-adapter",
+        "--observe",
+        "tab:shell",
+        "--terminal-pattern",
+        "ready",
+        "--output-settled",
+        "200",
+        "--session",
+        "--question",
+        "reply?",
+        "--buckets",
+        "reply",
+        "--match",
+        "reply=.*",
+        "--route",
+        "reply=send:shell",
+    ])
+    .unwrap();
+    let crate::args::cli::Commands::Blueprint { action } = cli.command else {
+        panic!("wrong command")
+    };
+    let (_, params) = request(action, Some("caller".into()), None).unwrap();
+    assert_eq!(
+        params["create"]["terminal"],
+        json!({"pattern":"ready","idle_ms":200})
+    );
+    assert_eq!(params["create"]["session"], true);
+    assert!(
+        crate::args::cli::Cli::try_parse_from(["codeterm", "blueprint", "input", "id"]).is_err()
+    );
+    assert!(crate::args::cli::Cli::try_parse_from([
+        "codeterm",
+        "blueprint",
+        "input",
+        "id",
+        "--from-pad",
+        "a",
+        "--text-file",
+        "b"
+    ])
+    .is_err());
+}
+
+#[test]
 fn sentinel_repeated_route_wire_preserves_order_and_stable_ids() {
     let (routes, handlers) = handlers::declared_outputs(
         vec!["done=notify".into(), "done=stop".into()],

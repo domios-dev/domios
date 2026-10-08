@@ -1190,3 +1190,5 @@ fn send_stdin_conflicts_with_positional_text() {
         Err(err) => assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict),
     }
 }
+
+mod shell_profiles;
