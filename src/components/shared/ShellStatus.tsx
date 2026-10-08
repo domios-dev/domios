@@ -1,13 +1,17 @@
 import { Check, Circle, Hammer, Server, Terminal, X } from "lucide-react";
+import { useRef } from "react";
+import { useHammerStrike } from "./useHammerStrike";
 import { BusyState } from "./BusyState";
 import type { Tab } from "../../lib/types";
 import { shellPurposeLabel, shellStateLabel, type ShellPurpose } from "../../lib/shellCommandState";
 
 const purposeIcons = { build: Hammer, dev: Server, qa: Check, shell: Terminal };
 
-export function ShellPurposeIcon({ purpose = "shell" }: { purpose?: ShellPurpose }) {
+export function ShellPurposeIcon({ purpose = "shell", running = false }: { purpose?: ShellPurpose; running?: boolean }) {
   const Icon = purposeIcons[purpose];
-  return <Icon role="img" aria-label={shellPurposeLabel(purpose)} size={14} />;
+  const iconRef = useRef<SVGSVGElement>(null);
+  useHammerStrike(iconRef, purpose === "build" && running);
+  return <Icon ref={iconRef} role="img" aria-label={shellPurposeLabel(purpose)} size={14} />;
 }
 
 export function ShellStatus({ tab }: { tab: Tab }) {
