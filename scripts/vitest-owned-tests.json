@@ -94,5 +94,6 @@
   "src/lib/helperMoments/adjacency.test.ts",
   "src/lib/helperMoments/helperMomentsStore.test.ts",
   "src/lib/helperMoments/helperMomentsWiring.test.ts",
-  "src/components/Terminal/HelperMomentCard.test.tsx"
+  "src/components/Terminal/HelperMomentCard.test.tsx",
+  "src/components/CrashReportToast.test.tsx"
 ]
