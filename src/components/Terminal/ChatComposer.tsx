@@ -48,6 +48,9 @@ import { hasCapsuleTokens } from "./composerCapsules";
 import { useComposerCapsules, type InlineAttachmentSink } from "./useComposerCapsules";
 import { ComposerMentionPicker, useComposerMentions } from "./ComposerMentionPicker";
 import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
+import { ReplyQuote } from "@codeterm/chat-ui";
+import type { ComposerReply } from "./composerReply";
+import { useComposerReply } from "./useComposerReply";
 
 const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
 const VOICE_TRANSCRIBE_ERROR = "⚠️ Voice transcription failed — tap the mic to retry.";
@@ -282,6 +285,7 @@ function ChatComposerImpl({
   }, []);
 
   useComposerInsertions(tabId, capsules.insertContext);
+  const reply = useComposerReply(tabId, flagComposerError, refocusComposer);
   const mentionPicker = useComposerMentions(input, setInput, refocusComposer);
   const { expand: expandDsTasks, plansSink } = useDsTasksExpander(tabId);
 
@@ -352,14 +356,16 @@ function ChatComposerImpl({
     for (const p of cleanExtraAttachments) {
       if (!allAttachments.includes(p)) allAttachments.push(p);
     }
-    if (!text && allAttachments.length === 0) return;
-    return { text, allAttachments, recordedVoiceAttachments: cleanExtraAttachments };
+    const quoted = reply.replyRef.current;
+    if (!text && allAttachments.length === 0 && !quoted) return;
+    return { text, allAttachments, recordedVoiceAttachments: cleanExtraAttachments, quoted };
   }
 
   async function composeDraft(
     text: string,
     allAttachments: string[],
     recordedVoiceAttachments: string[],
+    quoted: ComposerReply | null,
   ) {
     return composeAttachmentDraft(
       tabId,
@@ -368,6 +374,7 @@ function ChatComposerImpl({
       recordedVoiceAttachments,
       composerAttachmentHandoff,
       capsules.registryRef.current,
+      quoted,
     );
   }
 
@@ -375,9 +382,9 @@ function ChatComposerImpl({
     const draft = buildDraft(extraAttachments);
     if (!draft) return;
     const submittedDraft = currentDraftRef.current;
-    const { text, allAttachments, recordedVoiceAttachments } = draft;
+    const { text, allAttachments, recordedVoiceAttachments, quoted } = draft;
     const nowTs = Date.now();
-    const dupKey = `${text} ${allAttachments.join("|")}`;
+    const dupKey = `${text} ${allAttachments.join("|")} ${quoted?.path ?? ""}`;
     if (isDuplicateSend(lastSendRef.current, dupKey, nowTs)) {
       console.warn("[chat-send] duplicate optimistic send suppressed", { tabId });
       return;
@@ -388,7 +395,7 @@ function ChatComposerImpl({
       : null;
     let draftResult: Awaited<ReturnType<typeof composeDraft>>;
     try {
-      draftResult = await composeDraft(text, allAttachments, recordedVoiceAttachments);
+      draftResult = await composeDraft(text, allAttachments, recordedVoiceAttachments, quoted);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       if (placeholderId) updateOptimistic(placeholderId, `⚠️ ${message}`);
@@ -439,6 +446,7 @@ function ChatComposerImpl({
         }
       }
       recall.remember(capsules.toPortable(text));
+      reply.clearIfSent(quoted);
       if (currentDraftRef.current.revision === submittedDraft.revision
         && textareaRef.current?.value === submittedDraft.input) {
         setInput("");
@@ -465,6 +473,7 @@ function ChatComposerImpl({
         draft.text,
         draft.allAttachments,
         draft.recordedVoiceAttachments,
+        draft.quoted,
       );
       if (transcribeFailed) {
         flagComposerError(VOICE_TRANSCRIBE_ERROR);
@@ -475,6 +484,7 @@ function ChatComposerImpl({
       setInput("");
       clearAttachments();
       capsules.clear();
+      reply.clearIfSent(draft.quoted);
       setScheduleOpen(false);
       setDelayedQueueOpen(true);
       await refreshDelayedMessages();
@@ -570,15 +580,18 @@ function ChatComposerImpl({
           }}
           onSendWithAttachments={(paths) => void send(paths)}
           onError={flagComposerError}
-          sendDisabled={!input.trim() && attachments.length === 0}
-          hasText={input.trim().length > 0 || attachments.length > 0}
-          cardHeader={attachments.length > 0 && <ComposerBubbleRow
-            attachments={attachments}
-            onRemove={removeAttachment}
-            queuedCount={0}
-            failedCount={0}
-            onOpenDelayedQueue={openDelayedQueue}
-          />}
+          sendDisabled={!input.trim() && attachments.length === 0 && !reply.reply}
+          hasText={input.trim().length > 0 || attachments.length > 0 || reply.reply !== null}
+          cardHeader={(reply.reply || attachments.length > 0) && <>
+            {reply.reply && <ReplyQuote label={reply.reply.label} excerpt={reply.reply.excerpt} onRemove={() => { reply.clear(); refocusComposer(); }} />}
+            {attachments.length > 0 && <ComposerBubbleRow
+              attachments={attachments}
+              onRemove={removeAttachment}
+              queuedCount={0}
+              failedCount={0}
+              onOpenDelayedQueue={openDelayedQueue}
+            />}
+          </>}
           cardFooter={(queuedCount > 0 || failedCount > 0) && <ComposerBubbleRow
             attachments={[]}
             onRemove={removeAttachment}
@@ -670,6 +683,12 @@ function ChatComposerImpl({
                     setPickerOpen(false);
                     return;
                   }
+                }
+                if (e.key === "Escape" && !input && reply.reply) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  reply.clear();
+                  return;
                 }
                 if (composerEnterIntent(e.key, e.shiftKey, e.nativeEvent.isComposing) === "submit") {
                   e.preventDefault();

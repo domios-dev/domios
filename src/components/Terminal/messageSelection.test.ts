@@ -51,6 +51,34 @@ describe("reduceMessageSelection", () => {
     expect(reduceMessageSelection(state, { type: "prune", order: ORDER })).toBe(state);
   });
 
+  it("a drag selects whole rows from its start to the pointer and shrinks when the pointer comes back", () => {
+    const start = (id: string, extend = false): MessageSelectionAction => ({ type: "dragStart", id, order: ORDER, extend });
+    const to = (id: string): MessageSelectionAction => ({ type: "dragTo", id, order: ORDER });
+    const dragging = run(start("b"), to("d"));
+    expect(dragging.selected).toEqual(["b", "c", "d"]);
+    expect(selectionActive(dragging)).toBe(true);
+    expect(reduceMessageSelection(dragging, to("c")).selected).toEqual(["b", "c"]);
+    expect(reduceMessageSelection(dragging, to("a")).selected).toEqual(["a", "b"]);
+    const done = reduceMessageSelection(dragging, { type: "dragEnd" });
+    expect(done.drag).toBeNull();
+    expect(done.base).toEqual(["b", "c", "d"]);
+  });
+
+  it("a drag keeps earlier picks, and one starting on a selected row removes instead", () => {
+    const start = (id: string): MessageSelectionAction => ({ type: "dragStart", id, order: ORDER, extend: false });
+    const to = (id: string): MessageSelectionAction => ({ type: "dragTo", id, order: ORDER });
+    expect(run(toggle("a"), start("c"), to("d"), { type: "dragEnd" }).selected).toEqual(["a", "c", "d"]);
+    expect(run(toggle("a"), toggle("b"), toggle("c"), start("b"), to("c"), { type: "dragEnd" }).selected).toEqual(["a"]);
+    expect(run(toggle("b"), start("b"), { type: "dragEnd" })).toBe(EMPTY_SELECTION);
+  });
+
+  it("a press without a drag toggles its row, and shift extends from the anchor", () => {
+    const press = (id: string, extend = false): MessageSelectionAction[] => [{ type: "dragStart", id, order: ORDER, extend }, { type: "dragEnd" }];
+    expect(run(...press("c")).selected).toEqual(["c"]);
+    expect(run(...press("b"), ...press("d", true)).selected).toEqual(["b", "c", "d"]);
+    expect(run({ type: "dragTo", id: "c", order: ORDER })).toBe(EMPTY_SELECTION);
+  });
+
   it("clear resets everything", () => {
     expect(run(toggle("a"), { type: "clear" })).toBe(EMPTY_SELECTION);
   });
