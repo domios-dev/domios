@@ -7,7 +7,9 @@ import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
 import { ProviderInstallCard } from "./ProviderInstallCard";
-import { ModelProvidersPanel } from "./ModelProvidersPanel";
+import { ProviderIntegrationHealthCard } from "./ProviderIntegrationHealthCard";
+import { ModelEndpointsCard } from "./model_endpoints/ModelEndpointsCard";
+import { providerPageSections } from "./providerPageSections";
 import { SupporterAgentCard } from "./SupporterAgentCard";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import type { SettingsCardAnchorId } from "./sections";
@@ -47,7 +49,6 @@ export function AgentsOverview({
       </SettingsCard>
 
       <OrchestrationGroup config={config} onUpdate={onUpdate} />
-      <ModelProvidersPanel />
 
       <SettingsCardAnchor id="supporter-agent" focused={focusCard === "supporter-agent"}>
         <SupporterAgentCard
@@ -161,6 +162,7 @@ export function AgentProviderScreen({
 
   const providerCfg = fullConfig.agents?.[provider.id] ?? {};
   const visibleInMenu = providerCfg.visible_in_menu !== false;
+  const sections = providerPageSections(provider);
 
   return (
     <div className="flex flex-col gap-5" data-testid="settings-agent-provider-screen" data-provider-id={provider.id}>
@@ -173,6 +175,11 @@ export function AgentProviderScreen({
           <div className="text-[11px] text-[var(--ct-muted-fg)]">{provider.id}</div>
         </div>
       </div>
+      <ProviderInstallCard provider={provider} />
+      {sections.integration && <ProviderIntegrationHealthCard provider={provider} />}
+      {sections.modelEndpoints && (
+        <ModelEndpointsCard providerId={provider.id} harnessName={provider.display_name} daemonApi={fullConfig.api} />
+      )}
       <SettingsCard
         icon={<Eye size={16} />}
         title="Visibility"
@@ -184,7 +191,6 @@ export function AgentProviderScreen({
           onChange={(v) => onProviderConfigChange(provider.id, { visible_in_menu: v })}
         />
       </SettingsCard>
-      <ProviderInstallCard provider={provider} />
       <SchemaRenderer
         schema={provider.settings_schema}
         providerId={provider.id}
