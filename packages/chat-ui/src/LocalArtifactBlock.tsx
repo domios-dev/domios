@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Image as ImageIcon, RefreshCw, Maximize2, FolderOpen, X } from "lucide-react";
 import { createPortal } from "react-dom";
-import { FullscreenOverlay, useFullscreenKeyboard } from "./FullscreenOverlay";
+import { FullscreenOverlay, useFullscreenHostBounds, useFullscreenKeyboard } from "./FullscreenOverlay";
 import { HtmlPreviewBlock } from "./HtmlPreviewBlock";
 import {
   loadLocalArtifact,
@@ -67,19 +67,8 @@ function LoadedLocalArtifact({
   const close = useCallback(() => setFullscreen(false), []);
   useFullscreenKeyboard(fullscreen, fullscreenRef, close);
   const sectionRef = useRef<HTMLElement>(null);
-  const [bounds, setBounds] = useState<React.CSSProperties>();
+  const { host: fullscreenHost, bounds } = useFullscreenHostBounds(fullscreen, sectionRef, fullscreenHostSelector);
   useEffect(() => { if (fullscreenRequest) setFullscreen(true); }, [fullscreenRequest]);
-  useEffect(() => {
-    if (!fullscreen) return;
-    const host = fullscreenHostSelector ? document.querySelector(fullscreenHostSelector) : sectionRef.current?.closest("[data-tab-id]");
-    if (!host) return;
-    const update = () => { const rect = host.getBoundingClientRect(); setBounds({ top: rect.top, left: rect.left, width: rect.width, height: rect.height }); };
-    update();
-    window.addEventListener("resize", update);
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
-    observer?.observe(host);
-    return () => { observer?.disconnect(); window.removeEventListener("resize", update); };
-  }, [fullscreen, fullscreenHostSelector]);
   const generation = useRef(0);
   const onLoadedRef = useRef(onLoaded);
   onLoadedRef.current = onLoaded;
@@ -114,9 +103,6 @@ function LoadedLocalArtifact({
     ? <ImageIcon size={14} aria-hidden />
     : <FileText size={14} aria-hidden />;
 
-  const fullscreenHost = fullscreenHostSelector
-    ? document.querySelector(fullscreenHostSelector)
-    : sectionRef.current?.closest("[data-tab-id]");
   const content = <>
     {state.status === "loading" && <p>Loading…</p>}
     {state.status === "error" && <p role="alert">{state.error}</p>}

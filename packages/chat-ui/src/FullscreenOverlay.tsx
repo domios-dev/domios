@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode, type RefObject, type CSSProperties } from "react";
+import { useEffect, useState, type ReactNode, type RefObject, type CSSProperties } from "react";
 
 export function useFullscreenKeyboard(open: boolean, ref: RefObject<HTMLDivElement | null>, close: () => void) {
   useEffect(() => {
@@ -30,6 +30,25 @@ export function useFullscreenKeyboard(open: boolean, ref: RefObject<HTMLDivEleme
       if (opener?.isConnected) opener.focus();
     };
   }, [open, ref, close]);
+}
+
+/** Pins an open overlay to the tab that hosts the anchor, so fullscreen covers the tab rather than the window. */
+export function useFullscreenHostBounds(open: boolean, anchorRef: RefObject<HTMLElement | null>, hostSelector?: string): {
+  host: Element | null;
+  bounds: CSSProperties | undefined;
+} {
+  const [bounds, setBounds] = useState<CSSProperties>();
+  const host = hostSelector ? document.querySelector(hostSelector) : anchorRef.current?.closest("[data-tab-id]") ?? null;
+  useEffect(() => {
+    if (!open || !host) return;
+    const update = () => { const rect = host.getBoundingClientRect(); setBounds({ top: rect.top, left: rect.left, width: rect.width, height: rect.height }); };
+    update();
+    window.addEventListener("resize", update);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    observer?.observe(host);
+    return () => { observer?.disconnect(); window.removeEventListener("resize", update); };
+  }, [open, host]);
+  return { host, bounds: host ? bounds : undefined };
 }
 
 export function FullscreenOverlay({ panelRef, label, style, onClose, children }: {

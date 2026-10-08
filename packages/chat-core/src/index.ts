@@ -45,7 +45,25 @@ export {
   normalizeChatText,
   type FingerprintableChatMessage,
 } from "./normalize";
-export { attachmentFileName, inlineAttachmentSrc, userVisibleText } from "./userAttachments";
+export {
+  attachmentFileName,
+  inlineAttachmentSrc,
+  userMessageAttachments,
+  userVisibleText,
+  type UserMessageAttachments,
+} from "./userAttachments";
+export {
+  ATTACHMENT_KINDS,
+  attachmentKindForPath,
+  attachmentPreviewKind,
+  formatAttachmentMarker,
+  imageMimeType,
+  isImagePath,
+  parseAttachmentMarkers,
+  type AttachmentKind,
+  type AttachmentMarker,
+  type ParsedAttachmentMarkers,
+} from "./attachmentMarker";
 export { ECHO_SKEW_MS, matchedOptimisticEchoes, collapseDuplicateUserMessages, type OptimisticEcho } from "./dedupe";
 export { mergeById } from "./merge";
 export { timestampMs } from "./time";
