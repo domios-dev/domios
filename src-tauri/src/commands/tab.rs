@@ -326,6 +326,39 @@ pub fn chat_start_core(
     }
     let started = std::time::Instant::now();
     let initial_authority = tab_chat_authority(svc, &tab_id);
+    if crate::service::structured_endpoint::sse(&tab_id).is_some() && initial_authority.0.is_some()
+    {
+        let archives = svc
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .map(|tab| tab.context_epoch_archives.clone())
+            .unwrap_or_default();
+        let mut messages =
+            super::context_epochs::materialize_archived_context_epochs(svc, &archives);
+        messages.extend(crate::service::structured_prompt::snapshot::read(
+            svc, &tab_id,
+        )?);
+        let start = messages
+            .len()
+            .saturating_sub(crate::service::structured_prompt::snapshot::RETAINED_ROWS);
+        messages.drain(..start);
+        if tab_chat_authority(svc, &tab_id) != initial_authority {
+            return Err("Transcript binding changed during attach".into());
+        }
+        return Ok(ChatStartResult {
+            text: String::new(),
+            start_offset: 0,
+            offset: 0,
+            pending: false,
+            source_missing: false,
+            messages: Some(prepend_pending_greeting(svc, &tab_id, messages)),
+            cursor: None,
+            source_session_id: initial_authority.0,
+            session_binding_nonce: initial_authority.1,
+            subscription_id: None,
+        });
+    }
     if let Some((plugin_id, _)) = svc.tab_chat_backing(&tab_id) {
         if svc.chatbackend_registry.get(&plugin_id).is_none() {
             return Err(crate::service::tab_transport_chat::removed_chatbackend_error(&plugin_id));
