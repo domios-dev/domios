@@ -49,6 +49,20 @@ fn record_confirmed_effort(tab: &mut crate::multiplexer::types::Tab, effort: &st
     tab.reasoning_effort_identity.actual_source = Some("session-command".into());
 }
 
+fn record_target_effort(
+    target: &CommandTarget,
+    tab: &mut crate::multiplexer::types::Tab,
+    effort: &str,
+) -> Result<(), ModelSwitchError> {
+    if !target.matches(tab) {
+        return Err(ModelSwitchError::LiveCommandFailed(
+            "the session changed before the effort confirmation could be recorded".into(),
+        ));
+    }
+    record_confirmed_effort(tab, effort);
+    Ok(())
+}
+
 fn planned_commands<'a>(
     commands: &'a crate::agent::provider::ModelSwitchCommands,
     model_changed: bool,
@@ -260,16 +274,13 @@ impl ServiceContext {
             if let Some(effort) = command_effort {
                 {
                     let mut mux = self.mux.write();
-                    let Some(tab) = mux
-                        .get_tab_mut(&snap.tab_id)
-                        .filter(|tab| target.matches(tab))
-                    else {
+                    let Some(tab) = mux.get_tab_mut(&snap.tab_id) else {
                         return Err(ModelSwitchError::LiveCommandFailed(
                             "the session changed before the effort confirmation could be recorded"
                                 .into(),
                         ));
                     };
-                    record_confirmed_effort(tab, effort);
+                    record_target_effort(&target, tab, effort)?;
                 }
                 if let Err(error) = crate::service::session_persist::persist_session_after_mutation(
                     self,

@@ -369,6 +369,35 @@ fn record_live_request_identity(
     crate::service::reasoning_effort::persist_launch_identity(tab, effort, effort);
 }
 
+fn live_model_confirmation_matches(
+    registry: &crate::agent::registry::AgentRegistry,
+    tab: &crate::multiplexer::types::Tab,
+    provider: &str,
+    session_id: &str,
+    binding_nonce: &str,
+    observed_model: &str,
+) -> bool {
+    tab.agent_type.as_deref() == Some(provider)
+        && tab.agent_session_id.as_deref() == Some(session_id)
+        && tab.agent_session_model.as_deref().is_some_and(|model| {
+            crate::service::session_model::session_model_matches(
+                registry,
+                provider,
+                observed_model,
+                model,
+            )
+        })
+        && tab
+            .agent_session_model_identity
+            .as_ref()
+            .is_some_and(|identity| {
+                identity.session_id == session_id
+                    && identity.session_binding_nonce == binding_nonce
+                    && tab.session_binding_nonce.as_deref() == Some(binding_nonce)
+                    && tab.reported_session_binding_nonce.as_deref() == Some(binding_nonce)
+            })
+}
+
 impl ServiceContext {
     #[cfg(test)]
     pub(crate) fn agent_switch_model(
@@ -722,21 +751,14 @@ impl ServiceContext {
         );
         let mux = self.mux.read();
         mux.get_tab(tab_id).is_some_and(|tab| {
-            tab.agent_type.as_deref() == Some(provider)
-                && tab.agent_session_id.as_deref() == Some(session_id)
-                && tab.agent_session_model.as_deref().is_some_and(|model| {
-                    crate::service::structured_prompt::same_model_id(model, observed_model)
-                })
-                && tab
-                    .agent_session_model_identity
-                    .as_ref()
-                    .is_some_and(|identity| {
-                        identity.session_id == session_id
-                            && identity.session_binding_nonce == binding_nonce
-                            && tab.session_binding_nonce.as_deref() == Some(binding_nonce.as_str())
-                            && tab.reported_session_binding_nonce.as_deref()
-                                == Some(binding_nonce.as_str())
-                    })
+            live_model_confirmation_matches(
+                &self.agent_registry,
+                tab,
+                provider,
+                session_id,
+                &binding_nonce,
+                observed_model,
+            )
         })
     }
 
