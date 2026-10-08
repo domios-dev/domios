@@ -70,6 +70,9 @@ pub async fn spawn(
     token_file: &Path,
     marker_file: &Path,
 ) -> Result<Process, String> {
+    if let Some(problem) = crate::service::spawn_cwd::cwd_problem(cwd) {
+        return Err(format!("Sidecar cwd {cwd:?}: {problem}"));
+    }
     let mut command = tokio::process::Command::new(binary);
     #[cfg(windows)]
     crate::process_util::no_window_tokio_suspended(&mut command);
@@ -128,7 +131,12 @@ pub async fn spawn(
         .kill_on_drop(true);
     #[cfg(unix)]
     command.process_group(0);
-    let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let mut child = command.spawn().map_err(|error| {
+        format!(
+            "Sidecar process spawn failed: binary={binary:?} cwd={cwd:?} token_file={token_file:?} CODEX_HOME={:?}: {error}",
+            env.get("CODEX_HOME").cloned().or_else(|| std::env::var("CODEX_HOME").ok())
+        )
+    })?;
     let pid = child.id().ok_or("Sidecar has no process id")?;
     #[cfg(windows)]
     let job = super::windows_job::Job::attach(&child)?;
@@ -152,7 +160,7 @@ pub async fn spawn(
         marker_file,
         serde_json::to_vec(&marker).map_err(|error| error.to_string())?,
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| format!("Sidecar marker write {marker_file:?}: {error}"))?;
     let (ready, readiness) = oneshot::channel();
     let ready = std::sync::Arc::new(parking_lot::Mutex::new(Some(ready)));
     let expected = format!("listening on: ws://127.0.0.1:{port}");
@@ -269,6 +277,25 @@ pub fn sweep(root: &Path, instance: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn codex_rpc_process_empty_cwd_error_names_exact_invalid_path() {
+        let result = spawn(
+            Path::new("unused-binary"),
+            "",
+            Default::default(),
+            "unused-tab",
+            1,
+            Path::new("unused-token"),
+            Path::new("unused-marker"),
+        )
+        .await;
+        let Err(error) = result else {
+            panic!("empty cwd must fail before process creation");
+        };
+        assert!(error.starts_with("Sidecar cwd \"\": "), "{error}");
+    }
+
     #[test]
     fn codex_rpc_process_sweep_leaves_foreign_instance_artifacts() {
         let root = tempfile::tempdir().unwrap();
