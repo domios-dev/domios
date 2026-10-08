@@ -9,7 +9,7 @@ import {
   type ToolRichResult,
 } from "@codeterm/chat-core";
 import { ToolCallBubble } from "../ToolCallBubble";
-import { configureLocalArtifactLoader } from "../localArtifactLoader";
+import { configureLocalArtifactLoader, configureLocalArtifactOpener } from "../localArtifactLoader";
 import { DEFAULT_THEME, themeToCSS } from "../../../../src/lib/themeCss";
 import { completedActivity, type ActivityMessage } from "../../../../plugins/provider-codex/src/activity";
 import { imageGenerationEndResult, webSearchEndResult } from "../../../../plugins/provider-codex/src/richResults";
@@ -128,6 +128,8 @@ const rows = (scope: ParentNode) => [...scope.querySelectorAll<HTMLElement>('[da
 const toggle = (row: HTMLElement) => row.querySelector<HTMLButtonElement>("button[aria-controls]");
 const field = (row: HTMLElement, name: string) => row.querySelector(`dd[data-field="${name}"]`)?.textContent;
 const summary = (row: HTMLElement) => row.querySelector('[data-testid="chat-rich-result-summary"]')?.textContent;
+const figure = (row: HTMLElement) => row.querySelector<HTMLElement>('[data-testid="chat-rich-result-figure"]');
+const figurePath = (row: HTMLElement) => figure(row)?.querySelector('[data-field="path"]')?.textContent;
 
 describe("web results", () => {
   it("renders web_search_end as a compact query and result-count row without result content", async () => {
@@ -185,11 +187,39 @@ describe("image results", () => {
     expect(view.innerHTML).not.toContain(imageEnd.result);
 
     await click(toggle(row));
-    expect(field(row, "source")).toBe("image generation");
-    expect(field(row, "path")).toBe(imageEnd.saved_path);
+    expect(figure(row)?.querySelector('[data-testid="chat-rich-result-image"]')?.getAttribute("src")).toBe(PNG);
+    expect(figurePath(row)).toBe(imageEnd.saved_path);
     expect(field(row, "prompt")).toBe(imageEnd.revised_prompt);
     expect(field(row, "status")).toBe("completed");
-    expect(field(row, "thumbnail")).toBe("shown from local file");
+    expect(field(row, "thumbnail")).toBeUndefined();
+  });
+
+  it("opens the expanded image in the shared fullscreen overlay and closes it on Escape", async () => {
+    const view = await render([generated()]);
+    const [row] = rows(view);
+    await click(toggle(row));
+    await click(figure(row)?.querySelector('button[aria-label="Open Generated image: lighthouse.png fullscreen"]'));
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Image lighthouse.png"]');
+    expect(dialog?.querySelector('img[alt="lighthouse.png"]')?.getAttribute("src")).toBe(PNG);
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+    });
+    expect(document.querySelector('[role="dialog"][aria-label="Image lighthouse.png"]')).toBeNull();
+  });
+
+  it("copies and reveals the image path from the footer", async () => {
+    const revealed: string[] = [];
+    configureLocalArtifactOpener(async (path) => { revealed.push(path); });
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    const view = await render([viewed()]);
+    const [row] = rows(view);
+    await click(toggle(row));
+    await click(figure(row)?.querySelector('button[aria-label="Copy image path"]'));
+    expect(writeText).toHaveBeenCalledWith(imageViewItem.path);
+    await click(figure(row)?.querySelector('button[aria-label="Reveal before.png"]'));
+    expect(revealed).toEqual(["C:/repo/shots/before.png"]);
+    configureLocalArtifactOpener(null);
   });
 
   it("reads an ImageView file URI as its local path while the detail keeps the exact source path", async () => {
@@ -198,8 +228,7 @@ describe("image results", () => {
     expect(loader).toHaveBeenCalledWith("C:/repo/shots/before.png", "image");
     expect(row.querySelector('[data-testid="chat-rich-result-thumbnail"]')?.getAttribute("alt")).toBe("Viewed image: before.png");
     await click(toggle(row));
-    expect(field(row, "source")).toBe("image view");
-    expect(field(row, "path")).toBe(imageViewItem.path);
+    expect(figurePath(row)).toBe(imageViewItem.path);
   });
 
   it.each([
@@ -290,7 +319,7 @@ describe("isolation and ordering", () => {
 
     await click(streams[0].querySelector('button[aria-label="Show before.png"]'));
     const member = rows(streams[0])[0];
-    expect(field(member, "path")).toBe(imageViewItem.path);
+    expect(figurePath(member)).toBe(imageViewItem.path);
 
     const outside = rows(view).filter((row) => !streams[0].contains(row));
     expect(outside.map(summary)).toEqual(["second query"]);
