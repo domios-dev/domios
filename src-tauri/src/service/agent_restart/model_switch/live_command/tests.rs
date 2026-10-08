@@ -283,6 +283,60 @@ fn effort_only_plan_sends_only_effort_and_preserves_model_identity() {
 }
 
 #[test]
+fn effort_only_confirmation_records_high_with_unchanged_session_pty_and_nonce() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    let mut target = target();
+    target.model = "opus".into();
+    tab.pty_id = Some(target.pty_id.clone());
+    tab.agent_type = Some(target.provider.clone());
+    tab.agent_session_id = Some(target.session_id.clone());
+    tab.session_binding_nonce = Some(target.binding_nonce.clone());
+    tab.reported_session_binding_nonce = Some(target.binding_nonce.clone());
+    tab.agent_session_model = Some("opus".into());
+    tab.agent_requested_model = Some("opus".into());
+    tab.agent_provider_resolved_model = Some("opus".into());
+    record_confirmed_effort(tab, "low");
+    let before = (
+        tab.agent_session_id.clone(),
+        tab.pty_id.clone(),
+        tab.session_binding_nonce.clone(),
+    );
+    assert!(tab.agent_session_model_identity.is_none());
+    record_target_effort(&target, tab, "high").unwrap();
+    assert_eq!(
+        tab.reasoning_effort_identity.requested.as_deref(),
+        Some("high")
+    );
+    assert_eq!(
+        tab.reasoning_effort_identity.resolved.as_deref(),
+        Some("high")
+    );
+    assert_eq!(
+        tab.reasoning_effort_identity.actual.as_deref(),
+        Some("high")
+    );
+    assert_eq!(tab.agent_requested_model.as_deref(), Some("opus"));
+    assert_eq!(tab.agent_provider_resolved_model.as_deref(), Some("opus"));
+    assert_eq!(tab.agent_session_model.as_deref(), Some("opus"));
+    assert!(tab.agent_session_model_identity.is_none());
+    assert_eq!(
+        (
+            tab.agent_session_id.clone(),
+            tab.pty_id.clone(),
+            tab.session_binding_nonce.clone()
+        ),
+        before
+    );
+    tab.session_binding_nonce = Some("new-nonce".into());
+    assert!(record_target_effort(&target, tab, "low").is_err());
+    assert_eq!(
+        tab.reasoning_effort_identity.actual.as_deref(),
+        Some("high")
+    );
+}
+
+#[test]
 fn confirmation_requires_the_declared_record_and_exact_wrapped_output() {
     let pattern = confirmation_pattern("^accepted {model}$", "m[1]", "Display", None).unwrap();
     let record = |kind, content| serde_json::json!({"type": kind, "payload": content}).to_string();
