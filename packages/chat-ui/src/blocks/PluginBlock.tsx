@@ -86,7 +86,7 @@ function PluginNotice({ source, title, text, missing = false }: { source: string
       data-plugin-missing={missing || undefined}
       role="note"
       aria-label={`Plugin ${title}`}
-      className="my-2 inline-flex max-w-[34rem] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs"
+      className="my-2 flex w-fit max-w-[34rem] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs"
       style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg) 22%, transparent)", color: "var(--ct-muted-fg)" }}
       title={source}
     >

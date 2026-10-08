@@ -185,7 +185,7 @@ function BlockButton({ primary = false, children, className = "", ...props }: Re
       {...props}
       className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-[filter,background-color] disabled:cursor-default disabled:opacity-50 motion-reduce:transition-none ${primary ? "hover:enabled:brightness-110" : "border hover:enabled:bg-[var(--ct-hover,rgba(127,127,127,0.12))]"} ${FOCUS_RING} ${className}`}
       style={primary
-        ? { background: "var(--ct-accent, #58a6ff)", color: "var(--ct-accent-fg, #fff)" }
+        ? { background: "var(--ct-accent, #58a6ff)", color: "var(--ct-on-accent, #fff)" }
         : { borderColor: "color-mix(in srgb, var(--ct-muted-fg) 30%, transparent)", color: "var(--ct-fg)" }}
     >
       {children}
