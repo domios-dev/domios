@@ -1,3 +1,5 @@
+pub mod cdp;
+pub mod cdp_wire;
 pub mod launch;
 pub mod locator;
 pub mod process;
