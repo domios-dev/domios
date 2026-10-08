@@ -2,6 +2,37 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn codex_rpc_normalize_split_deltas_preserve_exact_line_structure() {
+    for text in [
+        "first  \nsecond\n\nthird\\\nfourth",
+        "first  \r\nsecond\r\n\r\nthird\\\r\nfourth",
+    ] {
+        for split in 0..=text.len() {
+            let mut normalizer = Normalizer::default();
+            let mut accumulated = String::new();
+            for delta in [&text[..split], &text[split..]] {
+                accumulated.push_str(delta);
+                let message = normalizer
+                    .apply(&Frame::Notification {
+                        method: "item/agentMessage/delta".into(),
+                        params: json!({"threadId":"bound","itemId":"verse","delta":delta}),
+                    })
+                    .unwrap();
+                assert_eq!(message.content, accumulated);
+                assert_eq!(normalizer.snapshot("bound")[0].content, accumulated);
+            }
+            assert_eq!(normalizer.snapshot("bound")[0].content, text);
+            let completed = normalizer.apply(&Frame::Notification {
+                method: "item/completed".into(),
+                params: json!({"threadId":"bound","item":{"id":"verse","type":"agentMessage","text":text}}),
+            }).unwrap();
+            assert_eq!(completed.content, text);
+            assert_eq!(normalizer.snapshot("bound")[0].content, text);
+        }
+    }
+}
+
+#[test]
 fn codex_rpc_control_restored_items_keep_order_and_do_not_replay_old_deltas() {
     let messages = vec![ChatMsg {
         id: "old".into(),
