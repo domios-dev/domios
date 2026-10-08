@@ -1,5 +1,5 @@
+use codeterm_types::blueprint_recipe::substitute;
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 const MAX_SPEC_BYTES: usize = 256 * 1024;
@@ -36,7 +36,7 @@ pub(super) fn load(
     Ok(value)
 }
 
-fn read_spec(path: &Path) -> Result<String, String> {
+pub(super) fn read_spec(path: &Path) -> Result<String, String> {
     if path == Path::new("-") {
         use std::io::Read;
         let mut input = String::new();
@@ -90,65 +90,6 @@ fn fenced<'a>(body: &'a str, language: &str) -> Option<&'a str> {
     let (_, tail) = body.split_once(&opening)?;
     let (content, _) = tail.split_once("```")?;
     Some(content.trim())
-}
-
-fn substitute(value: &mut Value, assignments: &[String]) -> Result<(), String> {
-    let mut replacements = BTreeMap::new();
-    for assignment in assignments {
-        let (key, value) = assignment
-            .split_once('=')
-            .ok_or("--set must use key=value")?;
-        if key.is_empty() || key.len() > 128 || key.chars().any(char::is_control) {
-            return Err("--set key must be nonempty, bounded and printable".into());
-        }
-        if replacements
-            .insert(key.to_string(), value.to_string())
-            .is_some()
-        {
-            return Err(format!("duplicate --set key `{key}`"));
-        }
-    }
-    let mut used = BTreeSet::new();
-    replace_strings(value, &replacements, &mut used)?;
-    if let Some(unused) = replacements.keys().find(|key| !used.contains(*key)) {
-        return Err(format!(
-            "--set key `{unused}` does not match a recipe placeholder"
-        ));
-    }
-    Ok(())
-}
-
-fn replace_strings(
-    value: &mut Value,
-    replacements: &BTreeMap<String, String>,
-    used: &mut BTreeSet<String>,
-) -> Result<(), String> {
-    match value {
-        Value::String(text) => {
-            for (key, replacement) in replacements {
-                let placeholder = format!("{{{{{key}}}}}");
-                if text.contains(&placeholder) {
-                    *text = text.replace(&placeholder, replacement);
-                    used.insert(key.clone());
-                }
-            }
-            if text.contains("{{") || text.contains("}}") {
-                return Err(format!("recipe has an unset placeholder in `{text}`"));
-            }
-        }
-        Value::Array(values) => {
-            for value in values {
-                replace_strings(value, replacements, used)?;
-            }
-        }
-        Value::Object(values) => {
-            for value in values.values_mut() {
-                replace_strings(value, replacements, used)?;
-            }
-        }
-        _ => {}
-    }
-    Ok(())
 }
 
 #[cfg(test)]
