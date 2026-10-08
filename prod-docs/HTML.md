@@ -90,8 +90,9 @@ Renders the Guide section's title and summary with an Open guide action that
 opens Settings > Guide, scrolls to the section and focuses its heading. An
 unknown id shows a notice and opens the first section. Useful ids include
 `overview`, `agents`, `memory`, `supporter-agent`, `mesh`, `integrations`,
-`phone` (answer agents from a Telegram bot) and `messenger-plugins` (let agents
-use the owner's Telegram and Teams accounts).
+`blueprints` (turn a repeated check into a Blueprint), `phone` (answer agents
+from a Telegram bot) and `messenger-plugins` (let agents use the owner's
+Telegram and Teams accounts).
 
 ### `@ds-plugin`
 
@@ -192,4 +193,4 @@ The rendered document carries a visible `Local untrusted HTML` banner. Use
 ct.file.renderHtml({ target: '#canvas', maxBytes: 2 * 1024 * 1024 })
 ```
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->
