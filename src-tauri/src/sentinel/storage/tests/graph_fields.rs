@@ -258,7 +258,9 @@ fn blueprint_terminal_session_definition_and_budgets_survive_typed_reload() {
     job.max_transitions = 1;
     job.max_actions = 1;
     job.on_other.clear();
+    job.escalation_timeout_ms = None;
     job.routes = std::collections::BTreeMap::from([("trust".into(), vec![])]);
+    crate::sentinel::store::validate(vec![job.clone()]).expect("valid terminal session fixture");
     let inserted = commit(&store, |store| store.stage_insert(job.clone())).unwrap();
     assert_eq!(inserted.terminal, job.terminal);
     for index in 0..3 {
@@ -269,6 +271,8 @@ fn blueprint_terminal_session_definition_and_budgets_survive_typed_reload() {
                 .stage_accept_transition(&live, "trust", &format!("exchange-{index}"));
         assert!(staged.settle(&store).unwrap());
     }
+    crate::sentinel::store::validate(vec![codec::decode(&stored(&storage, &job.id))])
+        .expect("persisted terminal session remains valid beyond the ordinary budget");
     drop(store);
     close(storage);
     let storage = open(root.path());
@@ -278,6 +282,34 @@ fn blueprint_terminal_session_definition_and_budgets_survive_typed_reload() {
     assert!(live.session);
     assert_eq!(live.transitions.len(), 3);
     assert!(!super::super::super::store::transition_budget_spent(&live));
+    drop(store);
+    close(storage);
+}
+
+#[test]
+fn blueprint_insert_refuses_orphan_escalation_timeout_before_persistence() {
+    let root = temp_root();
+    let storage = open(root.path());
+    let clock = MockClock::starting_at(1_000);
+    let typed_store = typed(&storage, &clock);
+    let legacy = Arc::new(Mutex::new(Store::new(
+        root.path().join("sentinels.json"),
+        clock.clone(),
+    )));
+    let mut job = fixture(FRESH);
+    job.on_other.clear();
+    for store in [&typed_store, &legacy] {
+        let revision = storage.revision();
+        let error = commit(store, |store| store.stage_insert(job.clone())).unwrap_err();
+        assert_eq!(error, "invalid blueprint escalation");
+        assert!(store.lock().get(&job.id).is_none());
+        assert_eq!(storage.revision(), revision);
+    }
+    drop(typed_store);
+    close(storage);
+    let storage = open(root.path());
+    let store = typed(&storage, &clock);
+    assert!(store.lock().list().is_empty());
     drop(store);
     close(storage);
 }
