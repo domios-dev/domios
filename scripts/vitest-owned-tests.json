@@ -73,5 +73,6 @@
   "src/components/Usage/SupporterAllowanceRow.test.tsx",
   "src/components/Supporter/ActivityFeed.test.tsx",
   "src/components/Titlebar/SupporterActivityTray.test.tsx",
-  "src/components/Terminal/NewSessionPicker.modal.test.tsx"
+  "src/components/Terminal/NewSessionPicker.modal.test.tsx",
+  "src/components/Terminal/SurfaceTabView.test.tsx"
 ]

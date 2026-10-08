@@ -17,6 +17,7 @@ assert.deepEqual(applyShellState(shell, "pty", running).shell_command_state, run
 for (const overrides of [
   { agent_type: "opaque" }, { role: "Worker" as const }, { roleless_tracked: true },
   { backing: { kind: "chat_backend" as const, plugin_id: "plugin", session_id: "session" } },
+  { backing: { kind: "surface" as const, plugin_id: "plugin", surface_id: "board", instance_id: "i" } },
   { tab_type: "Choice" as const },
 ]) {
   const tab = { ...shell, ...overrides };

@@ -84,9 +84,22 @@ export interface PendingPrompt {
   selected_values?: string[] | null;
 }
 
-/** What backs a tab's I/O — a PTY (terminal) or a plugin chatBackend. Mirrors
- *  the Rust `TabBacking` (serde `tag = "kind"`, snake_case). */
-export type TabBacking = { kind: "pty" } | { kind: "chat_backend"; plugin_id: string; session_id: string };
+/** A plugin surface tab: a plugin view rendered inside a core-owned tab frame. */
+export interface SurfaceTabBacking {
+  kind: "surface";
+  plugin_id: string;
+  surface_id: string;
+  instance_id: string;
+  /** The tab is labelled after its owner (`parent_tab_id`). */
+  owner_label?: boolean;
+}
+
+/** What backs a tab's I/O — a PTY (terminal), a plugin chatBackend, or a plugin
+ *  surface. Mirrors the Rust `TabBacking` (serde `tag = "kind"`, snake_case). */
+export type TabBacking =
+  | { kind: "pty" }
+  | { kind: "chat_backend"; plugin_id: string; session_id: string }
+  | SurfaceTabBacking;
 
 /** Tunable watcher limits set by the spawner; host clamps to safe bounds. */
 export interface WatcherPolicy {

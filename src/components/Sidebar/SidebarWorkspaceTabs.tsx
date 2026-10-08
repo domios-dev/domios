@@ -253,6 +253,7 @@ export function SidebarWorkspaceTabs({
 
   const renderMemberRow = (
     member: TeamTabMember,
+    surfaces: readonly TeamTabMember[] = [],
   ): ReactNode => (
     <div key={member.tab.id} className="sidebar-team-member">
       <SidebarSingleTabRow
@@ -267,6 +268,25 @@ export function SidebarWorkspaceTabs({
         pinnedIds={[]}
         {...sharedRow}
       />
+      {surfaces.length > 0 && (
+        <SortableContext items={surfaces.map((surface) => `${TAB_PREFIX}${surface.tab.id}`)} strategy={verticalListSortingStrategy}>
+          {surfaces.map((surface, surfaceIndex) => (
+            <SidebarSingleTabRow
+              key={surface.tab.id}
+              tab={surface.tab}
+              index={surfaceIndex}
+              activity={resolveTabTabActivity(planIndex, surface.tab.id, tabs)}
+              activeWork={activeWork}
+              isClosing={closingTabIds.has(surface.tab.id)}
+              isAppearing={appearingTabIds.has(surface.tab.id)}
+              group="child"
+              groupKey={member.tab.id}
+              pinnedIds={[]}
+              {...sharedRow}
+            />
+          ))}
+        </SortableContext>
+      )}
     </div>
   );
 
@@ -366,7 +386,7 @@ export function SidebarWorkspaceTabs({
     renderedTeamIds.add(teamId);
 
     const members = membersByTeam.get(teamId) ?? [];
-    const { managers, terminals, workers } = partitionTeamMembers(members);
+    const { managers, terminals, workers, surfacesByOwner } = partitionTeamMembers(members);
     const managerItems = managers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const workerItems = workers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const terminalItems = terminals.map((member) => `${TAB_PREFIX}${member.tab.id}`);
@@ -392,7 +412,7 @@ export function SidebarWorkspaceTabs({
         managerCount={managers.length}
         managers={
           <SortableContext items={managerItems} strategy={verticalListSortingStrategy}>
-            {managers.map((member) => renderMemberRow(member))}
+            {managers.map((member) => renderMemberRow(member, surfacesByOwner.get(member.tab.id)))}
           </SortableContext>
         }
         workerCount={workers.length}
@@ -400,7 +420,7 @@ export function SidebarWorkspaceTabs({
         workers={
           <>
             <SortableContext items={workerItems} strategy={verticalListSortingStrategy}>
-              {workers.map((member) => renderMemberRow(member))}
+              {workers.map((member) => renderMemberRow(member, surfacesByOwner.get(member.tab.id)))}
             </SortableContext>
           </>
         }

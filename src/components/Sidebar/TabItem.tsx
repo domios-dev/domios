@@ -1,7 +1,8 @@
 import { ShellPurposeIcon } from "../shared/ShellStatus";
 import { isUtilityShell, shellPurposeLabel } from "../../lib/shellCommandState";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { ShieldCheck, TriangleAlert } from "lucide-react";
+import { AppWindow, ShieldCheck, TriangleAlert } from "lucide-react";
+import { isSurfaceTab } from "../../lib/surfaceTab";
 import { usePluginTabMenu } from "../../lib/pluginTabMenu";
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
 import { getAgentDescriptor, listAgentDescriptors } from "../../lib/agentDescriptorCache";
@@ -356,6 +357,8 @@ function TabItemInner({
               className={`leading-none ${touchMode ? "text-[15px]" : isSubTab ? "text-[10px]" : "text-[12px]"}`}
               title={status === "Working" ? `${providerName} working...` : status === "Waiting" ? `${providerName} — waiting for input` : providerName}
             />
+          ) : isSurfaceTab(tab) ? (
+            <AppWindow data-testid="tab-surface-icon" aria-hidden="true" size={touchMode ? 15 : isSubTab ? 11 : 13} />
           ) : tab.tab_type === "Choice" ? (
             <ChoiceIcon className={`${touchMode ? "scale-110" : isSubTab ? "scale-90" : ""}`} />
           ) : (
