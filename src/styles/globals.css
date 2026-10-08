@@ -3480,7 +3480,6 @@ button,
 }
 .ct-composer-activity-capsule { min-width: 0; max-width: 100%; }
 .ct-composer-activity-chip__open { display: inline-flex; align-items: center; flex: 0 1 auto; min-width: 0; gap: 0.25rem; border: 0; border-radius: 0; padding: 0; background: transparent; color: inherit; text-align: left; }
-.ct-composer-activity-chip__next { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ct-muted-fg, #8b949e); }
 .ct-composer-attachment-capsule { display: inline-flex; flex: 0 0 auto; max-width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0.15rem 0.4rem; border: 1px solid color-mix(in srgb, var(--ct-accent, #58a6ff) 30%, transparent); border-radius: 9999px; color: var(--ct-fg, #c9d1d9); background: color-mix(in srgb, var(--ct-accent, #58a6ff) 8%, transparent); font-size: 0.68rem; line-height: 1.1; }
 .ct-composer-activity-chip__expand { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; border: 0; padding: 0 0.2rem; color: var(--ct-muted-fg, #8b949e); background: transparent; }
 .ct-composer-activity-chip__expand svg { transition: transform 120ms ease; }
