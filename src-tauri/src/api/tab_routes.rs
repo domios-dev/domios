@@ -526,6 +526,20 @@ pub(crate) struct RestartShellTabBody {
     cwd: Option<String>,
 }
 
+pub async fn rerun_restored_shell(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(tab_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
+    let service = state.svc.clone();
+    tokio::task::spawn_blocking(move || service.rerun_restored_shell(&tab_id))
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
 pub async fn restart_shell_tab(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
