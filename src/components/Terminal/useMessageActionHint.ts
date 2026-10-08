@@ -24,12 +24,12 @@ export function useMessageActionHint(row: RefObject<HTMLElement | null>, disable
         setHint(false);
       }
     };
-    const observer = new MutationObserver(stopMotion);
-    for (let node: HTMLElement | null = row.current; node; node = node.parentElement) {
+    const observer = typeof MutationObserver === "undefined" ? null : new MutationObserver(stopMotion);
+    for (let node: HTMLElement | null = row.current; observer && node; node = node.parentElement) {
       observer.observe(node, { attributes: true, attributeFilter: ["data-motion"] });
     }
     media.addEventListener("change", stopMotion);
-    return () => { observer.disconnect(); media.removeEventListener("change", stopMotion); controller.current?.leave(); };
+    return () => { observer?.disconnect(); media.removeEventListener("change", stopMotion); controller.current?.leave(); };
   }, [row]);
   return {
     hint,
