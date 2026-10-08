@@ -948,6 +948,7 @@ fn chatbackend_launch_failure_rolls_back_and_persists_the_reduced_desk() {
     // Genuine failure injection through the REAL spawn path: the tab is
     // created first, then the unknown plugin fails the chatbackend launch.
     let spec = SpawnTabSpec {
+        shell: None,
         command: TabCommand::ChatBackend {
             plugin_id: "no-such-plugin".into(),
             config: serde_json::Value::Null,

@@ -72,7 +72,7 @@ fn is_executable(path: &str) -> bool {
 }
 
 #[cfg(target_os = "windows")]
-fn which_exe(name: &str) -> Option<String> {
+pub(crate) fn which_exe(name: &str) -> Option<String> {
     let path = std::env::var("PATH").ok()?;
     for dir in path.split(';') {
         if dir.is_empty() {

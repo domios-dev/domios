@@ -254,6 +254,7 @@ impl Default for FontConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TerminalConfig {
+    pub default_shell: Option<String>,
     pub cursor_style: String,
     pub cursor_blink: bool,
     pub scrollback: u32,
@@ -270,6 +271,7 @@ pub struct DiagnosticsConfig {
 impl Default for TerminalConfig {
     fn default() -> Self {
         Self {
+            default_shell: None,
             cursor_style: "block".to_string(),
             cursor_blink: true,
             scrollback: 10000,

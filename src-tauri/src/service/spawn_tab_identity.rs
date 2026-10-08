@@ -1,6 +1,9 @@
 use super::{SpawnTabSpec, TabCommand};
 
 pub(super) fn prepare_tab_identity(spec: &mut SpawnTabSpec) -> Result<(), String> {
+    if spec.shell.is_some() && !matches!(spec.command, TabCommand::Shell) {
+        return Err("shell profiles require PTY shell backing; agents run natively".into());
+    }
     if spec.purpose != crate::multiplexer::types::ShellPurpose::Shell
         && !matches!(spec.command, TabCommand::Shell)
     {
@@ -34,6 +37,7 @@ mod tests {
     #[test]
     fn spawn_title_must_be_one_word_and_description_keeps_its_text() {
         let mut spec = SpawnTabSpec {
+            shell: None,
             title: Some("Scout".into()),
             description: Some("Reviews plans and records task progress".into()),
             ..Default::default()
@@ -51,6 +55,7 @@ mod tests {
     #[test]
     fn spawn_rejects_multiword_title() {
         let mut spec = SpawnTabSpec {
+            shell: None,
             title: Some("Review plans".into()),
             ..Default::default()
         };

@@ -264,6 +264,7 @@ mod tests {
             ),
         ] {
             let spec = SpawnTabSpec {
+                shell: None,
                 cwd: requested,
                 command: TabCommand::Agent(AgentSpawnSpec {
                     provider: "provider".into(),
@@ -292,6 +293,7 @@ mod tests {
     #[test]
     fn codex_rpc_launch_without_cwd_pins_daemon_directory() {
         let spec = crate::service::spawn::SpawnTabSpec {
+            shell: None,
             command: crate::service::spawn::TabCommand::Agent(Default::default()),
             ..Default::default()
         };
@@ -309,6 +311,7 @@ mod tests {
     #[cfg(windows)]
     fn codex_rpc_launch_normalizes_verbatim_workspace_before_deferral() {
         let spec = crate::service::spawn::SpawnTabSpec {
+            shell: None,
             command: crate::service::spawn::TabCommand::Agent(Default::default()),
             ..Default::default()
         };

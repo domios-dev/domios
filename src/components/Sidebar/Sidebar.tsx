@@ -864,7 +864,7 @@ export function Sidebar({
                       onToggleExpand={() => {}}
                       onClose={() => requestWorkspaceClose(ws.id)}
                       onRename={(name) => renameWorkspace(ws.id, name)}
-                      onNewTerminal={() => createTab(ws.id)}
+                      onNewTerminal={(shell) => createTab(ws.id, undefined, shell)}
                       onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
                       onOpenMap={() => onOpenWorkspaceMap?.(ws.id)}
                       onOpenAutomation={() => onOpenWorkspaceAutomation?.(ws.id)}

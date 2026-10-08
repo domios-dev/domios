@@ -528,6 +528,22 @@ pub fn build_session(
     rows: u16,
     env_vars: HashMap<String, String>,
 ) -> Result<BuiltSession, String> {
+    build_session_with_profile(spawn_gate, command, cwd, cols, rows, env_vars, None)
+}
+
+pub fn build_session_with_profile(
+    spawn_gate: PtySpawnGate,
+    command: Option<String>,
+    cwd: Option<String>,
+    cols: u16,
+    rows: u16,
+    env_vars: HashMap<String, String>,
+    profile: Option<&super::shell_profiles::ShellProfile>,
+) -> Result<BuiltSession, String> {
+    let launch = profile
+        .filter(|_| command.is_none())
+        .map(|p| p.launch(cwd.as_deref()))
+        .transpose()?;
     let spawn_permit = spawn_gate.acquire()?;
     let pty_system = native_pty_system();
     let size = PtySize {
@@ -544,22 +560,28 @@ pub fn build_session(
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
     let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
 
-    let (shell, mut cmd) = match &command {
-        Some(c) => (c.clone(), CommandBuilder::new(c)),
-        None => {
-            let s = detect_default_shell();
-            #[cfg(target_os = "windows")]
-            {
-                (s.clone(), CommandBuilder::new(&s))
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                (s, CommandBuilder::new_default_prog())
+    let (shell, mut cmd) = if let Some(launch) = &launch {
+        let mut cmd = CommandBuilder::new(&launch.executable);
+        cmd.args(&launch.args);
+        (launch.executable.clone(), cmd)
+    } else {
+        match &command {
+            Some(c) => (c.clone(), CommandBuilder::new(c)),
+            None => {
+                let s = detect_default_shell();
+                #[cfg(target_os = "windows")]
+                {
+                    (s.clone(), CommandBuilder::new(&s))
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    (s, CommandBuilder::new_default_prog())
+                }
             }
         }
     };
 
-    if let Some(dir) = cwd {
+    if let Some(dir) = launch.as_ref().map(|l| l.cwd.clone()).unwrap_or(cwd) {
         cmd.cwd(dir);
     }
 
@@ -585,7 +607,15 @@ pub fn build_session(
         cmd.env("SHELL", &shell);
     }
 
-    super::shell_integration::apply_env(&mut cmd, &shell);
+    if let Some(profile) = profile.filter(|_| command.is_none()) {
+        super::shell_profiles::apply_profile(
+            &mut cmd,
+            profile,
+            env_vars.get("CODETERM_SHELL_NONCE").map(String::as_str),
+        )?;
+    } else {
+        super::shell_integration::apply_env(&mut cmd, &shell);
+    }
 
     // Env vars stripped from every interactive tab PTY. CLAUDECODE / CLAUDE_CODE_*:
     apply_pty_env(&mut cmd, &env_vars);

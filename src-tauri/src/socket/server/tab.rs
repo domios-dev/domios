@@ -24,6 +24,23 @@ pub(super) fn dispatch(
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     match method {
+        "tab.shells" => {
+            let refresh = params
+                .as_ref()
+                .and_then(|p| p.get("refresh"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::ShellProfiles { refresh },
+                svc.as_ref(),
+            )
+            .map(|result| result.into_json())
+            .map_err(|message| JsonRpcError {
+                code: -32603,
+                message,
+                data: None,
+            })
+        }
         "tab.list" => {
             let workspace_id = opt_string_param(params, "workspace_id");
             let caller_tab_id = opt_string_param(params, "caller_tab_id");
@@ -155,6 +172,8 @@ pub(super) fn dispatch(
                 .unwrap_or(false);
             let handle = svc
                 .spawn_tab(crate::service::spawn::SpawnTabSpec {
+                    shell: opt_string_param(params, "shell"),
+                    cmd: opt_string_param(params, "cmd"),
                     purpose,
                     workspace_id,
                     team_id,

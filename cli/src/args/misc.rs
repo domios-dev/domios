@@ -109,6 +109,12 @@ pub enum TabAction {
     /// Plain shell tab, inheriting the calling tab's workspace and Team. For an
     /// AI tab use `codeterm agent spawn`.
     New {
+        /// Shell profile id (discover with --list-shells).
+        #[arg(long, conflicts_with_all = ["chat_backend", "list_shells"])]
+        shell: Option<String>,
+        /// List available shell profiles without creating a tab.
+        #[arg(long, conflicts_with_all = ["chat_backend", "cmd", "shell"])]
+        list_shells: bool,
         /// Utility shell purpose shown in the sidebar.
         #[arg(long, default_value = "shell", value_parser = ["build", "dev", "qa", "shell"], conflicts_with = "chat_backend")]
         purpose: String,
