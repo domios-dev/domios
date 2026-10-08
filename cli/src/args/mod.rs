@@ -23,5 +23,6 @@ pub mod supporter;
 pub mod system;
 pub mod task;
 pub mod team;
+pub mod trace;
 pub mod update;
 pub mod usage;

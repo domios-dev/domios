@@ -18,6 +18,7 @@ pub mod cron;
 pub mod delayed_send;
 pub mod dispatch;
 mod fdlimit;
+mod flow_trace;
 pub mod glance;
 mod instance_lifetime;
 mod keepawake;

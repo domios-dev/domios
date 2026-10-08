@@ -773,6 +773,18 @@ impl ServiceContext {
                 report_outcome,
             );
         self.report_store.lock().claim(&report.id);
+        let trace_flow = report
+            .attempt_id
+            .clone()
+            .or_else(|| crate::flow_trace::tab_flow(self, tab_id));
+        crate::flow_trace::record_flow(
+            &report.id,
+            "report.emitted",
+            tab_id,
+            "",
+            "recorded",
+            trace_flow.as_deref(),
+        );
         report_requirement.accept();
 
         let task_report = report_event::task_report_outcome(
