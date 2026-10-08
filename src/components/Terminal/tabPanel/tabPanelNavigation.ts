@@ -2,19 +2,22 @@ import { useSyncExternalStore } from "react";
 import { readTabPanel, writeTabPanel } from "../../../lib/tabPanelPersistence";
 import type { ChangesScope } from "../changesViewModel";
 
+export type ChangeDetailView = "diff" | "file";
+
 export type TabPanelView = "documents" | "changes";
 
 export interface TabPanelState {
   documents: { detail: string | null };
-  changes: { detail: string | null; scope: ChangesScope };
+  changes: { detail: string | null; scope: ChangesScope; view: ChangeDetailView };
 }
 
 export type TabPanelAction =
   | { type: "open"; view: TabPanelView; id: string }
   | { type: "back"; view: TabPanelView }
+  | { type: "change-view"; view: ChangeDetailView }
   | { type: "scope"; scope: ChangesScope };
 
-export const initialTabPanelState: TabPanelState = { documents: { detail: null }, changes: { detail: null, scope: "all" } };
+export const initialTabPanelState: TabPanelState = { documents: { detail: null }, changes: { detail: null, scope: "all", view: "diff" } };
 
 export function tabPanelReducer(state: TabPanelState, action: TabPanelAction): TabPanelState {
   switch (action.type) {
@@ -22,8 +25,10 @@ export function tabPanelReducer(state: TabPanelState, action: TabPanelAction): T
       return state[action.view].detail === action.id ? state : { ...state, [action.view]: { ...state[action.view], detail: action.id } };
     case "back":
       return state[action.view].detail === null ? state : { ...state, [action.view]: { ...state[action.view], detail: null } };
+    case "change-view":
+      return state.changes.view === action.view ? state : { ...state, changes: { ...state.changes, view: action.view } };
     case "scope":
-      return { ...state, changes: { detail: null, scope: action.scope } };
+      return { ...state, changes: { ...state.changes, detail: null, scope: action.scope } };
   }
 }
 
@@ -40,7 +45,7 @@ function validState(value: unknown): value is TabPanelState {
   const state = value as TabPanelState;
   const detail = (item: unknown) => item === null || typeof item === "string";
   return !!state.documents && !!state.changes && detail(state.documents.detail)
-    && detail(state.changes.detail) && (state.changes.scope === "all"
+    && detail(state.changes.detail) && (state.changes.view === "diff" || state.changes.view === "file") && (state.changes.scope === "all"
       || (typeof state.changes.scope === "object" && state.changes.scope !== null
         && typeof state.changes.scope.turnId === "string"));
 }

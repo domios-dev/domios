@@ -28,6 +28,8 @@ function fileName(path: string): string {
 interface LocalArtifactProps {
   directive: LocalArtifactDirective;
   renderMarkdown: (source: string) => React.ReactNode;
+  renderError?: (error: string) => React.ReactNode;
+  renderText?: (source: string) => React.ReactNode;
   fullscreenRequest?: number;
   fullscreenHostSelector?: string;
   /** Renders only the content, for a host that supplies its own header and actions. */
@@ -38,22 +40,26 @@ interface LocalArtifactProps {
 export function LocalArtifactBlock({
   directive,
   renderMarkdown,
+  renderText,
+  renderError,
   fullscreenRequest = 0,
   fullscreenHostSelector,
   bare = false,
   onLoaded,
 }: LocalArtifactProps) {
   if (directive.kind === "page" && !/\.(md|markdown)$/i.test(directive.path)) {
-    return <HtmlPreviewBlock text={`@file ${directive.path}`} fullscreenRequest={fullscreenRequest} />;
+    return <HtmlPreviewBlock text={`@file ${directive.path}`} renderError={renderError} fullscreenRequest={fullscreenRequest} />;
   }
   return (
-    <LoadedLocalArtifact directive={directive.kind === "page" ? { ...directive, kind: "document" } : directive} renderMarkdown={renderMarkdown} fullscreenRequest={fullscreenRequest} fullscreenHostSelector={fullscreenHostSelector} bare={bare} onLoaded={onLoaded} />
+    <LoadedLocalArtifact directive={directive.kind === "page" ? { ...directive, kind: "document" } : directive} renderMarkdown={renderMarkdown} renderText={renderText} renderError={renderError} fullscreenRequest={fullscreenRequest} fullscreenHostSelector={fullscreenHostSelector} bare={bare} onLoaded={onLoaded} />
   );
 }
 
 function LoadedLocalArtifact({
   directive,
   renderMarkdown,
+  renderText,
+  renderError,
   fullscreenRequest = 0,
   fullscreenHostSelector,
   bare = false,
@@ -105,11 +111,11 @@ function LoadedLocalArtifact({
 
   const content = <>
     {state.status === "loading" && <p>Loading…</p>}
-    {state.status === "error" && <p role="alert">{state.error}</p>}
+    {state.status === "error" && (renderError ? renderError(state.error) : <p role="alert">{state.error}</p>)}
     {state.status === "ready" && (directive.kind === "image"
       ? <img src={state.file.data} alt={name} className="max-w-full object-contain" />
       : state.file.media_type === "text/markdown" ? renderMarkdown(state.file.data)
-        : <pre className="whitespace-pre-wrap break-words">{state.file.data}</pre>)}
+        : renderText ? renderText(state.file.data) : <pre className="whitespace-pre-wrap break-words">{state.file.data}</pre>)}
   </>;
   const reveal = () => void openLocalArtifact(directive.path).catch((error: unknown) => setState({ status: "error", file: null, error: String(error) }));
   return (
