@@ -27,6 +27,7 @@ pub(crate) mod boot_owner_prompt;
 pub mod boot_stage;
 pub(crate) mod boot_wait;
 pub(crate) mod bridge_threads;
+pub mod browser;
 pub(crate) mod capability_probe;
 pub(crate) mod cartographer;
 pub(crate) mod chat_send_evidence;
