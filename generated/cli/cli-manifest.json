@@ -16393,6 +16393,60 @@
       ]
     },
     {
+      "name": "trace",
+      "about": "Read this instance's DEV flow trace without contacting the daemon",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "recent",
+          "about": "List the most recently observed flows",
+          "aliases": [],
+          "args": [
+            {
+              "name": "limit",
+              "positional": false,
+              "required": false,
+              "value_name": "LIMIT",
+              "possible_values": [],
+              "default": "20",
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "show",
+          "about": "Show a retained flow or all flows involving a tab, with missing stages",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "since",
+              "positional": false,
+              "required": false,
+              "value_name": "SINCE",
+              "possible_values": [],
+              "default": null,
+              "help": "Limit the retained window (for example 30m, 1h, 2d)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "update",
       "about": "Check for updates and manage Domios version",
       "aliases": [],

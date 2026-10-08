@@ -3518,6 +3518,23 @@ Save a custom theme from a TOML file
 - `<file>` — Path to theme TOML file
 - `<id>` — Theme ID (filename without .toml)
 
+#### `codeterm trace`
+
+Read this instance's DEV flow trace without contacting the daemon
+
+#### `codeterm trace recent`
+
+List the most recently observed flows
+
+- `--limit`
+
+#### `codeterm trace show`
+
+Show a retained flow or all flows involving a tab, with missing stages
+
+- `<id>`
+- `--since` — Limit the retained window (for example 30m, 1h, 2d)
+
 #### `codeterm update`
 
 Check for updates and manage Domios version
