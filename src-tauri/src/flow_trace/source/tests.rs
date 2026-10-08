@@ -51,7 +51,6 @@ fn rpc_send_ingress_protocol_answer_reaches_sink_with_exact_client_turn_link() {
                 .poll(&mut Context::from_waker(Waker::noop())),
             Poll::Ready(Ok(_))
         ));
-        drop(future);
         ledger.mark_rpc_accepted(&id).unwrap();
         let later = ledger.try_start("tab", "later", None).unwrap();
         assert_ne!(later.send_id, id);
