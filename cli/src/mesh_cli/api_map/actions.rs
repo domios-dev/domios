@@ -916,11 +916,11 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             "POST".into(),
             format!("/api/tabs/{}/agent/restart", urlencoding::encode(tab)),
             Some(
-                serde_json::json!({
-                    "force": force,
-                    "grace_secs": grace_secs,
-                    "provider": provider,
-                    "handoff_history": handoff_history,
+                serde_json::json!(crate::cmd::agent_restart::RestartRequest {
+                    force: *force,
+                    grace_secs: *grace_secs,
+                    provider: provider.as_deref(),
+                    handoff_history: *handoff_history,
                 })
                 .to_string(),
             ),
