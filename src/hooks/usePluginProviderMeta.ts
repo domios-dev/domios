@@ -4,11 +4,14 @@
  * `backing.plugin_id`. Refetches when plugin contributions change (install /
  * activate / reload). One mount at app root is enough.
  */
-import { useEffect } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { invoke, listen } from "../lib/bridge";
 import {
+  pluginDisplayName,
   pluginProviderMetaFromSnapshot,
+  pluginProviderMetaRecord,
   setPluginProviderMeta,
+  subscribePluginProviderMeta,
   type PluginSnapshotLike,
 } from "../lib/pluginProviderMeta";
 
@@ -33,4 +36,10 @@ export function usePluginProviderMetaSync(): void {
       unlisten?.();
     };
   }, []);
+}
+
+/** Resolves installed plugin ids to display names; a new identity whenever the plugin list changes. */
+export function usePluginDisplayNameResolver(): (pluginId: string) => string | undefined {
+  const record = useSyncExternalStore(subscribePluginProviderMeta, pluginProviderMetaRecord, pluginProviderMetaRecord);
+  return useCallback((pluginId: string) => pluginDisplayName(record, pluginId), [record]);
 }

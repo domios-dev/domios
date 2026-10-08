@@ -6,6 +6,7 @@ import { InlineLinkButton, SettingsCard, SettingsPill } from "./shared";
 import {
   SupporterSpendLine,
   SupporterSpendSummary,
+  supporterActivity,
   supporterIsPriced,
 } from "./SupporterSpendPanel";
 import { SupporterConnectionRow } from "./SupporterConnectionRow";
@@ -218,8 +219,8 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
                 >
                   {selected?.adapter === row.adapter && status && (
                     <>
-                      <span role="status" aria-label="Supporter activity">
-                        {status.calls_last_hour.toLocaleString()} req/hr · {status.calls_last_day.toLocaleString()} req/day
+                      <span role="status" aria-label="Supporter activity" title={supporterActivity(status.calls_last_hour, status.calls_last_day).title}>
+                        {supporterActivity(status.calls_last_hour, status.calls_last_day).text}
                       </span>
                       {supporterIsPriced(row.pricing) && <SupporterSpendSummary spend={status.spend} />}
                       {supporterIsPriced(row.pricing) && (status.spend.exhausted || !status.spend.storage_ready) && (

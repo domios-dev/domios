@@ -55,3 +55,5 @@ export type { ChatBlockDefinition, ParsedChatBlock } from "./blocks/registry";
 export { PluginBlock } from "./blocks/PluginBlock";
 export { parsePluginId, pluginPrimaryAction, pluginStatus } from "./blocks/pluginBlockModel";
 export type { PluginBlockInfo, PluginBlockState, PluginLifecycleKind } from "./blocks/pluginBlockModel";
+export { PluginNameProvider } from "./codeterm/PluginNames";
+export type { PluginNameResolver } from "./codeterm/pluginAction";
