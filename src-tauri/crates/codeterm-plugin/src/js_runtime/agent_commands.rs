@@ -35,7 +35,10 @@ impl JsAgentCommandHandler {
     }
 }
 
-pub fn catalog_from_manifest(manifest: &super::PluginManifest) -> AgentVerbCatalog {
+pub fn catalog_from_manifest(
+    manifest: &super::PluginManifest,
+    trust: crate::provider::ProviderTrust,
+) -> AgentVerbCatalog {
     AgentVerbCatalog::compose(
         &manifest.id,
         &manifest.display_name,
@@ -45,6 +48,7 @@ pub fn catalog_from_manifest(manifest: &super::PluginManifest) -> AgentVerbCatal
         &manifest.agent_keywords,
     )
     .with_guide(agent_guide_from_manifest(manifest))
+    .with_prompt_line(trust, manifest.agent_prompt_line.clone())
 }
 
 fn agent_guide_from_manifest(manifest: &super::PluginManifest) -> Option<String> {

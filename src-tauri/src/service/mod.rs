@@ -104,6 +104,7 @@ mod provider_handoff;
 pub(crate) use plan_reconcile::tab_has_live_agent;
 pub mod managed_tabs;
 pub mod plugin_host;
+pub mod plugin_prompt;
 pub mod plugin_skills;
 pub(crate) mod provider_identity;
 pub(crate) mod pty_activation;

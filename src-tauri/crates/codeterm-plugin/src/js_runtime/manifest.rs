@@ -75,6 +75,9 @@ pub struct PluginManifest {
     /// plugin's mem skill item and returned by `codeterm plugin get`.
     #[serde(default)]
     pub agent_guide: Option<String>,
+    /// One line every agent's launch prompt carries; honoured only for core plugins.
+    #[serde(default)]
+    pub agent_prompt_line: Option<String>,
 
     /// Relative path to the plugin's host-rendered SVG icon.
     #[serde(default)]

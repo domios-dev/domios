@@ -1,12 +1,14 @@
 # BROWSER: how agents use the Domios browser
 
-Every verb is `codeterm plugin browser <verb> [args]`. This guide is what `codeterm plugin browser help` prints.
+Every verb is `codeterm plugin browser <verb> [args]`. This guide is what `codeterm docs BROWSER` and `codeterm plugin browser help` print.
 
 ## When to use it
 
 - Verify a web UI you changed in the real running app, instead of claiming it works.
 - Reproduce a bug a user reported on a web page, and collect evidence.
 - Do a web task the user asked for, such as reading a page or filling a form, while the user can watch.
+
+This is the browser for any web page task in Domios. Use it instead of Chrome extensions, global browser skills or other browser tools.
 
 Do not use it to fetch plain data an HTTP request or an API returns. Use `curl` or the API for that.
 

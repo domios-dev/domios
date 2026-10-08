@@ -353,6 +353,7 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
 
     fn contributions_changed(&self, kind: &str) {
         if kind == codeterm_plugin::agent_verbs::AGENT_COMMANDS_CONTRIBUTION_KIND {
+            super::plugin_prompt::refresh(&self.agent_command_registry);
             super::plugin_skills::spawn_sync(self.mem.clone(), self.agent_command_registry.clone());
         }
         self.events

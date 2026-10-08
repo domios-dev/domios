@@ -705,6 +705,38 @@ fn parse_agent_guide_field() {
 }
 
 #[test]
+fn agent_prompt_line_is_trimmed_and_an_invalid_one_is_dropped() {
+    let manifest = |line: &str| {
+        let json = serde_json::json!({
+            "id": "p", "version": "0", "displayName": "P", "agentPromptLine": line
+        });
+        PluginManifest::from_json_str(&json.to_string())
+            .expect("an invalid line never fails the load")
+    };
+    assert_eq!(
+        manifest("  OPAQUE_LINE_q7  ").agent_prompt_line.as_deref(),
+        Some("OPAQUE_LINE_q7")
+    );
+    assert!(manifest("one\ntwo").agent_prompt_line.is_none());
+    assert!(manifest(&"x".repeat(241)).agent_prompt_line.is_none());
+    let plain = r#"{ "id": "p", "version": "0", "displayName": "P" }"#;
+    assert!(PluginManifest::from_json_str(plain)
+        .unwrap()
+        .agent_prompt_line
+        .is_none());
+}
+
+#[test]
+fn shipped_browser_manifest_contributes_a_valid_prompt_line() {
+    let text = include_str!("../../../../../../plugins/browser/plugin.json");
+    let manifest = PluginManifest::from_json_str(text).expect("browser manifest parses");
+    let line = manifest
+        .agent_prompt_line
+        .expect("browser declares agentPromptLine");
+    assert!(line.contains("`codeterm docs BROWSER`"));
+}
+
+#[test]
 fn agent_guide_defaults_to_absent() {
     let json = r#"{ "id": "p", "version": "0", "displayName": "P" }"#;
     let m: PluginManifest = serde_json::from_str(json).expect("parse");
