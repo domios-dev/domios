@@ -499,8 +499,8 @@ export function useChatSession({
           // The store has no transcript yet; the first live event completes the
           // attach. Nothing here waits on elapsed time.
           if (res.source_missing === true) setTranscriptUnavailable("no_transcript_source");
-          replaceOnNextLiveEventRef.current =
-            readTranscriptWindow(windowKeyRef.current).transcript.segments.length === 0;
+          // A pending snapshot delegates the new replay epoch to its first live batch.
+          replaceOnNextLiveEventRef.current = true;
           const pending = pendingLiveEventsRef.current.splice(0);
           if (pending.length > 0) {
             for (const event of pending) commitLiveEvent(event);
