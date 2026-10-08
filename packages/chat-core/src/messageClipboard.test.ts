@@ -9,7 +9,9 @@ import {
   messagesClipboard,
   messagesMarkdown,
   messagesQuote,
+  messagesExcerpt,
   messagesReference,
+  messagesReplyLabel,
   sourceDiffersFromVisible,
   toolEventText,
   type ClipMessage,
@@ -98,6 +100,16 @@ describe("several messages", () => {
     expect(messagesReference([messages[1]])).toBe("Fermi 14:06");
     expect(messagesReference(messages)).toBe("2 messages");
     expect(messagesMarkdown([{ ...messages[1], time: undefined }])).toBe("### Fermi\n\nDone **now**.");
+  });
+
+  it("a reply names who and when, or how many, with one line of what a reader sees", () => {
+    expect(messagesReplyLabel([messages[1]])).toBe("Fermi · 14:06");
+    expect(messagesReplyLabel([{ ...messages[1], time: undefined }])).toBe("Fermi");
+    expect(messagesReplyLabel(messages)).toBe("2 messages");
+    expect(messagesExcerpt([agent("**Done**\n\nnext   step"), user("later")])).toBe("Done next step");
+    const long = messagesExcerpt([user("x".repeat(400))]);
+    expect(long.length).toBe(160);
+    expect(long.endsWith("…")).toBe(true);
   });
 
   it("tool rows carry a Tool heading", () => {

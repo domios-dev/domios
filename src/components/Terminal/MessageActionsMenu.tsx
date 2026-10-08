@@ -1,0 +1,183 @@
+import { useEffect, useLayoutEffect, useRef, useState, type ComponentType, type KeyboardEvent } from "react";
+import { Check, Copy, Hash, ListChecks, MessageSquarePlus, Quote } from "lucide-react";
+import { messageClipboard, messageMarkdownClipboard, sourceDiffersFromVisible, type ClipMessage } from "@codeterm/chat-core";
+import { writeClipboardFlavours } from "@codeterm/chat-ui";
+
+export type DotSide = "start" | "end";
+type OpenedBy = "hover" | "focus" | "click";
+type Placement = "below" | "above";
+
+/** Room the menu needs under its dot before it opens upward instead. */
+const MENU_ROOM_PX = 200;
+
+export interface MessageMenuActions {
+  quote: (clip: ClipMessage) => void;
+  ask: (clip: ClipMessage) => void;
+  select: () => void;
+}
+
+function menuPlacement(anchor: HTMLElement): Placement {
+  const surface = anchor.closest<HTMLElement>("[role='log']");
+  const bottom = surface ? surface.getBoundingClientRect().bottom : window.innerHeight;
+  return anchor.getBoundingClientRect().bottom + MENU_ROOM_PX > bottom ? "above" : "below";
+}
+
+function MenuItem({ label, icon: Icon, hint, done, onSelect }: {
+  label: string;
+  icon: ComponentType<{ size?: number; "aria-hidden"?: boolean }>;
+  hint?: string;
+  done?: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      tabIndex={-1}
+      aria-label={label}
+      className="ct-msg-menu__item"
+      data-done={done || undefined}
+      onClick={(event) => { event.stopPropagation(); onSelect(); }}
+    >
+      <Icon size={13} aria-hidden />
+      <span>{label}</span>
+      {hint && <span aria-hidden className="ct-msg-menu__hint">{hint}</span>}
+    </button>
+  );
+}
+
+/** The quiet gutter dot of one message and the small menu it opens on hover, focus, click or Enter. */
+export function MessageActionsDot({ clip, side, open, onOpenChange, actions }: {
+  clip: ClipMessage;
+  side: DotSide;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  actions: MessageMenuActions;
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const openedBy = useRef<OpenedBy | null>(null);
+  const focusItem = useRef<"first" | "last" | null>(null);
+  const [placement, setPlacement] = useState<Placement>("below");
+  const [copied, setCopied] = useState<"copy" | "markdown" | null>(null);
+
+  const show = (by: OpenedBy, item: "first" | "last" | null = null) => {
+    if (!open) {
+      if (wrapRef.current) setPlacement(menuPlacement(wrapRef.current));
+      openedBy.current = by;
+      onOpenChange(true);
+    } else if (by !== "hover") {
+      openedBy.current = by;
+    }
+    focusItem.current = item;
+    if (open && item) focusMenuItem(item);
+  };
+  const hide = (refocus = false) => {
+    openedBy.current = null;
+    setCopied(null);
+    onOpenChange(false);
+    if (refocus) buttonRef.current?.focus({ preventScroll: true });
+  };
+
+  const items = () => Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>("[role='menuitem']") ?? []);
+  const focusMenuItem = (which: "first" | "last") => {
+    const list = items();
+    list[which === "first" ? 0 : list.length - 1]?.focus({ preventScroll: true });
+  };
+
+  useLayoutEffect(() => {
+    if (!open || !focusItem.current) return;
+    focusMenuItem(focusItem.current);
+    focusItem.current = null;
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    const onPress = (event: MouseEvent) => {
+      if (!wrapRef.current?.contains(event.target as Node)) hide();
+    };
+    document.addEventListener("mousedown", onPress);
+    return () => document.removeEventListener("mousedown", onPress);
+  });
+
+  const copy = (kind: "copy" | "markdown") => {
+    writeClipboardFlavours(kind === "copy" ? messageClipboard(clip) : messageMarkdownClipboard(clip));
+    setCopied(kind);
+  };
+
+  const onDotKey = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.code === "Enter" || event.code === "Space" || event.code === "NumpadEnter" || event.code === "ArrowDown") {
+      event.preventDefault();
+      show("click", "first");
+    } else if (event.code === "ArrowUp") {
+      event.preventDefault();
+      show("click", "last");
+    } else if (event.code === "Escape" && open) {
+      event.preventDefault();
+      event.stopPropagation();
+      hide();
+    }
+  };
+
+  const onMenuKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    const list = items();
+    const at = list.indexOf(document.activeElement as HTMLButtonElement);
+    const move = (index: number) => { event.preventDefault(); list[(index + list.length) % list.length]?.focus({ preventScroll: true }); };
+    if (event.code === "ArrowDown") move(at + 1);
+    else if (event.code === "ArrowUp") move(at < 0 ? list.length - 1 : at - 1);
+    else if (event.code === "Home") move(0);
+    else if (event.code === "End") move(list.length - 1);
+    else if (event.code === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      hide(true);
+    } else if (event.code === "Tab") hide();
+  };
+
+  return (
+    <div
+      ref={wrapRef}
+      className="ct-msg-dot"
+      data-side={side}
+      data-open={open || undefined}
+      onPointerEnter={(event) => { if (event.pointerType === "mouse") show("hover"); }}
+      onPointerLeave={(event) => { if (event.pointerType === "mouse" && openedBy.current === "hover") hide(); }}
+      onBlur={(event) => {
+        if (openedBy.current !== "hover" && !wrapRef.current?.contains(event.relatedTarget as Node | null)) hide();
+      }}
+    >
+      <button
+        ref={buttonRef}
+        type="button"
+        className="ct-msg-dot__button"
+        aria-label="Message actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onFocus={() => show("focus")}
+        onClick={() => (open && openedBy.current === "click" ? hide() : show("click"))}
+        onKeyDown={onDotKey}
+      />
+      {open && (
+        <div className="ct-msg-menu-wrap" data-side={side} data-placement={placement}>
+          <div ref={menuRef} role="menu" aria-label="Message actions" className="ct-msg-menu" onKeyDown={onMenuKey}>
+            <MenuItem label={copied === "copy" ? "Copied" : "Copy"} icon={copied === "copy" ? Check : Copy} done={copied === "copy"} onSelect={() => copy("copy")} />
+            {sourceDiffersFromVisible(clip) && (
+              <MenuItem
+                label={copied === "markdown" ? "Copied as Markdown" : "Copy as Markdown"}
+                icon={copied === "markdown" ? Check : Hash}
+                done={copied === "markdown"}
+                onSelect={() => copy("markdown")}
+              />
+            )}
+            <div role="separator" className="ct-msg-menu__rule" />
+            <MenuItem label="Quote into composer" icon={Quote} onSelect={() => { hide(); actions.quote(clip); }} />
+            <MenuItem label="Ask about this" icon={MessageSquarePlus} onSelect={() => { hide(); actions.ask(clip); }} />
+            <div role="separator" className="ct-msg-menu__rule" />
+            <MenuItem label="Select" icon={ListChecks} hint="Shift-click" onSelect={() => { hide(); actions.select(); }} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
