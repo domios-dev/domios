@@ -159,6 +159,29 @@ it("shows a quiet dot only for the row under the pointer or focus, and none whil
   expect(dot("a1")).toBeNull();
 });
 
+it("places the action in the right gutter for every message kind", async () => {
+  await render("right-dot-tab");
+  for (const id of ["u1", "a1", "t1"]) {
+    await hover(id);
+    expect(dot(id)?.closest("[data-message-gutter]")?.getAttribute("data-side")).toBe("end");
+  }
+});
+
+it("shows beads only in block mode and connects a selected range", async () => {
+  await render("bead-tab");
+  expect(host!.querySelector(".ct-msg-bead")).toBeNull();
+  await shiftClick("u1");
+  expect(host!.querySelectorAll(".ct-msg-bead")).toHaveLength(4);
+  expect(row("u1").querySelector(".ct-msg-bead")?.getAttribute("data-selected")).toBe("true");
+  expect(row("a1").querySelector(".ct-msg-bead")?.hasAttribute("data-selected")).toBe(false);
+  await shiftClick("a2");
+  expect(host!.querySelectorAll(".ct-msg-thread")).toHaveLength(3);
+  expect(host!.querySelectorAll(".ct-msg-bead[data-selected]")).toHaveLength(4);
+  await act(async () => { mouse(row("t1").querySelector('[data-side="end"]')!, "mousedown"); mouse(document.body, "mouseup"); });
+  expect(row("t1").querySelector(".ct-msg-bead")?.hasAttribute("data-selected")).toBe(false);
+  expect(host!.querySelectorAll(".ct-msg-thread")).toHaveLength(1);
+});
+
 it("reaches the dot by Tab from its row and opens the menu with Enter, Esc closes it", async () => {
   await render("keys-menu-tab");
   await hover("a2");
