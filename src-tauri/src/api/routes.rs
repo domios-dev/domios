@@ -977,6 +977,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/surfaces", get(surface_routes::list))
         .route("/api/surfaces/open", post(surface_routes::open))
         .route("/api/surfaces/close", post(surface_routes::close))
+        .route("/api/surfaces/{tab_id}/stream", get(surface_routes::stream))
+        .route("/api/surfaces/{tab_id}/call", post(surface_routes::call))
         .route(
             "/api/plugins/tab-menu/action",
             post(plugin_tab_menu_routes::tab_menu_action),
