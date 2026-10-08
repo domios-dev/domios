@@ -26,6 +26,7 @@ import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
 import { RecoveryStatusBanner } from "./components/CrashReportToast";
+import { CloseUndoToast } from "./components/Toast/CloseUndoToast";
 import { StaleBuildBanner } from "./components/StaleBuildBanner";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { CanvasView } from "./components/Canvas/CanvasView";
@@ -877,6 +878,7 @@ function AppInner() {
       <CommandPalette commands={paletteCommands} />
 
       <RecoveryStatusBanner />
+      <CloseUndoToast />
 
       <StaleBuildBanner />
 

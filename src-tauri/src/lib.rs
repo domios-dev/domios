@@ -276,6 +276,7 @@ pub fn run() {
             commands::mux_commands::mux_close_tab,
             commands::mux_commands::mux_reopen_closed_tab,
             commands::mux_commands::mux_reopen_closed_group,
+            commands::mux_commands::mux_rerun_restored_shell,
             commands::mux_commands::mux_restore_orphaned_tab,
             commands::mux_commands::mux_set_focused_tab,
             commands::mux_commands::mux_link_pty,

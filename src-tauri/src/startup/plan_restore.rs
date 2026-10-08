@@ -9,6 +9,9 @@ mod tests;
 const PROJECT_PROBE_PARALLELISM: usize = 8;
 
 pub(crate) fn restore(service: &ServiceContext) {
+    if let Err(error) = service.recover_close_inventories() {
+        log::error!("[closed-history] interrupted close recovery failed: {error}");
+    }
     service.kick_off_pollers_for_existing_agents();
 
     let mut workspace_cwds = workspace_cwds(&service.mux);

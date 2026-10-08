@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { readTabPanel, writeTabPanel } from "../../lib/tabPanelPersistence";
 
 /** What the app-level side panel shows: a task when taskId is set, the plan otherwise. */
 export interface PlanSidePanelTarget {
@@ -22,6 +23,13 @@ let entry: PlanSidePanelEntry | null = null;
 const rememberedDocuments = new Map<string, PlanSidePanelTarget>();
 const listeners = new Set<() => void>();
 
+function validTarget(value: unknown): value is PlanSidePanelTarget {
+  if (!value || typeof value !== "object") return false;
+  const target = value as PlanSidePanelTarget;
+  return typeof target.planId === "string" && typeof target.documentsTabId === "string"
+    && (target.tabView === "documents" || target.tabView === "changes" || target.tabView === undefined);
+}
+
 function notify() {
   for (const listener of listeners) listener();
 }
@@ -35,7 +43,10 @@ function focusedOutsidePanel(): HTMLElement | null {
 
 export const planSidePanelStore = {
   open(target: PlanSidePanelTarget) {
-    if (target.documentsTabId) rememberedDocuments.set(target.documentsTabId, target);
+    if (target.documentsTabId) {
+      rememberedDocuments.set(target.documentsTabId, target);
+      writeTabPanel("open", target.documentsTabId, target);
+    }
     const outside = focusedOutsidePanel();
     entry = { target, opener: outside ?? entry?.opener ?? null };
     notify();
@@ -45,14 +56,17 @@ export const planSidePanelStore = {
     const closed = entry;
     if (!closed) return null;
     entry = null;
-    if (closed.target.documentsTabId) rememberedDocuments.delete(closed.target.documentsTabId);
+    if (closed.target.documentsTabId) {
+      rememberedDocuments.delete(closed.target.documentsTabId);
+      writeTabPanel("open", closed.target.documentsTabId, null);
+    }
     notify();
     return closed;
   },
   activateTab(tabId: string) {
     if (entry?.target.documentsTabId === tabId) return;
     if (entry?.target.documentsTabId) { entry = null; notify(); }
-    const remembered = rememberedDocuments.get(tabId);
+    const remembered = rememberedDocuments.get(tabId) ?? readTabPanel("open", tabId, validTarget);
     if (remembered) this.open(remembered);
   },
   resetDocuments() { rememberedDocuments.clear(); },

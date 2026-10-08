@@ -365,6 +365,30 @@ impl ServiceContext {
             ));
         }
 
+        let service = self.clone();
+        let capture_workspace = workspace_id.to_string();
+        let inventory = tokio::task::spawn_blocking(move || {
+            service.capture_close_inventory(&capture_workspace, None)
+        })
+        .await
+        .map_err(|error| error.to_string())??;
+        let _capture_guard = super::close_history::WorkspaceCloseGuard::new(workspace_id);
+        let result = self
+            .close_workspace_members(caller, workspace_id, force)
+            .await;
+        let service = self.clone();
+        tokio::task::spawn_blocking(move || service.settle_close_inventory(inventory.as_deref()))
+            .await
+            .map_err(|error| error.to_string())??;
+        result
+    }
+
+    async fn close_workspace_members(
+        &self,
+        caller: WorkspaceCloseCaller<'_>,
+        workspace_id: &str,
+        force: bool,
+    ) -> Result<(), String> {
         let mut team_close_errors = Vec::new();
         let mut team_close_refusals_only = true;
         let mut partial_team_teardown = false;
@@ -507,6 +531,11 @@ impl ServiceContext {
         }
         // After the members are gone, never before: a Team that still holds a
         // live tab is left untouched.
+        if let Some(blueprints) = self.app_handle.try_state::<crate::sentinel::scheduler::Handle>() {
+            if let Err(error) = blueprints.remove_workspace(id) {
+                cleanup_errors.push(format!("Blueprints: {error}"));
+            }
+        }
         self.reap_orphaned_startup_teams();
         session_persist::persist_session_after_close(self);
         self.emit_state_changed();
@@ -677,6 +706,9 @@ impl ServiceContext {
     /// relinks the hierarchy, and activates the resulting tab/workspace.
     /// Returns (workspace_id, tab_id).
     pub fn reopen_closed_group(&self, group_id: &str) -> Result<(String, String), String> {
+        if let Some(result) = self.restore_close_inventory(group_id)? {
+            return Ok(result);
+        }
         let result = {
             let mut mux = self.mux.write();
             let r = mux.reopen_closed_group(group_id)?;

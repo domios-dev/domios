@@ -6,6 +6,7 @@ use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 
 use crate::multiplexer::types::{ClosedTab, TabBacking};
+mod structures;
 
 const CURRENT_CLOSED_SCHEMA_VERSION: u32 = 4;
 
@@ -65,7 +66,7 @@ pub struct ClosedRow {
 
 /// sqlite-backed closed-history store. Leaf lock, only taken under the mux lock, never across an await.
 pub struct ClosedTabsStore {
-    conn: Mutex<Connection>,
+    pub(super) conn: Mutex<Connection>,
 }
 
 impl ClosedTabsStore {
@@ -108,7 +109,8 @@ impl ClosedTabsStore {
         )?;
         Self::migrate_pane_rename(conn)?;
         let version = Self::user_version(conn)?;
-        Self::migrate(conn, version)
+        Self::migrate(conn, version)?;
+        Self::init_structures(conn)
     }
 
     /// The pane->tab rename (9e41cf8a2) changed table/column names in SQL with

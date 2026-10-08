@@ -31,6 +31,7 @@ pub(crate) mod capability_probe;
 pub(crate) mod cartographer;
 pub(crate) mod chat_send_evidence;
 pub(crate) mod chat_send_transaction;
+mod close_history;
 pub(crate) mod codex_rpc;
 mod command_port_impl;
 pub mod cron;
