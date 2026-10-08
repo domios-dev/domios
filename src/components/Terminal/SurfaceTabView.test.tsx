@@ -7,12 +7,16 @@ vi.mock("../../lib/bridge", () => ({
   listen: vi.fn(() => Promise.resolve(() => undefined)),
 }));
 vi.mock("../../lib/webApi", () => ({
+  IS_WEB: false,
+  GATEWAY_STATE_EVENT: "codeterm-gateway-state",
   daemonHttpBase: () => "http://127.0.0.1:7686",
   daemonAuthToken: () => "token",
 }));
 vi.mock("../../lib/pluginBubbleCache", () => ({ invalidatePluginBubble: vi.fn() }));
 
-import { SurfaceTabView } from "./SurfaceTabView";
+import { SurfaceTabView, type SurfaceTransportFactory } from "./SurfaceTabView";
+import type { SurfaceDeclLookup } from "../Surface/surfaceRenderPlan";
+import type { SurfaceStreamTransport } from "../Surface/surfaceStreamTransport";
 import type { SurfaceTabBacking, Tab } from "../../lib/types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -45,6 +49,23 @@ const backing: SurfaceTabBacking = {
 };
 const tab: Tab = { id: "surface-tab", title: "Board", tab_type: "Terminal", pty_id: null, cwd: null, backing, parent_tab_id: "owner" };
 
+const viewDecl: SurfaceDeclLookup = { status: "ready", declared: { pluginId: "dash", surfaceId: "board", renderer: "view", runtime: null, chrome: undefined } };
+const streamDecl: SurfaceDeclLookup = { status: "ready", declared: { pluginId: "dash", surfaceId: "board", renderer: "stream", runtime: "browser", chrome: undefined } };
+
+function fakeTransports() {
+  const created: Parameters<SurfaceTransportFactory>[0][] = [];
+  const transport: SurfaceStreamTransport = { connect: () => () => undefined, invoke: async <T,>() => undefined as T };
+  const factory: SurfaceTransportFactory = (options) => {
+    created.push(options);
+    return transport;
+  };
+  return { created, factory };
+}
+
+function byRole(role: string, name: string): HTMLElement | null {
+  return [...host!.querySelectorAll<HTMLElement>(`[role='${role}']`)].find((element) => element.getAttribute("aria-label") === name) ?? null;
+}
+
 function button(name: string): HTMLButtonElement {
   const match = [...host!.querySelectorAll("button")].find((candidate) => candidate.getAttribute("aria-label") === name);
   if (!match) throw new Error(`no button named ${name}`);
@@ -53,7 +74,7 @@ function button(name: string): HTMLButtonElement {
 
 describe("surface tab view", () => {
   it("hosts the plugin view for this surface tab", async () => {
-    await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" onClose={vi.fn()} isVisible />);
+    await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" onClose={vi.fn()} isVisible decl={viewDecl} />);
     const frame = host!.querySelector("iframe");
     expect(frame?.getAttribute("data-plugin-id")).toBe("dash");
     const query = new URL(frame!.getAttribute("src")!).searchParams;
@@ -65,7 +86,7 @@ describe("surface tab view", () => {
 
   it("fires the close handler once from the header close button", async () => {
     const onClose = vi.fn();
-    await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" onClose={onClose} isVisible />);
+    await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" onClose={onClose} isVisible decl={viewDecl} />);
     await act(async () => button("Close Jev's Board").click());
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -73,14 +94,45 @@ describe("surface tab view", () => {
   it("focuses the owner tab from the owner link", async () => {
     const onFocusOwner = vi.fn();
     await mount(
-      <SurfaceTabView tab={tab} backing={backing} ownerName="Jev" onFocusOwner={onFocusOwner} onClose={vi.fn()} isVisible />,
+      <SurfaceTabView tab={tab} backing={backing} ownerName="Jev" onFocusOwner={onFocusOwner} onClose={vi.fn()} isVisible decl={viewDecl} />,
     );
     await act(async () => button("Open owner tab Jev").click());
     expect(onFocusOwner).toHaveBeenCalledTimes(1);
   });
 
+  it("streams a stream surface over the tab's own transport with the owner's name", async () => {
+    const { created, factory } = fakeTransports();
+    await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" onClose={vi.fn()} isVisible decl={streamDecl} createTransport={factory} />);
+    expect(host!.querySelector("iframe")).toBeNull();
+    expect(byRole("toolbar", "Jev's Board controls")).not.toBeNull();
+    expect(created).toEqual([{ baseUrl: "http://127.0.0.1:7686", token: "token", tabId: "surface-tab" }]);
+  });
+
+  it("holds no stream while the stream tab is hidden", async () => {
+    const { created, factory } = fakeTransports();
+    await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" onClose={vi.fn()} isVisible={false} decl={streamDecl} createTransport={factory} />);
+    expect(byRole("toolbar", "Jev's Board controls")).toBeNull();
+    expect(created).toEqual([]);
+  });
+
+  it("renders nothing while the declaration loads and explains an unsupported renderer", async () => {
+    await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" onClose={vi.fn()} isVisible decl={{ status: "loading" }} />);
+    expect(host!.querySelector("iframe")).toBeNull();
+    await act(async () => root!.render(
+      <SurfaceTabView
+        tab={tab}
+        backing={backing}
+        ownerName="Jev"
+        onClose={vi.fn()}
+        isVisible
+        decl={{ status: "ready", declared: { pluginId: "dash", surfaceId: "board", renderer: "stream", runtime: null, chrome: undefined } }}
+      />,
+    ));
+    expect(host!.querySelector("[role='alert']")).not.toBeNull();
+  });
+
   it("offers no owner link when the owner is gone", async () => {
-    await mount(<SurfaceTabView tab={tab} backing={backing} ownerName={null} onFocusOwner={vi.fn()} onClose={vi.fn()} isVisible />);
+    await mount(<SurfaceTabView tab={tab} backing={backing} ownerName={null} onFocusOwner={vi.fn()} onClose={vi.fn()} isVisible decl={viewDecl} />);
     const names = [...host!.querySelectorAll("button")].map((candidate) => candidate.getAttribute("aria-label"));
     expect(names).toEqual(["Close Board"]);
   });
