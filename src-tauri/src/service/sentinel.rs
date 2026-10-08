@@ -1,3 +1,4 @@
+mod delete;
 pub(crate) mod graph;
 use tauri::Manager;
 
