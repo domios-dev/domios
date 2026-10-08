@@ -67,4 +67,4 @@ test("shell context menu retains rename and close actions", async () => {
   }
 });
 
-await run();
+void run();
