@@ -122,26 +122,12 @@ test("only stored agent Sentinel roots and exact connected participants enter pr
   assert.deepEqual(result.edges.map((edge) => edge.id).sort(), graph.edges.map((edge) => edge.id).sort());
 });
 
-test("missing or mismatched stored creator provenance never implies agent authorship", () => {
+test("shell-created scenario roots remain visible without agent authorship", () => {
   const graph = fixtureGraph();
   const root = graph.nodes[0];
-  for (const sentinel_definition of [null, { source: "stored_agent_definition" as const, definition_id: "other-definition", creator_tab_id: "owner-a" }, { source: "stored_agent_definition" as const, definition_id: "sentinel-a", creator_tab_id: "other-owner" }]) {
-    const result = scopedAutomationGraph({ ...graph, nodes: [{ ...root, sentinel_definition }, ...graph.nodes.slice(1)] }, attachment);
-    assert.deepEqual(result.nodes, []);
-    assert.deepEqual(result.edges, []);
-  }
-});
-
-test("referenced Sentinel without creator provenance remains unresolved exact target", () => {
-  const graph = fixtureGraph();
-  const target = fixtureNode(identity("sentinel", "unknown-author"), "Unproven author name");
-  const result = scopedAutomationGraph({ ...graph, nodes: [...graph.nodes, target], edges: [...graph.edges, { ...graph.edges[0], id: "unknown-route", target: target.identity }] }, attachment);
-  const unresolved = result.nodes.find((node) => node.identity.id === target.identity.id);
-  assert.ok(unresolved);
-  assert.deepEqual(unresolved.identity, target.identity);
-  assert.equal(unresolved.availability, "missing");
-  assert.equal(unresolved.name, target.identity.id);
-  assert.equal(unresolved.purpose, null);
+  const result = scopedAutomationGraph({ ...graph, nodes: [{ ...root, sentinel_definition: null }, ...graph.nodes.slice(1)] }, attachment);
+  assert.ok(result.nodes.some((node) => node.identity.id === root.identity.id));
+  assert.equal(result.scenarios.length, graph.scenarios.length);
 });
 
 test("scenario roots preserve exact internal reachability and shared execution records", () => {

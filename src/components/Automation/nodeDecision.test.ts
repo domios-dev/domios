@@ -25,8 +25,11 @@ graph.nodes = [{ ...node, history: [
 ] }];
 graph.configured_fallback = classifier;
 const runs = graphRuns(graph);
-assert.equal(runs[0].events[0].classifier, null);
+assert.equal(runs[0].events[0].classifier?.label, "Pattern rules");
 assert.equal(runs[1].events[0].classifier?.label, "Jev · recorded-model");
 assert.equal(runs[1].events[0].outcome, "warnings");
 assert.equal(runs[1].events[0].confidence, 0.87);
 console.log("Stored route contracts, configured node kinds and actual historical classifier provenance passed");
+
+assert.equal(nodeKind(pattern, classifier).ai, false);
+assert.equal(nodeKind({ ...node, detail: { definition: { unavailable: "pipeline" } } }, classifier).ai, false);

@@ -779,3 +779,13 @@ fn blueprint_delete_message_lists_removed_roots() {
         "No blueprints deleted."
     );
 }
+
+#[test]
+fn render_log_preserves_step_names_and_signed_indices() {
+    let rows = json!([
+        {"started_at_ms":100,"step_index":-1,"step_name":"$run","state":"done","outcome":"done"},
+        {"started_at_ms":101,"step_index":-1,"step_name":"$result","state":"done","outcome":"handler_result"},
+        {"started_at_ms":102,"step_index":0,"step_name":"emit","state":"done","outcome":"done"}
+    ]);
+    assert_eq!(log_text(&rows), "100 -1 $run done outcome=done result=- reason=-\n101 -1 $result done outcome=handler_result result=- reason=-\n102 0 emit done outcome=done result=- reason=-");
+}

@@ -1,6 +1,6 @@
 # Blueprints
 
-A blueprint watches external status cheaply or carries a conversation with a terminal while an agent does useful work. It runs a bounded shell probe at the requested cadence, hashes the captured result, and classifies only changed output. Use it to wait for CI or build completion instead of repeatedly asking an agent to run the same status check.
+A Blueprint watches status with bounded probes at a declared cadence, classifies changed output, or carries a terminal conversation. Use it to wait for CI or builds without repeated agent checks.
 
 Name graphs, handler nodes and crons briefly by meaning: what is watched → what happens. `blueprint create` requires `--name`; update definitions require `name`. Validate create or update definitions with `--dry-run`. Use-case patterns and ready skeletons are in `codeterm docs BLUEPRINT-RECIPES`; `codeterm blueprint recipe [<name>]` prints one.
 
@@ -152,11 +152,11 @@ codeterm blueprint delete --stopped
 
 These commands show or manage only the calling tab's blueprints in its creation scope and workspace. A solo graph remains visible to its creator after that tab joins a Team; it is not shared with the new Team. `show` includes the probe, accepted bucket, hash, next run, expiry, and last decision reason. Stopped watches remain inspectable. Closing a Team stops and removes its Team-owned blueprints, including in-flight route claims. A removed creator stops the watch. The store admits at most 64 active and 256 total blueprints; dormant stages count toward the total. Watches are local to the creator's machine; `--mesh` is refused.
 
-Stored single-route definitions from older builds and unreadable/corrupt files leave the Blueprint subsystem unavailable while other subsystems start. Original bytes stay in place; reads and mutations return an actionable load/format error, never an empty healthy graph. Preserve those definitions and recreate them through current authoring; there is no automatic migration, reset or discard. Use fresh isolated dev data for demonstrations.
+Legacy single-route definitions or corrupt stores make Blueprints unavailable; other subsystems still start. Original bytes remain, and reads and mutations return a load/format error. Preserve the definitions and recreate them through current authoring: no automatic migration, reset or discard. Demonstrate with fresh isolated dev data.
 
 A failed persistence write returns an error and holds Blueprint unavailable; cancellation stays in memory and durability is unconfirmed until a valid store reload. Repair the filesystem first. No stop success or handler replay is inferred.
 
-<!-- revision: 24 -->
+
 
 ## Terminal output and conversation mode
 
@@ -165,3 +165,14 @@ Use `--observe tab:<id>` with `--terminal-pattern <regex>`, `--output-settled <m
 `send:<tab>` forwards that text body unchanged. A utility shell receives typed input plus Enter through the safe PTY send path; an agent receives a routed message through the gateway. The host never interpolates captured data into a shell command. Sending to a shell can execute what its foreground program interprets as a command, so target the harness tab deliberately. `notify` retains the creator notification/result-file behavior. A full terminal event queue stops its source with `terminal_queue_full`; replacing the PTY or definition discards obsolete deltas.
 
 `--session` makes message exchanges independent of `--max-transitions` and `--max-actions`. Session stages share a safety allowance within their graph: 16384 accepted exchanges or action attempts, or 120 accepted exchanges within a rolling minute. Safety counts remain after reload; conversation counts and limits appear in Runs. Ordinary finite watches retain their configured budgets. Use `--timeout` to bound a conversation's lifetime and `codeterm blueprint stop <id>` to end it explicitly.
+
+## Pipelines
+
+Pipelines declare a schedule/input/event trigger, named command/convert/ask/filter steps, outcome routes, and an owner/tab/Team/notify result target. Jobs opens their actual steps and retained Runs, including shell-created Blueprints. Closed runs have no current step; the Blueprint becomes idle, held, stopped or failed. Pattern decisions read Pattern rules; adapter labels require recorded adapter use. Logs include step names; `$run` and `$result` have index `-1`.
+
+```bash
+codeterm blueprint create --recipe echo --set message=ready
+codeterm blueprint log BLUEPRINT_ID
+```
+
+<!-- revision: 25 -->

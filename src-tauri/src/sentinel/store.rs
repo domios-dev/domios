@@ -909,6 +909,10 @@ impl Store {
 }
 
 impl Sentinel {
+    pub fn is_scenario_root(&self) -> bool {
+        self.scenario_id.as_deref() == Some(self.id.as_str())
+    }
+
     pub fn same_owner(&self, other: &Self) -> bool {
         self.creator_tab_id == other.creator_tab_id
             && self.team_id == other.team_id

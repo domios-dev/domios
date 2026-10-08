@@ -75,11 +75,22 @@ test("replay frames light the path progressively, travel along the current hop, 
   assert.deepEqual([...reduced.wires], ["ab", "bc"]);
 });
 
+test("pattern transitions keep their origin in the row and timeline with a configured adapter", () => {
+  const graph = ranGraph();
+  graph.configured_fallback = { adapter_id: "typesafe-jev", model: "jev-latest" };
+  const root = graph.nodes[0];
+  graph.nodes = [{ ...root, history: root.history!.map((entry) => ({ ...entry, decided_by: "pattern", adapter_id: null, model: null })) }, ...graph.nodes.slice(1)];
+  const run = graphRuns(graph)[0];
+  const model = blueprintModel(graph);
+  assert.ok(runRow(model, run).path.some((entry) => entry.startsWith("Pattern rules:")));
+  assert.ok(runTimeline(model, run).some((entry) => entry.kind === "decision" && entry.title.startsWith("Pattern rules chose")));
+});
+
 test("a run row summarizes trigger, path, confidence, duration and status", () => {
   const graph = ranGraph();
   const row = runRow(blueprintModel(graph), graphRuns(graph)[0]);
   assert.equal(row.trigger, "Every 20 s");
-  assert.deepEqual(row.path, ["Run probe", "Jev: flaky", "Run Follow terminal", "+1 more stage"]);
+  assert.deepEqual(row.path, ["Run probe", "Jev · jev-latest: flaky", "Run Follow terminal", "+1 more stage"]);
   assert.equal(row.confidence, 0.87);
   assert.equal(row.durationMs, 600);
   assert.equal(row.status, "failed", "a failed action marks the run failed");
@@ -98,7 +109,7 @@ test("the timeline reads trigger, source, decision with reason, then each action
     ["action", "Escalate to creator", null, "skipped"],
   ]);
   const text = timelineText(runRow(model, run), entries, () => "14:11");
-  assert.ok(text.startsWith("14:11 failed · Every 20 s · Run probe → Jev: flaky"));
+  assert.ok(text.startsWith("14:11 failed · Every 20 s · Run probe → Jev · jev-latest: flaky"));
   assert.equal(text.split("\n").length, entries.length + 1);
 });
 

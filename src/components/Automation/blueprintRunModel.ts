@@ -112,10 +112,8 @@ function node(model: BlueprintModel, key: string): BlueprintNode | undefined {
   return model.nodes.find((entry) => entry.key === key);
 }
 
-function decisionName(model: BlueprintModel, stage: string) {
-  const decision = node(model, nodeKeys(stage).decision);
-  if (!decision) return "Decision";
-  return decision.type === "agent" ? decision.title.split(" · ")[0] : decision.title;
+function decisionName(event: RunEvent | undefined) {
+  return event?.classifier?.label ?? "Decision origin unknown";
 }
 
 export function runRow(model: BlueprintModel, run: GraphRun): RunRow {
@@ -124,7 +122,7 @@ export function runRow(model: BlueprintModel, run: GraphRun): RunRow {
   const path: string[] = [];
   if (first) {
     path.push(node(model, nodeKeys(first.stage).source)?.title ?? first.events[0].node);
-    path.push(`${decisionName(model, first.stage)}: ${first.bucket}`);
+    path.push(`${decisionName(first.events[0])}: ${first.bucket}`);
     const actions = first.events.filter((event) => event.handler && !QUIET.has(event.status)).map((event) => node(model, nodeKeys(first.stage).action(first.bucket, event.handler!))?.title ?? event.target ?? event.handler!);
     path.push(actions.length ? actions.join(", ") : "no action");
     if (transitions.length > 1) path.push(`+${transitions.length - 1} more ${transitions.length === 2 ? "stage" : "stages"}`);
@@ -145,9 +143,8 @@ export function runTimeline(model: BlueprintModel, run: GraphRun): TimelineEntry
     const head = transition.events[0];
     const trigger = node(model, keys.trigger);
     const source = node(model, keys.source);
-    const decision = node(model, keys.decision);
     const confidence = head.confidence != null ? ` · ${Math.round(head.confidence * 100)}% confident` : "";
-    const decider = head.classifier?.label ?? (decision?.type === "agent" ? decision.title : decision?.title ?? "Rules");
+    const decider = decisionName(head);
     const entries: TimelineEntry[] = [
       { kind: "trigger", title: trigger?.title ?? head.node, detail: head.node, status: null, at: transition.at },
       { kind: "source", title: source?.title ?? "Source", detail: source?.subtitle ?? null, status: null, at: transition.at },

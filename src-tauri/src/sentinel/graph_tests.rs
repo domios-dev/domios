@@ -128,15 +128,17 @@ fn sentinel_update_snapshot_exposes_read_only_definition_version_and_lineage() {
 }
 
 #[test]
-fn sentinel_graph_legacy_origin_and_orphan_paused_nodes_are_not_roots() {
+fn sentinel_graph_shell_root_is_visible_and_orphan_paused_nodes_are_not_roots() {
     let (_dir, mut store, mux, owner) = setup();
     let mut legacy=store.prepare(serde_json::from_value(json!({"name":"legacy-origin-watch","probe":"p","question":"q","buckets":["done"],"every":"10s","matches":{"done":"done"}})).unwrap(),owner.clone(),false).unwrap();
     legacy.agent_authored = false;
-    store.insert(legacy).unwrap();
+    let root = store.insert(legacy).unwrap();
+    assert!(root.is_scenario_root());
     create(&mut store, &owner, true, json!({}));
     let graph = snapshot(&store, &mux, &owner);
-    assert!(graph.scenarios.is_empty());
-    assert!(graph.nodes.is_empty());
+    assert_eq!(graph.scenarios.len(), 1);
+    assert_eq!(graph.scenarios[0].id, root.id);
+    assert_eq!(graph.nodes.len(), 1);
     assert!(graph.edges.is_empty());
 }
 
