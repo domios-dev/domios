@@ -1063,7 +1063,7 @@ console.log("\n--- canonical tool fields ---\n");
       sqliteQuery: (_db: string, sql: string) => {
         if (sql.indexOf("FROM part") !== -1) {
           return [
-            { id: 1, ts: 1000, part: JSON.stringify({ type: "tool", tool: "Edit", state: { input: { filePath: "src/demo.ts", oldString: "old", newString: "new" } } }), role: "assistant" },
+            { id: 1, ts: 1000, part: JSON.stringify({ type: "tool", tool: "Edit", state: { status: "completed", input: { filePath: "src/demo.ts", oldString: "old", newString: "new" } } }), role: "assistant" },
             { id: 2, ts: 1001, part: JSON.stringify({ type: "tool", tool: "MultiEdit", state: { input: { filePath: "src/multi.ts", edits: [{ oldString: "one", newString: "two" }, { oldString: "three", newString: "four" }] } } }), role: "assistant" },
             { id: 3, ts: 1002, part: JSON.stringify({ type: "tool", tool: "Mystery", state: { input: { value: "opaque" } } }), role: "assistant" },
           ];
@@ -1076,6 +1076,8 @@ console.log("\n--- canonical tool fields ---\n");
   eq(parsed.messages[0].toolKind, "edit", "OpenCode Edit gets canonical edit kind");
   assert(typeof parsed.messages[0].toolDetail === "string", "OpenCode toolDetail stays a string");
   eq(parsed.messages[0].toolEdits, [{ path: "src/demo.ts", old: "old", new: "new" }], "OpenCode camelCase edit input becomes canonical path and pair");
+  eq(parsed.messages[0].fileDiffs, [{ path: "src/demo.ts", additions: 1, deletions: 1,
+    hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-old", "+new"] }] }], "the built OpenCode plugin supplies recorded hunks");
   eq(parsed.messages[1].toolEdits, [
     { path: "src/multi.ts", old: "one", new: "two" },
     { path: "src/multi.ts", old: "three", new: "four" },

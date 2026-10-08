@@ -131,11 +131,11 @@ function variantLaunch(args) {
 function parseModelVariants(stdout) {
   const result = /* @__PURE__ */ new Map();
   let id = null;
-  let lines = [];
+  let lines2 = [];
   function finish() {
-    if (!id || lines.length === 0) return;
+    if (!id || lines2.length === 0) return;
     try {
-      const model = JSON.parse(lines.join("\n"));
+      const model = JSON.parse(lines2.join("\n"));
       if (!model || typeof model !== "object") return;
       const variants = model.variants;
       if (!variants || typeof variants !== "object" || Array.isArray(variants)) {
@@ -153,11 +153,115 @@ function parseModelVariants(stdout) {
     if (/^[a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*$/i.test(line.trim())) {
       finish();
       id = line.trim();
-      lines = [];
-    } else if (id) lines.push(line);
+      lines2 = [];
+    } else if (id) lines2.push(line);
   }
   finish();
   return result;
+}
+
+// packages/chat-core/src/sessionChanges.ts
+function lines(text) {
+  return text ? text.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n") : [];
+}
+function fileDiffFromEdit(edit) {
+  const old = lines(edit.old);
+  const next = lines(edit.new);
+  return {
+    path: edit.path,
+    additions: next.length,
+    deletions: old.length,
+    hunks: [{
+      oldStart: 1,
+      oldLines: old.length,
+      newStart: 1,
+      newLines: next.length,
+      lines: [...old.map((line) => `-${line}`), ...next.map((line) => `+${line}`)]
+    }]
+  };
+}
+
+// packages/chat-core/src/shellLexer.ts
+var POSIX_ESCAPABLE = /* @__PURE__ */ new Set([..." 	\"'\\$`|&;<>(){}#*?[]~!"]);
+
+// plugins/provider-opencode/src/fileDiffs.ts
+function record(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+function parsePatch(path, patch) {
+  const files = [];
+  let file = { path, additions: 0, deletions: 0, hunks: [] };
+  let hunk;
+  let before;
+  const finish = () => {
+    if (file.path && (file.hunks.length || file.binary || file.kind)) {
+      file.truncated = file.hunks.some((item) => item.lines.filter((line) => /^[ -]/.test(line)).length !== item.oldLines || item.lines.filter((line) => /^[ +]/.test(line)).length !== item.newLines);
+      files.push(file);
+    }
+    file = { path: "", additions: 0, deletions: 0, hunks: [] };
+    hunk = void 0;
+  };
+  for (const line of patch.replace(/\r\n/g, "\n").split("\n")) {
+    const header = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
+    if (line.startsWith("diff --git ")) {
+      finish();
+      const paths = /^diff --git a\/(.+) b\/(.+)$/.exec(line);
+      if (paths) {
+        file.path = paths[1];
+        if (paths[1] !== paths[2]) {
+          file.movePath = paths[2];
+          file.kind = "rename";
+        }
+      }
+    } else if (line.startsWith("--- ") && (!hunk || hunk.lines.filter((item) => /^[ -]/.test(item)).length >= hunk.oldLines)) {
+      if (file.hunks.length) finish();
+      before = line.slice(4).replace(/^a\//, "");
+    } else if (line.startsWith("+++ ") && before !== void 0) {
+      const after = line.slice(4).replace(/^b\//, "");
+      file.path = after === "/dev/null" ? before : after;
+      file.kind = before === "/dev/null" ? "add" : after === "/dev/null" ? "delete" : before !== after ? "rename" : "modify";
+      if (file.kind === "rename") {
+        file.path = before;
+        file.movePath = after;
+      }
+      before = void 0;
+    } else if (header) {
+      hunk = {
+        oldStart: Number(header[1]),
+        oldLines: Number(header[2] ?? 1),
+        newStart: Number(header[3]),
+        newLines: Number(header[4] ?? 1),
+        lines: []
+      };
+      file.hunks.push(hunk);
+    } else if (/^(Binary files|GIT binary patch)/.test(line)) {
+      file.binary = true;
+    } else if (hunk && /^[ +\-\\]/.test(line)) {
+      hunk.lines.push(line);
+      if (line.startsWith("+")) file.additions++;
+      if (line.startsWith("-")) file.deletions++;
+    }
+  }
+  finish();
+  if (files.length === 1 && path && files[0].kind !== "rename") files[0].path = path;
+  return files;
+}
+function opencodeFileDiffs(path, edits, metadata) {
+  const value = record(metadata);
+  if (Array.isArray(value.files)) {
+    return value.files.flatMap((entry) => {
+      const item = record(entry);
+      const filePath = typeof item.filePath === "string" ? item.filePath : "";
+      return opencodeFileDiffs(filePath, [], { diff: item.diff }).map((diff) => ({
+        ...diff,
+        ...item.type === "add" || item.type === "delete" ? { kind: item.type } : {},
+        ...typeof item.movePath === "string" ? { movePath: item.movePath, kind: "rename" } : {}
+      }));
+    });
+  }
+  const patch = typeof value.diff === "string" ? value.diff : typeof value.patch === "string" ? value.patch : "";
+  const diffs = patch ? parsePatch(path, patch) : [];
+  return diffs.length ? diffs : edits.filter((edit) => edit.path && edit.old !== edit.new).map(fileDiffFromEdit);
 }
 
 // plugins/provider-opencode/src/helpers.ts
@@ -170,20 +274,20 @@ var ASSISTANT_MESSAGE_MAX_BYTES = 1 << 20;
 var MESSAGE_ROLE_MAX_BYTES = 16 << 20;
 var lastPromptShape = "horizontal";
 function parsePermissionPrompt(text) {
-  const lines = String(text || "").split("\n").map(cleanPromptLine);
+  const lines2 = String(text || "").split("\n").map(cleanPromptLine);
   let permIdx = -1;
-  for (let i = lines.length - 1; i >= 0; i--) {
-    if (lines[i].indexOf("Permission required") !== -1) {
+  for (let i = lines2.length - 1; i >= 0; i--) {
+    if (lines2[i].indexOf("Permission required") !== -1) {
       permIdx = i;
       break;
     }
   }
   if (permIdx < 0) return null;
   let optLine = null;
-  for (let j = permIdx; j < lines.length; j++) {
-    const lc = lines[j].toLowerCase();
+  for (let j = permIdx; j < lines2.length; j++) {
+    const lc = lines2[j].toLowerCase();
     if ((lc.indexOf("allow") !== -1 || lc.indexOf("reject") !== -1 || lc.indexOf("deny") !== -1) && lc.indexOf("permission required") === -1) {
-      optLine = lines[j];
+      optLine = lines2[j];
       break;
     }
   }
@@ -191,8 +295,8 @@ function parsePermissionPrompt(text) {
   const labels = optLine.split(/\s{2,}/).map((s) => s.trim()).filter(Boolean);
   if (labels.length < 2) return null;
   let question = "";
-  for (let k = permIdx + 1; k < lines.length; k++) {
-    const q = lines[k];
+  for (let k = permIdx + 1; k < lines2.length; k++) {
+    const q = lines2[k];
     if (q && q.toLowerCase() !== "patterns") {
       question = q;
       break;
@@ -205,11 +309,11 @@ function parsePermissionPrompt(text) {
   };
 }
 function collectQuestionMenuPrompt(text) {
-  const lines = String(text || "").split("\n").map(cleanPromptLine);
-  const start = Math.max(0, lines.length - 30);
+  const lines2 = String(text || "").split("\n").map(cleanPromptLine);
+  const start = Math.max(0, lines2.length - 30);
   const rows = [];
-  for (let i = start; i < lines.length; i++) {
-    const line = lines[i];
+  for (let i = start; i < lines2.length; i++) {
+    const line = lines2[i];
     const m = QUESTION_MENU_RE.exec(line);
     if (m && m[2].trim()) {
       rows.push({ value: m[1], label: m[2].trim(), idx: i, sel: isQuestionMenuSelected(line) });
@@ -224,10 +328,10 @@ function collectQuestionMenuPrompt(text) {
       prev = rows[i].idx;
     } else break;
   }
-  if (cluster.length < 2 || !hasQuestionMenuFooter(lines, cluster[cluster.length - 1].idx)) return null;
+  if (cluster.length < 2 || !hasQuestionMenuFooter(lines2, cluster[cluster.length - 1].idx)) return null;
   let question = "";
   for (let i = cluster[0].idx - 1; i >= start && cluster[0].idx - i <= 6; i--) {
-    const q = lines[i];
+    const q = lines2[i];
     if (q && q.charAt(0) !== "#" && !isQuestionMenuFooter(q)) {
       question = q;
       break;
@@ -283,9 +387,9 @@ function cleanPromptLine(line) {
   return String(line).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/[│┃|╎╏┆┊╭╮╯╰╹▀]/g, " ").replace(/^[\s←⚠»·]+/, "").replace(/[\s·»]+$/, "").trim();
 }
 function chunkHasQuestionMenuRow(chunk) {
-  const lines = String(chunk || "").split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    if (QUESTION_MENU_RE.test(cleanPromptLine(lines[i]))) return true;
+  const lines2 = String(chunk || "").split("\n");
+  for (let i = 0; i < lines2.length; i++) {
+    if (QUESTION_MENU_RE.test(cleanPromptLine(lines2[i]))) return true;
   }
   return false;
 }
@@ -307,16 +411,16 @@ function isQuestionMenuSelected(line) {
   return QUESTION_MENU_SELECTORS.indexOf(first) !== -1;
 }
 function findModalPickerTitle(text) {
-  const lines = String(text || "").split("\n");
-  const start = Math.max(0, lines.length - 40);
-  for (let i = lines.length - 1; i >= start; i--) {
-    if (PICKER_TITLE_RE.test(cleanPromptLine(lines[i]))) return i;
+  const lines2 = String(text || "").split("\n");
+  const start = Math.max(0, lines2.length - 40);
+  for (let i = lines2.length - 1; i >= start; i--) {
+    if (PICKER_TITLE_RE.test(cleanPromptLine(lines2[i]))) return i;
   }
   return -1;
 }
-function findModalSearchLine(lines, titleIdx) {
-  for (let i = titleIdx + 1; i < Math.min(lines.length, titleIdx + 8); i++) {
-    if (cleanPromptLine(lines[i]) === "Search") return i;
+function findModalSearchLine(lines2, titleIdx) {
+  for (let i = titleIdx + 1; i < Math.min(lines2.length, titleIdx + 8); i++) {
+    if (cleanPromptLine(lines2[i]) === "Search") return i;
   }
   return -1;
 }
@@ -331,9 +435,9 @@ function isModalPickerSection(label) {
   const lc = label.toLowerCase();
   return lc === "search" || lc === "popular" || lc === "providers" || lc === "popular providers" || lc.indexOf("view all providers") === 0;
 }
-function hasQuestionMenuFooter(lines, lastOptionIdx) {
-  for (let i = lastOptionIdx + 1; i < Math.min(lines.length, lastOptionIdx + 7); i++) {
-    if (isQuestionMenuFooter(lines[i])) return true;
+function hasQuestionMenuFooter(lines2, lastOptionIdx) {
+  for (let i = lastOptionIdx + 1; i < Math.min(lines2.length, lastOptionIdx + 7); i++) {
+    if (isQuestionMenuFooter(lines2[i])) return true;
   }
   return false;
 }
@@ -349,11 +453,11 @@ function discoverOpencodeModels() {
   }));
   const result = safeJson(raw);
   if (!result || result.code !== 0 || typeof result.stdout !== "string") return null;
-  const lines = result.stdout.split("\n");
+  const lines2 = result.stdout.split("\n");
   const variants = parseModelVariants(result.stdout);
   const models2 = [];
-  for (let i = 0; i < lines.length; i++) {
-    const id = lines[i].trim();
+  for (let i = 0; i < lines2.length; i++) {
+    const id = lines2[i].trim();
     if (!isModelId(id)) continue;
     if (isNonChatModel(id)) continue;
     const efforts = variants.get(id);
@@ -538,6 +642,9 @@ function partToChatMsg(part, role, id, tsMs) {
     const tool = part.tool || "tool";
     const state = part.state || {};
     const canonical = canonicalToolFields(tool, state.input);
+    const input = state.input && typeof state.input === "object" ? state.input : {};
+    const path = String(input.filePath ?? input.file_path ?? input.path ?? "");
+    const diffs = state.status === "completed" ? opencodeFileDiffs(path, canonical.edits, state.metadata) : [];
     const out = {
       id,
       type: "tool_call",
@@ -547,7 +654,10 @@ function partToChatMsg(part, role, id, tsMs) {
       toolKind: canonical.kind,
       toolSummary: canonical.summary,
       toolDetail: canonical.detail,
-      toolEdits: canonical.edits
+      toolEdits: canonical.edits,
+      fileDiffs: diffs,
+      toolId: part.callID,
+      toolError: state.status === "error" ? true : state.status === "completed" ? false : void 0
     };
     if (state.input !== void 0) out.toolInput = state.input;
     if (typeof state.output === "string") out.toolResult = state.output;
@@ -923,16 +1033,16 @@ function applyDomiosPresets(config, presets) {
 }
 
 // plugins/provider-opencode/src/modelProviders.ts
-function record(value) {
+function record2(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function readModelProviders(config) {
-  if (!record(config) || config.provider !== void 0 && !record(config.provider)) {
+  if (!record2(config) || config.provider !== void 0 && !record2(config.provider)) {
     throw new Error("Invalid provider config");
   }
   return Object.entries(config.provider ?? {}).flatMap(([id, entry]) => {
-    if (!record(entry) || entry["x-domios"] !== true) return [];
-    if (!record(entry.options) || typeof entry.options.baseURL !== "string") {
+    if (!record2(entry) || entry["x-domios"] !== true) return [];
+    if (!record2(entry.options) || typeof entry.options.baseURL !== "string") {
       throw new Error("Invalid owned provider");
     }
     const kind = entry.npm === "@ai-sdk/anthropic" ? "anthropic" : entry.npm === "@ai-sdk/openai-compatible" ? "openai-compatible" : null;
@@ -948,7 +1058,7 @@ function readModelProviders(config) {
       id,
       kind,
       baseUrl: entry.options.baseURL,
-      models: record(entry.models) ? Object.keys(entry.models) : [],
+      models: record2(entry.models) ? Object.keys(entry.models) : [],
       ...typeof entry.name === "string" ? { name: entry.name } : {},
       ...env ? { keyEnv: env } : {},
       ...typeof secret === "string" ? { secretName: secret } : {}
@@ -1004,16 +1114,16 @@ function decisionRunOptions(model, request, remainingMs = DECISION_TIMEOUT_MS) {
     }
   };
 }
-function record2(value) {
+function record3(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function probability(value) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 }
 function validateDecision(answer, question) {
-  if (!record2(answer) || answer.type !== question.type) return false;
+  if (!record3(answer) || answer.type !== question.type) return false;
   if (question.type === "noul") return probability(answer.p);
-  if (!record2(answer.probabilities) || answer.confidence !== null && !probability(answer.confidence)) return false;
+  if (!record3(answer.probabilities) || answer.confidence !== null && !probability(answer.confidence)) return false;
   const entries = Object.entries(answer.probabilities);
   if (!entries.length || entries.some(([, value]) => !probability(value))) return false;
   const mass = entries.reduce((sum, [, value]) => sum + value, 0);
@@ -1030,10 +1140,10 @@ function parseDecisionEvents(stdout, question) {
   try {
     for (const line of stdout.split(/\r?\n/).filter((line2) => line2.trim())) {
       const event = JSON.parse(line);
-      if (!record2(event)) return { error: "invalid_response" };
+      if (!record3(event)) return { error: "invalid_response" };
       if (event.type === "tool_use" || event.type === "error") return { error: "transport" };
-      if (event.type === "text" && record2(event.part) && typeof event.part.text === "string") text += event.part.text;
-      if (event.type === "step_finish" && record2(event.part) && event.part.reason === "stop") completed = true;
+      if (event.type === "text" && record3(event.part) && typeof event.part.text === "string") text += event.part.text;
+      if (event.type === "step_finish" && record3(event.part) && event.part.reason === "stop") completed = true;
     }
     if (!completed) return { error: "invalid_response" };
     const answer = JSON.parse(text);

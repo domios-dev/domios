@@ -1,5 +1,6 @@
 import type { Host, ModelInfo, ParsedPrompt } from "@codeterm/plugin-sdk";
 import { parseModelVariants } from "./modelVariants";
+import { opencodeFileDiffs } from "./fileDiffs";
 
 // Constants and regexes
 export const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v4";
@@ -52,7 +53,8 @@ export interface OpencodePart {
   type?: string;
   text?: string;
   tool?: string;
-  state?: { input?: unknown; output?: unknown };
+  callID?: string;
+  state?: { input?: unknown; output?: unknown; metadata?: unknown; status?: string };
 }
 
 export interface ModelUsageRow {
@@ -491,12 +493,18 @@ export function partToChatMsg(part: OpencodePart, role: string, id: string, tsMs
     const tool = part.tool || "tool";
     const state = part.state || {};
     const canonical = canonicalToolFields(tool, state.input);
+    const input = state.input && typeof state.input === "object" ? state.input as Record<string, unknown> : {};
+    const path = String(input.filePath ?? input.file_path ?? input.path ?? "");
+    const diffs = state.status === "completed" ? opencodeFileDiffs(path, canonical.edits, state.metadata) : [];
     const out: Record<string, unknown> = {
       id: id, type: "tool_call", content: "", timestamp: timestamp, toolName: tool,
       toolKind: canonical.kind,
       toolSummary: canonical.summary,
       toolDetail: canonical.detail,
       toolEdits: canonical.edits,
+      fileDiffs: diffs,
+      toolId: part.callID,
+      toolError: state.status === "error" ? true : state.status === "completed" ? false : undefined,
     };
     if (state.input !== undefined) out.toolInput = state.input;
     if (typeof state.output === "string") out.toolResult = state.output;

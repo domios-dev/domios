@@ -129,13 +129,14 @@ async function run() {
     );
     const strip = host.querySelector('[data-testid="composer-plan-activity-strip"]');
     ok("blocked state remains visible", host.querySelector('[data-testid="composer-current-task"]')?.textContent === "blocked");
-    ok("next action remains visible", host.querySelector('[data-testid="composer-next-action"]')?.textContent === "Next: Resolve blocker");
+    ok("next action stays out of the chip", host.querySelector('[data-testid="composer-next-action"]') === null);
     ok("attachment capsules render", host.querySelectorAll('[data-testid="composer-plan-attachment"]').length === 2);
     const expand = host.querySelector('[data-testid="composer-plan-expand"]') as HTMLButtonElement | null;
     ok("expand control is accessible", expand?.getAttribute("aria-label") === "Expand full plan reminder");
     await act(async () => { expand?.click(); });
     ok("expanded details render", host.querySelector('[data-testid="composer-plan-details"]')?.textContent?.includes("blocked-screenshot.png") === true);
     ok("expanded details preserve task identity", host.querySelector('[data-testid="composer-plan-details"]')?.textContent?.includes(WORK.taskTitle) === true);
+    ok("expanded details keep the next action", host.querySelector('[data-testid="composer-plan-details"]')?.textContent?.includes("Next action: Resolve blocker") === true);
     ok("expanded details preserve blocker text", host.querySelector('[data-testid="composer-plan-details"]')?.textContent?.includes("blocked on the review decision") === true);
     ok("collapse state is announced", host.querySelector('[data-testid="composer-plan-expand"]')?.getAttribute("aria-label") === "Collapse full plan reminder");
     ok("compact summary has full accessible label", strip?.getAttribute("aria-label")?.includes(WORK.taskTitle) === true);

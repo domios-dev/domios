@@ -83,7 +83,6 @@ export function ComposerPlanActivityStrip({
           {extraPlans > 0 && <span data-testid="composer-plan-activity-extra-plans" className="ct-composer-activity-chip__extra">+{extraPlans}</span>}
           {onOpen && <Map size={11} aria-hidden className="ct-composer-activity-chip__icon" />}
         </button>
-        <span className="ct-composer-activity-chip__next" data-testid="composer-next-action">Next: {action}</span>
         {attachments.map((attachment) => (
           <span key={attachment.id} className="ct-composer-attachment-capsule" data-testid="composer-plan-attachment" title={attachment.name} aria-label={`Attachment: ${attachment.name}`}>
             <span className="sr-only">Attachment: </span>{attachment.name}
