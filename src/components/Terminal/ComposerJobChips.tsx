@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Clock3, Network, Radar, Square, Trash2, Workflow } from "lucide-react";
+import { Clock3, Network, Square, Trash2, Workflow } from "lucide-react";
 import { hostAutomationAdapter } from "../Automation/hostAdapter";
 import { sentinelJobs } from "../Automation/scenarios";
 import type { AutomationGraphAdapter } from "../Automation/types";
@@ -17,7 +17,7 @@ const VISIBLE_JOBS = 3;
 const NO_SOURCES: readonly string[] = [];
 
 function JobIcon({ job }: { job: MergedJob }) {
-  const Icon = job.kind === "cron" ? Clock3 : job.kind === "sentinel" && job.sentinel.type === "Blueprint graph" ? Network : Radar;
+  const Icon = job.kind === "cron" ? Clock3 : Network;
   return <Icon size={12} aria-hidden="true" className="shrink-0 text-[var(--ct-muted-fg)]" />;
 }
 

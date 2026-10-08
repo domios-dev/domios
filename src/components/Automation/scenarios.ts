@@ -1,7 +1,7 @@
 import { automationState, scopedAutomationGraph } from "./model";
 import { ALL_JOBS_SCOPE, automationKey, type AutomationGraph, type AutomationNode, type AutomationScenario, type AutomationScope } from "./types";
 
-export type SentinelJobType = "Blueprint" | "Blueprint graph";
+export type SentinelJobType = "Blueprint";
 
 export interface SentinelJob {
   scenario: AutomationScenario;
@@ -10,8 +10,8 @@ export interface SentinelJob {
   state: string;
 }
 
-export function sentinelJobType(nodes: readonly AutomationNode[]): SentinelJobType {
-  return nodes.filter((node) => node.identity.kind === "sentinel").length > 1 ? "Blueprint graph" : "Blueprint";
+export function sentinelJobType(_nodes: readonly AutomationNode[]): SentinelJobType {
+  return "Blueprint";
 }
 
 /** One entry per stored scenario; its internal watcher stages stay inside that scenario's graph. */

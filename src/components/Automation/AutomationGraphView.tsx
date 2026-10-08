@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { ChevronRight, Network, Radar } from "lucide-react";
+import { ChevronRight, Network } from "lucide-react";
 import { focusEntry, focusLost } from "./focus";
 import { ScenarioPanel } from "./ScenarioPanel";
 import { sentinelJobs, sentinelTitle } from "./scenarios";
@@ -58,7 +58,7 @@ function AutomationGraphSurface({ adapter, attachment }: AutomationGraphViewProp
       {state.graph && <>
         {state.graph.scenarios.length === 0 && <p className="px-4 py-3 text-[var(--ct-muted-fg)]">No Blueprints recorded in this scope.</p>}
         <ul ref={list} aria-label="Blueprint scenarios" className="space-y-2 p-3">{sentinelJobs(state.graph, attachment).map((job) => {
-          const Icon = job.type === "Blueprint graph" ? Network : Radar;
+          const Icon = Network;
           return <li key={job.scenario.id}><button type="button" data-scenario-id={job.scenario.id} className={AUTOMATION_ROW} onClick={() => setScenarioId(job.scenario.id)}>
             <Icon size={15} className="shrink-0 text-[var(--ct-muted-fg)]" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate font-medium">{sentinelTitle(job.scenario, job.root)}</span>

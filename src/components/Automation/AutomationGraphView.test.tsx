@@ -280,7 +280,7 @@ test("one named Sentinel entry opens its internal stages while shared execution 
   const view = await mount(transport);
   try {
     assert.ok(view.host.textContent?.includes("Internal stage A"));
-    assert.equal(view.host.querySelector("h2")?.textContent, `${transport.graph.scenarios[0].name} · Blueprint graph`);
+    assert.equal(view.host.querySelector("h2")?.textContent, `${transport.graph.scenarios[0].name} · Blueprint`);
     assert.ok(!view.host.textContent?.includes("Watcher B"));
     assert.equal(view.host.querySelectorAll('[data-edge-kind="observed"]').length, 1);
     await click(button(view.host, "All Blueprints"));

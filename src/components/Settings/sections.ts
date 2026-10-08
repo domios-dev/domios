@@ -49,7 +49,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: "notifications", label: "Notifications", desc: "The bell, desktop alerts, sound, and where each level may go", icon: SECTION_ICONS.notifications },
   { id: "agents", label: "Agents", desc: "General Agent, agent access, and per-provider config", icon: SECTION_ICONS.agents },
   { id: "integrations", label: "Integrations", desc: "Telegram, Discord, external bridges", icon: SECTION_ICONS.integrations },
-  { id: "jobs", label: "Jobs", desc: "Crons and Blueprint graphs on this machine", icon: SECTION_ICONS.jobs },
+  { id: "jobs", label: "Jobs", desc: "Crons and Blueprints on this machine", icon: SECTION_ICONS.jobs },
   { id: "logs", label: "Logs", desc: "App diagnostics — live, filterable, scoped", icon: SECTION_ICONS.logs },
   { id: "guide", label: "Guide", desc: "What Domios is and how to work with it", icon: SECTION_ICONS.guide },
   { id: "about", label: "Check for updates", desc: "Version, updates, creator", icon: SECTION_ICONS.about },
