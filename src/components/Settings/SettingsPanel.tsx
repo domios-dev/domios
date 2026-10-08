@@ -259,7 +259,7 @@ export function SettingsPanel({
 
                 <GeneralAgentCard config={localConfig} onUpdate={update} />
 
-                <SettingsCardAnchor id="messengers" focused={top.card === "messengers"}>
+                <SettingsCardAnchor id="telegram-bridge" focused={top.card === "telegram-bridge"}>
                   <MessengersCard config={localConfig} onUpdate={update} />
                 </SettingsCardAnchor>
 

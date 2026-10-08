@@ -22,9 +22,9 @@ import {
   type ModelEndpoint,
 } from "./modelEndpointsModel";
 
-const KIND_OPTIONS: { value: EndpointKind; label: string }[] = [
-  { value: "openai-compatible", label: "OpenAI-compatible" },
-  { value: "anthropic", label: "Anthropic" },
+const KIND_OPTIONS: { value: EndpointKind; label: string; title: string }[] = [
+  { value: "openai-compatible", label: "OpenAI", title: "OpenAI-compatible API" },
+  { value: "anthropic", label: "Anthropic", title: "Anthropic Messages API" },
 ];
 
 const FIELD_LABEL = "text-[11px] font-medium uppercase tracking-wide text-[var(--ct-muted-fg)]";
@@ -111,7 +111,7 @@ export function ModelEndpointForm({
       aria-label={original ? `Edit endpoint ${original.id}` : "Add model endpoint"}
       aria-busy={busy !== null}
       onSubmit={(event) => void submit(event)}
-      className="ct-panel-card ct-panel-card--soft flex flex-col gap-3.5 p-3.5"
+      className="ct-panel-card flex flex-col gap-3.5 p-3.5"
       noValidate
     >
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-[minmax(0,1fr)_auto]">

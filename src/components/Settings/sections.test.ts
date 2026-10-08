@@ -63,7 +63,7 @@ test("notification_settings_home: no nav id resolves to a different section", ()
 
 test("the retired integrations link lands on the Messengers card in General", () => {
   const route = resolveSettingsLink("integrations");
-  assert(route?.section === "general" && route.card === "messengers", "integrations routes to general/messengers");
+  assert(route?.section === "general" && route.card === "telegram-bridge", "integrations routes to the Telegram bridge card");
   assert(!SETTINGS_SECTIONS.some((s) => (s.id as string) === "integrations"), "integrations is no longer a nav entry");
 });
 
