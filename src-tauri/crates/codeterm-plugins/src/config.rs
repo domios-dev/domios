@@ -46,7 +46,7 @@ pub(super) fn get_command(id: &str) -> Result<Value, String> {
             .values()
             .any(|value| value.as_str() == Some("set"));
 
-    Ok(serde_json::json!({
+    let mut out = serde_json::json!({
         "id": id.as_str(),
         "display_name": manifest.get("displayName").and_then(|v| v.as_str()),
         "description": manifest.get("description").and_then(|v| v.as_str()),
@@ -57,7 +57,11 @@ pub(super) fn get_command(id: &str) -> Result<Value, String> {
         "settings_schema": schema,
         "secret_fields": secret_keys,
         "secret_status": secret_status,
-    }))
+    });
+    if let Some(fields) = out.as_object_mut() {
+        super::agent_surface::insert_agent_fields(fields, &dir, &manifest);
+    }
+    Ok(out)
 }
 
 /// Grantable per-plugin permissions; an allowlist so a typo can't persist a bogus grant.
@@ -924,6 +928,32 @@ spawn_agents: [
         assert!(!set_error.contains(stored.as_str()));
         let audit = fs::read_to_string(root.path().join("logs/plugin-events.log")).unwrap();
         assert!(!audit.contains(stored.as_str()));
+    }
+
+    #[test]
+    fn get_returns_the_declared_verbs_and_bundled_agent_guide() {
+        let root = tempfile::tempdir().unwrap();
+        let id = "guide-fixture";
+        let dir = root.path().join("plugins").join(id);
+        fs::create_dir_all(dir.join("docs")).unwrap();
+        fs::write(
+            dir.join("plugin.json"),
+            serde_json::json!({
+                "id": id,
+                "agentVerbs": ["zz-alpha"],
+                "agentGuide": "docs/AGENT.md"
+            })
+            .to_string(),
+        )
+        .unwrap();
+        fs::write(dir.join("docs/AGENT.md"), "guide-token-q7").unwrap();
+        let ctx = PluginCtx {
+            data_root: root.path().to_path_buf(),
+            version: None,
+        };
+        let shown = crate::run(ctx, PluginAction::Get { id: id.into() }).unwrap();
+        assert_eq!(shown["agent_verbs"], serde_json::json!(["zz-alpha"]));
+        assert_eq!(shown["agent_guide"]["text"], "guide-token-q7");
     }
 
     #[test]
