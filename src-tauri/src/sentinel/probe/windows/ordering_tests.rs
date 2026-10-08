@@ -88,41 +88,7 @@ pub(crate) fn verify_empty_completion_port_timeout() {
 
 pub(crate) fn verify_early_exit_notification() {
     let owner = Arc::new(ProbeResourceOwner::new());
-    let deadlines = Deadlines::start(Duration::from_secs(10), Duration::from_secs(10)).unwrap();
-    let mut run = WindowsRun::new(deadlines, owner.reserve().unwrap(), &owner);
-    run.prepare_containment().unwrap();
-    let mut command = capture::power_shell_command_line("exit 7");
-    let mut startup = STARTUPINFOW::default();
-    startup.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
-    let mut information = PROCESS_INFORMATION::default();
-    assert_ne!(
-        unsafe {
-            CreateProcessW(
-                null(),
-                command.as_mut_ptr(),
-                null(),
-                null(),
-                0,
-                CREATE_SUSPENDED | CREATE_NO_WINDOW,
-                null(),
-                null(),
-                &startup,
-                &mut information,
-            )
-        },
-        0
-    );
-    run.process = OwnedHandle::new(information.hProcess).unwrap();
-    run.primary_thread = OwnedHandle::new(information.hThread).unwrap();
-    run.process_registered = run.register(ResourceKind::Child);
-    run.thread_registered = run.register(ResourceKind::Child);
-    run.child_id = information.dwProcessId;
-    assert_ne!(
-        unsafe { AssignProcessToJobObject(run.job.raw().unwrap(), run.process.raw().unwrap()) },
-        0
-    );
-    run.assigned = true;
-    run.job_empty = false;
+    let mut run = suspended_job_process(&owner);
 
     run.observe_job_event(JOB_OBJECT_MSG_EXIT_PROCESS, run.child_id)
         .unwrap();
@@ -189,4 +155,87 @@ fn queued_job_notifications_after_confirmed_close_preserve_capture() {
     assert!(run.failure_resources_settled());
     run.release_reservation().unwrap();
     assert_eq!(owner.snapshot().active, 0);
+}
+
+fn suspended_job_process(owner: &Arc<ProbeResourceOwner>) -> WindowsRun {
+    let deadlines = Deadlines::start(Duration::from_secs(10), Duration::from_secs(10)).unwrap();
+    let mut run = WindowsRun::new(deadlines, owner.reserve().unwrap(), owner);
+    run.prepare_containment().unwrap();
+    let mut command = capture::power_shell_command_line("exit 7");
+    let mut startup = STARTUPINFOW::default();
+    startup.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+    let mut information = PROCESS_INFORMATION::default();
+    assert_ne!(
+        unsafe {
+            CreateProcessW(
+                null(),
+                command.as_mut_ptr(),
+                null(),
+                null(),
+                0,
+                CREATE_SUSPENDED | CREATE_NO_WINDOW,
+                null(),
+                null(),
+                &startup,
+                &mut information,
+            )
+        },
+        0
+    );
+    run.process = OwnedHandle::new(information.hProcess).unwrap();
+    run.primary_thread = OwnedHandle::new(information.hThread).unwrap();
+    run.process_registered = run.register(ResourceKind::Child);
+    run.thread_registered = run.register(ResourceKind::Child);
+    run.child_id = information.dwProcessId;
+    assert_ne!(
+        unsafe { AssignProcessToJobObject(run.job.raw().unwrap(), run.process.raw().unwrap()) },
+        0
+    );
+    run.assigned = true;
+    run.job_empty = false;
+
+    run
+}
+
+#[test]
+fn signaled_parent_refreshes_job_after_early_exit_notice_without_another_packet() {
+    for capture_pending in [false, true] {
+        let owner = Arc::new(ProbeResourceOwner::new());
+        let mut run = suspended_job_process(&owner);
+        run.stderr.eof = true;
+        run.stdout.eof = !capture_pending;
+        run.stdout.pending_active = capture_pending;
+        run.observe_job_event(JOB_OBJECT_MSG_EXIT_PROCESS, run.child_id)
+            .unwrap();
+        assert!(run.parent_exit_pending);
+        assert!(!run.job_empty);
+        assert!(!run.parent_exited);
+        assert_ne!(
+            unsafe { ResumeThread(run.primary_thread.raw().unwrap()) },
+            u32::MAX
+        );
+        assert!(run
+            .wait_event(Some(run.deadlines.remaining_operation()))
+            .unwrap());
+        assert!(run.parent_exited);
+        assert_eq!(run.exit_code, Some(7));
+        assert!(
+            run.job_empty,
+            "the process wait must refresh Job accounting"
+        );
+        assert!(!run.job.is_open());
+        assert_eq!(run.port.is_open(), capture_pending);
+        assert_eq!(run.runtime_success_ready(), !capture_pending);
+        if capture_pending {
+            let overlapped = &mut run.stdout.pending.overlapped as *mut OVERLAPPED;
+            run.observe_read_event(true, overlapped, 0, Some(ERROR_BROKEN_PIPE))
+                .unwrap();
+            run.close_completed_runtime_handles().unwrap();
+        }
+        assert!(run.runtime_success_ready());
+        assert!(run.failure_resources_settled());
+        assert!(!run.permanent_unconfirmed);
+        run.release_reservation().unwrap();
+        assert_eq!(owner.snapshot().active, 0);
+    }
 }

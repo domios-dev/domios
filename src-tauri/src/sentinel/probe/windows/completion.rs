@@ -218,6 +218,10 @@ impl WindowsRun {
         self.exit_code = Some(exit_code);
         self.parent_exited = true;
         self.parent_exit_pending = false;
+        // Job notifications can be dropped after an early exit packet.
+        if self.assigned && !self.job_empty {
+            self.observe_job_accounting()?;
+        }
         self.release_process_admission();
         self.process.close()?;
         let registered = std::mem::replace(&mut self.process_registered, false);
