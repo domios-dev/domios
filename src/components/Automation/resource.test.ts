@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { AutomationResource, type AutomationSnapshot } from "./resource";
-import { scopedAutomationGraph } from "./model";
+import { isScenarioRoot, scopedAutomationGraph } from "./model";
 import { automationKindLabel, automationKey, type AutomationGraph } from "./types";
 import { attachment, cronIdentity, deferred, fixtureGraph, fixtureNode, FixtureTransport, identity, multiScenarioGraph, sentinelIdentity, workerIdentity } from "./fixtures.testdata";
 
@@ -120,6 +120,21 @@ test("only stored agent Sentinel roots and exact connected participants enter pr
   const result = scopedAutomationGraph({ ...graph, nodes: [...graph.nodes, unrelatedCron, unrelatedWorker, internal], edges: [...graph.edges, { ...graph.edges[0], id: "internal-route", source: internal.identity, target: unrelatedWorker.identity }] }, attachment);
   assert.deepEqual(result.nodes.map((node) => node.identity.id), ["sentinel-a", "cron-a", "worker-a", "missing-a"]);
   assert.deepEqual(result.edges.map((edge) => edge.id).sort(), graph.edges.map((edge) => edge.id).sort());
+});
+
+test("scenario keys do not replace the declared root identity", () => {
+  const graph = fixtureGraph();
+  const root = graph.nodes[0];
+  const scenario = { ...graph.scenarios[0], id: "independent-view-key" };
+  const result = scopedAutomationGraph({ ...graph, scenarios: [scenario] }, attachment);
+  assert.ok(isScenarioRoot(root, scenario.root));
+  assert.ok(result.nodes.some((node) => node.identity.id === root.identity.id));
+  for (const identity of [
+    { ...root.identity, id: "other-root" },
+    { ...root.identity, workspace_id: "other-workspace" },
+    { ...root.identity, team_id: "other-team" },
+    { ...root.identity, owner_tab_id: "other-owner" },
+  ]) assert.equal(isScenarioRoot(root, identity), false);
 });
 
 test("shell-created scenario roots remain visible without agent authorship", () => {
