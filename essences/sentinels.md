@@ -38,4 +38,4 @@ anchors:
   - core:host-state
 ```
 
-The exact Team graph view explains each node with bounded, redacted definition detail in its creation scope. The workspace overview does not expose definitions. Execution output, environment and credentials remain private. Accepted decisions distinguish pattern matches from actual adapter use; configured fallback is separate, and incomplete decision history never implies that an adapter was unused. Missing origin evidence stays unknown.
+Opening a Blueprint explains each selected node with its own properties and bounded, redacted read-only code in its exact creation scope. Status and schedule remain in the graph header. The Runs control reveals retained accepted executions and replays their recorded routes with a small travelling dot; reduced-motion preferences keep the path static. The workspace overview does not expose definitions. Execution output, environment and credentials remain private. Accepted decisions distinguish pattern matches from actual adapter use; configured fallback is separate, and incomplete decision history never implies that an adapter was unused. Missing origin evidence stays unknown.

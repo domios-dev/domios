@@ -42,6 +42,7 @@ export function deferred<T>() {
 export class FixtureTransport implements AutomationGraphAdapter {
   graph = fixtureGraph();
   changed?: () => void;
+  private graphListeners = new Set<() => void>();
   reads = 0;
   readStarted = deferred<void>();
   stops: AutomationIdentity[] = [];
@@ -58,8 +59,9 @@ export class FixtureTransport implements AutomationGraphAdapter {
   }
   async subscribe(scope: AutomationAttachment, changed: () => void) {
     this.attachments.push(scope);
-    this.changed = changed;
-    return () => { this.unsubscribeCount++; this.changed = undefined; };
+    this.graphListeners.add(changed);
+    this.changed = () => { for (const listener of this.graphListeners) listener(); };
+    return () => { this.unsubscribeCount++; this.graphListeners.delete(changed); if (!this.graphListeners.size) this.changed = undefined; };
   }
   async stop(scope: AutomationAttachment, target: AutomationIdentity) {
     this.attachments.push(scope);

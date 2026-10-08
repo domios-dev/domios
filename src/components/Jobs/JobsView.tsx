@@ -7,7 +7,7 @@ import type { MeshResourceActionAdapter } from "../MeshPanel/meshResourceActions
 import { AutomationNotices, useScenarioCameras } from "../Automation/AutomationGraphView";
 import { focusEntry, focusLost } from "../Automation/focus";
 import { hostAutomationAdapter } from "../Automation/hostAdapter";
-import { ScenarioPanel } from "../Automation/ScenarioPanel";
+import { ScopedScenarioPanel } from "../Automation/ScopedScenarioPanel";
 import { sentinelJobs } from "../Automation/scenarios";
 import { AUTOMATION_TOOL } from "../Automation/styles";
 import type { AutomationGraphAdapter } from "../Automation/types";
@@ -216,9 +216,7 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
   }
   if (opened) {
     const { graph, scenario } = opened;
-    return <ScenarioPanel state={graph} scope={graph.attachment} scenario={scenario} camera={cameraFor(scenario.id)} backLabel="All jobs" headingLevel={3} fill onBack={() => back(`scenario:${scenario.id}`)}>
-      <AutomationNotices state={graph} noun="Blueprints" />
-    </ScenarioPanel>;
+    return <ScopedScenarioPanel adapter={adapter} attachment={graph.attachment} scenario={scenario} camera={cameraFor(scenario.id)} backLabel="All jobs" headingLevel={3} fill onBack={() => back(`scenario:${scenario.id}`)} />;
   }
   const reading = (crons.jobs === null && !crons.failed) || graphs.some((graph) => graph.loading);
   const empty = jobs.length === 0 && crons.jobs !== null && graphsRead && !crons.failed && !graphsFailed;

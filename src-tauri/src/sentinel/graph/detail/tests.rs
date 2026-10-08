@@ -55,6 +55,18 @@ fn definition_access_requires_exact_team_and_workspace() {
 }
 
 #[test]
+fn opened_solo_definition_requires_its_exact_creation_scope() {
+    let mut job = job();
+    job.team_id = None;
+    assert_eq!(
+        detail(&job, "workspace", None)["definition"]["probe"],
+        "printf ready"
+    );
+    assert!(detail(&job, "workspace", Some("team"))["definition"]["unavailable"].is_string());
+    assert!(detail(&job, "foreign", None)["definition"]["unavailable"].is_string());
+}
+
+#[test]
 fn definition_text_is_redacted_bounded_and_explicitly_truncated() {
     let mut job = job();
     job.probe = format!("password=credential-fixture\n{}", "\u{03bb}".repeat(3000));
