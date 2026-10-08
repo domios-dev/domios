@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{json, Value};
 
@@ -7,7 +7,12 @@ use super::super::store::Sentinel;
 #[cfg(test)]
 mod tests;
 
-pub(super) fn project(nodes: &[Value], jobs: &[Sentinel], now: u64) -> Vec<Value> {
+pub(super) fn project(
+    nodes: &[Value],
+    jobs: &[Sentinel],
+    now: u64,
+    live: &BTreeSet<String>,
+) -> Vec<Value> {
     let mut groups: BTreeMap<String, Value> = BTreeMap::new();
     for node in nodes {
         let Some(history) = node["history"].as_array() else {
@@ -35,10 +40,28 @@ pub(super) fn project(nodes: &[Value], jobs: &[Sentinel], now: u64) -> Vec<Value
                         .any(|handler| handler["status"] == "unconfirmed")
                 })
             {
-                group["state"] = json!("running");
+                if node["identity"]["id"]
+                    .as_str()
+                    .is_some_and(|id| live.contains(id))
+                {
+                    group["state"] = json!("running");
+                } else if group["state"] != "running" {
+                    group["state"] = json!("unconfirmed");
+                }
             }
         }
     }
+    let waiting: BTreeSet<_> = jobs
+        .iter()
+        .filter(|job| {
+            let identity = json!(super::identity(job));
+            nodes.iter().any(|node| node["identity"] == identity)
+                && !job.machine.stopped
+                && !job.machine.paused
+                && job.expires_at.is_none_or(|at| at > now)
+        })
+        .filter_map(|job| job.causal_run.as_ref().map(|run| run.id.as_str()))
+        .collect();
     for group in groups.values_mut() {
         let Some(transitions) = group["transitions"].as_array() else {
             continue;
@@ -55,18 +78,7 @@ pub(super) fn project(nodes: &[Value], jobs: &[Sentinel], now: u64) -> Vec<Value
                 })
         });
         group["incomplete"] = json!(!root_retained || !parents_retained);
-        if jobs.iter().any(|job| {
-            nodes
-                .iter()
-                .any(|node| node["identity"] == json!(super::identity(job)))
-                && job
-                    .causal_run
-                    .as_ref()
-                    .is_some_and(|run| group["id"] == run.id)
-                && !job.machine.stopped
-                && !job.machine.paused
-                && job.expires_at.is_none_or(|at| at > now)
-        }) {
+        if group["id"].as_str().is_some_and(|id| waiting.contains(id)) {
             group["state"] = json!("running");
         }
     }
