@@ -23,6 +23,31 @@ __export(plugin_exports, {
   default: () => plugin_default
 });
 module.exports = __toCommonJS(plugin_exports);
+
+// packages/plugin-sdk/src/fileDiffs.ts
+function textLines(text) {
+  return text ? text.replace(/\n$/, "").split("\n") : [];
+}
+function recordedTextDiff(path, oldText, newText) {
+  if (typeof path !== "string" || !path.trim() || typeof oldText !== "string" || typeof newText !== "string" || oldText === newText) return [];
+  const old = textLines(oldText);
+  const next = textLines(newText);
+  return [{
+    path,
+    additions: next.length,
+    deletions: old.length,
+    truncated: true,
+    hunks: [{
+      oldStart: 1,
+      oldLines: old.length,
+      newStart: 1,
+      newLines: next.length,
+      lines: [...old.map((line) => `-${line}`), ...next.map((line) => `+${line}`)]
+    }]
+  }];
+}
+
+// plugins/provider-cursor/src/plugin.ts
 var TITLE_RE = /cursor/i;
 var OUTPUT_FINGERPRINTS = [
   "Workspace Trust Required",
@@ -506,6 +531,7 @@ function blocksFromContent(content, role) {
           tool_summary: canonical.summary,
           tool_detail: canonical.detail,
           tool_edits: canonical.edits,
+          file_diffs: canonical.edits.flatMap((edit) => recordedTextDiff(edit.path, edit.old, edit.new)),
           tool_status: "success"
         }
       });
@@ -536,7 +562,7 @@ function canonicalToolFields(name, input) {
   if (lower === "bash" || lower === "shell" || lower === "exec") {
     return { kind: "command", summary: cleanToolText(command, "Command"), detail: command, edits: [] };
   }
-  if (lower === "edit" || lower === "multiedit" || lower === "write") {
+  if (lower === "edit" || lower === "strreplace" || lower === "multiedit" || lower === "write") {
     return { kind: "edit", summary: path || "File edit", detail: path, edits };
   }
   if (lower === "read") {
@@ -554,7 +580,7 @@ function extractCanonicalEdits(input) {
     const item = value;
     const oldValue = typeof item.old_string === "string" ? item.old_string : item.oldString;
     const newValue = typeof item.new_string === "string" ? item.new_string : item.newString;
-    if (typeof oldValue !== "string" && typeof newValue !== "string") return null;
+    if (typeof oldValue !== "string" || typeof newValue !== "string") return null;
     const path = typeof item.file_path === "string" ? item.file_path : typeof item.filePath === "string" ? item.filePath : typeof item.path === "string" ? item.path : fallbackPath;
     return { path, old: typeof oldValue === "string" ? oldValue : "", new: typeof newValue === "string" ? newValue : "" };
   };
