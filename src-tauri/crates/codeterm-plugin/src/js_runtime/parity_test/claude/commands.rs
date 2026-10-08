@@ -114,7 +114,7 @@ fn in_tab_command_surface_native_js_parity() {
     assert_eq!(n.exit_command(), Some("/exit"));
     assert_eq!(
         n.model_switch(),
-        crate::provider::ModelSwitchMode::LiveCommand
+        crate::provider::ModelSwitchMode::RestartResume
     );
     assert_eq!(n.model_switch_commands(), j.model_switch_commands());
 }
