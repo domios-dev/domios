@@ -50,6 +50,23 @@ export function parseChatBlock(source: string, blocks: readonly ChatBlockDefinit
   return { name, source: normalized, render: () => definition.render(props, normalized) };
 }
 
+/** Gives every standalone `@ds-` line its own paragraph so a lead sentence on the line above cannot swallow it. */
+export function isolateBlockDirectives(text: string): string {
+  if (!text.includes("@ds-")) return text;
+  const out: string[] = [];
+  let fence: string | null = null;
+  for (const line of text.split("\n")) {
+    const marker = /^[\t ]*(`{3,}|~{3,})/.exec(line)?.[1];
+    if (marker && fence === null) fence = marker;
+    else if (marker && fence !== null && marker[0] === fence[0] && marker.length >= fence.length) fence = null;
+    const directive = fence === null && BLOCK_LINE.test(line.replace(/\r$/, ""));
+    if (directive && out.length && out[out.length - 1].trim()) out.push("");
+    out.push(line);
+    if (directive) out.push("");
+  }
+  return out.join("\n");
+}
+
 /** A paragraph made only of block lines renders as stacked blocks; one stray text line keeps the whole paragraph text. */
 export function parseChatBlocks(source: string, blocks: readonly ChatBlockDefinition<unknown>[] = CHAT_BLOCKS): ParsedChatBlock[] | null {
   const lines = source.replace(/\r/g, "").split("\n").filter((line) => line.trim());
