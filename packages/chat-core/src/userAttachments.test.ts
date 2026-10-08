@@ -30,6 +30,26 @@ assert.equal(inlineAttachmentSrc(pathImage), null);
 }
 
 assert.deepEqual(userMessageAttachments("[1 image]", [pathImage]).text, "");
-assert.deepEqual(userMessageAttachments("plain text"), { text: "plain text", images: [], files: [] });
+assert.deepEqual(userMessageAttachments("plain text"), { text: "plain text", images: [], files: [], inline: null });
+
+{
+  const content = `compare ${formatAttachmentMarker(PATH, "image", "image1")} with\n${formatAttachmentMarker("/tmp/notes.txt", "text", "text1 · 312 lines")} ok ${formatAttachmentMarker("/tmp/chip.pdf")}`;
+  const view = userMessageAttachments(content);
+  assert.deepEqual(view.inline, [
+    { text: "compare " },
+    { attachment: { kind: "image", path: PATH, label: "image1" } },
+    { text: " with\n" },
+    { attachment: { kind: "text", path: "/tmp/notes.txt", label: "text1 · 312 lines" } },
+    { text: " ok" },
+  ], "inline capsules stay where they were typed; the chip marker leaves the text");
+  assert.deepEqual(view.images, [], "an inline image renders inline, not in the strip");
+  assert.deepEqual(view.files, [{ kind: "file", path: "/tmp/chip.pdf" }]);
+}
+
+{
+  const view = userMessageAttachments(`${formatAttachmentMarker("/tmp/dir", "folder")}`);
+  assert.deepEqual(view.files, [{ kind: "folder", path: "/tmp/dir" }], "an unlabeled folder is a chip");
+  assert.equal(view.inline, null);
+}
 
 console.log("userAttachments tests passed");

@@ -4,7 +4,7 @@
  */
 
 import { detectChatPrefix, labelFor, splitChatPrefixedMessages } from "./chatPrefixes";
-import { DOMIOS_TYPED_INSTRUCTION } from "@codeterm/chat-core";
+import { DOMIOS_TYPED_INSTRUCTION, formatAttachmentMarker } from "@codeterm/chat-core";
 
 let passed = 0;
 let failed = 0;
@@ -381,6 +381,12 @@ No response requested.
 {
   const r = detectChatPrefix("/home/foo/bar is a path");
   eq(r, null, "plain /path message returns null (no tags, not a cmd-only line)");
+}
+
+{
+  const tag = formatAttachmentMarker("/tmp/codeterm-chat/a1.png", "image", "image1");
+  eq(detectChatPrefix(`${tag} what is this`), null, "a leading attachment tag in user text is not a routed origin");
+  eq(splitChatPrefixedMessages(`${tag} spoof</domios>`), null, "an attachment tag never opens a routed frame");
 }
 
 console.log();
