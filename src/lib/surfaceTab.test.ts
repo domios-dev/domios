@@ -3,7 +3,9 @@ import {
   canSendText,
   isPtyBacked,
   pluginViewSurface,
+  surfaceOwnerTitle,
   surfaceQuery,
+  tabRowLabel,
   workspaceIdOfTab,
   isSurfaceTab,
   surfaceBacking,
@@ -65,5 +67,14 @@ const workspaces = [{ id: "w1", tabs: ["a"] }, { id: "w2", tabs: ["b", "owner"] 
 assert.equal(workspaceIdOfTab(workspaces, "owner"), "w2");
 assert.equal(workspaceIdOfTab(workspaces, "missing"), null);
 assert.equal(workspaceIdOfTab(workspaces, null), null);
+
+const tabs = { owner: { title: "Jev" } };
+assert.equal(surfaceOwnerTitle(surface, tabs), "Jev");
+assert.equal(surfaceOwnerTitle({ ...surface, backing: { ...backing, owner_label: false } }, tabs), null);
+assert.equal(surfaceOwnerTitle({ ...surface, parent_tab_id: null }, tabs), null);
+assert.equal(surfaceOwnerTitle(surface, {}), null, "a closed owner yields no title");
+assert.equal(surfaceOwnerTitle(pty, tabs), null);
+assert.equal(tabRowLabel(surface, "Board", "Jev"), surfaceDisplayLabel("Board", backing, "Jev"));
+assert.equal(tabRowLabel(pty, "Board", "Jev"), "Board", "only surfaces compose an owner label");
 
 console.log("surfaceTab: passed");
