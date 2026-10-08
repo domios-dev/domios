@@ -29,7 +29,6 @@ pub fn identity_matches(marker: &Marker, instance: &str) -> bool {
 pub struct Process {
     stop: watch::Sender<bool>,
     pub death: watch::Receiver<bool>,
-    pub marker: Marker,
 }
 
 impl Drop for Process {
@@ -217,11 +216,7 @@ pub async fn spawn(
         let _ = std::fs::remove_file(token_file);
         let _ = std::fs::remove_file(marker_file);
     });
-    let process = Process {
-        stop,
-        death,
-        marker,
-    };
+    let process = Process { stop, death };
     tokio::time::timeout(Duration::from_secs(15), readiness)
         .await
         .map_err(|_| "Sidecar listening deadline")?

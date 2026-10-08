@@ -51,7 +51,7 @@ fn changed_settings_keys<T: serde::Serialize>(
         .filter(|id| {
             serde_json::to_value(before.get(*id)).ok() != serde_json::to_value(after.get(*id)).ok()
         })
-        .map(|id| id.clone())
+        .cloned()
         .collect()
 }
 

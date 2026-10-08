@@ -82,6 +82,12 @@ pub(crate) struct RootClaim {
     pub(crate) layout: Layout,
 }
 
+impl Drop for RootClaim {
+    fn drop(&mut self) {
+        let _ = self._lock.unlock();
+    }
+}
+
 /// Absolute, link-resolved spelling without the Windows verbatim prefix; that prefix is
 /// added back only by `native_path` for the Win32 and SQLite calls Storage makes itself.
 pub(crate) fn canonical_dir(path: &Path) -> Result<PathBuf, StorageError> {
@@ -734,4 +740,38 @@ fn sweep(conn: &Connection, layout: &Layout) -> Result<SweepReport, StorageError
         }
     }
     Ok(report)
+}
+
+#[cfg(test)]
+mod root_claim_tests {
+    use super::*;
+
+    #[test]
+    fn storage_root_claim_releases_lock_with_retained_descriptor() {
+        let root = std::env::temp_dir().join(format!(
+            "codeterm-root-claim-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let claim = claim_root(&root).unwrap();
+        let inherited = claim._lock.try_clone().unwrap();
+        assert!(matches!(
+            claim_root(&root),
+            Err(StorageError::AlreadyOpen { .. })
+        ));
+        let probe = open_lock_file(&claim.layout.lock).unwrap();
+        assert!(matches!(probe.try_lock(), Err(TryLockError::WouldBlock)));
+        drop(claim);
+        let reopened = claim_root(&root).unwrap();
+        assert!(matches!(probe.try_lock(), Err(TryLockError::WouldBlock)));
+        drop(reopened);
+        probe.try_lock().unwrap();
+        probe.unlock().unwrap();
+        drop(inherited);
+        drop(probe);
+        fs::remove_dir_all(root).unwrap();
+    }
 }

@@ -224,7 +224,7 @@ impl Drop for ProtocolRecorder {
 
 impl WriterState {
     fn load(root: PathBuf, limits: Limits, clock: Clock) -> Self {
-        let mut state = Self {
+        Self {
             root,
             limits,
             clock,
@@ -232,8 +232,7 @@ impl WriterState {
             files: Vec::new(),
             next_order: 0,
             initialized: false,
-        };
-        state
+        }
     }
 
     fn scan_existing(&mut self) {

@@ -88,7 +88,7 @@ mod tests {
         let sites: Vec<(&str, Router)> = vec![
             (
                 "agent restart",
-                endpoint::<crate::api::agent_routes::AgentRestartBody>(),
+                endpoint::<crate::api::agent_restart_routes::AgentRestartBody>(),
             ),
             ("hook permission", endpoint::<serde_json::Value>()),
             ("hook stop", endpoint::<serde_json::Value>()),

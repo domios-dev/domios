@@ -9,7 +9,6 @@ pub(crate) fn provider_cli_status(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::agent::provider::ProviderAvailability;
     use codeterm_plugin::js_runtime::{BinProbe, BinResolution};
     use codeterm_plugin::provider_cli::status_from_probe;

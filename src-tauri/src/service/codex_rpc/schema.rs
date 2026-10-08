@@ -1,6 +1,8 @@
 use serde::Deserialize;
+#[cfg(test)]
 use serde_json::Value;
 
+#[cfg(test)]
 pub const SNAPSHOT_VERSION: &str = "0.160.0";
 
 #[derive(Debug, Deserialize)]
@@ -18,9 +20,6 @@ pub struct ThreadResponse {
 #[serde(rename_all = "camelCase")]
 pub struct Thread {
     pub id: String,
-    pub thread_source: Option<String>,
-    pub parent_thread_id: Option<String>,
-    pub source: Option<Value>,
 }
 
 #[cfg(test)]
