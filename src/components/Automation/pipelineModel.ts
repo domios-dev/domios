@@ -28,13 +28,6 @@ export interface PipelineView {
   edges: readonly PipelineViewEdge[];
 }
 
-export interface PipelineOwnerGroup {
-  key: string;
-  kind: "tab" | "team" | "unbound";
-  ownerId: string | null;
-  blueprints: readonly PipelineView[];
-}
-
 function normalizedOwner(owner: BlueprintOwner | undefined): BlueprintOwner {
   return owner ?? { kind: "tab", tab_id: null, team_id: null };
 }
@@ -207,18 +200,4 @@ export function legacyScenarioPipeline(graph: AutomationGraph, scenario: Automat
     ...pipeline,
     nodes: pipeline.nodes.map((node) => node.kind === "result" ? { ...node, targetSummary: resultSummary } : node),
   };
-}
-
-export function groupBlueprintsByOwner(blueprints: readonly PipelineView[]): PipelineOwnerGroup[] {
-  const groups = new Map<string, { kind: PipelineOwnerGroup["kind"]; ownerId: string | null; blueprints: PipelineView[] }>();
-  for (const blueprint of blueprints) {
-    const kind = blueprint.owner.kind;
-    const ownerId = kind === "team" ? blueprint.owner.team_id : blueprint.owner.tab_id;
-    const groupKind = ownerId ? kind : "unbound";
-    const key = `${groupKind}:${ownerId ?? ""}`;
-    const group = groups.get(key) ?? { kind: groupKind, ownerId, blueprints: [] };
-    group.blueprints.push(blueprint);
-    groups.set(key, group);
-  }
-  return [...groups.entries()].map(([key, group]) => ({ key, ...group }));
 }

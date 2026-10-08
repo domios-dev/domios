@@ -14,7 +14,6 @@ import { TerminalIcon, FolderIcon, FolderPlusIcon, ExtensionsIcon } from "../Ico
 import { AgentIcon } from "../AgentIcon";
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
 import { WorkspaceItem } from "./WorkspaceItem";
-import { LiveWorkspaceNavigationActions, WorkspaceNavigationActions } from "./WorkspaceNavigationActions";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RecentlyClosed } from "./RecentlyClosed";
 import {
@@ -34,7 +33,6 @@ import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
 import { matchesBinding } from "../../lib/keybindings";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 import type { JobsTarget } from "../Jobs/JobsView";
-import { NO_JOBS_FILTER } from "../Jobs/jobsModel";
 import type { JobsOpenScope } from "../Jobs/jobsLayout";
 import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
 import { loadSelectedWorkspaceId, persistSelectedWorkspaceId } from "./workspaceCardMetadata";
@@ -719,17 +717,6 @@ export function Sidebar({
                         <span className="sidebar-structural-label">GENERAL</span>
                       </SidebarDisclosure>
                     </div>
-                    {(onOpenWorkspaceMap || onOpenWorkspaceAutomation) && (onOpenWorkspaceAutomation
-                      ? <LiveWorkspaceNavigationActions
-                        scope={NO_JOBS_FILTER}
-                        workspaces={state.workspaces}
-                        workspaceId={generalWorkspace.id}
-                        workspaceName={generalWorkspace.name}
-                        onOpenMap={onOpenWorkspaceMap}
-                        onOpenJobs={(id) => onOpenWorkspaceAutomation(id, undefined, "machine")}
-                        touchMode={touchMode}
-                      />
-                      : <WorkspaceNavigationActions workspaceId={generalWorkspace.id} workspaceName={generalWorkspace.name} onOpenMap={onOpenWorkspaceMap} touchMode={touchMode} />)}
                     {generalExpanded && <SidebarWorkspaceTabs
                       workspace={generalWorkspace}
                       activeTabId={state.activeTabIds[generalWorkspace.id] ?? null}
