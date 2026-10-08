@@ -673,6 +673,11 @@ pub fn tab_chat_snapshot(
     tab_id: &str,
     since: usize,
 ) -> Result<(Vec<ChatMsg>, usize), String> {
+    if crate::service::structured_endpoint::sse(tab_id).is_some() {
+        let messages = crate::service::structured_prompt::snapshot::read(svc, tab_id)?;
+        let total = messages.len();
+        return Ok((messages.into_iter().skip(since).collect(), total));
+    }
     if crate::service::codex_rpc::lifecycle::for_tab(tab_id).is_some() {
         let (messages, _, _) = crate::service::codex_rpc::transcript::snapshot(svc, tab_id)?;
         let total = messages.len();

@@ -4,6 +4,7 @@ mod questions;
 mod reconcile;
 mod recovery;
 mod session_events;
+pub(crate) mod snapshot;
 mod subscriber;
 #[cfg(test)]
 mod tests;

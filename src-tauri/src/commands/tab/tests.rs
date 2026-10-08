@@ -6,6 +6,60 @@ use std::sync::Arc;
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn chat_start_replays_registered_sse_history_without_a_plugin_store() {
+    use crate::multiplexer::state::MultiplexerState;
+    use std::io::{Read, Write};
+    let (mut state, tab_id) = MultiplexerState::new();
+    let tab = state.get_tab_mut(&tab_id).unwrap();
+    tab.agent_session_id = Some("own".into());
+    tab.session_binding_nonce = Some("nonce".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(state);
+    let service = Arc::new(fixture.service.clone());
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        for _ in 0..3 {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            assert!(String::from_utf8(request)
+                .unwrap()
+                .starts_with("GET /session/own/message?"));
+            let body = serde_json::json!([{"info":{"sessionID":"own","id":"message","role":"assistant"},
+                "parts":[{"sessionID":"own","messageID":"message","id":"part","type":"text","text":"retained"}]}]).to_string();
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+        }
+    });
+    crate::service::structured_prompt::register_endpoint(
+        &tab_id,
+        format!("http://{address}"),
+        "/repo".into(),
+    );
+    let first = super::chat_start_core(&service, tab_id.clone(), "first".into()).unwrap();
+    let replay = super::chat_start_core(&service, tab_id.clone(), "remount".into()).unwrap();
+    let snapshot = crate::service::tab_chat::tab_chat_snapshot(&service, &tab_id, 0).unwrap();
+    crate::service::structured_endpoint::remove(&tab_id);
+    server.join().unwrap();
+    assert_eq!(first.messages, replay.messages);
+    let rows = replay.messages.unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, "part");
+    assert_eq!(rows[0].content, "retained");
+    assert_eq!(snapshot, (rows, 1));
+    assert_eq!(replay.source_session_id.as_deref(), Some("own"));
+    assert_eq!(replay.session_binding_nonce.as_deref(), Some("nonce"));
+    assert_eq!(replay.offset, 0);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn chat_start_removed_plugin_reports_state_without_rebinding_restored_tab() {
     use crate::multiplexer::{state::MultiplexerState, types::TabBacking};
     let (mut state, tab_id) = MultiplexerState::new();
