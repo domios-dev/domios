@@ -14,7 +14,7 @@
         "renderer": "stream",
         "runtime": "browser",
         "agentBound": true,
-        "restore": "placeholder"
+        "restore": "relaunch"
       }
     ]
   },
