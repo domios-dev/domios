@@ -628,25 +628,9 @@ impl ServiceContext {
                 )
             })
         } else {
-            match task_selection.confirmed_first_turn {
-                Some(
-                    crate::service::launch_delivery::VisibleSpawnFirstTurn::AssignedTaskStarter,
-                ) => {
-                    let prompt = crate::agent::provider::StarterPrompt::AssignedTask;
-                    let text = self
-                        .agent_registry
-                        .with_provider(&agent_cmd, |provider| provider.starter_prompt_text(prompt))
-                        .flatten();
-                    Some(crate::service::launch_delivery::mark_starter_prompt(
-                        prompt,
-                        crate::service::launch_delivery::assigned_task_starter(text.as_deref()),
-                    ))
-                }
-                Some(crate::service::launch_delivery::VisibleSpawnFirstTurn::Task(task)) => {
-                    Some(task.to_string())
-                }
-                None => None,
-            }
+            task_selection
+                .confirmed_first_turn
+                .map(|turn| self.confirmed_spawn_first_turn(&tab_id, &agent_cmd, turn))
         };
 
         let mut legacy_params = spec.to_agent_params()?;
