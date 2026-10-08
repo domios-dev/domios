@@ -40,6 +40,17 @@ describe("plugin command rows", () => {
     expect(describePluginAction(inv("codeterm plugin config bitwarden"), resolve).object).toBe("bitwarden");
   });
 
+  it("show what an agent verb call asked the plugin to do", () => {
+    const names = (id: string) => ({ browser: "Browser" })[id];
+    expect(describePluginAction(inv("codeterm plugin browser goto https://google.com/"), names).object).toBe("goto google.com");
+    expect(describePluginAction(inv("codeterm plugin browser snapshot"), names).object).toBe("snapshot");
+    expect(describePluginAction(inv('codeterm plugin browser type @e10 "привет мир"'), names).object).toBe('type @e10 "привет мир"');
+    expect(describePluginAction(inv('codeterm plugin browser wait --text "Saved"'), names).object).toBe("wait --text Saved");
+    expect(describePluginAction(inv("codeterm plugin browser screenshot --full"), names).object).toBe("screenshot --full");
+    expect(describePluginAction(inv("codeterm plugin browser snapshot"), names).lead).toBe("Browser");
+    expect(describePluginAction(inv("codeterm plugin browser"), names).object).toBe("Browser");
+  });
+
   it("name a folder install by the folder, never the absolute path", () => {
     const row = describePluginAction(inv("codeterm plugin install --from-dir C:\\Users\\me\\codeterm-plugins\\plugins\\transcriber"), resolve);
     expect(row.object).toBe("transcriber");
