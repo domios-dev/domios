@@ -55,7 +55,7 @@ export function sectionTitle(id: SectionId): string {
   return SETTINGS_SECTIONS.find((s) => s.id === id)?.label ?? id;
 }
 
-export type SettingsCardAnchorId = "supporter-agent" | "messengers";
+export type SettingsCardAnchorId = "supporter-agent" | "telegram-bridge";
 
 export interface SettingsCardRoute {
   section: SectionId;
@@ -72,7 +72,7 @@ export interface SettingsLinkRoute {
 }
 
 const LEGACY_ROUTES: Record<LegacySectionId, SettingsLinkRoute> = {
-  integrations: { section: "general", card: "messengers" },
+  integrations: { section: "general", card: "telegram-bridge" },
 };
 
 export function resolveSettingsLink(id: SettingsLinkId | undefined): SettingsLinkRoute | undefined {
