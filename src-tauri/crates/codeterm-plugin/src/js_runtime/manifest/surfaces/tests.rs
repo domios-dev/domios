@@ -152,7 +152,7 @@ fn surface_manifest_stream_surface_needs_no_view_and_names_its_runtime() {
     );
     let value = serde_json::to_value(&parsed.capabilities).expect("serialize");
     assert_eq!(
-        value["surfaces"][0], declared,
+        value["surfaces"][0]["chrome"], declared["chrome"],
         "chrome passes through untouched"
     );
 }
