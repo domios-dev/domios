@@ -52,7 +52,7 @@ pub struct PreparedWorkspaceClose {
     records: Vec<ClosedTab>,
 }
 
-/// Exclusive workspace-membership lease held across one tab's external teardown.
+/// Exclusive tab-membership lease held across external teardown.
 pub struct TabCloseReservation {
     pub(super) tab_id: String,
     workspace_id: String,
@@ -156,6 +156,13 @@ impl MultiplexerState {
         workspace_id: &str,
     ) -> Result<PreparedWorkspaceClose, String> {
         self.ensure_workspace_membership_mutable(workspace_id)?;
+        if self
+            .tab_close_reservations
+            .values()
+            .any(|(workspace, _)| workspace == workspace_id)
+        {
+            return Err(format!("Workspace has a tab closing: {workspace_id}"));
+        }
         let ws = self
             .workspaces
             .iter()
@@ -197,15 +204,17 @@ impl MultiplexerState {
         self.release_workspace_close_reservation(prepared);
     }
 
-    /// Reserve the owning workspace before external tab teardown begins.
+    /// Reserve one tab before external teardown begins.
     pub fn reserve_tab_close(&mut self, tab_id: &str) -> Result<TabCloseReservation, String> {
         let workspace_id = self
             .find_workspace_for_tab(tab_id)
             .ok_or_else(|| format!("Tab not found in any workspace: {tab_id}"))?;
-        self.ensure_workspace_membership_mutable(&workspace_id)?;
+        self.ensure_tab_membership_mutable(tab_id)?;
         let reservation_id = new_group_id();
-        self.workspace_close_reservations
-            .insert(workspace_id.clone(), reservation_id.clone());
+        self.tab_close_reservations.insert(
+            tab_id.to_string(),
+            (workspace_id.clone(), reservation_id.clone()),
+        );
         Ok(TabCloseReservation {
             tab_id: tab_id.to_string(),
             workspace_id,
@@ -231,6 +240,9 @@ impl MultiplexerState {
         let workspace_id = self
             .find_workspace_for_tab(tab_id)
             .ok_or_else(|| format!("Tab not found in any workspace: {tab_id}"))?;
+        if self.tab_close_reservations.contains_key(tab_id) {
+            return Err(format!("Tab is closing: {tab_id}"));
+        }
         self.ensure_workspace_membership_mutable(&workspace_id)
     }
 
@@ -251,15 +263,16 @@ impl MultiplexerState {
     }
 
     pub(super) fn tab_close_is_reserved_by(&self, reservation: &TabCloseReservation) -> bool {
-        self.workspace_close_reservations
-            .get(&reservation.workspace_id)
-            == Some(&reservation.reservation_id)
+        self.tab_close_reservations.get(&reservation.tab_id)
+            == Some(&(
+                reservation.workspace_id.clone(),
+                reservation.reservation_id.clone(),
+            ))
     }
 
     pub(super) fn release_tab_close_reservation(&mut self, reservation: &TabCloseReservation) {
         if self.tab_close_is_reserved_by(reservation) {
-            self.workspace_close_reservations
-                .remove(&reservation.workspace_id);
+            self.tab_close_reservations.remove(&reservation.tab_id);
         }
     }
 

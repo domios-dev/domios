@@ -60,7 +60,14 @@ fn tab_state_dedup_per_tab_label_episode() {
         apply_verdict(&tab, "launch-1", "error_loop", 0.9,),
         SignalAction::None
     );
+    screen_changed(&tab, "launch-1", 1);
     note_output(&tab);
+    assert!(!screen_changed(&tab, "launch-1", 1));
+    assert_eq!(
+        apply_verdict(&tab, "launch-1", "error_loop", 0.9),
+        SignalAction::None
+    );
+    assert!(screen_changed(&tab, "launch-1", 2));
     assert_eq!(
         apply_verdict(&tab, "launch-1", "error_loop", 0.9,),
         SignalAction::WeakHint
@@ -213,7 +220,10 @@ fn tab_state_spawn_claim_survives_signal_episode_bump() {
     let permit = claim_observation(&bumped, "launch-1", ObservationEvent::SpawnReady).unwrap();
     apply_verdict(&bumped, "launch-1", "error_loop", 0.9);
     apply_verdict(&bumped, "launch-1", "error_loop", 0.9);
+    screen_changed(&bumped, "launch-1", 1);
     note_output(&bumped);
+    assert_eq!(snapshot_episode(&bumped).episode, permit.episode);
+    screen_changed(&bumped, "launch-1", 2);
     assert_eq!(snapshot_episode(&bumped).episode, permit.episode + 1);
     assert!(!permit_is_current(&bumped, "launch-1", &permit));
     assert!(snapshot_episode(&bumped).spawn_observed);
