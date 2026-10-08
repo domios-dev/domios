@@ -240,6 +240,7 @@ pub fn run() {
             commands::save_temp_file,
             commands::read_html_preview_file,
             commands::read_local_preview_file,
+            commands::check_local_preview_files,
             commands::read_workspace_essence_maps,
             commands::read_workspace_essence_source,
             commands::copy_image_to_clipboard,

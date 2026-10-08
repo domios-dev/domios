@@ -1,0 +1,25 @@
+import assert from "node:assert/strict";
+import { documentsFromTranscript } from "./chatDocuments";
+import { buildDocumentTree, shortenDocumentPath, visibleDocumentRows, documentTreeFocusIndex } from "./documentTree";
+
+const docs = (paths: string[]) => documentsFromTranscript([{ content: paths.map((path) => `@ds-document ${path}`).join("\n") }]);
+assert.equal(shortenDocumentPath("/home/ann/work/a.md", "/home/ann"), "~/work/a.md");
+assert.equal(shortenDocumentPath("/home/anna/a.md", "/home/ann"), "/home/anna/a.md");
+assert.equal(shortenDocumentPath("C:\\Users\\Ann\\a.md", "c:/users/ann"), "~/a.md");
+assert.equal(shortenDocumentPath("/opt/a.md", "/home/ann"), "/opt/a.md");
+const tree = buildDocumentTree(docs(["/home/ann/work/z.md", "/home/ann/work/b.md", "/home/ann/work/docs/deep/a.md", "/home/ann/work/assets/c.md"]), "/home/ann");
+assert.equal(tree[0].name, "~/work");
+assert.ok("children" in tree[0]);
+assert.deepEqual(tree[0].children.map((node) => node.name), ["assets", "docs/deep", "b.md", "z.md"]);
+assert.deepEqual(visibleDocumentRows(tree, new Set([tree[0].id])).map(({ node }) => node.name), ["~/work"]);
+assert.deepEqual(visibleDocumentRows(tree, new Set()).map(({ level }) => level), [1, 2, 3, 2, 3, 2, 2]);
+assert.deepEqual(buildDocumentTree([], null), []);
+assert.deepEqual(buildDocumentTree(docs(["/a/report.md"]), null).map((node) => node.name), ["/a"]);
+const roots = buildDocumentTree(docs(["C:/work/a.md", "D:/other/b.md"]), null);
+assert.deepEqual(roots.map((node) => node.name), ["C:/work", "D:/other"]);
+assert.equal(documentTreeFocusIndex("ArrowDown", 1, 3), 2);
+assert.equal(documentTreeFocusIndex("ArrowDown", 2, 3), 2);
+assert.equal(documentTreeFocusIndex("ArrowUp", 0, 3), 0);
+assert.equal(documentTreeFocusIndex("Home", 2, 3), 0);
+assert.equal(documentTreeFocusIndex("End", 0, 3), 2);
+console.log("documentTree: passed");
