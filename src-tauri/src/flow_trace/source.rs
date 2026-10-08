@@ -68,9 +68,13 @@ impl PtyFlow {
         svc: &crate::service::ServiceContext,
         anchor: Option<&SendEvidenceAnchor>,
         nonce: Option<&str>,
+        text: &str,
+        enter: bool,
     ) {
         if let Some(anchor) = anchor {
             super::watch_pty(svc, &self.tab, anchor, nonce);
+        } else if enter {
+            self.watch_unledgered(svc, text);
         }
     }
 
