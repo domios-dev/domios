@@ -18,8 +18,8 @@ export function nodeIcon(node: BlueprintNode): LucideIcon {
 }
 
 function Pin({ pin }: { pin: BlueprintPin }) {
-  const fill = pin.connected ? (pin.kind === "exec" ? "var(--ct-fg)" : "var(--bp-data)") : "var(--ct-titlebar-bg)";
-  const stroke = pin.kind === "exec" ? "var(--ct-fg)" : "var(--bp-data)";
+  const stroke = pin.kind === "exec" ? "var(--bp-exec)" : "var(--bp-data)";
+  const fill = pin.connected ? stroke : "var(--ct-titlebar-bg)";
   return <svg className="bp-pin" data-side={pin.side} data-kind={pin.kind} viewBox="0 0 12 12" aria-hidden="true">
     {pin.kind === "exec"
       ? <path d="M1.5 1.5 H6.5 L10.5 6 L6.5 10.5 H1.5 Z" fill={fill} stroke={stroke} strokeWidth="1.4" strokeLinejoin="round" />

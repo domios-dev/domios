@@ -9,6 +9,7 @@ import type { ReplayFrame } from "./blueprintRunModel";
 import { nodeStatus } from "./BlueprintNodeCard";
 import { AUTOMATION_TOOL } from "./styles";
 import { useAutomationViewport, type AutomationCamera } from "./useAutomationViewport";
+import { useBlueprintMotion } from "./useBlueprintMotion";
 
 const LEGEND: readonly BlueprintNodeType[] = ["trigger", "source", "agent", "logic", "action"];
 
@@ -24,6 +25,7 @@ export function BlueprintCanvas({ layout, selected, camera, onSelect, replay, pa
 }) {
   const hintId = useId();
   const container = useRef<HTMLDivElement | null>(null);
+  const motion = useBlueprintMotion(container);
   const paintGrid = useCallback((t: ViewportTransform) => {
     const style = container.current?.style;
     if (!style) return;
@@ -75,8 +77,10 @@ export function BlueprintCanvas({ layout, selected, camera, onSelect, replay, pa
             const lit = frame?.wires.has(route.wire.id) ?? false;
             return <g key={route.wire.id} data-wire={route.wire.id}>
               <path className="bp-wire" data-kind={route.wire.kind} data-lit={lit || undefined} d={route.path} />
-              {lit && <path className="bp-flow" d={route.path} />}
-              {frame?.travelling.includes(route.wire.id) && <circle className="bp-pulse" r="4.5" style={{ offsetPath: `path('${route.path}')`, offsetDistance: `${frame.progress * 100}%` }} />}
+              {motion && frame?.travelling.includes(route.wire.id) && <g data-replay-motion="bead" className="bp-bead" style={{ offsetPath: `path('${route.path}')`, offsetDistance: `${frame.progress * 100}%`, opacity: Math.min(1, frame.progress / 0.1, (1 - frame.progress) / 0.12) }}>
+                <ellipse rx={4.5 + Math.sin(frame.progress * Math.PI) * 2.5} ry={3.5 - Math.sin(frame.progress * Math.PI) * 0.7} />
+                <ellipse className="bp-bead__glint" cx="-1" cy="-1" rx="1.6" ry="0.7" />
+              </g>}
             </g>;
           })}
         </svg>
@@ -96,7 +100,7 @@ export function BlueprintCanvas({ layout, selected, camera, onSelect, replay, pa
             style={{ left: box.x, top: box.y, width: box.width, height: box.height }}
             onFocus={() => viewport.reveal(box)}
             onClick={() => onSelect(node.key)}
-          ><BlueprintNodeCard laid={laid} /></button>;
+          >{motion && frame?.nodes.has(node.key) && <span className="bp-absorb" data-replay-motion="absorb" aria-hidden="true" />}<BlueprintNodeCard laid={laid} /></button>;
         })}
       </div>
     </div>
