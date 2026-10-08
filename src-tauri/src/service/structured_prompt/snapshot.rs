@@ -8,7 +8,11 @@ use crate::service::ServiceContext;
 
 pub(crate) const RETAINED_ROWS: usize = 440;
 
-pub(crate) fn normalize(session_id: &str, value: &Value) -> Result<Vec<ChatMsg>, String> {
+fn normalize_with(
+    session_id: &str,
+    value: &Value,
+    mut map: impl FnMut(&Value, &mut ChatMsg),
+) -> Result<Vec<ChatMsg>, String> {
     let messages = value
         .as_array()
         .ok_or("Invalid structured transcript snapshot")?;
@@ -48,6 +52,7 @@ pub(crate) fn normalize(session_id: &str, value: &Value) -> Result<Vec<ChatMsg>,
                 event: ChatPartEvent::Updated,
             };
             if let Some(mut row) = normalize_chat_part(&update, &meta, None) {
+                map(part, &mut row);
                 row.seq = sequence;
                 sequence += 1;
                 if rows.len() == RETAINED_ROWS {
@@ -86,13 +91,43 @@ pub(crate) fn read(svc: &ServiceContext, tab_id: &str) -> Result<Vec<ChatMsg>, S
     if binding()? != (session_id.clone(), nonce) {
         return Err("Transcript binding changed during snapshot".into());
     }
-    normalize(&session_id, &value)
+    normalize_with(&session_id, &value, |part, row| {
+        super::tool_diffs::apply(svc, tab_id, part, row)
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn snapshot_file_diffs_use_the_provider_mapping() {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../plugins/provider-opencode/plugin.json");
+        let provider = crate::plugin::js_runtime::loader::load_one(&manifest).unwrap();
+        let fixtures: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../tests/fixtures/opencode-1.18.35-tool-parts.json"
+        )))
+        .unwrap();
+        let mut part = fixtures[0]["part"].clone();
+        part["id"] = json!("write");
+        part["sessionID"] = json!("own");
+        part["messageID"] = json!("message");
+        let value =
+            json!([{"info":{"id":"message","sessionID":"own","role":"assistant"},"parts":[part]}]);
+        let rows = normalize_with("own", &value, |part, row| {
+            super::super::tool_diffs::map(&provider, part, row);
+        })
+        .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].file_diffs.as_ref().unwrap()[0]["additions"], 1);
+        assert_eq!(
+            rows[0].file_diffs.as_ref().unwrap()[0]["path"],
+            "/repo/open.txt"
+        );
+    }
 
     #[test]
     fn structured_snapshot_replays_own_session_with_live_ids_and_bounded_tail() {
@@ -108,10 +143,10 @@ mod tests {
             {"info":{"id":"foreign","sessionID":"other","role":"assistant"},"parts":parts},
             {"info":{"id":"message","sessionID":"own","role":"assistant"},"parts":parts}
         ]);
-        let rows = normalize("own", &value).unwrap();
+        let rows = normalize_with("own", &value, |_, _| {}).unwrap();
         assert_eq!(rows.len(), RETAINED_ROWS);
         assert_eq!(rows[0].id, "part-60");
         assert_eq!(rows[439].content, "text-499");
-        assert_eq!(normalize("own", &value).unwrap(), rows);
+        assert_eq!(normalize_with("own", &value, |_, _| {}).unwrap(), rows);
     }
 }

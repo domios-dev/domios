@@ -8,6 +8,7 @@ fn completed_tool_diffs_match_plugin_fixtures_and_reject_unfinished_edits() {
         "/../tests/fixtures/opencode-file-diffs.json"
     )))
     .unwrap();
+    let provider = diff_provider();
     for fixture in fixtures.as_array().unwrap() {
         for status in ["completed", "running", "pending", "error"] {
             let update = ChatPartUpdate {
@@ -26,7 +27,8 @@ fn completed_tool_diffs_match_plugin_fixtures_and_reject_unfinished_edits() {
                 role: "assistant".into(),
                 timestamp: None,
             };
-            let result = normalize_chat_part(&update, &message, None).unwrap();
+            let mut result = normalize_chat_part(&update, &message, None).unwrap();
+            super::super::tool_diffs::map(&provider, &update.part, &mut result);
             if status == "completed" {
                 assert_eq!(
                     result.file_diffs,
@@ -493,4 +495,44 @@ fn v2_question_events_keep_their_session_scoped_routes() {
         "/api/session/s2/permission/p2/reply"
     );
     assert_eq!(reply_body(&route, "once"), Some(json!({"reply":"once"})));
+}
+
+fn diff_provider() -> crate::plugin::js_runtime::JsProvider {
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../plugins/provider-opencode/plugin.json");
+    crate::plugin::js_runtime::loader::load_one(&manifest).unwrap()
+}
+
+#[test]
+fn stored_opencode_tool_parts_map_to_chat_file_diffs_through_the_plugin() {
+    let provider = diff_provider();
+    let fixtures: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/opencode-1.18.35-tool-parts.json"
+    )))
+    .unwrap();
+    for fixture in fixtures.as_array().unwrap() {
+        let update = ChatPartUpdate {
+            session_id: "own".into(),
+            message_id: "message".into(),
+            part_id: "part".into(),
+            part: fixture["part"].clone(),
+            delta: None,
+            event: ChatPartEvent::Updated,
+        };
+        let meta = MessageMeta {
+            session_id: "own".into(),
+            message_id: "message".into(),
+            role: "assistant".into(),
+            timestamp: None,
+        };
+        let mut row = normalize_chat_part(&update, &meta, None).unwrap();
+        super::super::tool_diffs::map(&provider, &update.part, &mut row);
+        let diff = &row.file_diffs.as_ref().unwrap()[0];
+        assert_eq!(diff["path"], fixture["expectedPath"]);
+        assert_eq!(diff["additions"], fixture["additions"]);
+        assert_eq!(diff["deletions"], fixture["deletions"]);
+        assert_eq!(row.tool_error, Some(false));
+        assert_eq!(row.id, "part");
+    }
 }

@@ -724,6 +724,10 @@ impl AgentProvider for JsProvider {
         self.js_session_jsonl_path(cwd, session_id)
     }
 
+    fn structured_tool_file_diffs(&self, part: &serde_json::Value) -> Option<serde_json::Value> {
+        self.js_structured_tool_file_diffs(part)
+    }
+
     fn uses_structured_chat(&self) -> bool {
         if self.has_js("usesStructuredChat") {
             return self.try_call("usesStructuredChat", &[]).unwrap_or(false);
