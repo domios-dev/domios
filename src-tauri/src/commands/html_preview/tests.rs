@@ -79,3 +79,42 @@ fn reads_bounded_documents_and_images_by_explicit_kind() {
     assert!(image.data.starts_with("data:image/png;base64,"));
     assert!(read_local_preview_file_core(markdown.to_str().unwrap(), "image").is_err());
 }
+
+#[test]
+fn reads_source_text_without_an_extension_allowlist() {
+    let temp = tempfile::tempdir().unwrap();
+    for name in ["current.ts", "module.rs", "Makefile", "unknown.custom"] {
+        let path = preview_test_root(temp.path()).join(name);
+        let source = "const current = 42;\n";
+        std::fs::write(&path, source).unwrap();
+        let result = read_local_preview_file_core(path.to_str().unwrap(), "document").unwrap();
+        assert_eq!(result.data, source);
+        assert_eq!(result.media_type, "text/plain");
+    }
+}
+
+#[test]
+fn rejects_binary_source_text_by_content() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = preview_test_root(temp.path()).join("binary.ts");
+    for bytes in [vec![b'a', 0, b'b'], vec![0xff, 0xfe, 0xfd]] {
+        std::fs::write(&path, bytes).unwrap();
+        assert!(
+            read_local_preview_file_core(path.to_str().unwrap(), "document")
+                .unwrap_err()
+                .contains("Binary")
+        );
+    }
+}
+
+#[test]
+fn rejects_oversized_source_text() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = preview_test_root(temp.path()).join("large.ts");
+    std::fs::write(&path, vec![b'x'; DOCUMENT_PREVIEW_FILE_LIMIT as usize + 1]).unwrap();
+    assert!(
+        read_local_preview_file_core(path.to_str().unwrap(), "document")
+            .unwrap_err()
+            .contains("exceeds")
+    );
+}
