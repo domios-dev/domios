@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, finish, it } from "../../test/standaloneTest";
 import { tabRowLabel } from "../../lib/surfaceTab";
 import type { SurfaceTabBacking, Tab } from "../../lib/types";
-import { TabItem } from "./TabItem";
+import { TabItem, type AttachmentToggle } from "./TabItem";
 
 const backing: SurfaceTabBacking = {
   kind: "surface",
@@ -39,6 +39,43 @@ describe("surface tab row label", () => {
 
   it("falls back to the model's title-only label without an owner", () => {
     expect(titleText(null)).toBe(tabRowLabel(surfaceTab, "Board", null));
+  });
+});
+
+const ownerTab: Tab = { id: "owner", title: "Snake", tab_type: "Terminal", pty_id: null, cwd: null, description: "Hunting bugs" };
+
+function markup(tab: Tab, extra: { variant?: "attachment"; insetPx?: number; attachmentToggle?: AttachmentToggle | null }): string {
+  return renderToStaticMarkup(
+    <TabItem tab={tab} index={0} isActive={false} onClick={() => undefined} onClose={() => undefined} canClose workspaceId="workspace" {...extra} />,
+  );
+}
+
+describe("surface attachment rows", () => {
+  it("renders a compact row inset one avatar in from its owner", () => {
+    const html = markup(surfaceTab, { variant: "attachment", insetPx: 30 });
+    expect(html).toContain('data-variant="attachment"');
+    expect(html).toContain("padding-left:30px");
+    expect(html).toContain('data-testid="tab-surface-icon"');
+  });
+
+  it("keeps the subtitle stack off attachment rows", () => {
+    const described = { ...surfaceTab, description: "Reading docs" };
+    expect(markup(described, { variant: "attachment" })).not.toContain("tab-description-subtitle");
+    expect(markup(described, {})).toContain("tab-description-subtitle");
+  });
+
+  it("badges a collapsed owner with a globe and a count only for several surfaces", () => {
+    const toggle = (count: number, collapsed: boolean): AttachmentToggle => ({ count, collapsed, onToggle: () => undefined });
+    const several = markup(ownerTab, { attachmentToggle: toggle(3, true) });
+    expect(several).toContain('aria-label="Show 3 surfaces"');
+    expect(several).toContain('data-testid="attachment-toggle-count">3<');
+    const single = markup(ownerTab, { attachmentToggle: toggle(1, true) });
+    expect(single).toContain('aria-label="Show 1 surface"');
+    expect(single).not.toContain("attachment-toggle-count");
+    const expanded = markup(ownerTab, { attachmentToggle: toggle(3, false) });
+    expect(expanded).toContain('aria-label="Hide 3 surfaces"');
+    expect(expanded).not.toContain("attachment-toggle-count");
+    expect(markup(ownerTab, {})).not.toContain("attachment-toggle");
   });
 });
 

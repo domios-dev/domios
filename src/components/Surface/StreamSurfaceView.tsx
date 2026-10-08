@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { TextPromptDialog } from "../shared/TextPromptDialog";
+import { useSurfaceTakeControl } from "../../lib/surfaceControlStore";
 import { frameBytes, type FrameDecoder } from "./frameFeed";
 import { createLatestWins, type LatestWins } from "./latestWins";
 import { PointAndAsk } from "./PointAndAsk";
@@ -34,6 +35,7 @@ import {
   type SurfaceState,
   type ToolbarItemSpec,
 } from "./surfaceChromeModel";
+import { SurfaceFlowLine } from "./SurfaceFlowLine";
 import { SurfaceNoticeBar } from "./SurfaceNoticeBar";
 import { inputArgs, SURFACE_METHOD, type ScreenshotResult, type SurfaceNotice, type SurfaceStreamTransport } from "./surfaceStreamTransport";
 import { SurfaceToolbar } from "./SurfaceToolbar";
@@ -45,6 +47,8 @@ export interface StreamSurfaceViewProps {
   surfaceTitle: string;
   initialState: SurfaceState;
   ownerName?: string | null;
+  /** Shares Take control with the sidebar tether and drives the flow line. */
+  surfaceTabId?: string;
   decode?: FrameDecoder;
   saveScreenshot?(shot: ScreenshotResult): void;
 }
@@ -69,11 +73,11 @@ export function downloadScreenshot(shot: ScreenshotResult) {
   URL.revokeObjectURL(url);
 }
 
-export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialState, ownerName, decode, saveScreenshot = downloadScreenshot }: StreamSurfaceViewProps) {
+export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialState, ownerName, surfaceTabId, decode, saveScreenshot = downloadScreenshot }: StreamSurfaceViewProps) {
   const stream = useSurfaceStream(transport, initialState);
   const { notice, setNotice } = stream;
   const state = withOwner(stream.state, ownerName);
-  const [interactive, setInteractive] = useState(false);
+  const [interactive, setInteractive] = useSurfaceTakeControl(surfaceTabId);
   const [picking, setPicking] = useState(false);
   const [picked, setPicked] = useState<Picked | null>(null);
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
@@ -229,6 +233,7 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
         }}
         onSelect={onSelect}
       />
+      {surfaceTabId && <SurfaceFlowLine surfaceTabId={surfaceTabId} />}
       <StreamCanvas
         label={label}
         pageTitle={state.title}

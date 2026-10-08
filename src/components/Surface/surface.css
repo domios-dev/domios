@@ -217,3 +217,72 @@
 .ct-surface-ask__actions-start {
   margin-left: auto;
 }
+
+.ct-surface-owner-chip {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 45%;
+  flex-shrink: 1;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 999px;
+  padding: 1px 7px 1px 5px;
+  background: color-mix(in srgb, var(--ct-hover) 70%, transparent);
+  color: var(--ct-muted-fg);
+  font: inherit;
+}
+
+.ct-surface-owner-chip--link {
+  cursor: pointer;
+  transition:
+    color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.ct-surface-owner-chip--link:hover {
+  background: var(--ct-hover);
+  color: var(--ct-fg);
+}
+
+.ct-surface-owner-chip--link:focus-visible {
+  outline: 1px solid var(--ct-accent);
+  outline-offset: 1px;
+}
+
+.ct-surface-flow {
+  position: relative;
+  flex-shrink: 0;
+  height: 1px;
+  margin-top: -1px;
+  overflow: hidden;
+  background: transparent;
+  pointer-events: none;
+}
+
+.ct-surface-flow[data-state="controlled"] {
+  background: color-mix(in srgb, var(--ct-accent) 55%, transparent);
+}
+
+.ct-surface-flow__pass {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 38%;
+  border-radius: 1px;
+  background: linear-gradient(90deg, transparent, var(--ct-accent) 70%, transparent);
+  transform: translateX(-100%);
+  animation: ct-surface-flow-pass var(--ct-duration-liquid-sweep) var(--ct-ease-liquid-settle) forwards;
+}
+
+@keyframes ct-surface-flow-pass {
+  from { opacity: 1; transform: translateX(-100%); }
+  to { opacity: 0.2; transform: translateX(265%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-surface-flow__pass {
+    display: none;
+  }
+}

@@ -16,7 +16,8 @@ interface SurfaceTabHostProps {
 export function SurfaceTabHost({ tab, backing, workspaceId, api, isVisible }: SurfaceTabHostProps) {
   const { closeTab, selectTabByTab } = useMultiplexer();
   const ownerId = tab.parent_tab_id ?? null;
-  const ownerName = useMuxSelector((state) => (ownerId ? state.tabs[ownerId]?.title ?? null : null));
+  const ownerTab = useMuxSelector((state) => (ownerId ? state.tabs[ownerId] ?? null : null));
+  const ownerName = ownerTab?.title ?? null;
   const ownerWorkspaceId = useMuxSelector((state) => workspaceIdOfTab(state.workspaces, ownerId));
   const tabWorkspaceId = useMuxSelector((state) => workspaceId ?? workspaceIdOfTab(state.workspaces, tab.id));
   const decl = useSurfaceDecl(api, backing.plugin_id, backing.surface_id);
@@ -25,6 +26,7 @@ export function SurfaceTabHost({ tab, backing, workspaceId, api, isVisible }: Su
       tab={tab}
       backing={backing}
       ownerName={ownerName}
+      ownerTab={ownerTab}
       onFocusOwner={ownerId && ownerWorkspaceId ? () => void selectTabByTab(ownerWorkspaceId, ownerId) : undefined}
       onClose={() => {
         if (tabWorkspaceId) closeTab(tabWorkspaceId, tab.id);
