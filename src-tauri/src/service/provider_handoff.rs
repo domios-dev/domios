@@ -69,7 +69,6 @@ pub(crate) fn select_history(messages: &[ChatMsg], budget_tokens: usize) -> Stri
             continue;
         }
         if let Some(fitted) = fit_entry(&entry, available, true) {
-            used_bytes += separator + fitted.len();
             selected.push((index, fitted));
             break;
         }

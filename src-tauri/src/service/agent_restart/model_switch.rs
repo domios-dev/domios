@@ -351,6 +351,7 @@ fn recorded_launch_parameters(tab: &crate::multiplexer::types::Tab) -> Restorabl
 }
 
 impl ServiceContext {
+    #[cfg(test)]
     pub(crate) fn agent_switch_model(
         &self,
         tab_id: &str,
@@ -359,6 +360,7 @@ impl ServiceContext {
         self.agent_switch_model_with_reasoning(tab_id, requested, None)
     }
 
+    #[cfg(test)]
     pub(crate) fn agent_switch_model_with_reasoning(
         &self,
         tab_id: &str,

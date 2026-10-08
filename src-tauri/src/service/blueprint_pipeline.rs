@@ -90,9 +90,11 @@ impl super::ServiceContext {
         let (caller_live, result_scope) = {
             let mux = self.mux.read();
             let live = super::sentinel::caller_is_live(&mux, caller);
-            let target = live
-                .then(|| validate_pipeline_result_scope(&mux, caller, spec.owner, &spec.result.to))
-                .unwrap_or_else(|| Err("blueprint caller scope changed".into()));
+            let target = if live {
+                validate_pipeline_result_scope(&mux, caller, spec.owner, &spec.result.to)
+            } else {
+                Err("blueprint caller scope changed".into())
+            };
             (live, target)
         };
         checks.push(json!({"field":"scope", "passed":caller_live,
