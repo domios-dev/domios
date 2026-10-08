@@ -8,6 +8,7 @@ export interface FileDiffHunk {
 
 export interface FileDiff {
   path: string;
+  kind?: "add" | "modify";
   additions: number;
   deletions: number;
   hunks: FileDiffHunk[];
@@ -67,6 +68,6 @@ export function claudeFileDiffs(result: unknown): FileDiff[] {
     if (!hunk) return [];
     hunks.push(hunk);
   }
-  if (hunks.length > 0) return [fileDiff(path, hunks)];
-  return record.type === "create" && typeof record.content === "string" ? [fileDiff(path, createdHunks(record.content))] : [];
+  if (hunks.length > 0) return [{ ...fileDiff(path, hunks), kind: record.type === "create" ? "add" : "modify" }];
+  return record.type === "create" && typeof record.content === "string" ? [{ ...fileDiff(path, createdHunks(record.content)), kind: "add" }] : [];
 }

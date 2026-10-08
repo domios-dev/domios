@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 export interface PlanSidePanelTarget {
   planId: string;
   documentsTabId?: string;
+  tabView?: "documents" | "changes";
   taskId?: string;
   teamId?: string | null;
   canonicalProjectPath?: string;
@@ -18,7 +19,7 @@ export interface PlanSidePanelEntry {
 export const PLAN_SIDE_PANEL_ATTRIBUTE = "data-plan-side-panel";
 
 let entry: PlanSidePanelEntry | null = null;
-const rememberedDocuments = new Set<string>();
+const rememberedDocuments = new Map<string, PlanSidePanelTarget>();
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -34,7 +35,7 @@ function focusedOutsidePanel(): HTMLElement | null {
 
 export const planSidePanelStore = {
   open(target: PlanSidePanelTarget) {
-    if (target.documentsTabId) rememberedDocuments.add(target.documentsTabId);
+    if (target.documentsTabId) rememberedDocuments.set(target.documentsTabId, target);
     const outside = focusedOutsidePanel();
     entry = { target, opener: outside ?? entry?.opener ?? null };
     notify();
@@ -51,7 +52,8 @@ export const planSidePanelStore = {
   activateTab(tabId: string) {
     if (entry?.target.documentsTabId === tabId) return;
     if (entry?.target.documentsTabId) { entry = null; notify(); }
-    if (rememberedDocuments.has(tabId)) this.open({ planId: "", documentsTabId: tabId });
+    const remembered = rememberedDocuments.get(tabId);
+    if (remembered) this.open(remembered);
   },
   resetDocuments() { rememberedDocuments.clear(); },
   get(): PlanSidePanelEntry | null {
