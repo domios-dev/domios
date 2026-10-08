@@ -60,7 +60,7 @@ export class FixtureTransport implements AutomationGraphAdapter {
   async subscribe(scope: AutomationAttachment, changed: () => void) {
     this.attachments.push(scope);
     this.graphListeners.add(changed);
-    this.changed = () => { for (const listener of this.graphListeners) listener(); };
+    this.changed = () => { for (const listener of [...this.graphListeners]) listener(); };
     return () => { this.unsubscribeCount++; this.graphListeners.delete(changed); if (!this.graphListeners.size) this.changed = undefined; };
   }
   async stop(scope: AutomationAttachment, target: AutomationIdentity) {

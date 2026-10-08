@@ -7,11 +7,17 @@ import { RunLog } from "./RunLog";
 import { fixtureGraph } from "./fixtures.testdata";
 import { useRunReplay } from "./useRunReplay";
 
+async function main() {
 const window = new Window({ url: "http://localhost" });
 for (const key of ["window", "document", "HTMLElement", "Element", "Node", "navigator", "KeyboardEvent"]) Object.defineProperty(globalThis, key, { configurable: true, value: (window as unknown as Record<string, unknown>)[key] });
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let reduced = false;
-window.matchMedia = (media) => ({ matches: reduced, media, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => true });
+const matchMedia = window.matchMedia.bind(window);
+window.matchMedia = (media) => {
+  const query = matchMedia(media);
+  Object.defineProperty(query, "matches", { get: () => reduced });
+  return query;
+};
 let frame: FrameRequestCallback | null = null;
 let scheduled = 0;
 Object.assign(globalThis, { requestAnimationFrame: (callback: FrameRequestCallback) => { frame = callback; return ++scheduled; }, cancelAnimationFrame: () => { frame = null; } });
@@ -74,3 +80,6 @@ try {
   host.remove();
 }
 console.log("Node inspector, code fullscreen, run log and replay wiring passed");
+
+}
+void main().catch((error: unknown) => { console.error(error); process.exitCode = 1; });
