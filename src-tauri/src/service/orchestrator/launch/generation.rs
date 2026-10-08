@@ -39,8 +39,17 @@ impl LaunchGeneration {
         reserved_nonce: Option<String>,
     ) -> Result<(), String> {
         let sidecar = crate::service::codex_rpc::lifecycle::for_tab(&self.tab_id);
-        let nonce = reserved_nonce
-            .unwrap_or_else(|| reserve_binding_nonce(svc, &self.tab_id, resume_session_id));
+        let current = svc
+            .mux
+            .read()
+            .get_tab(&self.tab_id)
+            .and_then(|tab| tab.session_binding_nonce.clone());
+        // A launch path may re-mint the binding after the early reservation (Codex RPC does);
+        // then this launch takes a fresh nonce and sends pinned to the old one expire honestly.
+        let nonce = match reserved_nonce {
+            Some(reserved) if current.as_deref() == Some(reserved.as_str()) => reserved,
+            _ => reserve_binding_nonce(svc, &self.tab_id, resume_session_id),
+        };
         if !svc
             .mux
             .read()
