@@ -1,5 +1,6 @@
 import type { Tab } from "../../lib/types";
 import { anchorsTeam } from "../../lib/roleKind";
+import { isSurfaceTab } from "../../lib/surfaceTab";
 import { remoteTeamIdentity } from "./remoteOwnership";
 import { sortTeamManagers } from "./orchestrationSections";
 import { isSidebarTabVisible } from "./workspaceTabs";
@@ -31,9 +32,19 @@ export function groupWorkspaceTeamMembers(sortedTabs: readonly Tab[]): Map<strin
 }
 
 export function partitionTeamMembers(members: readonly TeamTabMember[]) {
-  return {
-    managers: sortTeamManagers(members.filter((member) => member.tab.role === "Manager")),
-    terminals: members.filter((member) => member.tab.role == null),
-    workers: members.filter((member) => !anchorsTeam(member.tab) && member.tab.role !== "Manager" && member.tab.role != null),
-  };
+  const managers = sortTeamManagers(members.filter((member) => member.tab.role === "Manager"));
+  const workers = members.filter((member) => !anchorsTeam(member.tab) && member.tab.role !== "Manager" && member.tab.role != null);
+  const agentIds = new Set([...managers, ...workers].map((member) => member.tab.id));
+  const surfacesByOwner = new Map<string, TeamTabMember[]>();
+  const terminals: TeamTabMember[] = [];
+  for (const member of members) {
+    if (member.tab.role != null) continue;
+    const ownerId = member.tab.parent_tab_id;
+    if (isSurfaceTab(member.tab) && ownerId && agentIds.has(ownerId)) {
+      surfacesByOwner.set(ownerId, [...(surfacesByOwner.get(ownerId) ?? []), member]);
+    } else {
+      terminals.push(member);
+    }
+  }
+  return { managers, terminals, workers, surfacesByOwner };
 }

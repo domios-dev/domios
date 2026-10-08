@@ -1,3 +1,4 @@
+import { isPtyBacked } from "./surfaceTab";
 import type { Tab } from "./types";
 
 export type ShellPurpose = "build" | "dev" | "qa" | "shell";
@@ -7,7 +8,7 @@ export interface ShellCommandState {
 }
 
 export function isUtilityShell(tab: Tab): boolean {
-  return tab.tab_type === "Terminal" && tab.backing?.kind !== "chat_backend"
+  return tab.tab_type === "Terminal" && isPtyBacked(tab)
     && !tab.agent_type && !tab.role && !tab.roleless_tracked;
 }
 
