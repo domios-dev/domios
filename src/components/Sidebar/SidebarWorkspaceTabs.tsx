@@ -30,6 +30,8 @@ import type { JobsTarget } from "../Jobs/JobsView";
 import type { DeclaredAttentionLevel } from "./declaredAttention";
 import { surfaceOwnerTitle } from "../../lib/surfaceTab";
 import { cronReportTitle, terminalOrigin } from "./teamRowLabels";
+import { SurfaceOwnerBlock } from "./SurfaceAttachments";
+import { attachmentInset, ownerRowInset, surfaceAttachmentsByOwner, type OwnerRowContext } from "./surfaceAttachmentModel";
 
 import {
   effectiveTeamId,
@@ -186,7 +188,7 @@ export function SidebarWorkspaceTabs({
   workspaceCanvasActive,
   touchMode,
   uiFontScale,
-  compact: _compact,
+  compact,
   sidebarActionText,
   orchestrators,
   onBeforeOpenPlan,
@@ -253,44 +255,67 @@ export function SidebarWorkspaceTabs({
     },
   };
 
+  const renderOwnerWithAttachments = (
+    owner: Tab,
+    attachments: readonly Tab[],
+    context: OwnerRowContext,
+    renderOwner: Parameters<typeof SurfaceOwnerBlock>[0]["renderOwner"],
+  ): ReactNode => {
+    const inset = attachmentInset(ownerRowInset(context, touchMode));
+    return (
+      <SurfaceOwnerBlock
+        ownerId={owner.id}
+        attachments={attachments}
+        compact={compact}
+        renderOwner={renderOwner}
+        wrapAttachments={(rows) => (
+          <SortableContext items={attachments.map((surface) => `${TAB_PREFIX}${surface.id}`)} strategy={verticalListSortingStrategy}>
+            {rows}
+          </SortableContext>
+        )}
+        renderAttachment={(surface, surfaceIndex) => (
+          <SidebarSingleTabRow
+            tab={surface}
+            ownerTitle={surfaceOwnerTitle(surface, tabs)}
+            index={surfaceIndex}
+            activity={resolveTabTabActivity(planIndex, surface.id, tabs)}
+            activeWork={activeWork}
+            isClosing={closingTabIds.has(surface.id)}
+            isAppearing={appearingTabIds.has(surface.id)}
+            group="child"
+            groupKey={owner.id}
+            pinnedIds={[]}
+            variant="attachment"
+            insetPx={inset}
+            ownerBadgeTab={compact ? owner : null}
+            {...sharedRow}
+          />
+        )}
+      />
+    );
+  };
+
   const renderMemberRow = (
     member: TeamTabMember,
     surfaces: readonly TeamTabMember[] = [],
   ): ReactNode => (
     <div key={member.tab.id} className="sidebar-team-member">
-      <SidebarSingleTabRow
-        tab={member.tab}
-        ownerTitle={surfaceOwnerTitle(member.tab, tabs)}
-        index={member.index}
-        activity={resolveTabTabActivity(planIndex, member.tab.id, tabs)}
-        activeWork={activeWork}
-        isClosing={closingTabIds.has(member.tab.id)}
-        isAppearing={appearingTabIds.has(member.tab.id)}
-        group="tab"
-        groupKey={ws.id}
-        pinnedIds={[]}
-        {...sharedRow}
-      />
-      {surfaces.length > 0 && (
-        <SortableContext items={surfaces.map((surface) => `${TAB_PREFIX}${surface.tab.id}`)} strategy={verticalListSortingStrategy}>
-          {surfaces.map((surface, surfaceIndex) => (
-            <SidebarSingleTabRow
-              key={surface.tab.id}
-              tab={surface.tab}
-              ownerTitle={surfaceOwnerTitle(surface.tab, tabs)}
-              index={surfaceIndex}
-              activity={resolveTabTabActivity(planIndex, surface.tab.id, tabs)}
-              activeWork={activeWork}
-              isClosing={closingTabIds.has(surface.tab.id)}
-              isAppearing={appearingTabIds.has(surface.tab.id)}
-              group="child"
-              groupKey={member.tab.id}
-              pinnedIds={[]}
-              {...sharedRow}
-            />
-          ))}
-        </SortableContext>
-      )}
+      {renderOwnerWithAttachments(member.tab, surfaces.map((surface) => surface.tab), "team", (toggle) => (
+        <SidebarSingleTabRow
+          tab={member.tab}
+          ownerTitle={surfaceOwnerTitle(member.tab, tabs)}
+          index={member.index}
+          activity={resolveTabTabActivity(planIndex, member.tab.id, tabs)}
+          activeWork={activeWork}
+          isClosing={closingTabIds.has(member.tab.id)}
+          isAppearing={appearingTabIds.has(member.tab.id)}
+          group="tab"
+          groupKey={ws.id}
+          pinnedIds={[]}
+          attachmentToggle={toggle}
+          {...sharedRow}
+        />
+      ))}
     </div>
   );
 
@@ -333,6 +358,8 @@ export function SidebarWorkspaceTabs({
   const rows: ReactNode[] = [];
   const looseTabs = sortedTabs.filter((tab) => !effectiveTeamId(tab));
   const looseIds = new Set(looseTabs.map((tab) => tab.id));
+  const looseAttachments = surfaceAttachmentsByOwner(looseTabs);
+  const attachedIds = new Set([...looseAttachments.values()].flat().map((tab) => tab.id));
   const looseChildIds = new Set(
     looseTabs
       .filter((tab) => tab.parent_tab_id && looseIds.has(tab.parent_tab_id))
@@ -355,23 +382,26 @@ export function SidebarWorkspaceTabs({
     groupKey: string,
     pinnedIds: string[],
   ): ReactNode => {
-    const children = looseTabs.filter((candidate) => candidate.parent_tab_id === tab.id);
+    const children = looseTabs.filter((candidate) => candidate.parent_tab_id === tab.id && !attachedIds.has(candidate.id));
     const childItems = children.map((child) => `${TAB_PREFIX}${child.id}`);
     return (
       <div key={tab.id} className="sidebar-tab-tree-row">
-        <SidebarSingleTabRow
-          tab={tab}
-          ownerTitle={surfaceOwnerTitle(tab, tabs)}
-          index={index}
-          activity={resolveTabTabActivity(planIndex, tab.id, tabs)}
-          activeWork={activeWork}
-          isClosing={closingTabIds.has(tab.id)}
-          isAppearing={appearingTabIds.has(tab.id)}
-          group={group}
-          groupKey={groupKey}
-          pinnedIds={pinnedIds}
-          {...sharedRow}
-        />
+        {renderOwnerWithAttachments(tab, looseAttachments.get(tab.id) ?? [], "loose", (toggle) => (
+          <SidebarSingleTabRow
+            tab={tab}
+            ownerTitle={surfaceOwnerTitle(tab, tabs)}
+            index={index}
+            activity={resolveTabTabActivity(planIndex, tab.id, tabs)}
+            activeWork={activeWork}
+            isClosing={closingTabIds.has(tab.id)}
+            isAppearing={appearingTabIds.has(tab.id)}
+            group={group}
+            groupKey={groupKey}
+            pinnedIds={pinnedIds}
+            attachmentToggle={toggle}
+            {...sharedRow}
+          />
+        ))}
         {children.length > 0 && (
           <SortableContext items={childItems} strategy={verticalListSortingStrategy}>
             {children.map((child, childIndex) =>

@@ -7,6 +7,7 @@ export interface DeclaredSurface {
   renderer: string;
   runtime: string | null;
   chrome: unknown;
+  icon?: string;
 }
 
 export type SurfaceDeclLookup =
@@ -37,13 +38,16 @@ function declaredRow(value: unknown): DeclaredSurface | null {
   const pluginId = stringField(value, "plugin_id");
   const surfaceId = stringField(value, "surface_id");
   if (!pluginId || !surfaceId) return null;
-  return {
+  const row: DeclaredSurface = {
     pluginId,
     surfaceId,
     renderer: stringField(value, "renderer") ?? "view",
     runtime: stringField(value, "runtime") ?? null,
     chrome: value.chrome,
   };
+  const icon = stringField(value, "icon");
+  if (icon) row.icon = icon;
+  return row;
 }
 
 export function parseDeclaredSurfaces(body: unknown): DeclaredSurface[] {

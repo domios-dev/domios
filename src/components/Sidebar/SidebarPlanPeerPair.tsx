@@ -5,7 +5,7 @@ import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
 import type { TabTabActivity } from "../Canvas/tabTabActivity";
 import { resolvePlanPeerPair } from "../shared/PairAffordance";
 import { SortableRow, TAB_PREFIX } from "./sortable";
-import { TabItem } from "./TabItem";
+import { TabItem, type AttachmentToggle } from "./TabItem";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import type { DeclaredAttentionLevel } from "./declaredAttention";
 
@@ -53,6 +53,10 @@ export interface SidebarTabItemRowProps {
   onToggleCollapse?: () => void;
   collapsedSummary?: string | null;
   ownerTitle?: string | null;
+  variant?: "attachment";
+  insetPx?: number;
+  ownerBadgeTab?: Tab | null;
+  attachmentToggle?: AttachmentToggle | null;
   onActivateTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
   onRenameTab: (tabId: string, title: string) => void;
@@ -80,6 +84,10 @@ function SidebarTabItemRow({
   onToggleCollapse,
   collapsedSummary,
   ownerTitle,
+  variant,
+  insetPx,
+  ownerBadgeTab,
+  attachmentToggle,
   onActivateTab,
   onCloseTab,
   onRenameTab,
@@ -115,6 +123,10 @@ function SidebarTabItemRow({
       onToggleCollapse={onToggleCollapse}
       collapsedSummary={collapsedSummary}
       ownerTitle={ownerTitle}
+      variant={variant}
+      insetPx={insetPx}
+      ownerBadgeTab={ownerBadgeTab}
+      attachmentToggle={attachmentToggle}
     />
   );
 }

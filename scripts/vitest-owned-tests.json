@@ -94,5 +94,11 @@
   "src/lib/helperMoments/adjacency.test.ts",
   "src/lib/helperMoments/helperMomentsStore.test.ts",
   "src/lib/helperMoments/helperMomentsWiring.test.ts",
-  "src/components/Terminal/HelperMomentCard.test.tsx"
+  "src/components/Terminal/HelperMomentCard.test.tsx",
+  "src/components/Sidebar/tetherGeometry.test.ts",
+  "src/components/Sidebar/surfaceAttachmentModel.test.ts",
+  "src/components/Sidebar/SurfaceAttachments.test.tsx",
+  "src/lib/surfaceActivity.test.ts",
+  "src/lib/surfaceControlStore.test.tsx",
+  "src/components/Surface/surfaceIcon.test.ts"
 ]

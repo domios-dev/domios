@@ -15,6 +15,8 @@ vi.mock("../../lib/webApi", () => ({
 vi.mock("../../lib/pluginBubbleCache", () => ({ invalidatePluginBubble: vi.fn() }));
 
 import { SurfaceTabView, type SurfaceTransportFactory } from "./SurfaceTabView";
+import { recordSurfaceActivity, SURFACE_PULSE_MS, surfaceActivityStore } from "../../lib/surfaceActivity";
+import { surfaceControlStore } from "../../lib/surfaceControlStore";
 import type { SurfaceDeclLookup } from "../Surface/surfaceRenderPlan";
 import type { SurfaceStreamTransport } from "../Surface/surfaceStreamTransport";
 import type { SurfaceTabBacking, Tab } from "../../lib/types";
@@ -31,6 +33,9 @@ afterEach(async () => {
   host?.remove();
   root = null;
   host = null;
+  surfaceActivityStore.reset();
+  surfaceControlStore.reset();
+  vi.useRealTimers();
 });
 
 async function mount(ui: ReactElement) {
@@ -135,5 +140,51 @@ describe("surface tab view", () => {
     await mount(<SurfaceTabView tab={tab} backing={backing} ownerName={null} onFocusOwner={vi.fn()} onClose={vi.fn()} isVisible decl={viewDecl} />);
     const names = [...host!.querySelectorAll("button")].map((candidate) => candidate.getAttribute("aria-label"));
     expect(names).toEqual(["Close Board"]);
+  });
+
+  it("reads as a breadcrumb from the owner chip to the surface", async () => {
+    const onFocusOwner = vi.fn();
+    await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" onFocusOwner={onFocusOwner} onClose={vi.fn()} isVisible decl={viewDecl} />);
+    const crumbs = host!.querySelector("[data-testid='surface-breadcrumb']")!;
+    expect(crumbs.textContent).toBe("Jev›Board");
+    const chip = crumbs.querySelector("[data-testid='surface-owner-chip']")!;
+    expect(chip.tagName).toBe("BUTTON");
+    expect(crumbs.querySelector("[data-testid='surface-crumb'] [data-testid='surface-crumb-icon']")).not.toBeNull();
+    await act(async () => (chip as HTMLButtonElement).click());
+    expect(onFocusOwner).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the owner chip as plain text when the owner cannot be focused", async () => {
+    await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" onClose={vi.fn()} isVisible decl={viewDecl} />);
+    expect(host!.querySelector("[data-testid='surface-owner-chip']")?.tagName).toBe("SPAN");
+  });
+
+  it("drops the owner crumb when the owner is gone", async () => {
+    await mount(<SurfaceTabView tab={tab} backing={backing} ownerName={null} onClose={vi.fn()} isVisible decl={viewDecl} />);
+    expect(host!.querySelector("[data-testid='surface-breadcrumb']")?.textContent).toBe("Board");
+  });
+
+  it("runs the flow line once per agent verb and rests otherwise", async () => {
+    vi.useFakeTimers();
+    await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" onClose={vi.fn()} isVisible decl={viewDecl} />);
+    const line = () => host!.querySelector("[data-testid='surface-flow-line']")!;
+    expect(line().getAttribute("data-state")).toBe("idle");
+    await act(async () => recordSurfaceActivity({ tab_id: "surface-tab", verb: "click" }));
+    expect(line().getAttribute("data-state")).toBe("driving");
+    expect(line().querySelectorAll("[data-testid='surface-flow-pass']")).toHaveLength(1);
+    await act(async () => vi.advanceTimersByTime(SURFACE_PULSE_MS));
+    expect(line().getAttribute("data-state")).toBe("idle");
+    expect(line().querySelector("[data-testid='surface-flow-pass']")).toBeNull();
+  });
+
+  it("shares Take control with the sidebar and stills the flow line", async () => {
+    const { factory } = fakeTransports();
+    await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" onClose={vi.fn()} isVisible decl={streamDecl} createTransport={factory} />);
+    expect(surfaceControlStore.get("surface-tab")).toBe(false);
+    await act(async () => button("Take control").click());
+    expect(surfaceControlStore.get("surface-tab")).toBe(true);
+    await act(async () => recordSurfaceActivity({ tab_id: "surface-tab", verb: "click" }));
+    expect(host!.querySelector("[data-testid='surface-flow-line']")?.getAttribute("data-state")).toBe("controlled");
+    expect(host!.querySelector("[data-testid='surface-flow-pass']")).toBeNull();
   });
 });
