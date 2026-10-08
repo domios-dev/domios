@@ -1,5 +1,6 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 import { Bell, Play, Workflow } from "lucide-react";
+import { AUTOMATION_TOOL } from "./styles";
 import type { PipelineView, PipelineViewNode } from "./pipelineModel";
 import { layoutPipelineChain, PIPELINE_CANVAS_HEIGHT, PIPELINE_CARD_HEIGHT, PIPELINE_CARD_WIDTH } from "./pipelineLayout";
 
@@ -51,7 +52,21 @@ function PipelineNodeCard({ node }: { node: PipelineViewNode }) {
   </article>;
 }
 
-export function BlueprintPipelineCanvas({ pipeline }: { pipeline: PipelineView }) {
+export function BlueprintPipelineCanvas({ pipeline, initialRunId }: { pipeline: PipelineView; initialRunId?: string }) {
+  const [showRuns, setShowRuns] = useState(Boolean(initialRunId));
+  const [runId, setRunId] = useState<string | null>(initialRunId ?? null);
+  const selected = pipeline.runs?.find((run) => run.id === runId)?.pipeline ?? pipeline;
+  return <div className="space-y-3">
+    <button type="button" className={AUTOMATION_TOOL} aria-expanded={showRuns} onClick={() => setShowRuns(!showRuns)}>Runs ({pipeline.runs?.length ?? 0})</button>
+    {showRuns && <div role="group" aria-label="Pipeline runs" className="flex flex-wrap gap-2">
+      <button type="button" className={AUTOMATION_TOOL} aria-pressed={runId === null} onClick={() => setRunId(null)}>Latest</button>
+      {pipeline.runs?.map((run) => <button type="button" className={`${AUTOMATION_TOOL} aria-pressed:border-[var(--ct-accent)]`} key={run.id} aria-label={`Run ${run.id}`} aria-pressed={runId === run.id} onClick={() => setRunId(run.id)}>{eventTime(run.at)} · {run.state}</button>)}
+    </div>}
+    <PipelineChain pipeline={selected} />
+  </div>;
+}
+
+function PipelineChain({ pipeline }: { pipeline: PipelineView }) {
   const markerId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const layout = layoutPipelineChain(pipeline.nodes);
   const byKey = new Map(pipeline.nodes.map((node) => [node.key, node]));

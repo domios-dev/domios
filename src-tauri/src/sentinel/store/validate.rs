@@ -65,7 +65,9 @@ pub(in crate::sentinel) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>
     }
     let mut ids = std::collections::BTreeSet::new();
     for job in &jobs {
-        machine::validate(&job.buckets, &job.matches, true, job.interval_ms)?;
+        if job.pipeline.is_none() {
+            machine::validate(&job.buckets, &job.matches, true, job.interval_ms)?;
+        }
         if job.pipeline.is_some() != (job.probe == PIPELINE_SOURCE)
             || (job.pipeline.is_some() && (job.observe.is_some() || job.input.is_some()))
         {
@@ -183,7 +185,10 @@ pub(in crate::sentinel) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>
         {
             return Err("invalid blueprint identity or scope".into());
         }
-        if job.probe.len() > 8192 || job.question.trim().is_empty() || job.question.len() > 4096 {
+        if job.probe.len() > 8192
+            || (job.pipeline.is_none() && job.question.trim().is_empty())
+            || job.question.len() > 4096
+        {
             return Err("invalid blueprint probe or question".into());
         }
         if job
@@ -231,11 +236,11 @@ impl Store {
             probe: Some(PIPELINE_SOURCE.into()),
             observe: None,
             input: None,
-            question: "Pipeline step results".into(),
-            buckets: vec!["done".into(), "failed".into()],
+            question: String::new(),
+            buckets: Vec::new(),
             every,
             routes: BTreeMap::new(),
-            matches: BTreeMap::from([("done".into(), ".*".into()), ("failed".into(), ".*".into())]),
+            matches: BTreeMap::new(),
             rearm_on_change: BTreeSet::new(),
             until: None,
             timeout: None,
@@ -245,9 +250,7 @@ impl Store {
             max_transitions: Some(256),
             max_actions: Some(1024),
         };
-        let mut job = self.prepare(create, owner, connected)?;
-        job.pipeline = Some(spec);
-        Ok(job)
+        self.prepare_definition(create, owner, connected, Some(spec))
     }
 
     pub fn prepare(
@@ -255,6 +258,16 @@ impl Store {
         params: Create,
         owner: Owner,
         connected: bool,
+    ) -> Result<Sentinel, String> {
+        self.prepare_definition(params, owner, connected, None)
+    }
+
+    fn prepare_definition(
+        &self,
+        params: Create,
+        owner: Owner,
+        connected: bool,
+        pipeline: Option<codeterm_types::blueprint_pipeline::BlueprintSpec>,
     ) -> Result<Sentinel, String> {
         if self.admission_closed {
             return Err("sentinel_shutdown_admission_closed".into());
@@ -294,7 +307,9 @@ impl Store {
             _ => return Err("provide exactly one of --probe, --observe or --input".into()),
         };
         let interval_ms = duration_ms(&params.every)?;
-        machine::validate(&params.buckets, &params.matches, connected, interval_ms)?;
+        if pipeline.is_none() {
+            machine::validate(&params.buckets, &params.matches, connected, interval_ms)?;
+        }
         if params
             .rearm_on_change
             .iter()
@@ -302,7 +317,8 @@ impl Store {
         {
             return Err("--rearm-on-change: name a declared bucket".into());
         }
-        if params.question.trim().is_empty() || params.question.len() > 4096 {
+        if (pipeline.is_none() && params.question.trim().is_empty()) || params.question.len() > 4096
+        {
             return Err("--question must be nonempty and bounded to 4096 bytes".into());
         }
         if self.jobs.len() >= MAX_SENTINELS || (!params.paused && self.active_count() >= MAX_ACTIVE)
@@ -317,8 +333,11 @@ impl Store {
             return Err("--until: name a declared bucket".into());
         }
         let declared = params.handlers.is_some();
-        let (routes, on_other) =
-            handlers::definitions_with_other(&params.buckets, params.routes, params.handlers)?;
+        let (routes, on_other) = if pipeline.is_some() {
+            (BTreeMap::new(), Vec::new())
+        } else {
+            handlers::definitions_with_other(&params.buckets, params.routes, params.handlers)?
+        };
         let composition = params.paused
             || declared
             || !on_other.is_empty()
@@ -376,7 +395,7 @@ impl Store {
             revision: 0,
             agent_authored: false,
             name: params.name,
-            pipeline: None,
+            pipeline,
             scenario_id: if params.paused { None } else { Some(id) },
             max_transitions,
             max_actions,
