@@ -1,6 +1,41 @@
 use super::*;
 
 #[test]
+fn live_command_failure_offers_fallback_without_claiming_a_restart() {
+    let error = ModelSwitchError::LiveCommandFailed("opaque failure".into());
+    let body = model_switch_error_body(&error);
+    assert_eq!(body["ok"], false);
+    assert_eq!(body["reason"], "live_command_failed");
+    assert_eq!(body["mode_used"], "live_command");
+    assert_eq!(body["restart_fallback_available"], true);
+    assert!(body.get("restart").is_none());
+}
+
+#[test]
+fn live_command_success_preserves_session_and_has_no_restart() {
+    let body = model_switch_success_body(&ModelSwitchOutcome {
+        tab_id: "tab-opaque".into(),
+        provider: "provider-opaque".into(),
+        session_id: "session-opaque".into(),
+        restart: None,
+        mechanism: crate::agent::provider::ModelSwitchMode::LiveCommand,
+        fallback_reason: None,
+        previous_model: Some("previous-opaque".into()),
+        requested_model: "chosen-opaque".into(),
+        launched_model: "chosen-opaque".into(),
+        confirmation_detail: None,
+        confirmation: ModelSwitchConfirmation::Observed {
+            model: "chosen-opaque".into(),
+            evidence: ModelSwitchEvidence::LiveSessionRecord,
+        },
+    });
+    assert_eq!(body["mode_used"], "live_command");
+    assert_eq!(body["model_confirmation"], "observed");
+    assert_eq!(body["session_id"], "session-opaque");
+    assert!(body.get("restart").is_none());
+}
+
+#[test]
 fn restart_guard_model_switch_refusal_names_running_items() {
     let items = vec!["shell-fixture".into(), "agent-fixture".into()];
     let error = ModelSwitchError::BackgroundWork {

@@ -84,6 +84,8 @@ A capability-declared RPC sidecar leaves the tab backed by its PTY. Its transcri
 
 A NextTurn model, effort or runtime-mode request is pending until thread-owned settings or model evidence confirms it. It never restarts the tab. The next turn carries those controls without changing machine-global defaults. Completed compaction items restore the developer contract and cached client context; duplicate notifications do not inject twice.
 
+Providers may declare live model and effort commands. These run only at an idle prompt in the same verified session. Confirmation comes from fresh output in that session; a timeout reports failure and never restarts automatically. Restart and resume remains an explicit fallback. The provider owns whether its command also saves a default for future sessions.
+
 #### Provider lifecycle
 
 The planned coordinator extends the existing provider update responsibility under deterministic provider and session evidence. A declared update check or classified update prompt initiates one automatic update per provider and target version, deduplicated across tabs and restarts, without a consent click. The coordinator is a deterministic host operation; model availability changes its classification path, not its authority to perform the declared update. It uses the provider's declared update operation; only production participates by default, with explicit opt-in for another instance.

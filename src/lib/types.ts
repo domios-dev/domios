@@ -1028,7 +1028,7 @@ export interface ModelCatalogueCapability {
   liveDiscoveryRequired: boolean;
 }
 
-export type ModelSwitchMode = "live" | "next_turn" | "restart_resume" | "unsupported";
+export type ModelSwitchMode = "live" | "live_command" | "next_turn" | "restart_resume" | "unsupported";
 
 export interface ProviderDescriptor {
   supports_session_fork?: boolean;
