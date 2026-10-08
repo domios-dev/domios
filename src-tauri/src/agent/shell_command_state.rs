@@ -12,6 +12,12 @@ pub fn apply_shell_command_state(
     {
         return false;
     }
+    if tab.utility_command_pending {
+        if state.activity != ShellActivity::Running && state.last_exit_code.is_none() {
+            return false;
+        }
+        tab.utility_command_pending = false;
+    }
     tab.shell_command_state = state;
     true
 }

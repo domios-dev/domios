@@ -21,6 +21,12 @@ impl MultiplexerState {
             backing: TabBacking::default(),
             tab_type: TabType::Terminal,
             purpose: Default::default(),
+            icon: None,
+            utility_created_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_micros() as u64,
+            utility_command_pending: false,
             shell_command_state: Default::default(),
             pending_delivery,
             title: "Terminal".to_string(),

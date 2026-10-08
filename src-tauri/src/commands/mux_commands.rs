@@ -496,21 +496,40 @@ pub fn mux_reorder_workspace(
 
 /// Create a new tab in a workspace.
 #[tauri::command]
-pub fn mux_create_tab(
+pub async fn mux_create_tab(
     svc: State<'_, ServiceState>,
     workspace_id: String,
     eager: Option<bool>,
+    purpose: Option<crate::multiplexer::types::ShellPurpose>,
+    description: Option<String>,
+    icon: Option<String>,
+    team_id: Option<String>,
+    creator_tab_id: Option<String>,
+    cmd: Option<String>,
 ) -> Result<TabInfo, String> {
-    let tab_id = svc.create_tab(&workspace_id)?;
-    crate::service::supporter_notify::record_ui_origin(&tab_id);
-    if eager.unwrap_or(false) {
-        svc.ensure_tab_pty_for_send(&tab_id)?;
-    }
-    let title = svc.mux.read().display_label_for_tab(&tab_id);
-    Ok(TabInfo {
-        id: tab_id.clone(),
-        title,
+    let svc = svc.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let handle = svc.spawn_tab(crate::service::spawn::SpawnTabSpec {
+            workspace_id: Some(workspace_id),
+            eager: eager.unwrap_or(false),
+            purpose: purpose.unwrap_or_default(),
+            description,
+            icon,
+            team_id,
+            creator_tab_id,
+            cmd,
+            ..Default::default()
+        })?;
+        crate::service::supporter_notify::record_ui_origin(&handle.tab_id);
+        svc.set_active_tab(&handle.workspace_id, &handle.tab_id)?;
+        let title = svc.mux.read().display_label_for_tab(&handle.tab_id);
+        Ok(TabInfo {
+            id: handle.tab_id,
+            title,
+        })
     })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// Switch the active tab in a workspace.

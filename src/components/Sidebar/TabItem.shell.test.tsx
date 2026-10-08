@@ -36,6 +36,13 @@ test("shell purposes retain title and description without status or menu button"
   }
 });
 
+test("custom utility icon reaches the row with its description", () => {
+  const host = document.createElement("div");
+  host.innerHTML = renderToStaticMarkup(row({ ...shell, purpose: "qa", icon: "flask-conical" }));
+  assert.ok(host.querySelector('[role="img"][aria-label="flask-conical, qa shell"]'));
+  assert.equal(host.querySelector('[data-testid="tab-description-subtitle"]')?.textContent, shell.description);
+});
+
 test("shell context menu retains rename and close actions", async () => {
   const host = document.createElement("div");
   document.body.appendChild(host);

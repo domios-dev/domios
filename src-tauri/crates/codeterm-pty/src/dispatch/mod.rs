@@ -610,6 +610,7 @@ pub fn build_tab_summary_json(
                 "title": tab.title,
                 "description": tab.description,
                 "purpose": tab.purpose,
+                "icon": tab.icon,
                 "shell_command_state": tab.shell_command_state,
                 "workspace_id": workspace_id,
                 "workspace_name": workspace_name,

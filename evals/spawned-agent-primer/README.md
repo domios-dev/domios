@@ -42,8 +42,10 @@ Record the observed A/B result as a plan stride.
 
 ## Pass
 
-The new-arm report shows all eleven cases passing for all three samples and
+The new-arm report shows all twelve cases passing for all three samples and
 the runner exits zero. The old arm may fail the new CronRun case; it records
 the baseline while cases 1–10 guard against regressions.
 
-<!-- revision: 7 -->
+Case 12 covers utility purposes, creation descriptions, idle restart and closing a completed tab. The prepared non-Worker prompt includes `utility_tab_guidance.md`; the Worker composition is covered by the Rust fragment-delivery test.
+
+<!-- revision: 8 -->

@@ -5,6 +5,7 @@ use super::ServiceContext;
 
 impl ServiceContext {
     pub(crate) fn spawn_visible_shell_impl(&self, spec: SpawnTabSpec) -> Result<TabHandle, String> {
+        let _spawn_guard = super::utility_tabs::SPAWN_LOCK.lock();
         let (ws_id, ws_cwd) = {
             let mux = self.mux.write();
             let id = resolve_spawn_workspace_id(
@@ -27,23 +28,45 @@ impl ServiceContext {
         )?;
         let (resolved_cwd, warning) = Self::resolve_agent_cwd(&spec.cwd, &ws_cwd);
 
+        let limit = super::utility_tabs::limit_for(
+            &super::utility_tabs::configured_limits(&self.app_handle),
+            spec.purpose,
+        );
+        let reused = if let Some(attachment) = &team_membership {
+            let mux = self.mux.read();
+            super::utility_tabs::select_slot(
+                mux.team_member_tab_ids(&attachment.team_id)
+                    .iter()
+                    .filter_map(|id| mux.get_tab(id)),
+                &attachment.team_id,
+                spec.purpose,
+                limit,
+            )?
+        } else {
+            None
+        };
+        if let Some(tab_id) = reused.as_deref() {
+            self.restart_shell_tab(tab_id, resolved_cwd.clone())?;
+        }
         let tab_id = {
             let mut mux = self.mux.write();
-            let result = mux.create_tab(&ws_id)?;
+            let result = match &reused {
+                Some(id) => id.clone(),
+                None => mux.create_tab(&ws_id)?,
+            };
             if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.audience = spec.audience;
                 tab.purpose = spec.purpose;
+                tab.icon = spec.icon.clone();
                 if let Some(ref dir) = resolved_cwd {
                     tab.cwd = Some(dir.clone());
                 }
             }
-            if let Some(ref description) = spec.description {
-                let _ = mux.set_tab_description(&result, Some(description.clone()));
-            }
+            let _ = mux.set_tab_description(&result, spec.description.clone());
             if let Some(attachment) = &team_membership {
                 super::team::apply_team_attachment(&mut mux, attachment, &result)?;
             }
-            if let Some(ref title) = spec.title {
+            if let Some(title) = spec.title.as_deref().filter(|_| reused.is_none()) {
                 if let Err(e) = mux.rename_tab(&result, title) {
                     log::warn!("[spawn.shell] rename_tab failed: {}", e);
                 }
@@ -52,7 +75,7 @@ impl ServiceContext {
         };
         self.emit_state_changed();
 
-        let pty_id = if spec.eager {
+        let pty_id = if spec.eager || spec.cmd.is_some() || reused.is_some() {
             self.ensure_tab_pty_for_send(&tab_id)?;
             self.mux
                 .write()
@@ -62,7 +85,24 @@ impl ServiceContext {
             None
         };
 
-        self.record_kpi_tab_created(&tab_id, crate::agent::kpi_ledger::TabCreatedKind::Terminal);
+        if let Some(command) = spec.cmd.as_deref() {
+            if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
+                tab.utility_command_pending = true;
+                tab.shell_command_state = Default::default();
+            }
+            if let Err(error) = self.send_shell_cmd(&tab_id, command) {
+                if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
+                    tab.utility_command_pending = false;
+                }
+                return Err(format!("Tab {tab_id} command failed: {error}"));
+            }
+        }
+        if reused.is_none() {
+            self.record_kpi_tab_created(
+                &tab_id,
+                crate::agent::kpi_ledger::TabCreatedKind::Terminal,
+            );
+        }
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         Ok(TabHandle {
             tab_id,

@@ -396,3 +396,23 @@ fn tool_less_composition_excludes_memory_management() {
         0
     );
 }
+
+#[test]
+fn utility_guidance_reaches_managers_and_roleless_but_not_workers() {
+    for (role, profile) in [
+        (None, None),
+        (Some("Orchestrator"), None),
+        (Some("Manager"), Some("planner")),
+    ] {
+        let prompt = super::role_onboarding_task(Some("opaque-task"), role, profile).unwrap();
+        assert_eq!(
+            prompt
+                .matches(crate::prompts::UTILITY_TAB_GUIDANCE.trim())
+                .count(),
+            1
+        );
+    }
+    let worker = super::role_onboarding_task(Some("opaque-task"), Some("Worker"), None).unwrap();
+    assert!(!worker.contains(crate::prompts::UTILITY_TAB_GUIDANCE.trim()));
+    assert!(crate::prompts::UTILITY_TAB_GUIDANCE.lines().count() <= 3);
+}

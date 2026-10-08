@@ -234,7 +234,7 @@ export function TabTopBar({
           </span>
         )}
         {shellTab && isUtilityShell(shellTab) && <>
-          <ShellPurposeIcon purpose={shellTab.purpose} />
+          <ShellPurposeIcon purpose={shellTab.purpose} icon={shellTab.icon} running={shellTab.shell_command_state?.activity === "running"} />
           <ShellStatus tab={shellTab} />
         </>}
         {isWatcherTab && <WatcherStatusBadge lastStatus={watcherLastStatus} />}

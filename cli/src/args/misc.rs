@@ -112,6 +112,12 @@ pub enum TabAction {
         /// Utility shell purpose shown in the sidebar.
         #[arg(long, default_value = "shell", value_parser = ["build", "dev", "qa", "shell"], conflicts_with = "chat_backend")]
         purpose: String,
+        /// Activity summary shown below the tab title.
+        #[arg(long)]
+        description: Option<String>,
+        /// Lucide icon name (for example bug or flask-conical).
+        #[arg(long, conflicts_with = "chat_backend")]
+        icon: Option<String>,
         /// Target workspace id. Defaults to the calling tab's own workspace, then
         /// the focused workspace for a caller with no tab identity.
         #[arg(long)]

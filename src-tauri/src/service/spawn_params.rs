@@ -126,6 +126,8 @@ impl SpawnTabSpec {
             title: params.title.clone(),
             description: params.description.clone(),
             purpose: Default::default(),
+            icon: None,
+            cmd: None,
             visibility: TabVisibility::Visible,
             audience: params.audience,
             eager: false,
