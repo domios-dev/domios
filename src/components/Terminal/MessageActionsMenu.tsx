@@ -47,7 +47,9 @@ function MenuItem({ label, icon: Icon, hint, done, onSelect }: {
 }
 
 /** The quiet gutter dot of one message and the small menu it opens on hover, focus, click or Enter. */
-export function MessageActionsDot({ clip, side, open, onOpenChange, actions }: {
+export function MessageActionsDot({ clip, side, open, onOpenChange, actions, hint, onHintEnd }: {
+  hint?: boolean;
+  onHintEnd?: () => void;
   clip: ClipMessage;
   side: DotSide;
   open: boolean;
@@ -141,6 +143,7 @@ export function MessageActionsDot({ clip, side, open, onOpenChange, actions }: {
       className="ct-msg-dot"
       data-side={side}
       data-open={open || undefined}
+      data-hint={hint || undefined}
       onPointerEnter={(event) => { if (event.pointerType === "mouse") show("hover"); }}
       onPointerLeave={(event) => { if (event.pointerType === "mouse" && openedBy.current === "hover") hide(); }}
       onBlur={(event) => {
@@ -157,7 +160,9 @@ export function MessageActionsDot({ clip, side, open, onOpenChange, actions }: {
         onFocus={() => show("focus")}
         onClick={() => (open && openedBy.current === "click" ? hide() : show("click"))}
         onKeyDown={onDotKey}
-      />
+      >
+        <span aria-hidden="true" className="ct-msg-dot__more" onAnimationEnd={onHintEnd}><i /><i /><i /></span>
+      </button>
       {open && (
         <div className="ct-msg-menu-wrap" data-side={side} data-placement={placement}>
           <div ref={menuRef} role="menu" aria-label="Message actions" className="ct-msg-menu" onKeyDown={onMenuKey}>

@@ -1,4 +1,6 @@
 [
+  "src/components/Terminal/useMessageActionHint.test.tsx",
+  "src/components/Terminal/messageActionHint.hover.test.ts",
   "src/components/AgentRun/codexStructuredTools.test.tsx",
   "src/components/Terminal/ManagedTabBar.test.tsx",
   "src/lib/providerCli.test.ts",
