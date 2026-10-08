@@ -151,6 +151,7 @@ function ModelPickerPopover({
     currentModel ? { model: currentModel, effort: currentEffort } : null,
   );
   const [confirming, setConfirming] = useState<PickerSelection | null>(null);
+  const [restartFallback, setRestartFallback] = useState(false);
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -190,11 +191,17 @@ function ModelPickerPopover({
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [onClose, triggerRef]);
 
-  async function apply(selection: PickerSelection) {
+  async function apply(selection: PickerSelection, restart = false) {
     setBusy(true);
     setError(null);
     try {
-      await getTabModelApi().switchModel(tabId, selection.model, selection.effort);
+      const api = getTabModelApi();
+      if (restart) {
+        if (!api.restartAndSwitchModel) throw new Error("Restart fallback is unavailable");
+        await api.restartAndSwitchModel(tabId, selection.model, selection.effort);
+      } else {
+        await api.switchModel(tabId, selection.model, selection.effort);
+      }
       onApplied(selection);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
@@ -204,6 +211,7 @@ function ModelPickerPopover({
   }
 
   function choose(next: PickerSelection) {
+    setRestartFallback(false);
     setStaged(next);
     const plan = planSelection(gate, { model: currentModel, effort: currentEffort }, next);
     setConfirming(plan.action === "confirm" ? plan.selection : null);
@@ -339,7 +347,7 @@ function ModelPickerPopover({
             <button type="button" className={UI_BUTTON.ghost} onClick={() => { setConfirming(null); setStaged(currentModel ? { model: currentModel, effort: currentEffort } : null); }}>
               Keep current
             </button>
-            <button type="button" className={UI_BUTTON.primary} disabled={busy} onClick={() => void apply(confirming)}>
+            <button type="button" className={UI_BUTTON.primary} disabled={busy} onClick={() => void apply(confirming, restartFallback)}>
               Restart and switch
             </button>
           </div>
@@ -348,6 +356,12 @@ function ModelPickerPopover({
         <p className="ct-model-picker__note">{gate.note}</p>
       )}
       {error && <p role="alert" className="ct-model-picker__error">{error}</p>}
+      {error && gate.timing === "live_command" && !confirming && staged && (
+        <button type="button" className={UI_BUTTON.ghost} disabled={busy}
+          onClick={() => { setRestartFallback(true); setConfirming(staged); }}>
+          Restart and resume instead
+        </button>
+      )}
     </div>,
     document.body,
   );

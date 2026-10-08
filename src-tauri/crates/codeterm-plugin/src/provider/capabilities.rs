@@ -123,17 +123,40 @@ impl ModelCatalogueCapability {
     }
 }
 
-/// How a live agent tab changes its model without touching the provider's
-/// machine-global default. `Live` changes a running session through a provider
-/// session API; `RestartResume` relaunches the same session with model launch args.
+/// How a running agent tab changes its model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelSwitchMode {
     Live,
+    LiveCommand,
     NextTurn,
     RestartResume,
     #[default]
     Unsupported,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModelSwitchCommands {
+    pub model: ModelSwitchCommand,
+    pub effort: Option<ModelSwitchCommand>,
+    pub transcript: ModelSwitchTranscript,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModelSwitchTranscript {
+    pub record_type: String,
+    pub content_path: Vec<String>,
+    pub prefix: String,
+    pub suffix: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModelSwitchCommand {
+    pub command: String,
+    pub confirmation: String,
 }
 
 /// Which runtime drives a provider's tab: a PTY process or a JS chatBackend.
