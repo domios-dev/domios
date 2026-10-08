@@ -1,4 +1,4 @@
-use super::{enabled, SourceCursor};
+use super::{enabled, PtyFlow, SourceCursor};
 use crate::service::{
     chat_send_transaction::{EvidenceWindow, SendEvidenceAnchor},
     ServiceContext,
@@ -11,6 +11,7 @@ use std::{
 };
 
 struct Subscription {
+    tab: String,
     identity: (String, Option<String>),
     _watcher: RecommendedWatcher,
 }
@@ -21,7 +22,17 @@ fn subscriptions() -> &'static Mutex<HashMap<String, Subscription>> {
 }
 
 pub(crate) fn cancel(tab: &str) {
-    let old = subscriptions().lock().remove(tab);
+    let old = {
+        let mut entries = subscriptions().lock();
+        let keys = entries
+            .iter()
+            .filter(|(_, entry)| entry.tab == tab)
+            .map(|(key, _)| key.clone())
+            .collect::<Vec<_>>();
+        keys.into_iter()
+            .filter_map(|key| entries.remove(&key))
+            .collect::<Vec<_>>()
+    };
     drop(old);
 }
 
@@ -31,6 +42,27 @@ pub(crate) fn ensure(
     anchor: &SendEvidenceAnchor,
     nonce: Option<&str>,
 ) {
+    subscribe(svc, tab, anchor, nonce, None);
+}
+
+pub(super) fn ensure_unledgered(
+    svc: &ServiceContext,
+    tab: &str,
+    anchor: &SendEvidenceAnchor,
+    nonce: Option<&str>,
+    flow: PtyFlow,
+    text: &str,
+) {
+    subscribe(svc, tab, anchor, nonce, Some((flow, text.to_string())));
+}
+
+fn subscribe(
+    svc: &ServiceContext,
+    tab: &str,
+    anchor: &SendEvidenceAnchor,
+    nonce: Option<&str>,
+    raw: Option<(PtyFlow, String)>,
+) {
     if !enabled() {
         return;
     }
@@ -38,9 +70,12 @@ pub(crate) fn ensure(
         return;
     };
     let identity = (anchor.session_id.clone(), nonce.map(str::to_string));
+    let key = raw
+        .as_ref()
+        .map_or_else(|| tab.to_string(), |(flow, _)| flow.id().to_string());
     if subscriptions()
         .lock()
-        .get(tab)
+        .get(&key)
         .is_some_and(|entry| entry.identity == identity)
     {
         return;
@@ -82,7 +117,7 @@ pub(crate) fn ensure(
     let old = {
         let mut entries = subscriptions().lock();
         if entries
-            .get(tab)
+            .get(&key)
             .is_some_and(|entry| entry.identity == identity)
         {
             return;
@@ -93,8 +128,9 @@ pub(crate) fn ensure(
             }
         }
         entries.insert(
-            tab.into(),
+            key.clone(),
             Subscription {
+                tab: tab.into(),
                 identity,
                 _watcher: watcher,
             },
@@ -114,6 +150,9 @@ pub(crate) fn ensure(
         .name("dev-trace-source".into())
         .spawn(move || {
             let mut cursor = SourceCursor::default();
+            let mut raw = raw.map(|(flow, payload)| {
+                super::source::UnledgeredObservation::new(flow, payload, &anchor)
+            });
             while rx.recv().is_ok() {
                 let current = svc
                     .mux
@@ -122,6 +161,7 @@ pub(crate) fn ensure(
                     .filter(|tab| {
                         tab.agent_session_id.as_deref() == Some(&anchor.session_id)
                             && tab.session_binding_nonce == nonce
+                            && (raw.is_none() || tab.reported_session_binding_nonce == nonce)
                     })
                     .map(|tab| tab.fork_source_session_id.is_some());
                 let Some(fork) = current else {
@@ -160,6 +200,14 @@ pub(crate) fn ensure(
                     nonce.as_deref(),
                     &messages,
                 );
+                if let Some(raw) = raw.as_mut() {
+                    if raw.observe(&svc.agent_registry, &anchor, nonce.as_deref(), &cursor) {
+                        break;
+                    }
+                }
+            }
+            if raw.is_some() {
+                subscriptions().lock().remove(&key);
             }
         });
 }
