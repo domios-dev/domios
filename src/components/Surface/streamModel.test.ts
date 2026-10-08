@@ -14,6 +14,7 @@ import {
   modifierMask,
   requestedFrameSize,
   sameViewport,
+  viewportAction,
   viewportRequest,
   wheelInput,
   type KeyContext,
@@ -73,6 +74,19 @@ assert.ok(sameViewport({ w: 1, h: 2, dpr: 1 }, { w: 1, h: 2, dpr: 1 }));
 assert.ok(!sameViewport({ w: 1, h: 2, dpr: 1 }, { w: 1, h: 2, dpr: 2 }));
 assert.ok(!sameViewport(null, { w: 1, h: 2, dpr: 1 }));
 assert.ok(sameViewport(null, null));
+
+const vp = { w: 640, h: 480, dpr: 2 };
+const viewportCases: Array<[string, boolean, typeof vp | null, typeof vp | null, ReturnType<typeof viewportAction>]> = [
+  ["unmeasured does nothing", false, null, null, "none"],
+  ["first size connects with it", false, null, vp, "connect"],
+  ["a reconnect after teardown connects again", false, vp, vp, "connect"],
+  ["an unchanged size sends nothing", true, vp, { ...vp }, "none"],
+  ["a new size resizes", true, vp, { ...vp, w: 641 }, "resize"],
+  ["a dpr change resizes", true, vp, { ...vp, dpr: 1 }, "resize"],
+];
+for (const [name, connected, sent, next, expected] of viewportCases) {
+  assert.equal(viewportAction(connected, sent, next), expected, name);
+}
 
 assert.deepEqual(MODIFIER, { alt: 1, ctrl: 2, meta: 4, shift: 8 });
 const maskCases: Array<[Partial<typeof NO_MODIFIERS>, number]> = [

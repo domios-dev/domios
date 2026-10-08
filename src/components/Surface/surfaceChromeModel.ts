@@ -1,3 +1,5 @@
+import { clampFloatingPosition } from "../shared/floatingPosition";
+
 export const NEEDS_HUMAN_KINDS = ["captcha", "consent", "login", "dialog", "file_chooser"] as const;
 export type NeedsHumanKind = (typeof NEEDS_HUMAN_KINDS)[number];
 
@@ -239,6 +241,30 @@ export function askPlaceholder(owner: string): string {
 
 export function grabSendArgs(selection: GrabSelection, comment: string, intent: AskIntent): { id: string; comment: string; intent: AskIntent } {
   return { id: selection.id, comment: comment.trim(), intent };
+}
+
+export interface PopoverAnchor {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export const ASK_POPOVER_SIZE = { width: 340, height: 200 } as const;
+const ASK_POPOVER_GAP = 12;
+const ASK_POPOVER_MARGIN = 8;
+
+export function askPopoverPosition(anchor: PopoverAnchor): { left: number; top: number } {
+  const { left, top } = clampFloatingPosition(
+    anchor.x + ASK_POPOVER_GAP,
+    anchor.y + ASK_POPOVER_GAP,
+    ASK_POPOVER_SIZE.width,
+    ASK_POPOVER_SIZE.height,
+    anchor.width,
+    anchor.height,
+    ASK_POPOVER_MARGIN,
+  );
+  return { left, top };
 }
 
 export function sentNotice(owner: string): string {

@@ -164,6 +164,14 @@ export function sameViewport(a: StreamViewport | null, b: StreamViewport | null)
   return a.w === b.w && a.h === b.h && a.dpr === b.dpr;
 }
 
+export type ViewportAction = "connect" | "resize" | "none";
+
+export function viewportAction(connected: boolean, lastSent: StreamViewport | null, next: StreamViewport | null): ViewportAction {
+  if (!next) return "none";
+  if (!connected) return "connect";
+  return sameViewport(lastSent, next) ? "none" : "resize";
+}
+
 export function modifierMask(state: ModifierState): number {
   return (state.altKey ? MODIFIER.alt : 0)
     | (state.ctrlKey ? MODIFIER.ctrl : 0)

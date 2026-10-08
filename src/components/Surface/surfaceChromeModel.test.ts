@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { BROWSER_SURFACE_CHROME } from "./browserChrome";
 import {
   addressSubmission,
+  askPopoverPosition,
   capsuleModel,
   CHROME_ITEM,
   elementCard,
@@ -110,5 +111,12 @@ for (const [path, expected] of fileCases) assert.equal(fileNameFromPath(path), e
 assert.deepEqual(elementCard({ id: "g1", label: "button “Sign in”", target: { react: "LoginForm", selector: "form > button" } }), { label: "button “Sign in”", meta: "LoginForm · form > button" });
 assert.deepEqual(elementCard({ id: "g1", label: "div", target: { selector: "main" } }), { label: "div", meta: "main" });
 assert.deepEqual(grabSendArgs({ id: "g7", label: "x", target: {} }, "  why?  ", "bug"), { id: "g7", comment: "why?", intent: "bug" });
+
+const popoverCases: Array<[string, { x: number; y: number; width: number; height: number }, { left: number; top: number }]> = [
+  ["opens beside the click", { x: 100, y: 50, width: 1000, height: 800 }, { left: 112, top: 62 }],
+  ["stays inside the right and bottom edges", { x: 990, y: 790, width: 1000, height: 800 }, { left: 652, top: 592 }],
+  ["keeps a margin in a tiny stage", { x: 0, y: 0, width: 100, height: 100 }, { left: 8, top: 8 }],
+];
+for (const [name, anchor, expected] of popoverCases) assert.deepEqual(askPopoverPosition(anchor), expected, name);
 
 console.log("✓ surfaceChromeModel tests green");
