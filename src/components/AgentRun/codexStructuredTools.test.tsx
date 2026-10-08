@@ -69,7 +69,7 @@ describe("Codex structured chat wire contract", () => {
     const messages: NormalizedChatMessage[] = [
       {id:"start",type:"tool_flow",content:"start",toolFlowId:"turn"},
       ...["one","two"].map((id): NormalizedChatMessage => ({id,type:"tool_call",content:"",toolId:id,
-        toolName:`server · ${id}`,toolKind:"generic",toolSummary:"key: value",toolFlowId:"turn",toolError:false})),
+        toolName:`server · ${id}`,toolTitle:`server · ${id}`,toolKind:"generic",toolSummary:"key: value",toolFlowId:"turn",toolError:false})),
       {id:"end",type:"tool_flow",content:"end",toolFlowId:"turn"},
     ];
     const items = reduceToolEvents(messages);
@@ -79,11 +79,11 @@ describe("Codex structured chat wire contract", () => {
 
   it("opens command groups and raw commands by default and keeps both collapsible", async () => {
     const message: NormalizedChatMessage = {id:"group-default",type:"tool_call",content:"",toolId:"group-default",
-      toolName:"commandExecution",toolKind:"command",toolSummary:"cd /repo; git status",toolInput:{command:"cd /repo; git status"},toolError:false};
+      toolName:"commandExecution",toolKind:"command",toolSummary:"cd /repo; git status; git diff",toolInput:{command:"cd /repo; git status; git diff"},toolError:false};
     const view = await render(<Timeline messages={[message]} />);
     const groupToggle = view.querySelector<HTMLButtonElement>('[data-testid="chat-command-group-toggle"]');
     expect(groupToggle?.getAttribute("aria-expanded")).toBe("true");
-    expect(view.querySelector('[data-testid="message-raw-content"]')?.textContent).toBe("cd /repo; git status");
+    expect(view.querySelector('[data-testid="message-raw-content"]')?.textContent).toBe("cd /repo; git status; git diff");
     const rawToggle = view.querySelector<HTMLButtonElement>('[data-testid="raw-command-disclosure"] > button');
     await act(async () => rawToggle?.click());
     expect(view.querySelector('[data-testid="message-raw-content"]')).toBeNull();

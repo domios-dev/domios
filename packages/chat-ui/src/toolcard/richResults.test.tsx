@@ -316,7 +316,7 @@ describe("accessibility and presentation", () => {
     expect(region?.hidden).toBe(false);
   });
 
-  it("keeps motion behind reduced-motion variants, uses theme tokens, and draws no right border or blinking dot", async () => {
+  it("keeps motion behind reduced-motion variants, uses theme tokens, and draws no side borders or blinking dot", async () => {
     const pending = { ...generated(), id: "pending-image", toolId: "pending-image", toolError: undefined };
     const view = await render([web(), generated(), pending]);
     const animated = [...view.querySelectorAll('[class*="animate-"]')];
@@ -327,9 +327,10 @@ describe("accessibility and presentation", () => {
     }
     expect(view.querySelector('[class*="animate-pulse"], [class*="animate-ping"]')).toBeNull();
     for (const row of rows(view)) {
-      expect(row.className.split(/\s+/)).toEqual(expect.not.arrayContaining(["border", "border-r", "border-x"]));
+      expect(row.className.split(/\s+/)).toEqual(expect.not.arrayContaining(["border", "border-l", "border-l-2", "border-r", "border-x"]));
       expect(row.style.borderRightWidth).toBe("");
-      expect(row.getAttribute("style")).toContain("var(--ct-");
+      expect(row.style.borderLeftWidth).toBe("");
+      expect(row.querySelector('[data-testid="chat-rich-result-summary"]')?.getAttribute("style")).toContain("var(--ct-fg)");
       expect(toggle(row)?.className).toContain("motion-reduce:transition-none");
     }
     const theme = themeToCSS(DEFAULT_THEME);
