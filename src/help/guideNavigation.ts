@@ -5,7 +5,7 @@ export interface GuideRequest {
   section: HelpSectionId;
 }
 
-export const GUIDE_SECTIONS = getHelpContent().sections.map(({ id, title }) => ({ id, title }));
+export const GUIDE_SECTIONS = getHelpContent().sections.map(({ id, title, subtitle }) => ({ id, title, subtitle }));
 
 export function guideRequest(sectionId: string): GuideRequest {
   return {
