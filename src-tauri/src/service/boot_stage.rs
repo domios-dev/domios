@@ -346,6 +346,7 @@ impl ServiceContext {
             self.retire_superseded_process_conditions(tab_id);
         }
         if stage == BootStage::SpawnFailed {
+            self.wake_agent_deliveries_on_state_change(tab_id);
             self.record_lifecycle_end(
                 tab_id,
                 crate::session::lifecycle::LifecycleTransition::RolledBack {

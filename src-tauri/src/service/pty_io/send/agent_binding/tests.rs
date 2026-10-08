@@ -23,7 +23,7 @@ fn pinned(tab: &Tab) -> AgentDeliveryPayload {
         },
         observer: None,
         idempotency_key: None,
-        expected_pty_id: Some(pty),
+        expected_pty_id: pty,
         expected_session_id: session,
         expected_binding_nonce: Some(nonce),
     }
