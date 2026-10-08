@@ -8,7 +8,7 @@ import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { TabContent } from "./components/Terminal/TabContent";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
-import type { SectionId } from "./components/Settings/sections";
+import { isSettingsLinkId, type SettingsLinkId } from "./components/Settings/sections";
 import { ChatBlockHostProvider, GuideNavigationProvider } from "@codeterm/chat-ui";
 import { appChatBlockHost } from "./lib/chatBlocks/appChatBlockHost";
 import { AppChatBlockServices } from "./lib/chatBlocks/AppChatBlockServices";
@@ -27,7 +27,6 @@ import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
 import { RecoveryStatusBanner } from "./components/CrashReportToast";
-import { CloseUndoToast } from "./components/Toast/CloseUndoToast";
 import { StaleBuildBanner } from "./components/StaleBuildBanner";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { CanvasView } from "./components/Canvas/CanvasView";
@@ -130,7 +129,7 @@ function AppInner() {
   const [pluginViewId, setPluginViewId] = useState<string | null>(null);
   const [pluginViewCwd, setPluginViewCwd] = useState<string | null>(null);
   const [pluginViewOwner, setPluginViewOwner] = useState<PluginViewScope | null>(null);
-  const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
+  const [settingsSection, setSettingsSection] = useState<SettingsLinkId | undefined>(undefined);
   const [requestedGuide, setRequestedGuide] = useState<GuideRequest | undefined>(undefined);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
   // Lazy-mount panels: mount once on first open, stay mounted for instant switching.
@@ -295,6 +294,9 @@ function AppInner() {
         setPluginViewId(panel.slice("view:".length));
       } else if (panel === "extensions") {
         setExtensionsOpen(true);
+      } else if (panel?.startsWith("settings:") && isSettingsLinkId(panel.slice("settings:".length))) {
+        setSettingsSection(panel.slice("settings:".length) as SettingsLinkId);
+        setSettingsOpen(true);
       } else if (panel === "memory") {
         if (import.meta.env.DEV && import.meta.env.VITE_CODETERM_TEST === "1") setMemoryInitial(detail?.memoryState);
         setMemoryOpen(true);
@@ -692,6 +694,7 @@ function AppInner() {
                 onClose={() => { setSettingsSection(undefined); setSettingsOpen(false); }}
                 initialSection={settingsSection}
                 guideRequest={requestedGuide}
+                tabs={state.tabs}
                 workspaces={state.workspaces}
                 teams={state.teams}
               />
@@ -883,7 +886,6 @@ function AppInner() {
       <CommandPalette commands={paletteCommands} />
 
       <RecoveryStatusBanner />
-      <CloseUndoToast />
 
       <StaleBuildBanner />
 

@@ -642,9 +642,7 @@ function partToChatMsg(part, role, id, tsMs) {
     const tool = part.tool || "tool";
     const state = part.state || {};
     const canonical = canonicalToolFields(tool, state.input);
-    const input = state.input && typeof state.input === "object" ? state.input : {};
-    const path = String(input.filePath ?? input.file_path ?? input.path ?? "");
-    const diffs = state.status === "completed" ? opencodeFileDiffs(path, canonical.edits, state.metadata) : [];
+    const diffs = toolFileDiffs(part);
     const out = {
       id,
       type: "tool_call",
@@ -664,6 +662,23 @@ function partToChatMsg(part, role, id, tsMs) {
     return out;
   }
   return null;
+}
+function toolFileDiffs(part) {
+  const state = part.state ?? {};
+  if (part.type !== "tool" || state.status !== "completed") return [];
+  const input = state.input && typeof state.input === "object" ? state.input : {};
+  const path = String(input.filePath ?? input.file_path ?? input.path ?? "");
+  const edits = extractCanonicalEdits(input);
+  const metadata = state.metadata && typeof state.metadata === "object" ? state.metadata : {};
+  const creation = part.tool === "write" && metadata.exists === false && typeof input.content === "string" ? [{ path, old: "", new: input.content }] : [];
+  const diffs = opencodeFileDiffs(path, [...edits, ...creation], metadata);
+  if (creation.length) {
+    if (!diffs.length && path) diffs.push(fileDiffFromEdit(creation[0]));
+    diffs.forEach((diff) => {
+      diff.kind = "add";
+    });
+  }
+  return diffs;
 }
 function canonicalToolFields(name, input) {
   const tool = String(name || "").trim();
@@ -1634,6 +1649,10 @@ var plugin = {
       "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 ORDER BY time_created DESC LIMIT 20",
       [sessionId, ASSISTANT_MESSAGE_MAX_BYTES]
     );
+  },
+  structuredToolFileDiffs(part) {
+    if (!part || typeof part !== "object" || part.state?.status !== "completed") return null;
+    return toolFileDiffs(part);
   },
   usesStructuredChat() {
     return true;

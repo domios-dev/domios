@@ -9,11 +9,15 @@ import type { ReplayFrame } from "./blueprintRunModel";
 import { nodeStatus } from "./BlueprintNodeCard";
 import { AUTOMATION_TOOL } from "./styles";
 import { useAutomationViewport, type AutomationCamera } from "./useAutomationViewport";
+import { useBlueprintMotion } from "./useBlueprintMotion";
+import type { BlueprintReplayOutcome } from "./blueprintReplayOutcome";
+import { BlueprintLiquidSignal } from "./BlueprintLiquidSignal";
 
 const LEGEND: readonly BlueprintNodeType[] = ["trigger", "source", "agent", "logic", "action"];
 
 export interface CanvasReplay {
   frame: ReplayFrame;
+  outcome?: BlueprintReplayOutcome | null;
   /** A live run lights its path without dimming the rest of the graph. */
   live: boolean;
 }
@@ -24,6 +28,7 @@ export function BlueprintCanvas({ layout, selected, camera, onSelect, replay, pa
 }) {
   const hintId = useId();
   const container = useRef<HTMLDivElement | null>(null);
+  const motion = useBlueprintMotion(container);
   const paintGrid = useCallback((t: ViewportTransform) => {
     const style = container.current?.style;
     if (!style) return;
@@ -38,6 +43,7 @@ export function BlueprintCanvas({ layout, selected, camera, onSelect, replay, pa
   }, [viewport.containerRef]);
   useLayoutEffect(() => paintGrid(viewport.transform), [paintGrid, viewport.transform]);
   const frame = replay?.frame ?? null;
+  const outcome = frame?.done ? replay?.outcome : null;
   const types = new Set(layout.nodes.map((entry) => entry.node.type));
   return <div className="bp-scope flex min-h-0 min-w-0 flex-1 flex-col">
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2">
@@ -75,8 +81,8 @@ export function BlueprintCanvas({ layout, selected, camera, onSelect, replay, pa
             const lit = frame?.wires.has(route.wire.id) ?? false;
             return <g key={route.wire.id} data-wire={route.wire.id}>
               <path className="bp-wire" data-kind={route.wire.kind} data-lit={lit || undefined} d={route.path} />
-              {lit && <path className="bp-flow" d={route.path} />}
-              {frame?.travelling.includes(route.wire.id) && <circle className="bp-pulse" r="4.5" style={{ offsetPath: `path('${route.path}')`, offsetDistance: `${frame.progress * 100}%` }} />}
+              {lit && outcome?.failed && route.wire.to.node === outcome.nodeKey && route.wire.kind === "exec" && <rect className="bp-stop-marker" x={route.to.x - 7} y={route.to.y - 3} width="6" height="6" rx="1.5" />}
+              {motion && frame?.travelling.includes(route.wire.id) && <BlueprintLiquidSignal path={route.path} progress={frame.progress} to={route.to} />}
             </g>;
           })}
         </svg>
@@ -90,13 +96,14 @@ export function BlueprintCanvas({ layout, selected, camera, onSelect, replay, pa
             data-type={node.type}
             data-node-key={node.key}
             data-lit={frame?.nodes.has(node.key) || undefined}
+            data-replay-outcome={outcome?.nodeKey === node.key ? outcome.failed ? "failed" : "finished" : undefined}
             data-missing={node.action?.handler?.availability && node.action.handler.availability !== "available" ? "true" : undefined}
             aria-pressed={selected === node.key}
-            aria-label={`${NODE_TYPE_LABEL[node.type]} node: ${node.title} · ${node.subtitle}${status ? ` · ${status}` : ""}`}
+            aria-label={`${NODE_TYPE_LABEL[node.type]} node: ${node.title} · ${node.subtitle}${status ? ` · ${status}` : ""}${outcome?.nodeKey === node.key ? ` · ${outcome.label}` : ""}`}
             style={{ left: box.x, top: box.y, width: box.width, height: box.height }}
             onFocus={() => viewport.reveal(box)}
             onClick={() => onSelect(node.key)}
-          ><BlueprintNodeCard laid={laid} /></button>;
+          >{motion && frame?.nodes.has(node.key) && <span className="bp-absorb" data-replay-motion="absorb" aria-hidden="true" />}<BlueprintNodeCard laid={laid} />{outcome?.nodeKey === node.key && <span className="bp-outcome-badge" title={outcome.reason}>{outcome.failed ? "Error" : outcome.noAction ? "No action" : "Finished"}</span>}</button>;
         })}
       </div>
     </div>

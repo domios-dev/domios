@@ -355,6 +355,8 @@ pub fn run() {
             session::save_session,
             session::list_saved_sessions,
             session::load_session,
+            commands::blueprint_export_file,
+            commands::blueprint_import_file,
             commands::automation_graph_snapshot,
             commands::automation_node_files,
             commands::reveal_file,

@@ -139,18 +139,40 @@ pub(crate) fn switch_next_turn(
     })
 }
 
+pub(crate) struct ModelSwitchOptions {
+    pub force: bool,
+    pub restart_resume: bool,
+}
+
 impl crate::service::ServiceContext {
-    pub(crate) fn agent_switch_model_with_controls(
+    pub(crate) fn agent_switch_model_with_restart_fallback(
         &self,
         tab: &str,
         model: &str,
         effort: Option<&str>,
         mode: Option<RuntimeMode>,
+        options: ModelSwitchOptions,
     ) -> Result<
         crate::service::agent_restart::ModelSwitchOutcome,
         crate::service::agent_restart::ModelSwitchError,
     > {
-        self.agent_switch_model_with_controls_and_force(tab, model, effort, mode, false)
+        if !options.restart_resume {
+            return self.agent_switch_model_with_controls_and_force(
+                tab,
+                model,
+                effort,
+                mode,
+                options.force,
+            );
+        }
+        if mode.is_some() {
+            return Err(
+                crate::service::agent_restart::ModelSwitchError::NotSwitchable(
+                    "restart fallback cannot change runtime mode".into(),
+                ),
+            );
+        }
+        self.agent_switch_model_with_fallback(tab, model, effort, options.force, true)
     }
 
     pub(crate) fn agent_switch_model_with_controls_and_force(

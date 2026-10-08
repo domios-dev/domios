@@ -77,6 +77,7 @@ import { useTabChoiceHost } from "./useTabChoiceHost";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { MessageSelectionBar } from "./MessageSelectionBar";
 import { useChatMessageSelection } from "./useChatMessageSelection";
+import { jumpToMessage } from "./jumpToMessage";
 import { HelperMomentCard } from "./HelperMomentCard";
 import { helperMoments } from "../../lib/helperMoments/helperMomentsWiring";
 import { latestAnswerText } from "../../lib/helperMoments/helperBlocks";
@@ -524,6 +525,7 @@ export function TabSessionChat({
     [enrichedMessages],
   );
   const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef });
+  const jumpToQuoted = useCallback((messageId: string) => { jumpToMessage(scrollRef.current, messageId); }, [scrollRef]);
   const agentTimeMessageIds = useMemo(
     () => agentMessageTimeIds(renderedEnrichedMessages.map(({ msg }) => msg)),
     [renderedEnrichedMessages],
@@ -861,6 +863,7 @@ export function TabSessionChat({
                 originAvatar={originProps?.originAvatar}
                 onOriginClick={originProps?.onOriginClick}
                 onFocusTab={resolveFocusTab}
+                onJumpToMessage={jumpToQuoted}
               />
             </ChatMessageRow>
               {following.map(renderOutboundReport)}
@@ -885,6 +888,7 @@ export function TabSessionChat({
       </div>
       <MessageSelectionBar
         count={messageSelection.count}
+        partial={messageSelection.partial}
         onCopy={messageSelection.copySelection}
         onQuote={messageSelection.quoteSelection}
         onAsk={messageSelection.askSelection}

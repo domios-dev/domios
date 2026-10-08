@@ -1,6 +1,8 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
+import { configureHtmlFileLoader, configureLocalArtifactLoader } from "@codeterm/chat-ui";
+import { ChangeFileView } from "./tabPanel/ChangeFileView";
 import { ChangesButton } from "./ChangesPanel";
 import { chatChangesStore } from "./chatChangesStore";
 import { composerInsertionStore } from "./composerInsertion";
@@ -40,6 +42,8 @@ const messages: NormalizedChatMessage[] = [
 const panel = (onClose = () => {}) => <TabSidePanel tabId="tab" view="changes" cwd="/repo" panelRef={{ current: null }} state="open" onClose={onClose} />;
 afterEach(async () => {
   await act(async () => root?.unmount()); root = null; host?.remove();
+  configureLocalArtifactLoader(null);
+  configureHtmlFileLoader(null);
   hostMode.web = false;
   chatChangesStore.clear(); planSidePanelStore.close(); planSidePanelStore.resetDocuments(); tabPanelNavigationStore.clear(); composerInsertionStore.clear(); clearChatReveal(); vi.clearAllMocks();
 });
@@ -144,6 +148,8 @@ it("keeps failed file actions visible and disables opening deleted files", async
 });
 
 it("opens a historical file at its latest recorded rename destination", async () => {
+  const loader = vi.fn(async () => ({ data: "renamed source", media_type: "text/plain" }));
+  configureLocalArtifactLoader(loader);
   chatChangesStore.set("tab", [...messages,
     { id: "move", type: "tool_result", content: "", fileDiffs: [{ path: "src/a.ts", movePath: "src/moved.ts", additions: 0, deletions: 0, hunks: [] }] },
   ]);
@@ -153,6 +159,8 @@ it("opens a historical file at its latest recorded rename destination", async ()
   await act(async () => button("Show changes for src/a.ts").click());
   await act(async () => button("Open file").click());
   expect(invoke).toHaveBeenCalledWith("open_folder", { path: "/repo/src/moved.ts" });
+  await act(async () => changeView("file").click());
+  expect(loader).toHaveBeenCalledExactlyOnceWith("/repo/src/moved.ts", "document", "tab");
 });
 
 it("invalidates the cached summary when the tab adopts another session", () => {
@@ -191,4 +199,103 @@ it("disables host OS actions in the web reader without invoking them", async () 
   await act(async () => { button("Open file").click(); button("Show in Explorer/Finder").click(); });
   expect(invoke).not.toHaveBeenCalledWith("open_folder", expect.anything());
   expect(invoke).not.toHaveBeenCalledWith("reveal_file", expect.anything());
+});
+
+const changeView = (value: string) => host.querySelector<HTMLButtonElement>(`[role="tablist"][aria-label="Change view"] [data-value="${value}"]`)!;
+
+it("switches from recorded diff to the full current file using its own tab", async () => {
+  const current = "const fullCurrentFile = 42;";
+  const loader = vi.fn(async () => ({ data: current, media_type: "text/plain" }));
+  configureLocalArtifactLoader(loader);
+  chatChangesStore.set("tab", messages);
+  await render(panel());
+  await act(async () => button("Show changes for src/a.ts").click());
+  expect(loader).not.toHaveBeenCalled();
+  await act(async () => changeView("file").click());
+  expect(loader).toHaveBeenCalledExactlyOnceWith("/repo/src/a.ts", "document", "tab");
+  expect(host.querySelector("code")?.textContent).toContain(current);
+  expect(button("Wrap lines").getAttribute("aria-pressed")).toBe("false");
+  await act(async () => button("Wrap lines").click());
+  expect(button("Wrap lines").getAttribute("aria-pressed")).toBe("true");
+  expect(host.querySelector('[role="region"][aria-label="Diff for src/a.ts"]')).toBeNull();
+  await act(async () => button("Show recorded diff").click());
+  expect(changeView("diff").getAttribute("aria-selected")).toBe("true");
+});
+
+it.each(["diff", "file"])("opens one fullscreen dialog for %s and closes without leaving detail", async (view) => {
+  configureLocalArtifactLoader(async () => ({ data: "full current file", media_type: "text/plain" }));
+  chatChangesStore.set("tab", messages);
+  await render(panel());
+  await act(async () => button("Show changes for src/a.ts").click());
+  await act(async () => changeView(view).click());
+  const opener = button("Fullscreen");
+  opener.focus();
+  await act(async () => opener.click());
+  expect(document.querySelectorAll('[role="dialog"][aria-modal="true"]')).toHaveLength(1);
+  const close = document.querySelector<HTMLButtonElement>('button[aria-label="Close fullscreen"]')!;
+  await act(async () => close.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true, cancelable: true })));
+  expect(document.querySelector('[role="dialog"][aria-modal="true"]')).toBeNull();
+  expect(document.activeElement).toBe(opener);
+  expect(changeView(view).getAttribute("aria-selected")).toBe("true");
+});
+
+it("persists the chosen view per tab across cache reset, back navigation and scope changes", async () => {
+  configureLocalArtifactLoader(async () => ({ data: "full current file", media_type: "text/plain" }));
+  chatChangesStore.set("tab", messages);
+  await render(panel());
+  await act(async () => button("Show changes for src/a.ts").click());
+  await act(async () => changeView("file").click());
+  await act(async () => tabPanelNavigationStore.resetCache());
+  expect(changeView("file").getAttribute("aria-selected")).toBe("true");
+  expect(tabPanelNavigationStore.get("another").changes.view).toBe("diff");
+  await act(async () => button("Back to list").click());
+  await act(async () => tab("turn").click());
+  await act(async () => button("Show changes for src/b.ts").click());
+  expect(changeView("file").getAttribute("aria-selected")).toBe("true");
+});
+
+it.each(["Unable to resolve preview file: os error 2", "Binary file: text preview is unavailable", "Local preview source exceeds 1000000 bytes", "Permission denied"])("keeps failed file reads honest and offers the recorded diff: %s", async (failure) => {
+  configureLocalArtifactLoader(async () => { throw new Error(failure); });
+  chatChangesStore.set("tab", messages);
+  await render(panel());
+  await act(async () => button("Show changes for src/a.ts").click());
+  await act(async () => changeView("file").click());
+  expect(host.querySelector('[role="alert"]')).toBeTruthy();
+  expect(host.querySelector("code")).toBeNull();
+  await act(async () => button("Show recorded diff").click());
+  expect(host.querySelector('[role="region"][aria-label="Diff for src/a.ts"]')).toBeTruthy();
+});
+
+it("does not read a recorded deletion as a current file", async () => {
+  const loader = vi.fn(); configureLocalArtifactLoader(loader);
+  chatChangesStore.set("tab", [{ id: "deleted", type: "tool_result", content: "", fileDiffs: [{ path: "gone.ts", kind: "delete", additions: 0, deletions: 1, hunks: [{ oldStart: 1, oldLines: 1, newStart: 0, newLines: 0, lines: ["-gone"] }] }] }]);
+  await render(panel());
+  await act(async () => button("Show changes for gone.ts").click());
+  await act(async () => changeView("file").click());
+  expect(loader).not.toHaveBeenCalled();
+  expect(host.querySelector('[role="status"]')).toBeTruthy();
+  expect(button("Show recorded diff")).toBeTruthy();
+});
+
+it("renders changed markdown through the document renderer", async () => {
+  configureLocalArtifactLoader(async () => ({ data: "# Current document", media_type: "text/markdown" }));
+  await render(<ChangeFileView tabId="tab" target="/repo/current.md" deleted={false} onDiff={() => {}} />);
+  expect(host.querySelector("h1")?.textContent).toBe("Current document");
+});
+
+it("renders changed HTML through the scoped page renderer", async () => {
+  const loader = vi.fn(async () => "<main>Current page</main>");
+  configureHtmlFileLoader(loader);
+  await render(<ChangeFileView tabId="tab" target="/repo/current.html" deleted={false} onDiff={() => {}} />);
+  expect(loader).toHaveBeenCalledExactlyOnceWith("/repo/current.html", "tab");
+  expect(host.querySelector('iframe[title="HTML preview"]')?.getAttribute("srcdoc")).toContain("Current page");
+});
+
+it("renders changed images through the scoped image renderer", async () => {
+  const data = "data:image/png;base64,aW1hZ2U=";
+  const loader = vi.fn(async () => ({ data, media_type: "image/png" }));
+  configureLocalArtifactLoader(loader);
+  await render(<ChangeFileView tabId="tab" target="/repo/current.png" deleted={false} onDiff={() => {}} />);
+  expect(loader).toHaveBeenCalledExactlyOnceWith("/repo/current.png", "image", "tab");
+  expect(host.querySelector('img[alt="current.png"]')?.getAttribute("src")).toBe(data);
 });

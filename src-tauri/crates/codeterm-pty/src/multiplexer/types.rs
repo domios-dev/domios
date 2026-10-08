@@ -131,6 +131,8 @@ pub struct ClosedTab {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub model: Option<String>,
     #[serde(default)]
+    pub restorable_launch: RestorableLaunchParameters,
+    #[serde(default)]
     pub chat_view: bool,
     pub closed_at: u64,
     /// Workspace the tab belonged to when it was closed. Empty string on old
@@ -159,7 +161,11 @@ impl From<&Tab> for ClosedTab {
             agent_session_id: tab.agent_session_id.clone(),
             role_profile: tab.role_profile.clone(),
             worker_id: tab.worker_id.clone(),
-            model: tab.agent_session_model.clone(),
+            model: tab
+                .agent_session_model
+                .clone()
+                .or_else(|| tab.agent_provider_resolved_model.clone()),
+            restorable_launch: tab.restorable_launch.clone(),
             chat_view: tab.chat_view,
             closed_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

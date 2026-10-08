@@ -212,7 +212,8 @@ pub(super) fn emit_snapshot_part(
     let Some(message) = state.messages.get(&update.message_id).cloned() else {
         return;
     };
-    if let Some(part) = state.prepare_chat_part(&update, &message) {
+    if let Some(mut part) = state.prepare_chat_part(&update, &message) {
+        super::tool_diffs::apply(svc, tab_id, &update.part, &mut part);
         let nonce = svc
             .mux
             .read()

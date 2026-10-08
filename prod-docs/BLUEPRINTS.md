@@ -1,16 +1,27 @@
 # Blueprints
 
-A blueprint watches external status cheaply or carries a conversation with a terminal while an agent does useful work. It runs a bounded shell probe at the requested cadence, hashes the captured result, and classifies only changed output. Use it to wait for CI or build completion instead of repeatedly asking an agent to run the same status check.
+A Blueprint watches status with bounded probes at a declared cadence, classifies changed output, or carries a terminal conversation. Use it to wait for CI or builds without repeated agent checks.
 
-Name graphs, handler nodes and crons briefly by meaning: what is watched → what happens. `blueprint create` requires `--name`; update definitions require `name`. Validate create or update definitions with `--dry-run`. Use-case patterns and ready skeletons are in `codeterm docs BLUEPRINT-RECIPES`; `codeterm blueprint recipe [<name>]` prints one.
+Name graphs, handlers and crons by what they watch and do. Create requires `--name`; updates require `name`. Validate with `--dry-run`. Ready skeletons: `codeterm docs BLUEPRINT-RECIPES` or `codeterm blueprint recipe [<name>]`.
+
+## Share a Blueprint
+
+```bash
+codeterm blueprint export <id> --out watch.blueprint.json
+codeterm blueprint import watch.blueprint.json --set binding_1=<value> --set timeout=1h --stopped
+```
+
+Export defaults to stdout. A `.blueprint.json` recipe contains `schema_version: 1`, described `placeholders`, and a `definition` holding a create or pipeline spec. Bind `{{key}}` with `--set`; `create --recipe` also accepts exports. Invalid versions, missing bindings and invalid definitions are refused. Imports use the caller's Team and start stopped; `--start` runs them.
+
+Exports omit owner ids, runtime and history. Commands, input, event parameters, questions, patterns and local targets become placeholders to protect credentials and local references; rebind stage `timeout`. Jobs offers **+ Import Blueprint** with a destination Team tab and bindings, and header **Export Blueprint** downloads.
 
 ## When to use a Blueprint graph
 
-Before you repeat a check or wait on an external, agent or cron status, describe the loop once as a graph instead of spending turns on it. Unchanged output costs no model call and no agent turn; you wake only when a declared bucket routes to you. Observation and actions are deterministic, the model only picks one of your finite buckets (never a command, target or reply), and every action stays in the creator's Team, workspace and machine. `other` means no bucket fits.
+Define a graph before repeating an external, agent or cron status check. Unchanged output costs no model call or agent turn; declared buckets route back to you. Observation and actions are deterministic. The model picks a finite bucket, never a command, target or reply. Actions stay in the creator's Team, workspace and machine; `other` means none fits.
 
-Make the probe print one stable verdict: no timestamps or durations (every changed byte costs a classifier call), the verdict before any long output (only the first 32 KiB is kept), and errors that cannot pass for a result. Deterministic `--match` patterns classify matching output first; a connected Choice adapter classifies output that matches no pattern. The `--question` names every bucket and what is `other`. After creating a graph, end your turn: a route wakes you, while a wait tool, `sleep` or background shell loop is still polling. Any tab in the creator's Team and workspace can be observed through terminal output; use `--terminal-pattern` or `--output-settled` for a utility shell.
+Print a stable verdict before long output; only 32 KiB is kept. Timestamps and durations trigger classification, and errors must not resemble success. `--match` classifies first; the Choice adapter handles unmatched output. `--question` defines each bucket and `other`. After creating, end your turn and let a route wake you: waits, sleeps and background loops are polling. Observe same-Team, same-workspace tabs; utility shells need `--terminal-pattern` or `--output-settled`.
 
-A probe puts the creating instance's installed CLI directory first on `PATH` and receives that instance's API URL, configured token and socket path, so `codeterm` commands use the right daemon. A flapping source routes until its transition budget is exhausted; the graph stops and the creator agent gets a routed notice with the reason. A hung probe skips each tick without slowing other graphs. Removing a directly observed tab stops that graph and routes a notice to the creator agent. Removing a CronRun tab ends that run's observation, routes a notice to the creator agent, and leaves the graph waiting for another verified run. A graph created while its creator is solo remains visible to that creator after they join a Team.
+Probes receive the creating instance's CLI directory first on `PATH`, API URL/token and socket path. Flapping stops at the transition budget and notifies the creator; hung probes skip ticks without slowing other graphs. Removing an observed tab stops its graph and notifies the creator. Removing a CronRun tab ends that run, notifies the creator and waits for another verified run. A solo creator's graph remains visible after joining a Team.
 
 ## Create a watch
 
@@ -152,11 +163,11 @@ codeterm blueprint delete --stopped
 
 These commands show or manage only the calling tab's blueprints in its creation scope and workspace. A solo graph remains visible to its creator after that tab joins a Team; it is not shared with the new Team. `show` includes the probe, accepted bucket, hash, next run, expiry, and last decision reason. Stopped watches remain inspectable. Closing a Team stops and removes its Team-owned blueprints, including in-flight route claims. A removed creator stops the watch. The store admits at most 64 active and 256 total blueprints; dormant stages count toward the total. Watches are local to the creator's machine; `--mesh` is refused.
 
-Stored single-route definitions from older builds and unreadable/corrupt files leave the Blueprint subsystem unavailable while other subsystems start. Original bytes stay in place; reads and mutations return an actionable load/format error, never an empty healthy graph. Preserve those definitions and recreate them through current authoring; there is no automatic migration, reset or discard. Use fresh isolated dev data for demonstrations.
+Legacy single-route definitions or corrupt stores make Blueprints unavailable; other subsystems still start. Original bytes remain, and reads and mutations return a load/format error. Preserve the definitions and recreate them through current authoring: no automatic migration, reset or discard. Demonstrate with fresh isolated dev data.
 
-A failed persistence write returns an error and holds Blueprint unavailable; cancellation stays in memory and durability is unconfirmed until a valid store reload. Repair the filesystem first. No stop success or handler replay is inferred.
+Failed persistence holds Blueprints unavailable until filesystem repair and a valid reload. Cancellation remains in memory; durability, stop success and replay are unconfirmed.
 
-<!-- revision: 24 -->
+
 
 ## Terminal output and conversation mode
 
@@ -165,3 +176,14 @@ Use `--observe tab:<id>` with `--terminal-pattern <regex>`, `--output-settled <m
 `send:<tab>` forwards that text body unchanged. A utility shell receives typed input plus Enter through the safe PTY send path; an agent receives a routed message through the gateway. The host never interpolates captured data into a shell command. Sending to a shell can execute what its foreground program interprets as a command, so target the harness tab deliberately. `notify` retains the creator notification/result-file behavior. A full terminal event queue stops its source with `terminal_queue_full`; replacing the PTY or definition discards obsolete deltas.
 
 `--session` makes message exchanges independent of `--max-transitions` and `--max-actions`. Session stages share a safety allowance within their graph: 16384 accepted exchanges or action attempts, or 120 accepted exchanges within a rolling minute. Safety counts remain after reload; conversation counts and limits appear in Runs. Ordinary finite watches retain their configured budgets. Use `--timeout` to bound a conversation's lifetime and `codeterm blueprint stop <id>` to end it explicitly.
+
+## Pipelines
+
+Pipelines combine a schedule/input/event trigger, named command/convert/ask/filter steps, outcome routes and a result target. Jobs shows real steps and retained Runs, including shell-created Blueprints. Closed runs have no current step. Pattern decisions read Pattern rules. Logs include names and signed indices (`-1` for `$run`/`$result`).
+
+```bash
+codeterm blueprint create --recipe echo --set message=ready
+codeterm blueprint log BLUEPRINT_ID
+```
+
+<!-- revision: 26 -->

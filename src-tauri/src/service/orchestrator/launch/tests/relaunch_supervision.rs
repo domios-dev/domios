@@ -66,6 +66,16 @@ fn restore_resumes_idle_worker() {
     ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
 )]
 fn resume_launch_keeps_its_target_session_after_identity_clear() {
+    assert_resumed_launch_target(AgentLaunchOrigin::Resume);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn restored_launch_reauthenticates_its_saved_history_marker() {
+    assert_resumed_launch_target(AgentLaunchOrigin::RestoredSnapshot);
+}
+
+fn assert_resumed_launch_target(origin: AgentLaunchOrigin) {
     use crate::multiplexer::types::PriorBindingNonce;
 
     let (mut mux, tab_id) = MultiplexerState::new();
@@ -86,10 +96,14 @@ fn resume_launch_keeps_its_target_session_after_identity_clear() {
             &harness.service,
             None,
             None,
-            AgentLaunchOrigin::Resume,
+            origin,
             Some("resume-target-session"),
         )
         .expect("resume launch records its exact target");
+    assert_eq!(
+        crate::service::launch_session_detection::registered_launch_marker(&tab_id).as_deref(),
+        Some("resume-target-session")
+    );
     {
         let mut mux = harness.service.mux.write();
         let tab = mux.get_tab_mut(&tab_id).unwrap();

@@ -1,6 +1,109 @@
 use super::*;
 
 #[test]
+fn blueprint_export_import_cli_parse_and_wire() {
+    use clap::Parser;
+    let cli = crate::args::cli::Cli::try_parse_from([
+        "codeterm",
+        "blueprint",
+        "export",
+        "watch",
+        "--out",
+        "watch.blueprint.json",
+    ])
+    .unwrap();
+    let crate::args::cli::Commands::Blueprint { action } = cli.command else {
+        panic!("Blueprint action required")
+    };
+    assert!(matches!(
+        &action,
+        BlueprintAction::Export { out: Some(_), .. }
+    ));
+    let (method, params) = request(action, Some("caller".into()), Some("nonce".into())).unwrap();
+    assert_eq!(method, "blueprint.export");
+    assert_eq!(params["id"], "watch");
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("watch.blueprint.json");
+    std::fs::write(&path, serde_json::to_vec(&json!({"schema_version":1, "placeholders":{"target":"Destination tab"}, "definition":{"create":{"observe":{"kind":"tab","id":"{{target}}"}}}})).unwrap()).unwrap();
+    for flags in [vec![], vec!["--stopped"], vec!["--start"]] {
+        let mut args = vec![
+            "codeterm",
+            "blueprint",
+            "import",
+            path.to_str().unwrap(),
+            "--set",
+            "target=scratch-tab",
+        ];
+        args.extend(&flags);
+        let cli = crate::args::cli::Cli::try_parse_from(args).unwrap();
+        let crate::args::cli::Commands::Blueprint { action } = cli.command else {
+            panic!("Blueprint action required")
+        };
+        let (method, params) =
+            request(action, Some("caller".into()), Some("nonce".into())).unwrap();
+        assert_eq!(method, "blueprint.import");
+        assert_eq!(params["stopped"], !flags.contains(&"--start"));
+        assert_eq!(params["set"], json!(["target=scratch-tab"]));
+        assert_eq!(params["caller_tab_id"], "caller");
+    }
+    assert!(crate::args::cli::Cli::try_parse_from([
+        "codeterm",
+        "blueprint",
+        "import",
+        path.to_str().unwrap(),
+        "--stopped",
+        "--start"
+    ])
+    .is_err());
+    let action = BlueprintAction::Import {
+        file: path,
+        set: vec![],
+        stopped: true,
+        start: false,
+    };
+    assert!(request(action, None, None).unwrap_err().contains("target"));
+}
+
+#[test]
+fn blueprint_exported_recipe_uses_create_recipe_substitution_and_refuses_mixed_options() {
+    use clap::Parser;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("watch.blueprint.json");
+    std::fs::write(&path, serde_json::to_vec(&json!({"schema_version":1, "placeholders":{"command":"Probe command"}, "definition":{"create":{"probe":"{{command}}"}}})).unwrap()).unwrap();
+    let args = [
+        "codeterm",
+        "blueprint",
+        "create",
+        "--recipe",
+        path.to_str().unwrap(),
+        "--set",
+        "command=printf ready",
+    ];
+    let cli = crate::args::cli::Cli::try_parse_from(args).unwrap();
+    let crate::args::cli::Commands::Blueprint { action } = cli.command else {
+        panic!("Blueprint action required")
+    };
+    let (method, params) = request(action, None, None).unwrap();
+    assert_eq!(method, "blueprint.import");
+    assert_eq!(params["stopped"], true);
+    let cli = crate::args::cli::Cli::try_parse_from(args.into_iter().chain(["--dry-run"])).unwrap();
+    let crate::args::cli::Commands::Blueprint { action } = cli.command else {
+        panic!("Blueprint action required")
+    };
+    let (method, params) = request(action, None, None).unwrap();
+    assert_eq!(method, "blueprint.validate.create");
+    assert_eq!(params["create"]["probe"], "printf ready");
+    let cli =
+        crate::args::cli::Cli::try_parse_from(args.into_iter().chain(["--name", "Ignored name"]))
+            .unwrap();
+    let crate::args::cli::Commands::Blueprint { action } = cli.command else {
+        panic!("Blueprint action required")
+    };
+    assert!(request(action, None, None).is_err());
+}
+
+#[test]
 fn blueprint_text_input_wire_preserves_file_body_and_identity() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("input.txt");
@@ -752,7 +855,6 @@ fn blueprint_delete_wire_carries_id_stop_and_caller() {
     .unwrap();
     assert_eq!(params["id"], Value::Null);
     assert_eq!(params["stopped"], true);
-    assert_eq!(params["stop"], false);
 }
 
 #[test]
@@ -778,4 +880,14 @@ fn blueprint_delete_message_lists_removed_roots() {
         deleted_message(&json!({"deleted":[]})),
         "No blueprints deleted."
     );
+}
+
+#[test]
+fn render_log_preserves_step_names_and_signed_indices() {
+    let rows = json!([
+        {"started_at_ms":100,"step_index":-1,"step_name":"$run","state":"done","outcome":"done"},
+        {"started_at_ms":101,"step_index":-1,"step_name":"$result","state":"done","outcome":"handler_result"},
+        {"started_at_ms":102,"step_index":0,"step_name":"emit","state":"done","outcome":"done"}
+    ]);
+    assert_eq!(log_text(&rows), "100 -1 $run done outcome=done result=- reason=-\n101 -1 $result done outcome=handler_result result=- reason=-\n102 0 emit done outcome=done result=- reason=-");
 }

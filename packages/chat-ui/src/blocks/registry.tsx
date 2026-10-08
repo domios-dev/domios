@@ -1,7 +1,12 @@
+export { isolateBlockDirectives } from "../blockDirectives";
 import React from "react";
 import { GuideDirective, parseGuideDirective } from "../GuideDirective";
+import { ConnectBlock } from "./ConnectBlock";
+import { parseBridgeId } from "./connectBlockModel";
 import { PluginBlock } from "./PluginBlock";
 import { parsePluginId } from "./pluginBlockModel";
+import { SettingBlock } from "./SettingBlock";
+import { parseSettingKey } from "./settingBlockModel";
 import { AgentBlock } from "./AgentBlock";
 import { parseTabRef } from "./agentBlockModel";
 import { ChecklistBlock } from "./ChecklistBlock";
@@ -30,7 +35,7 @@ function defineChatBlock<P>(definition: ChatBlockDefinition<P>): ChatBlockDefini
   return definition as ChatBlockDefinition<unknown>;
 }
 
-/** Every block a reply can emit. Add a block here with its parser and renderer, then list it in prod-docs/HTML.md. */
+/** Every block a reply can emit. Add a block here with its parser and renderer, then list it in prod-docs/CHAT-BLOCKS.md. */
 export const CHAT_BLOCKS: readonly ChatBlockDefinition<unknown>[] = [
   defineChatBlock<string>({
     name: "guide",
@@ -41,6 +46,16 @@ export const CHAT_BLOCKS: readonly ChatBlockDefinition<unknown>[] = [
     name: "plugin",
     parse: (argument) => parsePluginId(argument),
     render: (pluginId, source) => <PluginBlock pluginId={pluginId} source={source} />,
+  }),
+  defineChatBlock<string>({
+    name: "connect",
+    parse: (argument) => parseBridgeId(argument),
+    render: (bridgeId, source) => <ConnectBlock bridgeId={bridgeId} source={source} />,
+  }),
+  defineChatBlock<string>({
+    name: "setting",
+    parse: (argument) => parseSettingKey(argument),
+    render: (settingKey, source) => <SettingBlock settingKey={settingKey} source={source} />,
   }),
   defineChatBlock<string[]>({
     name: "choice",
@@ -87,23 +102,6 @@ export function parseChatBlock(source: string, blocks: readonly ChatBlockDefinit
   if (props === null) return null;
   const normalized = `@ds-${name} ${argument}`;
   return { name, source: normalized, render: () => definition.render(props, normalized) };
-}
-
-/** Gives every standalone `@ds-` line its own paragraph so a lead sentence on the line above cannot swallow it. */
-export function isolateBlockDirectives(text: string): string {
-  if (!text.includes("@ds-")) return text;
-  const out: string[] = [];
-  let fence: string | null = null;
-  for (const line of text.split("\n")) {
-    const marker = /^[\t ]*(`{3,}|~{3,})/.exec(line)?.[1];
-    if (marker && fence === null) fence = marker;
-    else if (marker && fence !== null && marker[0] === fence[0] && marker.length >= fence.length) fence = null;
-    const directive = fence === null && BLOCK_LINE.test(line.replace(/\r$/, ""));
-    if (directive && out.length && out[out.length - 1].trim()) out.push("");
-    out.push(line);
-    if (directive) out.push("");
-  }
-  return out.join("\n");
 }
 
 /** A paragraph made only of block lines renders as stacked blocks; one stray text line keeps the whole paragraph text. */

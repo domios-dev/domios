@@ -8,7 +8,7 @@ export const SECTION_CAPABILITIES: Readonly<Record<string, readonly string[]>> =
   memory: ["memory-and-skills", "memory-hygiene", "memory-decision-rerank"],
   "supporter-agent": ["supporter-agent"],
   mesh: ["pairing-and-trust", "remote-work"],
-  integrations: ["webhook-receivers", "text-hooks", "service-registry"],
+  messengers: ["webhook-receivers", "text-hooks", "service-registry"],
   phone: ["telegram-bridge", "voice"],
   "messenger-plugins": ["plugins-and-channels"],
   blueprints: ["sentinels", "scheduling"],

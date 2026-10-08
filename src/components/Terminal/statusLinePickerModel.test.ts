@@ -34,7 +34,7 @@ function provider(overrides: Partial<ProviderDescriptor> = {}): ProviderDescript
 }
 
 test("gate follows the declared switch capability, never the provider id", () => {
-  for (const [mode, timing] of [["live", "live"], ["next_turn", "next_turn"], ["restart_resume", "restart_resume"]] as const) {
+  for (const [mode, timing] of [["live", "live"], ["live_command", "live_command"], ["next_turn", "next_turn"], ["restart_resume", "restart_resume"]] as const) {
     const gate = statusLineSwitchGate(provider({ id: "anything", model_switch: mode }), live);
     assert.equal(gate.interactive, true);
     if (gate.interactive) {

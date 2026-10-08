@@ -961,23 +961,22 @@ button,
   align-items: center;
   justify-content: flex-end;
   min-width: 0;
-  height: 28px;
+  min-height: 36px;
 }
 
 .ct-toast-inline-panel {
   position: relative;
   display: flex;
   align-items: center;
-  height: 26px;
-  max-width: min(440px, 40vw);
+  min-height: 36px;
+  width: 100%;
+  max-width: 100%;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--ct-border) 76%, transparent);
   border-radius: 6px;
   background: color-mix(in srgb, var(--ct-surface) 88%, var(--ct-titlebar-bg));
   white-space: nowrap;
-  box-shadow:
-    0 4px 16px rgb(0 0 0 / 18%),
-    inset -2px 0 0 color-mix(in srgb, var(--toast-accent) 45%, transparent);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 18%);
 }
 
 .ct-toast-inline-content {
@@ -986,85 +985,11 @@ button,
   gap: 8px;
   height: 100%;
   min-width: 0;
-  width: max-content;
-  max-width: min(420px, 38vw);
+  width: 100%;
+  max-width: 100%;
   padding: 0 11px 0 9px;
   font-size: 11px;
   line-height: 1;
-}
-
-.ct-toast-enter {
-  animation: ct-toast-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-
-.ct-toast-timed {
-  animation: ct-toast-life var(--ct-toast-duration) ease both;
-}
-
-.ct-toast-exit {
-  animation: ct-toast-out 140ms ease-in both;
-}
-
-@keyframes ct-toast-in {
-  from {
-    opacity: 0;
-    transform: translateX(6px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0) scale(1);
-  }
-}
-
-@keyframes ct-toast-life {
-  0% {
-    opacity: 0;
-    transform: translateX(6px) scale(0.98);
-  }
-  5%, 94% {
-    opacity: 1;
-    transform: translateX(0) scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: translateX(4px) scale(0.98);
-  }
-}
-
-@keyframes ct-toast-out {
-  from {
-    opacity: 1;
-    transform: translateX(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateX(4px) scale(0.98);
-  }
-}
-
-.ct-toast-pending {
-  display: flex;
-  height: 20px;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 3px;
-  border-radius: 999px;
-  padding: 0 6px;
-  color: var(--ct-muted-fg);
-  font-size: 10px;
-  background: color-mix(in srgb, var(--ct-surface) 72%, var(--ct-titlebar-bg));
-  animation: ct-toast-badge-in 180ms ease-out both;
-}
-
-@keyframes ct-toast-badge-in {
-  from {
-    opacity: 0;
-    transform: scale(0.82);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
 }
 
 .ct-notification-bell-ring {
@@ -1111,25 +1036,9 @@ button,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ct-toast-enter,
-  .ct-toast-exit,
   .ct-notification-bell-ring,
-  .ct-notification-dot-pop,
-  .ct-toast-pending {
+  .ct-notification-dot-pop {
     animation: none;
-  }
-
-  .ct-toast-timed {
-    animation: ct-toast-life-reduced var(--ct-toast-duration) linear both;
-  }
-}
-
-@keyframes ct-toast-life-reduced {
-  0%, 99.9% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
   }
 }
 
@@ -5961,3 +5870,7 @@ button.plan-recent-activity-item:hover .plan-recent-activity-task {
     height: 44px;
   }
 }
+
+@keyframes ct-toast-countdown { from { stroke-dashoffset: 0; } to { stroke-dashoffset: 1; } }
+.ct-toast-countdown { opacity: .28; animation: ct-toast-countdown linear forwards; }
+@media (prefers-reduced-motion: reduce) { .ct-toast-countdown { animation: none; } }

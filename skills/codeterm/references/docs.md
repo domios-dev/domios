@@ -31,6 +31,7 @@ Read one whole document with the command below. The installed CLI lists the curr
 - `codeterm docs MEMORY-SERVICES` — Memory skills, workers, synchronization, and dreaming.
 - `codeterm docs MEMORY-USAGE` — Memory agent behavior, CLI, REST, and UI.
 - `codeterm docs HTML` — Sandboxed chat HTML behavior.
+- `codeterm docs CHAT-BLOCKS` — Live @ds- chat block catalog.
 - `codeterm docs SKILLS` — Domios skills and agent integration.
 - `codeterm docs AGENT-CONTROL` — Agent hierarchy, command palette, and session integration.
 - `codeterm docs TELEGRAM-SETUP` — Telegram bridge setup and troubleshooting.

@@ -30,7 +30,7 @@ assert.equal(inlineAttachmentSrc(pathImage), null);
 }
 
 assert.deepEqual(userMessageAttachments("[1 image]", [pathImage]).text, "");
-assert.deepEqual(userMessageAttachments("plain text"), { text: "plain text", images: [], files: [], inline: null });
+assert.deepEqual(userMessageAttachments("plain text"), { text: "plain text", images: [], files: [], inline: null, reply: null });
 
 {
   const content = `compare ${formatAttachmentMarker(PATH, "image", "image1")} with\n${formatAttachmentMarker("/tmp/notes.txt", "text", "text1 · 312 lines")} ok ${formatAttachmentMarker("/tmp/chip.pdf")}`;
@@ -49,6 +49,22 @@ assert.deepEqual(userMessageAttachments("plain text"), { text: "plain text", ima
 {
   const view = userMessageAttachments(`${formatAttachmentMarker("/tmp/dir", "folder")}`);
   assert.deepEqual(view.files, [{ kind: "folder", path: "/tmp/dir" }], "an unlabeled folder is a chip");
+  assert.equal(view.inline, null);
+}
+
+{
+  const quote = formatAttachmentMarker("/tmp/quote-codex.md", "quote", "Codex · 14:05", { ref: "m7", excerpt: "Done \"now\" <ok>" });
+  const view = userMessageAttachments(`${quote}\nlooks wrong ${formatAttachmentMarker("/tmp/a.txt", "text", "text1")}`);
+  assert.deepEqual(view.reply, { kind: "quote", path: "/tmp/quote-codex.md", label: "Codex · 14:05", reply: "m7", excerpt: "Done \"now\" <ok>" }, "the reply round-trips its attributes");
+  assert.deepEqual(view.inline, [{ text: "looks wrong " }, { attachment: { kind: "text", path: "/tmp/a.txt", label: "text1" } }], "the reply leaves the inline text");
+  assert.deepEqual(view.files, []);
+}
+
+{
+  const quote = formatAttachmentMarker("/tmp/q.md", "quote", "3 messages", { ref: "m1", excerpt: "" });
+  const view = userMessageAttachments(quote);
+  assert.equal(view.reply?.label, "3 messages");
+  assert.equal(view.text, "", "a reply alone leaves no text");
   assert.equal(view.inline, null);
 }
 

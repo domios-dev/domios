@@ -11,7 +11,6 @@ use serde_json::{json, Value};
 
 use crate::agent::chat_types::ChatMsg;
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
-mod file_diffs;
 
 /// What the host does in response to one SSE line.
 #[derive(Debug, Clone, PartialEq)]
@@ -297,18 +296,6 @@ fn normalize_tool_part(update: &ChatPartUpdate, timestamp: Option<String>) -> Op
     let exit_code = metadata.get("exit").and_then(Value::as_i64);
     let (tool_kind, tool_summary, tool_detail, tool_edits) =
         canonical_tool_fields(tool_name, input);
-    let file_diffs = if state["status"] == "completed" {
-        let path = input
-            .and_then(|value| first_string(value, &["filePath", "file_path", "path"]))
-            .unwrap_or_default();
-        Some(Value::Array(file_diffs::from_tool(
-            path,
-            &tool_edits,
-            metadata,
-        )))
-    } else {
-        None
-    };
     Some(ChatMsg {
         id: update.part_id.clone(),
         kind: "tool_call".into(),
@@ -346,7 +333,6 @@ fn normalize_tool_part(update: &ChatPartUpdate, timestamp: Option<String>) -> Op
         tool_summary: Some(tool_summary),
         tool_detail: Some(tool_detail),
         tool_edits: Some(Value::Array(tool_edits)),
-        file_diffs,
         ..Default::default()
     })
 }

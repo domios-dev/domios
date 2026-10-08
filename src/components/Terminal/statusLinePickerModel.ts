@@ -3,7 +3,7 @@ import { reasoningEffortsForModel, resolveEffort } from "../../lib/newSessionCho
 import { groupOptionsByLabel } from "../../lib/optionGroups";
 import type { ModelInfo, ProviderDescriptor, ReasoningEffortInfo } from "../../lib/types";
 
-export type SwitchTiming = "live" | "next_turn" | "restart_resume";
+export type SwitchTiming = "live" | "live_command" | "next_turn" | "restart_resume";
 
 export type StatusLineSwitchGate =
   | { interactive: true; timing: SwitchTiming; confirmRestart: boolean; note: string }
@@ -40,6 +40,7 @@ export type PickerPlan =
 export const PICKER_SEARCH_THRESHOLD = 8;
 
 export function switchTimingNote(timing: SwitchTiming): string {
+  if (timing === "live_command") return "Switches in place";
   if (timing === "live") return "Switches right away";
   if (timing === "next_turn") return "Applies to the next turn";
   return "Restarts the session on the new model and resumes it";

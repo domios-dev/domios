@@ -154,7 +154,8 @@ export interface SidebarWorkspaceTabsProps {
   onActivateTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
   onRenameTab: (tabId: string, title: string) => void;
-  onNewSession: () => void;
+  /** Omitted where no correct fresh-session path exists yet (General). */
+  onNewSession?: () => void;
   onOpenRemoteTab?: () => void;
   newSessionDisabled?: boolean;
   onRenameTeam?: (teamId: string, name: string, managerTabId: string | null) => void | Promise<void>;
@@ -522,7 +523,7 @@ export function SidebarWorkspaceTabs({
         {rows}
       </SortableContext>
       <div className="mx-2 mt-1 mb-0.5 flex min-w-0 items-center gap-1">
-        <CursorTooltip
+        {onNewSession && <CursorTooltip
           active={newSessionDisabled}
           content="Finish Get started first"
           className="flex min-w-0 flex-1"
@@ -545,7 +546,7 @@ export function SidebarWorkspaceTabs({
             <Plus size={10} strokeWidth={1.5} className="shrink-0" />
             <span className={`${sidebarActionText} min-w-0 truncate`}>New session</span>
           </button>
-        </CursorTooltip>
+        </CursorTooltip>}
         {onOpenRemoteTab && (
           <button type="button" onClick={onOpenRemoteTab} aria-label="Open remote Tab" title="Open remote Tab" className={`flex shrink-0 items-center justify-center rounded-md text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)] ${touchMode ? "h-11 w-11" : "h-6 w-6"}`}>
             <MonitorUp size={12} strokeWidth={1.5} />

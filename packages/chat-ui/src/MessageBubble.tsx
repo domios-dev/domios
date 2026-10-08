@@ -17,6 +17,7 @@ import { ToolCallBubble } from "./ToolCallBubble";
 import { toolCommandShape } from "./codeterm/commandShape";
 import { AttachmentStrip } from "./AttachmentStrip";
 import { InlineAttachmentText } from "./AttachmentCapsule";
+import { ReplyQuote } from "./ReplyQuote";
 import { ThoughtLine } from "./toolcard/ThoughtLine";
 import { ShellCommandItem } from "./ShellCommandItem";
 import { ReminderCard } from "./codeterm/ReminderCard";
@@ -88,6 +89,8 @@ interface MessageBubbleProps {
   /** `shell_command` decoration — surface the command's terminal output. */
   onJumpToShellCommand?: (message: ChatMessage) => void;
   onStopReminder?: (id: string) => void;
+  /** Scroll to a quoted message; a user bubble's reply block calls it with the quoted id. */
+  onJumpToMessage?: (messageId: string) => void;
 }
 
 const INTERACTIVE_QUESTIONS_ENABLED = false;
@@ -132,7 +135,7 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, showTimestamp = false, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, showTimestamp = false, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onJumpToMessage }: MessageBubbleProps) {
   recordBubbleRender(message.id);
   const isInboundCommunication = origin?.kind === "tab" || origin?.kind === "pebble" || origin?.kind === "plugin" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh" || message.inboundKind === "pebble" || message.inboundKind === "plugin";
   const isCoordinationReport = message.inboundKind === "report" && parseCoordinationReport(message.content) != null;
@@ -394,8 +397,17 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
           visibleUserContent ? renderUserContent(visibleUserContent) : null
         );
 
+    const reply = userAttachments.reply;
+    const quotedId = reply?.reply;
     const userBubbleInner = (
       <>
+        {reply && (
+          <ReplyQuote
+            label={reply.label ?? "Quote"}
+            excerpt={reply.excerpt ?? ""}
+            onOpen={onJumpToMessage && quotedId ? () => onJumpToMessage(quotedId) : undefined}
+          />
+        )}
         {(userAttachments.images.length > 0 || userAttachments.files.length > 0) && (
           <AttachmentStrip images={userAttachments.images} files={userAttachments.files} captioned={visibleUserContent.trim().length > 0 || userAttachments.inline !== null} />
         )}
@@ -404,7 +416,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
     );
 
     const showUserTime = showTimestamp && !effectiveOrigin && !message.inboundKind;
-    const showUserBubble = !dsTasks || visibleUserContent.trim().length > 0 || Boolean(attachments?.length);
+    const showUserBubble = !dsTasks || visibleUserContent.trim().length > 0 || Boolean(attachments?.length) || reply !== null;
 
     return (
       <div className="ct-chat-message-row ct-chat-message-row--user mb-3 w-full min-w-0">
