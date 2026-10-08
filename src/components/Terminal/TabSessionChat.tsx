@@ -71,6 +71,10 @@ import { useSessionBindingSurface } from "./useSessionBindingSurface";
 import { SessionBindingRecoveryForm } from "./SessionBindingRecoveryForm";
 import { BlueprintChatCards } from "./BlueprintChatCards";
 import { useTabChatBlockHost } from "./pinnedBlocks";
+import { HelperMomentCard } from "./HelperMomentCard";
+import { helperMoments } from "../../lib/helperMoments/helperMomentsWiring";
+import { latestAnswerText } from "../../lib/helperMoments/helperBlocks";
+import { isGeneralAgent } from "../../lib/roleKind";
 
 interface Props {
   tabId: string;
@@ -300,6 +304,12 @@ export function TabSessionChat({
     showLatest();
     rawFollowSentMessage();
   }, [showLatest, rawFollowSentMessage]);
+
+  const generalAgent = isGeneralAgent(tab);
+  const willSendMessage = useCallback((text: string) => {
+    followSentMessage();
+    if (generalAgent) void helperMoments.observe({ kind: "user-message", text, at: Date.now() });
+  }, [followSentMessage, generalAgent]);
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
   const [bindingRecoveryOpen, setBindingRecoveryOpen] = useState(false);
@@ -705,6 +715,10 @@ export function TabSessionChat({
     return liveAgentState;
   }, [bootSetupView.kind, chatChannelLoading, error, hasTranscript, liveAgentState, provider?.displayName, sessionBindingSurface.agentState, tab, transcriptUnavailable]);
   const steadyStatusRowState = useSteadyAgentState(statusRowState);
+  const helperAnswer = useMemo(
+    () => (generalAgent ? latestAnswerText(renderedEnrichedMessages.map(({ msg }) => msg)) : null),
+    [generalAgent, renderedEnrichedMessages],
+  );
   const showEmptyState = setupView.kind === "none"
     && !chatLoading
     && renderedEnrichedMessages.length === 0
@@ -843,6 +857,7 @@ export function TabSessionChat({
         })}
         {reportPlacement.trailing.map(renderOutboundReport)}
         {askPlacement.trailing.map(renderAsk)}
+        {generalAgent && <HelperMomentCard idle={steadyStatusRowState.state === "idle"} latestAnswer={helperAnswer} />}
         <ChatSetupState
           tab={tab}
           view={setupView}
@@ -910,7 +925,7 @@ export function TabSessionChat({
         clearAttachments={clearAttachments}
         handlePasteEvent={handlePasteEvent}
         inlineAttachmentSink={inlineSinkRef}
-        onWillSendMessage={followSentMessage}
+        onWillSendMessage={willSendMessage}
         addOptimistic={addOptimistic}
         updateOptimistic={updateOptimistic}
         observeChatSendStatus={observeChatSendStatus}
