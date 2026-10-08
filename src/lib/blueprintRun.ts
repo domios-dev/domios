@@ -9,6 +9,10 @@ export interface RunEvent {
   status: string;
   duration: number | null;
   edgeId: string | null;
+  /** The stage's exact automation key and the handler that ran, for drawing the path on typed nodes. */
+  stage?: string;
+  transition?: string;
+  handler?: string | null;
 }
 
 export interface GraphRun {
