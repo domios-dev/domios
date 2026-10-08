@@ -13491,7 +13491,7 @@
         },
         {
           "name": "get",
-          "about": "Show a plugin's agent-facing config: its config.yaml, settings schema, secret field presence, and installed/configured/reload state",
+          "about": "Show a plugin's agent-facing config and guidance: its config.yaml, settings schema, secret field presence, configHelp, agent verbs, agent guide, and installed/configured/reload state",
           "aliases": [],
           "args": [
             {
