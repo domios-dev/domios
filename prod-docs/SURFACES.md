@@ -41,9 +41,11 @@ A stream surface needs no view: core branches on the declared `runtime`, never
 on the plugin id, and a runtime core does not have refuses the open with
 `surface_runtime_unavailable`.
 
-Every `restore` value currently re-renders the view when the desk is restored,
-because a view keeps no live state of its own. `placeholder` and `none` are
-accepted so a manifest can state its intent before other renderers exist.
+A view surface re-renders on every `restore` value, because a view keeps no
+live state of its own. A stream surface with `relaunch` reopens where it was:
+the browser runtime reloads its last http(s) or file page in the same profile,
+falling back to the clean profile when that profile is gone. `placeholder` and
+`none` keep the tab and start the runtime fresh.
 
 The view page receives `surface`, `instance` and `tab` in its query string
 (`location.search`) and talks to the plugin through `ct.invoke`, exactly like
