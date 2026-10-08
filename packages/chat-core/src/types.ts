@@ -96,6 +96,9 @@ export interface FileDiffHunk {
 /** One changed file; counts are the marked lines of its own hunks. */
 export interface FileDiff {
   path: string;
+  kind?: "add" | "modify" | "delete" | "rename";
+  binary?: boolean;
+  truncated?: boolean;
   movePath?: string;
   additions: number;
   deletions: number;
