@@ -18,21 +18,28 @@ export function ProviderCliControls({ providerId, compact = false }: { providerI
     catch (error) { setLaunchError(String(error)); }
     finally { setBusy(false); }
   };
+  if (model.state === "none") return null;
+  const missing = model.state === "missing";
+  const dot = model.state === "installed" ? "var(--ct-success, #3fb950)" : missing ? "var(--ct-warning, #d29922)" : "var(--ct-muted)";
   return (
-    <div role="group" aria-label={`${providerId} CLI`} className="space-y-2">
-      <span role="status">{error ? "CLI availability unknown" : model.label}</span>
-      {!compact && status?.binary && <div className="text-xs font-mono">{status.resolved_path ?? status.binary}</div>}
-      {!compact && status?.installer && <pre className="text-xs overflow-x-auto">{status.installer}</pre>}
-      {missingInstallerPrerequisites(status).map(item => <p role="status" key={item.binary}>Missing command prerequisite: {item.binary}. {item.hint}</p>)}
-      {model.canInstall && (
-        <Button size="compact" variant="primary" disabled={busy} aria-label={`Install CLI for ${providerId}`} onClick={() => void install()}>
-          {busy ? "Launching…" : "Install CLI"}
-        </Button>
-      )}
-      {!compact && <Button size="compact" variant="ghost" onClick={() => void refresh()}>Re-check CLI</Button>}
-      {!compact && status?.required && !status.installer && status.installed === false && <p>No installer declared for this OS.</p>}
-      {(launchError || error) && <div role="alert">{launchError ?? error}</div>}
-      {summary && <p role="status">{summary}</p>}
+    <div role="group" aria-label={`${providerId} CLI`} className="flex flex-col gap-1.5 text-[12px] text-[var(--ct-muted)]">
+      <div className="flex min-w-0 items-center gap-2">
+        <span aria-hidden className="h-1.5 w-1.5 flex-none rounded-full" style={{ background: dot }} />
+        <span role="status" title={status?.resolved_path ?? undefined} className="min-w-0 truncate">
+          {error ? "CLI availability unknown" : missing ? "CLI not installed" : model.label}
+        </span>
+        {model.canInstall && (
+          <Button size="compact" variant="primary" disabled={busy} aria-label={`Install CLI for ${providerId}`} onClick={() => void install()} className="ml-auto">
+            {busy ? "Launching…" : "Install"}
+          </Button>
+        )}
+        {!compact && !model.canInstall && missing && (
+          <Button size="compact" variant="ghost" onClick={() => void refresh()} className="ml-auto">Re-check</Button>
+        )}
+      </div>
+      {missing && missingInstallerPrerequisites(status).map(item => <p role="status" key={item.binary} className="m-0">Needs {item.binary} first. {item.hint}</p>)}
+      {(launchError || error) && <div role="alert" className="text-[var(--ct-danger,#f85149)]">{launchError ?? error}</div>}
+      {summary && <p role="status" className="m-0">{summary}</p>}
     </div>
   );
 }

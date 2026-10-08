@@ -9,7 +9,6 @@ import { DropdownMenu } from "../shared/DropdownMenu";
 import { ChevronRight, Ellipsis, Trash2 } from "lucide-react";
 import type { PluginActivity } from "../../lib/types";
 import { resolvePluginActivityDisplay, type PluginActivityDisplayMap } from "../../lib/usePluginActivity";
-import { ProviderCliControls } from "../Settings/ProviderInstallCard";
 import { PluginActivityInline } from "./PluginActivityInline";
 
 const CORE_CHANNEL = "codeterm-core";
@@ -394,7 +393,6 @@ function PluginRow({
           <PluginActivityInline activity={activity} display={display} compact />
         </div>
       </div>
-    {entry.installed && (entry.capabilities?.agent_provider || entry.capabilities?.chat_backend) && <ProviderCliControls providerId={entry.id} compact />}
     </div>
   );
 }
