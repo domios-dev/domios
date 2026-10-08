@@ -87,6 +87,7 @@ export {
   parseShellComposition,
   shellSegmentLabel,
   toolCommand,
+  toolCommandLabel,
   unwrapShellLauncher,
   type AssignedCommand,
   type ShellComposition,
