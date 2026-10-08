@@ -123,23 +123,34 @@ impl ProcessTree {
         }
         #[cfg(windows)]
         {
-            use std::os::windows::io::AsRawHandle;
-            use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
             #[link(name = "ntdll")]
             unsafe extern "system" {
                 fn NtResumeProcess(process: windows_sys::Win32::Foundation::HANDLE) -> i32;
             }
-            let process = child.as_raw_handle().cast();
-            if unsafe { AssignProcessToJobObject(self.job, process) } == 0 {
-                return Err(std::io::Error::last_os_error().to_string());
-            }
-            self.assigned = true;
-            let status = unsafe { NtResumeProcess(process) };
-            if status < 0 {
-                return Err(format!(
-                    "could not resume the bounded provider updater: NTSTATUS {status:#x}"
-                ));
-            }
+            return self.attach_with_resume(child, |process| unsafe { NtResumeProcess(process) });
+        }
+        #[cfg(not(windows))]
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    fn attach_with_resume(
+        &mut self,
+        child: &Child,
+        resume: impl FnOnce(windows_sys::Win32::Foundation::HANDLE) -> i32,
+    ) -> Result<(), String> {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
+        let process = child.as_raw_handle().cast();
+        if unsafe { AssignProcessToJobObject(self.job, process) } == 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        self.assigned = true;
+        let status = resume(process);
+        if status < 0 {
+            return Err(format!(
+                "could not resume the bounded provider updater: NTSTATUS {status:#x}"
+            ));
         }
         Ok(())
     }
