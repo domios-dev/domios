@@ -87,3 +87,33 @@ describe("reduceMessageSelection", () => {
     expect(orderedSelection(run(toggle("d"), toggle("a"), toggle("c")), ORDER)).toEqual(["a", "c", "d"]);
   });
 });
+
+
+it("counts partial selections as parts and restores a whole message when all its parts are selected", async () => {
+  const { indexMessageParts, clipsForParts, partSelectionSummary } = await import("./messagePartSelection");
+  const index = indexMessageParts([
+    { id: "m", role: "assistant", author: "Agent", source: "  First.\n\nSecond.\n" },
+    { id: "n", role: "assistant", author: "Agent", source: "Next." },
+  ]);
+  const [first, second, next] = index.order;
+  const partial = partSelectionSummary(index, [second, next]);
+  expect(partial.partial).toBe(true);
+  expect(partial.count).toBe(2);
+  expect(clipsForParts(index, [second, next]).map((clip) => clip.source)).toEqual(["Second.", "Next."]);
+  const whole = partSelectionSummary(index, [first, second, next]);
+  expect(whole.partial).toBe(false);
+  expect(whole.count).toBe(2);
+  expect(clipsForParts(index, [first, second])[0].source).toBe("  First.\n\nSecond.\n");
+  expect(clipsForParts(index, ["missing"])).toEqual([]);
+});
+
+it("adds and removes a contiguous range of source part IDs across message boundaries", () => {
+  const order = ["a:0-10", "a:12-20", "b:0-6", "b:8-14"];
+  const start = reduceMessageSelection(EMPTY_SELECTION, { type: "dragStart", id: order[1], order, extend: false });
+  const added = reduceMessageSelection(start, { type: "dragTo", id: order[3], order });
+  expect(orderedSelection(added, order)).toEqual(["a:12-20", "b:0-6", "b:8-14"]);
+  const ended = reduceMessageSelection(added, { type: "dragEnd" });
+  const removing = reduceMessageSelection(ended, { type: "dragStart", id: order[3], order, extend: false });
+  const removed = reduceMessageSelection(removing, { type: "dragTo", id: order[2], order });
+  expect(orderedSelection(removed, order)).toEqual(["a:12-20"]);
+});

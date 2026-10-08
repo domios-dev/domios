@@ -78,3 +78,6 @@ export type { PluginNameResolver } from "./codeterm/pluginAction";
 
 export { FullscreenOverlay, useFullscreenKeyboard } from "./FullscreenOverlay";
 export { knownLanguageFromPath } from "./codeLanguage";
+
+export { messageParts, normalizedMarkdown, type MessagePart } from "./messageParts";
+export { MessagePartsContext } from "./MessagePartsContext";
