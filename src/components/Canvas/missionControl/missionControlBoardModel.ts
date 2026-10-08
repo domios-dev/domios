@@ -29,25 +29,6 @@ export const BOARD_ROW_COLUMNS: Record<BoardLayout, string> = {
   narrow: "minmax(0, 1fr)",
 };
 
-const UNITS = [
-  { limit: 1_000_000_000, suffix: "B" },
-  { limit: 1_000_000, suffix: "M" },
-  { limit: 1_000, suffix: "K" },
-] as const;
-
-export function formatCompact(value: number): string {
-  if (!Number.isFinite(value)) return "—";
-  const abs = Math.abs(value);
-  for (const unit of UNITS) {
-    if (abs >= unit.limit) {
-      const scaled = value / unit.limit;
-      const digits = Math.abs(scaled) >= 100 ? 0 : 1;
-      return `${scaled.toFixed(digits).replace(/\.0$/, "")}${unit.suffix}`;
-    }
-  }
-  return String(Math.round(value));
-}
-
 export function formatCount(value: number): string {
   return Math.round(value).toLocaleString("en-US");
 }

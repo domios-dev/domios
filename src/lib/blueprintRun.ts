@@ -12,12 +12,21 @@ export interface RunEvent {
 }
 
 export interface GraphRun {
+  conversation?: ConversationCounts;
   key: string;
   at: number;
   name: string;
   events: RunEvent[];
   state: "running" | "completed" | "unconfirmed" | "unlinked";
   incomplete: boolean;
+}
+
+export interface ConversationCounts {
+  enabled: boolean;
+  exchanges: number;
+  actions: number;
+  safety_limit: number;
+  rate_limit_per_minute: number;
 }
 
 export interface BlueprintRunPopup {

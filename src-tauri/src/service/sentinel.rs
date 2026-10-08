@@ -88,6 +88,39 @@ fn caller_from_mux(
 }
 
 impl ServiceContext {
+    pub(crate) fn blueprint_input(
+        &self,
+        caller: &SentinelCaller,
+        id: &str,
+        text: String,
+    ) -> Result<serde_json::Value, String> {
+        let job = self.sentinel_show(caller, id)?;
+        let input = job
+            .input
+            .as_ref()
+            .ok_or("blueprint is not a text input stage")?;
+        if input.kind != codeterm_types::sentinel_input::MediaKind::Text
+            || input.convert_to.is_some()
+        {
+            return Err(
+                "blueprint input delivery supports text without media conversion only".into(),
+            );
+        }
+        let handle = self
+            .app_handle
+            .try_state::<Handle>()
+            .ok_or("blueprints not initialized")?;
+        {
+            let mux = self.mux.read();
+            if !caller_is_live(&mux, caller) {
+                return Err("blueprint caller scope changed".into());
+            }
+            handle.enqueue_text(&job, text)?;
+        }
+        handle.notify();
+        Ok(serde_json::json!({"id": id, "accepted": true}))
+    }
+
     pub(crate) fn sentinel_update_from_history(
         &self,
         caller: &SentinelCaller,
@@ -209,6 +242,8 @@ impl ServiceContext {
             &caller.tab,
             classify::connected_model(self).is_some(),
         )?;
+        prepared.job.terminal = snapshot.terminal;
+        prepared.job.session = snapshot.session;
         prepared.job.probe = snapshot.probe;
         prepared.job.observe = snapshot.observe;
         prepared.job.routes = snapshot.routes;
@@ -701,6 +736,8 @@ mod tests {
             crate::cron::clock::MockClock::starting_at(1000),
         );
         let params = crate::sentinel::store::Create {
+            terminal: None,
+            session: false,
             name: Some("service-state-watch".into()),
             probe: Some("status".into()),
             observe: None,

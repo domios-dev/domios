@@ -1,3 +1,4 @@
+import { LocalArtifactScope } from "@codeterm/chat-ui";
 import { documentsFromTranscript } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
 import { chatChangesStore } from "./chatChangesStore";
@@ -704,6 +705,7 @@ export function TabSessionChat({
     && !inlinePrompt;
 
   return (
+    <LocalArtifactScope tabId={tabId}>
     <div
       ref={chatRootRef}
       className="w-full h-full flex flex-col relative"
@@ -911,5 +913,6 @@ export function TabSessionChat({
       )}
       </div>
     </div>
+    </LocalArtifactScope>
   );
 }

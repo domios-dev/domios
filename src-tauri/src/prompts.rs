@@ -97,7 +97,7 @@ pub const ORCH_CHILD_PTY_RECOVERY_TRIGGER: &str = "- worker_ack_startup_failed/i
 
 /// Stable Orchestrator delivery token for the optional Cartographer Manager.
 pub const ORCH_CARTOGRAPHER_CONTRACT_NOTICE: &str =
-    "Cartographer: optional Manager for project-specific normative essences, including from zero; no spawn, approval or release authority, no continuous cadence.";
+    "Cartographer: optional Manager for project-specific normative essences, including from zero; spawn it when essence work is needed and close it when that work is done; no spawn, approval or release authority, no continuous cadence.";
 
 /// Task-decomposition contract shared by both planning surfaces. One source so
 /// the Planner that cuts the graph and the Orchestrator that judges it agree.

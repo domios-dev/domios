@@ -216,6 +216,16 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 
 **Errors:** `502 Failed to check for updates` when GitHub is unreachable; `400 Run check first` when `install` is called before `check` populated the cache; `400 invalid channel` on a malformed `channel` body.
 
+### Tab-scoped local previews
+
+The browser mirror uses `POST /api/tabs/{id}/preview/read` with `{ "path": "/absolute/file.md", "kind": "document" }` and `POST /api/tabs/{id}/preview/check` with `{ "paths": ["/absolute/file.md"] }`. Both require the normal Bearer authentication and an exact live tab ID. Peer access follows the tab's read permissions and ownership policy.
+
+A file must be referenced by that tab's own transcript: a full-line `@ds-image`, `@ds-document`, `@ds-page` (or `@ct-*`/`@file`) directive, an attachment, a recorded edit/diff path, or an image result path. Client-supplied paths do not grant access. Prose mentions, fenced examples and another tab's references grant nothing. Unavailable and refused reads return the same `404` JSON error; batch checks omit refused paths without exposing their existence.
+
+Read returns `{ "data": "...", "media_type": "..." }`; images use a base64 data URL. Batch returns `{ "paths": [...], "home": "..." }`. Allowed extensions and byte limits are shared with desktop: HTML pages 200,000 bytes, UTF-8 documents 1,000,000 bytes, images 10 MiB. Symlinks/junctions, hardlinks, traversal, UNC/device paths and alternate streams are refused. CodeTerm data directories, SSH/cloud credential directories and credential/token filenames are denied. Additional absolute file or directory roots can be denied with `api.preview_secret_paths = ["/absolute/private"]`; invalid roots fail closed.
+
+Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, and a restrictive sandbox CSP. HTML is returned inside JSON and rendered in the existing sandboxed preview. Requests are capped at 120 per minute across these routes, four concurrent operations, 64 KiB request bodies and 128 paths per batch. Excess traffic returns `429`; oversized batches return `413`. Reveal in the OS and Open in the OS remain desktop-only.
+
 Related documents — service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->

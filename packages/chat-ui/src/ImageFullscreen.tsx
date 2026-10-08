@@ -2,7 +2,7 @@ import { useRef, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Download, FolderOpen, Image as ImageIcon, X } from "lucide-react";
 import { FullscreenOverlay, useFullscreenHostBounds, useFullscreenKeyboard } from "./FullscreenOverlay";
-import { openLocalArtifact } from "./localArtifactLoader";
+import { localArtifactOpeningAvailable, openLocalArtifact } from "./localArtifactLoader";
 
 export interface FullscreenImage {
   name: string;
@@ -16,6 +16,8 @@ const ACTION_STYLE = { borderColor: "var(--ct-border)", color: "var(--ct-fg)" };
 export function revealLocalFile(path: string) {
   void openLocalArtifact(path).catch(() => undefined);
 }
+
+export const REVEAL_UNAVAILABLE = "Revealing files is available only in the desktop app";
 
 export function ImageFullscreen({ image, anchorRef, onClose }: {
   image: FullscreenImage;
@@ -32,7 +34,7 @@ export function ImageFullscreen({ image, anchorRef, onClose }: {
         <ImageIcon size={14} aria-hidden className="shrink-0" />
         <span className="shrink-0 font-medium" style={{ color: "var(--ct-fg)" }}>{image.name}</span>
         <span className="min-w-0 flex-1 truncate font-mono text-[11px] opacity-70" title={path}>{path}</span>
-        {path && (
+        {path && localArtifactOpeningAvailable() && (
           <button type="button" className={ACTION} style={ACTION_STYLE} onClick={() => revealLocalFile(path)} aria-label={`Reveal ${image.name}`} title="Reveal in file manager">
             <FolderOpen size={13} aria-hidden />
             Reveal

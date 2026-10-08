@@ -198,6 +198,7 @@ pub(super) fn dispatch(
                 "canvas.focus",
                 "canvas.filter",
                 "blueprint.create",
+                "blueprint.input",
                 "blueprint.pipeline.create",
                 "blueprint.pipeline.validate",
                 "blueprint.pipeline.validate.update",

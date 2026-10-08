@@ -23,6 +23,10 @@ pub(super) type ScopeKey = (String, Option<String>);
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Create {
+    #[serde(default)]
+    pub terminal: Option<codeterm_types::blueprint_terminal::Config>,
+    #[serde(default)]
+    pub session: bool,
     pub name: Option<String>,
     #[serde(default)]
     pub probe: Option<String>,
@@ -58,6 +62,10 @@ fn default_every() -> String {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sentinel {
+    #[serde(default)]
+    pub terminal: Option<codeterm_types::blueprint_terminal::Config>,
+    #[serde(default)]
+    pub session: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub causal_run: Option<codeterm_types::blueprint_run::Context>,
     pub id: String,
@@ -812,6 +820,7 @@ impl Store {
             .iter()
             .filter(|job| {
                 !job.machine.stopped
+                    && job.terminal.is_none()
                     && !job.machine.paused
                     && !job.expires_at.is_some_and(|at| now >= at)
                     && (matches!(job.observe.as_ref(), Some(TabBinding::Tab(id)) if id == tab_id)
@@ -848,7 +857,12 @@ impl Store {
                         codeterm_types::blueprint_pipeline::Trigger::Input { .. }
                     ) && job.next_run == codeterm_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS
                 });
-                let next = if event_trigger
+                let next = if ((job.terminal.is_some()
+                    || (job.input.is_some()
+                        && job.next_run
+                            == codeterm_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS))
+                    && !self.wake_pending.contains(&job.id))
+                    || event_trigger
                     || (input_waiting && !self.wake_pending.contains(&job.id))
                     || job.machine.paused
                     || active
@@ -879,13 +893,14 @@ impl Store {
         !live.is_empty()
             && live.iter().all(|job| {
                 job.expires_at.is_none()
-                    && job.pipeline.as_ref().is_some_and(|pipeline| {
-                        matches!(
-                            &pipeline.trigger,
-                            codeterm_types::blueprint_pipeline::Trigger::Event { .. }
-                                | codeterm_types::blueprint_pipeline::Trigger::Input { .. }
-                        )
-                    })
+                    && ((job.terminal.is_some() || job.input.is_some())
+                        || job.pipeline.as_ref().is_some_and(|pipeline| {
+                            matches!(
+                                &pipeline.trigger,
+                                codeterm_types::blueprint_pipeline::Trigger::Event { .. }
+                                    | codeterm_types::blueprint_pipeline::Trigger::Input { .. }
+                            )
+                        }))
             })
     }
 }
@@ -941,7 +956,7 @@ fn apply_finish(current: &mut Sentinel, job: &Sentinel, transition: Option<Trans
 }
 
 mod due;
-pub(super) use due::transition_budget_spent;
+pub(super) use due::{action_limit, transition_budget_spent};
 use due::{plan_due, scheduled_stop_notices};
 
 mod validate;

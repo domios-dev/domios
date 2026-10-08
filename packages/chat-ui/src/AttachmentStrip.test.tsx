@@ -1,3 +1,4 @@
+import { LocalArtifactScope } from "./LocalArtifactScope";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -42,7 +43,7 @@ async function render(message: NormalizedChatMessage): Promise<HTMLElement> {
   document.body.append(host);
   const root = createRoot(host);
   mounted.push({ root, host });
-  await act(async () => root.render(<MessageBubble message={message} />));
+  await act(async () => root.render(<LocalArtifactScope tabId="attachment-owner"><MessageBubble message={message} /></LocalArtifactScope>));
   await flush();
   return host;
 }
@@ -65,7 +66,7 @@ describe("user image attachments", () => {
     expect(button).toBeTruthy();
     expect(button!.disabled).toBe(false);
     expect(button!.querySelector("img")?.getAttribute("src")).toBe(PNG);
-    expect(loader).toHaveBeenCalledWith(PATH, "image");
+    expect(loader).toHaveBeenCalledWith(PATH, "image", "attachment-owner");
     expect(host.textContent).not.toContain("[1 image]");
     expect(host.textContent).not.toContain("<image");
   });
@@ -125,7 +126,8 @@ describe("attachment markers in the user bubble", () => {
     const strip = host.querySelector('[role="group"][aria-label="Attachments"]');
     expect(strip).toBeTruthy();
     expect(openButton(strip!)?.querySelector("img")?.getAttribute("src")).toBe(PNG);
-    expect(strip!.querySelector('button[aria-label="Reveal file q3 summary.pdf"]')).toBeTruthy();
+    expect(loader).toHaveBeenCalledWith(PATH, "image", "attachment-owner");
+    expect(strip!.querySelector<HTMLButtonElement>('button[aria-label="Reveal file q3 summary.pdf"]')?.disabled).toBe(true);
     expect(host.textContent).toContain("check these");
     expect(host.textContent).not.toContain("ds-attachment");
     expect(host.textContent).not.toContain(PATH);

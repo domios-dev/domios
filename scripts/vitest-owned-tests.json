@@ -3,6 +3,7 @@
   "src/components/Terminal/ManagedTabBar.test.tsx",
   "src/lib/providerCli.test.ts",
   "src/components/Settings/ProviderInstallCard.test.tsx",
+  "src/components/Settings/SchemaActions.test.tsx",
   "src/components/Terminal/chatSessionAuthority.attachment.test.ts",
   "packages/chat-ui/src/codeterm/ReminderCard.test.tsx",
   "packages/chat-ui/src/MessageTime.test.tsx",
@@ -74,7 +75,9 @@
   "src/components/Supporter/ActivityFeed.test.tsx",
   "src/components/Titlebar/SupporterActivityTray.test.tsx",
   "src/components/Terminal/NewSessionPicker.modal.test.tsx",
+  "src/lib/localPreviews.web.test.tsx",
   "src/components/Terminal/DocumentsPanel.test.tsx",
   "src/components/Terminal/ChangesPanel.test.tsx",
+  "src/components/Terminal/ChatComposer.insertion.test.tsx",
   "src/components/Terminal/useChatMessageReveal.test.tsx"
 ]

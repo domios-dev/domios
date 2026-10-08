@@ -68,6 +68,7 @@ export interface AgentSentinelDefinition {
 }
 
 export interface AutomationNode {
+  conversation?: import("../../lib/blueprintRun").ConversationCounts;
   source?: { type: string; kind?: string; display_name?: string };
   detail?: {
     observe_target?: { kind: string; id: string } | null;

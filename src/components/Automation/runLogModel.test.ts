@@ -18,6 +18,9 @@ graph.nodes = graph.nodes.map((node, index) => index ? node : {
   ],
 });
 const runs = graphRuns(graph);
+const counts = { enabled: true, exchanges: 257, actions: 260, safety_limit: 16384, rate_limit_per_minute: 120 };
+const conversationGraph = { ...graph, nodes: graph.nodes.map((node) => ({ ...node, conversation: counts })) };
+assert.deepEqual(graphRuns(conversationGraph).map((run) => run.conversation), [counts, counts, counts]);
 assert.deepEqual(runs.map((run) => run.at), [30, 20, 10]);
 assert.deepEqual(runs[0].events.map((event) => event.at), [31, 32]);
 assert.deepEqual(replayEdges(runs[0]), ["edge-b"]);

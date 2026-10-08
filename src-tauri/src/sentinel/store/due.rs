@@ -26,6 +26,16 @@ pub(super) fn plan_due(
     let mut due = Vec::new();
     let mut changes = Vec::new();
     let mut consumed_wakes = Vec::new();
+    let session_spent: BTreeSet<_> = jobs
+        .iter()
+        .filter(|job| job.session)
+        .filter(|job| {
+            let usage = super::super::session::usage(jobs, job, now);
+            usage.exchanges >= codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT
+                || usage.actions >= codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT
+        })
+        .map(|job| job.id.clone())
+        .collect();
     for job in jobs.iter_mut() {
         if job.machine.stopped {
             continue;
@@ -47,7 +57,7 @@ pub(super) fn plan_due(
         if job.machine.held.is_some() {
             continue;
         }
-        let transitions_spent = transition_budget_spent(job);
+        let transitions_spent = transition_budget_spent(job) || session_spent.contains(&job.id);
         if !active.contains_key(&job.id)
             && (transitions_spent
                 || job
@@ -56,9 +66,11 @@ pub(super) fn plan_due(
                     .flat_map(|t| &t.handlers)
                     .filter(|r| r.claim_id.is_some())
                     .count()
-                    >= usize::from(job.max_actions))
+                    >= action_limit(job))
         {
-            let reason = if transitions_spent {
+            let reason = if job.session {
+                "session_safety_limit"
+            } else if transitions_spent {
                 "transition_budget_exhausted"
             } else {
                 "action_budget_exhausted"
@@ -93,13 +105,19 @@ pub(super) fn plan_due(
                 codeterm_types::blueprint_pipeline::Trigger::Input { .. }
             )
         });
-        let due_now = if input_trigger {
+        let text_event = job.terminal.is_some() || job.input.is_some();
+        let due_now = if text_event {
+            wake_pending.contains(&job.id)
+                || (job.input.is_some()
+                    && job.next_run != codeterm_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS
+                    && job.next_run <= now)
+        } else if input_trigger {
             codeterm_types::sentinel_input::input_due(job.next_run, now)
         } else {
             job.next_run <= now || wake_pending.contains(&job.id)
         };
         if due_now && !active.contains_key(&job.id) {
-            if input_trigger {
+            if text_event || input_trigger {
                 job.next_run = codeterm_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS;
             } else if job.next_run <= now {
                 let missed = (now - job.next_run) / job.interval_ms;
@@ -129,6 +147,9 @@ pub(super) fn plan_due(
 }
 
 pub(in crate::sentinel) fn transition_budget_spent(job: &Sentinel) -> bool {
+    if job.session {
+        return job.transitions.len() >= codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT;
+    }
     if job.transitions.len() >= MAX_LIFETIME_TRANSITIONS {
         return true;
     }
@@ -209,5 +230,13 @@ mod tests {
         assert!(plan_due(&mut jobs, &mut active, &mut wake_pending, 41_000)
             .0
             .is_empty());
+    }
+}
+
+pub(in crate::sentinel) fn action_limit(job: &Sentinel) -> usize {
+    if job.session {
+        codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT
+    } else {
+        usize::from(job.max_actions)
     }
 }

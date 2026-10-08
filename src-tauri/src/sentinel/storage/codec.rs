@@ -359,6 +359,8 @@ fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
         })
         .collect();
     Ok(StageDefinition {
+        terminal: job.terminal.clone(),
+        session: job.session,
         name: job.name.clone(),
         source,
         pipeline: job.pipeline.clone(),
@@ -425,6 +427,8 @@ pub(super) fn history_version(stored: StoredDefinition) -> DefinitionVersion {
         }
         .into(),
         definition: DefinitionSnapshot {
+            terminal: definition.terminal,
+            session: definition.session,
             name: definition.name,
             pipeline: definition.pipeline,
             probe,
@@ -579,6 +583,8 @@ pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
     }
     let runtime = record.runtime;
     Sentinel {
+        terminal: definition.terminal,
+        session: definition.session,
         causal_run: runtime
             .causal_run_json
             .as_deref()

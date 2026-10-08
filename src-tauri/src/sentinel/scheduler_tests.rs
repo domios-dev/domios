@@ -103,6 +103,95 @@ fn execute(
 }
 
 #[test]
+fn blueprint_text_input_delivers_repeated_messages_without_hash_suppression() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = crate::cron::clock::MockClock::starting_at(1_000);
+    let mut store = Store::new(dir.path().join("input.json"), clock);
+    let job = store
+        .create(
+            serde_json::from_value(json!({
+                "name":"input-send", "input":{"kind":"text","data":{"text":"initial"}},
+                "question":"reply?", "buckets":["done"], "matches":{"done":".*"},
+                "routes":{"done":"send:shell"}, "session":true
+            }))
+            .unwrap(),
+            owner(),
+            false,
+        )
+        .unwrap();
+    let store = Arc::new(Mutex::new(store));
+    let deliveries = std::cell::RefCell::new(Vec::new());
+    for _ in 0..3 {
+        store.lock().wake_stage(&job.id);
+        let lease = store.lock().due().unwrap().pop().unwrap();
+        execute(&store, &lease, "same body", "done", 1.0, |_, _, handler| {
+            assert_eq!(handler.action, Route::Send("shell".into()));
+            deliveries.borrow_mut().push("same body");
+            Ok(Status::Completed)
+        });
+        store.lock().release(&job.id);
+    }
+    assert_eq!(*deliveries.borrow(), ["same body"; 3]);
+    assert_eq!(store.lock().get(&job.id).unwrap().transitions.len(), 3);
+    assert!(store.lock().due().unwrap().is_empty());
+}
+
+#[test]
+fn blueprint_session_exchanges_bypass_budgets_but_stop_at_safety_and_rate_limits() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = crate::cron::clock::MockClock::starting_at(1_000);
+    let mut store = Store::new(dir.path().join("session.json"), clock.clone());
+    let mut params: super::store::Create = serde_json::from_value(json!({
+        "name":"conversation", "input":{"kind":"text","data":{"text":"initial"}},
+        "question":"reply?", "buckets":["done"], "matches":{"done":".*"},
+        "routes":{"done":"send:shell"}, "session":true, "max_transitions":1,"max_actions":1
+    }))
+    .unwrap();
+    params.session = true;
+    let job = store.create(params, owner(), false).unwrap();
+    let store = Arc::new(Mutex::new(store));
+    for index in 0..121 {
+        clock.set_ms(1_000 + index * 1_001);
+        store.lock().wake_stage(&job.id);
+        let lease = store.lock().due().unwrap().pop().unwrap();
+        execute(&store, &lease, "repeat", "done", 1.0, |_, _, _| {
+            Ok(Status::Completed)
+        });
+        store.lock().release(&job.id);
+    }
+    let mut live = store.lock().get(&job.id).unwrap().clone();
+    assert!(!live.machine.stopped);
+    assert_eq!(live.transitions.len(), 121);
+    live.session = false;
+    assert!(super::store::transition_budget_spent(&live));
+    live.session = true;
+    assert!(!super::store::transition_budget_spent(&live));
+    let transition = live.transitions[0].clone();
+    live.transitions = vec![transition; codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT];
+    assert!(super::store::transition_budget_spent(&live));
+    {
+        let mut store = store.lock();
+        let current = store
+            .jobs
+            .iter_mut()
+            .find(|current| current.id == job.id)
+            .unwrap();
+        for transition in &mut current.transitions {
+            transition.accepted_at = 122_121;
+        }
+    }
+    clock.set_ms(122_121);
+    let current = store.lock().get(&job.id).unwrap().clone();
+    assert!(!store
+        .lock()
+        .accept_transition(&current, "done", "rate-overflow")
+        .unwrap());
+    let stopped = store.lock().get(&job.id).unwrap().clone();
+    assert!(stopped.machine.stopped);
+    assert_eq!(stopped.last_reason.as_deref(), Some("session_rate_limit"));
+}
+
+#[test]
 fn sentinel_scheduler_graph_selected_child_activates_once_and_reaches_accepted_result() {
     let dir = tempfile::tempdir().unwrap();
     let clock = crate::cron::clock::MockClock::starting_at(1000);

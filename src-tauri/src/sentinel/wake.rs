@@ -61,6 +61,8 @@ mod tests {
         let job = store
             .create(
                 Create {
+                    terminal: None,
+                    session: false,
                     name: Some("agent-state-watch".into()),
                     probe: None,
                     observe: Some(TabBinding::Tab("bound-agent".into())),

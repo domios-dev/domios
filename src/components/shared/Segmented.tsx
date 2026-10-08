@@ -11,6 +11,7 @@ export interface SegmentedOption<T extends string> {
   label: string;
   icon?: ReactNode;
   title?: string;
+  count?: ReactNode;
 }
 
 interface SegmentedProps<T extends string> {
@@ -93,6 +94,7 @@ export function Segmented<T extends string>({
         >
           {option.icon && <span className="ct-liquid-segmented__icon">{option.icon}</span>}
           <span>{option.label}</span>
+          {option.count != null && <span className="ct-liquid-segmented__count">{option.count}</span>}
         </button>
       ))}
     </div>

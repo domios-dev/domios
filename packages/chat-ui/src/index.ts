@@ -42,3 +42,6 @@ export {
   shortSha,
 } from "./codeterm/reportOutcome";
 export type { ReportOutcomeClass, ReportTaskOutcome } from "./codeterm/reportOutcome";
+
+export { LocalArtifactScope } from "./LocalArtifactScope";
+export { localArtifactOpeningAvailable } from "./localArtifactLoader";
