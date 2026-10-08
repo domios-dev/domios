@@ -14,7 +14,7 @@ use windows_sys::Win32::{
 
 #[test]
 fn capability_probe_spawn_excludes_a_foreign_inheritable_pipe() {
-    let mut security = SECURITY_ATTRIBUTES {
+    let security = SECURITY_ATTRIBUTES {
         nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
         lpSecurityDescriptor: std::ptr::null_mut(),
         bInheritHandle: 1,
@@ -22,7 +22,7 @@ fn capability_probe_spawn_excludes_a_foreign_inheritable_pipe() {
     let mut reader = std::ptr::null_mut();
     let mut writer = std::ptr::null_mut();
     assert_ne!(
-        unsafe { CreatePipe(&mut reader, &mut writer, &mut security, 0) },
+        unsafe { CreatePipe(&mut reader, &mut writer, &security, 0) },
         0
     );
     let _reader = unsafe { OwnedHandle::from_raw_handle(reader.cast()) };

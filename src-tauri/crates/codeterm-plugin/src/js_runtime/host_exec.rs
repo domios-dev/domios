@@ -189,11 +189,6 @@ pub(super) fn run_with_host_env(
     let (status_code, timeout_error) = match child.wait_timeout(timeout) {
         Ok(Some(status)) => (status.code().unwrap_or(-1), None),
         Ok(None) => {
-            #[cfg(all(windows, debug_assertions))]
-            eprintln!(
-                "host.exec timeout child: {}",
-                codeterm_util::process_util::diagnostics::snapshot(&child)
-            );
             terminate_child(&mut child);
             let status = child.wait().ok();
             (

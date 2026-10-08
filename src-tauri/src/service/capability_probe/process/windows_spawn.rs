@@ -32,6 +32,7 @@ pub(super) struct Child {
     id: u32,
     pub(super) stdin: Option<File>,
     pub(super) stdout: Option<File>,
+    #[cfg(test)]
     pub(super) stderr: Option<File>,
 }
 
@@ -211,12 +212,13 @@ pub(super) fn spawn(command: &Command) -> io::Result<Child> {
     });
     let (input, stdin) = pipe()?;
     let (stdout, output) = pipe()?;
-    let (stderr, error) = if cfg!(test) {
+    #[cfg(test)]
+    let (stderr, error) = {
         let (reader, writer) = pipe()?;
-        (Some(reader), writer)
-    } else {
-        (None, File::options().write(true).open(r"\\.\NUL")?.into())
+        (reader, writer)
     };
+    #[cfg(not(test))]
+    let error: OwnedHandle = File::options().write(true).open(r"\\.\NUL")?.into();
     let child_handles = [input, output, error];
     let mut handles = child_handles
         .each_ref()
@@ -266,6 +268,7 @@ pub(super) fn spawn(command: &Command) -> io::Result<Child> {
         id: information.dwProcessId,
         stdin: Some(File::from(stdin)),
         stdout: Some(File::from(stdout)),
-        stderr: stderr.map(File::from),
+        #[cfg(test)]
+        stderr: Some(File::from(stderr)),
     })
 }

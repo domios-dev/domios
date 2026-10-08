@@ -347,6 +347,3 @@ mod tests;
 #[cfg(windows)]
 pub(crate) use command::process::ProcessChild;
 pub(crate) use command::process::ProcessTree;
-
-#[cfg(all(test, windows))]
-pub(crate) use command::process::owner_alive as probe_fixture_owner_alive;
