@@ -230,16 +230,6 @@
 }
 .bp-run:hover, .bp-run:focus-within { background: var(--ct-hover); }
 .bp-run[data-selected="true"] { background: color-mix(in srgb, var(--ct-accent) 13%, transparent); }
-.bp-run[data-selected="true"]::before {
-  content: "";
-  position: absolute;
-  left: 3px;
-  top: 9px;
-  bottom: 9px;
-  width: 3px;
-  border-radius: 999px;
-  background: var(--ct-accent);
-}
 .bp-run__replay { opacity: 0; transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle); }
 .bp-run:hover .bp-run__replay, .bp-run:focus-within .bp-run__replay, .bp-run[data-selected="true"] .bp-run__replay { opacity: 1; }
 .bp-chip {
