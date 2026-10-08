@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "../../lib/bridge";
-import type { AppConfig, Team } from "../../lib/types";
+import type { AppConfig, Tab, Team } from "../../lib/types";
 import {
   ChevronLeft,
   ChevronRight,
@@ -53,6 +53,7 @@ interface SettingsPanelProps {
   initialSection?: SettingsLinkId;
   guideRequest?: GuideRequest;
   workspaces?: readonly JobsWorkspace[];
+  tabs?: Record<string, Tab>;
   teams?: readonly Team[];
 }
 
@@ -81,6 +82,7 @@ export function SettingsPanel({
   initialSection,
   guideRequest,
   workspaces = NO_WORKSPACES,
+  tabs = {},
   teams = NO_TEAMS,
 }: SettingsPanelProps) {
   const [stack, setStack] = useState<Route[]>(() => initialStack(initialSection, guideRequest));
@@ -485,7 +487,7 @@ export function SettingsPanel({
 
             {top.kind === "section" && top.id === "jobs" && (
               <div className="-mx-5 -my-5 h-[calc(100%+2.5rem)] min-h-[420px]" data-settings-page="jobs">
-                <JobsView workspaces={workspaces} teams={teams} initialFilter={jobsEntryFilter({ kind: "machine" })} onClose={pop} />
+                <JobsView workspaces={workspaces} teams={teams} tabs={tabs} initialFilter={jobsEntryFilter({ kind: "machine" })} onClose={pop} />
               </div>
             )}
 

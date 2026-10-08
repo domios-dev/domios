@@ -95,6 +95,23 @@ pub enum BlueprintAction {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Export a portable recipe containing only the definition
+    Export {
+        id: String,
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+    },
+    /// Import a portable recipe into the caller's Team (stopped by default)
+    Import {
+        file: std::path::PathBuf,
+        #[arg(long = "set", value_parser = parse_assignment)]
+        set: Vec<String>,
+        #[arg(long, conflicts_with = "start")]
+        stopped: bool,
+        /// Start immediately after validation
+        #[arg(long, conflicts_with = "stopped")]
+        start: bool,
+    },
     /// List trigger, step, converter and event-source capabilities
     Nodes,
     /// List blueprints scoped to the calling tab and its Team
