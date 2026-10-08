@@ -86,6 +86,7 @@ pub struct MultiplexerState {
     /// store at startup via [`MultiplexerState::attach_closed_store`].
     pub(super) closed_store: ClosedTabsStore,
     workspace_close_reservations: HashMap<String, String>,
+    tab_close_reservations: HashMap<String, (String, String)>,
 }
 
 pub struct TeamCloseTransaction {
@@ -163,6 +164,7 @@ impl MultiplexerState {
                 generation: AtomicU64::new(self.generation.load(Ordering::Relaxed)),
                 closed_store: ClosedTabsStore::in_memory(),
                 workspace_close_reservations: self.workspace_close_reservations.clone(),
+                tab_close_reservations: self.tab_close_reservations.clone(),
             },
         }
     }
@@ -205,6 +207,7 @@ impl MultiplexerState {
             generation: AtomicU64::new(0),
             closed_store: ClosedTabsStore::in_memory(),
             workspace_close_reservations: HashMap::new(),
+            tab_close_reservations: HashMap::new(),
         }
     }
 
@@ -420,6 +423,7 @@ impl MultiplexerState {
             generation: AtomicU64::new(0),
             closed_store: ClosedTabsStore::in_memory(),
             workspace_close_reservations: HashMap::new(),
+            tab_close_reservations: HashMap::new(),
         };
 
         (state, tab_id)
