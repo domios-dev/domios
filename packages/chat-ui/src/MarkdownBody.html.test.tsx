@@ -327,6 +327,69 @@ test("standalone ct artifact directives render pages, images, and documents", as
   configureLocalArtifactLoader(null);
 });
 
+test("local embeds retain DOM and scroll across focus, visibility, and identical transcript resync", async () => {
+  let pageReads = 0;
+  let artifactReads = 0;
+  configureHtmlFileLoader(async () => {
+    pageReads += 1;
+    return "<main>Original page</main>";
+  });
+  configureLocalArtifactLoader(async (_path, kind) => {
+    artifactReads += 1;
+    return kind === "image"
+      ? { data: "data:image/png;base64,AA==", media_type: "image/png" }
+      : { data: "# Original document\n\n" + "Scrollable content\n\n".repeat(2200), media_type: "text/markdown" };
+  });
+  const snapshot = () => [
+    { id: "page", text: "@ds-page C:/preview.html" },
+    { id: "image", text: "@ds-image C:/preview.png" },
+    { id: "document", text: "@ds-document C:/preview.md" },
+  ];
+  const transcript = (messages: ReturnType<typeof snapshot>) => (
+    <>{messages.map((message) => <RichMarkdown key={message.id} text={message.text} />)}</>
+  );
+  const { host, root } = await render(transcript(snapshot()));
+  try {
+    const frame = host.querySelector("iframe");
+    const image = host.querySelector("img");
+    const documentHeading = host.querySelector("h1");
+    const scroll = documentHeading?.parentElement;
+    assert(frame && image && scroll, "all three embeds must be loaded");
+    scroll.scrollTop = 420;
+    for (const event of ["focus", "visibilitychange", "resync"]) {
+      await act(async () => {
+        if (event === "focus") window.dispatchEvent(new testWindow.Event(event));
+        if (event === "visibilitychange") document.dispatchEvent(new testWindow.Event(event));
+        root.render(transcript(snapshot()));
+      });
+      assert(host.querySelector("iframe") === frame, `${event} preserves page identity`);
+      assert(host.querySelector("img") === image, `${event} preserves image identity`);
+      assert(host.querySelector("h1") === documentHeading, `${event} preserves document identity`);
+      assert(scroll.isConnected && scroll.scrollTop === 420, `${event} preserves internal document scroll`);
+      assert(pageReads === 1 && artifactReads === 2, `${event} must not refetch files`);
+    }
+
+    configureHtmlFileLoader(async () => "<main>Changed page</main>");
+    configureLocalArtifactLoader(async (_path, kind) => kind === "image"
+      ? { data: "data:image/png;base64,AQ==", media_type: "image/png" }
+      : { data: "# Changed document", media_type: "text/markdown" });
+    const reloads = Array.from(host.querySelectorAll<HTMLButtonElement>("button"))
+      .filter((button) => button.getAttribute("aria-label")?.startsWith("Reload ") || button.textContent === "Reload");
+    assert(reloads.length === 3, "each file preview exposes a reload control");
+    await act(async () => {
+      reloads.forEach((button) => button.dispatchEvent(new testWindow.MouseEvent("click", { bubbles: true })));
+    });
+    assert(host.querySelector("iframe")?.getAttribute("srcdoc")?.includes("Changed page"), "reload renders changed page");
+    assert(host.querySelector("img")?.getAttribute("src") === "data:image/png;base64,AQ==", "reload renders changed image");
+    assert(host.querySelector("h1")?.textContent === "Changed document", "reload renders changed document");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    configureHtmlFileLoader(null);
+    configureLocalArtifactLoader(null);
+  }
+});
+
 test("standalone ct directives preserve Windows and forward-slash paths", async () => {
   const windowsPath = "C:\\Users\\dev\\.codex\\generated_images\\windows.png";
   const forwardPath = "C:/Users/dev/.codex/generated_images/forward.png";
