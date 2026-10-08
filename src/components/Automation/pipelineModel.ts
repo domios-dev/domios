@@ -20,6 +20,7 @@ export interface PipelineViewEdge {
 }
 
 export interface PipelineView {
+  runs?: readonly { id: string; at: number; state: string; pipeline: PipelineView }[];
   id: string;
   name: string;
   owner: BlueprintOwner;
@@ -37,7 +38,7 @@ function currentStepIndex(blueprint: BlueprintSnapshot): number | null {
   if (blueprint.current_step !== null && blueprint.current_step !== undefined) {
     return steps.some((step) => step.index === blueprint.current_step) ? blueprint.current_step : null;
   }
-  return steps.find((step) => step.state === "running")?.index ?? null;
+  return null;
 }
 
 function targetSummary(blueprint: BlueprintSnapshot): string {
@@ -94,6 +95,12 @@ export function pipelineModel(blueprint: BlueprintSnapshot): PipelineView {
     label: node.kind === "step" ? node.outcome : null,
   }));
   return {
+    runs: blueprint.runs?.map((run) => ({
+      id: run.id, at: run.started_at_ms, state: run.state,
+      pipeline: pipelineModel({ ...blueprint, runs: undefined, run_id: run.id,
+        state: run.state === "completed" ? "idle" : run.state, current_step: run.current_step,
+        last_event_at_ms: run.last_event_at_ms, steps: run.steps, result: run.result }),
+    })),
     id: blueprint.id,
     name: blueprint.name,
     owner: normalizedOwner(blueprint.owner),

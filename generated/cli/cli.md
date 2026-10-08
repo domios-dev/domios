@@ -269,6 +269,14 @@ Classify a bounded probe or same-Team agent observation
 - `--timeout` — End the blueprint after this duration
 - `--until` — Stop after this bucket's first confident transition
 
+#### `codeterm blueprint delete`
+
+Delete a whole blueprint, or every stopped one in the Team; the creator or the Team owner may delete
+
+- `<id>`
+- `--stop` — Stop a running blueprint before deleting it
+- `--stopped` — Delete every stopped blueprint the caller may delete in its Team
+
 #### `codeterm blueprint escalation`
 
 Resolve an open escalation
@@ -280,11 +288,27 @@ Release a held stage and re-evaluate its observation
 - `<id>`
 - `<transition_id>`
 
+#### `codeterm blueprint export`
+
+Export a portable recipe containing only the definition
+
+- `<id>`
+- `--out`
+
 #### `codeterm blueprint history`
 
 Show immutable definition versions
 
 - `<id>`
+
+#### `codeterm blueprint import`
+
+Import a portable recipe into the caller's Team (stopped by default)
+
+- `<file>`
+- `--set`
+- `--start` — Start immediately after validation
+- `--stopped`
 
 #### `codeterm blueprint input`
 

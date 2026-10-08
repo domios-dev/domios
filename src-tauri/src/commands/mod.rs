@@ -8,6 +8,8 @@ pub struct DirCompletion {
 
 mod agent;
 mod automation_graph;
+mod blueprint_portable;
+pub use blueprint_portable::*;
 pub(crate) mod bridge_threads;
 mod clipboard;
 mod completions;

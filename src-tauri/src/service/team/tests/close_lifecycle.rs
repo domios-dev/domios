@@ -7,6 +7,42 @@ use std::path::Path;
 use std::process::Command;
 
 #[test]
+fn team_close_removes_roleless_members_and_keeps_loose_tabs() {
+    let (mut mux, team_id, orchestrator, planner, worker) = team_members();
+    let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
+    let utility = mux.create_tab(&workspace_id).unwrap();
+    mux.get_tab_mut(&utility).unwrap().team_id = Some(team_id.clone());
+    let chat = mux.create_tab(&workspace_id).unwrap();
+    let chat_tab = mux.get_tab_mut(&chat).unwrap();
+    chat_tab.team_id = Some(team_id.clone());
+    chat_tab.backing = TabBacking::ChatBackend {
+        plugin_id: "chat-plugin".into(),
+        session_id: "chat-session".into(),
+    };
+    let loose = mux.create_tab(&workspace_id).unwrap();
+    assert!(mux.get_tab(&loose).unwrap().team_id.is_none());
+    let (_plan_dir, plan_store) = isolated_plan_store();
+    let events = crate::api::events::EventBroadcaster::new();
+
+    close_team_with_state_change(
+        &mut mux,
+        &events,
+        &plan_store,
+        &team_id,
+        &TeamMutationCaller::Human,
+        1,
+    )
+    .unwrap();
+
+    for member in [orchestrator, planner, worker, utility, chat] {
+        assert!(mux.get_tab(&member).is_none());
+    }
+    assert!(mux.get_team(&team_id).is_none());
+    assert!(mux.get_tab(&loose).is_some());
+    assert_eq!(mux.get_workspace(&workspace_id).unwrap().tabs, vec![loose]);
+}
+
+#[test]
 fn team_close_skips_remote_lane_without_touching_peer_worktree() {
     let (mut mux, team_id, _, _, _) = team_members();
     let dir = tempfile::tempdir().unwrap();

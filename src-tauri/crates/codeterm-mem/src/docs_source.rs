@@ -69,6 +69,7 @@ const DOCS: &[EmbeddedDoc] = embedded_docs![
     "MEMORY-SERVICES",
     "MEMORY-USAGE",
     "HTML",
+    "CHAT-BLOCKS",
     "SKILLS",
     "AGENT-CONTROL",
     "TELEGRAM-SETUP",

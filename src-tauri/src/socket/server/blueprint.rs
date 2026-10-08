@@ -52,6 +52,35 @@ pub(super) fn dispatch(
         .and_then(Value::as_str);
     let caller = svc.sentinel_caller(&tab, nonce).map_err(error)?;
     let result = match method {
+        "blueprint.export" => {
+            let id = get_string_param(params, "id")?;
+            serde_json::to_value(svc.blueprint_export(&caller, &id).map_err(error)?)
+                .map_err(|e| error(e.to_string()))
+        }
+        "blueprint.import" => {
+            let recipe = params
+                .as_ref()
+                .and_then(|p| p.get("recipe"))
+                .cloned()
+                .ok_or_else(|| error("recipe required"))?;
+            let recipe = serde_json::from_value(recipe)
+                .map_err(|e| error(format!("invalid recipe: {e}")))?;
+            let assignments: Vec<String> = serde_json::from_value(
+                params
+                    .as_ref()
+                    .and_then(|p| p.get("set"))
+                    .cloned()
+                    .unwrap_or(json!([])),
+            )
+            .map_err(|e| error(e.to_string()))?;
+            let stopped = params
+                .as_ref()
+                .and_then(|p| p.get("stopped"))
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            svc.blueprint_import(&caller, recipe, &assignments, stopped)
+                .map_err(error)
+        }
         "blueprint.input" => {
             let id = get_string_param(params, "id")?;
             let text = get_string_param(params, "text")?;
@@ -152,6 +181,29 @@ pub(super) fn dispatch(
             let id = get_string_param(params, "id")?;
             serde_json::to_value(svc.sentinel_stop(&caller, &id).map_err(error)?)
                 .map_err(|e| error(e.to_string()))
+        }
+        "blueprint.delete" => {
+            let flag = |name: &str| {
+                params
+                    .as_ref()
+                    .and_then(|value| value.get(name))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            };
+            let id = params
+                .as_ref()
+                .and_then(|value| value.get("id"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            let target = match (&id, flag("stopped")) {
+                (Some(id), false) => crate::sentinel::delete::DeleteTarget::One(id),
+                (None, true) => crate::sentinel::delete::DeleteTarget::Stopped,
+                _ => return Err(error("pass exactly one of id or stopped")),
+            };
+            let deleted = svc
+                .blueprint_delete(&caller, target, flag("stop"))
+                .map_err(error)?;
+            Ok(json!({ "deleted": deleted }))
         }
         "blueprint.update" => {
             let id = get_string_param(params, "id")?;
@@ -347,72 +399,12 @@ fn step_kind_name(kind: &codeterm_types::blueprint_pipeline::StepKind) -> &'stat
     }
 }
 
-fn stored_definition(mut value: Value) -> Result<Value, JsonRpcError> {
-    translate_definition(&mut value, true)?;
-    Ok(value)
+fn stored_definition(value: Value) -> Result<Value, JsonRpcError> {
+    crate::sentinel::public_definition::stored_definition(value).map_err(error)
 }
 
-fn exposed_definition(mut value: Value) -> Value {
-    let _ = translate_definition(&mut value, false);
-    value
-}
-
-fn translate_definition(value: &mut Value, incoming: bool) -> Result<(), JsonRpcError> {
-    match value {
-        Value::Array(values) => {
-            for value in values {
-                translate_definition(value, incoming)?;
-            }
-        }
-        Value::Object(fields) => {
-            if let Some(Value::Object(action)) = fields.get_mut("action") {
-                if let Some(Value::String(kind)) = action.get_mut("kind") {
-                    if incoming && kind == "sentinel" {
-                        return Err(error("action kind must be blueprint"));
-                    }
-                    if kind == if incoming { "blueprint" } else { "sentinel" } {
-                        *kind = if incoming { "sentinel" } else { "blueprint" }.into();
-                    }
-                }
-            }
-            if fields.contains_key("parameters") {
-                if let Some(Value::String(kind)) = fields.get_mut("type") {
-                    if incoming && kind == "sentinel" {
-                        return Err(error("handler type must be blueprint"));
-                    }
-                    if kind == if incoming { "blueprint" } else { "sentinel" } {
-                        *kind = if incoming { "sentinel" } else { "blueprint" }.into();
-                    }
-                }
-            }
-            if let Some(Value::Object(routes)) = fields.get_mut("routes") {
-                for route in routes.values_mut() {
-                    if let Value::String(action) = route {
-                        if incoming && action.starts_with("sentinel:") {
-                            return Err(error("route must use blueprint:<exact-id>"));
-                        }
-                        let prefix = if incoming { "blueprint:" } else { "sentinel:" };
-                        if let Some(target) = action.strip_prefix(prefix) {
-                            *action = format!(
-                                "{}:{target}",
-                                if incoming { "sentinel" } else { "blueprint" }
-                            );
-                        }
-                    }
-                }
-            }
-            for (key, value) in fields {
-                if !matches!(
-                    key.as_str(),
-                    "parameters" | "data" | "input" | "result" | "action"
-                ) {
-                    translate_definition(value, incoming)?;
-                }
-            }
-        }
-        _ => {}
-    }
-    Ok(())
+fn exposed_definition(value: Value) -> Value {
+    crate::sentinel::public_definition::exposed_definition(value)
 }
 
 #[cfg(test)]

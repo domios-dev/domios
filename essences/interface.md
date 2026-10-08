@@ -13,6 +13,8 @@ Domios has many surfaces built by many agents: chat, the side panel, the sidebar
 7. **One material.** Surfaces use the liquid surface set and the `--ct-*` theme tokens for colour, border, radius and motion. A literal colour appears only as the fallback inside a token reference or in a canvas palette that reads its values from the tokens.
 8. **Empty and failed states direct.** An empty or failed state shows one short title and one muted line that says what to do next. It never shows a raw error code or an unstyled paragraph.
 
+9. **One place for transient notices.** Toasts form one compact stack beneath the titlebar bell, newest first, with at most three visible. Each has a close button with a faint countdown ring and expires after at most fifteen active seconds; hover pauses the countdown and reduced motion keeps the ring static. Dismissed and expired content stays in the bell list with its still-valid actions, except purely ephemeral feedback. Toasts use the shared surface tokens without accent rails. Inline panel status and persistent progress remain in their panels.
+
 ## Recurring violations
 
 The table records the classes of inconsistency found in a sweep of every surface, so the same mistakes are recognised the next time they appear.

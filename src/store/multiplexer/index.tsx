@@ -98,6 +98,7 @@ function buildInitialState(): ExtendedState {
     active_workspace_id: cached.active_workspace_id,
     focused_tab_id: cached.focused_tab_id,
     recently_closed: cached.recently_closed,
+    closed_structures: cached.closed_structures,
     generation: HYDRATED_GENERATION,
   };
 }
@@ -612,7 +613,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const reopenGroup = useCallback(async (groupId: string) => {
     try {
       const result = await reopenClosedGroup(groupId);
-      dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds: [result.tab_id] });
+      const restored = await guardedInvoke<MultiplexerState>("mux_get_state");
+      const tabIds = Object.values(restored.tabs).filter((tab) =>
+        tab.close_restore?.record_id === groupId || tab.id === result.tab_id,
+      ).map((tab) => tab.id);
+      dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds });
       guardedInvoke("mux_set_active_workspace", { workspaceId: result.workspace_id }).catch(() => {});
       dispatch({ type: "SET_ACTIVE_WORKSPACE", id: result.workspace_id });
       dispatch({ type: "SET_ACTIVE_TAB", workspaceId: result.workspace_id, tabId: result.tab_id });
@@ -620,6 +625,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       refreshFromBackend();
     } catch (e) {
       console.error("Failed to reopen closed group:", e);
+      throw e;
     }
   }, [refreshFromBackend, guardedInvoke]);
 

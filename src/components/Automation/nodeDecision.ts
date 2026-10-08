@@ -10,14 +10,15 @@ export function aiKind(name: string, model?: string | null): NodeKind {
 
 export function nodeKind(node: AutomationNode, classifier?: ClassifierConfig): NodeKind {
   if (node.executor?.kind === "agent") return aiKind(node.executor.provider_id ?? "Agent", node.executor.model);
-  if (node.identity.kind === "sentinel" && classifier) return aiKind(classifier.adapter_id, classifier.model);
-  if (node.detail?.definition?.buckets?.some((bucket) => bucket.pattern)) return { ai: false, label: "Pattern match" };
+  if (node.detail?.definition?.buckets?.length && node.detail.definition.buckets.every((bucket) => bucket.pattern)) return { ai: false, label: "Pattern match" };
+  if (node.identity.kind === "sentinel" && node.detail?.definition?.buckets?.some((bucket) => !bucket.pattern) && classifier) return aiKind(classifier.adapter_id, classifier.model);
   if (node.detail?.definition?.probe || node.source?.type === "probe") return { ai: false, label: "Script" };
   return { ai: false, label: node.source?.type === "observe" ? "Observer" : node.identity.kind === "cron" ? "Schedule" : "Rule" };
 }
 
 export function decisionKind(transition: AutomationTransition): NodeKind | null {
-  return transition.decided_by === "adapter" ? aiKind(transition.adapter_id ?? "Classifier", transition.model) : null;
+  return transition.decided_by === "pattern" ? { ai: false, label: "Pattern rules" }
+    : transition.decided_by === "adapter" ? aiKind(transition.adapter_id ?? "Classifier", transition.model) : null;
 }
 
 export function routeDefinitions(node: AutomationNode) {
@@ -31,17 +32,4 @@ export function routeDefinitions(node: AutomationNode) {
     const description = route.pattern ? `Matches pattern: ${route.pattern}` : match?.[1].replace(/\s+/g, " ").replace(/[;\s]+$/, "").trim() || "No separate route definition in the stored contract.";
     return { name: route.name, description };
   });
-}
-
-export function decisionRule(node: AutomationNode, classifier?: ClassifierConfig) {
-  if (node.executor?.kind === "agent") return `Agent · ${nodeKind(node).label}`;
-  const patterns = node.detail?.definition?.buckets?.some((bucket) => bucket.pattern);
-  const adapter = classifier ? `${aiKind(classifier.adapter_id, classifier.model).label} classifier (adapter: ${classifier.adapter_id})` : "Classifier unavailable";
-  if (node.identity.kind === "sentinel") return patterns ? `Pattern match first; ${classifier ? adapter + " when no pattern matches" : "unmatched output takes other"}` : adapter;
-  return node.source?.type ?? "Configured rule";
-}
-
-export function nodeType(node: AutomationNode, classifier?: ClassifierConfig) {
-  const kind = nodeKind(node, classifier);
-  return kind.ai ? "Agent" : kind.label === "Script" ? "Code" : node.identity.kind === "cron" ? "Schedule" : "Logic";
 }

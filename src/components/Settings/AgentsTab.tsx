@@ -11,6 +11,7 @@ import { ProviderIntegrationHealthCard } from "./ProviderIntegrationHealthCard";
 import { ModelEndpointsCard } from "./model_endpoints/ModelEndpointsCard";
 import { providerPageSections, providerSummary } from "./providerPageSections";
 import { SupporterAgentCard } from "./SupporterAgentCard";
+import { ModelDefaultsCard } from "./ModelDefaultsCard";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import type { SettingsCardAnchorId } from "./sections";
 import { SettingsCard, SettingsPill, Toggle } from "./shared";
@@ -47,6 +48,8 @@ export function AgentsOverview({
           onChange={(value) => onUpdate("agent", { full_access: value })}
         />
       </SettingsCard>
+
+      <ModelDefaultsCard config={config} />
 
       <OrchestrationGroup config={config} onUpdate={onUpdate} />
 

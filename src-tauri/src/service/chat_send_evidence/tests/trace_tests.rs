@@ -83,9 +83,20 @@ fn fresh_pty_source_registration_before_materialization_reaches_the_sink() {
             .count(),
         1
     );
-    assert!(chain
+    let link = chain
         .iter()
-        .any(|event| event.stage == "trace.link" && event.detail.contains("fresh-user-0")));
+        .find(|event| event.stage == "trace.link")
+        .expect("fresh source must link to the send");
+    assert_eq!(link.trace_id, id);
+    let expected = serde_json::json!(["pty", "tab", "fresh", "nonce", "fresh-user-0"]);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(link.related_id.as_deref().unwrap()).unwrap(),
+        expected
+    );
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&link.detail).unwrap(),
+        expected
+    );
 }
 
 #[test]

@@ -145,7 +145,7 @@ function fakeHost(initial: Record<string, SettingBlockState>) {
     const { host, calls } = fakeHost({});
     await withRender("@ds-setting plugins.telegram-client.bot_token\n@ds-setting plugins.nope.enabled", { settings: host }, async (element) => {
       const notes = [...element.querySelectorAll('[data-chat-block="setting"]')];
-      assert(notes.length === 2 && notes.every((note) => note.getAttribute("data-setting-refused") === "true"), "refusals not rendered");
+      assert(notes.length === 2 && notes.every((note) => note.getAttribute("data-block-missing") === "true"), "refusals not rendered");
       assert(!element.querySelector("button, input, select"), "a refused setting offered a control");
       assert(!calls.reads.includes("plugins.telegram-client.bot_token"), "a secret key was read from the host");
     });

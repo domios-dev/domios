@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { configureHtmlFileLoader, configureLocalArtifactLoader, configureLocalArtifactOpener, LocalArtifactBlock, LocalArtifactScope, RichMarkdown } from "@codeterm/chat-ui";
+import { ChangeFileView } from "../components/Terminal/tabPanel/ChangeFileView";
 import { DocumentDetail } from "../components/Terminal/tabPanel/DocumentDetail";
 import { configureLocalPreviews } from "./configureLocalPreviews";
 import { invoke, IS_WEB } from "./bridge";
@@ -26,7 +27,7 @@ beforeEach(() => {
     const path = new URL(input).pathname;
     requests.push({ path, body });
     if (body.path === "/work/forbidden.md") return new Response('{"error":"Preview unavailable"}', { status: 404 });
-    const data = body.paths ? { paths: body.paths, home: "/home/fixture" }
+    const data = body.path === "/work/current.ts" ? { data: "const current = 42;", media_type: "text/plain" } : body.paths ? { paths: body.paths, home: "/home/fixture" }
       : body.kind === "image" ? { data: "data:image/png;base64,cGl4ZWw=", media_type: "image/png" }
       : body.kind === "page" ? { data: "<main>REST page</main>", media_type: "text/html" }
       : { data: "# REST document", media_type: "text/markdown" };
@@ -83,4 +84,11 @@ it("loads the side panel document reader through the same scoped REST bridge", a
   expect(host.querySelector("h1")?.textContent).toBe("REST document");
   expect(requests).toEqual([{ path: "/api/tabs/reader-tab/preview/read", body: { path: "/work/report.md", kind: "document" } }]);
   expect(host.querySelector<HTMLButtonElement>('button[aria-label="Reveal report.md"]')?.disabled).toBe(true);
+});
+
+it("reads a changed source file through the authenticated tab-scoped web bridge", async () => {
+  await act(async () => root?.render(<ChangeFileView tabId="change-owner" target="/work/current.ts" deleted={false} onDiff={() => {}} />));
+  expect(host.querySelector("code")?.textContent).toContain("const current = 42;");
+  expect(requests).toEqual([{ path: "/api/tabs/change-owner/preview/read", body: { path: "/work/current.ts", kind: "document" } }]);
+  expect(fetchMock).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("/api/tabs/change-owner/preview/read"), expect.objectContaining({ method: "POST", body: JSON.stringify({ path: "/work/current.ts", kind: "document" }) }));
 });

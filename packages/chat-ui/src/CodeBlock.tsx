@@ -141,6 +141,7 @@ type CodeContentProps = {
   language: string;
   mermaidMode: boolean;
   wrapLines?: boolean;
+  showLineNumbers?: boolean;
   forcePlainText?: boolean;
   mermaidSvg: string | null;
   shouldDisplayMermaid: boolean;
@@ -164,6 +165,7 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
   language,
   mermaidMode,
   wrapLines = false,
+  showLineNumbers = false,
   forcePlainText = false,
   mermaidSvg,
   shouldDisplayMermaid,
@@ -196,7 +198,9 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
             overflowWrap: wrapLines ? "anywhere" : undefined,
           }}
         >
-          {displayedText}
+          {showLineNumbers ? displayedText.replace(/\n$/, "").split("\n").map((line, index) => <span key={index} className="grid grid-cols-[4ch_minmax(0,1fr)]">
+            <span aria-hidden="true" className="select-none pr-2 text-right text-[var(--ct-muted-fg)]">{index + 1}</span><span>{line || " "}</span>
+          </span>) : displayedText}
         </pre>
       </div>
     );
@@ -252,6 +256,8 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
           )}
           <SyntaxHighlighter
             language={resolvedLanguage}
+            showLineNumbers={showLineNumbers}
+            lineNumberStyle={{ color: "var(--ct-muted-fg)", userSelect: "none" }}
             style={themeAwarePrismStyle}
             useInlineStyles={false}
             PreTag="div"
@@ -294,6 +300,7 @@ export function CodeBlock({
   collapseAfterLines = 20,
   fullscreenScope = "container",
   wrapLines = false,
+  showLineNumbers = false,
 }: {
   text: string;
   language?: string;
@@ -302,6 +309,7 @@ export function CodeBlock({
   collapseAfterLines?: number;
   fullscreenScope?: "container" | "viewport";
   wrapLines?: boolean;
+  showLineNumbers?: boolean;
 }) {
   const normalizedText = useMemo(() => text.replace(/\r/g, ""), [text]);
   const codeLines = useMemo(() => normalizedText.replace(/\n$/, "").split("\n"), [normalizedText]);
@@ -831,6 +839,7 @@ export function CodeBlock({
         </div>
         <CodeBlockContent
           wrapLines={wrapLines}
+          showLineNumbers={showLineNumbers}
           fullSize={false}
           maxHeight={maxHeight}
           displayedText={displayedText}
@@ -925,6 +934,7 @@ export function CodeBlock({
             <div className="min-h-0 flex-1 overflow-hidden">
               <CodeBlockContent
                 wrapLines={wrapLines}
+                showLineNumbers={showLineNumbers}
                 fullSize
                 maxHeight={maxHeight}
                 displayedText={displayedText}

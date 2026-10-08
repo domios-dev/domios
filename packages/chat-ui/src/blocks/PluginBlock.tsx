@@ -1,4 +1,4 @@
-import { Puzzle, SearchX } from "lucide-react";
+import { Puzzle } from "lucide-react";
 import { BlockNotice } from "./BlockNotice";
 import { ChatBlockFrame, type ChatBlockAction, type ChatBlockStatus } from "./ChatBlockFrame";
 import { useChatBlockHost, type PluginBlockHost } from "./ChatBlockHost";
@@ -74,21 +74,11 @@ function PluginCard({ plugin, host, source }: { plugin: PluginBlockInfo; host: P
       )}
       actions={actions}
       fullPage={{ label: "Open in Plugins", open: () => host.openInPlugins(plugin.id) }}
-      askText={`About the ${plugin.name} plugin (\`${source}\`): `}
+      askText={`About the ${plugin.name} plugin (\`${source}\`)`}
     />
   );
 }
 
 function PluginNotice({ source, title, text, missing = false }: { source: string; title: string; text: string; missing?: boolean }) {
-  return (
-    <BlockNotice
-      name="plugin"
-      label={`Plugin ${title}`}
-      source={source}
-      icon={missing ? <SearchX size={13} aria-hidden="true" /> : <Puzzle size={13} aria-hidden="true" />}
-      data-plugin-missing={missing || undefined}
-    >
-      {text}
-    </BlockNotice>
-  );
+  return <BlockNotice name="plugin" source={source} label={`Plugin ${title}`} text={text} icon={Puzzle} missing={missing} />;
 }

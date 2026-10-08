@@ -576,15 +576,30 @@ pub fn mux_reopen_closed_tab(
 
 /// Reopen a whole closed group by id.
 #[tauri::command]
-pub fn mux_reopen_closed_group(
+pub async fn mux_reopen_closed_group(
     svc: State<'_, ServiceState>,
     group_id: String,
 ) -> Result<OrphanedRestoreInfo, String> {
-    let (workspace_id, tab_id) = svc.reopen_closed_group(&group_id)?;
+    let service = svc.inner().clone();
+    let (workspace_id, tab_id) =
+        tokio::task::spawn_blocking(move || service.reopen_closed_group(&group_id))
+            .await
+            .map_err(|error| error.to_string())??;
     Ok(OrphanedRestoreInfo {
         workspace_id,
         tab_id,
     })
+}
+
+#[tauri::command]
+pub async fn mux_rerun_restored_shell(
+    svc: State<'_, ServiceState>,
+    tab_id: String,
+) -> Result<(), String> {
+    let service = svc.inner().clone();
+    tokio::task::spawn_blocking(move || service.rerun_restored_shell(&tab_id))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 /// Reopen a tab from the orphaned ring.

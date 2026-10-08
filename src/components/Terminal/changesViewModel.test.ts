@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { sessionChanges } from "@codeterm/chat-core";
-import { changeBar, changeReference, changesFilePath, changesTotals, fenced, hunkReference, scopedFiles, turnNumber, turnOptions, unifiedDiffText } from "./changesViewModel";
+import { changeBar, changeContext, changeReference, changesFilePath, changesTotals, diffCapsuleLabel, fenced, hunkCounts, hunkReference, scopedFiles, turnNumber, turnOptions, unifiedDiffText } from "./changesViewModel";
 
 const changes = sessionChanges([
   { id: "turn1", type: "user", content: "first", timestamp: "2026-10-08T10:00:00Z" },
@@ -43,4 +43,9 @@ assert.equal(hunkReference("z/two.ts", two.diffs[0].hunks[0]), "Recorded change 
 assert.equal(changeReference("z/two.ts", two), "Recorded change in `z/two.ts` (modified, +2 -1; @@ -1,1 +1,2 @@)");
 const many = { ...two, diffs: [{ ...two.diffs[0], hunks: Array(5).fill(two.diffs[0].hunks[0]) }] };
 assert.match(changeReference("z/two.ts", many, 2), /and 3 more\)$/);
+assert.deepEqual(hunkCounts(two.diffs[0].hunks[0]), { additions: 2, deletions: 1 });
+assert.equal(diffCapsuleLabel("src\\ChangesPanel.tsx", { additions: 26, deletions: 4 }), "diff · ChangesPanel.tsx +26 −4");
+assert.equal(changeContext("z/two.ts", twoDiff, "/w/z/two.ts"),
+  "Recorded change in `z/two.ts` (modified, +2 -1; @@ -1,1 +1,2 @@)\n\nCurrent file: `/w/z/two.ts`\n\n```diff\n--- a/z/two.ts\n+++ b/z/two.ts\n@@ -1,1 +1,2 @@\n-x\n+y\n+z\n```");
+assert.ok(!changeContext("z/two.ts", twoDiff, null).includes("Current file"));
 console.log("Changes view presentation passed");

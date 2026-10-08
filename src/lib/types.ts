@@ -51,6 +51,21 @@ export interface ClosedTabView extends ClosedTab {
   group_kind: "single" | "cascade" | "workspace";
 }
 
+export interface ClosedStructureView {
+  id: string;
+  state: "closed" | "restoring" | "restored";
+  kind: "team" | "workspace";
+  label: string;
+  closed_at: number;
+  undo_until: number;
+  member_count: number;
+  team_count: number;
+  shell_count: number;
+  agent_count: number;
+  cron_count: number;
+  blueprint_count: number;
+}
+
 export type AgentRole = "Manager" | "Worker";
 
 export interface PromptOption {
@@ -151,6 +166,7 @@ export interface TabBootStageEvent {
 }
 
 export interface Tab {
+  close_restore?: { command: string | null; stopped: boolean; record_id: string | null; exact_session: boolean } | null;
   shell_profile?: ShellProfile | null;
   purpose?: import("./shellCommandState").ShellPurpose;
   icon?: string | null;
@@ -259,6 +275,7 @@ export interface MultiplexerState {
    *  Each entry carries its per-workspace reopen `index`, an `orphaned` flag,
    *  and group metadata. */
   recently_closed?: ClosedTabView[];
+  closed_structures?: ClosedStructureView[];
   /** Aggregate Idle/Working/Waiting/Error/Dead per PTY-backed tab, mirrored from the
    *  backend's live status tracker so the tab rail hydrates correctly on
    *  reload instead of staying blank until the next status event. */
@@ -309,70 +326,13 @@ export interface PtyInfo {
   status: "running" | "dead";
 }
 
-/** What one notification button does, as the daemon stores and emits it. */
-export type NotificationAction =
-  | { type: "url"; label: string; value: string }
-  | { type: "dismiss"; label: string }
-  | { type: "answer"; label: string }
-  | {
-      type: "respond_prompt_option";
-      label: string;
-      value: string;
-      identity: NotificationPromptIdentity;
-    };
-
-export type CallerNotificationAction =
-  | Extract<NotificationAction, { type: "url" }>
-  | Extract<NotificationAction, { type: "dismiss" }>
-  | Extract<NotificationAction, { type: "answer" }>;
-
-export interface NotificationPromptIdentity {
-  kind: "provider" | "directory_trust" | "structured" | "manual_update";
-  options: Array<{ label: string; value: string }>;
-}
-
-/** The answer slot of one notification: the tab captured when the question was
- * sent, and the single label it may ever hold. */
-export interface NotificationAnswer {
-  asked_from_tab: string | null;
-  answered: string | null;
-  /** Whether the standing answer reached the asking tab. Recording an answer and
-   * carrying it back are separate facts, so a refused send never reads as done. */
-  delivered: boolean;
-}
-
-export interface Notification {
-  blueprint_run?: import("./blueprintRun").BlueprintRunPopup;
-  id: string;
-  key?: string;
-  tab_id: string | null;
-  workspace_id: string | null;
-  /** Navigation hint: the tab whose chat holds the message this is about. */
-  target_tab_id?: string | null;
-  /** The exact `data-message-id` inside `target_tab_id`; never matched by text. */
-  chat_message_id?: string | null;
-  title: string;
-  body: string | null;
-  icon_svg?: string | null;
-  icon_color?: string | null;
-  icon_hint?: string | null;
-  /** Wire and dedupe axis only: it joins provenance and title in the record's
-   *  identity. No surface tones by it — `level` is the single tone axis. */
-  severity: "Info" | "Warning" | "Error";
-  /** The tone axis, named by the sender and routed on by the destination
-   *  matrix. Absent means the caller named no level — a distinct, legal state,
-   *  not a lost one — and every surface paints it the neutral tone. */
-  level?: "verbose" | "action_needed" | "failure";
-  timestamp: number;
-  read: boolean;
-  /** Action buttons — if present, toast shows buttons instead of auto-dismiss */
-  actions?: NotificationAction[];
-  /** Present when the notification offers a choice */
-  answer?: NotificationAnswer;
-  resolved?: boolean;
-  /** Persist toast — don't auto-dismiss, require explicit action */
-  sticky?: boolean;
-}
+export type {
+  Notification,
+  NotificationAction,
+  NotificationAnswer,
+  NotificationPromptIdentity,
+  CallerNotificationAction,
+} from "./notificationTypes";
 
 export type TabStatus = "Working" | "Waiting" | "Idle" | "Error" | "Dead";
 
@@ -854,6 +814,19 @@ export interface AppConfig {
   mesh: MeshConfig;
   orchestration: OrchestrationConfig;
   ui?: UiConfig;
+  model_defaults?: ModelDefaultsConfig;
+}
+
+/** A stored model default the daemon moved off a model its catalogue stopped offering. */
+export interface ReplacedModelDefault {
+  provider: string;
+  from: string;
+  to: string;
+  reason: string;
+}
+
+export interface ModelDefaultsConfig {
+  replaced?: Record<string, ReplacedModelDefault>;
 }
 
 // Provider descriptor wire types mirror `src-tauri/src/agent/provider.rs`.

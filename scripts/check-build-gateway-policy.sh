@@ -126,6 +126,9 @@ dev_gateway_line="$(grep -n 'enter_build_gateway' <<< "$dev_flow" | head -1 | cu
   exit 1
 }
 
+exceptional_flow="$(sed -n '/^prepare_exceptional_worktree_target() {/,/^}/p' build.sh)"
+expect_log 'ct_mark_exceptional_target || ' <<< "$exceptional_flow"
+
 worktree_flow="$(sed -n '/^  worktree-check)/,/^    ;;/p' build.sh)"
 expect_log 'prepare_exceptional_worktree_target' <<< "$worktree_flow"
 if grep -q 'enter_build_gateway' <<< "$worktree_flow"; then

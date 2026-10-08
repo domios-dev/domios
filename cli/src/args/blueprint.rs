@@ -95,6 +95,23 @@ pub enum BlueprintAction {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Export a portable recipe containing only the definition
+    Export {
+        id: String,
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+    },
+    /// Import a portable recipe into the caller's Team (stopped by default)
+    Import {
+        file: std::path::PathBuf,
+        #[arg(long = "set", value_parser = parse_assignment)]
+        set: Vec<String>,
+        #[arg(long, conflicts_with = "start")]
+        stopped: bool,
+        /// Start immediately after validation
+        #[arg(long, conflicts_with = "stopped")]
+        start: bool,
+    },
     /// List trigger, step, converter and event-source capabilities
     Nodes,
     /// List blueprints scoped to the calling tab and its Team
@@ -114,6 +131,17 @@ pub enum BlueprintAction {
     },
     /// Stop one blueprint
     Stop { id: String },
+    /// Delete a whole blueprint, or every stopped one in the Team; the creator or the Team owner may delete
+    #[command(group = clap::ArgGroup::new("delete_target").args(["id", "stopped"]).required(true))]
+    Delete {
+        id: Option<String>,
+        /// Delete every stopped blueprint the caller may delete in its Team
+        #[arg(long, conflicts_with_all = ["id", "stop"])]
+        stopped: bool,
+        /// Stop a running blueprint before deleting it
+        #[arg(long, requires = "id")]
+        stop: bool,
+    },
     /// Replace one definition at the expected version
     Update {
         id: String,

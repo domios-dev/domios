@@ -168,6 +168,16 @@ test("a rejected draft sets aria-invalid, and editing clears it", async () => {
   await teardown(h);
 });
 
+test("typing @ offers the @ds-tasks mention as a named suggestion option", async () => {
+  const h = await renderComposer("tab-a11y-mention");
+  await type(h, "show me @ds");
+  const listbox = h.host.querySelector('[role="listbox"][aria-label="Mention suggestions"]');
+  assert(listbox, "mention suggestions must render as a named listbox");
+  const option = listbox.querySelector('[role="option"][aria-label="@ds-tasks"]');
+  assert(option, "the @ds-tasks suggestion must expose its accessible name");
+  await teardown(h);
+});
+
 async function main() {
   let failed = 0;
   for (const [name, fn] of tests) {

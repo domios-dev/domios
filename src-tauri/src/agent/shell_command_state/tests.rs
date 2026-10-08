@@ -152,6 +152,9 @@ fn shell_command_state_pending_utility_command_ignores_initial_prompt() {
     let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
     mux.link_pty(&id, "own".into());
     let tab = mux.get_tab_mut(&id).unwrap();
+    // The bootstrap tab is the Orchestrator; strip its role so it is a plain utility shell.
+    tab.role = None;
+    tab.role_profile = None;
     tab.utility_command_pending = true;
     let idle = ShellCommandState {
         activity: ShellActivity::Idle,

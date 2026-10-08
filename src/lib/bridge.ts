@@ -217,6 +217,8 @@ const HTTP_MAP: Record<string, Mapper> = {
     if (typeof a.workspaceId !== "string" || !a.workspaceId) throw new Error("Automation workspace scope is required");
     return webJson("GET", `/api/automation/graph/workspace?workspace_id=${enc(s(a, "workspaceId"))}`);
   },
+  blueprint_export_file: (a) => webJson("POST", "/api/automation/blueprints/export", { workspace_id: a.workspaceId, team_id: a.teamId, id: a.id }),
+  blueprint_import_file: (a) => webJson("POST", "/api/automation/blueprints/import", { caller_tab_id: a.callerTabId, recipe: a.recipe, assignments: a.assignments }),
   automation_graph_stop_sentinel: (a) => {
     if (typeof a.workspaceId !== "string" || !a.workspaceId) throw new Error("Automation workspace scope is required");
     if (!("teamId" in a) || (a.teamId !== null && typeof a.teamId !== "string")) throw new Error("Automation Team scope is required");
@@ -319,6 +321,8 @@ const HTTP_MAP: Record<string, Mapper> = {
     }),
   mux_reopen_closed_group: (a) =>
     webJson("POST", `/api/closed-groups/${enc(s(a, "groupId"))}/reopen`),
+  mux_rerun_restored_shell: (a) =>
+    webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/rerun-restored-shell`),
   mux_restore_orphaned_tab: (a) =>
     webJson("POST", `/api/mux/restore-orphaned`, { tab_id: s(a, "tabId") }),
   mux_rename_tab: (a) =>
@@ -683,6 +687,8 @@ const HTTP_MAP: Record<string, Mapper> = {
       `/api/essence-source?project=${enc(s(a, "projectPath"))}&path=${enc(s(a, "sourcePath"))}`,
     ),
   list_agent_providers: () => webJson("GET", "/api/agents/providers"),
+  refresh_provider_models: (a) =>
+    webJson("POST", "/api/agents/providers/refresh", { provider_id: s(a, "providerId") ?? s(a, "provider_id") }),
   model_provider_manage: (a) => localJson(
     "POST",
     a.providerId ? `/api/model-providers?provider=${encodeURIComponent(String(a.providerId))}` : "/api/model-providers",

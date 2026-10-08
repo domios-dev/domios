@@ -31,7 +31,7 @@ for (const state of stepStates) {
 const branch = pipelineModel(blueprint());
 assert.deepEqual(branch.edges.map((edge) => edge.label), [null, "success", null], "step outcomes label their outgoing edges");
 assert.equal(branch.nodes.find((node) => node.kind === "step" && node.current)?.key, "step-1", "the current_step index highlights the matching step");
-assert.equal(pipelineModel(blueprint({ current_step: null })).nodes.find((node) => node.kind === "step" && node.current)?.key, "step-1", "a running step is the fallback highlight when current_step is absent");
+assert.equal(pipelineModel(blueprint({ current_step: null })).nodes.find((node) => node.kind === "step" && node.current)?.key, undefined, "an explicit null current step keeps closed runs idle");
 
 for (const state of ["waiting", "delivering", "delivered", "failed"] as const) {
   const view = pipelineModel(blueprint({ result: { ...blueprint().result!, state } }));

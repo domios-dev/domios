@@ -44,12 +44,15 @@ export {
 export type { ReportOutcomeClass, ReportTaskOutcome } from "./codeterm/reportOutcome";
 export { LocalArtifactScope } from "./LocalArtifactScope";
 export { AttachmentCapsule, CAPSULE_DETAIL_STYLE, CAPSULE_ICONS, CapsuleDecor, CapsulePreview, capsuleLabelParts } from "./AttachmentCapsule";
-export { capsuleSelectionText } from "./capsuleClipboard";
+export { capsuleSelectionText, writeClipboardFlavours } from "./capsuleClipboard";
+export { formatMessageTime } from "./MessageTime";
+export { ReplyQuote } from "./ReplyQuote";
 export { localArtifactOpeningAvailable } from "./localArtifactLoader";
 export { ChatBlockFrame } from "./blocks/ChatBlockFrame";
 export type { ChatBlockAction, ChatBlockFrameProps, ChatBlockStatus, ChatBlockTone } from "./blocks/ChatBlockFrame";
 export { ChatBlockHostProvider, useChatBlockHost } from "./blocks/ChatBlockHost";
-export type { ChatBlockHost, ConnectBlockHost, PluginBlockHost, SettingBlockHost } from "./blocks/ChatBlockHost";
+export type { AgentBlockHost, ChatBlockHost, ChecklistBlockHost, ChoiceBlockHost, ConnectBlockHost, JobBlockHost, PluginBlockHost, SettingBlockHost, TasksBlockHost } from "./blocks/ChatBlockHost";
+export { ChatBlockMessageProvider, useChatBlockMessageId } from "./blocks/ChatBlockHost";
 export { useLiveBinding } from "./blocks/liveBinding";
 export type { LiveBindingSource } from "./blocks/liveBinding";
 export { CHAT_BLOCKS, parseChatBlock, parseChatBlocks } from "./blocks/registry";
@@ -63,5 +66,15 @@ export type { BridgeConnectInfo, BridgePhase, ConnectBlockState, TokenConnectMet
 export { SettingBlock } from "./blocks/SettingBlock";
 export { isSensitiveKey, parseSettingKey } from "./blocks/settingBlockModel";
 export type { SettingBlockState, SettingControl, SettingInfo, SettingOption, SettingValue } from "./blocks/settingBlockModel";
+export type { AgentBlockInfo, AgentBlockState, AgentRunState } from "./blocks/agentBlockModel";
+export type { ChecklistBlockState, ChecklistInfo, ChecklistItemAction, ChecklistItemInfo } from "./blocks/checklistBlockModel";
+export { normalizeAnswer } from "./blocks/choiceBlockModel";
+export type { ChoiceBlockState } from "./blocks/choiceBlockModel";
+export type { JobBlockInfo, JobBlockState, JobKind, JobRunState } from "./blocks/jobBlockModel";
+export { decodeTasksBlockKey } from "./blocks/tasksBlockModel";
+export type { TasksBlockGroup, TasksBlockRow, TasksBlockSpec, TasksBlockState } from "./blocks/tasksBlockModel";
 export { PluginNameProvider } from "./codeterm/PluginNames";
 export type { PluginNameResolver } from "./codeterm/pluginAction";
+
+export { FullscreenOverlay, useFullscreenKeyboard } from "./FullscreenOverlay";
+export { knownLanguageFromPath } from "./codeLanguage";

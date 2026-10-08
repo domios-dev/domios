@@ -5,6 +5,7 @@ export type HelpSectionId =
   | "workspaces"
   | "agents"
   | "plans"
+  | "blueprints"
   | "memory"
   | "supporter-agent"
   | "mesh"

@@ -1,9 +1,7 @@
 import { ALL_JOBS_SCOPE, automationKey, sameScope, type AutomationGraph, type AutomationIdentity, type AutomationNode, type AutomationScope } from "./types";
 
-function agentSentinel(node: AutomationNode): boolean {
-  const definition = node.sentinel_definition;
-  return node.identity.kind === "sentinel" && definition?.source === "stored_agent_definition"
-    && definition.definition_id === node.identity.id && definition.creator_tab_id === node.identity.owner_tab_id;
+export function isScenarioRoot(node: AutomationNode, root: AutomationIdentity): boolean {
+  return node.identity.kind === "sentinel" && automationKey(node.identity) === automationKey(root);
 }
 
 export function scopedAutomationGraph(graph: AutomationGraph, scope: AutomationScope): AutomationGraph {
@@ -11,7 +9,7 @@ export function scopedAutomationGraph(graph: AutomationGraph, scope: AutomationS
   if (graph.workspace_id !== scope.workspace_id || (allTeams ? graph.all_teams !== true : !sameScope(graph, scope))) throw new Error("Automation scope mismatch");
   const inScope = (identity: AutomationIdentity) => identity.workspace_id === scope.workspace_id && (allTeams || identity.team_id === scope.team_id);
   const scoped = graph.nodes.filter((node) => inScope(node.identity));
-  const byId = new Map(scoped.filter((node) => node.identity.kind !== "sentinel" || agentSentinel(node)).map((node) => [automationKey(node.identity), node]));
+  const byId = new Map(scoped.map((node) => [automationKey(node.identity), node]));
   const eligibleEdges = graph.edges.filter((edge) => inScope(edge.source) && inScope(edge.target) && byId.has(automationKey(edge.source)));
   const outgoing = new Map<string, typeof eligibleEdges>();
   for (const edge of eligibleEdges) {
@@ -21,7 +19,10 @@ export function scopedAutomationGraph(graph: AutomationGraph, scope: AutomationS
     outgoing.set(key, entries);
   }
   const scenarios = graph.scenarios.filter((scenario) => inScope(scenario.root));
-  const roots = scenarios.map((scenario) => byId.get(automationKey(scenario.root))).filter((node): node is AutomationNode => node !== undefined && agentSentinel(node));
+  const roots = scenarios.flatMap((scenario) => {
+    const node = byId.get(automationKey(scenario.root));
+    return node && isScenarioRoot(node, scenario.root) ? [node] : [];
+  });
   const nodes = Array.from(new Map(roots.map((node) => [automationKey(node.identity), node])).values());
   const reached = new Set(nodes.map((node) => automationKey(node.identity)));
   const edges: typeof eligibleEdges = [];

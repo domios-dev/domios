@@ -31,18 +31,20 @@ export interface ChatBlockFrameProps {
   accent?: string | null;
   status?: ChatBlockStatus;
   summary?: React.ReactNode;
-  /** Inline controls between the header and the actions row. */
+  /** Always-visible content between the header and the actions row. */
   body?: React.ReactNode;
   details?: React.ReactNode;
   actions?: readonly ChatBlockAction[];
   fullPage?: { label: string; open(): void };
   askText?: string;
   muted?: boolean;
+  /** False for one-shot blocks whose state belongs to their message, such as a choice. */
+  pinnable?: boolean;
 }
 
 type Outcome = { kind: "idle" } | { kind: "running"; id: string } | { kind: "done"; message: string } | { kind: "failed"; message: string };
 
-const TONE_COLOR: Record<ChatBlockTone, string> = {
+export const TONE_COLOR: Record<ChatBlockTone, string> = {
   ok: "var(--ct-ok, #3fb950)",
   accent: "var(--ct-accent, #58a6ff)",
   warn: "var(--ct-warn, #d29922)",
@@ -60,7 +62,7 @@ export const BLOCK_INPUT_STYLE: React.CSSProperties = {
 
 /** The shared chrome every chat block renders in: header, inline body, expandable details, actions and extras. */
 export function ChatBlockFrame({
-  name, source, title, icon, accent, status, summary, body, details, actions = [], fullPage, askText, muted = false,
+  name, source, title, icon, accent, status, summary, body, details, actions = [], fullPage, askText, muted = false, pinnable = true,
 }: ChatBlockFrameProps) {
   const host = useChatBlockHost();
   const pinned = useLiveBinding(host.pinned, source, false);
@@ -87,6 +89,7 @@ export function ChatBlockFrame({
   };
   const onAction = (action: ChatBlockAction) => (action.confirm ? setConfirming(action) : void execute(action));
   const busy = outcome.kind === "running";
+  const hasFooter = confirming !== null || actions.length > 0 || fullPage !== undefined || details !== undefined || !body;
 
   return (
     <section
@@ -125,10 +128,10 @@ export function ChatBlockFrame({
           </div>
           {summary && <div className="mt-0.5 text-xs leading-relaxed" style={{ color: "var(--ct-muted-fg)" }}>{summary}</div>}
         </div>
-        <BlockExtras source={source} title={title} askText={askText} pinned={pinned} />
+        <BlockExtras source={source} title={title} askText={askText} pinned={pinned} pinnable={pinnable} />
       </header>
 
-      {body && <div data-testid="chat-block-body" className="min-w-0 px-3 pt-2.5">{body}</div>}
+      {body && <div data-testid="chat-block-body" className={`mt-2 min-w-0 px-3 ${hasFooter ? "" : "pb-3"}`}>{body}</div>}
 
       {details && expanded && (
         <div id={detailsId} data-testid="chat-block-details" className="mx-3 mt-2 border-t pt-2 text-xs leading-relaxed" style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg) 18%, transparent)", color: "var(--ct-muted-fg)" }}>
@@ -136,7 +139,7 @@ export function ChatBlockFrame({
         </div>
       )}
 
-      <div className="flex min-w-0 flex-wrap items-center gap-2 px-3 pb-3 pt-2.5">
+      {hasFooter && <div className="flex min-w-0 flex-wrap items-center gap-2 px-3 pb-3 pt-2.5">
         {confirming ? (
           <div role="group" aria-label={`Confirm ${confirming.label}`} className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             <span className="min-w-0 flex-1 text-xs">{confirming.confirm?.message}</span>
@@ -179,7 +182,7 @@ export function ChatBlockFrame({
             )}
           </>
         )}
-      </div>
+      </div>}
 
       <div aria-live="polite" className="empty:hidden px-3 pb-3 -mt-1 text-xs" data-testid="chat-block-result">
         {outcome.kind === "done" && <span style={{ color: TONE_COLOR.ok }}>{outcome.message}</span>}
@@ -204,17 +207,17 @@ export function BlockButton({ primary = false, children, className = "", ...prop
   );
 }
 
-function BlockExtras({ source, title, askText, pinned }: { source: string; title: string; askText?: string; pinned: boolean }) {
+function BlockExtras({ source, title, askText, pinned, pinnable }: { source: string; title: string; askText?: string; pinned: boolean; pinnable: boolean }) {
   const host = useChatBlockHost();
-  if (!host.askAbout && !host.pin) return null;
+  if (!host.askAbout && !(host.pin && pinnable)) return null;
   return (
     <div className="-mr-1 flex shrink-0 items-center" data-testid="chat-block-extras">
       {host.askAbout && (
-        <ExtraButton label={`Ask about ${title}`} onClick={() => host.askAbout?.(askText ?? `About ${title} (\`${source}\`): `)}>
+        <ExtraButton label={`Ask about ${title}`} onClick={() => host.askAbout?.({ title, text: askText ?? `About ${title} (\`${source}\`)` })}>
           <MessageSquarePlus size={13} aria-hidden="true" />
         </ExtraButton>
       )}
-      {host.pin && (
+      {host.pin && pinnable && (
         <ExtraButton label={pinned ? `Unpin ${title} from the side panel` : `Pin ${title} to the side panel`} pressed={pinned} onClick={() => host.pin?.(source)}>
           <Pin size={13} aria-hidden="true" fill={pinned ? "currentColor" : "none"} />
         </ExtraButton>

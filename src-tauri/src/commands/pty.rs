@@ -39,6 +39,13 @@ pub async fn spawn_pty_core(
     let mux_state = &svc.mux;
     // Protected tabs belong to the backend lifecycle, including while it is starting.
     if let Some(ref pid) = tab_id {
+        if mux_state.read().get_tab(pid).is_some_and(|tab| {
+            tab.close_restore
+                .as_ref()
+                .is_some_and(|state| state.stopped)
+        }) {
+            return Err("Restored shell is stopped; use Rerun command or Start shell".into());
+        }
         let (is_protected, existing) = {
             let m = mux_state.read();
             let p = m.get_tab(pid);
@@ -183,6 +190,23 @@ pub async fn spawn_pty_core(
                 return Ok(pty_id);
             }
             return Err(error);
+        }
+        let exact_restore = mux_state.read().get_tab(pid).is_some_and(|tab| {
+            tab.restored_from_snapshot
+                && tab
+                    .close_restore
+                    .as_ref()
+                    .is_some_and(|state| state.exact_session)
+        });
+        if exact_restore {
+            let restore_service = svc.clone();
+            let restore_tab = pid.clone();
+            tokio::task::spawn_blocking(move || {
+                restore_service.materialize_restored_agent_for_send(&restore_tab)
+            })
+            .await
+            .map_err(|error| error.to_string())??;
+            return Ok(pty_id);
         }
         let Some(restore) = crate::service::pty_io::claim_restored_pty_boot(mux_state, pid)? else {
             return Ok(pty_id);

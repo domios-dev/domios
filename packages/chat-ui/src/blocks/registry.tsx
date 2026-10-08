@@ -6,6 +6,16 @@ import { PluginBlock } from "./PluginBlock";
 import { parsePluginId } from "./pluginBlockModel";
 import { SettingBlock } from "./SettingBlock";
 import { parseSettingKey } from "./settingBlockModel";
+import { AgentBlock } from "./AgentBlock";
+import { parseTabRef } from "./agentBlockModel";
+import { ChecklistBlock } from "./ChecklistBlock";
+import { parseChecklistId } from "./checklistBlockModel";
+import { ChoiceBlock } from "./ChoiceBlock";
+import { parseChoiceOptions } from "./choiceBlockModel";
+import { JobBlock } from "./JobBlock";
+import { parseJobRef } from "./jobBlockModel";
+import { TasksBlock } from "./TasksBlock";
+import { parseTasksArgument, type TasksBlockSpec } from "./tasksBlockModel";
 
 /** One `@ds-<name> <argument>` chat block: a parser that validates the argument and a renderer for it. */
 export interface ChatBlockDefinition<P> {
@@ -24,7 +34,7 @@ function defineChatBlock<P>(definition: ChatBlockDefinition<P>): ChatBlockDefini
   return definition as ChatBlockDefinition<unknown>;
 }
 
-/** Every block a reply can emit. Add a block here with its parser and renderer, then list it in prod-docs/HTML.md. */
+/** Every block a reply can emit. Add a block here with its parser and renderer, then list it in prod-docs/CHAT-BLOCKS.md. */
 export const CHAT_BLOCKS: readonly ChatBlockDefinition<unknown>[] = [
   defineChatBlock<string>({
     name: "guide",
@@ -46,7 +56,36 @@ export const CHAT_BLOCKS: readonly ChatBlockDefinition<unknown>[] = [
     parse: (argument) => parseSettingKey(argument),
     render: (settingKey, source) => <SettingBlock settingKey={settingKey} source={source} />,
   }),
+  defineChatBlock<string[]>({
+    name: "choice",
+    parse: (argument) => parseChoiceOptions(argument),
+    render: (options, source) => <ChoiceBlock options={options} source={source} />,
+  }),
+  defineChatBlock<string>({
+    name: "agent",
+    parse: (argument) => parseTabRef(argument),
+    render: (tabRef, source) => <AgentBlock tabRef={tabRef} source={source} />,
+  }),
+  defineChatBlock<string>({
+    name: "job",
+    parse: (argument) => parseJobRef(argument),
+    render: (jobRef, source) => <JobBlock jobRef={jobRef} source={source} />,
+  }),
+  defineChatBlock<string>({
+    name: "checklist",
+    parse: (argument) => parseChecklistId(argument),
+    render: (checklistId, source) => <ChecklistBlock checklistId={checklistId} source={source} renderBlock={renderNestedBlock} />,
+  }),
+  defineChatBlock<TasksBlockSpec>({
+    name: "tasks",
+    parse: (argument) => parseTasksArgument(argument),
+    render: (spec, source) => <TasksBlock spec={spec} source={source} />,
+  }),
 ];
+
+function renderNestedBlock(source: string): React.ReactNode {
+  return parseChatBlock(source)?.render() ?? null;
+}
 
 const BLOCK_LINE = /^[\t ]*@ds-([a-z][a-z0-9-]*)[\t ]+(\S(?:.*\S)?)[\t ]*$/;
 
