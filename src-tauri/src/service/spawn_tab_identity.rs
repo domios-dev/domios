@@ -15,6 +15,13 @@ pub(super) fn prepare_tab_identity(spec: &mut SpawnTabSpec) -> Result<(), String
     } else if let Some(title) = spec.title.as_deref() {
         crate::service::tab::validate_tab_title(title)?;
     }
+    if spec.cmd.is_some() && !matches!(spec.command, TabCommand::Shell) {
+        return Err("utility commands require PTY shell backing".into());
+    }
+    spec.icon = super::utility_tabs::normalize_icon(spec.icon.take())?;
+    if spec.icon.is_some() && !matches!(spec.command, TabCommand::Shell) {
+        return Err("utility icons require PTY shell backing".into());
+    }
     spec.description =
         crate::service::tab::normalize_optional_tab_description(spec.description.take())?;
     Ok(())

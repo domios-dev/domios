@@ -7,6 +7,8 @@ use crate::session::store::SplitNodeSnapshot;
 fn role_claim_leaf(role: &str, role_profile: Option<&str>) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
         purpose: Default::default(),
+        icon: None,
+        utility_created_at: 0,
         tab_id: "db79d2da".into(),
         cwd: None,
         title: Some("Plan card fixture".into()),

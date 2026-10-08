@@ -359,7 +359,7 @@ function TabItemInner({
           ) : tab.tab_type === "Choice" ? (
             <ChoiceIcon className={`${touchMode ? "scale-110" : isSubTab ? "scale-90" : ""}`} />
           ) : (
-            utilityShell ? <ShellPurposeIcon purpose={tab.purpose} running={shellRunning} /> : <TerminalIcon className={`${touchMode ? "scale-110" : isSubTab ? "scale-90" : ""}`} />
+            utilityShell ? <ShellPurposeIcon purpose={tab.purpose} icon={tab.icon} running={shellRunning} /> : <TerminalIcon className={`${touchMode ? "scale-110" : isSubTab ? "scale-90" : ""}`} />
           )}
         </span>
         <span className="min-w-0 flex-1">

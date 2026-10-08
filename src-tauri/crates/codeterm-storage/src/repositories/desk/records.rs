@@ -14,6 +14,8 @@ pub const MAX_DESK_CATALOGUE: usize = 65_536;
 
 const LEAF_FIELDS: &[&str] = &[
     "purpose",
+    "icon",
+    "utility_created_at",
     "title",
     "description",
     "title_level",
@@ -106,9 +108,11 @@ fn valid_leaf_value(field: &str, value: &Value) -> bool {
         "agent_type_locked" | "can_spawn" | "auto_approve" | "permission_auto_confirm" => {
             value.is_boolean()
         }
+        "utility_created_at" => value.as_u64().is_some(),
         "depth" => value.as_u64().is_some_and(|depth| depth <= u8::MAX as u64),
         "chat_view" => value.is_boolean() || value.is_null(),
-        "title"
+        "icon"
+        | "title"
         | "description"
         | "title_level"
         | "agent_type"

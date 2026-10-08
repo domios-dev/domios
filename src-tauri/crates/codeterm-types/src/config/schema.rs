@@ -15,6 +15,7 @@ pub struct AppConfig {
     pub theme: ThemeConfig,
     pub font: FontConfig,
     pub terminal: TerminalConfig,
+    pub utility_tabs: UtilityTabsConfig,
     pub diagnostics: DiagnosticsConfig,
     pub notifications: NotificationConfig,
     pub keybindings: KeybindingsConfig,
@@ -63,6 +64,7 @@ impl Default for AppConfig {
             theme: ThemeConfig::default(),
             font: FontConfig::default(),
             terminal: TerminalConfig::default(),
+            utility_tabs: UtilityTabsConfig::default(),
             diagnostics: DiagnosticsConfig::default(),
             notifications: NotificationConfig::default(),
             keybindings: KeybindingsConfig::default(),
@@ -1177,3 +1179,5 @@ impl Default for RunawayConfig {
 
 #[cfg(test)]
 mod tests;
+
+pub use super::utility_tabs::{UtilityTabLimits, UtilityTabsConfig};

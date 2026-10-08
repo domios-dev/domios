@@ -143,6 +143,8 @@ impl MultiplexerState {
             };
             SplitNodeSnapshot::Leaf {
                 purpose: tab.map(|p| p.purpose).unwrap_or_default(),
+                icon: tab.and_then(|p| p.icon.clone()),
+                utility_created_at: tab.map(|p| p.utility_created_at).unwrap_or_default(),
                 tab_id: tab_id.to_string(),
                 cwd: tab.and_then(|p| normalized_snapshot_cwd(p.cwd.as_deref())),
                 title: tab.map(|p| p.title.clone()),
@@ -449,6 +451,8 @@ fn install_leaf(
     use crate::session::store::*;
     let SplitNodeSnapshot::Leaf {
         purpose,
+        icon,
+        utility_created_at,
         tab_id,
         cwd,
         title,
@@ -570,6 +574,9 @@ fn install_leaf(
             backing: restored_backing,
             tab_type: TabType::Terminal,
             purpose: *purpose,
+            icon: icon.clone(),
+            utility_created_at: *utility_created_at,
+            utility_command_pending: false,
             shell_command_state: Default::default(),
             pending_delivery: pending_delivery.clone(),
             title: restored_title,

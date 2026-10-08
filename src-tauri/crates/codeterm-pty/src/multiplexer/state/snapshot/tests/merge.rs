@@ -5,6 +5,8 @@ use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, Wor
 fn terminal_leaf(tab_id: &str, parent: Option<&str>) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
         purpose: Default::default(),
+        icon: None,
+        utility_created_at: 0,
         tab_id: tab_id.into(),
         cwd: Some("D:/project".into()),
         title: Some(format!("title-{tab_id}")),

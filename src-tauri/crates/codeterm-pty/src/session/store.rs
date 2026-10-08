@@ -126,6 +126,10 @@ pub enum SplitNodeSnapshot {
     Leaf {
         #[serde(default)]
         purpose: crate::multiplexer::types::ShellPurpose,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        icon: Option<String>,
+        #[serde(default)]
+        utility_created_at: u64,
         tab_id: String,
         cwd: Option<String>,
         /// Tab title.
