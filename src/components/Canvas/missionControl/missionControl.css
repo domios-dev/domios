@@ -90,7 +90,7 @@
   border: 1px solid var(--mc-border);
   border-radius: 12px;
   background: var(--mc-surface);
-  box-shadow: 0 24px 80px color-mix(in srgb, #000 45%, transparent);
+  box-shadow: var(--ct-shadow-xl);
   overflow: hidden;
   transition: transform 320ms var(--mc-ease);
   transform-origin: center center;
@@ -184,16 +184,8 @@
   animation: mc-pulse 2s ease-in-out infinite;
 }
 
-.mc-avatar[data-provider="claude"] {
-  background: color-mix(in srgb, #d97757 35%, var(--ct-bg));
-}
-
-.mc-avatar[data-provider="codex"] {
-  background: color-mix(in srgb, #10a37f 35%, var(--ct-bg));
-}
-
-.mc-avatar[data-provider="opencode"] {
-  background: color-mix(in srgb, #a371f7 35%, var(--ct-bg));
+.mc-avatar[data-provider-color] {
+  background: color-mix(in srgb, var(--mc-provider-color) 35%, var(--ct-bg));
 }
 
 .mc-hud {
@@ -675,9 +667,13 @@
 
 /* ── Flow canvas (Mission Control v2) ───────────────────────────────────── */
 .mc-flow-shell {
-  --mc-violet: #b895f0;
-  --mc-flow-a: color-mix(in srgb, var(--mc-accent) 30%, #101623);
-  --mc-flow-b: color-mix(in srgb, var(--mc-accent) 55%, #101623);
+  --mc-violet: var(--ct-bright-magenta);
+  --mc-deep: color-mix(in srgb, var(--ct-bg) 82%, var(--ct-blue) 6%);
+  --mc-station: color-mix(in srgb, var(--ct-bg) 90%, var(--ct-fg) 4%);
+  --mc-chip: color-mix(in srgb, var(--ct-bg) 84%, var(--ct-fg) 8%);
+  --mc-chip-border: color-mix(in srgb, var(--mc-border) 70%, var(--ct-bg));
+  --mc-flow-a: color-mix(in srgb, var(--mc-accent) 30%, var(--mc-deep));
+  --mc-flow-b: color-mix(in srgb, var(--mc-accent) 55%, var(--mc-deep));
 }
 .mc-flow-shell .mc-live-viewport {
   background:
@@ -693,7 +689,7 @@
 }
 
 .mc-river-plan {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--mc-panel) 92%, #0b0f17) 0%, #0f131c 100%);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--mc-panel) 92%, var(--mc-deep)) 0%, var(--mc-deep) 100%);
   border: 1px solid var(--mc-border);
   border-radius: 22px;
   padding: 20px 26px;
@@ -774,7 +770,7 @@
   max-width: 240px;
   border-radius: 16px;
   padding: 11px 13px;
-  background: #10141d;
+  background: var(--mc-station);
   border: 1px solid var(--mc-border);
   box-sizing: border-box;
 }
@@ -798,20 +794,20 @@
   line-height: 1.35;
   padding: 6px 8px;
   border-radius: 9px;
-  background: #171d2a;
-  border: 1px solid #202839;
+  background: var(--mc-chip);
+  border: 1px solid var(--mc-chip-border);
   margin-top: 5px;
-  color: #c6cfdd;
+  color: var(--ct-fg);
   display: flex;
   gap: 6px;
   align-items: baseline;
   cursor: pointer;
   transition: border-color var(--mc-fast) var(--mc-ease), background var(--mc-fast) var(--mc-ease);
 }
-.mc-flow-chip:hover { border-color: color-mix(in srgb, var(--mc-accent) 50%, #202839); }
+.mc-flow-chip:hover { border-color: color-mix(in srgb, var(--mc-accent) 50%, var(--mc-chip-border)); }
 .mc-flow-chip-hot {
-  border-color: color-mix(in srgb, var(--mc-ok) 40%, #202839);
-  background: linear-gradient(90deg, color-mix(in srgb, var(--mc-ok) 7%, #171d2a), #171d2a);
+  border-color: color-mix(in srgb, var(--mc-ok) 40%, var(--mc-chip-border));
+  background: linear-gradient(90deg, color-mix(in srgb, var(--mc-ok) 7%, var(--mc-chip)), var(--mc-chip));
 }
 .mc-flow-chip-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mc-flow-chip-carrier { font-size: 10px; color: var(--mc-violet); flex-shrink: 0; }
@@ -821,16 +817,16 @@
   margin-top: 5px;
   padding: 6px 8px;
   border-radius: 9px;
-  background: color-mix(in srgb, var(--mc-warn) 8%, #171d2a);
-  border: 1px solid color-mix(in srgb, var(--mc-warn) 38%, #202839);
+  background: color-mix(in srgb, var(--mc-warn) 8%, var(--mc-chip));
+  border: 1px solid color-mix(in srgb, var(--mc-warn) 38%, var(--mc-chip-border));
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.mc-flow-gate-esc { border-color: color-mix(in srgb, var(--mc-danger) 45%, #202839); }
+.mc-flow-gate-esc { border-color: color-mix(in srgb, var(--mc-danger) 45%, var(--mc-chip-border)); }
 .mc-flow-gate-q {
   font-size: 11px;
-  color: #e8dcc0;
+  color: color-mix(in srgb, var(--mc-warn) 30%, var(--ct-fg));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -857,15 +853,15 @@
   pointer-events: none;
   filter: drop-shadow(0 0 10px color-mix(in srgb, var(--mc-violet) 55%, transparent));
 }
-.mc-flow-carrier .mc-avatar { background: var(--mc-violet); border-color: transparent; color: #0d1017; pointer-events: auto; }
+.mc-flow-carrier .mc-avatar { background: var(--mc-violet); border-color: transparent; color: var(--ct-bg); pointer-events: auto; }
 .mc-flow-carrier-move { animation: mc-carry 3s var(--mc-ease) infinite; }
 .mc-flow-pkg {
   font-size: 10px;
-  background: #1a1430;
-  border: 1px solid #3c2f66;
+  background: color-mix(in srgb, var(--mc-violet) 14%, var(--ct-bg));
+  border: 1px solid color-mix(in srgb, var(--mc-violet) 40%, var(--ct-bg));
   border-radius: 8px;
   padding: 4px 8px;
-  color: #cabdf5;
+  color: color-mix(in srgb, var(--mc-violet) 55%, var(--ct-fg));
   max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;

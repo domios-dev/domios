@@ -411,7 +411,7 @@ test("task detail renders milestone activity timeline", async () => {
   );
   assert(host.querySelector('[data-testid="plan-task-activity"]'), "activity section");
   assert(host.querySelector('[data-testid="plan-task-activity-entry"]')?.getAttribute("data-milestone-id") === "ms-detail", "task milestone");
-  assert(host.querySelector('[data-testid="plan-task-activity-age"]')?.textContent === "1m", "relative age in detail");
+  assert(host.querySelector('[data-testid="plan-task-activity-age"]')?.textContent === "1m ago", "relative age in detail");
   assert(host.querySelector('[data-testid="plan-task-activity-timestamp"]')?.textContent, "absolute timestamp in detail");
 });
 

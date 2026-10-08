@@ -1,3 +1,4 @@
+import { formatDuration } from "../../../lib/timeLabels";
 // Pure reading of the stored Mission Control projection. Nothing here opens a
 // session log, parses note prose, or invents a figure the contract does not carry.
 
@@ -42,15 +43,6 @@ export function formatSharePct(value: number): string {
 
 export function formatCountOf(count: number, one: string, many: string): string {
   return `${formatCount(count)} ${count === 1 ? one : many}`;
-}
-
-export function formatAgeMs(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  if (h > 0) return m > 0 ? `${h} h ${String(m).padStart(2, "0")} m` : `${h} h`;
-  if (m > 0) return `${m} m`;
-  return `${total} s`;
 }
 
 function pad(value: number): string {
@@ -303,7 +295,7 @@ export function needsYouItems(held: HeldForDecision): NeedsYouItem[] {
     title: eventPreview(gate.question),
     facts: [
       "decision gate",
-      `waiting ${formatAgeMs(gate.age_ms)}`,
+      `waiting ${formatDuration(gate.age_ms)}`,
       ...(gate.blocking_task_count > 0
         ? [`blocks ${formatCountOf(gate.blocking_task_count, "task", "tasks")}`]
         : []),
@@ -317,7 +309,7 @@ export function needsYouItems(held: HeldForDecision): NeedsYouItem[] {
     title: review.name,
     facts: [
       "review held",
-      ...(review.age_ms == null ? [] : [`waiting ${formatAgeMs(review.age_ms)}`]),
+      ...(review.age_ms == null ? [] : [`waiting ${formatDuration(review.age_ms)}`]),
       formatCountOf(review.verdicts, "verdict", "verdicts"),
     ],
   }));

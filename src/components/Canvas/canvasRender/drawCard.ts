@@ -49,7 +49,7 @@ function drawChips(ctx: CanvasRenderingContext2D, tags: CardTag[], x: number, y:
     ctx.fillStyle = tag.color ?? p.chipBg;
     roundRectPath(ctx, cx, y, w, h, h / 2);
     ctx.fill();
-    ctx.fillStyle = tag.color ? "#fff" : p.fg;
+    ctx.fillStyle = tag.color ? p.onAccent : p.fg;
     ctx.fillText(tag.text, cx + 6, y + h / 2 + 0.5);
     cx += w + 5;
   }

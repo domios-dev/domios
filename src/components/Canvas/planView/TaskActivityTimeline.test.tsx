@@ -69,7 +69,7 @@ test("renders milestone timeline with kind, age, and author", async () => {
   const entry = host.querySelector('[data-testid="plan-task-activity-entry"]');
   assert(entry, "timeline entry rendered");
   assert(host.querySelector('[data-testid="plan-task-activity-kind"]')?.textContent?.includes("status update"), "kind chip");
-  assert(host.querySelector('[data-testid="plan-task-activity-age"]')?.textContent === "1m", "relative age");
+  assert(host.querySelector('[data-testid="plan-task-activity-age"]')?.textContent === "1m ago", "relative age");
   const stamp = host.querySelector('[data-testid="plan-task-activity-timestamp"]');
   assert(stamp?.textContent === milestoneTimestampLabel(1_700_000_000_000, now), "absolute date+time stamp");
   const kindEl = host.querySelector('[data-testid="plan-task-activity-kind"]');

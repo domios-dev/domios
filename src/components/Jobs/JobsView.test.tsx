@@ -154,7 +154,9 @@ async function main() {
       assert.ok(entry(view.host, `cron:${otherTeamCron.id}`));
       const unnamed = entry(view.host, `scenario:${graph.scenarios[1].id}`);
       assert.ok(unnamed?.textContent?.includes("Inspect production health"));
-      assert.ok(unnamed?.textContent?.includes(graph.scenarios[1].id), "graph ID is secondary metadata");
+      assert.ok(!unnamed?.textContent?.includes(graph.scenarios[1].id), "graph ID is not row text");
+      assert.ok(!unnamed?.textContent?.includes(otherRoot.id), "root node ID is not row text");
+      assert.ok(unnamed?.title.includes(graph.scenarios[1].id), "graph ID stays reachable on hover");
     } finally { await view.close(); }
   });
 

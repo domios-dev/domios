@@ -1,5 +1,6 @@
 import type { GraphWorkerInfo } from "../../lib/types";
 import { isTerminalWorkerStatus } from "../AgentRun/workerEmptyState";
+import { formatDuration } from "../../lib/timeLabels";
 
 export function workerFailureReason(worker: GraphWorkerInfo): string | null {
   const end = worker.execution_end;
@@ -18,9 +19,7 @@ export function workerDurationMs(worker: GraphWorkerInfo, now: number): number |
 }
 
 export function formatWorkerTime(ms: number | null): string {
-  if (ms === null) return "unknown";
-  const seconds = Math.floor(Math.max(0, ms) / 1000);
-  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  return ms === null ? "unknown" : formatDuration(ms);
 }
 
 export function workerTimeLabels(worker: GraphWorkerInfo, now: number) {

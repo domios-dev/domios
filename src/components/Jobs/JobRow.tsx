@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { describeSchedule, formatFuture } from "../../lib/formatters";
+import { formatDuration } from "../../lib/timeLabels";
 import type { CronJob } from "../../lib/types";
 import type { SentinelJob } from "../Automation/scenarios";
 import { AUTOMATION_ROW, stateTone } from "../Automation/styles";
@@ -18,12 +19,12 @@ export interface JobAction {
   onClick: () => void;
 }
 
-export function JobRow({ jobKey: key, icon, name, meta, detail, type, state, actionItems, onOpen, onTriggerRef, error }: {
+export function JobRow({ jobKey: key, icon, name, meta, idHint, type, state, actionItems, onOpen, onTriggerRef, error }: {
   jobKey: string;
   icon: ReactNode;
   name: string;
   meta: string;
-  detail?: string;
+  idHint?: string;
   type: string;
   state: string;
   actionItems: JobAction[];
@@ -37,11 +38,11 @@ export function JobRow({ jobKey: key, icon, name, meta, detail, type, state, act
   const reveal = touchMode || menuOpen ? "" : "opacity-0 group-hover:opacity-60 group-focus-within:opacity-100 hover:!opacity-100";
   return <li className="min-w-0">
     <div className={`${AUTOMATION_ROW} relative`}>
-      <button type="button" data-job-key={key} aria-label={`${name}, ${type}, ${state}`} className={JOB_OPEN} onClick={onOpen}>
+      <button type="button" data-job-key={key} aria-label={`${name}, ${type}, ${state}`} title={idHint} className={JOB_OPEN} onClick={onOpen}>
         <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-[var(--ct-titlebar-bg)] text-[var(--ct-muted-fg)]">{icon}</span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[length:var(--ct-font-size-sm)] font-medium">{name}</span>
-          <span className="block truncate text-xs text-[var(--ct-muted-fg)]">{meta}{detail && <span className="text-[var(--ct-muted)]"> · {detail}</span>}</span>
+          <span className="block truncate text-xs text-[var(--ct-muted-fg)]">{meta}</span>
         </span>
         <span className="flex shrink-0 flex-col items-end gap-1">
           <span className="rounded-full border border-[var(--ct-border)] px-2 py-px text-[0.6875rem] text-[var(--ct-muted-fg)]">{type}</span>
@@ -66,11 +67,14 @@ export function cronMeta(job: CronJob): string {
   return `${next} · last run: ${job.last_run?.status ?? "none"}`;
 }
 
-export function unnamedGraphId(job: SentinelJob, title: string): string | undefined {
-  const { name, id } = job.scenario;
-  return (!name.trim() || name === id) && title !== id ? id : undefined;
-}
-
-export function sentinelMeta(job: SentinelJob): string {
-  return job.scenario.name === job.scenario.id ? job.scenario.root.id : job.root?.purpose ?? job.scenario.root.id;
+/** A Blueprint row's secondary line describes what it does; ids live only in the hover hint. */
+export function sentinelRowText(job: SentinelJob, title: string): { meta: string; idHint: string } {
+  const { root, scenario } = job;
+  const purpose = root?.purpose?.trim();
+  const schedule = root?.schedule?.trim();
+  const meta = purpose && purpose !== title ? purpose
+    : schedule ? describeSchedule(schedule)
+    : root?.cadence_ms ? `Every ${formatDuration(root.cadence_ms)}`
+    : "No description";
+  return { meta, idHint: `Blueprint ${scenario.id}` };
 }

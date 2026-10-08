@@ -2,7 +2,7 @@ import type { Tab } from "../../../lib/types";
 import { formatTime } from "../../../lib/formatters";
 import type { Milestone, Plan, Task } from "../types";
 import { resolveTaskExecutionAttempts } from "../taskExecutorHistory";
-import { formatRelativeAge } from "./planListModel";
+import { activityAge } from "./planListModel";
 
 export const VISIBLE_MILESTONE_COLLAPSE = 5;
 
@@ -60,7 +60,7 @@ export function taskHasActivity(task: Task, tabs: Record<string, Tab> = {}): boo
 }
 
 export function milestoneAgeLabel(ts: number, now: number): string {
-  return formatRelativeAge(ts, now);
+  return activityAge(ts, now);
 }
 
 export function milestoneAbsoluteTitle(ts: number): string {
