@@ -1,7 +1,7 @@
 import { ALL_JOBS_SCOPE, automationKey, sameScope, type AutomationGraph, type AutomationIdentity, type AutomationNode, type AutomationScope } from "./types";
 
-export function isScenarioRoot(node: AutomationNode, scenarioId: string): boolean {
-  return node.identity.kind === "sentinel" && node.identity.id === scenarioId;
+export function isScenarioRoot(node: AutomationNode, root: AutomationIdentity): boolean {
+  return node.identity.kind === "sentinel" && automationKey(node.identity) === automationKey(root);
 }
 
 export function scopedAutomationGraph(graph: AutomationGraph, scope: AutomationScope): AutomationGraph {
@@ -21,7 +21,7 @@ export function scopedAutomationGraph(graph: AutomationGraph, scope: AutomationS
   const scenarios = graph.scenarios.filter((scenario) => inScope(scenario.root));
   const roots = scenarios.flatMap((scenario) => {
     const node = byId.get(automationKey(scenario.root));
-    return node && isScenarioRoot(node, scenario.id) ? [node] : [];
+    return node && isScenarioRoot(node, scenario.root) ? [node] : [];
   });
   const nodes = Array.from(new Map(roots.map((node) => [automationKey(node.identity), node])).values());
   const reached = new Set(nodes.map((node) => automationKey(node.identity)));
