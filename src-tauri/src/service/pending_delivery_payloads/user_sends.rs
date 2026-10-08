@@ -1141,6 +1141,5 @@ pub(super) fn sync_directory(_: &Path) -> Result<(), String> {
     Ok(())
 }
 
-mod rpc_group;
 #[cfg(test)]
 mod tests;

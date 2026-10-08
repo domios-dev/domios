@@ -48,10 +48,21 @@ async fn codex_rpc_send_idle_user_starts_exactly_once() {
 }
 
 #[tokio::test]
-async fn codex_rpc_send_active_user_holds_without_any_rpc_write() {
-    let (result, calls) = drive(Origin::User, Some("active-a"), vec![]).await;
-    assert!(result.is_err());
-    assert!(calls.is_empty());
+async fn codex_rpc_send_active_user_steers_exactly_once() {
+    let (result, calls) = drive(
+        Origin::User,
+        Some("active-a"),
+        vec![Ok(json!({"turnId":"active-a"}))],
+    )
+    .await;
+    assert!(result.is_ok());
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].0, "turn/steer");
+    assert_eq!(
+        calls[0].1,
+        json!({"threadId":"thread-a", "expectedTurnId":"active-a",
+        "clientUserMessageId":"send-a", "input":[{"type":"text","text":"opaque payload"}]})
+    );
 }
 
 #[tokio::test]
@@ -62,15 +73,6 @@ async fn codex_rpc_send_active_agent_queues_one_new_turn() {
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].0, "turn/start");
     assert!(calls[0].1.get("expectedTurnId").is_none());
-}
-
-#[test]
-fn codex_rpc_send_user_admission_holds_during_notification_gap() {
-    assert!(user_turn_pending(false, true));
-    assert!(user_turn_pending(true, false));
-    assert!(user_turn_pending(true, true));
-    assert!(!user_turn_pending(false, false));
-    assert!(!busy::hold(Origin::Agent, true));
 }
 
 #[tokio::test]
@@ -194,81 +196,120 @@ fn codex_rpc_send_unbound_sidecar_holds_without_paste() {
     assert!(!result.unwrap_err().bytes_written());
 }
 
+fn refused(message: &str) -> ClientError {
+    ClientError::Rpc(RpcError {
+        code: -32600,
+        message: message.into(),
+        data: None,
+    })
+}
+
 #[tokio::test]
-async fn codex_rpc_send_busy_messages_survive_interrupt_as_one_exact_next_turn() {
-    use crate::service::{
-        chat_send_transaction::{ChatSendLedger, ChatSendState, SendLiveBinding},
-        codex_rpc::control::ControlState,
-    };
-    for interrupted in [false, true] {
-        let mut control = ControlState::default();
-        control.started("thread-a", "old-turn");
-        let ledger = ChatSendLedger::default();
-        let messages = ["one", "two", "three", "four"];
-        let ids = messages
-            .iter()
-            .map(|text| ledger.try_start("tab-a", text, None).unwrap().send_id)
-            .collect::<Vec<_>>();
-        assert!(user_turn_pending(
-            control.active.contains_key("thread-a"),
-            false
-        ));
-        let (held, writes) = drive(Origin::User, Some("old-turn"), vec![]).await;
-        assert!(held.is_err());
-        assert!(writes.is_empty());
-        for id in &ids {
-            assert_eq!(ledger.status(id).unwrap().state, ChatSendState::Pending);
-        }
-        // Interrupt acknowledgement alone is not settlement; only the root completion opens admission.
-        if interrupted {
-            assert!(control.active.contains_key("thread-a"));
-        }
-        assert!(control.completed("thread-a", "old-turn"));
-        assert!(!user_turn_pending(
-            control.active.contains_key("thread-a"),
-            false
-        ));
-        let ids_ref = ids.iter().map(String::as_str).collect::<Vec<_>>();
-        assert!(ledger.bind_rpc_group(
-            &ids_ref,
+async fn codex_rpc_send_refused_ended_turn_starts_same_message_once() {
+    for error in [
+        refused("no active turn to steer"),
+        refused("expected active turn id `active-a` but found `active-b`"),
+    ] {
+        let (result, calls) = drive(
+            Origin::User,
+            Some("active-a"),
+            vec![Err(error), Ok(json!({"turn":{"id":"new"}}))],
+        )
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].0, "turn/steer");
+        assert_eq!(calls[1].0, "turn/start");
+        assert_eq!(
+            calls[0].1["clientUserMessageId"],
+            calls[1].1["clientUserMessageId"]
+        );
+        assert_eq!(calls[0].1["input"], calls[1].1["input"]);
+        assert_eq!(calls[1].1["cwd"], "/workspace");
+        assert!(calls[1].1.get("expectedTurnId").is_none());
+    }
+}
+
+#[tokio::test]
+async fn codex_rpc_send_uncertain_or_unrelated_steer_error_never_replays() {
+    for error in [
+        ClientError::Deadline,
+        ClientError::Closed("writer died".into()),
+        refused("cannot steer a compact turn"),
+        refused("opaque refusal"),
+        ClientError::Rpc(RpcError {
+            code: -32603,
+            message: "no active turn to steer".into(),
+            data: None,
+        }),
+        ClientError::Rpc(RpcError {
+            code: -32600,
+            message: "no active turn to steer".into(),
+            data: Some(json!({"opaque":"data"})),
+        }),
+    ] {
+        let (result, calls) = drive(Origin::User, Some("active-a"), vec![Err(error.clone())]).await;
+        assert_eq!(result, Err(error));
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "turn/steer");
+    }
+}
+
+#[tokio::test]
+async fn codex_rpc_send_two_busy_messages_are_two_independently_confirmed_steers() {
+    use crate::service::chat_send_transaction::{ChatSendLedger, ChatSendState};
+    let ledger = ChatSendLedger::default();
+    let mut calls = Vec::new();
+    let mut ids = Vec::new();
+    for text in ["one\nwith whitespace  ", "two"] {
+        let id = ledger.try_start("tab-a", text, None).unwrap().send_id;
+        assert!(ledger.bind_rpc_send(
+            &id,
             SendLiveBinding {
                 session_id: Some("thread-a".into()),
                 binding_nonce: Some("nonce-a".into())
             }
         ));
-        let text = joined_text(messages.iter().map(|text| text.to_string()));
-        let params = start_params("thread-a", &ids[0], &text, None, json!({}));
-        let mut calls = Vec::new();
-        let result = submit(Origin::User, None, params, |method, params| {
-            calls.push((method, params));
-            std::future::ready(Ok(json!({"turn":{"id":"next-turn"}})))
-        })
+        let reply = submit(
+            Origin::User,
+            Some("active-a"),
+            start_params("thread-a", &id, text, None, json!({})),
+            |method, params| {
+                calls.push((method, params));
+                std::future::ready(Ok(json!({"turnId":"active-a"})))
+            },
+        )
         .await;
-        assert!(result.is_ok());
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].0, "turn/start");
-        assert_eq!(calls[0].1["input"][0]["text"], messages.join("\n\n"));
-        for id in &ids {
-            ledger.mark_rpc_accepted(id);
-        }
-        assert!(ledger
-            .confirm_rpc_group("tab-a", "foreign-thread", "nonce-a", &ids[0])
-            .is_empty());
-        assert!(ledger
-            .confirm_rpc_group("tab-a", "thread-a", "stale-nonce", &ids[0])
-            .is_empty());
-        assert_eq!(
-            ledger
-                .confirm_rpc_group("tab-a", "thread-a", "nonce-a", &ids[0])
-                .len(),
-            messages.len()
-        );
-        assert!(ledger
-            .confirm_rpc_group("tab-a", "thread-a", "nonce-a", &ids[0])
-            .is_empty());
-        assert!(!ledger.bind_rpc_group(&ids_ref, SendLiveBinding::default()));
-        for id in &ids {
-            assert_eq!(ledger.status(id).unwrap().state, ChatSendState::Sent);
-        }
+        assert!(reply.is_ok());
+        ledger.mark_rpc_accepted(&id);
+        ids.push(id);
     }
+    assert_eq!(calls.len(), 2);
+    for (index, text) in ["one\nwith whitespace  ", "two"].iter().enumerate() {
+        assert_eq!(calls[index].0, "turn/steer");
+        assert_eq!(
+            calls[index].1["input"],
+            json!([{"type":"text","text":text}])
+        );
+        assert_eq!(calls[index].1["clientUserMessageId"], ids[index]);
+    }
+    assert!(ledger
+        .confirm_rpc_send("tab-a", "foreign", "nonce-a", &ids[0])
+        .is_none());
+    assert!(ledger
+        .confirm_rpc_send("tab-a", "thread-a", "stale", &ids[0])
+        .is_none());
+    assert!(ledger
+        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &ids[0])
+        .is_some());
+    assert_eq!(
+        ledger.status(&ids[1]).unwrap().state,
+        ChatSendState::Written
+    );
+    assert!(ledger
+        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &ids[0])
+        .is_none());
+    assert!(ledger
+        .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &ids[1])
+        .is_some());
 }
