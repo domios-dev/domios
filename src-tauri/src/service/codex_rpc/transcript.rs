@@ -6,7 +6,9 @@ use super::{
 };
 use crate::{agent::chat_types::ChatMsg, service::ServiceContext};
 use serde_json::{json, Value};
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Duration};
+
+const OPTIONAL_GOAL_DEADLINE: Duration = Duration::from_secs(1);
 
 pub struct History {
     pub messages: Vec<ChatMsg>,
@@ -65,14 +67,18 @@ pub async fn history(client: &Client, thread: &str) -> Result<History, String> {
             }));
         }
     }
-    let goal = client
-        .request("thread/goal/get", json!({"threadId":thread}))
-        .await
-        .map_err(rpc_error)?;
-    if !goal["goal"].is_null() {
+    let goal = tokio::time::timeout(
+        OPTIONAL_GOAL_DEADLINE,
+        client.request("thread/goal/get", json!({"threadId":thread})),
+    )
+    .await
+    .ok()
+    .and_then(Result::ok)
+    .and_then(|response| response.get("goal").filter(|goal| !goal.is_null()).cloned());
+    if let Some(goal) = goal {
         messages.extend(normalizer.apply_all(&Frame::Notification {
             method: "thread/goal/updated".into(),
-            params: json!({"threadId":thread,"goal":goal["goal"]}),
+            params: json!({"threadId":thread,"goal":goal}),
         }));
     }
     Ok(History {

@@ -253,6 +253,7 @@ impl Client {
                 | "turn/interrupt"
                 | "thread/compact/start"
                 | "thread/goal/set"
+                | "thread/goal/get"
         ) {
             return Err(ClientError::Closed(
                 "Method is outside the sidecar contract".into(),
