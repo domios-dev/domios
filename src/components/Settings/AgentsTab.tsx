@@ -6,7 +6,7 @@ import type { HelpSectionId } from "../../help/types";
 import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
-import { ProviderInstallCard, ProviderCliControls } from "./ProviderInstallCard";
+import { ProviderInstallCard } from "./ProviderInstallCard";
 import { ModelProvidersPanel } from "./ModelProvidersPanel";
 import { SupporterAgentCard } from "./SupporterAgentCard";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
@@ -111,7 +111,6 @@ export function AgentsOverview({
                 </div>
                 <ChevronRight size={14} className="shrink-0 text-[var(--ct-muted)]" />
               </Button>
-            <ProviderCliControls providerId={p.id} compact />
             </div>
           ))}
         </div>
