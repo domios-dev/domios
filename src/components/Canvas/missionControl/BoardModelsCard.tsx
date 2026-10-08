@@ -1,8 +1,8 @@
 import { useId, useState } from "react";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { BoardPanel, BoardPanelSection, ShowAll } from "./BoardPanel";
+import { formatCompact } from "../../../lib/formatCompact";
 import {
-  formatCompact,
   formatSharePct,
   MODELS_PREVIEW,
   modelSpendRows,

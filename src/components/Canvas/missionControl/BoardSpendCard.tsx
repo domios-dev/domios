@@ -2,7 +2,8 @@ import { useId, useState } from "react";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { BoardPanel, BoardPanelSection, ShowAll } from "./BoardPanel";
 import { SpendChart } from "./BoardSpendChart";
-import { formatCompact, formatCount, formatSharePct } from "./missionControlBoardModel";
+import { formatCompact } from "../../../lib/formatCompact";
+import { formatCount, formatSharePct } from "./missionControlBoardModel";
 import {
   TEAM_SPEND_DAYS,
   teamPlanShares,

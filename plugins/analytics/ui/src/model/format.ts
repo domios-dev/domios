@@ -1,6 +1,6 @@
+export { formatCompact } from "../../../../../src/lib/formatCompact";
 export {
   formatClock,
-  formatCompact,
   formatCount,
   formatSharePct,
 } from "../../../../../src/components/Canvas/missionControl/missionControlBoardModel";

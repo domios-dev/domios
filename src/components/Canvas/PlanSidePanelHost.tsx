@@ -1,6 +1,6 @@
 import { chatDocumentsStore } from "../Terminal/chatDocumentsStore";
-import { DocumentsPanel } from "../Terminal/DocumentsPanel";
-import { ChangesPanel } from "../Terminal/ChangesPanel";
+import { TabSidePanel } from "../Terminal/tabPanel/TabSidePanel";
+import { tabPanelNavigationStore } from "../Terminal/tabPanel/tabPanelNavigation";
 import { chatChangesStore } from "../Terminal/chatChangesStore";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ApiConfig, Tab } from "../../lib/types";
@@ -73,9 +73,8 @@ export function PlanSidePanelLayer({ plans, loading = false, api, tabs, onOpenTa
   if (!target || !presence.state) return null;
   return (
     <div className="plan-side-panel-layer" data-testid="plan-side-panel-layer">
-      {target.documentsTabId ? target.tabView === "changes"
-        ? <ChangesPanel key={target.documentsTabId} tabId={target.documentsTabId} cwd={tabs?.[target.documentsTabId]?.cwd} state={presence.state} panelRef={presence.ref} onClose={dismiss} />
-        : <DocumentsPanel key={target.documentsTabId} tabId={target.documentsTabId} state={presence.state} panelRef={presence.ref} onClose={dismiss} /> : <PlanSidePanel
+      {target.documentsTabId
+        ? <TabSidePanel key={target.documentsTabId} tabId={target.documentsTabId} view={target.tabView ?? "documents"} cwd={tabs?.[target.documentsTabId]?.cwd} state={presence.state} panelRef={presence.ref} onClose={dismiss} /> : <PlanSidePanel
         target={target}
         plan={listed ?? unlisted.plan}
         loading={!listed && (loading || unlisted.loading)}
@@ -128,6 +127,7 @@ export function PlanSidePanelHost({ api }: { api: ApiConfig }) {
       planSidePanelStore.resetDocuments();
       chatDocumentsStore.clear();
       chatChangesStore.clear();
+      tabPanelNavigationStore.clear();
       setMounted(false);
     };
     window.addEventListener("codeterm-peer-switch-reset", reset);

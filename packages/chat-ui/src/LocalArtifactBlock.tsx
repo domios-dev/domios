@@ -22,22 +22,29 @@ function fileName(path: string): string {
   return segments[segments.length - 1] ?? path;
 }
 
+interface LocalArtifactProps {
+  directive: LocalArtifactDirective;
+  renderMarkdown: (source: string) => React.ReactNode;
+  fullscreenRequest?: number;
+  fullscreenHostSelector?: string;
+  /** Renders only the content, for a host that supplies its own header and actions. */
+  bare?: boolean;
+  onLoaded?: (file: LocalPreviewFile | null) => void;
+}
+
 export function LocalArtifactBlock({
   directive,
   renderMarkdown,
   fullscreenRequest = 0,
   fullscreenHostSelector,
-}: {
-  directive: LocalArtifactDirective;
-  renderMarkdown: (source: string) => React.ReactNode;
-  fullscreenRequest?: number;
-  fullscreenHostSelector?: string;
-}) {
+  bare = false,
+  onLoaded,
+}: LocalArtifactProps) {
   if (directive.kind === "page" && !/\.(md|markdown)$/i.test(directive.path)) {
     return <HtmlPreviewBlock text={`@file ${directive.path}`} fullscreenRequest={fullscreenRequest} />;
   }
   return (
-    <LoadedLocalArtifact directive={directive.kind === "page" ? { ...directive, kind: "document" } : directive} renderMarkdown={renderMarkdown} fullscreenRequest={fullscreenRequest} fullscreenHostSelector={fullscreenHostSelector} />
+    <LoadedLocalArtifact directive={directive.kind === "page" ? { ...directive, kind: "document" } : directive} renderMarkdown={renderMarkdown} fullscreenRequest={fullscreenRequest} fullscreenHostSelector={fullscreenHostSelector} bare={bare} onLoaded={onLoaded} />
   );
 }
 
@@ -46,12 +53,9 @@ function LoadedLocalArtifact({
   renderMarkdown,
   fullscreenRequest = 0,
   fullscreenHostSelector,
-}: {
-  directive: LocalArtifactDirective;
-  renderMarkdown: (source: string) => React.ReactNode;
-  fullscreenRequest?: number;
-  fullscreenHostSelector?: string;
-}) {
+  bare = false,
+  onLoaded,
+}: LocalArtifactProps) {
   const [state, setState] = useState<LoadState>({ status: "loading", file: null, error: "" });
   const [fullscreen, setFullscreen] = useState(false);
   const fullscreenRef = useRef<HTMLDivElement>(null);
@@ -72,6 +76,9 @@ function LoadedLocalArtifact({
     return () => { observer?.disconnect(); window.removeEventListener("resize", update); };
   }, [fullscreen, fullscreenHostSelector]);
   const generation = useRef(0);
+  const onLoadedRef = useRef(onLoaded);
+  onLoadedRef.current = onLoaded;
+  useEffect(() => { onLoadedRef.current?.(state.status === "ready" ? state.file : null); }, [state]);
   const name = useMemo(() => fileName(directive.path), [directive.path]);
   const reload = useCallback(async () => {
     const request = generation.current + 1;
@@ -117,11 +124,11 @@ function LoadedLocalArtifact({
   return (
     <section ref={sectionRef}
       data-testid={`chat-ds-${directive.kind}`}
-      className="my-2 overflow-hidden rounded-lg border"
-      style={{ borderColor: "var(--ct-border)", background: "var(--ct-surface)" }}
+      className={bare ? "" : "my-2 overflow-hidden rounded-lg border"}
+      style={bare ? undefined : { borderColor: "var(--ct-border)", background: "var(--ct-surface)" }}
       aria-label={`${directive.kind} preview: ${name}`}
     >
-      <div
+      {!bare && <div
         className="flex items-center gap-2 border-b px-2.5 py-1.5 text-[11px]"
         style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}
       >
@@ -139,8 +146,8 @@ function LoadedLocalArtifact({
         >
           <RefreshCw size={13} aria-hidden />
         </button>
-      </div>
-      <div className="max-h-[720px] overflow-auto px-3 py-2 text-sm">{content}</div>
+      </div>}
+      {bare ? <div className="text-sm">{content}</div> : <div className="max-h-[720px] overflow-auto px-3 py-2 text-sm">{content}</div>}
       {fullscreen && createPortal(<FullscreenOverlay panelRef={fullscreenRef} label={`Fullscreen ${name}`} onClose={close} style={bounds}>
         <header className="flex items-center gap-2 p-2 text-sm"><span className="min-w-0 flex-1 break-words" title={directive.path}>{directive.path}</span>
           <button type="button" onClick={reveal} aria-label={`Reveal ${name}`}><FolderOpen size={15} /></button>
