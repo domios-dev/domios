@@ -1,5 +1,5 @@
 /* The tray rides the row's bottom-right edge, where a paragraph's last line rarely reaches.
-   The selection rail sits in the column gutter and joins adjacent picks into one bracket. */
+   Selection is a tinted tile only; no accent rail. */
 
 .ct-msg-row {
   --ct-msg-gutter: max(-10px, calc((100% - 56rem) / 2 - 10px));
@@ -16,14 +16,7 @@
 }
 
 .ct-msg-row::before {
-  background: var(--ct-accent, #58a6ff);
-  border-radius: 2px;
-  bottom: 0;
-  left: var(--ct-msg-gutter);
-  opacity: 0;
-  top: 0;
-  transition: opacity var(--ct-duration-fast, 120ms) ease;
-  width: 2px;
+  display: none;
 }
 
 .ct-msg-row::after {
