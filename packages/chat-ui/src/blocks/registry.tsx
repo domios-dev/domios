@@ -1,7 +1,11 @@
 import React from "react";
 import { GuideDirective, parseGuideDirective } from "../GuideDirective";
+import { ConnectBlock } from "./ConnectBlock";
+import { parseBridgeId } from "./connectBlockModel";
 import { PluginBlock } from "./PluginBlock";
 import { parsePluginId } from "./pluginBlockModel";
+import { SettingBlock } from "./SettingBlock";
+import { parseSettingKey } from "./settingBlockModel";
 import { AgentBlock } from "./AgentBlock";
 import { parseTabRef } from "./agentBlockModel";
 import { ChecklistBlock } from "./ChecklistBlock";
@@ -30,7 +34,7 @@ function defineChatBlock<P>(definition: ChatBlockDefinition<P>): ChatBlockDefini
   return definition as ChatBlockDefinition<unknown>;
 }
 
-/** Every block a reply can emit. Add a block here with its parser and renderer, then list it in prod-docs/HTML.md. */
+/** Every block a reply can emit. Add a block here with its parser and renderer, then list it in prod-docs/CHAT-BLOCKS.md. */
 export const CHAT_BLOCKS: readonly ChatBlockDefinition<unknown>[] = [
   defineChatBlock<string>({
     name: "guide",
@@ -41,6 +45,16 @@ export const CHAT_BLOCKS: readonly ChatBlockDefinition<unknown>[] = [
     name: "plugin",
     parse: (argument) => parsePluginId(argument),
     render: (pluginId, source) => <PluginBlock pluginId={pluginId} source={source} />,
+  }),
+  defineChatBlock<string>({
+    name: "connect",
+    parse: (argument) => parseBridgeId(argument),
+    render: (bridgeId, source) => <ConnectBlock bridgeId={bridgeId} source={source} />,
+  }),
+  defineChatBlock<string>({
+    name: "setting",
+    parse: (argument) => parseSettingKey(argument),
+    render: (settingKey, source) => <SettingBlock settingKey={settingKey} source={source} />,
   }),
   defineChatBlock<string[]>({
     name: "choice",

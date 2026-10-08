@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useMemo } from "react";
 import type { LiveBindingSource } from "./liveBinding";
+import type { ConnectBlockState } from "./connectBlockModel";
 import type { PluginBlockState, PluginLifecycleKind } from "./pluginBlockModel";
+import type { SettingBlockState, SettingValue } from "./settingBlockModel";
 import type { AgentBlockState } from "./agentBlockModel";
 import type { ChecklistBlockState } from "./checklistBlockModel";
 import type { ChoiceBlockState } from "./choiceBlockModel";
@@ -14,6 +16,22 @@ export interface PluginBlockHost {
   openView(pluginId: string): void;
   openInPlugins(pluginId: string): void;
   renderIcon?(pluginId: string, size: number): React.ReactNode;
+}
+
+/** Messenger bridge services; connect and disconnect run only from a user click. */
+export interface ConnectBlockHost {
+  binding: LiveBindingSource<ConnectBlockState>;
+  /** Saves a given token to the secret store first, then starts the bridge with it. */
+  connect(bridgeId: string, token?: string): Promise<void>;
+  disconnect(bridgeId: string): Promise<void>;
+  openSettings(bridgeId: string): void;
+}
+
+/** One config value through the settings schema; `write` is the config set path and runs only from a user click. */
+export interface SettingBlockHost {
+  binding: LiveBindingSource<SettingBlockState>;
+  write(key: string, value: SettingValue): Promise<void>;
+  openSettings?(key: string): void;
 }
 
 /** Answers a choice for the chat that holds it; keyed by the message the block sits in. */
@@ -59,6 +77,8 @@ export interface ChatBlockHost {
   pin?(source: string): void;
   pinned?: LiveBindingSource<boolean>;
   plugins?: PluginBlockHost;
+  connect?: ConnectBlockHost;
+  settings?: SettingBlockHost;
   choice?: ChoiceBlockHost;
   agents?: AgentBlockHost;
   jobs?: JobBlockHost;

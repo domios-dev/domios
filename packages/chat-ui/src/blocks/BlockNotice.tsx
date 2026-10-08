@@ -2,13 +2,15 @@ import type { LucideIcon } from "lucide-react";
 import { SearchX } from "lucide-react";
 
 /** The small note a block shows instead of a card while its state is unknown, unavailable or missing. */
-export function BlockNotice({ name, source, label, text, icon: Icon, missing = false }: {
+export function BlockNotice({ name, source, label, text, icon: Icon, missing = false, missingIcon: MissingIcon = SearchX }: {
   name: string;
   source: string;
   label: string;
   text: string;
   icon: LucideIcon;
   missing?: boolean;
+  /** What stands in when the object is not offered, e.g. a lock for a refused secret. */
+  missingIcon?: LucideIcon;
 }) {
   return (
     <div
@@ -21,7 +23,7 @@ export function BlockNotice({ name, source, label, text, icon: Icon, missing = f
       style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg) 22%, transparent)", color: "var(--ct-muted-fg)" }}
       title={source}
     >
-      {missing ? <SearchX size={13} aria-hidden="true" /> : <Icon size={13} aria-hidden="true" />}
+      {missing ? <MissingIcon size={13} aria-hidden="true" /> : <Icon size={13} aria-hidden="true" />}
       <span>{text}</span>
     </div>
   );

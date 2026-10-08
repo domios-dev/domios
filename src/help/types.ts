@@ -9,7 +9,7 @@ export type HelpSectionId =
   | "memory"
   | "supporter-agent"
   | "mesh"
-  | "integrations"
+  | "messengers"
   | "phone"
   | "messenger-plugins"
   | "tips";
@@ -44,6 +44,7 @@ export type HelpBlock =
   | { type: "ask"; label: string; question: string }
   | { type: "settings-link"; label: string; target: HelpSettingsTarget }
   | { type: "plugin"; pluginId: string }
+  | { type: "connect"; bridgeId: string }
   | { type: "details"; summary: string; blocks: HelpBlock[] }
   | { type: "measurement"; label: string; text: string }
   | {

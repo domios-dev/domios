@@ -1,4 +1,4 @@
-import { PluginBlock } from "@codeterm/chat-ui";
+import { ConnectBlock, PluginBlock } from "@codeterm/chat-ui";
 import type { AppConfig } from "../lib/types";
 import { renderKbd } from "../components/Settings/shared";
 import { resolveHelpShortcut } from "./shortcuts";
@@ -64,6 +64,8 @@ export function HelpBlockView({ block, config, onOpenSettings }: HelpBlockViewPr
       ) : null;
     case "plugin":
       return <PluginBlock pluginId={block.pluginId} source={`@ds-plugin ${block.pluginId}`} />;
+    case "connect":
+      return <ConnectBlock bridgeId={block.bridgeId} source={`@ds-connect ${block.bridgeId}`} />;
     case "details":
       return (
         <HelpDetails summary={block.summary}>
