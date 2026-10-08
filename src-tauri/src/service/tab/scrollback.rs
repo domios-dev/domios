@@ -108,10 +108,11 @@ mod tests {
         assert_eq!(tab.pty_id.as_deref(), Some(pty_id.as_str()));
         assert!(!tab.scrollback_seed_pending);
         let buffer = fixture.service.output_buf.lock();
-        assert_eq!(buffer.get(&pty_id), Some(tail.as_slice()));
+        let replay = crate::session::scrollback_restore::shell_scrollback_replay(tail);
+        assert_eq!(buffer.get(&pty_id), Some(replay.as_slice()));
         assert_eq!(
             buffer.read_since(&pty_id, 0),
-            (tail.to_vec(), tail.len() as u64)
+            (replay.clone(), replay.len() as u64)
         );
     }
 
@@ -191,6 +192,78 @@ mod tests {
         assert_eq!(
             tab.pending_scrollback_tail.as_deref(),
             Some(&b"prior history\r\n"[..])
+        );
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires a desktop runtime"
+    )]
+    fn agent_restore_preserves_full_screen_repaint_without_shell_scrolling() {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("test-tui".into());
+        let mut mux = MultiplexerState::from_session_snapshot(&mux.to_session_snapshot());
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        assert!(!tab.scrollback_seed_pending);
+        tab.scrollback_seed_pending = true;
+        tab.pending_scrollback_tail = Some(Arc::from(b"stale shell sidecar".to_vec()));
+        let fixture = ServiceFixture::new(mux);
+        let pty_id = fixture.service.link_pty(&tab_id, "pty-tui-restore".into());
+        let replay = b"\x1b[?1049h\x1b[Hprevious frame";
+        let frame = b"\x1b[2J\x1b[Hnew frame\x1b[6;1Hcomposer> ";
+        let mut buffer = fixture.service.output_buf.lock();
+        assert_eq!(buffer.total_written(&pty_id), 0);
+        buffer.append(&pty_id, replay);
+        buffer.append(&pty_id, frame);
+        let mut expected = replay.to_vec();
+        expected.extend_from_slice(frame);
+        assert_eq!(buffer.get_full(&pty_id), Some(expected.as_slice()));
+        let mut parser = vt100::Parser::new(6, 80, 256);
+        parser.process(buffer.get_full(&pty_id).unwrap());
+        assert_eq!(
+            parser.screen().rows(0, 80).collect::<Vec<_>>(),
+            ["new frame", "", "", "", "", "composer> "]
+        );
+        assert_eq!(parser.screen().cursor_position(), (5, 10));
+        parser.screen_mut().set_scrollback(usize::MAX);
+        assert_eq!(parser.screen().scrollback(), 0);
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires a desktop runtime"
+    )]
+    fn chat_backend_restore_never_seeds_shell_viewport_bytes() {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.backing = crate::multiplexer::types::TabBacking::ChatBackend {
+            plugin_id: "test-chat".into(),
+            session_id: "session".into(),
+        };
+        tab.scrollback_seed_pending = true;
+        tab.pending_scrollback_tail = Some(Arc::from(b"stale shell sidecar".to_vec()));
+        let fixture = ServiceFixture::new(mux);
+        fixture
+            .service
+            .seed_pending_scrollback_before_link(&tab_id, "unused-pty");
+        assert_eq!(
+            fixture
+                .service
+                .output_buf
+                .lock()
+                .total_written("unused-pty"),
+            0
+        );
+        assert!(
+            !fixture
+                .service
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .unwrap()
+                .scrollback_seed_pending
         );
     }
 }
