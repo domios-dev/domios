@@ -89,6 +89,10 @@ pub(crate) fn record(
     outcome: &str,
     related: Option<&str>,
 ) {
+    #[cfg(test)]
+    if test_capture::record(Event::new(id, stage, tab, provider, outcome).related(related)) {
+        return;
+    }
     if let Some(sender) = SENDER.get() {
         if sender
             .try_send(Event::new(id, stage, tab, provider, outcome).related(related))
@@ -96,6 +100,43 @@ pub(crate) fn record(
         {
             DROPPED.fetch_add(1, Ordering::Relaxed);
         }
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test_capture {
+    use super::Event;
+    use std::cell::RefCell;
+
+    thread_local! {
+        static EVENTS: RefCell<Option<Vec<Event>>> = const { RefCell::new(None) };
+    }
+
+    pub(super) fn record(event: Event) -> bool {
+        EVENTS.with_borrow_mut(|events| {
+            if let Some(events) = events {
+                events.push(event);
+                true
+            } else {
+                false
+            }
+        })
+    }
+
+    pub(crate) fn capture(action: impl FnOnce()) -> Vec<Event> {
+        struct Reset;
+        impl Drop for Reset {
+            fn drop(&mut self) {
+                EVENTS.with_borrow_mut(|events| *events = None);
+            }
+        }
+        EVENTS.with_borrow_mut(|events| {
+            assert!(events.is_none());
+            *events = Some(Vec::new());
+        });
+        let _reset = Reset;
+        action();
+        EVENTS.with_borrow_mut(|events| events.take().unwrap())
     }
 }
 
