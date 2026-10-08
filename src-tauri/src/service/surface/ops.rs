@@ -7,6 +7,9 @@ use super::model::{
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{SurfaceBacking, TabBacking};
+use crate::service::team::{
+    apply_team_attachment_under, authorize_team_attachment, AttachmentParent,
+};
 use crate::service::ServiceContext;
 
 #[derive(Debug, Clone, Serialize)]
@@ -163,6 +166,13 @@ fn place_surface_tab(
         )
         .map_err(SurfaceError::Placement)?,
     };
+    let team_attachment = match (placement.team_id.as_deref(), owner_id.as_deref()) {
+        (Some(team_id), Some(owner)) => Some(
+            authorize_team_attachment(mux, team_id, owner, &workspace_id)
+                .map_err(SurfaceError::Placement)?,
+        ),
+        _ => None,
+    };
     let tab_id = mux
         .create_tab(&workspace_id)
         .map_err(SurfaceError::Placement)?;
@@ -176,8 +186,17 @@ fn place_surface_tab(
     tab.backing = TabBacking::Surface(backing);
     tab.parent_tab_id = placement.parent_tab_id;
     tab.spawned_by_tab_id = owner_id.clone();
-    tab.team_id = placement.team_id;
     tab.depth = placement.depth;
+    if let (Some(attachment), Some(owner)) = (team_attachment.as_ref(), owner_id.as_deref()) {
+        let parent = AttachmentParent::Owner(owner);
+        if let Err(error) = apply_team_attachment_under(mux, attachment, &tab_id, parent) {
+            mux.rollback_spawn_tab(&workspace_id, &tab_id);
+            return Err(SurfaceError::Placement(error));
+        }
+    }
+    let tab = mux
+        .get_tab(&tab_id)
+        .ok_or_else(|| SurfaceError::Placement(format!("Tab {tab_id} vanished while opening")))?;
     let row = surface_tab_row(tab, Some(workspace_id)).ok_or_else(|| {
         SurfaceError::Placement(format!(
             "Tab {tab_id} lost its {}:{} backing",
