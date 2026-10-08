@@ -1,4 +1,7 @@
 import { TerminalTab } from "./TerminalTab";
+import { useLayoutEffect } from "react";
+import { consumePendingCommand, consumePendingCwd } from "../../lib/pendingCommands";
+import { RestoredShell } from "./RestoredShell";
 import { TabSessionChat } from "./TabSessionChat";
 import { TabTopBar } from "./TabTopBar";
 import { isTabVisible } from "../MemoryPanel/workerFocusStore";
@@ -50,6 +53,12 @@ export function TabContent({
   const descriptor = useAgentDescriptor(tab?.agent_type);
   const { providers } = useAgentProviders();
   const headerTabMenu = useHeaderTabMenu(tab, workspaceId, descriptor);
+  useLayoutEffect(() => {
+    if (tab?.close_restore?.record_id) {
+      consumePendingCommand(tab.id);
+      consumePendingCwd(tab.id);
+    }
+  }, [tab?.id, tab?.close_restore?.record_id]);
 
   if (!tab) return null;
   if (!isTabVisible(tab)) return null;
@@ -77,7 +86,7 @@ export function TabContent({
     tab.agent_provider_resolved_model ?? tab.agent_session_model ?? tab.agent_requested_model ?? null;
   const cwd = tab.cwd ?? workspaceCwd ?? null;
 
-  const body = isChatBackend ? (
+  const body = tab.close_restore?.stopped ? <RestoredShell tab={tab} /> : isChatBackend ? (
     <TabSessionChat tabId={tab.id} api={api} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} />
   ) : (
     <TerminalTab

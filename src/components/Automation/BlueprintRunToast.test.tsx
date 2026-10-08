@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
+import { NotificationPanel } from "../Notifications/NotificationPanel";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 import { OPEN_JOB_EVENT, type OpenJobDetail } from "../Jobs/openJobEvent";
 import type { Notification } from "../../lib/types";
@@ -27,7 +28,7 @@ async function main() {
   document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<NotificationToastContainer toasts={[notification]} onDismiss={() => {}} embedded />));
+    await act(async () => root.render(<NotificationToastContainer toasts={[notification]} onDismiss={() => {}} />));
     const view = [...host.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "View run");
     assert.ok(view);
     await act(async () => view.click());
@@ -47,6 +48,11 @@ async function main() {
     await act(async () => reopened.click());
     assert.deepEqual(requests, [{ workspaceId: "workspace", target: { teamId: "team", scenarioId: "scenario", runId: "whole-run" } }]);
     assert.equal(document.querySelector('[role="dialog"]'), null);
+    await act(async () => root.render(<NotificationPanel notifications={[notification]} onMarkRead={() => {}} onMarkAllRead={() => {}} onDelete={() => {}} onClearAll={() => {}} onJumpToTab={() => {}} onClose={() => {}} />));
+    const bellAction = [...host.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Open run");
+    assert.ok(bellAction);
+    await act(async () => bellAction.click());
+    assert.deepEqual(requests[1], { workspaceId: "workspace", target: { teamId: "team", scenarioId: "scenario", runId: "whole-run" } });
   } finally {
     await act(async () => root.unmount());
     host.remove();

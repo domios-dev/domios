@@ -129,15 +129,5 @@ function ConnectCard({ bridge, host, source }: { bridge: BridgeConnectInfo; host
 }
 
 function ConnectNotice({ source, bridgeId, text, unsupported = false }: { source: string; bridgeId: string; text: string; unsupported?: boolean }) {
-  return (
-    <BlockNotice
-      name="connect"
-      label={`Connect ${bridgeId}`}
-      source={source}
-      icon={unsupported ? <Unplug size={13} aria-hidden="true" /> : <MessageCircle size={13} aria-hidden="true" />}
-      data-connect-unsupported={unsupported || undefined}
-    >
-      {text}
-    </BlockNotice>
-  );
+  return <BlockNotice name="connect" source={source} label={`Connect ${bridgeId}`} text={text} icon={MessageCircle} missing={unsupported} missingIcon={Unplug} />;
 }

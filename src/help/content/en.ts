@@ -137,6 +137,31 @@ export const enHelpContent: HelpLocaleContent = {
       ],
     },
     {
+      id: "blueprints",
+      title: "Blueprints",
+      subtitle: "Let agents watch for a change and act on it",
+      blocks: [
+        {
+          type: "paragraph",
+          text: "When you keep running the same commands to see whether something changed, a Blueprint can do it for you. It watches a tab, a scheduled run or a command's output and acts only when the result changes, so nobody has to poll.",
+        },
+        {
+          type: "list",
+          items: [
+            "Each Blueprint reads as what is watched and what happens next.",
+            "It acts within its agent's authority and asks you when an outcome is new to it.",
+            "Open a Blueprint from the chat card or the workspace automation view to see its history.",
+          ],
+        },
+        {
+          type: "ask",
+          label: "Ask the General Agent: turn my repeated commands into a Blueprint",
+          question:
+            "A user is reading the Domios guide (blueprints section) and pressed 'Ask the agent'. Ask which repeated check or command sequence they want automated, then propose one Blueprint as what is watched and what happens next, validate it with codeterm blueprint recipe and --dry-run, and create it only after they agree.",
+        },
+      ],
+    },
+    {
       id: "memory",
       title: "Memory",
       subtitle: "Facts, skills, and recall across sessions",

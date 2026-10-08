@@ -12,7 +12,9 @@ import { sentinelJobs } from "../Automation/scenarios";
 import { AUTOMATION_TOOL } from "../Automation/styles";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { legacyScenarioPipeline } from "../Automation/pipelineModel";
-import { BlueprintPipelineCanvas } from "../Automation/AutomationCanvas";
+import { BlueprintPipelineCanvas } from "../Automation/BlueprintPipelineCanvas";
+import { BlueprintExportButton } from "../Automation/BlueprintExportButton";
+import { BlueprintImportForm } from "./BlueprintImportForm";
 import { JobConfirmationDialog } from "./JobConfirmationDialog";
 import { cronMeta, JobRow, sentinelRowText } from "./JobRow";
 import { JobsFilterBar } from "./JobsFilterBar";
@@ -73,9 +75,11 @@ interface SurfaceProps {
   jobActionAdapter: JobsActionAdapter;
   onClearStoppedChange: (count: number, onClear: (() => void) | null) => void;
   clearStoppedButtonRef: RefObject<HTMLButtonElement | null>;
+  /** Closes the whole Jobs surface, returning to whatever opened it (a chat card or chip). */
+  onExit?: () => void;
 }
 
-function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, emptyScope, canWiden, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, cronActionAdapter, jobActionAdapter, onClearStoppedChange, clearStoppedButtonRef }: SurfaceProps) {
+function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, emptyScope, canWiden, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, cronActionAdapter, jobActionAdapter, onClearStoppedChange, clearStoppedButtonRef, onExit }: SurfaceProps) {
   const graphs = useWorkspaceGraphs(adapter, connectionId, sources);
   const crons = useCronJobs(cronWorkspace);
   const [selection, setSelection] = useState<Selection>(initialBlueprintId ? { kind: "blueprint", id: initialBlueprintId } : initialScenarioId ? { kind: "scenario", id: initialScenarioId } : initialCronId ? { kind: "cron", id: initialCronId } : null);
@@ -122,6 +126,12 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
   const notices = useMemo(() => ({ graph: graphs.find((graph) => graph.graph?.truncated)?.graph ?? null, loading: false, failed: graphsFailed, stopping: null, stopFailed: null }), [graphs, graphsFailed]);
   const refreshAll = useCallback(() => Promise.all([crons.refresh(), ...graphs.map((graph) => graph.refresh())]), [crons.refresh, graphs]);
   const back = (key: string) => { returnTo.current = key; setSelection(null); };
+  const openedDirectly = useRef(initialScenarioId ?? null);
+  const closeScenario = (id: string) => {
+    if (openedDirectly.current === id && onExit) return onExit();
+    openedDirectly.current = null;
+    back(`scenario:${id}`);
+  };
 
   const requestClearStopped = useCallback(() => {
     if (!canClear || clearable.length === 0) return;
@@ -215,13 +225,13 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
     return <section className="min-w-0 p-4" aria-label="Blueprint view">
       <button type="button" className={AUTOMATION_TOOL} onClick={() => back(`${blueprints.some(({ pipeline }) => pipeline.id === selection.id) ? "blueprint" : "scenario"}:${selection.id}`)}>← All jobs</button>
       {openedBlueprint
-        ? <div className="mt-3 space-y-3"><h3 className="text-[length:var(--ct-font-size-md)] font-semibold">{openedBlueprint.pipeline.name}</h3><BlueprintPipelineCanvas pipeline={openedBlueprint.pipeline} /></div>
+        ? <div className="mt-3 space-y-3"><div className="flex items-center gap-3"><h3 className="text-[length:var(--ct-font-size-md)] font-semibold">{openedBlueprint.pipeline.name}</h3><BlueprintExportButton workspaceId={openedBlueprint.workspaceId} teamId={openedBlueprint.pipeline.owner.team_id} id={graphs.flatMap((entry) => entry.graph?.scenarios ?? []).find((scenario) => scenario.id === openedBlueprint.pipeline.id)?.root.id ?? openedBlueprint.pipeline.id} /></div><BlueprintPipelineCanvas pipeline={openedBlueprint.pipeline} initialRunId={initialRunId} /></div>
         : graphsRead ? <p role="alert" className="mt-3">The selected Blueprint is unavailable.</p> : <p role="status" className="mt-3">Reading Blueprint…</p>}
     </section>;
   }
   if (opened) {
     const { graph, scenario } = opened;
-    return <ScopedScenarioPanel adapter={adapter} attachment={graph.attachment} scenario={scenario} initialRunId={initialScenarioId === scenario.id ? initialRunId : undefined} camera={cameraFor(scenario.id)} backLabel="All jobs" headingLevel={3} fill onBack={() => back(`scenario:${scenario.id}`)} />;
+    return <ScopedScenarioPanel adapter={adapter} attachment={graph.attachment} scenario={scenario} initialRunId={initialScenarioId === scenario.id ? initialRunId : undefined} camera={cameraFor(scenario.id)} backLabel={openedDirectly.current === scenario.id && onExit ? "where you were" : "All jobs"} headingLevel={3} fill onBack={() => closeScenario(scenario.id)} />;
   }
   const reading = (crons.jobs === null && !crons.failed) || graphs.some((graph) => graph.loading);
   const empty = jobs.length === 0 && crons.jobs !== null && graphsRead && !crons.failed && !graphsFailed;
@@ -278,8 +288,10 @@ export interface JobsViewProps {
 }
 
 /** The one Jobs view: crons and Blueprint graphs narrowed by optional workspace and Team capsules. Hosts differ only by initial filter. */
-export function JobsView({ workspaces, teams, initialFilter = NO_JOBS_FILTER, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, onClose, adapter = hostAutomationAdapter, cronActionAdapter, jobActionAdapter = hostJobsActionAdapter }: JobsViewProps) {
+export function JobsView({ workspaces, teams, tabs = {}, initialFilter = NO_JOBS_FILTER, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, onClose, adapter = hostAutomationAdapter, cronActionAdapter, jobActionAdapter = hostJobsActionAdapter }: JobsViewProps) {
   const context = usePlanPeerContext();
+  const [importOpen, setImportOpen] = useState(false);
+  const [importRevision, setImportRevision] = useState(0);
   const [filter, setFilter] = useState<JobsFilter>(initialFilter);
   const [initialScenario, setInitialScenario] = useState(initialScenarioId);
   const [initialCron, setInitialCron] = useState(initialCronId);
@@ -298,6 +310,7 @@ export function JobsView({ workspaces, teams, initialFilter = NO_JOBS_FILTER, in
       <h2 className="text-[length:var(--ct-font-size-md)] font-semibold">Jobs</h2>
       <JobsFilterBar filter={filter} layout={layout} teams={teams} onChange={changeFilter} />
       <div className="ml-auto flex shrink-0 items-center gap-2">
+        <button type="button" className={AUTOMATION_TOOL} onClick={() => setImportOpen(true)}>+ Import Blueprint</button>
         <button ref={clearStoppedButton} type="button" className={`${AUTOMATION_TOOL} ct-liquid-interactive`} aria-label={`Clear stopped${clearState.count ? `, ${clearState.count} jobs` : ""}`} title="Clear stopped" disabled={!clearState.run} onClick={() => clearState.run?.()}>
           Clear stopped{clearState.count > 0 && <span className="rounded-full border border-[var(--ct-border)] px-1.5 py-px text-[0.6875rem]">{clearState.count}</span>}
         </button>
@@ -305,9 +318,11 @@ export function JobsView({ workspaces, teams, initialFilter = NO_JOBS_FILTER, in
       </div>
     </header>
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      {importOpen && <BlueprintImportForm creators={Object.values(tabs).filter((tab) => tab.team_id && teams.some((team) => team.id === tab.team_id && (filter.teamId === null || team.id === filter.teamId) && (filter.workspaceId === null || team.workspace_id === filter.workspaceId))).map((tab) => ({ id: tab.id, label: `${tab.title} (${teams.find((team) => team.id === tab.team_id)?.name ?? tab.team_id})` }))} onCancel={() => setImportOpen(false)} onCreated={() => { setImportOpen(false); setImportRevision((revision) => revision + 1); }} />}
+      {importRevision > 0 && <p role="status" className="px-4 py-2">Blueprint imported stopped.</p>}
       {!context.ready ? <p role="status" className="p-4">Attaching jobs…</p>
         : !layout.teamAvailable ? <p role="alert" className="p-4">The selected Team is unavailable.</p>
-          : <JobsSurface key={JSON.stringify([connectionId, sources, filter])} adapter={adapter} connectionId={connectionId} sources={sources} cronWorkspace={layout.cronWorkspace} filter={filter} emptyScope={layout.emptyScope} canWiden={layout.canWiden} initialScenarioId={initialScenario} initialCronId={initialCron} initialBlueprintId={initialBlueprint} initialRunId={initialRunId} cronActionAdapter={cronActionAdapter} jobActionAdapter={jobActionAdapter} onClearStoppedChange={setClearStopped} clearStoppedButtonRef={clearStoppedButton} />}
+          : <JobsSurface key={JSON.stringify([connectionId, sources, filter, importRevision])} adapter={adapter} connectionId={connectionId} sources={sources} cronWorkspace={layout.cronWorkspace} filter={filter} emptyScope={layout.emptyScope} canWiden={layout.canWiden} initialScenarioId={initialScenario} initialCronId={initialCron} initialBlueprintId={initialBlueprint} initialRunId={initialRunId} cronActionAdapter={cronActionAdapter} jobActionAdapter={jobActionAdapter} onClearStoppedChange={setClearStopped} clearStoppedButtonRef={clearStoppedButton} onExit={onClose} />}
     </div>
   </section>;
 }

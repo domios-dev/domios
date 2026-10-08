@@ -1,6 +1,8 @@
 import type { LocalArtifactKind } from "./localArtifactDirective";
 
-export const ATTACHMENT_KINDS = ["image", "file", "text", "folder"] as const;
+export const ATTACHMENT_KINDS = ["image", "file", "text", "folder", "quote", "message", "diff", "document"] as const;
+/** Context a capsule carries as text the agent reads by path: quoted passages, chat messages, diffs. */
+export const CONTEXT_TEXT_KINDS = ["text", "quote", "message", "diff"] as const;
 /** Clipboard flavour carrying text with attachment tags, so a composer paste rebuilds the capsules. */
 export const DOMIOS_TEXT_MIME = "application/x-domios-text";
 export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number];
@@ -14,6 +16,15 @@ export interface AttachmentMarker {
   path: string;
   /** Set on a capsule typed inline in the composer; the bubble renders it where it was typed. */
   label?: string;
+  /** Set on a reply quote: the id of the quoted message, which the bubble's quote block jumps to. */
+  reply?: string;
+  /** One line of the quoted text, shown in the reply block. */
+  excerpt?: string;
+}
+
+export interface ReplyAttributes {
+  ref: string;
+  excerpt: string;
 }
 
 export type AttachmentSegment = { text: string } | { attachment: AttachmentMarker };
@@ -60,7 +71,7 @@ export function attachmentPreviewKind(attachment: AttachmentMarker): LocalArtifa
   const ext = extension(attachment.path);
   if (attachment.kind === "image") return ext in IMAGE_MIME ? "image" : null;
   if (attachment.kind === "folder") return null;
-  if (attachment.kind === "text") return "document";
+  if ((CONTEXT_TEXT_KINDS as readonly string[]).includes(attachment.kind)) return "document";
   if (ext === "html" || ext === "htm") return "page";
   return DOCUMENT_EXTENSIONS.has(ext) ? "document" : null;
 }
@@ -74,9 +85,10 @@ function unescapeAttribute(value: string): string {
 }
 
 /** The text an agent receives for one attachment: the absolute path stays readable inside `path`. */
-export function formatAttachmentMarker(path: string, kind: AttachmentKind = attachmentKindForPath(path), label?: string): string {
+export function formatAttachmentMarker(path: string, kind: AttachmentKind = attachmentKindForPath(path), label?: string, reply?: ReplyAttributes): string {
   const labelAttribute = label ? ` label="${escapeAttribute(label)}"` : "";
-  return `<domios type="attachment" kind="${kind}" path="${escapeAttribute(path)}"${labelAttribute} />`;
+  const replyAttributes = reply ? ` reply="${escapeAttribute(reply.ref)}" excerpt="${escapeAttribute(reply.excerpt)}"` : "";
+  return `<domios type="attachment" kind="${kind}" path="${escapeAttribute(path)}"${labelAttribute}${replyAttributes} />`;
 }
 
 interface Span {
@@ -94,6 +106,11 @@ function markerSpan(match: RegExpMatchArray): Span {
   const start = match.index ?? 0;
   const attachment: AttachmentMarker | null = path ? { kind: isAttachmentKind(kind) ? kind : attachmentKindForPath(path), path } : null;
   if (attachment && label) attachment.label = label;
+  const reply = attributes.get("reply");
+  if (attachment && reply !== undefined) {
+    attachment.reply = reply;
+    attachment.excerpt = attributes.get("excerpt") ?? "";
+  }
   return { start, end: start + match[0].length, attachment };
 }
 
@@ -144,4 +161,17 @@ export function attachmentMarkerSegments(content: string): AttachmentSegment[] {
   }
   if (cursor < content.length) segments.push({ text: content.slice(cursor) });
   return segments;
+}
+
+/** The message's reply quote, taken out of its text; a message carries at most one. */
+export function splitReplyAttachment(content: string): { reply: AttachmentMarker | null; text: string } {
+  if (!content.includes("<domios")) return { reply: null, text: content };
+  for (const match of content.matchAll(MARKER)) {
+    const span = markerSpan(match);
+    if (span.attachment?.reply === undefined) continue;
+    const before = content.slice(0, span.start).trimEnd();
+    const after = content.slice(span.end).replace(/^[ \t]*\r?\n?/, "");
+    return { reply: span.attachment, text: before ? `${before}\n${after}` : after };
+  }
+  return { reply: null, text: content };
 }

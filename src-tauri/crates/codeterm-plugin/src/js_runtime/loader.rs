@@ -285,16 +285,23 @@ fn is_official_system_channel_install(id: &str, bundle_dir: &Path) -> bool {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
         return false;
     };
-    if value.get("id").and_then(|v| v.as_str()) != Some(id) {
+    official_system_channel_record(id, &value, SYSTEM_CHANNEL_NAME)
+}
+
+fn official_system_channel_record(id: &str, record: &serde_json::Value, channel: &str) -> bool {
+    if record.get("id").and_then(|v| v.as_str()) != Some(id) {
         return false;
     }
-    let Some(source) = value.get("source") else {
+    let Some(source) = record.get("source") else {
         return false;
     };
-    let expected_path = format!("provider-{id}");
+    let path = source.get("path").and_then(|v| v.as_str());
+    // Core non-provider plugins sit at the channel root under their bare id.
+    let path_matches = path == Some(format!("provider-{id}").as_str())
+        || (path == Some(id) && crate::system_plugins::is_system_id(id));
     source.get("kind").and_then(|v| v.as_str()) == Some("system_channel")
-        && source.get("channel").and_then(|v| v.as_str()) == Some(SYSTEM_CHANNEL_NAME)
-        && source.get("path").and_then(|v| v.as_str()) == Some(expected_path.as_str())
+        && source.get("channel").and_then(|v| v.as_str()) == Some(channel)
+        && path_matches
 }
 
 pub fn default_roots(workspace_root: Option<&Path>) -> Vec<PathBuf> {
@@ -326,6 +333,34 @@ fn ordered_roots(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn official_channel_record_accepts_provider_and_core_paths_only_for_their_ids() {
+        let record = |id: &str, path: &str, channel: &str| {
+            serde_json::json!({
+                "id": id,
+                "source": { "kind": "system_channel", "channel": channel, "path": path }
+            })
+        };
+        let official = |id: &str, path: &str| {
+            official_system_channel_record(id, &record(id, path, "core-q7"), "core-q7")
+        };
+        assert!(official("opaque-q7", "provider-opaque-q7"));
+        assert!(
+            !official("opaque-q7", "opaque-q7"),
+            "bare path needs a system id"
+        );
+        assert!(!official("opaque-q7", "provider-other-q7"));
+        assert!(!official_system_channel_record(
+            "opaque-q7",
+            &record("opaque-q7", "provider-opaque-q7", "elsewhere-q7"),
+            "core-q7"
+        ));
+        if let Some((sys_id, _)) = crate::system_plugins::SYSTEM_PLUGIN_HASHES.first() {
+            assert!(official(sys_id, sys_id));
+            assert!(!official(sys_id, "other-q7"));
+        }
+    }
     use crate::provider::AgentProvider;
 
     fn write(path: &Path, contents: &str) {

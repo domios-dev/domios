@@ -1,5 +1,6 @@
 // Run: node scripts/run-ts-unit-tests.mjs src/components/Jobs/JobsView.test.tsx
 import assert from "node:assert/strict";
+import { pipelineContractGolden } from "../Automation/blueprintContract.testdata";
 import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -16,8 +17,9 @@ async function main() {
     Object.defineProperty(globalThis, key, { configurable: true, value: (win as unknown as Record<string, unknown>)[key] });
   }
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  let frameClock = 0;
   Object.assign(globalThis, {
-    requestAnimationFrame: (callback: FrameRequestCallback) => { callback(0); return 0; },
+    requestAnimationFrame: (callback: FrameRequestCallback) => { callback(frameClock += 1000); return 0; },
     cancelAnimationFrame: () => undefined,
   });
 
@@ -117,6 +119,16 @@ async function main() {
 
   const tests: Array<[string, () => Promise<void>]> = [];
   function test(name: string, run: () => Promise<void>) { tests.push([name, run]); }
+
+  test("Jobs import entry opens the placeholder form and cancel restores the list", async () => {
+    const view = await mount(jobsView(workspaceTransport()));
+    await act(async () => buttonWith(view.host, "+ Import Blueprint").click());
+    assert(view.host.querySelector('form[aria-label="Import Blueprint"]'));
+    assert(view.host.querySelector('input[type="file"]'));
+    await act(async () => buttonWith(view.host, "Cancel import").click());
+    assert.equal(view.host.querySelector('form[aria-label="Import Blueprint"]'), null);
+    await view.close();
+  });
 
   test("one Jobs list exposes the scope's Cron and stored Sentinel scenarios, never internal stages", async () => {
     const transport = workspaceTransport(multiScenarioGraph());
@@ -313,8 +325,8 @@ async function main() {
       await settle(() => entry(view.host, `scenario:${scenario.id}`) !== null);
       await act(async () => { entry(view.host, `scenario:${scenario.id}`)!.focus(); entry(view.host, `scenario:${scenario.id}`)!.click(); });
       assert.ok(view.host.querySelector("h3")?.textContent?.startsWith(scenario.name));
-      assert.ok(view.host.querySelectorAll("[data-edge-kind]").length > 0, "scenario graph rendered");
-      await act(async () => buttonWith(view.host, "All jobs").click());
+      assert.ok(view.host.querySelectorAll('[aria-label="Automation graph"] .bp-node').length > 0, "scenario graph rendered");
+      await act(async () => view.host.querySelector<HTMLButtonElement>('button[aria-label="Close Blueprint"]')!.click());
       assert.equal(document.activeElement, entry(view.host, `scenario:${scenario.id}`));
       assert.equal(transport.unsubscribeCount, 1, "closing the graph releases its exact-scope definition subscription");
     } finally { await view.close(); }
@@ -336,6 +348,18 @@ async function main() {
     } finally { await view.close(); }
   });
 
+  test("closing a Blueprint opened from chat returns there, while one opened from the list returns to the list", async () => {
+    const transport = workspaceTransport();
+    const scenario = transport.graph.scenarios[0];
+    let exits = 0;
+    const view = await mount(<JobsView workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: attachment.workspace_id, teamId: attachment.team_id }} adapter={transport} initialScenarioId={scenario.id} cronActionAdapter={cronActions} jobActionAdapter={jobActions} onClose={() => exits++} />);
+    try {
+      await settle(() => view.host.querySelector('button[aria-label="Close Blueprint"]') !== null);
+      await act(async () => view.host.querySelector<HTMLButtonElement>('button[aria-label="Close Blueprint"]')!.click());
+      assert.equal(exits, 1, "a directly opened Blueprint closes the Jobs surface");
+    } finally { await view.close(); }
+  });
+
   test("a run deep link opens the requested scenario with Runs expanded and that run selected", async () => {
     const transport = workspaceTransport();
     const root = transport.graph.nodes[0];
@@ -348,6 +372,25 @@ async function main() {
     try {
       await settle(() => view.host.querySelector('[aria-label="Blueprint runs"] button[aria-pressed="true"]') !== null);
       assert.ok(view.host.querySelector('[aria-controls="blueprint-run-log"][aria-expanded="true"]'));
+    } finally { await view.close(); }
+  });
+
+  test("the Rust pipeline contract opens its real steps and retained run in the canvas", async () => {
+    const golden = pipelineContractGolden();
+    const transport = workspaceTransport(golden);
+    const view = await mount(<JobsView workspaces={[{ id: golden.workspace_id, name: "Contract workspace" }]} teams={[]} adapter={transport} />);
+    try {
+      await settle(() => entry(view.host, "blueprint:blueprint-echo") !== null);
+      await act(async () => entry(view.host, "blueprint:blueprint-echo")!.click());
+      const canvas = view.host.querySelector('[role="group"][aria-label="Echo pipeline pipeline"]');
+      assert.ok(canvas);
+      assert.deepEqual(Array.from(canvas.querySelectorAll("article h4")).map((node) => node.textContent), ["Trigger", "command: emit", "filter: match", "Result"]);
+      await act(async () => buttonWith(view.host, "Runs (").click());
+      const run = view.host.querySelector<HTMLButtonElement>('[aria-label="Run run-echo"]');
+      assert.ok(run);
+      await act(async () => run.click());
+      assert.equal(run.getAttribute("aria-pressed"), "true");
+      assert.equal(view.host.querySelector('[aria-current="step"]'), null);
     } finally { await view.close(); }
   });
 

@@ -82,16 +82,6 @@ function reconcileTabStatuses(
   return merged;
 }
 
-/**
- * A non-sticky toast expires when its life animation ends, which only runs
- * while it is mounted. The rail mounts at most two, so anything pushed past
- * the render window never animates and never expires — a burst strands its
- * own overflow permanently behind a growing "+N". Bound the queue itself:
- * drop the oldest expendable entries. Sticky toasts and ones carrying actions
- * are answers the user still owes, so they are never dropped.
- */
-const MAX_QUEUED_TOASTS = 12;
-
 /** Mirrors `BootStage::carries_reason`: the stage's reason is its own evidence. */
 const STAGES_CARRYING_REASON = new Set<BootStage>([
   "spawn_failed",
@@ -100,16 +90,7 @@ const STAGES_CARRYING_REASON = new Set<BootStage>([
 ]);
 
 function capToasts(toasts: Notification[]): Notification[] {
-  if (toasts.length <= MAX_QUEUED_TOASTS) return toasts;
-  const expendable = (toast: Notification) => !toast.sticky && !toast.actions?.length;
-  const excess = toasts.length - MAX_QUEUED_TOASTS;
-  let dropped = 0;
-  const kept = toasts.filter((toast) => {
-    if (dropped >= excess || !expendable(toast)) return true;
-    dropped += 1;
-    return false;
-  });
-  return kept;
+  return toasts.slice(-3);
 }
 
 function attachRemoteTabs(
@@ -268,6 +249,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         activeTabIds,
         // Prefer the authoritative recently closed list when it is present.
         recently_closed: action.state.recently_closed ?? state.recently_closed,
+        closed_structures: action.state.closed_structures ?? [],
         // Keep newer live status events when a snapshot omits them.
         tabStatuses: reconcileTabStatuses(
           state.tabStatuses,
@@ -541,15 +523,17 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     }
 
     case "UPSERT_TOAST": {
-      const existingIndex = action.toast.key
-        ? state.toasts.findIndex((toast) => toast.key === action.toast.key)
-        : state.toasts.findIndex((toast) => toast.id === action.toast.id);
-      if (existingIndex === -1) {
-        return { ...state, toasts: capToasts([...state.toasts, action.toast]) };
-      }
-      const toasts = [...state.toasts];
-      toasts[existingIndex] = action.toast;
-      return { ...state, toasts };
+      const matches = (entry: Notification) => entry.id === action.toast.id
+        || (!!action.toast.key && entry.key === action.toast.key);
+      const existing = state.toasts.find(matches);
+      const toast = existing ? { ...action.toast, id: existing.id } : action.toast;
+      const archived = state.notifications.some(matches);
+      const toasts = !existing && archived && toast.update_only ? state.toasts : existing
+        ? state.toasts.map((entry) => matches(entry) ? toast : entry)
+        : capToasts([...state.toasts, toast]);
+      const notifications = toast.ephemeral ? state.notifications
+        : [...state.notifications.filter((entry) => entry.id !== toast.id && !matches(entry)), toast];
+      return { ...state, toasts, notifications };
     }
 
     // The one-answer invariant lives in the store; this only reflects what the

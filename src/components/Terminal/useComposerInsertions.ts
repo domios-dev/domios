@@ -1,38 +1,18 @@
-import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
-import { applyComposerInsertions, composerInsertionStore } from "./composerInsertion";
+import { useEffect, useRef } from "react";
+import { composerInsertionStore, type ContextCapsule } from "./composerInsertion";
 
-/** Adds queued panel context to this tab's draft and attachment chips, then focuses the composer without sending. */
-export function useComposerInsertions(tabId: string, { draft, setDraft, addAttachments, textareaRef, focus }: {
-  draft: string;
-  setDraft: (value: string) => void;
-  addAttachments: (paths: string[]) => void;
-  textareaRef: RefObject<HTMLTextAreaElement | null>;
-  focus: () => void;
-}) {
-  const draftRef = useRef(draft);
-  draftRef.current = draft;
-  const caretToEnd = useRef(false);
+/** Drains this tab's queued context into inline capsules, in order, without sending. */
+export function useComposerInsertions(tabId: string, insertContext: (capsules: ContextCapsule[]) => Promise<void>) {
+  const insertRef = useRef(insertContext);
+  insertRef.current = insertContext;
+  const chain = useRef<Promise<void>>(Promise.resolve());
   useEffect(() => {
     const drain = () => {
-      const insertions = composerInsertionStore.take(tabId);
-      if (!insertions.length) return;
-      const result = applyComposerInsertions(draftRef.current, insertions);
-      if (result.attachments.length) addAttachments(result.attachments);
-      if (result.draft !== draftRef.current) {
-        caretToEnd.current = true;
-        draftRef.current = result.draft;
-        setDraft(result.draft);
-      }
-      focus();
+      const capsules = composerInsertionStore.take(tabId);
+      if (!capsules.length) return;
+      chain.current = chain.current.then(() => insertRef.current(capsules));
     };
     drain();
     return composerInsertionStore.subscribe(drain);
-  }, [tabId, addAttachments, setDraft, focus]);
-  useLayoutEffect(() => {
-    const element = textareaRef.current;
-    if (!caretToEnd.current || !element) return;
-    caretToEnd.current = false;
-    element.setSelectionRange(element.value.length, element.value.length);
-    element.scrollTop = element.scrollHeight;
-  }, [draft, textareaRef]);
+  }, [tabId]);
 }

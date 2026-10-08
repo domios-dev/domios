@@ -95,7 +95,7 @@ function fakeHost(initial: Record<string, PluginBlockState>) {
       assert(status(cards[0]) === "Not installed" && action(cards[0], "install"), "not-installed card lacks Install");
       assert(status(cards[1]) === "Installed" && action(cards[1], "open") && !action(cards[1], "install"), "installed card should Open");
       assert(status(cards[2]) === "Update available" && action(cards[2], "update"), "update card lacks Update");
-      assert(cards[3].getAttribute("data-plugin-missing") === "true" && !cards[3].querySelector("button"), "unknown id must be a muted not-found card");
+      assert(cards[3].getAttribute("data-block-missing") === "true" && !cards[3].querySelector("button"), "unknown id must be a muted not-found card");
       assert(calls.run.length === 0, "rendering ran a lifecycle action");
       assert(["telegram-client", "teams-client", "git", "nope-404"].every((id) => calls.refresh.includes(id)), "cards must re-read state on mount");
     });
@@ -131,10 +131,10 @@ function fakeHost(initial: Record<string, PluginBlockState>) {
     const asked: string[] = [];
     const pinned: string[] = [];
     await withRender("@ds-plugin telegram-client", { plugins: host }, async (element) => {
-      assert(!element.querySelector('[data-testid="chat-block-extras"]'), "extras shown without a tab scope");
-      assert(!element.querySelector('[aria-label^="Copy link"]'), "copy link must not be offered");
+      assert(!element.querySelector('[aria-label^="Ask about"]') && !element.querySelector('[aria-label^="Pin "]'), "extras shown without a tab scope");
+      assert(!element.querySelector('[aria-label^="Copy link"]'), "the frame offers no copy-link extra");
     });
-    await withRender("@ds-plugin telegram-client", { plugins: host, askAbout: (text) => asked.push(text), pin: (source) => pinned.push(source) }, async (element) => {
+    await withRender("@ds-plugin telegram-client", { plugins: host, askAbout: ({ text }) => asked.push(text), pin: (source) => pinned.push(source) }, async (element) => {
       await act(async () => {
         (element.querySelector('[aria-label^="Ask about"]') as HTMLButtonElement).click();
         (element.querySelector('[aria-label^="Pin "]') as HTMLButtonElement).click();

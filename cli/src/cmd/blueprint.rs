@@ -123,6 +123,20 @@ fn render_history(history: &Value) {
     }
 }
 
+fn deleted_message(result: &Value) -> String {
+    let deleted: Vec<&str> = result["deleted"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    if deleted.is_empty() {
+        "No blueprints deleted.".into()
+    } else {
+        format!("Deleted {}.", deleted.join(", "))
+    }
+}
+
 fn escalation_resolved_message(transition_id: Option<&str>, result: &Value) -> String {
     format!(
         "Resolved escalation {} for {}.",
@@ -132,11 +146,19 @@ fn escalation_resolved_message(transition_id: Option<&str>, result: &Value) -> S
 }
 
 fn render_nodes(nodes: &Value) {
-    if let Some(nodes) = nodes.as_array() {
-        for node in nodes {
+    let Some(nodes) = nodes.as_array() else {
+        return;
+    };
+    for role in [
+        "trigger", "source", "agent", "logic", "action", "mode", "step",
+    ] {
+        for node in nodes
+            .iter()
+            .filter(|node| node["role"].as_str().unwrap_or("step") == role)
+        {
             println!(
-                "{}: {}",
-                node["kind"].as_str().unwrap_or("?"),
+                "{role} {}: {}",
+                node["type"].as_str().unwrap_or("?"),
                 node["title"].as_str().unwrap_or("?")
             );
             if let Some(schema) = node.get("params_schema") {
@@ -147,19 +169,28 @@ fn render_nodes(nodes: &Value) {
 }
 
 fn render_log(entries: &Value) {
-    if let Some(entries) = entries.as_array() {
-        for entry in entries {
-            println!(
-                "{} {} {} outcome={} result={} reason={}",
+    println!("{}", log_text(entries));
+}
+
+fn log_text(entries: &Value) -> String {
+    entries
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|entry| {
+            format!(
+                "{} {} {} {} outcome={} result={} reason={}",
                 entry["started_at_ms"].as_u64().unwrap_or_default(),
-                entry["step_index"].as_u64().unwrap_or_default(),
+                entry["step_index"].as_i64().unwrap_or_default(),
+                entry["step_name"].as_str().unwrap_or("?"),
                 entry["state"].as_str().unwrap_or("?"),
                 entry["outcome"].as_str().unwrap_or("-"),
                 entry["result_summary"].as_str().unwrap_or("-"),
                 entry["reason"].as_str().unwrap_or("-")
-            );
-        }
-    }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn pipeline_preview_summary(value: &Value) -> String {
@@ -253,6 +284,10 @@ fn input_ref_summary(value: &Value) -> String {
 }
 
 pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: BlueprintAction) {
+    let export_out = match &action {
+        BlueprintAction::Export { out, .. } => out.clone(),
+        _ => None,
+    };
     let (method, params) = request(
         action,
         std::env::var("CODETERM_TAB_ID").ok(),
@@ -263,8 +298,32 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
     let result = client
         .call(method, Some(params))
         .unwrap_or_else(|error| fail(1, error.to_string()));
+    if method == "blueprint.export" {
+        let raw = serde_json::to_string_pretty(&result)
+            .unwrap_or_else(|error| fail(1, error.to_string()));
+        if let Some(path) = export_out {
+            std::fs::write(&path, format!("{raw}\n"))
+                .unwrap_or_else(|error| fail(1, error.to_string()));
+        } else {
+            println!("{raw}");
+        }
+        return;
+    }
     if json_mode {
         print_json(&result);
+        return;
+    }
+    if method == "blueprint.import" {
+        let job = result.get("blueprint").unwrap_or(&result);
+        render(job);
+        println!(
+            "Imported {}.",
+            if job["machine"]["stopped"].as_bool().unwrap_or(true) {
+                "stopped"
+            } else {
+                "running"
+            }
+        );
         return;
     }
     if method == "blueprint.pipeline.nodes" {
@@ -297,6 +356,10 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
     }
     if method == "blueprint.history" {
         render_history(&result);
+        return;
+    }
+    if method == "blueprint.delete" {
+        println!("{}", deleted_message(&result));
         return;
     }
     if method == "blueprint.input" {
@@ -362,6 +425,24 @@ fn request(
 ) -> Result<(&'static str, Value), String> {
     let mut params = json!({ "caller_tab_id": caller, "session_binding_nonce": nonce });
     let method = match action {
+        BlueprintAction::Export { id, .. } => {
+            params["id"] = json!(id);
+            "blueprint.export"
+        }
+        BlueprintAction::Import {
+            file,
+            set,
+            stopped: _,
+            start,
+        } => {
+            let raw = pipeline_spec::read_spec(&file)?;
+            let recipe = codeterm_types::blueprint_recipe::Recipe::parse(&raw)?;
+            recipe.bind(&set)?;
+            params["recipe"] = serde_json::to_value(recipe).map_err(|error| error.to_string())?;
+            params["set"] = json!(set);
+            params["stopped"] = json!(!start);
+            "blueprint.import"
+        }
         BlueprintAction::Recipe { .. } => return Err("blueprint recipe is handled locally".into()),
         BlueprintAction::Create {
             spec,
@@ -421,6 +502,33 @@ fn request(
                     || !matches.is_empty()
                 {
                     return Err("pipeline and legacy stage create options cannot be mixed".into());
+                }
+                if let Some(path) = recipe
+                    .as_deref()
+                    .filter(|name| std::path::Path::new(name).is_file())
+                {
+                    if owner.is_some() {
+                        return Err("portable recipes use their declared owner".into());
+                    }
+                    let raw = pipeline_spec::read_spec(std::path::Path::new(path))?;
+                    let recipe = codeterm_types::blueprint_recipe::Recipe::parse(&raw)?;
+                    let bound = recipe.bind(&set)?;
+                    if dry_run {
+                        if let Some(create) = bound.get("create") {
+                            params["create"] = create.clone();
+                            return Ok(("blueprint.validate.create", params));
+                        }
+                        params["spec"] = bound
+                            .get("spec")
+                            .cloned()
+                            .ok_or("recipe definition must contain create or spec")?;
+                        return Ok(("blueprint.pipeline.validate", params));
+                    }
+                    params["recipe"] =
+                        serde_json::to_value(recipe).map_err(|error| error.to_string())?;
+                    params["set"] = json!(set);
+                    params["stopped"] = json!(true);
+                    return Ok(("blueprint.import", params));
                 }
                 params["spec"] = pipeline_spec::load(
                     spec.as_deref(),
@@ -496,6 +604,12 @@ fn request(
         BlueprintAction::Stop { id } => {
             params["id"] = json!(id);
             "blueprint.stop"
+        }
+        BlueprintAction::Delete { id, stopped, stop } => {
+            params["id"] = json!(id);
+            params["stopped"] = json!(stopped);
+            params["stop"] = json!(stop);
+            "blueprint.delete"
         }
         BlueprintAction::Update {
             id,

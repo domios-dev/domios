@@ -69,7 +69,7 @@ export interface AgentSentinelDefinition {
 
 export interface AutomationNode {
   conversation?: import("../../lib/blueprintRun").ConversationCounts;
-  source?: { type: string; kind?: string; display_name?: string };
+  source?: { type: string; kind?: string; display_name?: string; ref_type?: string; convert_to?: string | null; pattern?: string | null; idle_ms?: number | null };
   detail?: {
     observe_target?: { kind: string; id: string } | null;
     definition?: {
@@ -192,7 +192,19 @@ export interface BlueprintResult {
   body_ref: string | null;
 }
 
+export interface BlueprintRunSnapshot {
+  id: string;
+  state: "idle" | "running" | "completed" | "failed" | "held";
+  closed: boolean;
+  started_at_ms: number;
+  last_event_at_ms: number | null;
+  current_step: number | null;
+  steps: readonly BlueprintStep[];
+  result: BlueprintResult;
+}
+
 export interface BlueprintSnapshot {
+  runs?: readonly BlueprintRunSnapshot[];
   id: string;
   name: string;
   owner?: BlueprintOwner;

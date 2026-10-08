@@ -237,15 +237,5 @@ function TextControl({ label, value, placeholder, disabled, onSave }: { label: s
 }
 
 function SettingNotice({ source, settingKey, text, refused = false }: { source: string; settingKey: string; text: string; refused?: boolean }) {
-  return (
-    <BlockNotice
-      name="setting"
-      label={`Setting ${settingKey}`}
-      source={source}
-      icon={refused ? <Lock size={13} aria-hidden="true" /> : <SlidersHorizontal size={13} aria-hidden="true" />}
-      data-setting-refused={refused || undefined}
-    >
-      {text}
-    </BlockNotice>
-  );
+  return <BlockNotice name="setting" source={source} label={`Setting ${settingKey}`} text={text} icon={SlidersHorizontal} missing={refused} missingIcon={Lock} />;
 }

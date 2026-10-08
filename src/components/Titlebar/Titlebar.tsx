@@ -126,31 +126,21 @@ export function Titlebar({
 
       <div className="min-w-0 flex-1" data-tauri-drag-region />
 
-      <div className="flex min-w-0 flex-1 items-center justify-end h-full overflow-hidden" data-tauri-drag-region>
-        {onDismissToast && (
-          <NotificationToastContainer
-            toasts={toasts}
-            onDismiss={onDismissToast}
-            onMarkRead={onMarkNotificationRead}
-            onNavigate={onNavigateToast}
-            embedded
-          />
-        )}
-      </div>
-
-      {/* Trays sit outside the clipping toast lane so a narrow window never hides them. */}
       <div className="flex shrink-0 items-center gap-0.5 pr-1 sm:gap-1 sm:pr-1.5">
-        {showBell && onMarkNotificationRead && onMarkAllNotificationsRead && onDeleteNotification && onClearNotifications && onNavigateToast && (
-          <NotificationBell
-            notifications={notifications}
-            onMarkRead={onMarkNotificationRead}
-            onMarkAllRead={onMarkAllNotificationsRead}
-            onDelete={onDeleteNotification}
-            onClearAll={onClearNotifications}
-            onNavigate={onNavigateToast}
-            onAnswer={onAnswerNotification}
-          />
-        )}
+        <div className="relative flex items-center">
+          {onDismissToast && <NotificationToastContainer toasts={toasts} onDismiss={onDismissToast} onMarkRead={onMarkNotificationRead} onNavigate={onNavigateToast} />}
+          {showBell && onMarkNotificationRead && onMarkAllNotificationsRead && onDeleteNotification && onClearNotifications && onNavigateToast && (
+            <NotificationBell
+              notifications={notifications}
+              onMarkRead={onMarkNotificationRead}
+              onMarkAllRead={onMarkAllNotificationsRead}
+              onDelete={onDeleteNotification}
+              onClearAll={onClearNotifications}
+              onNavigate={onNavigateToast}
+              onAnswer={onAnswerNotification}
+            />
+          )}
+        </div>
         {onToggleAnalytics && (
           <AnalyticsTray ref={analyticsButtonRef} open={analyticsOpen} onToggle={onToggleAnalytics} />
         )}

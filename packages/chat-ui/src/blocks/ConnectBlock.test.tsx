@@ -144,7 +144,7 @@ function fakeHost(initial: ConnectBlockState) {
   test("unknown_bridges_and_hostless_views_offer_no_actions", async () => {
     const { host } = fakeHost({ kind: "unsupported" });
     await withRender({ connect: host }, async (element) => {
-      assert(element.querySelector("[data-connect-unsupported]") && !element.querySelector("button"), "unsupported bridge offered actions");
+      assert(element.querySelector("[data-block-missing]") && !element.querySelector("button"), "unsupported bridge offered actions");
     });
     await withRender({}, async (element) => {
       assert(element.querySelector('[data-chat-block="connect"]') && !element.querySelector("button"), "hostless view offered actions");

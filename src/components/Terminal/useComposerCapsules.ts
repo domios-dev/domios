@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, type ClipboardEvent, type KeyboardEvent, type MutableRefObject, type RefObject } from "react";
 import { DOMIOS_TEXT_MIME, type AttachmentKind } from "@codeterm/chat-core";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
+import { contextFileName, type ContextCapsule } from "./composerInsertion";
 import { storeBlob } from "./voice/audio";
 import {
   absorbAttachmentTags,
@@ -25,6 +26,8 @@ import {
 export interface InlineAttachment {
   path: string;
   kind?: AttachmentKind;
+  label?: string;
+  detail?: string;
 }
 
 export type InlineAttachmentSink = (items: InlineAttachment[]) => void;
@@ -90,6 +93,25 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError }: {
     sinkRef.current = insert;
     return () => { if (sinkRef.current === insert) sinkRef.current = null; };
   }, [insert, sinkRef]);
+
+  /** Context capsules land inline at the caret, or at the end when the composer is not focused. */
+  const insertContext = useCallback(async (requests: ContextCapsule[]) => {
+    const items: InlineAttachment[] = [];
+    try {
+      for (const request of requests) {
+        const path = request.content !== undefined
+          ? await storeBlob(new Blob([request.content], { type: "text/plain" }), contextFileName(request))
+          : request.path;
+        if (path?.trim()) items.push({ path, kind: request.kind, label: request.label, detail: request.detail });
+      }
+    } catch (error) {
+      onErrorRef.current(error instanceof Error ? error.message : String(error));
+    }
+    const el = textareaRef.current;
+    if (!el || items.length === 0) return;
+    if (document.activeElement !== el) el.setSelectionRange(el.value.length, el.value.length);
+    insert(items);
+  }, [insert, textareaRef]);
 
   const storeLongText = useCallback(async (text: string) => {
     const lines = countLines(text);
@@ -186,5 +208,5 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError }: {
     return absorbed.text;
   }, [commit]);
 
-  return { registry, registryRef, clear, insert, handlePaste, handleCopy, handleKeyDown, snapSelection, remove, toPortable, fromPortable };
+  return { registry, registryRef, clear, insert, insertContext, handlePaste, handleCopy, handleKeyDown, snapSelection, remove, toPortable, fromPortable };
 }

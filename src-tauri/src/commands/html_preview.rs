@@ -47,7 +47,8 @@ fn media(path: &std::path::Path, kind: &str) -> Result<(&'static str, u64), Stri
         ("image", "avif") => ("image/avif", IMAGE_PREVIEW_FILE_LIMIT),
         ("image", "svg") => ("image/svg+xml", IMAGE_PREVIEW_FILE_LIMIT),
         ("page", _) => return Err("HTML preview source must use .html or .htm".into()),
-        ("document" | "image", _) => return Err("Unsupported local preview file extension".into()),
+        ("document", _) => ("text/plain", DOCUMENT_PREVIEW_FILE_LIMIT),
+        ("image", _) => return Err("Unsupported local preview file extension".into()),
         _ => return Err("Local preview kind must be page, image, or document".into()),
     };
     Ok(result)
@@ -67,8 +68,11 @@ pub(crate) fn read_local_preview_file_guarded(
             base64::engine::general_purpose::STANDARD.encode(bytes)
         )
     } else {
+        if bytes.contains(&0) {
+            return Err("Binary file: text preview is unavailable".into());
+        }
         String::from_utf8(bytes)
-            .map_err(|error| format!("Unable to read preview as UTF-8: {error}"))?
+            .map_err(|_| "Binary or non-UTF-8 file: text preview is unavailable".to_string())?
     };
     Ok(LocalPreviewFile {
         data,

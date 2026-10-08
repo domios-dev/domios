@@ -115,6 +115,15 @@ impl super::ServiceContext {
         caller: &super::sentinel::SentinelCaller,
         spec: BlueprintSpec,
     ) -> Result<Value, String> {
+        self.blueprint_pipeline_create_stopped(caller, spec, false)
+    }
+
+    pub(crate) fn blueprint_pipeline_create_stopped(
+        &self,
+        caller: &super::sentinel::SentinelCaller,
+        spec: BlueprintSpec,
+        stopped: bool,
+    ) -> Result<Value, String> {
         self.validate_pipeline(&spec)?;
         self.validate_event_trigger(&spec)?;
         ensure_trigger_available(&spec.trigger)
@@ -152,6 +161,7 @@ impl super::ServiceContext {
             let tab = mux.get_tab(&caller.tab).ok_or("blueprint creator gone")?;
             job.agent_authored = tab.agent_type.is_some() && tab.session_binding_nonce.is_some();
         }
+        job.machine.stopped = stopped;
         let staged = handle.store.lock().stage_insert(job.clone());
         staged.settle(&handle.store)?;
         handle.notify();
@@ -287,20 +297,33 @@ impl super::ServiceContext {
 
     pub(crate) fn blueprint_pipeline_nodes(&self) -> Value {
         let mut nodes = vec![
-            json!({"kind":"source", "type":"terminal", "title":"Terminal output", "params_schema":{"observe":"tab:<same-Team tab>","terminal_pattern":"optional regex","output_settled":"optional idle milliseconds (10..60000)"}, "payload_schema":{"type":"text","max_bytes":32768}}),
-            json!({"kind":"handler", "type":"send", "title":"Send body to terminal or agent", "params_schema":{"target":"same-Team tab"}, "payload_schema":{"source":"stage output or graph text input"}}),
-            json!({"kind":"source", "type":"text_input", "title":"Graph text input", "params_schema":{"command":"blueprint input <id> --from-pad <path>"}, "payload_schema":{"type":"text","max_bytes":32768}}),
-            json!({"kind":"mode", "type":"session", "title":"Conversation", "params_schema":{"session":true,"safety_limit":16384,"rate_limit_per_minute":120}}),
-            json!({"kind":"trigger", "type":"schedule", "title":"Schedule", "params_schema":{"every":{"type":"duration","minimum":"10s"}}}),
-            json!({"kind":"trigger", "type":"event", "title":"Event", "params_schema":{"kind":"event source kind","params":"event source schema"}}),
-            json!({"kind":"trigger", "type":"input", "title":"Input", "params_schema":{"kind":"text|file|audio|video|image","source":"text|file|url"}}),
-            json!({"kind":"step", "type":"command", "title":"Command", "params_schema":{"command":{"type":"string","max_length":16384}}}),
-            json!({"kind":"step", "type":"ask", "title":"Ask", "params_schema":{"question":"string","buckets":"declared string array"}}),
-            json!({"kind":"step", "type":"filter", "title":"Filter", "params_schema":{"pattern":"regex","bucket":"optional bucket"}}),
-            json!({"kind":"step", "type":"convert", "title":"Convert", "params_schema":{"from":"media kind","to":"media kind"}}),
+            json!({"role":"trigger", "kind":"trigger", "type":"schedule", "title":"Trigger: on a schedule", "params_schema":{"every":{"type":"duration","minimum":"10s"}}}),
+            json!({"role":"trigger", "kind":"trigger", "type":"event", "title":"Trigger: on an event", "params_schema":{"kind":"event source kind","params":"event source schema"}}),
+            json!({"role":"trigger", "kind":"trigger", "type":"input", "title":"Trigger: on input data", "params_schema":{"kind":"text|file|audio|video|image","source":"text|file|url"}}),
+            json!({"role":"trigger", "kind":"trigger", "type":"activated", "title":"Trigger: after an earlier stage", "params_schema":{"route":"blueprint:<exact-id> on the earlier stage","paused":true}}),
+            json!({"role":"source", "kind":"source", "type":"probe", "title":"Source: run a bounded probe command", "params_schema":{"probe":"shell command printing one stable verdict"}, "payload_schema":{"type":"text","max_bytes":32768}}),
+            json!({"role":"source", "kind":"source", "type":"terminal", "title":"Source: Team terminal output", "params_schema":{"observe":"tab:<same-Team tab>","terminal_pattern":"optional regex","output_settled":"optional idle milliseconds (10..60000)"}, "payload_schema":{"type":"text","max_bytes":32768}}),
+            json!({"role":"source", "kind":"source", "type":"observe", "title":"Source: observed tab or cron run", "params_schema":{"observe":"tab:<id>|cron-run:<id>"}}),
+            json!({"role":"source", "kind":"source", "type":"text_input", "title":"Source: graph text input", "params_schema":{"command":"blueprint input <id> --from-pad <path>"}, "payload_schema":{"type":"text","max_bytes":32768}}),
+            json!({"role":"agent", "kind":"decision", "type":"agent", "title":"Agent: chooses one bucket by instruction", "params_schema":{"question":"instruction naming every bucket and what is other","buckets":"declared string array"}}),
+            json!({"role":"logic", "kind":"decision", "type":"pattern", "title":"Logic: deterministic bucket patterns", "params_schema":{"match":"bucket=regex, checked before the agent"}}),
+            json!({"role":"action", "kind":"handler", "type":"notify", "title":"Action: notify the creator", "params_schema":{}}),
+            json!({"role":"action", "kind":"handler", "type":"send", "title":"Action: send the payload to a terminal or agent", "params_schema":{"target":"same-Team tab"}, "payload_schema":{"source":"stage output or graph text input"}}),
+            json!({"role":"action", "kind":"handler", "type":"cron", "title":"Action: start a cron job", "params_schema":{"name":"cron name"}}),
+            json!({"role":"action", "kind":"handler", "type":"command", "title":"Action: run a labelled command", "params_schema":{"label":"short name","command":"shell command","timeout_ms":"bound"}}),
+            json!({"role":"action", "kind":"handler", "type":"blueprint", "title":"Action: activate the next stage", "params_schema":{"target":"blueprint:<exact-id>"}}),
+            json!({"role":"action", "kind":"handler", "type":"escalate", "title":"Action: escalate to the creator or an agent", "params_schema":{"target":"creator|agent:<tab>"}}),
+            json!({"role":"action", "kind":"handler", "type":"respond_prompt", "title":"Action: answer a provider-declared prompt", "params_schema":{"kind":"declared prompt option"}}),
+            json!({"role":"action", "kind":"handler", "type":"stop", "title":"Action: stop the Blueprint", "params_schema":{}}),
+            json!({"role":"mode", "kind":"mode", "type":"session", "title":"Mode: conversation", "params_schema":{"session":true,"safety_limit":16384,"rate_limit_per_minute":120}}),
+            json!({"role":"step", "kind":"step", "type":"command", "title":"Pipeline step: command", "params_schema":{"command":{"type":"string","max_length":16384}}}),
+            json!({"role":"agent", "kind":"step", "type":"ask", "title":"Pipeline step: ask an agent", "params_schema":{"question":"string","buckets":"declared string array"}}),
+            json!({"role":"logic", "kind":"step", "type":"filter", "title":"Pipeline step: filter", "params_schema":{"pattern":"regex","bucket":"optional bucket"}}),
+            json!({"role":"step", "kind":"step", "type":"convert", "title":"Pipeline step: convert", "params_schema":{"from":"media kind","to":"media kind"}}),
         ];
         for (_, conversion) in self.converter_registry.available() {
             nodes.push(json!({
+                "role":"step",
                 "kind":"converter",
                 "from":conversion.from.as_str(),
                 "to":conversion.to.as_str(),
@@ -312,6 +335,7 @@ impl super::ServiceContext {
         for source in &event_sources {
             let schemas = source.to_value();
             nodes.push(json!({
+                "role":"trigger",
                 "kind":"event_source",
                 "type":source.kind,
                 "title":source.title,

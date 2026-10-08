@@ -82,5 +82,18 @@
   "src/components/Terminal/ChatComposer.insertion.test.tsx",
   "src/components/Terminal/useChatMessageReveal.test.tsx",
   "packages/chat-ui/src/AttachmentCapsule.test.tsx",
-  "src/components/Terminal/ChatComposer.capsules.test.tsx"
+  "src/components/Terminal/ChatComposer.capsules.test.tsx",
+  "packages/chat-core/src/messageClipboard.test.ts",
+  "src/components/Terminal/messageSelection.test.ts",
+  "src/components/Terminal/ChatMessageSelection.test.tsx",
+  "src/components/Terminal/jumpToMessage.test.ts",
+  "packages/chat-ui/src/ReplyQuote.test.tsx",
+  "packages/chat-ui/src/localText.test.ts",
+  "src/lib/helperMoments/momentRegistry.test.ts",
+  "src/lib/helperMoments/helperRules.test.ts",
+  "src/lib/helperMoments/adjacency.test.ts",
+  "src/lib/helperMoments/helperMomentsStore.test.ts",
+  "src/lib/helperMoments/helperMomentsWiring.test.ts",
+  "src/components/Terminal/HelperMomentCard.test.tsx",
+  "src/components/CrashReportToast.test.tsx"
 ]

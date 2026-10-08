@@ -276,6 +276,7 @@ pub fn run() {
             commands::mux_commands::mux_close_tab,
             commands::mux_commands::mux_reopen_closed_tab,
             commands::mux_commands::mux_reopen_closed_group,
+            commands::mux_commands::mux_rerun_restored_shell,
             commands::mux_commands::mux_restore_orphaned_tab,
             commands::mux_commands::mux_set_focused_tab,
             commands::mux_commands::mux_link_pty,
@@ -354,6 +355,8 @@ pub fn run() {
             session::save_session,
             session::list_saved_sessions,
             session::load_session,
+            commands::blueprint_export_file,
+            commands::blueprint_import_file,
             commands::automation_graph_snapshot,
             commands::automation_node_files,
             commands::reveal_file,
@@ -969,6 +972,7 @@ pub fn run() {
                 let _ = chatbackend_registry.start_discovery();
             }
             app.manage(service_state.clone());
+            startup::model_catalogue::reconcile_defaults(&service_state);
             let lane_watch_service = service_state.clone();
             tauri::async_runtime::spawn_blocking(move || {
                 lane_watch_service.restore_lane_watches();
