@@ -365,6 +365,7 @@ fn ordered_roots(
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::provider::AgentProvider;
 
     fn write(path: &Path, contents: &str) {

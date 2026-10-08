@@ -1,9 +1,9 @@
 # Domios API Reference
-Domios exposes authenticated REST, local socket JSON-RPC, and the `codeterm` CLI.
+Authenticated transports: REST, local socket JSON-RPC and `codeterm`.
 
 ### One behavior across transports
 
-REST, the local socket and the CLI share one implementation, so authorization, PTY cleanup, events and hierarchy validation behave the same on every transport.
+REST, socket and CLI share authorization, PTY cleanup, events and hierarchy validation.
 
 The CLI's local socket needs no TCP. Unix peer credentials or the Windows process-token SID restrict it to the daemon's OS user; the daemon owns authentication, signing, and transport.
 
@@ -50,6 +50,8 @@ Authenticated config readback includes `api_listener.active`, `.configured`, and
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | GET | `/api/health` | — | Health check. Returns `version`, `build` (git short hash), `name`, `platform`, `status`. |
+| POST | `/api/automation/blueprints/export` | `{workspace_id, team_id, id}` | Local host portable recipe; see BLUEPRINTS. |
+| POST | `/api/automation/blueprints/import` | `{caller_tab_id, recipe, assignments}` | Local host create stopped; see BLUEPRINTS. |
 | GET | `/api/identify` | — | Version, platform, features |
 | POST | `/api/cli/rpc` | `{method, params?, protocol_version}` | Internal CLI fallback for authenticated loopback callers only. It dispatches the same RPC methods as the local socket; mesh peer tokens are refused. See API-CLI. |
 | GET | `/api/network` | — | Local IP, Tailscale IP, API URLs |
@@ -181,4 +183,4 @@ Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both reach
 A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `close` after its tab disappears; retirement and recovery commit atomically. Mutating dispatch into canonical or another task's lane is refused with `-32013`; competition provisions one lane per competitor. Advisory findings ride successful results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
 
 Related docs: `API-PLAN`, `API-TABS` (including local `codeterm send` output), `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`.
-<!-- revision: 188 -->
+<!-- revision: 189 -->

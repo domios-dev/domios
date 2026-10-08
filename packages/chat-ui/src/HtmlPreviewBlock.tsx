@@ -181,7 +181,7 @@ function PreviewFrame({
   );
 }
 
-export function HtmlPreviewBlock({ text, fullscreenRequest = 0 }: { text: string; fullscreenRequest?: number }) {
+export function HtmlPreviewBlock({ text, fullscreenRequest = 0, renderError }: { text: string; fullscreenRequest?: number; renderError?: (error: string) => React.ReactNode }) {
   const tabId = useLocalArtifactTabId();
   const normalizedText = useMemo(() => text.replace(/\r/g, ""), [text]);
   const filePath = useMemo(() => parseHtmlFileDirective(normalizedText), [normalizedText]);
@@ -375,6 +375,7 @@ export function HtmlPreviewBlock({ text, fullscreenRequest = 0 }: { text: string
       return <div className="p-4 text-xs text-[var(--ct-muted-fg)]">Loading local HTML…</div>;
     }
     if (filePath && fileSource.status === "error") {
+      if (renderError) return renderError(fileSource.error);
       return (
         <div className="border-t border-[var(--ct-border)] p-4 text-xs text-red-400" role="alert">
           {fileSource.error}

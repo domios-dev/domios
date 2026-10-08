@@ -4,7 +4,7 @@ import { variantLaunch } from "./modelVariants";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
 // OpenCode (sst/opencode) provider plugin (runtime logic, capability: agentProvider).
 // ProviderPlugin contract is the separate src/index.ts artifact the app imports.
-import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
+import type { FileDiff, LaunchParams, ModelInfo, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
 import {
   lastPromptShape,
   parsePermissionPrompt,
@@ -28,6 +28,7 @@ import {
   opencodeBindingPluginSource,
   opencodeSessionRecord,
   partToChatMsg,
+  toolFileDiffs,
   scanMessagesForModel,
   scanMessagesForQualifiedModel,
   scanSessionDirectory,
@@ -502,6 +503,11 @@ const plugin: PluginModule = {
       "SELECT data FROM message WHERE session_id = ?1 AND octet_length(data) <= ?2 " +
         "ORDER BY time_created DESC LIMIT 20",
       [sessionId, ASSISTANT_MESSAGE_MAX_BYTES]);
+  },
+
+  structuredToolFileDiffs(part: unknown): FileDiff[] | null {
+    if (!part || typeof part !== "object" || (part as OpencodePart).state?.status !== "completed") return null;
+    return toolFileDiffs(part as OpencodePart);
   },
 
   usesStructuredChat(): boolean { return true; },

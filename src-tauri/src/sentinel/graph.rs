@@ -51,6 +51,7 @@ pub struct Snapshot {
     pub scenarios: Vec<Scenario>,
     pub nodes: Vec<Value>,
     pub runs: Vec<Value>,
+    pub blueprints: Vec<Value>,
     pub edges: Vec<Value>,
     pub truncated: bool,
     pub configured_fallback: Value,
@@ -109,10 +110,7 @@ pub fn scoped_inventory(
 pub fn reachable_ids(jobs: &[Sentinel]) -> BTreeSet<String> {
     let mut pending: Vec<_> = jobs
         .iter()
-        .filter(|job| {
-            (job.agent_authored || job.pipeline.is_some())
-                && job.scenario_id.as_deref() == Some(job.id.as_str())
-        })
+        .filter(|job| job.is_scenario_root())
         .map(|job| job.id.clone())
         .collect();
     let mut seen = BTreeSet::new();
@@ -120,16 +118,13 @@ pub fn reachable_ids(jobs: &[Sentinel]) -> BTreeSet<String> {
         if !seen.insert(id.clone()) {
             continue;
         }
-        let Some(source) = jobs
-            .iter()
-            .find(|job| job.id == id && (job.agent_authored || job.pipeline.is_some()))
-        else {
+        let Some(source) = jobs.iter().find(|job| job.id == id) else {
             continue;
         };
         pending.extend(source.routes.values().flatten().filter_map(|handler| {
             if let Route::Sentinel(target) = &handler.action {
                 jobs.iter()
-                    .find(|job| job.id == *target && job.agent_authored && job.same_owner(source))
+                    .find(|job| job.id == *target && job.same_owner(source))
                     .map(|job| job.id.clone())
             } else {
                 None
@@ -151,8 +146,7 @@ pub fn host_delete_staged(
     let root = store.get(id).ok_or("Blueprint scenario not found")?;
     if root.workspace_id != workspace
         || root.team_id.as_deref() != team
-        || (!root.agent_authored && root.pipeline.is_none())
-        || root.scenario_id.as_deref() != Some(id)
+        || !root.is_scenario_root()
         || !reachable_ids(store.list()).contains(id)
     {
         return Err("Blueprint scenario is unavailable in this automation scope".into());
@@ -199,6 +193,9 @@ pub fn scope_revision(jobs: &[Sentinel], workspace: &str, team: Option<&str>) ->
 /// The node source shape: probe, observe kind, or input metadata without inline text,
 /// path directories or the URL query.
 pub(crate) fn source_descriptor(job: &Sentinel) -> Value {
+    if job.pipeline.is_some() {
+        return json!({"type":"pipeline"});
+    }
     if let Some(input) = &job.input {
         use codeterm_types::sentinel_input::DataRef;
         let ref_type = match &input.data {
@@ -321,7 +318,7 @@ fn target(
     let actual = match action {
         Route::Sentinel(id) => jobs
             .iter()
-            .find(|j| j.id == *id && j.same_owner(source) && j.agent_authored)
+            .find(|j| j.id == *id && j.same_owner(source))
             .map(identity),
         Route::Send(id) | Route::Escalate(super::machine::EscalateTarget::Agent(id)) => mux
             .get_tab(id)
@@ -421,10 +418,7 @@ pub fn project(
     let mut scenarios: Vec<_> = jobs
         .iter()
         .filter(|j| {
-            (j.agent_authored || j.pipeline.is_some())
-                && j.workspace_id == workspace
-                && j.team_id.as_deref() == team
-                && j.scenario_id.as_deref() == Some(j.id.as_str())
+            j.is_scenario_root() && j.workspace_id == workspace && j.team_id.as_deref() == team
         })
         .map(|job| Scenario {
             id: job.id.clone(),
@@ -454,10 +448,7 @@ pub fn project(
         nodes
             .entry(exact.clone())
             .or_insert_with(|| placeholder(&exact));
-        let Some(job) = jobs
-            .iter()
-            .find(|j| identity(j) == exact && (j.agent_authored || j.pipeline.is_some()))
-        else {
+        let Some(job) = jobs.iter().find(|j| identity(j) == exact) else {
             continue;
         };
         let expired = job.expires_at.is_some_and(|at| now_ms >= at);
@@ -554,6 +545,7 @@ pub fn project(
     let nodes: Vec<_> = nodes.into_values().collect();
     let runs = runs::project(&nodes, jobs, now_ms, live_leases);
     Ok(Snapshot {
+        blueprints: Vec::new(),
         workspace_id: workspace.into(),
         team_id: team.map(str::to_owned),
         all_teams: false,

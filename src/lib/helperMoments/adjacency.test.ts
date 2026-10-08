@@ -32,7 +32,7 @@ describe("capability adjacency", () => {
   });
 
   it("finds neighbours through strong edges in either direction", () => {
-    expect(strongNeighbourSections([{ kind: "guide", sectionId: "phone" }])).toEqual(new Set(["integrations", "messenger-plugins"]));
+    expect(strongNeighbourSections([{ kind: "guide", sectionId: "phone" }])).toEqual(new Set(["messengers", "messenger-plugins"]));
     expect(strongNeighbourSections([{ kind: "guide", sectionId: "supporter-agent" }])).toEqual(new Set(["memory", "blueprints"]));
     expect(strongNeighbourSections([{ kind: "guide", sectionId: "tips" }])).toEqual(new Set());
   });

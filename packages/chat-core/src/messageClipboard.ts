@@ -142,6 +142,21 @@ export function messagesReference(messages: readonly ClipMessage[]): string {
   return message.time ? `${message.author} ${message.time}` : message.author;
 }
 
+/** The heading of a reply block: "Codex · 14:05" for one message, "3 messages" for several. */
+export function messagesReplyLabel(messages: readonly ClipMessage[]): string {
+  if (messages.length !== 1) return `${messages.length} messages`;
+  const [message] = messages;
+  return message.time ? `${message.author} · ${message.time}` : message.author;
+}
+
+const EXCERPT_MAX = 160;
+
+/** The first quoted message as one line of what a reader sees. */
+export function messagesExcerpt(messages: readonly ClipMessage[]): string {
+  const line = messages.length ? messagePlainText(messages[0]).replace(/\s+/g, " ").trim() : "";
+  return line.length > EXCERPT_MAX ? `${line.slice(0, EXCERPT_MAX - 1).trimEnd()}…` : line;
+}
+
 function argumentsText(input: Record<string, unknown> | undefined): string {
   if (!input) return "";
   const entries = Object.entries(input).filter(([, value]) => value !== undefined && value !== null && value !== "");

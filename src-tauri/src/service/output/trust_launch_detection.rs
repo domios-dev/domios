@@ -32,7 +32,7 @@ impl ServiceContext {
         agent_type: &str,
         exact_returned_null: bool,
     ) {
-        let (cwd, set_at_elapsed, current_session, binding_nonce, deadline_elapsed) = {
+        let (cwd, set_at_elapsed, current_session, binding_nonce, deadline_elapsed, authenticated) = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(tab_id) else {
                 return;
@@ -51,9 +51,10 @@ impl ServiceContext {
                 sid,
                 tab.session_binding_nonce.clone(),
                 deadline_elapsed,
+                tab.launch_session_authenticated(),
             )
         };
-        if !should_detect_unbound_session(current_session.as_deref()) {
+        if authenticated {
             return;
         }
         let (heuristic, hooked, exact) = self
@@ -74,6 +75,9 @@ impl ServiceContext {
                 )
             })
             .unwrap_or((false, false, false));
+        if !session_detection_allowed(current_session.as_deref(), authenticated, exact) {
+            return;
+        }
         let trust_prompt_resolved = binding_nonce.as_deref().is_some_and(|nonce| {
             super::super::directory_trust::trust_prompt_resolved_for_launch(tab_id, nonce)
         });
@@ -111,6 +115,9 @@ impl ServiceContext {
             return;
         }
 
+        if !should_detect_unbound_session(current_session.as_deref()) {
+            return;
+        }
         let exclude = self.mux.read().other_session_ids(tab_id);
         let max_age = std::time::Duration::from_secs(set_at_elapsed + 30);
         let found = self
@@ -160,4 +167,12 @@ pub(crate) fn heuristic_session_fallback_allowed(
     deadline_elapsed: bool,
 ) -> bool {
     heuristic && (!exact || deadline_elapsed)
+}
+
+pub(super) fn session_detection_allowed(
+    session: Option<&str>,
+    authenticated: bool,
+    exact: bool,
+) -> bool {
+    !authenticated && (session.is_none() || exact)
 }

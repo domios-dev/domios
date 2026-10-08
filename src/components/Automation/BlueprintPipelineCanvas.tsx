@@ -1,5 +1,6 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 import { Bell, Play, Workflow } from "lucide-react";
+import { AUTOMATION_TOOL } from "./styles";
 import type { PipelineView, PipelineViewNode } from "./pipelineModel";
 import { layoutPipelineChain, PIPELINE_CANVAS_HEIGHT, PIPELINE_CARD_HEIGHT, PIPELINE_CARD_WIDTH } from "./pipelineLayout";
 
@@ -10,10 +11,10 @@ function stateTone(state: string, current: boolean): string {
   return "text-[var(--ct-muted-fg)]";
 }
 
-function stateBorder(state: string, current: boolean): string {
-  if (current) return "border-[var(--ct-accent)] ring-2 ring-[color-mix(in_srgb,var(--ct-accent)_32%,transparent)]";
-  if (state === "failed") return "border-[color-mix(in_srgb,var(--ct-red)_60%,var(--ct-border))]";
-  return "border-[var(--ct-border)]";
+function stateSurface(state: string, current: boolean): string {
+  if (current) return "border-[color-mix(in_srgb,var(--ct-accent)_45%,var(--ct-border))] shadow-[inset_0_0_16px_color-mix(in_srgb,var(--ct-accent)_7%,transparent),var(--ct-shadow-sm)]";
+  if (state === "failed") return "border-[color-mix(in_srgb,var(--ct-red)_60%,var(--ct-border))] shadow-[var(--ct-shadow-sm)]";
+  return "border-[var(--ct-border)] shadow-[var(--ct-shadow-sm)]";
 }
 
 function eventTime(value: number | null): string {
@@ -24,7 +25,7 @@ function PipelineNodeCard({ node }: { node: PipelineViewNode }) {
   const Icon = node.kind === "trigger" ? Play : node.kind === "result" ? Bell : Workflow;
   return <article
     aria-current={node.kind === "step" && node.current ? "step" : undefined}
-    className={`flex h-full flex-col gap-1 rounded-lg border bg-[var(--ct-titlebar-bg)] px-3 py-2.5 shadow-[var(--ct-shadow-sm)] ${stateBorder(node.state, node.current)}`}
+    className={`flex h-full flex-col gap-1 rounded-lg border bg-[var(--ct-titlebar-bg)] px-3 py-2.5 ${stateSurface(node.state, node.current)}`}
   >
     <div className="flex items-center gap-1.5 text-[0.6875rem] uppercase tracking-wider text-[var(--ct-muted-fg)]">
       <Icon size={12} aria-hidden="true" />
@@ -51,7 +52,21 @@ function PipelineNodeCard({ node }: { node: PipelineViewNode }) {
   </article>;
 }
 
-export function BlueprintPipelineCanvas({ pipeline }: { pipeline: PipelineView }) {
+export function BlueprintPipelineCanvas({ pipeline, initialRunId }: { pipeline: PipelineView; initialRunId?: string }) {
+  const [showRuns, setShowRuns] = useState(Boolean(initialRunId));
+  const [runId, setRunId] = useState<string | null>(initialRunId ?? null);
+  const selected = pipeline.runs?.find((run) => run.id === runId)?.pipeline ?? pipeline;
+  return <div className="space-y-3">
+    <button type="button" className={AUTOMATION_TOOL} aria-expanded={showRuns} onClick={() => setShowRuns(!showRuns)}>Runs ({pipeline.runs?.length ?? 0})</button>
+    {showRuns && <div role="group" aria-label="Pipeline runs" className="flex flex-wrap gap-2">
+      <button type="button" className={AUTOMATION_TOOL} aria-pressed={runId === null} onClick={() => setRunId(null)}>Latest</button>
+      {pipeline.runs?.map((run) => <button type="button" className={`${AUTOMATION_TOOL} aria-pressed:border-[var(--ct-accent)]`} key={run.id} aria-label={`Run ${run.id}`} aria-pressed={runId === run.id} onClick={() => setRunId(run.id)}>{eventTime(run.at)} · {run.state}</button>)}
+    </div>}
+    <PipelineChain pipeline={selected} />
+  </div>;
+}
+
+function PipelineChain({ pipeline }: { pipeline: PipelineView }) {
   const markerId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const layout = layoutPipelineChain(pipeline.nodes);
   const byKey = new Map(pipeline.nodes.map((node) => [node.key, node]));

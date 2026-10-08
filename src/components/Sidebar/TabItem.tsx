@@ -1,3 +1,4 @@
+import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { ShellPurposeIcon } from "../shared/ShellStatus";
 import { isUtilityShell, shellPurposeLabel } from "../../lib/shellCommandState";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
@@ -294,7 +295,8 @@ function TabItemInner({
     : null;
   // The visible badge is width-capped; the tooltip keeps the whole identity.
   const tabModelTitle = tabModel ? `${providerName} · ${tabModel}` : undefined;
-  const description = tab.description ?? null;
+  // The first-run marker lives in the description field; it is an internal flag, not text to show.
+  const description = isFirstRunGeneralTab(tab) ? "Choose your General Agent" : tab.description ?? null;
   const canonicalTitle = displayTitleForTab(tab);
   const rowTitle = tabRowLabel(tab, canonicalTitle, ownerTitle);
   const displayTitle = hasAgent ? rowTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : rowTitle;

@@ -7,9 +7,11 @@ import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { ChatComposer } from "./ChatComposer";
+import { RichMarkdown } from "@codeterm/chat-ui";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { capsuleSpans } from "./composerCapsules";
 import { composerInsertionStore } from "./composerInsertion";
+import { composerReplyStore } from "./composerReply";
 import { MessageSelectionBar } from "./MessageSelectionBar";
 import { useChatMessageSelection, type SelectableRow } from "./useChatMessageSelection";
 
@@ -46,7 +48,7 @@ function Harness({ tabId, rows }: { tabId: string; rows: SelectableRow[] }) {
   const surfaceRef = useRef<HTMLDivElement>(null);
   const selection = useChatMessageSelection({ tabId, rows, agent: "Fermi", surfaceRef });
   return (
-    <div ref={surfaceRef} onKeyDown={selection.onKeyDown}>
+    <div ref={surfaceRef} role="log" onKeyDown={selection.onKeyDown}>
       {rows.map(({ msg }, index) => (
         <ChatMessageRow key={msg.id} msg={msg} ariaLabel={msg.id}
           selected={selection.selected.has(msg.id)}
@@ -54,7 +56,7 @@ function Harness({ tabId, rows }: { tabId: string; rows: SelectableRow[] }) {
           selecting={selection.active}
           cursor={selection.cursor ? selection.cursor === msg.id : index === rows.length - 1}
           handlers={selection.rowHandlers}>
-          <p>{msg.content}</p>
+          {msg.type === "assistant" ? <RichMarkdown text={msg.content} /> : <p>{msg.content}</p>}
         </ChatMessageRow>
       ))}
       <MessageSelectionBar count={selection.count} onCopy={selection.copySelection} onQuote={selection.quoteSelection} onAsk={selection.askSelection} onClear={selection.clear} />
@@ -65,7 +67,7 @@ function Harness({ tabId, rows }: { tabId: string; rows: SelectableRow[] }) {
 let root: Root | null = null;
 let host: HTMLDivElement | null = null;
 let clipboard: Record<string, string>[] = [];
-let calls: string[] = [];
+let calls: { command: string; args: Record<string, unknown> }[] = [];
 
 beforeEach(() => {
   clipboard = [];
@@ -84,12 +86,16 @@ beforeEach(() => {
 
 afterEach(async () => {
   await act(async () => root?.unmount()); root = null; host?.remove(); host = null;
-  __setInvokeForTest(null); __setListenForTest(null); composerInsertionStore.clear(); stored.blobs.length = 0;
+  __setInvokeForTest(null); __setListenForTest(null); composerInsertionStore.clear(); composerReplyStore.clear(); stored.blobs.length = 0;
+  document.getSelection()?.removeAllRanges();
   try { window.localStorage.clear(); } catch { /* storage may be unavailable */ }
 });
 
 async function render(tabId: string, rows = ROWS) {
-  __setInvokeForTest((async (command: string) => { calls.push(command); return command === "delayed_send_list" ? [] : {}; }) as never);
+  __setInvokeForTest((async (command: string, args: Record<string, unknown> = {}) => {
+    calls.push({ command, args });
+    return command === "delayed_send_list" ? [] : {};
+  }) as never);
   __setListenForTest((async () => () => {}) as never);
   host = document.createElement("div"); document.body.append(host);
   root = createRoot(host);
@@ -102,58 +108,187 @@ async function render(tabId: string, rows = ROWS) {
 }
 
 const row = (id: string) => host!.querySelector<HTMLElement>(`[data-message-id="${id}"]`)!;
-const button = (scope: ParentNode, label: string) => scope.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
-const barButton = (text: string) => Array.from(host!.querySelectorAll<HTMLButtonElement>('[role="toolbar"][aria-label="Selected messages"] button')).find((item) => item.textContent === text)!;
+const dot = (id: string) => row(id).querySelector<HTMLButtonElement>('button[aria-label="Message actions"]');
+const menu = (id: string) => row(id).querySelector<HTMLElement>('[role="menu"]');
+const item = (id: string, label: string) => menu(id)?.querySelector<HTMLButtonElement>(`[role="menuitem"][aria-label="${label}"]`) ?? null;
+const barButton = (text: string) => Array.from(host!.querySelectorAll<HTMLButtonElement>('[role="toolbar"][aria-label="Selected messages"] button')).find((button) => button.textContent === text)!;
 const bar = () => host!.querySelector('[role="toolbar"][aria-label="Selected messages"]');
 const composer = () => host!.querySelector<HTMLTextAreaElement>('[data-testid="chat-composer"]')!;
 const capsules = () => capsuleSpans(composer().value).map((span) => span.label);
-const sends = () => calls.filter((command) => /send|write_pty|submit/i.test(command) && command !== "delayed_send_list");
+const replyBlock = () => host!.querySelector<HTMLElement>('[data-testid="reply-quote"]');
+const sends = () => calls.filter(({ command }) => /send|write_pty|submit/i.test(command) && command !== "delayed_send_list");
+const settle = () => act(async () => { for (let i = 0; i < 5; i += 1) await Promise.resolve(); });
+
 async function hover(id: string) { await act(async () => row(id).focus()); }
-async function key(code: string, shiftKey = false) {
-  await act(async () => { (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", { code, key: code, shiftKey, bubbles: true, cancelable: true })); });
+async function openMenu(id: string) {
+  await hover(id);
+  await act(async () => dot(id)!.focus());
+}
+async function keyOn(target: Element, code: string, shiftKey = false, key = code) {
+  await act(async () => { target.dispatchEvent(new KeyboardEvent("keydown", { code, key, shiftKey, bubbles: true, cancelable: true })); });
+}
+async function key(code: string, shiftKey = false) { await keyOn(document.activeElement ?? document.body, code, shiftKey); }
+function mouse(target: Element, type: string, init: MouseEventInit = {}) {
+  return target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, ...init }));
 }
 async function shiftClick(id: string) {
   await act(async () => {
-    row(id).querySelector("p")!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, shiftKey: true, button: 0 }));
-    row(id).querySelector("p")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, shiftKey: true, button: 0 }));
+    const text = row(id).querySelector("p")!;
+    mouse(text, "mousedown", { shiftKey: true });
+    mouse(document.body, "mouseup", { shiftKey: true });
+    mouse(text, "click", { shiftKey: true });
+  });
+}
+async function typeInComposer(text: string) {
+  await act(async () => {
+    const el = composer();
+    el.focus();
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(el, text);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
 
-it("copies a message as it really is: labels in plain text, attachment tags in the portable flavour, once", async () => {
+it("shows a quiet dot only for the row under the pointer or focus, and none while selecting", async () => {
+  await render("dot-tab");
+  expect(dot("a1")).toBeNull();
+  await hover("a1");
+  expect(dot("a1")?.getAttribute("aria-expanded")).toBe("false");
+  expect(dot("a1")?.closest("[data-message-gutter]")).not.toBeNull();
+  expect(dot("u1")).toBeNull();
+  expect(menu("a1")).toBeNull();
+  await shiftClick("t1");
+  expect(dot("a1")).toBeNull();
+});
+
+it("places the action in the right gutter for every message kind", async () => {
+  await render("right-dot-tab");
+  for (const id of ["u1", "a1", "t1"]) {
+    await hover(id);
+    expect(dot(id)?.closest("[data-message-gutter]")?.getAttribute("data-side")).toBe("end");
+  }
+});
+
+it("shows beads only in block mode and connects a selected range", async () => {
+  await render("bead-tab");
+  expect(host!.querySelector(".ct-msg-bead")).toBeNull();
+  await shiftClick("u1");
+  expect(host!.querySelectorAll(".ct-msg-bead")).toHaveLength(4);
+  expect(row("u1").querySelector(".ct-msg-bead")?.getAttribute("data-selected")).toBe("true");
+  expect(row("a1").querySelector(".ct-msg-bead")?.hasAttribute("data-selected")).toBe(false);
+  await shiftClick("a2");
+  expect(host!.querySelectorAll(".ct-msg-thread")).toHaveLength(3);
+  expect(host!.querySelectorAll(".ct-msg-bead[data-selected]")).toHaveLength(4);
+  await act(async () => { mouse(row("t1").querySelector('[data-side="end"]')!, "mousedown"); mouse(document.body, "mouseup"); });
+  expect(row("t1").querySelector(".ct-msg-bead")?.hasAttribute("data-selected")).toBe(false);
+  expect(host!.querySelectorAll(".ct-msg-thread")).toHaveLength(1);
+});
+
+it("reaches the dot by Tab from its row and opens the menu with Enter, Esc closes it", async () => {
+  await render("keys-menu-tab");
+  await hover("a2");
+  const focusable = row("a2").querySelector<HTMLElement>('button, a[href], input, textarea, [tabindex="0"]');
+  expect(focusable).toBe(dot("a2"));
+  await keyOn(dot("a2")!, "Enter");
+  expect(menu("a2")).not.toBeNull();
+  expect(document.activeElement).toBe(item("a2", "Copy"));
+  await key("ArrowDown");
+  expect(document.activeElement).toBe(item("a2", "Quote into composer"));
+  await key("Escape");
+  expect(menu("a2")).toBeNull();
+  expect(document.activeElement).toBe(dot("a2"));
+  expect(bar()).toBeNull();
+});
+
+it("copies a message as it really is from the menu, once", async () => {
   await render("copy-tab");
-  await hover("u1");
-  expect(button(row("u1"), "Copy as Markdown")).toBeTruthy();
-  await act(async () => button(row("u1"), "Copy message")!.click());
+  await openMenu("u1");
+  expect(item("u1", "Copy as Markdown")).not.toBeNull();
+  await act(async () => item("u1", "Copy")!.click());
   expect(document.execCommand).toHaveBeenCalledTimes(1);
   expect(clipboard).toEqual([{ "text/plain": "fix image1 please", [DOMIOS_TEXT_MIME]: `fix ${IMAGE} please` }]);
-  expect(button(row("u1"), "Copied")).toBeTruthy();
+  expect(item("u1", "Copied")).not.toBeNull();
 });
 
 it("offers Copy as Markdown only where the rendered text differs, and copies the exact source", async () => {
   await render("md-tab");
-  await hover("a2");
-  expect(button(row("a2"), "Copy as Markdown")).toBeNull();
-  await hover("a1");
-  await act(async () => button(row("a1"), "Copy as Markdown")!.click());
+  await openMenu("a2");
+  expect(item("a2", "Copy as Markdown")).toBeNull();
+  await openMenu("a1");
+  await act(async () => item("a1", "Copy as Markdown")!.click());
   expect(clipboard).toEqual([{ "text/plain": "Done **now**.", [DOMIOS_TEXT_MIME]: "Done **now**." }]);
-  await act(async () => button(row("a1"), "Copy message")!.click());
-  expect(clipboard[1]["text/plain"]).toBe("Done now.");
 });
 
 it("copies a tool row as its command and output", async () => {
   await render("tool-tab");
-  await hover("t1");
-  await act(async () => button(row("t1"), "Copy message")!.click());
+  await openMenu("t1");
+  await act(async () => item("t1", "Copy")!.click());
   expect(clipboard[0]["text/plain"]).toBe("$ ls\na.ts");
 });
 
-it("quotes one message into the composer as a capsule without sending", async () => {
-  await render("quote-tab");
-  await hover("a1");
-  await act(async () => button(row("a1"), "Quote into composer")!.click());
-  expect(capsules()).toEqual(["quote1 · Fermi"]);
-  expect(await stored.blobs[0].text).toBe("Fermi:\n> Done **now**.");
+it("asks about one message as a message capsule and closes the menu", async () => {
+  await render("ask-tab");
+  await openMenu("a1");
+  await act(async () => item("a1", "Ask about this")!.click());
+  await settle();
+  expect(menu("a1")).toBeNull();
+  expect(capsules()).toEqual(["msg · Fermi"]);
+  expect(await stored.blobs[0].text).toBe("### Fermi\n\nDone **now**.");
   expect(sends()).toEqual([]);
+});
+
+it("Select enters block selection with that message", async () => {
+  await render("select-item-tab");
+  await openMenu("a1");
+  await act(async () => item("a1", "Select")!.click());
+  expect(bar()?.textContent).toContain("1 message");
+  expect(row("a1").dataset.selected).toBe("true");
+  expect(document.activeElement).toBe(row("a1"));
+});
+
+it("Quote docks one reply block above the composer input, replaces it, and never inserts a capsule", async () => {
+  await render("quote-tab");
+  await openMenu("a1");
+  await act(async () => item("a1", "Quote into composer")!.click());
+  await settle();
+  expect(menu("a1")).toBeNull();
+  expect(replyBlock()?.getAttribute("aria-label")).toBe("Replying to Fermi");
+  expect(replyBlock()?.textContent).toContain("Done now.");
+  expect(composer().value).toBe("");
+  expect(await stored.blobs[0].text).toBe("Fermi:\n> Done **now**.");
+  await openMenu("a2");
+  await act(async () => item("a2", "Quote into composer")!.click());
+  await settle();
+  expect(host!.querySelectorAll('[data-testid="reply-quote"]')).toHaveLength(1);
+  expect(replyBlock()?.textContent).toContain("plain reply");
+  await act(async () => replyBlock()!.querySelector<HTMLButtonElement>('button[aria-label="Remove quote"]')!.click());
+  expect(replyBlock()).toBeNull();
+  expect(sends()).toEqual([]);
+});
+
+it("Esc in an empty composer removes the reply block", async () => {
+  await render("quote-esc-tab");
+  await openMenu("a1");
+  await act(async () => item("a1", "Quote into composer")!.click());
+  await settle();
+  await act(async () => composer().focus());
+  await keyOn(composer(), "Escape");
+  expect(replyBlock()).toBeNull();
+});
+
+it("sends the reply once as its quote attachment ahead of the text, then clears it", async () => {
+  await render("quote-send-tab");
+  await openMenu("a1");
+  await act(async () => item("a1", "Quote into composer")!.click());
+  await settle();
+  await typeInComposer("why?");
+  await keyOn(composer(), "Enter", false, "Enter");
+  await settle();
+  const sent = sends();
+  expect(sent).toHaveLength(1);
+  const text = String(sent[0].args.text);
+  expect(text).toBe(`${formatAttachmentMarker("/tmp/ct/1-quote-fermi.md", "quote", "Fermi", { ref: "a1", excerpt: "Done now." })}\nwhy?`);
+  expect(text.match(/kind="quote"/g)).toHaveLength(1);
+  expect(replyBlock()).toBeNull();
 });
 
 it("selects with Shift+click, copies in order with role headings, and asks about the selection as one capsule", async () => {
@@ -168,20 +303,69 @@ it("selects with Shift+click, copies in order with role headings, and asks about
     [DOMIOS_TEXT_MIME]: "### Fermi\n\nDone **now**.\n\n### Tool · Bash\n\n$ ls\na.ts",
   }]);
   await act(async () => barButton("Ask about these").click());
+  await settle();
   expect(capsules()).toEqual(["2 messages"]);
   expect(await stored.blobs[0].text).toBe("### Fermi\n\nDone **now**.\n\n### Tool · Bash\n\n$ ls\na.ts");
   expect(bar()).toBeNull();
   expect(sends()).toEqual([]);
 });
 
-it("clicks toggle rows while selecting and Quote takes the whole selection", async () => {
-  await render("toggle-tab");
-  await shiftClick("u1");
-  await act(async () => row("a2").querySelector("p")!.click());
-  await act(async () => row("u1").querySelector("p")!.click());
-  expect(bar()?.textContent).toContain("1 message");
+it("Quote on a block selection docks one reply for all of it", async () => {
+  await render("quote-many-tab");
+  await shiftClick("a1");
+  await shiftClick("a2");
   await act(async () => barButton("Quote").click());
-  expect(capsules()).toEqual(["quote1 · Fermi"]);
+  await settle();
+  expect(replyBlock()?.getAttribute("aria-label")).toBe("Replying to 3 messages");
+  expect(capsules()).toEqual([]);
+  expect(bar()).toBeNull();
+});
+
+it("pressing and dragging in the gutter selects whole rows, not text", async () => {
+  await render("drag-tab");
+  const gutter = row("u1").querySelector("[data-message-gutter]")!;
+  let allowed = true;
+  await act(async () => { allowed = mouse(gutter, "mousedown", { clientY: 10 }); });
+  expect(allowed).toBe(false);
+  expect(bar()).toBeNull();
+  await act(async () => {
+    mouse(row("a1").querySelector("p")!, "mousemove", { clientY: 60 });
+    mouse(row("t1").querySelector("p")!, "mousemove", { clientY: 110 });
+  });
+  expect(bar()?.textContent).toContain("3 messages");
+  await act(async () => { mouse(row("a1").querySelector("p")!, "mousemove", { clientY: 60 }); });
+  expect(bar()?.textContent).toContain("2 messages");
+  await act(async () => { mouse(document.body, "mouseup"); });
+  expect(["u1", "a1", "t1", "a2"].map((id) => row(id).dataset.selected === "true")).toEqual([true, true, false, false]);
+  expect(document.getSelection()?.toString() ?? "").toBe("");
+});
+
+it("in block mode a drag over message text picks rows, and Esc leaves block mode", async () => {
+  await render("block-drag-tab");
+  await shiftClick("u1");
+  let allowed = true;
+  await act(async () => { allowed = mouse(row("t1").querySelector("p")!, "mousedown", { clientY: 100 }); });
+  expect(allowed).toBe(false);
+  await act(async () => {
+    mouse(row("a2").querySelector("p")!, "mousemove", { clientY: 150 });
+    mouse(document.body, "mouseup");
+  });
+  expect(bar()?.textContent).toContain("3 messages");
+  await act(async () => { document.body.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", key: "Escape", bubbles: true, cancelable: true })); });
+  expect(bar()).toBeNull();
+  expect(host!.querySelector("[data-selected]")).toBeNull();
+});
+
+it("outside block mode a press on message text stays a text selection", async () => {
+  await render("text-tab");
+  let allowed = false;
+  await act(async () => { allowed = mouse(row("a1").querySelector("p")!, "mousedown", { clientY: 60 }); });
+  expect(allowed).toBe(true);
+  await act(async () => {
+    mouse(row("a2").querySelector("p")!, "mousemove", { clientY: 160 });
+    mouse(document.body, "mouseup");
+  });
+  expect(bar()).toBeNull();
 });
 
 it("moves with arrows, toggles with Space, extends with Shift+arrows and clears with Escape", async () => {
@@ -212,5 +396,17 @@ it("leaves a native text selection alone", async () => {
   });
   await shiftClick("a1");
   expect(bar()).toBeNull();
-  document.getSelection()?.removeAllRanges();
+});
+
+it("materializes only the targeted part in the quote file and Ask attachment", async () => {
+  const source = "First paragraph.\n\nSecond **paragraph**.";
+  await render("part-files", [asRow(message("parts", "assistant", source))]);
+  await openMenu("parts");
+  await act(async () => item("parts", "Quote into composer")!.click());
+  expect(replyBlock()?.textContent).toContain("First paragraph.");
+  expect(await stored.blobs[0].text).toBe("Fermi:\n> First paragraph.");
+  await openMenu("parts");
+  await act(async () => item("parts", "Ask about this")!.click());
+  expect(await stored.blobs[1].text).toBe("### Fermi\n\nFirst paragraph.");
+  expect(sends()).toEqual([]);
 });

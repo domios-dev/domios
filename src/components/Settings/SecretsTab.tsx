@@ -3,7 +3,7 @@ import { invoke } from "../../lib/bridge";
 import { KeyRound, LogIn, FlaskConical, Settings2, Clock, RefreshCw } from "lucide-react";
 import { BusySpinner } from "../shared/BusyState";
 import type { AppConfig, SecretsConfig } from "../../lib/types";
-import { useMuxState } from "../../store/multiplexer";
+import { useMultiplexer, useMuxState } from "../../store/multiplexer";
 import { setPendingCommand } from "../../lib/pendingCommands";
 import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { SettingsCard, SettingsPill } from "./shared";
@@ -102,7 +102,8 @@ export function SecretsTab({
   const [colls, setColls] = useState<{ id: string; name: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"password" | "apikey">("password");
-  const [toast, setToast] = useState<string | null>(null);
+  const { addNotification } = useMultiplexer();
+  const showNotice = useCallback((title: string) => addNotification({ title, body: null, tab_id: null, workspace_id: null, severity: "Info", lifetime_ms: 2500 }), [addNotification]);
   const [serverUrlInput, setServerUrlInput] = useState(bitwardenServerUrl);
 
   // Login form state — never persisted in component state past submission.
@@ -237,13 +238,12 @@ export function SecretsTab({
         }
         const d = await r.json();
         setStatus({ backend: d.backend, status: d.status });
-        setToast(`Switched to ${BACKEND_LABELS[next]}`);
-        setTimeout(() => setToast(null), 2500);
+        showNotice(`Switched to ${BACKEND_LABELS[next]}`);
       } catch (e) {
         setError(String(e));
       }
     },
-    [apiBase, jsonHeaders, patchSecrets, bitwardenServerUrl],
+    [apiBase, jsonHeaders, patchSecrets, bitwardenServerUrl, showNotice],
   );
 
   const saveServerUrl = useCallback(async () => {
@@ -269,12 +269,11 @@ export function SecretsTab({
       }
       const d = await r.json();
       setStatus({ backend: d.backend, status: d.status });
-      setToast(`Server URL applied — sign in again`);
-      setTimeout(() => setToast(null), 2500);
+      showNotice(`Server URL applied — sign in again`);
     } catch (e) {
       setError(String(e));
     }
-  }, [apiBase, jsonHeaders, patchSecrets, cfg.bitwarden, serverUrlInput]);
+  }, [apiBase, jsonHeaders, patchSecrets, cfg.bitwarden, serverUrlInput, bitwardenServerUrl, showNotice]);
 
   const setDefaultOrg = useCallback(
     (orgId: string) => {
@@ -505,12 +504,6 @@ export function SecretsTab({
               </div>
             )
           )}
-
-        {toast && (
-          <div className="text-[11px] rounded border border-[var(--ct-green)]/40 bg-[var(--ct-green)]/10 p-2 text-[var(--ct-green)]" data-testid="settings-secrets-toast" role="status">
-            {toast}
-          </div>
-        )}
 
         {backend === "bitwarden" && status?.status?.status === "locked" && (
           <div className="flex items-center gap-2 pt-1">

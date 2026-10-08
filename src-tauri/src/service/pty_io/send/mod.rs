@@ -3,6 +3,7 @@
 use crate::service::delivery_error::DeliveryError;
 use crate::service::ServiceContext;
 
+mod agent_binding;
 mod readiness;
 
 fn compose_routed_suffix(suffix: &str, requires_instruction: bool) -> String {
@@ -306,122 +307,6 @@ pub(crate) fn sanitize_agent_prompt_input(text: &str) -> String {
 }
 
 impl ServiceContext {
-    pub(crate) fn pin_agent_delivery_binding(
-        &self,
-        tab_id: &str,
-        payload: &mut super::super::messenger::AgentDeliveryPayload,
-    ) -> Result<(), String> {
-        let binding = self.queued_agent_binding(tab_id).ok_or_else(|| {
-            "agent_unavailable: recipient has no authenticated PTY session".to_string()
-        })?;
-        if payload
-            .expected_pty_id
-            .as_deref()
-            .is_some_and(|expected| expected != binding.0)
-            || payload
-                .expected_session_id
-                .as_deref()
-                .is_some_and(|expected| expected != binding.1)
-            || payload
-                .expected_binding_nonce
-                .as_deref()
-                .is_some_and(|expected| expected != binding.2)
-        {
-            return Err("agent_unavailable: recipient session binding changed".into());
-        }
-        payload.expected_pty_id = Some(binding.0);
-        payload.expected_session_id = Some(binding.1);
-        payload.expected_binding_nonce = Some(binding.2);
-        Ok(())
-    }
-
-    pub(crate) fn agent_delivery_binding_matches(
-        &self,
-        tab_id: &str,
-        payload: &super::super::messenger::AgentDeliveryPayload,
-    ) -> bool {
-        let Some(binding) = self.queued_agent_binding(tab_id) else {
-            return false;
-        };
-        payload.expected_pty_id.as_deref() == Some(binding.0.as_str())
-            && payload.expected_session_id.as_deref() == Some(binding.1.as_str())
-            && payload.expected_binding_nonce.as_deref() == Some(binding.2.as_str())
-    }
-
-    fn queued_agent_binding(&self, tab_id: &str) -> Option<(String, String, String)> {
-        let mux = self.mux.read();
-        let resolved = mux.resolve_tab_id(tab_id)?;
-        let tab = mux.get_tab(&resolved)?;
-        if tab.agent_type.is_none()
-            || !matches!(&tab.backing, crate::multiplexer::types::TabBacking::Pty)
-        {
-            return None;
-        }
-        let pty_id = tab.pty_id.clone()?;
-        let session_id = tab.agent_session_id.clone()?;
-        let binding_nonce = tab.session_binding_nonce.clone()?;
-        (tab.reported_session_binding_nonce.as_deref() == Some(binding_nonce.as_str())).then_some((
-            pty_id,
-            session_id,
-            binding_nonce,
-        ))
-    }
-
-    pub(crate) fn send_queued_agent_payload(
-        &self,
-        tab_id: &str,
-        payload: &super::super::messenger::AgentDeliveryPayload,
-    ) -> Result<(), String> {
-        let Some(expected_pty_id) = payload.expected_pty_id.as_deref() else {
-            return Err(DeliveryError::TabBusyRefused {
-                tab: tab_id.to_string(),
-                detail: "queued agent delivery has no PTY authority".into(),
-            }
-            .ledger_message());
-        };
-        let Some(expected_session_id) = payload.expected_session_id.as_deref() else {
-            return Err(DeliveryError::TabBusyRefused {
-                tab: tab_id.to_string(),
-                detail: "queued agent delivery has no session authority".into(),
-            }
-            .ledger_message());
-        };
-        let Some(expected_binding_nonce) = payload.expected_binding_nonce.as_deref() else {
-            return Err(DeliveryError::TabBusyRefused {
-                tab: tab_id.to_string(),
-                detail: "queued agent delivery has no binding authority".into(),
-            }
-            .ledger_message());
-        };
-        let delivery = self.authenticated_pty_delivery(
-            tab_id,
-            Some(expected_pty_id),
-            expected_session_id,
-            expected_binding_nonce,
-        )?;
-        match &payload.transport {
-            super::super::messenger::QueuedAgentPayload::Text { text } => self
-                .send_authenticated_delivery_with_options(
-                    delivery,
-                    text,
-                    super::submit_transaction::PtySubmitEntry::Messenger,
-                    true,
-                ),
-            super::super::messenger::QueuedAgentPayload::RoutedFrame {
-                opening_tag,
-                body,
-                suffix,
-            } => self.send_authenticated_delivery_with_routed_frame(
-                delivery,
-                codeterm_types::domios::DomiosFrame {
-                    opening_tag: opening_tag.clone(),
-                    body: body.clone(),
-                    suffix: suffix.clone(),
-                },
-            ),
-        }
-    }
-
     fn authenticated_pty_delivery(
         &self,
         tab_id: &str,

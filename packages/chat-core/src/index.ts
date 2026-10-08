@@ -64,10 +64,12 @@ export {
   imageMimeType,
   isImagePath,
   parseAttachmentMarkers,
+  splitReplyAttachment,
   type AttachmentKind,
   type AttachmentMarker,
   type AttachmentSegment,
   type ParsedAttachmentMarkers,
+  type ReplyAttributes,
 } from "./attachmentMarker";
 export { fileDiffText, hunkHeader } from "./fileDiffs";
 export {
@@ -81,7 +83,9 @@ export {
   messagesClipboard,
   messagesMarkdown,
   messagesQuote,
+  messagesExcerpt,
   messagesReference,
+  messagesReplyLabel,
   sourceDiffersFromVisible,
   toolEventText,
   type ClipboardFlavours,

@@ -117,7 +117,7 @@ fn frontend_restore_launch_arms_shared_readiness_with_snapshot_origin() {
         .split("fn dispatch_restored_snapshot_launch(")
         .nth(1)
         .expect("restored frontend launches use one dispatcher");
-    assert!(dispatcher.contains("launch_agent_in_background("));
+    assert!(dispatcher.contains("launch_agent_in_background_with_env("));
     assert!(dispatcher.contains("AgentLaunchOrigin::RestoredSnapshot"));
 
     let shared_launcher = include_str!("../../service/orchestrator/launch.rs");

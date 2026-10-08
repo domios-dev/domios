@@ -99,7 +99,7 @@ export function jobsAccessibleName({ count, running }: JobsIndicator): string {
 }
 
 export function canStopJob(job: MergedJob): boolean {
-  if (job.kind === "blueprint") return job.active && job.blueprint.stopAllowed;
+  if (job.kind === "blueprint") return job.state !== "stopped" && job.blueprint.stopAllowed;
   return job.kind === "cron"
     ? cronState(job.cron) === "Running"
     : ["active", "running", "finishing"].includes(job.state.toLowerCase()) && Boolean(job.sentinel.root?.stop.allowed);
@@ -137,7 +137,7 @@ function boundTabIds(job: MergedJob): (string | null | undefined)[] {
 export function tabJobState(job: MergedJob): TabJobState {
   if (job.kind === "cron" && job.cron.last_run?.status === "AwaitingOwnerPrompt") return "waiting on you";
   if (isJobRunning(job)) return "active";
-  return job.kind === "cron" && job.cron.enabled ? "scheduled" : "stopped";
+  return (job.kind === "cron" && job.cron.enabled) || (job.kind === "blueprint" && job.state === "idle") ? "scheduled" : "stopped";
 }
 
 export function tabJobKey(job: Pick<TabJob, "kind" | "id">): string {

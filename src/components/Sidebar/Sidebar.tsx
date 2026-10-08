@@ -743,7 +743,6 @@ export function Sidebar({
                       onActivateTab={(tabId) => { setActiveTab(generalWorkspace.id, tabId); onNavigateToTab?.(); }}
                       onCloseTab={(tabId) => animatedCloseTab(generalWorkspace.id, tabId)}
                       onRenameTab={(tabId, title) => setTabTitle(generalWorkspace.id, tabId, title)}
-                      onNewSession={() => handleNewSession(generalWorkspace.id, generalWorkspace.cwd ?? null)}
                       onOpenRemoteTab={() => setRemotePickerWorkspaceId(generalWorkspace.id)}
                       newSessionDisabled={firstRunActive}
                       onRenameTeam={teamActions?.onRenameTeam}

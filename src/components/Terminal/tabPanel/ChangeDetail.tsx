@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ClipboardCopy, ExternalLink, FolderOpen, Info } from "lucide-react";
+import { useCallback, useState } from "react";
+import { ClipboardCopy, ExternalLink, FolderOpen, Info, Maximize2 } from "lucide-react";
 import { FileDiffCards } from "@codeterm/chat-ui";
 import type { ChangesTurn, RecordedFileChange, ToolEvent } from "@codeterm/chat-core";
 import { IS_WEB, invoke } from "../../../lib/bridge";
@@ -8,6 +8,10 @@ import { setClientTabUiMode } from "../../../lib/clientTabUiMode";
 import { hunkHeader } from "@codeterm/chat-core";
 import { CHANGE_STATUS, changeContext, changesFilePath, diffCapsuleLabel, hunkCounts, hunkReference, turnNumber, unifiedDiffText } from "../changesViewModel";
 import { insertIntoComposer } from "../composerInsertion";
+import { Segmented } from "../../shared/Segmented";
+import { ChangeFileView } from "./ChangeFileView";
+import { ChangeFullscreen } from "./ChangeFullscreen";
+import { useTabPanelNavigation } from "./tabPanelNavigation";
 import { BackBar, ChangeBar, ChatAction, CopyAction, CountPair, IconAction, PanelPage, StatusGlyph, copyText } from "./PanelParts";
 
 /** Adds one diff capsule holding the recorded change and the file's current location while it still exists. */
@@ -28,6 +32,10 @@ export function ChangeDetail({ tabId, file, currentFile, turns, path, cwd, displ
   onBack: () => void;
 }) {
   const [error, setError] = useState<string | null>(null);
+  const [navigation, dispatch] = useTabPanelNavigation(tabId);
+  const view = navigation.changes.view;
+  const [fullscreen, setFullscreen] = useState(false);
+  const closeFullscreen = useCallback(() => setFullscreen(false), []);
   const reveal = useChatReveal();
   const deleted = currentFile.kind === "delete";
   const target = changesFilePath(currentFile, cwd);
@@ -40,13 +48,9 @@ export function ChangeDetail({ tabId, file, currentFile, turns, path, cwd, displ
     fileDiffs: diffs, message: { id: file.path, type: "tool_result", content: "" } };
   const hasHunks = file.diffs.some((diff) => diff.hunks.length > 0);
   const missingTurn = reveal?.tabId === tabId && file.turnIds.includes(reveal.messageId) && (reveal.outcome === "missing" || reveal.outcome === "no_chat");
-  return <PanelPage onBack={onBack} bar={<BackBar path={path} onBack={onBack} actions={<>
-    <IconAction label="Open file" icon={ExternalLink} disabled={IS_WEB || !target || deleted} title={IS_WEB ? "Opening files in the OS is available only in the desktop app" : undefined} onClick={() => perform("open_folder")} />
-    <IconAction label="Show in Explorer/Finder" icon={FolderOpen} disabled={IS_WEB || !target || deleted} title={IS_WEB ? "Opening files in the OS is available only in the desktop app" : undefined} onClick={() => perform("reveal_file")} />
-    <CopyAction label="Copy diff" icon={ClipboardCopy} disabled={!hasHunks} copy={() => copyText(unifiedDiffText({ ...file, diffs }))} />
-    <ChatAction label={`Ask about the change to ${path}`} text="Ask" onClick={() => askAboutChange(tabId, file, path, cwd, currentFile)} />
-  </>} />}>
-    <section aria-label={`Recorded edits for ${file.path}`}>
+  const content = view === "file"
+    ? <ChangeFileView tabId={tabId} target={target} deleted={deleted} onDiff={() => dispatch({ type: "change-view", view: "diff" })} />
+    : <section aria-label={`Recorded edits for ${file.path}`}>
       <div className="tab-panel__summary">
         <StatusGlyph kind={file.kind} />
         <span>{CHANGE_STATUS[file.kind].label}</span>
@@ -72,6 +76,17 @@ export function ChangeDetail({ tabId, file, currentFile, turns, path, cwd, displ
         <FileDiffCards event={event} initiallyExpanded rawCommand={false} renderHunkActions={(_diff, hunk) => <ChatAction compact text="Add to chat"
           label={`Add hunk ${hunkHeader(hunk)} to chat`} onClick={() => insertIntoComposer(tabId, { kind: "diff", label: diffCapsuleLabel(path, hunkCounts(hunk)), content: hunkReference(path, hunk) })} />} />
       </div>}
-    </section>
+    </section>;
+  return <PanelPage onBack={onBack} bar={<BackBar path={path} onBack={onBack} actions={<>
+    <Segmented aria-label="Change view" value={view} height={26} options={[{ value: "diff", label: "Diff" }, { value: "file", label: "File" }]}
+      onChange={(view) => dispatch({ type: "change-view", view })} />
+    <IconAction label="Fullscreen" icon={Maximize2} onClick={() => setFullscreen(true)} />
+    <IconAction label="Open file" icon={ExternalLink} disabled={IS_WEB || !target || deleted} title={IS_WEB ? "Opening files in the OS is available only in the desktop app" : undefined} onClick={() => perform("open_folder")} />
+    <IconAction label="Show in Explorer/Finder" icon={FolderOpen} disabled={IS_WEB || !target || deleted} title={IS_WEB ? "Opening files in the OS is available only in the desktop app" : undefined} onClick={() => perform("reveal_file")} />
+    <CopyAction label="Copy diff" icon={ClipboardCopy} disabled={!hasHunks} copy={() => copyText(unifiedDiffText({ ...file, diffs }))} />
+    <ChatAction label={`Ask about the change to ${path}`} text="Ask" onClick={() => askAboutChange(tabId, file, path, cwd, currentFile)} />
+  </>} />}>
+    {error && view === "file" && <p role="alert" className="tab-panel__note">{error}</p>}
+    {fullscreen ? <ChangeFullscreen path={path} onClose={closeFullscreen}>{content}</ChangeFullscreen> : content}
   </PanelPage>;
 }

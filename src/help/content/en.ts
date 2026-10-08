@@ -86,7 +86,7 @@ export const enHelpContent: HelpLocaleContent = {
             "Orchestrator — owns the plan, delegates planning work, dispatches workers in parallel worktree lanes, gates their results, and integrates branches.",
             "Planner — subordinate specialist that drafts goal, spec, plan, tasks, and decision options when asked; never runs implementation.",
             "Worker — does ONE task in its own git worktree, reports back, exits. Never spawns other agents.",
-            "General Agent — the always-on machine brain: answers you anywhere, watches integrations, and can become an Orchestrator when you ask.",
+            "General Agent — the always-on machine brain: answers you anywhere, watches your messengers and plugins, and can become an Orchestrator when you ask.",
           ],
         },
         {
@@ -379,27 +379,29 @@ export const enHelpContent: HelpLocaleContent = {
       ],
     },
     {
-      id: "integrations",
-      title: "Integrations",
-      subtitle: "Bridges to the outside world",
+      id: "messengers",
+      title: "Messengers",
+      subtitle: "Reach your agents from Telegram",
       blocks: [
         {
           type: "paragraph",
-          text: "Bridges connect outside channels to your agents. The Telegram bridge is the flagship: message your General Agent from your phone, get answers, voice messages are transcribed before delivery, and agents can push notifications back when something needs you.",
+          text: "Messengers connect a chat app to your General Agent. Telegram is built in: write to your bot from anywhere, voice messages arrive transcribed, and agents message you back when something needs you. Set it up in Settings > General > Messengers.",
         },
         {
           type: "list",
           items: [
-            "Inbound messages carry a return address — the agent answers in the channel you wrote from, not in the tab.",
-            "Allowed-user lists gate who can talk to your machine; tokens live in the secret store, not in configs.",
-            "Discord and other bridges follow the same pattern when enabled; text hooks let you intercept and route messages programmatically.",
+            "Replies go back to the chat you wrote from, not to a tab.",
+            "Only the Telegram user IDs you allow reach your machine.",
+            "The bot token is saved to your secret store, never to a config file.",
+            "To let agents act from your own Telegram or Teams account instead of a bot, see the messenger plugins section.",
           ],
         },
+        { type: "settings-link", label: "Open Messengers settings", target: "telegram-bridge" },
         {
           type: "ask",
-          label: "Ask the General Agent: what integrations are live here?",
+          label: "Ask the General Agent: which messengers are connected?",
           question:
-            "A user is reading the Domios guide (integrations section) and pressed 'Ask the agent'. Check which integrations/bridges are configured and enabled on this machine and summarize their status. If none are set up, recommend which one to start with and where the setup lives in Settings.",
+            "A user is reading the Domios guide (messengers section) and pressed 'Ask the agent'. Check whether the Telegram bot bridge is connected on this machine, as which bot, and which user IDs are allowed. Show it with @ds-connect telegram. If it is not connected, say what the next step is in one sentence.",
         },
       ],
     },
@@ -417,12 +419,11 @@ export const enHelpContent: HelpLocaleContent = {
           ordered: true,
           items: [
             "Create a bot with @BotFather in Telegram and copy the token it gives you.",
-            "Save the token to ~/.codeterm/secrets/telegram.token on this machine.",
-            "Open the Telegram settings below, turn the bridge on and add your Telegram user ID to the allowed users.",
-            "Restart the bridge, then send your bot a message.",
+            "Paste the token below and press Connect. It is saved to your secret store.",
+            "Add your Telegram user ID to the allowed users in Settings > General > Messengers.",
+            "Send your bot a message.",
           ],
         },
-        { type: "settings-link", label: "Connect Telegram", target: "telegram-bridge" },
         {
           type: "tip",
           text: "Only allowed user IDs reach your machine. Leave the list empty only on a bot nobody else knows about.",
@@ -431,8 +432,9 @@ export const enHelpContent: HelpLocaleContent = {
           type: "ask",
           label: "Ask the General Agent: help me connect my phone",
           question:
-            "A user is reading the Domios guide (phone section) and pressed 'Ask the agent'. Check whether the Telegram bot bridge is enabled, whether a token is stored and which user IDs are allowed. Walk them through the next missing step only, one step at a time.",
+            "A user is reading the Domios guide (phone section) and pressed 'Ask the agent'. Check whether the Telegram bot bridge is connected, whether a token is stored and which user IDs are allowed. Walk them through the next missing step only, one step at a time, and show @ds-connect telegram while it is not connected.",
         },
+        { type: "connect", bridgeId: "telegram" },
       ],
     },
     {

@@ -64,20 +64,29 @@ export interface SettingsCardRoute {
 
 /** Retired section ids that still arrive from old links. */
 export type LegacySectionId = "integrations";
-export type SettingsLinkId = SectionId | LegacySectionId;
+/** Links straight to one card inside a section. */
+export type CardLinkId = "messengers";
+export type SettingsLinkId = SectionId | LegacySectionId | CardLinkId;
 
 export interface SettingsLinkRoute {
   section: SectionId;
   card?: SettingsCardAnchorId;
 }
 
-const LEGACY_ROUTES: Record<LegacySectionId, SettingsLinkRoute> = {
+const CARD_ROUTES: Record<LegacySectionId | CardLinkId, SettingsLinkRoute> = {
   integrations: { section: "general", card: "telegram-bridge" },
+  messengers: { section: "general", card: "telegram-bridge" },
 };
+
+const own = (record: object, key: string) => Object.prototype.hasOwnProperty.call(record, key);
+
+export function isSettingsLinkId(id: string): id is SettingsLinkId {
+  return own(CARD_ROUTES, id) || own(SECTION_ICONS, id);
+}
 
 export function resolveSettingsLink(id: SettingsLinkId | undefined): SettingsLinkRoute | undefined {
   if (!id) return undefined;
-  return id in LEGACY_ROUTES ? LEGACY_ROUTES[id as LegacySectionId] : { section: id as SectionId };
+  return own(CARD_ROUTES, id) ? CARD_ROUTES[id as LegacySectionId | CardLinkId] : { section: id as SectionId };
 }
 
 const HELP_SETTINGS_ROUTES: Record<HelpSettingsTarget, SettingsCardRoute> = {

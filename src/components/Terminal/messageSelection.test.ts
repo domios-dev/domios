@@ -51,6 +51,34 @@ describe("reduceMessageSelection", () => {
     expect(reduceMessageSelection(state, { type: "prune", order: ORDER })).toBe(state);
   });
 
+  it("a drag selects whole rows from its start to the pointer and shrinks when the pointer comes back", () => {
+    const start = (id: string, extend = false): MessageSelectionAction => ({ type: "dragStart", id, order: ORDER, extend });
+    const to = (id: string): MessageSelectionAction => ({ type: "dragTo", id, order: ORDER });
+    const dragging = run(start("b"), to("d"));
+    expect(dragging.selected).toEqual(["b", "c", "d"]);
+    expect(selectionActive(dragging)).toBe(true);
+    expect(reduceMessageSelection(dragging, to("c")).selected).toEqual(["b", "c"]);
+    expect(reduceMessageSelection(dragging, to("a")).selected).toEqual(["a", "b"]);
+    const done = reduceMessageSelection(dragging, { type: "dragEnd" });
+    expect(done.drag).toBeNull();
+    expect(done.base).toEqual(["b", "c", "d"]);
+  });
+
+  it("a drag keeps earlier picks, and one starting on a selected row removes instead", () => {
+    const start = (id: string): MessageSelectionAction => ({ type: "dragStart", id, order: ORDER, extend: false });
+    const to = (id: string): MessageSelectionAction => ({ type: "dragTo", id, order: ORDER });
+    expect(run(toggle("a"), start("c"), to("d"), { type: "dragEnd" }).selected).toEqual(["a", "c", "d"]);
+    expect(run(toggle("a"), toggle("b"), toggle("c"), start("b"), to("c"), { type: "dragEnd" }).selected).toEqual(["a"]);
+    expect(run(toggle("b"), start("b"), { type: "dragEnd" })).toBe(EMPTY_SELECTION);
+  });
+
+  it("a press without a drag toggles its row, and shift extends from the anchor", () => {
+    const press = (id: string, extend = false): MessageSelectionAction[] => [{ type: "dragStart", id, order: ORDER, extend }, { type: "dragEnd" }];
+    expect(run(...press("c")).selected).toEqual(["c"]);
+    expect(run(...press("b"), ...press("d", true)).selected).toEqual(["b", "c", "d"]);
+    expect(run({ type: "dragTo", id: "c", order: ORDER })).toBe(EMPTY_SELECTION);
+  });
+
   it("clear resets everything", () => {
     expect(run(toggle("a"), { type: "clear" })).toBe(EMPTY_SELECTION);
   });
@@ -58,4 +86,34 @@ describe("reduceMessageSelection", () => {
   it("orderedSelection follows transcript order, not pick order", () => {
     expect(orderedSelection(run(toggle("d"), toggle("a"), toggle("c")), ORDER)).toEqual(["a", "c", "d"]);
   });
+});
+
+
+it("counts partial selections as parts and restores a whole message when all its parts are selected", async () => {
+  const { indexMessageParts, clipsForParts, partSelectionSummary } = await import("./messagePartSelection");
+  const index = indexMessageParts([
+    { id: "m", role: "assistant", author: "Agent", source: "  First.\n\nSecond.\n" },
+    { id: "n", role: "assistant", author: "Agent", source: "Next." },
+  ]);
+  const [first, second, next] = index.order;
+  const partial = partSelectionSummary(index, [second, next]);
+  expect(partial.partial).toBe(true);
+  expect(partial.count).toBe(2);
+  expect(clipsForParts(index, [second, next]).map((clip) => clip.source)).toEqual(["Second.", "Next."]);
+  const whole = partSelectionSummary(index, [first, second, next]);
+  expect(whole.partial).toBe(false);
+  expect(whole.count).toBe(2);
+  expect(clipsForParts(index, [first, second])[0].source).toBe("  First.\n\nSecond.\n");
+  expect(clipsForParts(index, ["missing"])).toEqual([]);
+});
+
+it("adds and removes a contiguous range of source part IDs across message boundaries", () => {
+  const order = ["a:0-10", "a:12-20", "b:0-6", "b:8-14"];
+  const start = reduceMessageSelection(EMPTY_SELECTION, { type: "dragStart", id: order[1], order, extend: false });
+  const added = reduceMessageSelection(start, { type: "dragTo", id: order[3], order });
+  expect(orderedSelection(added, order)).toEqual(["a:12-20", "b:0-6", "b:8-14"]);
+  const ended = reduceMessageSelection(added, { type: "dragEnd" });
+  const removing = reduceMessageSelection(ended, { type: "dragStart", id: order[3], order, extend: false });
+  const removed = reduceMessageSelection(removing, { type: "dragTo", id: order[2], order });
+  expect(orderedSelection(removed, order)).toEqual(["a:12-20"]);
 });

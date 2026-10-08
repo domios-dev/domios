@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { List, Square, X } from "lucide-react";
+import { BlueprintExportButton } from "./BlueprintExportButton";
 import { BlueprintCanvas, type CanvasReplay } from "./BlueprintCanvas";
 import { BlueprintNodeDetails } from "./BlueprintNodeDetails";
 import { layoutBlueprint } from "./blueprintLayout";
@@ -7,7 +8,7 @@ import { blueprintModel } from "./blueprintModel";
 import { replayFrame, replaySteps, runRow } from "./blueprintRunModel";
 import { clampLogHeight, readLogHeight, writeLogHeight } from "./dividerModel";
 import { RunDivider } from "./RunDivider";
-import { RunLog, runTime } from "./RunLog";
+import { RunLog } from "./RunLog";
 import { graphRuns } from "./runLogModel";
 import { usePresence, type PresenceMotion } from "../Canvas/usePresence";
 import { automationState, scopedAutomationGraph } from "./model";
@@ -15,6 +16,8 @@ import { sentinelTitle } from "./scenarios";
 import { AUTOMATION_TOOL, stateTone } from "./styles";
 import { ALL_JOBS_SCOPE, automationKey, type AutomationGraph, type AutomationIdentity, type AutomationScenario, type AutomationScope } from "./types";
 import { useBlueprintReplay } from "./useBlueprintReplay";
+import { BlueprintReplayStatus } from "./BlueprintReplayStatus";
+import { useBlueprintReplaySelection } from "./useBlueprintReplaySelection";
 import type { AutomationCamera } from "./useAutomationViewport";
 
 export interface ScenarioState {
@@ -53,7 +56,6 @@ export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBac
   backLabel: string; onBack: () => void; headingLevel?: 2 | 3; fill?: boolean; initialRunId?: string; children?: ReactNode;
 }) {
   const [runsOpen, setRunsOpen] = useState(true);
-  const [replay, setReplay] = useState<{ key: string; nonce: number } | null>(initialRunId ? { key: initialRunId, nonce: 0 } : null);
   const [selected, setSelected] = useState<string | null>(camera.selected);
   const [logHeight, setLogHeight] = useState(() => readLogHeight(storage()));
   const body = useMeasuredHeight<HTMLDivElement>();
@@ -81,12 +83,15 @@ export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBac
   const model = useMemo(() => graph ? blueprintModel(graph) : null, [graph]);
   const layout = useMemo(() => model ? layoutBlueprint(model) : null, [model]);
   const rows = useMemo(() => graph && model ? graphRuns(graph).map((run) => runRow(model, run)) : [], [graph, model]);
-  const replayRow = replay ? rows.find((row) => row.key === replay.key) ?? null : null;
-  const steps = useMemo(() => model && replayRow ? replaySteps(model, replayRow.run) : null, [model, replayRow]);
+  const replaySelection = useBlueprintReplaySelection(model, rows, initialRunId);
+  const replay = replaySelection.selection;
+  const replayRow = replaySelection.shown?.row ?? null;
+  const steps = replaySelection.shown?.steps ?? null;
   const frame = useBlueprintReplay(steps, replay?.nonce ?? 0);
+  const outcome = replaySelection.shown?.outcome ?? null;
   const liveRow = rows.find((row) => row.status === "running");
   const live = useMemo(() => model && liveRow ? replayFrame(replaySteps(model, liveRow.run), 0, true) : null, [model, liveRow]);
-  const canvasReplay: CanvasReplay | null = frame ? { frame, live: false } : live ? { frame: live, live: true } : null;
+  const canvasReplay: CanvasReplay | null = frame ? { frame, live: false, outcome } : live ? { frame: live, live: true } : null;
 
   const root = graph?.nodes.find((candidate) => automationKey(candidate.identity) === automationKey(scenario.root));
   const title = sentinelTitle(scenario, root ?? null);
@@ -112,9 +117,9 @@ export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBac
   const state_ = root ? automationState(root) : null;
   const cadence = root?.schedule ?? (root?.cadence_ms ? `every ${root.cadence_ms / 1000} s` : null);
   const replayBar = replay && frame && replayRow ? <div className="ml-auto flex min-w-[12rem] items-center gap-2.5" role="group" aria-label="Replay">
-    <span className="whitespace-nowrap text-xs text-[var(--ct-fg)]">{frame.done ? "Replayed" : "Replaying"} run {runTime(replayRow.at)}</span>
+    <BlueprintReplayStatus done={frame.done} at={replayRow.at} outcome={outcome} />
     <span className="bp-replay-bar w-24" role="progressbar" aria-label="Replay progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(frame.overall * 100)}><span style={{ width: `${frame.overall * 100}%` }} /></span>
-    <button type="button" className={AUTOMATION_TOOL} onClick={() => setReplay(null)}><Square size={12} aria-hidden="true" />{frame.done ? "Clear" : "Stop"}</button>
+    <button type="button" className={AUTOMATION_TOOL} onClick={replaySelection.clear}><Square size={12} aria-hidden="true" />{frame.done ? "Clear" : "Stop"}</button>
   </div> : null;
 
   return <div className={`flex min-w-0 flex-col ${fill ? "min-h-0 flex-1" : ""}`} onKeyDown={(event) => {
@@ -125,6 +130,7 @@ export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBac
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--ct-border)] py-2.5 pl-4 pr-3">
       <Heading className="min-w-0 flex-[1_1_12rem] truncate text-[length:var(--ct-font-size-md)] font-semibold text-[var(--ct-fg)]">{title}</Heading>
       {state_ && <span className="flex items-center gap-1.5 text-xs text-[var(--ct-muted-fg)]"><span className={`h-1.5 w-1.5 rounded-full ${stateTone(state_)}`} aria-hidden="true" />{state_}{cadence ? ` · ${cadence}` : ""}</span>}
+      <BlueprintExportButton workspaceId={scope.workspace_id} teamId={scenario.root.team_id} id={scenario.root.id} />
       {root && <button type="button" className={AUTOMATION_TOOL} disabled={!root.stop.allowed || state.failed || state.stopping !== null} onClick={() => void state.stop(root.identity)}>{state.stopping ? "Stopping…" : "Stop Blueprint"}</button>}
       <button type="button" className={AUTOMATION_TOOL} aria-expanded={runsOpen} aria-controls="blueprint-run-log" onClick={() => setRunsOpen(!runsOpen)}><List size={14} aria-hidden="true" />Runs</button>
       <button type="button" className="plan-side-panel__action" aria-label="Close Blueprint" title={`Close and return to ${backLabel} (Esc)`} onClick={onBack}><X size={15} aria-hidden="true" /></button>
@@ -137,7 +143,7 @@ export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBac
         <BlueprintCanvas layout={layout} selected={selected} camera={camera} onSelect={select} replay={canvasReplay} panelOpen={selected !== null} toolbar={replayBar} />
         {runsOpen && <>
           <RunDivider height={clampLogHeight(logHeight, available)} available={available} controls="blueprint-run-log" onResize={resizeLog} />
-          <RunLog rows={rows} model={model} selected={replay?.key ?? null} truncated={graph.nodes.some((node) => node.history_truncated)} height={clampLogHeight(logHeight, available)} onReplay={(row) => setReplay((current) => ({ key: row.key, nonce: (current?.nonce ?? 0) + 1 }))} />
+          <RunLog rows={rows} model={model} selected={replay?.key ?? null} truncated={graph.nodes.some((node) => node.history_truncated)} height={clampLogHeight(logHeight, available)} onReplay={replaySelection.replay} />
         </>}
       </div>
       {drawer.state && shown !== null && <div className="plan-side-panel-layer">
