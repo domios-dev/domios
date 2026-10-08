@@ -57,4 +57,4 @@ test("only running builds animate, with live reduced-motion and cleanup", async 
   }
 });
 
-await run();
+void run();
