@@ -8,6 +8,28 @@ use super::ObservationTrigger;
 
 const FRAME_INTERVAL: Duration = Duration::from_secs(5);
 
+#[derive(Clone, Copy)]
+enum Cause {
+    Frame,
+    FirstOpinion,
+    Lifecycle(&'static str),
+}
+
+impl From<ObservationTrigger> for Cause {
+    fn from(trigger: ObservationTrigger) -> Self {
+        match trigger {
+            ObservationTrigger::OutputCandidate | ObservationTrigger::ParkedEdge => {
+                Self::FirstOpinion
+            }
+            ObservationTrigger::SpawnReady => Self::Lifecycle("ready"),
+            ObservationTrigger::SpawnDeadline => Self::Lifecycle("deadline"),
+            ObservationTrigger::StartupEscalation => Self::Lifecycle("escalation"),
+            ObservationTrigger::TabExit => Self::Lifecycle("exit"),
+            _ => Self::Frame,
+        }
+    }
+}
+
 #[derive(Default)]
 struct Admission {
     session: String,
@@ -15,6 +37,7 @@ struct Admission {
     frames: HashSet<u64>,
     events: HashMap<&'static str, u64>,
     last_frame_at: Option<Instant>,
+    first_opinion_observed: bool,
 }
 
 impl Admission {
@@ -23,7 +46,7 @@ impl Admission {
         session: &str,
         episode: u64,
         frame: u64,
-        event: Option<&'static str>,
+        cause: Cause,
         now: Instant,
     ) -> bool {
         if self.session != session {
@@ -37,7 +60,12 @@ impl Admission {
             self.frames.clear();
             self.events.clear();
         }
-        if let Some(event) = event {
+        if matches!(cause, Cause::FirstOpinion) && !self.first_opinion_observed {
+            self.first_opinion_observed = true;
+            self.frames.insert(frame);
+            return true;
+        }
+        if let Cause::Lifecycle(event) = cause {
             if self.events.get(event) == Some(&frame) {
                 return false;
             }
@@ -61,19 +89,12 @@ impl Admission {
 static ADMISSIONS: LazyLock<Mutex<HashMap<String, Admission>>> = LazyLock::new(Default::default);
 
 pub(super) fn claim(tab: &str, session: &str, frame: u64, trigger: ObservationTrigger) -> bool {
-    let event = match trigger {
-        ObservationTrigger::SpawnReady => Some("ready"),
-        ObservationTrigger::SpawnDeadline => Some("deadline"),
-        ObservationTrigger::StartupEscalation => Some("escalation"),
-        ObservationTrigger::TabExit => Some("exit"),
-        _ => None,
-    };
     let episode = super::state::episode(tab, session);
     ADMISSIONS.lock().entry(tab.into()).or_default().claim(
         session,
         episode,
         frame,
-        event,
+        trigger.into(),
         Instant::now(),
     )
 }
@@ -92,7 +113,13 @@ mod tests {
         let start = Instant::now();
         let calls = (0..900)
             .filter(|second| {
-                admission.claim("launch", 1, 42, None, start + Duration::from_secs(*second))
+                admission.claim(
+                    "launch",
+                    1,
+                    42,
+                    Cause::Frame,
+                    start + Duration::from_secs(*second),
+                )
             })
             .count();
         assert_eq!(calls, 1);
@@ -108,34 +135,84 @@ mod tests {
                     "launch",
                     1,
                     *second,
-                    None,
+                    Cause::Frame,
                     start + Duration::from_secs(*second),
                 )
             })
             .count();
         assert_eq!(calls, 12);
-        assert!(admission.claim("launch", 1, 59, None, start + Duration::from_secs(60)));
-        assert!(!admission.claim("launch", 1, 59, None, start + Duration::from_secs(90)));
+        assert!(admission.claim(
+            "launch",
+            1,
+            59,
+            Cause::Frame,
+            start + Duration::from_secs(60)
+        ));
+        assert!(!admission.claim(
+            "launch",
+            1,
+            59,
+            Cause::Frame,
+            start + Duration::from_secs(90)
+        ));
     }
 
     #[test]
     fn lifecycle_events_and_new_launches_can_observe_an_unchanged_frame_once() {
         let mut admission = Admission::default();
         let now = Instant::now();
-        assert!(admission.claim("launch", 1, 42, None, now));
-        assert!(admission.claim("launch", 1, 42, Some("deadline"), now));
-        assert!(!admission.claim("launch", 1, 42, Some("deadline"), now));
-        assert!(admission.claim("launch", 1, 42, Some("exit"), now));
-        assert!(admission.claim("next-launch", 1, 42, None, now));
+        assert!(admission.claim("launch", 1, 42, Cause::Frame, now));
+        assert!(admission.claim("launch", 1, 42, Cause::Lifecycle("deadline"), now));
+        assert!(!admission.claim("launch", 1, 42, Cause::Lifecycle("deadline"), now));
+        assert!(admission.claim("launch", 1, 42, Cause::Lifecycle("exit"), now));
+        assert!(admission.claim("next-launch", 1, 42, Cause::Frame, now));
+    }
+
+    #[test]
+    fn first_opinion_is_once_per_launch_and_preserves_the_periodic_rate_bound() {
+        let mut admission = Admission::default();
+        let now = Instant::now();
+        assert!(admission.claim("launch", 1, 42, Cause::Frame, now));
+        assert!(admission.claim(
+            "launch",
+            1,
+            42,
+            ObservationTrigger::OutputCandidate.into(),
+            now
+        ));
+        for frame in 42..100 {
+            assert!(!admission.claim(
+                "launch",
+                1,
+                frame,
+                ObservationTrigger::ParkedEdge.into(),
+                now
+            ));
+        }
+        assert!(!admission.claim("launch", 2, 43, Cause::FirstOpinion, now));
+        assert!(admission.claim("next-launch", 2, 43, Cause::FirstOpinion, now));
+        assert!(!admission.claim("next-launch", 2, 43, Cause::Frame, now));
+        let calls = (0..60)
+            .filter(|second| {
+                admission.claim(
+                    "next-launch",
+                    2,
+                    100 + *second,
+                    Cause::FirstOpinion,
+                    now + Duration::from_secs(*second),
+                )
+            })
+            .count();
+        assert_eq!(calls, 12);
     }
 
     #[test]
     fn returning_to_an_observed_frame_in_the_same_episode_is_suppressed() {
         let mut admission = Admission::default();
         let now = Instant::now();
-        assert!(admission.claim("launch", 1, 42, None, now));
-        assert!(admission.claim("launch", 1, 43, None, now + FRAME_INTERVAL));
-        assert!(!admission.claim("launch", 1, 42, None, now + FRAME_INTERVAL * 2));
-        assert!(admission.claim("launch", 2, 42, None, now + FRAME_INTERVAL * 2));
+        assert!(admission.claim("launch", 1, 42, Cause::Frame, now));
+        assert!(admission.claim("launch", 1, 43, Cause::Frame, now + FRAME_INTERVAL));
+        assert!(!admission.claim("launch", 1, 42, Cause::Frame, now + FRAME_INTERVAL * 2));
+        assert!(admission.claim("launch", 2, 42, Cause::Frame, now + FRAME_INTERVAL * 2));
     }
 }
