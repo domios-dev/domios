@@ -67,7 +67,7 @@ function LoadedLocalArtifact({
   const close = useCallback(() => setFullscreen(false), []);
   useFullscreenKeyboard(fullscreen, fullscreenRef, close);
   const sectionRef = useRef<HTMLElement>(null);
-  const { host: fullscreenHost, bounds } = useFullscreenHostBounds(fullscreen, sectionRef, fullscreenHostSelector);
+  const { bounds } = useFullscreenHostBounds(fullscreen, sectionRef, fullscreenHostSelector);
   useEffect(() => { if (fullscreenRequest) setFullscreen(true); }, [fullscreenRequest]);
   const generation = useRef(0);
   const onLoadedRef = useRef(onLoaded);
@@ -145,7 +145,7 @@ function LoadedLocalArtifact({
           <button type="button" onClick={close} aria-label="Close fullscreen"><X size={15} /></button>
         </header>
         <div className="min-h-0 flex-1 overflow-auto p-4 text-sm">{content}</div>
-      </FullscreenOverlay>, fullscreenHost ?? document.body)}
+      </FullscreenOverlay>, document.body)}
     </section>
   );
 }
