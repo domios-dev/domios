@@ -56,6 +56,9 @@ impl PluginManifest {
         }
         manifest.capabilities.validate_tab_menu()?;
         manifest.capabilities.validate_surfaces()?;
+        manifest
+            .capabilities
+            .drop_invalid_surface_icons(&manifest.id);
         for credential in &manifest.credentials {
             if let Some(environment) = &credential.file_environment {
                 environment.validate()?;

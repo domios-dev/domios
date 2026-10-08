@@ -19,6 +19,7 @@ fn board(agent_bound: bool) -> SurfaceDecl {
         restore: SurfaceRestore::Relaunch,
         runtime: None,
         chrome: None,
+        icon: None,
     }
 }
 
@@ -31,6 +32,7 @@ fn browser_stream() -> SurfaceDecl {
         restore: SurfaceRestore::Placeholder,
         runtime: Some("browser".into()),
         chrome: Some(serde_json::json!({ "items": [] })),
+        icon: Some("globe".into()),
     }
 }
 
@@ -135,12 +137,10 @@ fn surface_open_of_a_stream_surface_needs_its_runtime_not_a_view() {
     assert_eq!(value["renderer"], "stream");
     assert_eq!(value["runtime"], "browser");
     assert_eq!(value["chrome"], serde_json::json!({ "items": [] }));
-    assert!(
-        serde_json::to_value(DeclaredSurfaceRow::new("dash", &board(false)))
-            .unwrap()
-            .get("runtime")
-            .is_none()
-    );
+    assert_eq!(value["icon"], "globe");
+    let board_row = serde_json::to_value(DeclaredSurfaceRow::new("dash", &board(false))).unwrap();
+    assert!(board_row.get("runtime").is_none());
+    assert!(board_row.get("icon").is_none());
 }
 
 #[test]

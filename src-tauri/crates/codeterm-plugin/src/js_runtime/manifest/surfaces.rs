@@ -7,6 +7,7 @@ use super::Capabilities;
 const MAX_SURFACES: usize = 8;
 const MAX_SURFACE_ID_BYTES: usize = 32;
 const MAX_SURFACE_TITLE_CHARS: usize = 32;
+const MAX_SURFACE_ICON_BYTES: usize = 40;
 
 /// How core renders a surface tab: the sandboxed plugin view, or frames from a core runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,6 +54,9 @@ pub struct SurfaceDecl {
     /// Toolbar spec core passes through to the frontend untouched.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chrome: Option<serde_json::Value>,
+    /// Lucide-style icon name for the surface's tab; an invalid name is dropped at load.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 impl SurfaceDecl {
@@ -98,6 +102,18 @@ impl SurfaceDecl {
     }
 }
 
+/// A lowercase kebab name such as `globe` or `layout-dashboard`.
+fn valid_surface_icon(icon: &str) -> bool {
+    !icon.is_empty()
+        && icon.len() <= MAX_SURFACE_ICON_BYTES
+        && !icon.starts_with('-')
+        && !icon.ends_with('-')
+        && !icon.contains("--")
+        && icon
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
 fn valid_surface_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= MAX_SURFACE_ID_BYTES
@@ -117,6 +133,18 @@ fn valid_surface_title(title: &str) -> bool {
 }
 
 impl Capabilities {
+    /// A bad icon only costs the tab its glyph, so it is dropped rather than failing the plugin.
+    pub fn drop_invalid_surface_icons(&mut self, plugin_id: &str) {
+        for surface in &mut self.surfaces {
+            if let Some(icon) = surface.icon.take_if(|icon| !valid_surface_icon(icon)) {
+                log::warn!(
+                    "[plugin] {plugin_id}: surface '{}' icon '{icon}' must be a lowercase kebab name of at most {MAX_SURFACE_ICON_BYTES} characters; ignored",
+                    surface.id
+                );
+            }
+        }
+    }
+
     pub fn surface(&self, surface_id: &str) -> Option<&SurfaceDecl> {
         self.surfaces
             .iter()

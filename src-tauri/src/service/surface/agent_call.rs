@@ -137,6 +137,7 @@ impl ServiceContext {
             .surface_runtime(&tab_id)
             .map_err(|error| error.message())?;
         let ctx = self.surface_call_ctx(&binding);
+        self.note_surface_activity(&binding.tab_id, verb);
         let verb = verb.to_string();
         block_on_runtime(async move { runtime.agent_verb(&ctx, &verb, &args).await })
     }

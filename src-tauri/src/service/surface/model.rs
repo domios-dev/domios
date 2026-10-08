@@ -119,6 +119,8 @@ pub(crate) struct DeclaredSurfaceRow {
     pub runtime: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chrome: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 impl DeclaredSurfaceRow {
@@ -132,6 +134,7 @@ impl DeclaredSurfaceRow {
             restore: surface.restore,
             runtime: surface.stream_runtime().map(str::to_string),
             chrome: surface.chrome.clone(),
+            icon: surface.icon.clone(),
         }
     }
 }

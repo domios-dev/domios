@@ -292,6 +292,7 @@ impl ServiceFixture {
             surface_runtimes: Arc::new(
                 super::surface::SurfaceRuntimeRegistry::with_builtin_runtimes(&data_dir),
             ),
+            surface_activity: Default::default(),
             receiver_targets: Arc::new(crate::service::receiver_target::ReceiverTargetStore::open(
                 data_dir.join("receiver-targets.json"),
             )),

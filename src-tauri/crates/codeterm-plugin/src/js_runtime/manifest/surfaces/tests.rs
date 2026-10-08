@@ -34,6 +34,7 @@ fn surface_manifest_parses_view_surface_with_defaults() {
             restore: SurfaceRestore::Relaunch,
             runtime: None,
             chrome: None,
+            icon: None,
         }]
     );
     assert_eq!(
@@ -180,4 +181,40 @@ fn surface_manifest_rejects_stream_without_valid_runtime_and_view_with_stream_fi
     let mut view_with_runtime = surface();
     view_with_runtime["runtime"] = serde_json::json!("browser");
     assert!(manifest(with_view(vec![view_with_runtime])).is_err());
+}
+
+#[test]
+fn surface_manifest_keeps_a_kebab_icon_and_round_trips_it() {
+    for icon in ["globe", "layout-dashboard", "app-window-2"] {
+        let mut declared = surface();
+        declared["icon"] = serde_json::json!(icon);
+        let parsed = manifest(with_view(vec![declared])).expect("valid icon");
+        assert_eq!(parsed.capabilities.surfaces[0].icon.as_deref(), Some(icon));
+        let value = serde_json::to_value(&parsed.capabilities).expect("serialize");
+        assert_eq!(value["surfaces"][0]["icon"], icon);
+    }
+}
+
+#[test]
+fn surface_manifest_drops_an_invalid_icon_and_still_loads() {
+    let too_long = "a".repeat(MAX_SURFACE_ICON_BYTES + 1);
+    for icon in [
+        "Globe",
+        "",
+        "-globe",
+        "globe-",
+        "two--dashes",
+        "globe icon",
+        "../x",
+        "https://x/icon.svg",
+        too_long.as_str(),
+    ] {
+        let mut declared = surface();
+        declared["icon"] = serde_json::json!(icon);
+        let parsed = manifest(with_view(vec![declared])).expect("an icon never fails the plugin");
+        assert_eq!(parsed.capabilities.surfaces[0].icon, None, "kept {icon:?}");
+    }
+    let mut not_a_string = surface();
+    not_a_string["icon"] = serde_json::json!(7);
+    assert!(manifest(with_view(vec![not_a_string])).is_err());
 }

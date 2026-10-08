@@ -33,6 +33,7 @@ A plugin declares its surfaces in `plugin.json`:
 | `chrome` | Optional, `stream` only: a toolbar spec object core passes to the frontend untouched |
 | `agentBound` | Optional. The tab is labelled after its owner, e.g. `Jev's Board` |
 | `restore` | Optional: `relaunch` (default), `placeholder` or `none` |
+| `icon` | Optional: a Lucide icon name for the tab, lowercase kebab of at most 40 characters (e.g. `globe`); an invalid name is ignored with a warning instead of failing the load. `GET /api/surfaces` carries it on the declared row |
 
 A plugin declares at most 8 surfaces. A manifest that breaks a rule fails to
 load, so the plugin never registers a surface it cannot render.

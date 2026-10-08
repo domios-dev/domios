@@ -1,5 +1,6 @@
 //! Plugin surface tabs: a core-owned tab frame whose content a plugin view renders.
 
+mod activity;
 mod agent_call;
 mod browser;
 mod exit;
@@ -10,10 +11,11 @@ pub(crate) mod runtime;
 mod stream_ops;
 mod transport;
 
+pub(crate) use activity::{is_agent_method, SurfaceActivityGate};
 pub(crate) use exit::{begin_surface_shutdown, SurfaceShutdown};
 pub(crate) use model::{SurfaceError, SurfaceOpenRequest};
 pub(crate) use runtime::SurfaceRuntimeRegistry;
-pub(crate) use stream_ops::{call_surface, open_surface_stream, SurfaceCallFailure};
+pub(crate) use stream_ops::{call_surface, open_surface_stream, CallOrigin, SurfaceCallFailure};
 pub(crate) use transport::SurfaceTransport;
 
 use super::ServiceContext;
