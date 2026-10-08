@@ -1,3 +1,4 @@
+import { formatAge } from "../../../lib/timeLabels";
 import type { Tab } from "../../../lib/types";
 import type { Task, TaskStatus } from "../types";
 import { CHIP_FIELD_LABELS, pickHighestLaneWarning, type LaneWarningId } from "./laneWatchdogLabels";
@@ -45,14 +46,7 @@ function activityTs(task: Task): number {
 }
 
 function ageLabel(ts: number, now: number): string | null {
-  if (!ts || ts <= 0) return null;
-  const secs = Math.max(0, Math.floor((now - ts) / 1000));
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  return `${Math.floor(hours / 24)}d`;
+  return ts > 0 ? formatAge(ts, now) : null;
 }
 
 function chip(

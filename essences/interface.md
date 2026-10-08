@@ -33,7 +33,7 @@ The table records the classes of inconsistency found in a sweep of every surface
 
 ## Guards
 
-Where a rule can be checked cheaply it is checked mechanically: bespoke chips and inline buttons are counted against a ratchet that may only fall, ad-hoc spinners and "Loading…" strings are rejected, and every plugin subcommand known to the CLI must render its target by display name in chat. A rule without a guard is enforced by review against this document.
+Where a rule can be checked cheaply it is checked mechanically: bespoke chips and inline buttons, and literal colours on each surface, are counted against ratchets that may only fall; ad-hoc spinners and "Loading…" strings are rejected, and every plugin subcommand known to the CLI must render its target by display name in chat. A rule without a guard is enforced by review against this document.
 
 ```map
 anchors:

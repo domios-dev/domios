@@ -86,6 +86,17 @@
   --ct-radius-md: 8px;
   --ct-radius-lg: 12px;
   --ct-radius-xl: 16px;
+
+  /* Window controls keep the host platform's colours whatever the theme */
+  --ct-window-close: #ff5f57;
+  --ct-window-close-glyph: #4d0000;
+  --ct-window-minimize: #febc2e;
+  --ct-window-minimize-glyph: #995700;
+  --ct-window-maximize: #28c840;
+  --ct-window-maximize-glyph: #006500;
+  --ct-window-close-hover: #e81123;
+
+  --ct-sheen: #fff;
 }
 
 /* Reduced motion */

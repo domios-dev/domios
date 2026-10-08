@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { formatDuration, formatUntil } from "../../lib/timeLabels";
 import { listen } from "../../lib/bridge";
 import {
   Moon,
@@ -21,28 +22,6 @@ import { diaryRecordState, dreamRunLabel, dreamRunReport } from "./dreamRunStatu
 
 interface Props {
   api: ApiConfig;
-}
-
-function relativeTime(target: number): string {
-  const diff = target - Date.now();
-  const abs = Math.abs(diff);
-  const past = diff < 0;
-  const mins = Math.floor(abs / 60000);
-  if (mins < 1) return past ? "just now" : "in <1m";
-  if (mins < 60) return past ? `${mins}m ago` : `in ${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return past ? `${hrs}h ago` : `in ${hrs}h`;
-  const days = Math.floor(hrs / 24);
-  return past ? `${days}d ago` : `in ${days}d`;
-}
-
-function formatDuration(startMs: number, endMs: number): string {
-  const diff = endMs - startMs;
-  const secs = Math.floor(diff / 1000);
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  const rem = secs % 60;
-  return `${mins}m ${rem}s`;
 }
 
 function MemoryDreamsTabImpl({ api }: Props) {
@@ -240,9 +219,9 @@ function MemoryDreamsTabImpl({ api }: Props) {
           >
             {(() => {
               const statusText = inflight
-                ? `Dreaming now · ${formatDuration(inflight.spawned_at, Date.now())}`
+                ? `Dreaming now · ${formatDuration(Date.now() - inflight.spawned_at)}`
                 : dreamCron?.next_run
-                  ? `Next session ${relativeTime(dreamCron.next_run)}`
+                  ? `Next session ${formatUntil(dreamCron.next_run, Date.now())}`
                   : !dreamCron
                     ? "Not configured"
                     : null;

@@ -1,5 +1,5 @@
 import type { Box } from "../layout";
-import type { PresenceAgent } from "../presence/identity";
+import { PRESENCE_INK, type PresenceAgent } from "../presence/identity";
 import { TASK_STATUS_COLORS } from "../settings";
 import type { RegionAction } from "./drawCard";
 import type { CanvasPalette } from "./palette";
@@ -45,7 +45,7 @@ function drawPresenceDots(ctx: CanvasRenderingContext2D, agents: PresenceAgent[]
     ctx.arc(cx, y, rad, 0, Math.PI * 2);
     ctx.fillStyle = a.color;
     ctx.fill();
-    ctx.fillStyle = "#fff";
+    ctx.fillStyle = PRESENCE_INK;
     ctx.font = `700 6px ${FONT}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
