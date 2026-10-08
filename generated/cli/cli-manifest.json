@@ -1311,6 +1311,44 @@
           "subcommands": []
         },
         {
+          "name": "delete",
+          "about": "Delete a whole blueprint, or every stopped one in the Team; the creator or the Team owner may delete",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": false,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "stop",
+              "positional": false,
+              "required": false,
+              "value_name": "STOP",
+              "possible_values": [],
+              "default": null,
+              "help": "Stop a running blueprint before deleting it",
+              "aliases": []
+            },
+            {
+              "name": "stopped",
+              "positional": false,
+              "required": false,
+              "value_name": "STOPPED",
+              "possible_values": [],
+              "default": null,
+              "help": "Delete every stopped blueprint the caller may delete in its Team",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "escalation",
           "about": "Resolve an open escalation",
           "aliases": [],
