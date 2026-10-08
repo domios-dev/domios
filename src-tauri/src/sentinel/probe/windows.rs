@@ -666,7 +666,10 @@ impl WindowsRun {
         if !matches!(message, 1..=12) {
             return Err("probe Job packet did not contain a known notification".into());
         }
-        self.observe_job_accounting()?;
+        // Confirmed retirement can precede queued Job packets while pipe reads still drain.
+        if !(self.parent_exited && self.job_empty) {
+            self.observe_job_accounting()?;
+        }
         if message == JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO {
             self.job_empty = true;
         }
