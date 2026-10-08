@@ -111,3 +111,25 @@ fn directives_inside_fenced_examples_do_not_authorize_files() {
         [path_key(&actual)].into()
     );
 }
+
+#[test]
+fn source_text_still_requires_its_own_tab_reference() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = crate::commands::html_preview::preview_test_root(temp.path());
+    let owned = root.join("owned.ts");
+    let other = root.join("other.ts");
+    std::fs::write(&owned, "const owned = 1;").unwrap();
+    std::fs::write(&other, "const other = 2;").unwrap();
+    let messages = vec![ChatMsg {
+        file_diffs: Some(serde_json::json!([{ "path": "owned.ts" }])),
+        ..Default::default()
+    }];
+    let policy = PreviewPolicy::new(referenced_paths(&messages, root.to_str()), &[]).unwrap();
+    let read = |path: &std::path::Path| {
+        read_local_preview_file_guarded(path.to_str().unwrap(), "document", |path, canonical| {
+            policy.authorize(path, canonical)
+        })
+    };
+    assert_eq!(read(&owned).unwrap().data, "const owned = 1;");
+    assert_eq!(read(&other).unwrap_err(), "Preview path is not referenced");
+}
