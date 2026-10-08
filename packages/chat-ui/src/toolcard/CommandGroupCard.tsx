@@ -125,9 +125,9 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
         {expanded && (
           <RawCommandDisclosure
             raw={event.commandBatch ? event.detail ?? "" : toolCommand(event).command}
+            details={event.result ? <div data-testid="toolcard-result"><ToolOutputContent text={event.result} maxHeight="12rem" /></div> : undefined}
           >
             {event.status === "pending" && <div data-testid="toolcard-spinner" className="font-mono text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>Running…</div>}
-            {event.result && <div data-testid="toolcard-result"><ToolOutputContent text={event.result} maxHeight="12rem" /></div>}
           </RawCommandDisclosure>
         )}
       </div>

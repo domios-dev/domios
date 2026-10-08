@@ -126,19 +126,20 @@ describe("compound command group", () => {
     expect(body?.querySelector(".token")).not.toBeNull();
   });
 
-  it("shows the whole call's output while the exact raw command starts collapsed", async () => {
+  it("keeps the raw command and the whole call's output collapsed until asked", async () => {
     const host = await render(<ToolCallBubble event={singleEvent(codexRollout())} expanded onToggle={() => {}} />);
     const disclosure = host.querySelector('[data-testid="chat-command-group"] > [role="region"] [data-testid="raw-command-disclosure"] > button');
     expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
     expect(host.querySelector('[data-testid="message-raw-content"]')).toBeNull();
-    expect(host.querySelectorAll('[data-testid="toolcard-result"]')).toHaveLength(1);
+    expect(host.querySelectorAll('[data-testid="toolcard-result"]')).toHaveLength(0);
     await click(disclosure);
     expect(disclosure?.getAttribute("aria-expanded")).toBe("true");
     expect(host.querySelector('[data-testid="message-raw-content"]')?.textContent).toBe(CODEX_PIPELINE);
+    expect(host.querySelectorAll('[data-testid="toolcard-result"]')).toHaveLength(1);
     await click(disclosure);
     expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
     expect(host.querySelector('[data-testid="message-raw-content"]')).toBeNull();
-    expect(host.querySelectorAll('[data-testid="toolcard-result"]')).toHaveLength(1);
+    expect(host.querySelectorAll('[data-testid="toolcard-result"]')).toHaveLength(0);
   });
 
   it("titles a Claude Bash compound by its description and lists segments as a plain tree", async () => {

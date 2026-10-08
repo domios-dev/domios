@@ -77,21 +77,22 @@ describe("Codex structured chat wire contract", () => {
     expect(items[0].kind === "tool" && items[0].event.stream?.members.map((member) => member.toolId)).toEqual(["one","two"]);
   });
 
-  it("opens command groups with visible output and collapsed raw commands", async () => {
+  it("opens command groups with the raw command and its output collapsed", async () => {
     const message: NormalizedChatMessage = {id:"group-default",type:"tool_call",content:"",toolId:"group-default",
       toolName:"commandExecution",toolKind:"command",toolSummary:"cd /repo; git status; git diff",toolInput:{command:"cd /repo; git status; git diff"},toolError:false,toolResult:"working tree clean"};
     const view = await render(<Timeline messages={[message]} />);
     const groupToggle = view.querySelector<HTMLButtonElement>('[data-testid="chat-command-group-toggle"]');
     expect(groupToggle?.getAttribute("aria-expanded")).toBe("true");
     expect(view.querySelector('[data-testid="message-raw-content"]')).toBeNull();
-    expect(view.textContent).toContain("working tree clean");
+    expect(view.textContent).not.toContain("working tree clean");
     const rawToggle = view.querySelector<HTMLButtonElement>('[data-testid="raw-command-disclosure"] > button');
     expect(rawToggle?.getAttribute("aria-expanded")).toBe("false");
     await act(async () => rawToggle?.click());
     expect(view.querySelector('[data-testid="message-raw-content"]')?.textContent).toBe("cd /repo; git status; git diff");
+    expect(view.textContent).toContain("working tree clean");
     await act(async () => rawToggle?.click());
     expect(view.querySelector('[data-testid="message-raw-content"]')).toBeNull();
-    expect(view.textContent).toContain("working tree clean");
+    expect(view.textContent).not.toContain("working tree clean");
     await act(async () => groupToggle?.click());
     expect(groupToggle?.getAttribute("aria-expanded")).toBe("false");
   });
@@ -116,14 +117,12 @@ describe("structured command batches", () => {
     expect(view.querySelectorAll('[data-testid="chat-command-tree-line"]')).toHaveLength(3);
     expect(view.querySelector('[data-testid="chat-command-group-toggle"]')?.getAttribute("aria-expanded")).toBe("true");
     expect(view.querySelector('[data-testid="message-raw-content"]')).toBeNull();
-    expect(view.textContent).toContain("result 2");
     const rawToggle = view.querySelector<HTMLButtonElement>('[data-testid="raw-command-disclosure"] > button');
     expect(rawToggle?.getAttribute("aria-expanded")).toBe("false");
     await act(async () => rawToggle?.click());
     expect(view.querySelector('[data-testid="message-raw-content"]')?.textContent).toContain("pwsh -Command '(Get-Culture).Name'");
     await act(async () => rawToggle?.click());
     expect(view.querySelector('[data-testid="message-raw-content"]')).toBeNull();
-    expect(view.textContent).toContain("result 2");
   });
   it("keeps command batches separated by assistant text", async () => {
     const view = await render(<Timeline messages={[...batch, {id:"between-batches",type:"assistant",content:"Next commands"},
