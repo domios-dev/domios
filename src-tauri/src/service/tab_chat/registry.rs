@@ -375,6 +375,22 @@ impl ChatRegistry {
         }
     }
 
+    pub fn shutdown_session(&self, tab_id: &str, session_id: &str) {
+        let handle = {
+            let mut entries = self.inner.lock();
+            if entries
+                .get(tab_id)
+                .is_none_or(|entry| entry.session_id != session_id)
+            {
+                return;
+            }
+            entries.remove(tab_id).map(|entry| entry.handle)
+        };
+        if let Some(handle) = handle {
+            handle.shutdown();
+        }
+    }
+
     pub fn is_running(&self, tab_id: &str) -> bool {
         self.inner.lock().contains_key(tab_id)
     }
