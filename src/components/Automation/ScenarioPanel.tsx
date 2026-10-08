@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, List } from "lucide-react";
 import { AutomationCanvas } from "./AutomationCanvas";
 import { RunLog } from "./RunLog";
@@ -35,6 +35,17 @@ export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBac
   const opener = useRef<HTMLElement | null>(null);
   const body = useRef<HTMLDivElement>(null);
   const drawer = usePresence<string>(selected, DRAWER_MOTION);
+  const [panelWidth, setPanelWidth] = useState(0);
+  useLayoutEffect(() => {
+    const panel = drawer.ref.current;
+    if (!drawer.state || !panel) { setPanelWidth(0); return; }
+    const update = () => setPanelWidth(panel.getBoundingClientRect().width);
+    update();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(update);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [drawer.state, drawer.ref]);
   const { workspace_id, team_id } = scope;
   const graph = useMemo(() => {
     if (!state.graph) return null;
@@ -77,10 +88,12 @@ export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBac
     {state.stopFailed && <p role="alert" className="px-4 py-2">Blueprint stop failed.</p>}
     {graph && <div ref={body} className={`relative flex min-w-0 flex-col ${fill ? "min-h-0 flex-1" : drawer.state ? "min-h-[28rem]" : ""}`}>
       {graph.nodes.length === 0 && <p role="alert" className="px-4 py-3">The Blueprint root is unavailable.</p>}
-      <AutomationCanvas graph={graph} selected={selected} camera={camera} fill={fill} onSelect={select} onSelectAction={selectAction} replay={replay} />
+      <div className={`flex min-w-0 flex-col ${fill ? "min-h-0 flex-1" : ""}`} style={{ marginRight: panelWidth }}>
+      <AutomationCanvas panelOpen={selected !== null} graph={graph} selected={selected} camera={camera} fill={fill} onSelect={select} onSelectAction={selectAction} replay={replay} />
       {runsOpen && <RunLog graph={graph} selected={replay?.key ?? null} onReplay={(run) => setSelectedRun(run.key)} />}
+      </div>
       {drawer.state && shown !== null && <div className="plan-side-panel-layer">
-        <AutomationDetails node={node} action={action} nodes={graph.nodes} onClose={closeDetails} panelRef={drawer.ref} presence={drawer.state} />
+        <AutomationDetails classifier={graph.configured_fallback} node={node} action={action} nodes={graph.nodes} onClose={closeDetails} panelRef={drawer.ref} presence={drawer.state} />
       </div>}
     </div>}
   </div>;

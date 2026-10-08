@@ -139,6 +139,7 @@ type CodeContentProps = {
   displayedText: string;
   language: string;
   mermaidMode: boolean;
+  wrapLines?: boolean;
   forcePlainText?: boolean;
   mermaidSvg: string | null;
   shouldDisplayMermaid: boolean;
@@ -161,6 +162,7 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
   displayedText,
   language,
   mermaidMode,
+  wrapLines = false,
   forcePlainText = false,
   mermaidSvg,
   shouldDisplayMermaid,
@@ -188,7 +190,9 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
           style={{
             background: "var(--ct-bg)",
             color: "var(--ct-fg)",
-            whiteSpace: "pre",
+            whiteSpace: wrapLines ? "pre-wrap" : "pre",
+            width: wrapLines ? "100%" : undefined,
+            overflowWrap: wrapLines ? "anywhere" : undefined,
           }}
         >
           {displayedText}
@@ -257,19 +261,19 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
               fontSize: "0.75rem",
               lineHeight: "1.4",
               background: fullSize ? "var(--ct-bg)" : "var(--ct-bg)",
-              width: "max-content",
+              width: wrapLines ? "100%" : "max-content",
               minWidth: "100%",
-              maxWidth: "none",
-              whiteSpace: "pre",
-              overflowWrap: "normal",
-              wordBreak: "normal",
+              maxWidth: wrapLines ? "100%" : "none",
+              whiteSpace: wrapLines ? "pre-wrap" : "pre",
+              overflowWrap: wrapLines ? "anywhere" : "normal",
+              wordBreak: wrapLines ? "break-word" : "normal",
             }}
             codeTagProps={{
               style: {
                 fontFamily: "inherit",
-                whiteSpace: "pre",
-                overflowWrap: "normal",
-                wordBreak: "normal",
+                whiteSpace: wrapLines ? "pre-wrap" : "pre",
+                overflowWrap: wrapLines ? "anywhere" : "normal",
+                wordBreak: wrapLines ? "break-word" : "normal",
               },
             }}
           >
@@ -288,6 +292,7 @@ export function CodeBlock({
   collapsible = false,
   collapseAfterLines = 20,
   fullscreenScope = "container",
+  wrapLines = false,
 }: {
   text: string;
   language?: string;
@@ -295,6 +300,7 @@ export function CodeBlock({
   collapsible?: boolean;
   collapseAfterLines?: number;
   fullscreenScope?: "container" | "viewport";
+  wrapLines?: boolean;
 }) {
   const normalizedText = useMemo(() => text.replace(/\r/g, ""), [text]);
   const codeLines = useMemo(() => normalizedText.replace(/\n$/, "").split("\n"), [normalizedText]);
@@ -855,6 +861,7 @@ export function CodeBlock({
           </button>
         </div>
         <CodeBlockContent
+          wrapLines={wrapLines}
           fullSize={false}
           maxHeight={maxHeight}
           displayedText={displayedText}
@@ -960,6 +967,7 @@ export function CodeBlock({
             </div>
             <div className="min-h-0 flex-1 overflow-hidden">
               <CodeBlockContent
+                wrapLines={wrapLines}
                 fullSize
                 maxHeight={maxHeight}
                 displayedText={displayedText}
