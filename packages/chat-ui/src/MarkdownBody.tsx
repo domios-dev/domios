@@ -195,11 +195,8 @@ export function RichMarkdown({
     if (containsHtmlMarkup(renderedText)) return HTML_REHYPE_PLUGINS;
     return sourcePositions && renderedText === text ? SOURCE_OFFSET_REHYPE_PLUGINS : LINE_BREAK_REHYPE_PLUGINS;
   }, [renderedText, sourcePositions, text]);
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      rehypePlugins={rehypePlugins}
-      components={{
+  const components = useMemo<NonNullable<React.ComponentProps<typeof ReactMarkdown>["components"]>>(
+    () => ({
         h1: ({ node: _node, ...props }) => (
           <h1 className={`${h1Text} font-bold mt-3 mb-1`} style={{ color: "var(--ct-fg)" }} {...props} />
         ),
@@ -337,7 +334,14 @@ export function RichMarkdown({
             style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg) 30%, transparent)" }}
           />
         ),
-      }}
+    }),
+    [fontScale, h1Text, h2Text, h3Text, localArtifacts, renderedText],
+  );
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={rehypePlugins}
+      components={components}
     >
       {renderedText}
     </ReactMarkdown>

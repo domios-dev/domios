@@ -76,10 +76,8 @@ function LoadedLocalArtifact({
 
   useEffect(() => {
     void reload();
-    window.addEventListener("focus", reload);
     return () => {
       generation.current += 1;
-      window.removeEventListener("focus", reload);
     };
   }, [reload]);
 
