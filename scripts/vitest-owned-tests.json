@@ -86,6 +86,8 @@
   "packages/chat-core/src/messageClipboard.test.ts",
   "src/components/Terminal/messageSelection.test.ts",
   "src/components/Terminal/ChatMessageSelection.test.tsx",
+  "src/components/Terminal/jumpToMessage.test.ts",
+  "packages/chat-ui/src/ReplyQuote.test.tsx",
   "packages/chat-ui/src/localText.test.ts",
   "src/lib/helperMoments/momentRegistry.test.ts",
   "src/lib/helperMoments/helperRules.test.ts",
