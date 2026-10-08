@@ -35,6 +35,7 @@ pub mod provider_version;
 pub mod rich_to_chat;
 pub mod session_evidence;
 pub mod structured_prompt;
+pub mod surfaces;
 pub mod system_plugins;
 pub mod tab_menu;
 pub mod tab_state;

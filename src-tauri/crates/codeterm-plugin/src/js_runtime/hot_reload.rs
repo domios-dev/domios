@@ -48,6 +48,7 @@ pub struct CapabilityRegistries {
     pub agent_command: crate::agent_commands::AgentCommandRegistryHandle,
     pub webhook_receiver: crate::webhook::WebhookRegistryHandle,
     pub tab_menu: crate::tab_menu::TabMenuRegistryHandle,
+    pub surfaces: crate::surfaces::SurfaceRegistryHandle,
     pub secret: Option<Arc<dyn SecretBackendRegistrar>>,
 }
 
@@ -167,6 +168,10 @@ impl CapabilityRegistries {
             self.tab_menu
                 .register(id.clone(), Arc::new(caps.tab_menu.clone()));
         }
+        if caps.view && !caps.surfaces.is_empty() {
+            self.surfaces
+                .register(id.clone(), Arc::new(caps.surfaces.clone()));
+        }
         if vm.agent_commands_allowed() {
             self.agent_command.register(
                 id.clone(),
@@ -210,6 +215,7 @@ impl CapabilityRegistries {
         self.agent_command.unregister(id);
         self.webhook_receiver.unregister(id);
         self.tab_menu.unregister(id);
+        self.surfaces.unregister(id);
     }
 }
 
@@ -839,5 +845,7 @@ fn warn_stage_conflicts(
 mod agent_verb_tests;
 #[cfg(test)]
 mod converter_tests;
+#[cfg(test)]
+mod surface_tests;
 #[cfg(test)]
 mod tests;

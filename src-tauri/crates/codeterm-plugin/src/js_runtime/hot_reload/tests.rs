@@ -60,6 +60,7 @@ pub(super) fn test_caps() -> CapabilityRegistries {
         agent_command: Arc::new(crate::agent_commands::AgentCommandRegistry::new()),
         webhook_receiver: Arc::new(crate::webhook::WebhookRegistry::new()),
         tab_menu: Arc::new(crate::tab_menu::TabMenuRegistry::new()),
+        surfaces: Arc::new(crate::surfaces::SurfaceRegistry::new()),
         secret: None,
     };
     let _ = capabilities.chatbackend.start_discovery();

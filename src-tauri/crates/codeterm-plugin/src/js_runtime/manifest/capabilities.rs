@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::graph_nodes::GraphNodesCap;
+use super::surfaces::SurfaceDecl;
 use super::tab_menu::TabMenuItem;
 use crate::provider::ContextOwner;
 use codeterm_types::decision::TokenMode;
@@ -395,6 +396,9 @@ pub struct Capabilities {
     /// Items the host renders in every tab's kebab menu; each action is host-owned.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tab_menu: Vec<TabMenuItem>,
+    /// App tabs whose content the plugin renders; core owns the frame.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub surfaces: Vec<SurfaceDecl>,
     #[serde(default, flatten, skip_serializing)]
     pub(crate) unknown: std::collections::BTreeMap<String, serde_json::Value>,
 }

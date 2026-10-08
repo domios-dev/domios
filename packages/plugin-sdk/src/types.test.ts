@@ -16,6 +16,7 @@ import type {
   ModelInfo,
   NormalizedChatMessage,
   PluginModule,
+  SurfaceContribution,
   TabMenuContribution,
   WebhookDelivery,
   WebhookReceiveContext,
@@ -332,3 +333,19 @@ const unknownAction: TabMenuContribution = {
   action: "closeTab",
 };
 void unknownAction;
+
+const boardSurface: SurfaceContribution = {
+  id: "board",
+  title: "Board",
+  renderer: "view",
+  agentBound: true,
+  restore: "none",
+};
+void boardSurface;
+const streamSurface: SurfaceContribution = {
+  id: "screen",
+  title: "Screen",
+  // @ts-expect-error only the view renderer exists today
+  renderer: "stream",
+};
+void streamSurface;

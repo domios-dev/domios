@@ -49,6 +49,7 @@ impl PluginManifest {
     pub fn from_json_str(text: &str) -> Result<Self, String> {
         let manifest: PluginManifest = serde_json::from_str(text).map_err(|e| e.to_string())?;
         manifest.capabilities.validate_tab_menu()?;
+        manifest.capabilities.validate_surfaces()?;
         for credential in &manifest.credentials {
             if let Some(environment) = &credential.file_environment {
                 environment.validate()?;
