@@ -73,8 +73,8 @@ pub(super) fn bounded(
     admission: &Arc<Admission>,
 ) -> MethodRouter<AppState> {
     route
-        .layer(DefaultBodyLimit::max(64 * 1024))
-        .layer(Extension(admission.clone()))
+        .layer::<_, std::convert::Infallible>(DefaultBodyLimit::max(64 * 1024))
+        .layer::<_, std::convert::Infallible>(Extension(admission.clone()))
 }
 
 fn refusal() -> Response {

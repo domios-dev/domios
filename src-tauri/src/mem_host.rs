@@ -560,7 +560,9 @@ fn extract_pending(svc: Arc<ServiceContext>, limit: usize, explicit: bool) -> us
                         continue;
                     }
                     if let Ok(Some(item)) = svc.mem.get(id) {
-                        pending.push((item.id, item.title, item.body, item.kind));
+                        if let Some(kind) = codeterm_mem::store::MemKind::from_str(&item.kind) {
+                            pending.push((item.id, item.title, item.body, kind));
+                        }
                     }
                 }
             }
