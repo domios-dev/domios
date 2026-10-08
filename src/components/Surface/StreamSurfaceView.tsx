@@ -14,6 +14,7 @@ import {
   CHROME_ITEM,
   elementCard,
   failureNotice,
+  navigationFailureNotice,
   fileNameFromPath,
   grabSendArgs,
   profileSwitchedNotice,
@@ -114,7 +115,12 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
   const runDeclared = <T,>(spec: ToolbarItemSpec, value?: string): Promise<T | undefined> => {
     const { method, args } = toolbarInvocation(spec, value);
     return runBusy<T>(spec.id, method, args).catch((error: unknown) => {
-      report(spec.label, error);
+      if (method === "nav") {
+        const text = navigationFailureNotice(typeof args.target === "string" ? args.target : undefined, error);
+        if (text) setNotice({ text, tone: "error" });
+      } else {
+        report(spec.label, error);
+      }
       return undefined;
     });
   };

@@ -105,10 +105,16 @@
   background: var(--ct-bg-hover);
 }
 
-.ct-surface-take[aria-pressed="true"] {
+.ct-surface-take[aria-pressed="true"],
+.ct-surface-take[aria-pressed="true"]:not(:disabled):hover {
   border-color: var(--ct-accent);
   background: var(--ct-accent);
   color: var(--ct-on-accent, #fff);
+}
+
+/* The pointer rests on the toggle right after a click; keep the pressed fill readable under hover. */
+.ct-surface-take[aria-pressed="true"]:not(:disabled):hover {
+  filter: brightness(1.08);
 }
 
 .ct-surface-stage {
@@ -128,8 +134,8 @@
 }
 
 .ct-surface-canvas[data-mode="interactive"] {
-  outline: 2px solid var(--ct-accent);
-  outline-offset: -2px;
+  outline: 1px solid var(--ct-accent);
+  outline-offset: -1px;
 }
 
 .ct-surface-canvas[data-mode="picking"] {

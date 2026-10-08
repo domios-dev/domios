@@ -242,6 +242,13 @@ export function failureNotice(action: string, error: unknown): string {
   return `${action} failed: ${reason}`;
 }
 
+/** Chromium renders its own error page for network failures, so a toast would only repeat it. */
+export function navigationFailureNotice(target: string | undefined, error: unknown): string | null {
+  const reason = error instanceof Error ? error.message : String(error);
+  if (/net::ERR_/.test(reason)) return null;
+  return target ? `Could not open ${target}` : "Navigation failed";
+}
+
 export const ASK_INTENTS = [
   { value: "question", label: "Question" },
   { value: "change", label: "Change" },

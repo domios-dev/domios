@@ -10,6 +10,7 @@ import {
   elementCard,
   fileNameFromPath,
   grabSendArgs,
+  navigationFailureNotice,
   isNeedsHuman,
   liveViewLabel,
   NEEDS_HUMAN_KINDS,
@@ -158,3 +159,7 @@ assert.equal(withOwner(pushed, "  "), pushed, "a blank owner tab name keeps the 
 assert.equal(withOwner(pushed, null), pushed);
 
 console.log("✓ surfaceChromeModel tests green");
+
+assert.equal(navigationFailureNotice("127.0.0.1:9", new Error("navigation failed: net::ERR_UNSAFE_PORT")), null);
+assert.equal(navigationFailureNotice("example.com", new Error("browser is not open")), "Could not open example.com");
+assert.equal(navigationFailureNotice(undefined, "boom"), "Navigation failed");
