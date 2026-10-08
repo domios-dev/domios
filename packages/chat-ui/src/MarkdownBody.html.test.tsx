@@ -60,7 +60,7 @@ const { parseLocalArtifactDirective } = await import("./LocalArtifactBlock");
 function paragraphLines(host: HTMLElement): string[] {
   const visibleText = (node: Node): string => {
     if (node.nodeName === "BR") return "\n";
-    if (node.nodeType === 3) return node.textContent ?? "";
+    if (node.nodeType === 3) return (node.textContent ?? "").replace(/\r\n?/g, "\n");
     return Array.from(node.childNodes, visibleText).join("");
   };
   return Array.from(host.querySelectorAll("p"), visibleText);
@@ -74,7 +74,7 @@ test("mixed soft and hard verse breaks each render one newline", async () => {
       try {
         assert(JSON.stringify(paragraphLines(host)) === JSON.stringify([
           "first\nsecond\nthird\nfourth", "fifth\nsixth",
-        ]), "hard breaks must not add a second visible newline; blank lines separate stanzas");
+        ]), `hard breaks must not add a second visible newline; ending=${JSON.stringify(ending)} sourcePositions=${sourcePositions} actual=${JSON.stringify(paragraphLines(host))}`);
       } finally {
         await act(async () => root.unmount());
         host.remove();
