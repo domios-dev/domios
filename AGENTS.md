@@ -104,12 +104,14 @@ Use `./build.sh help` and the named build operations. Do not hand-compose Cargo 
 
 ## Build speed (worktrees, tests, profiles)
 
+On gateway acquisition, at most hourly, cache retention removes exceptional targets for missing checkouts or unused for `CODETERM_CACHE_MAX_AGE_DAYS` (default 3), then evicts least recently used targets above `CODETERM_EXCEPTIONAL_CACHE_GB` (default 40 GiB), protecting current and building checkouts. Unmarked targets get 2 days; checkout targets use cargo-sweep with the same age when installed. `SCCACHE_CACHE_SIZE` defaults to `10G`. Run `./build.sh gc [--dry-run]` manually; details and safe-path refusals are in the build skill.
+
 - Keep machine-level `sccache`; never share `CARGO_TARGET_DIR` across worktrees.
 - Do not remove the tuned Cargo profiles.
 - Run Rust tests through `scripts/test-capped.sh`: focused `test-one` invocations default to 600 seconds; each Cargo invocation in `test` and `verify` defaults to 3600 seconds. Cargo compiles targets with `--no-run` before the deadline starts.
 - `TEST_CAP_SECS` overrides the execution deadline; set it to `0` to disable. A cap kills the process group, exits 124, and reports any named libtest cases still running.
 - `--ensure-time` is nightly-only and cannot stop a blocked test, so stable Rust suites rely on the process deadline.
-- Reclaim stale targets with `cargo sweep --time 2` between efforts.
+- Preview or reclaim stale targets with `./build.sh gc --dry-run` or `./build.sh gc` between efforts.
 
 ## Lane integration preserves ancestry
 
