@@ -60,11 +60,12 @@ codeterm surface close --tab <TAB>
   A plain shell caller opens an ownerless surface. A surface cannot own another
   surface.
 - The tab nests under its owner (`parent_tab_id`), opens in the owner's
-  workspace and joins the owner's Team. Closing the Team closes the surface.
-- The tab title is the surface title. The tab header shows `{Owner}'s {Title}`
-  when the surface is `agentBound` or was opened with `--title-from-owner`; the
-  label follows the owner if it is renamed. The sidebar shows the title nested
-  under the owner.
+  workspace and joins the owner's Team through the same membership check as
+  `tab new`, so a Team without a live Orchestrator refuses the open. Closing
+  the Team closes the surface.
+- The tab title is the surface title. The tab header and the sidebar show
+  `{Owner}'s {Title}` when the surface is `agentBound` or was opened with
+  `--title-from-owner`; the label follows the owner if it is renamed.
 - `surface close --tab <TAB>` closes a surface tab and refuses any other tab,
   so it can never close an agent. The tab menu, the header close button and
   `codeterm tab close` close it too.
@@ -85,8 +86,8 @@ installed plugins; each plugin documents its own verbs).
 
 - The tab survives restarts and desk restore with its plugin, surface and
   instance ids.
-- When the owner tab closes, the surface stays open as a top-level tab and its
-  label falls back to the title.
+- When the owner tab closes, by any path, its surfaces close with it. Other
+  children of the owner are detached as before.
 - When the plugin is disabled or uninstalled, the tab stays but its view can
   no longer reach the plugin; close it or re-enable the plugin.
 
@@ -112,4 +113,4 @@ the owner's workspace. Refusals carry `{ ok: false, error: { code, message } }`:
 | `surface_workspace_mismatch` | `workspace_id` differs from the owner's workspace |
 | `not_a_surface` | `surface close` named a tab that is not a surface |
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
