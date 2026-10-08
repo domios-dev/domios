@@ -70,6 +70,7 @@ pub mod sessions;
 pub mod spec;
 pub mod supporter;
 pub(crate) mod supporter_render;
+pub mod surface;
 pub mod system;
 pub mod tab;
 mod tab_restart;

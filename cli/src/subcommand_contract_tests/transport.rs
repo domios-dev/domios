@@ -182,6 +182,15 @@ const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
         ApiVerdict::Rest,
     ),
     (
+        "surface",
+        &["codeterm", "surface", "list"],
+        Local::Socket,
+        MeshRelay::Fallthrough,
+        ApiVerdict::Unsupported(
+            "surface tabs are owned by a local tab — run it on the target machine",
+        ),
+    ),
+    (
         "agent",
         &["codeterm", "agent", "providers"],
         Local::Socket,

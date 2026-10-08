@@ -20,6 +20,7 @@ pub mod service;
 pub mod sessions;
 pub mod spec;
 pub mod supporter;
+pub mod surface;
 pub mod system;
 pub mod task;
 pub mod team;
