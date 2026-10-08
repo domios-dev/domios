@@ -1,0 +1,68 @@
+[
+  {
+    "name": "write-new-file",
+    "part": {
+      "type": "tool",
+      "tool": "write",
+      "callID": "call_write-new-file",
+      "state": {
+        "status": "completed",
+        "input": {
+          "content": "MARKER-opencode-1",
+          "filePath": "/repo/open.txt"
+        },
+        "output": "Wrote file successfully.",
+        "metadata": {
+          "diagnostics": {},
+          "filepath": "/repo/open.txt",
+          "exists": false,
+          "truncated": false
+        },
+        "title": "/repo/open.txt",
+        "time": {
+          "start": 1791491461378,
+          "end": 1791491461400
+        }
+      }
+    },
+    "expectedPath": "/repo/open.txt",
+    "additions": 1,
+    "deletions": 0
+  },
+  {
+    "name": "edit-existing-file",
+    "part": {
+      "type": "tool",
+      "tool": "edit",
+      "callID": "call_edit-existing-file",
+      "state": {
+        "status": "completed",
+        "input": {
+          "filePath": "/repo/SENTINELS.md",
+          "newString": "<!-- revision: 19 -->",
+          "oldString": "<!-- revision: 18 -->"
+        },
+        "output": "Edit applied successfully.",
+        "metadata": {
+          "diagnostics": {},
+          "diff": "Index: /repo/SENTINELS.md\n===================================================================\n--- /repo/SENTINELS.md\n+++ /repo/SENTINELS.md\n@@ -249,5 +249,5 @@\n \n A failed persistence write returns an error and holds Sentinel unavailable; cancellation stays in memory and durability\n is unconfirmed until a valid store reload. Repair the filesystem first. No stop success or handler replay is inferred.\n \n-<!-- revision: 18 -->\n+<!-- revision: 19 -->\n",
+          "filediff": {
+            "file": "/repo/SENTINELS.md",
+            "patch": "Index: /repo/SENTINELS.md\n===================================================================\n--- /repo/SENTINELS.md\n+++ /repo/SENTINELS.md\n@@ -249,5 +249,5 @@\n \n A failed persistence write returns an error and holds Sentinel unavailable; cancellation stays in memory and durability\n is unconfirmed until a valid store reload. Repair the filesystem first. No stop success or handler replay is inferred.\n \n-<!-- revision: 18 -->\n+<!-- revision: 19 -->\n",
+            "additions": 1,
+            "deletions": 1
+          },
+          "truncated": false
+        },
+        "title": "/repo/SENTINELS.md",
+        "time": {
+          "start": 1791304962105,
+          "end": 1791304962126
+        }
+      }
+    },
+    "expectedPath": "/repo/SENTINELS.md",
+    "additions": 1,
+    "deletions": 1
+  }
+]

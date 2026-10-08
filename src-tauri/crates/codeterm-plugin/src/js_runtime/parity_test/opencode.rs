@@ -481,3 +481,36 @@ fn parity_directory_trust_opencode_declares_no_trust_capability() {
     assert_eq!(provider.parse_directory_trust_prompt(&screen), None);
     assert_eq!(provider.directory_trust_prompt_response(&screen), None);
 }
+
+#[test]
+fn structured_tool_file_diffs_match_stored_tool_parts() {
+    let provider = opencode();
+    let fixtures: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../tests/fixtures/opencode-1.18.35-tool-parts.json"
+    )))
+    .unwrap();
+    for fixture in fixtures.as_array().unwrap() {
+        let diffs = provider
+            .structured_tool_file_diffs(&fixture["part"])
+            .unwrap();
+        assert_eq!(diffs[0]["path"], fixture["expectedPath"]);
+        assert_eq!(diffs[0]["additions"], fixture["additions"]);
+        assert_eq!(diffs[0]["deletions"], fixture["deletions"]);
+    }
+}
+
+#[test]
+fn unsupported_structured_tool_diffs_keep_native_js_defaults_in_parity() {
+    let native = crate::agent_claude::provider::ClaudeProvider::new();
+    let js = load_inline_js("fixture", "module.exports.default = {};");
+    let part = serde_json::json!({"type":"tool","tool":"write","state":{
+        "status":"completed","input":{"filePath":"/repo/a","content":"new"},
+        "metadata":{"exists":false}
+    }});
+    assert_eq!(native.structured_tool_file_diffs(&part), None);
+    assert_eq!(
+        js.structured_tool_file_diffs(&part),
+        native.structured_tool_file_diffs(&part)
+    );
+}
