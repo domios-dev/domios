@@ -71,11 +71,10 @@ pub struct PluginManifest {
     pub homepage: Option<String>,
     #[serde(default)]
     pub readme: Option<String>,
-    /// Relative path to an agent-facing doc (e.g. `AGENT.md`) the `get plugin`
-    /// surface returns so an agent can install + self-configure the plugin
-    /// (§1.7). Plain markdown; optional.
+    /// Bundle-relative markdown guide for agents, appended (bounded) to the
+    /// plugin's mem skill item and returned by `codeterm plugin get`.
     #[serde(default)]
-    pub agent_doc: Option<String>,
+    pub agent_guide: Option<String>,
 
     /// Relative path to the plugin's host-rendered SVG icon.
     #[serde(default)]

@@ -41,3 +41,33 @@ fn registered_handler_publishes_the_manifest_verbs_until_deregistered() {
     caps.deregister_plugin(PLUGIN_ID);
     assert!(caps.agent_command.get(PLUGIN_ID).is_none());
 }
+
+#[test]
+fn registered_handler_carries_the_bundle_agent_guide() {
+    const GUIDE_TOKEN: &str = "guide-token-q7";
+    let bundle = tempfile::tempdir().expect("bundle");
+    std::fs::write(bundle.path().join("AGENT.md"), GUIDE_TOKEN).expect("guide");
+    let mut guided = manifest();
+    guided.agent_guide = Some("AGENT.md".to_string());
+    guided.source_path = Some(bundle.path().join("plugin.json"));
+    let mut escaping = guided.clone();
+    escaping.agent_guide = Some("../AGENT.md".to_string());
+
+    let caps = test_caps();
+    caps.register_plugin(&guided, &vm());
+    let catalog = caps
+        .agent_command
+        .get(PLUGIN_ID)
+        .and_then(|handler| handler.catalog())
+        .expect("catalog");
+    assert_eq!(catalog.guide.as_deref(), Some(GUIDE_TOKEN));
+
+    caps.deregister_plugin(PLUGIN_ID);
+    caps.register_plugin(&escaping, &vm());
+    let catalog = caps
+        .agent_command
+        .get(PLUGIN_ID)
+        .and_then(|handler| handler.catalog())
+        .expect("catalog");
+    assert!(catalog.guide.is_none());
+}

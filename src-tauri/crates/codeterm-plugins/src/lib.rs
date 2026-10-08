@@ -18,6 +18,7 @@ mod availability;
 mod update_status;
 pub use availability::{update_availability, UpdateAvailability, UpdateOffer, UpdateSource};
 use update_status::*;
+mod agent_surface;
 mod channel;
 mod config;
 mod install;

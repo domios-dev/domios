@@ -44,6 +44,19 @@ pub fn catalog_from_manifest(manifest: &super::PluginManifest) -> AgentVerbCatal
         manifest.config_help.as_deref(),
         &manifest.agent_keywords,
     )
+    .with_guide(agent_guide_from_manifest(manifest))
+}
+
+fn agent_guide_from_manifest(manifest: &super::PluginManifest) -> Option<String> {
+    let relative = manifest.agent_guide.as_deref()?;
+    let bundle_dir = manifest.source_path.as_deref()?.parent()?;
+    match codeterm_util::plugin_agent_guide::load_agent_guide(bundle_dir, relative) {
+        Ok(guide) => Some(guide.text),
+        Err(error) => {
+            log::warn!("[plugin] {}: {error}", manifest.id);
+            None
+        }
+    }
 }
 
 #[derive(Deserialize)]

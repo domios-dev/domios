@@ -38,8 +38,9 @@ pub enum PluginAction {
         #[command(subcommand)]
         command: PluginChannelAction,
     },
-    /// Show a plugin's agent-facing config: its config.yaml, settings schema,
-    /// secret field presence, and installed/configured/reload state.
+    /// Show a plugin's agent-facing config and guidance: its config.yaml, settings
+    /// schema, secret field presence, configHelp, agent verbs, agent guide, and
+    /// installed/configured/reload state.
     Get { id: String },
     /// Configure plugin settings. Non-secret fields use the comment-preserving
     /// config.yaml; secret values are read from stdin and stored in the plugin bucket.
