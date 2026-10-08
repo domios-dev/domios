@@ -166,15 +166,33 @@ fn structure_restore_is_idempotent_after_durable_store_and_desk_restart() {
     reopened.restore_structure(&saved).unwrap();
     let desk = reopened.to_session_snapshot();
     let desk_root = dir.path().join("desk");
-    let adapter = crate::session::store::StorageDeskAdapter::open(&desk_root).unwrap();
+    let storage =
+        codeterm_storage::Storage::open(&desk_root, codeterm_storage::StorageConfig::default())
+            .unwrap();
+    let adapter = crate::session::store::StorageDeskAdapter::from_storage(storage.clone());
     adapter.import_snapshot(&desk, vec![]).unwrap();
     drop(adapter);
     drop(reopened);
-    let adapter = crate::session::store::StorageDeskAdapter::open(&desk_root).unwrap();
+    storage
+        .shutdown()
+        .wait(std::time::Duration::from_secs(5))
+        .unwrap();
+    drop(storage);
+    let storage =
+        codeterm_storage::Storage::open(&desk_root, codeterm_storage::StorageConfig::default())
+            .unwrap();
+    let adapter = crate::session::store::StorageDeskAdapter::from_storage(storage.clone());
     let desk = adapter.snapshot().unwrap();
+    drop(adapter);
+    storage
+        .shutdown()
+        .wait(std::time::Duration::from_secs(5))
+        .unwrap();
+    drop(storage);
     let mut restarted = MultiplexerState::from_session_snapshot(&desk);
     restarted.attach_closed_store(ClosedTabsStore::open(dir.path()).unwrap());
     let saved = restarted.closed_structure(&record.id).unwrap().unwrap();
+    assert_eq!(saved.state, StructureState::Restoring);
     restarted.restore_structure(&saved).unwrap();
     assert_eq!(restarted.list_workspaces().len(), 1);
     assert_eq!(restarted.list_teams().len(), 1);
