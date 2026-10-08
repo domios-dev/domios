@@ -14,6 +14,7 @@ mod config;
 mod graph_nodes;
 mod methods;
 mod read_root;
+mod surfaces;
 mod tab_menu;
 
 use std::path::PathBuf;
@@ -39,6 +40,7 @@ pub use graph_nodes::{
 };
 pub use methods::manifest_settings_sections;
 pub use read_root::ReadRootEnvironment;
+pub use surfaces::{SurfaceDecl, SurfaceRenderer, SurfaceRestore};
 pub use tab_menu::{TabMenuAction, TabMenuItem, MAX_TAB_MENU_ITEMS};
 
 /// Top-level `plugin.json` document.
@@ -231,6 +233,7 @@ fn default_capabilities() -> Capabilities {
         chat_preprocessor: ChatPreprocessorCap::default(),
         webhook_receiver: None,
         tab_menu: Vec::new(),
+        surfaces: Vec::new(),
         unknown: Default::default(),
     }
 }
