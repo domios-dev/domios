@@ -46,6 +46,7 @@ export { LocalArtifactScope } from "./LocalArtifactScope";
 export { AttachmentCapsule, CAPSULE_DETAIL_STYLE, CAPSULE_ICONS, CapsuleDecor, CapsulePreview, capsuleLabelParts } from "./AttachmentCapsule";
 export { capsuleSelectionText, writeClipboardFlavours } from "./capsuleClipboard";
 export { formatMessageTime } from "./MessageTime";
+export { ReplyQuote } from "./ReplyQuote";
 export { localArtifactOpeningAvailable } from "./localArtifactLoader";
 export { ChatBlockFrame } from "./blocks/ChatBlockFrame";
 export type { ChatBlockAction, ChatBlockFrameProps, ChatBlockStatus, ChatBlockTone } from "./blocks/ChatBlockFrame";

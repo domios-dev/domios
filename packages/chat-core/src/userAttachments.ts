@@ -1,4 +1,4 @@
-import { attachmentMarkerSegments, imageMimeType, parseAttachmentMarkers, type AttachmentMarker, type AttachmentSegment } from "./attachmentMarker";
+import { attachmentMarkerSegments, imageMimeType, parseAttachmentMarkers, splitReplyAttachment, type AttachmentMarker, type AttachmentSegment } from "./attachmentMarker";
 import type { ChatAttachment } from "./types";
 
 const IMAGE_COUNT_LABEL = /^\[\d+ images?\]$/;
@@ -15,6 +15,8 @@ export interface UserMessageAttachments {
   files: AttachmentMarker[];
   /** Text with capsules where they were typed; null when the message has no inline capsule. */
   inline: AttachmentSegment[] | null;
+  /** The quote this message replies to, rendered as a block at the top of the bubble. */
+  reply: AttachmentMarker | null;
 }
 
 function pathKey(path: string): string {
@@ -32,7 +34,8 @@ function inlineSegments(content: string): AttachmentSegment[] | null {
 }
 
 /** What a user bubble renders: clean text, inline capsules, one image strip from provider-native and marker images, and file chips. */
-export function userMessageAttachments(content: string, attachments: ChatAttachment[] = []): UserMessageAttachments {
+export function userMessageAttachments(source: string, attachments: ChatAttachment[] = []): UserMessageAttachments {
+  const { reply, text: content } = splitReplyAttachment(source);
   const parsed = parseAttachmentMarkers(content);
   const images = [...attachments];
   const seen = new Set(attachments.flatMap((attachment) => (attachment.path ? [pathKey(attachment.path)] : [])));
@@ -43,7 +46,7 @@ export function userMessageAttachments(content: string, attachments: ChatAttachm
     if (marker.kind !== "image") files.push(marker);
     else images.push({ id: `attachment:${marker.path}`, mimeType: imageMimeType(marker.path), path: marker.path });
   }
-  return { text: userVisibleText(parsed.text, images), images, files, inline: inlineSegments(content) };
+  return { text: userVisibleText(parsed.text, images), images, files, inline: inlineSegments(content), reply };
 }
 
 export function attachmentFileName(attachment: ChatAttachment): string {

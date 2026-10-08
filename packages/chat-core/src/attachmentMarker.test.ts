@@ -5,6 +5,7 @@ import {
   attachmentPreviewKind,
   formatAttachmentMarker,
   parseAttachmentMarkers,
+  splitReplyAttachment,
 } from "./attachmentMarker";
 import { parseDomiosMessage } from "./domios";
 import { parseMarker } from "./markers";
@@ -90,6 +91,14 @@ assert.equal(attachmentPreviewKind({ kind: "file", path: "/a/b.pdf" }), null);
   const routed = '<domios from="tab" label="main" tab="abc12345">look</domios>';
   assert.deepEqual(parseAttachmentMarkers(routed), { text: routed, attachments: [] }, "a routed frame is never an attachment");
   assert.equal(parseDomiosMessage(`<domios from="tab" tab="abc12345">see ${tag}</domios>`)?.body, `see ${tag}`);
+}
+
+{
+  const quote = formatAttachmentMarker("/tmp/q.md", "quote", "Fermi", { ref: "a1", excerpt: "one line" });
+  assert.deepEqual(splitReplyAttachment(`${quote}\nwhy?`), { reply: { kind: "quote", path: "/tmp/q.md", label: "Fermi", reply: "a1", excerpt: "one line" }, text: "why?" });
+  const capsule = formatAttachmentMarker("/tmp/q.md", "quote", "quote1 · Fermi");
+  assert.deepEqual(splitReplyAttachment(`see ${capsule}`), { reply: null, text: `see ${capsule}` }, "an inline quote capsule is not a reply");
+  assert.deepEqual(splitReplyAttachment("plain"), { reply: null, text: "plain" });
 }
 
 console.log("attachmentMarker tests passed");
