@@ -351,3 +351,17 @@ fn surface_tab_round_trips_and_is_neither_pty_nor_chat() {
     assert_eq!(back.backing.kind(), "surface");
     assert_eq!(TabBacking::Pty.kind(), "pty");
 }
+
+#[test]
+fn only_surface_children_close_with_their_owner() {
+    assert!(tab_with("s", surface_backing(false)).closes_with_owner());
+    assert!(!tab_with("p", TabBacking::Pty).closes_with_owner());
+    assert!(!tab_with(
+        "c",
+        TabBacking::ChatBackend {
+            plugin_id: "chat".into(),
+            session_id: "s".into(),
+        },
+    )
+    .closes_with_owner());
+}
