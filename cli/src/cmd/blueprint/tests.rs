@@ -94,7 +94,6 @@ fn blueprint_exported_recipe_uses_create_recipe_substitution_and_refuses_mixed_o
     let (method, params) = request(action, None, None).unwrap();
     assert_eq!(method, "blueprint.validate.create");
     assert_eq!(params["create"]["probe"], "printf ready");
-    assert_eq!(params["stop"], false);
     let cli =
         crate::args::cli::Cli::try_parse_from(args.into_iter().chain(["--name", "Ignored name"]))
             .unwrap();

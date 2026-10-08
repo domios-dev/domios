@@ -25,6 +25,10 @@ fn blueprint_import_persists_stopped_and_visible_in_scratch_team() {
         let tab = mux.get_tab_mut(tab_id).unwrap();
         tab.team_id = Some(team.id.clone());
         tab.cwd = Some(root.path().to_string_lossy().into_owned());
+        // A Team-owned pipeline delivers its result to the Team Orchestrator.
+        tab.agent_type = Some("codex".into());
+        tab.role = Some(codeterm_types::agent::AgentRole::Manager);
+        tab.role_profile = Some("orchestrator".into());
     }
     let instance = super::ServiceInstance::open_with_mux(root.path(), mux);
     let handle = crate::sentinel::scheduler::fixture_handle(

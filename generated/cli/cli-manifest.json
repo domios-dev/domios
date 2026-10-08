@@ -1385,6 +1385,34 @@
           ]
         },
         {
+          "name": "export",
+          "about": "Export a portable recipe containing only the definition",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "out",
+              "positional": false,
+              "required": false,
+              "value_name": "OUT",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "history",
           "about": "Show immutable definition versions",
           "aliases": [],
@@ -1394,6 +1422,54 @@
               "positional": true,
               "required": true,
               "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "import",
+          "about": "Import a portable recipe into the caller's Team (stopped by default)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "file",
+              "positional": true,
+              "required": true,
+              "value_name": "FILE",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "set",
+              "positional": false,
+              "required": false,
+              "value_name": "SET",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "start",
+              "positional": false,
+              "required": false,
+              "value_name": "START",
+              "possible_values": [],
+              "default": null,
+              "help": "Start immediately after validation",
+              "aliases": []
+            },
+            {
+              "name": "stopped",
+              "positional": false,
+              "required": false,
+              "value_name": "STOPPED",
               "possible_values": [],
               "default": null,
               "help": null,
