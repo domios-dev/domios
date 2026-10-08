@@ -94,6 +94,7 @@ fn blueprint_exported_recipe_uses_create_recipe_substitution_and_refuses_mixed_o
     let (method, params) = request(action, None, None).unwrap();
     assert_eq!(method, "blueprint.validate.create");
     assert_eq!(params["create"]["probe"], "printf ready");
+    assert_eq!(params["stop"], false);
     let cli =
         crate::args::cli::Cli::try_parse_from(args.into_iter().chain(["--name", "Ignored name"]))
             .unwrap();
@@ -855,14 +856,6 @@ fn blueprint_delete_wire_carries_id_stop_and_caller() {
     .unwrap();
     assert_eq!(params["id"], Value::Null);
     assert_eq!(params["stopped"], true);
-    let cli = crate::args::cli::Cli::try_parse_from(args.into_iter().chain(["--dry-run"])).unwrap();
-    let crate::args::cli::Commands::Blueprint { action } = cli.command else {
-        panic!("Blueprint action required")
-    };
-    let (method, params) = request(action, None, None).unwrap();
-    assert_eq!(method, "blueprint.validate.create");
-    assert_eq!(params["create"]["probe"], "printf ready");
-    assert_eq!(params["stop"], false);
 }
 
 #[test]
