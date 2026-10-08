@@ -360,6 +360,7 @@ export interface AgentProvider {
     sessionId: string,
     query: { maxBytes: number; hintTerms: string[] },
   ): { messages: unknown[]; truncated?: boolean } | null;
+  structuredToolFileDiffs?(part: unknown): FileDiff[] | null;
   usesStructuredChat?(): boolean;
   readStructuredChat?(cwd: string, sessionId: string, cursor?: string | null): unknown;
   checkIntegration?(): unknown;

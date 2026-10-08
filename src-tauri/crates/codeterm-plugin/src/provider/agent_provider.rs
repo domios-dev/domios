@@ -399,6 +399,10 @@ pub trait AgentProvider: Send + Sync {
         Vec::new()
     }
 
+    fn structured_tool_file_diffs(&self, _part: &serde_json::Value) -> Option<serde_json::Value> {
+        None
+    }
+
     /// Provider serves chat as structured messages it parses itself (e.g.
     /// sqlite) rather than a tailable JSONL file. When true, the host uses
     /// `read_structured_chat` and a DB poller instead of `session_jsonl_path`

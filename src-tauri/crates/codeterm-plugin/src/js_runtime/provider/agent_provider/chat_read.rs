@@ -1,6 +1,19 @@
 use super::*;
 
 impl JsProvider {
+    pub(super) fn js_structured_tool_file_diffs(
+        &self,
+        part: &serde_json::Value,
+    ) -> Option<serde_json::Value> {
+        if self.has_js("structuredToolFileDiffs") {
+            return self
+                .try_call("structuredToolFileDiffs", &[part.clone()])
+                .flatten();
+        }
+        self.native()
+            .and_then(|n| n.structured_tool_file_diffs(part))
+    }
+
     pub(super) fn js_session_jsonl_path(
         &self,
         cwd: &str,

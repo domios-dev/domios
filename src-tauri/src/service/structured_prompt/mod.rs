@@ -8,6 +8,7 @@ pub(crate) mod snapshot;
 mod subscriber;
 #[cfg(test)]
 mod tests;
+mod tool_diffs;
 
 pub(crate) use live_model_switch::{live_switch_for_tab, same_model_id, LiveModelSwitchResult};
 
@@ -561,9 +562,10 @@ fn emit_chat_part(
     let Some(message) = chat_state.messages.get(&update.message_id).cloned() else {
         return;
     };
-    let Some(chat_message) = chat_state.prepare_chat_part(update, &message) else {
+    let Some(mut chat_message) = chat_state.prepare_chat_part(update, &message) else {
         return;
     };
+    tool_diffs::apply(svc, tab_id, &update.part, &mut chat_message);
     let sink = crate::service::tab_chat::structured_sink::make_sink(
         svc.app_handle.clone(),
         svc.mux.clone(),
