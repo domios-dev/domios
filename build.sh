@@ -730,7 +730,8 @@ prepare_exceptional_worktree_target() {
   export CARGO_INCREMENTAL=0
   export CODETERM_ALLOW_EXTERNAL_TARGET=1
   mkdir -p "$CARGO_TARGET_DIR"
-  ct_mark_exceptional_target
+  # The marker is retention bookkeeping; a busy gateway mutex must not kill the build.
+  ct_mark_exceptional_target || echo "[cache-policy] mark skipped; target stays protected while running"
   ct_verify_target_dir
   ct_require_prestarted_sccache
   echo "[cache-policy] exceptional worktree target=$CARGO_TARGET_DIR"
