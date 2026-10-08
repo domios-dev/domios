@@ -57,6 +57,72 @@ const { configureHtmlFileLoader } = await import("./htmlFileLoader");
 const { configureLocalArtifactLoader } = await import("./localArtifactLoader");
 const { parseLocalArtifactDirective } = await import("./LocalArtifactBlock");
 
+function paragraphLines(host: HTMLElement): string[] {
+  const visibleText = (node: Node): string => {
+    if (node.nodeName === "BR") return "\n";
+    if (node.nodeType === 3) return (node.textContent ?? "").replace(/\r\n?/g, "\n");
+    return Array.from(node.childNodes, visibleText).join("");
+  };
+  return Array.from(host.querySelectorAll("p"), visibleText);
+}
+
+test("mixed soft and hard verse breaks each render one newline", async () => {
+  for (const ending of ["\n", "\r\n"]) {
+    for (const sourcePositions of [false, true]) {
+      const source = ["first  ", "second", "third\\", "fourth", "", "fifth  ", "sixth"].join(ending);
+      const { host, root } = await render(<RichMarkdown text={source} sourcePositions={sourcePositions} />);
+      try {
+        assert(JSON.stringify(paragraphLines(host)) === JSON.stringify([
+          "first\nsecond\nthird\nfourth", "fifth\nsixth",
+        ]), `hard breaks must not add a second visible newline; ending=${JSON.stringify(ending)} sourcePositions=${sourcePositions} actual=${JSON.stringify(paragraphLines(host))}`);
+      } finally {
+        await act(async () => root.unmount());
+        host.remove();
+      }
+    }
+  }
+});
+
+test("arbitrary delta splits preserve verse blocks through completion", async () => {
+  for (const ending of ["\n", "\r\n"]) {
+    const source = ["first  ", "second", "third\\", "fourth", "", "fifth  ", "sixth"].join(ending);
+    const { host: whole, root: wholeRoot } = await render(<RichMarkdown text={source} />);
+    const { host, root } = await render(<RichMarkdown text="" />);
+    try {
+      for (let split = 0; split <= source.length; split += 1) {
+        let accumulated = "";
+        for (const delta of [source.slice(0, split), source.slice(split)]) {
+          accumulated += delta;
+          await act(async () => root.render(<RichMarkdown text={accumulated} />));
+        }
+        assert(host.innerHTML === whole.innerHTML, `split ${split} changes streamed blocks`);
+        await act(async () => root.render(<RichMarkdown text={source} />));
+        assert(host.innerHTML === whole.innerHTML, `completion changes blocks after split ${split}`);
+      }
+      let accumulated = "";
+      for (const delta of source) {
+        accumulated += delta;
+        await act(async () => root.render(<RichMarkdown text={accumulated} />));
+      }
+      assert(host.innerHTML === whole.innerHTML, "one-character deltas change blocks");
+    } finally {
+      await act(async () => { root.unmount(); wholeRoot.unmount(); });
+      host.remove();
+      whole.remove();
+    }
+  }
+});
+
+test("hard break cleanup also runs alongside inline HTML", async () => {
+  const { host, root } = await render(<RichMarkdown text={"first <em>verse</em>  \nsecond\nthird"} />);
+  try {
+    assert(paragraphLines(host)[0] === "first verse\nsecond\nthird", "HTML path doubles a hard break");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 test("containsHtmlMarkup gates on real tags, not comparisons", () => {
   assert(containsHtmlMarkup("press <kbd>Ctrl</kbd>"), "opening tag detected");
   assert(containsHtmlMarkup("</div>"), "closing tag detected");

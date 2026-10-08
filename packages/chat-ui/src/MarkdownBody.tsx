@@ -11,6 +11,7 @@ import { HtmlPreviewBlock } from "./HtmlPreviewBlock";
 import { LocalArtifactBlock, parseLocalArtifactDirective } from "./LocalArtifactBlock";
 import { GuideDirective, parseGuideDirective } from "./GuideDirective";
 import { rehypeSourceOffsets } from "./sourceOffsets";
+import { rehypeMarkdownLineBreaks } from "./markdownLineBreaks";
 import { Prism as SyntaxHighlighter, createElement } from "react-syntax-highlighter";
 import { CodeBlock, ChevronIcon, CODE_BLOCK_DEFAULT_MAX_HEIGHT, LONG_CODE_PREVIEW_LINES, MERMAID_BLOCK_MAX_HEIGHT, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
 import { looksLikeMermaidSource } from "./MermaidBlock";
@@ -165,12 +166,14 @@ type RehypePlugins = React.ComponentProps<typeof ReactMarkdown>["rehypePlugins"]
 
 /** Raw-HTML parsing only pays for itself on messages that actually carry tags. */
 const HTML_REHYPE_PLUGINS = [
+  rehypeMarkdownLineBreaks,
   rehypeRaw,
   [rehypeSanitize, CHAT_HTML_SANITIZE_SCHEMA],
   rehypeScrubInlineStyles,
 ] as unknown as RehypePlugins;
 
-const SOURCE_OFFSET_REHYPE_PLUGINS = [rehypeSourceOffsets] as unknown as RehypePlugins;
+const LINE_BREAK_REHYPE_PLUGINS = [rehypeMarkdownLineBreaks] as unknown as RehypePlugins;
+const SOURCE_OFFSET_REHYPE_PLUGINS = [rehypeMarkdownLineBreaks, rehypeSourceOffsets] as unknown as RehypePlugins;
 
 export function RichMarkdown({
   text,
@@ -190,7 +193,7 @@ export function RichMarkdown({
   const renderedText = useMemo(() => normalizeMultilineHtmlBlocks(text), [text]);
   const rehypePlugins = useMemo(() => {
     if (containsHtmlMarkup(renderedText)) return HTML_REHYPE_PLUGINS;
-    return sourcePositions && renderedText === text ? SOURCE_OFFSET_REHYPE_PLUGINS : undefined;
+    return sourcePositions && renderedText === text ? SOURCE_OFFSET_REHYPE_PLUGINS : LINE_BREAK_REHYPE_PLUGINS;
   }, [renderedText, sourcePositions, text]);
   return (
     <ReactMarkdown
