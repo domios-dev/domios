@@ -7,6 +7,8 @@ static DROPPED: AtomicU64 = AtomicU64::new(0);
 
 mod source;
 mod watch;
+#[cfg(test)]
+pub(crate) use source::UnledgeredObservation;
 pub(crate) use source::{link_rpc, PtyFlow, SourceCursor};
 pub(crate) use watch::cancel as cancel_tab;
 pub(crate) use watch::ensure as watch_pty;
