@@ -47,7 +47,7 @@ it("renders the selected document and lets a list entry open fullscreen or revea
   configureLocalArtifactOpener(async (path) => { revealed.push(path); });
   chatDocumentsStore.set("reader", documentsFromTranscript([{ content: "@ds-document /old.md\n@ds-document /new.md" }]));
   await render(<DocumentsPanel tabId="reader" panelRef={{ current: null }} state="open" onClose={() => {}} />);
-  const nav = host.querySelector("nav")!;
+  const nav = host.querySelector('nav[aria-label="Tab documents"]')!;
   expect(nav.querySelector("button")?.textContent).toContain("new.md");
   await act(async () => Array.from(nav.querySelectorAll("button")).find((item) => item.textContent?.includes("old.md"))?.click());
   expect(host.querySelector("h1")?.textContent).toBe("/old.md");

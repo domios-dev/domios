@@ -8,6 +8,8 @@ export interface FileDiffHunk {
 
 export interface FileDiff {
   path: string;
+  kind?: "add" | "modify" | "delete" | "rename";
+  binary?: boolean;
   movePath?: string;
   additions: number;
   deletions: number;
@@ -77,12 +79,15 @@ function changeDiff(path: string, value: unknown): FileDiff | null {
   if (!path.trim() || !value || typeof value !== "object" || Array.isArray(value)) return null;
   const change = value as { type?: unknown; content?: unknown; unified_diff?: unknown; move_path?: unknown };
   if ((change.type === "add" || change.type === "delete") && typeof change.content === "string") {
-    return fileDiff(path, contentHunks(change.content, change.type === "add" ? "+" : "-"), "");
+    return { ...fileDiff(path, contentHunks(change.content, change.type === "add" ? "+" : "-"), ""), kind: change.type };
   }
   if (change.type !== "update" || typeof change.unified_diff !== "string") return null;
-  const hunks = unifiedHunks(change.unified_diff);
+  const movePath = typeof change.move_path === "string" && change.move_path.trim() ? change.move_path : "";
+  const binary = /^(Binary files|GIT binary patch)/m.test(change.unified_diff);
+  const hunks = unifiedHunks(change.unified_diff) ?? (binary || movePath && !change.unified_diff ? [] : null);
   if (!hunks) return null;
-  return fileDiff(path, hunks, typeof change.move_path === "string" && change.move_path.trim() ? change.move_path : "");
+  if (binary) return { ...fileDiff(path, [], movePath), binary: true, kind: movePath ? "rename" : "modify" };
+  return { ...fileDiff(path, hunks, movePath), kind: movePath ? "rename" : "modify" };
 }
 
 export function changedPaths(changes: unknown): string[] {

@@ -631,6 +631,7 @@ export function useChatSession({
     backfillLoading: view.backfillLoading,
     loadOlder: view.loadOlder,
     showLatest: view.showLatest,
+    prepareMessage: view.prepareMessage,
     setHistoryReading: view.setHistoryReading,
     addOptimistic: view.addOptimistic,
     updateOptimistic: view.updateOptimistic,
