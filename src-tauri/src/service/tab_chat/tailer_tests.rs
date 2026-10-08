@@ -412,6 +412,68 @@ fn pending_store_watch_survives_flapping_availability_before_promotion() {
 }
 
 #[test]
+fn binding_completion_preserves_new_session_stream() {
+    use std::io::Write;
+
+    struct ChannelSink(std::sync::mpsc::Sender<Vec<RichMessage>>);
+    impl DeltaSink for ChannelSink {
+        fn emit(&self, _: &str, messages: Vec<RichMessage>, _: u64, _: u64) {
+            self.0.send(messages).unwrap();
+        }
+    }
+
+    let tmp = TempDir::new().unwrap();
+    let project = tmp.path().join("-proj-bind");
+    std::fs::create_dir_all(&project).unwrap();
+    let path = project.join("new-session.jsonl");
+    std::fs::write(&path, b"").unwrap();
+    let providers = registry_with_claude_at(tmp.path());
+    let chat = ChatRegistry::new();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let handle = spawn_tailer(
+        TailConfig {
+            tab_id: "mounted-chat".into(),
+            provider_id: "claude".into(),
+            cwd: "/proj/bind".into(),
+            session_id: "new-session".into(),
+            start_offset: 0,
+            poll_interval: super::live_chat_poll_interval(),
+        },
+        providers,
+        Arc::new(ChannelSink(sender)),
+    );
+    assert!(chat.insert(
+        "mounted-chat".into(),
+        "new-session".into(),
+        "desktop".into(),
+        handle,
+    ));
+    let source = chat.jsonl_source("mounted-chat");
+
+    chat.shutdown_session("mounted-chat", "previous-session");
+    assert!(chat.acquire("mounted-chat", "new-session", "desktop"));
+    assert!(Arc::ptr_eq(&source, &chat.jsonl_source("mounted-chat")));
+
+    for answer in ["first-answer", "later-answer"] {
+        let record = serde_json::json!({
+            "type": "assistant",
+            "message": { "role": "assistant", "content": [{ "type": "text", "text": answer }] },
+        });
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        writeln!(file, "{record}").unwrap();
+        file.flush().unwrap();
+        let rows = receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].blocks[0].data["text"], answer);
+    }
+    chat.shutdown_session("mounted-chat", "new-session");
+    assert!(!chat.is_running("mounted-chat"));
+}
+
+#[test]
 fn tailer_streams_new_messages_as_file_grows() {
     // Skip if running in an env without the plugin checkout.
     if !workspace_plugins_root().join("provider-claude").exists() {

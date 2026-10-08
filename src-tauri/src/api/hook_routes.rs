@@ -966,8 +966,6 @@ pub(crate) async fn finish_session_binding(
     } else {
         false
     };
-    // Authoritative identity commit: journaled only on a nonce-proven binding,
-    // so an unverified report can never become restorable authority.
     if let (true, true, Some(binding_nonce)) = (
         identity_committed,
         claim.nonce_verified,
@@ -1007,8 +1005,6 @@ pub(crate) async fn finish_session_binding(
             )
         }));
     }
-    // Ordering: the identity above is read from state the nonce check already
-    // committed, so an unverified report reaches this with nothing to offer.
     if let Some(evidence) = launch_identity.as_ref() {
         svc.retire_provisional_launch(tab_id, evidence);
     }
@@ -1091,7 +1087,11 @@ pub(crate) async fn finish_session_binding(
             serde_json::json!({ "plan_id": resume.plan_id }),
         );
     }
-    svc.chat_registry.shutdown_tab(&tab_id);
+    if let Some(previous_session_id) = claim.prev.as_deref() {
+        // Binding is already visible; Chat may have subscribed to the new session.
+        svc.chat_registry
+            .shutdown_session(tab_id, previous_session_id);
+    }
     svc.bind_planner_session(&tab_id);
     svc.schedule_planner_replay(&tab_id);
     let persist_svc = svc.clone();
