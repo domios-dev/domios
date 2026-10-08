@@ -10,6 +10,7 @@
   "packages/chat-ui/src/timelineMarkers.test.tsx",
   "packages/chat-ui/src/toolcard/commandFacts.test.tsx",
   "packages/chat-ui/src/toolcard/commandGroup.test.tsx",
+  "packages/chat-ui/src/codeterm/pluginNames.test.tsx",
   "packages/chat-core/src/shellComposition.test.ts",
   "src/components/Canvas/PlanViewShell.mission-control.test.tsx",
   "src/components/Canvas/planPresenceMotion.test.tsx",

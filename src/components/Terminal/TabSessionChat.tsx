@@ -12,7 +12,7 @@ import {
   OutboundReportCard,
   sessionIntentFromMessages,
 } from "@codeterm/chat-ui";
-import { ChatBlockHostProvider, extractPlanRefs } from "@codeterm/chat-ui";
+import { ChatBlockHostProvider, PluginNameProvider, extractPlanRefs } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler, OutboundReportDescriptor } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
 import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
@@ -51,6 +51,8 @@ import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
 import { PluginIcon } from "../Extensions/PluginIcon";
 import { getPluginProviderMeta, pluginProviderMetaVersion, subscribePluginProviderMeta } from "../../lib/pluginProviderMeta";
+import { usePluginDisplayNameResolver } from "../../hooks/usePluginProviderMeta";
+import type { ChatOrigin } from "../../lib/chatPrefixes";
 import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
 import { ScrollToLatestButton } from "./ScrollToLatestButton";
 import { ChatSetupState, chatSetupStageLabel, chatSetupSubject, chatSetupView } from "./ChatSetupState";
@@ -197,6 +199,7 @@ export function TabSessionChat({
   const autoConfirmations = autoConfirmationsForSession(tab?.permission_auto_confirmations, agentSessionId);
   const isActive = isVisible;
   const resolvePeerName = useMeshPeerNameResolver(isActive);
+  const resolvePluginName = usePluginDisplayNameResolver();
 
   const showComposerError = useCallback((message: string) => {
     addNotification({
@@ -607,7 +610,7 @@ export function TabSessionChat({
   }, [tabAgentTypes, planNav.workspaces, selectTabByTab]);
 
   // Preserve origin prop identities so streamed chunks do not re-render old bubbles.
-  type OriginProps = { key: string; onOriginClick?: () => void; originAvatar?: ReactNode };
+  type OriginProps = { key: string; origin?: ChatOrigin; onOriginClick?: () => void; originAvatar?: ReactNode };
   const originPropsCacheRef = useRef<Map<string, OriginProps>>(new Map());
   const originFocusRef = useRef<((tabId: string) => void) | null>(null);
   const originPropsById = useMemo(() => {
@@ -623,12 +626,14 @@ export function TabSessionChat({
       if (origin?.kind === "plugin") {
         const meta = getPluginProviderMeta(origin.pluginId);
         const iconSvg = origin.iconSvg ?? meta?.iconSvg;
-        const key = `plugin:${origin.pluginId}:${iconSvg ?? "fallback"}:${meta?.iconColor ?? ""}`;
+        const name = origin.name || resolvePluginName(origin.pluginId);
+        const key = `plugin:${origin.pluginId}:${name ?? ""}:${iconSvg ?? "fallback"}:${meta?.iconColor ?? ""}`;
         const prev = cache.get(msg.id);
         const entry: OriginProps = prev && prev.key === key
           ? prev
           : {
               key,
+              origin: name === origin.name ? origin : { ...origin, name },
               originAvatar: <OriginPluginAvatar pluginId={origin.pluginId} iconSvg={iconSvg} />,
             };
         next.set(msg.id, entry);
@@ -652,7 +657,7 @@ export function TabSessionChat({
     }
     originPropsCacheRef.current = next;
     return next;
-  }, [pluginMetaVersion, renderedEnrichedMessages, tabAgentTypes, setFocusedTab]);
+  }, [pluginMetaVersion, renderedEnrichedMessages, resolvePluginName, tabAgentTypes, setFocusedTab]);
 
   // subtype); it arrives via the mux snapshot and events, no local polling needed.
   const liveAgentState: AgentState = useMemo(() => {
@@ -709,6 +714,7 @@ export function TabSessionChat({
   return (
     <LocalArtifactScope tabId={tabId}>
     <ChatBlockHostProvider value={chatBlockHost}>
+    <PluginNameProvider resolve={resolvePluginName}>
     <div
       ref={chatRootRef}
       className="w-full h-full flex flex-col relative"
@@ -813,7 +819,7 @@ export function TabSessionChat({
                 showTimestamp={msg.type === "user" || agentTimeMessageIds.has(msg.id)}
                 item={item.kind === "tool" ? item : undefined}
                 isLatestFailedToolCall={msg.id === latestFailedToolCallId}
-                origin={origin}
+                origin={originProps?.origin ?? origin}
                 resolveTabName={resolveTabName}
                 resolvePeerName={resolvePeerName}
                 onOpenPlan={onOpenPlan}
@@ -916,6 +922,7 @@ export function TabSessionChat({
       )}
       </div>
     </div>
+    </PluginNameProvider>
     </ChatBlockHostProvider>
     </LocalArtifactScope>
   );

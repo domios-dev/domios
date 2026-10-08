@@ -28,6 +28,7 @@ import { RowMenuButton } from "../shared/RowMenuButton";
 import { TeamJobsUnit } from "../Jobs/TeamJobsUnit";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { DeclaredAttentionLevel } from "./declaredAttention";
+import { cronReportTitle, terminalOrigin } from "./teamRowLabels";
 
 import {
   effectiveTeamId,
@@ -273,6 +274,7 @@ export function SidebarWorkspaceTabs({
   const renderTerminalRow = (member: TeamTabMember): ReactNode => {
     const creatorId = member.tab.spawned_by_tab_id ?? null;
     const creator = creatorId ? tabs[creatorId] : null;
+    const origin = terminalOrigin(creatorId, creator?.title, Boolean(creator));
     return (
       <div key={member.tab.id} className="sidebar-team-member sidebar-team-terminal-member">
         <SidebarSingleTabRow
@@ -289,12 +291,14 @@ export function SidebarWorkspaceTabs({
         />
         <div className="sidebar-team-terminal-origin">
           started by{" "}
-          {creator ? (
-            <button type="button" onClick={() => onActivateTab(creator.id)}>
-              {creator.title || creator.id}
+          {origin.kind === "tab" ? (
+            <button type="button" onClick={() => onActivateTab(origin.id)}>
+              {origin.label}
             </button>
+          ) : origin.kind === "closed" ? (
+            <span title={`Tab ${origin.id}`}>a closed tab</span>
           ) : (
-            <span>{creatorId ? `${creatorId} · archived` : "unknown"}</span>
+            <span>an unknown tab</span>
           )}
         </div>
       </div>
@@ -420,9 +424,7 @@ export function SidebarWorkspaceTabs({
                 onBeforeOpenPlan();
                 cronSelectionStore.open({ cronId: job.id, workspaceId: ws.id });
               }}
-              title={job.report_target_tab_id
-                ? `Reports to Tab ${job.report_target_tab_id}`
-                : "Runs in a private cron worker"}
+              title={cronReportTitle(job.report_target_tab_id, job.report_target_tab_id ? tabs[job.report_target_tab_id]?.title : null)}
             >
               <Clock3 size={11} aria-hidden="true" />
               <span className="sidebar-team-cron-name">{job.name}</span>
