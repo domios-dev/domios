@@ -446,6 +446,23 @@ impl ReportStore {
     }
 
     pub fn mark_delivered(&mut self, report_id: &str) {
+        if !self.delivered.contains(report_id) {
+            if let Some((target, report)) = self.reports.iter().find_map(|(target, reports)| {
+                reports
+                    .iter()
+                    .find(|report| report.id == report_id)
+                    .map(|report| (target, report))
+            }) {
+                crate::flow_trace::record_flow(
+                    report_id,
+                    "report.written",
+                    target,
+                    "",
+                    "delivered",
+                    report.attempt_id.as_deref(),
+                );
+            }
+        }
         self.in_flight.remove(report_id);
         self.delivered.insert(report_id.to_string());
     }

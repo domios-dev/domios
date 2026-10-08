@@ -36,6 +36,7 @@ pub struct MessageEnvelope {
     pub set_at: Option<u64>,
     pub fire_at: Option<u64>,
     pub id: Option<String>,
+    pub(crate) trace_id: Option<String>,
     pub context: Option<String>,
     pub every_ms: Option<u64>,
     pub next_at_ms: Option<u64>,
@@ -80,6 +81,8 @@ pub(crate) enum QueuedAgentPayload {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub(crate) struct AgentDeliveryPayload {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) trace_id: Option<String>,
     pub(crate) transport: QueuedAgentPayload,
     pub(crate) observer: Option<DeliveryWriteObserver>,
     #[serde(default)]
@@ -411,11 +414,62 @@ impl Messenger {
     pub fn deliver_with_pad_file(
         svc: &super::ServiceContext,
         to_tab: &str,
-        envelope: MessageEnvelope,
+        mut envelope: MessageEnvelope,
         body: &str,
     ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
         let kind = envelope.kind;
+        if crate::paths::is_dev_instance() && envelope.id.is_none() {
+            envelope.id = Some(uuid::Uuid::new_v4().to_string());
+        }
+        let trace_id = crate::paths::is_dev_instance()
+            .then(|| envelope.id.clone())
+            .flatten();
+        let flow = crate::flow_trace::envelope_flow(svc, to_tab, &envelope);
+        let provider = if trace_id.is_some() {
+            svc.mux
+                .read()
+                .get_tab(to_tab)
+                .and_then(|tab| tab.agent_type.clone())
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        if let Some(id) = trace_id.as_deref() {
+            crate::flow_trace::record_flow(
+                id,
+                "message.started",
+                to_tab,
+                &provider,
+                "accepted",
+                flow.as_deref(),
+            );
+        }
         let result = Self::deliver_inner(svc, to_tab, envelope, body);
+        if let Some(id) = trace_id.as_deref() {
+            let (outcome, related) = match &result {
+                Ok((Delivery::Pending { delivery_id }, _)) => ("held", Some(delivery_id.as_str())),
+                Ok(_) => ("written", None),
+                Err(_) => ("refused", None),
+            };
+            crate::flow_trace::record_flow(
+                id,
+                "message.transport",
+                to_tab,
+                &provider,
+                outcome,
+                flow.as_deref(),
+            );
+            if let Some(related) = related {
+                crate::flow_trace::record(
+                    flow.as_deref().unwrap_or(id),
+                    "delivery.queued",
+                    to_tab,
+                    &provider,
+                    outcome,
+                    Some(related),
+                );
+            }
+        }
         if result
             .as_ref()
             .is_ok_and(|(delivery, _)| delivery.is_written())
@@ -521,6 +575,11 @@ impl Messenger {
                             svc.deliver_agent_payload(
                                 &resolved_target,
                                 AgentDeliveryPayload {
+                                    trace_id: crate::flow_trace::envelope_flow(
+                                        svc,
+                                        &resolved_target,
+                                        &envelope,
+                                    ),
                                     transport,
                                     observer: envelope.delivery_observer.clone(),
                                     idempotency_key: envelope.id.clone(),
@@ -617,6 +676,7 @@ impl Messenger {
             let text = frame.to_message();
             let pty_id = svc.resolve_pty_id(to_tab)?;
             let payload = AgentDeliveryPayload {
+                trace_id: crate::flow_trace::envelope_flow(svc, to_tab, &messenger.envelope),
                 transport: QueuedAgentPayload::RoutedFrame {
                     opening_tag: frame.opening_tag,
                     body: frame.body,
@@ -705,6 +765,7 @@ impl Messenger {
         message_id: String,
     ) -> Result<Delivery, String> {
         let (msg, marked) = build_chatbackend_inbound(&envelope, body, message_id.clone());
+        let trace_id = crate::flow_trace::envelope_flow(svc, to_tab, &envelope);
 
         let inserted = crate::service::tab_chat::chatbackend_history::ChatBackendHistory::shared(
             plugin_id, session_id,
@@ -712,6 +773,16 @@ impl Messenger {
         .lock()
         .upsert(std::slice::from_ref(&msg));
         if inserted {
+            if let Some(id) = trace_id.as_deref() {
+                crate::flow_trace::record(
+                    id,
+                    "transcript.append",
+                    to_tab,
+                    plugin_id,
+                    "inbound",
+                    Some(&message_id),
+                );
+            }
             let (source_session_id, session_binding_nonce) = svc
                 .mux
                 .read()

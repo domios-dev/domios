@@ -806,6 +806,7 @@ pub async fn send_text(
             .deliver_agent_payload(
                 &tab_id,
                 crate::service::messenger::AgentDeliveryPayload {
+                    trace_id: None,
                     transport: crate::service::messenger::QueuedAgentPayload::Text {
                         text: text.clone(),
                     },

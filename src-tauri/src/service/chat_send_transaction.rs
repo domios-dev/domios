@@ -481,6 +481,7 @@ impl ChatSendLedger {
             return None;
         }
         status.state = ChatSendState::Written;
+        crate::flow_trace::record(send_id, "send.written", &status.tab_id, "", "pty", None);
         status.error = None;
         status.pending_reason = None;
         let status = status.clone();
@@ -784,7 +785,26 @@ impl ChatSendLedger {
         state.sessionless_first_turn_by_id.remove(send_id);
         state.deferred_first_turn_by_id.remove(send_id);
         state.owned.remove(send_id);
-        state.by_id.get(send_id).cloned()
+        let status = state.by_id.get(send_id).cloned();
+        if let Some(status) = status.as_ref() {
+            crate::flow_trace::record(
+                send_id,
+                "send.delivered",
+                &status.tab_id,
+                "",
+                "exact_turn",
+                None,
+            );
+            crate::flow_trace::record(
+                send_id,
+                "transcript.append",
+                &status.tab_id,
+                "",
+                "own_user_turn",
+                None,
+            );
+        }
+        status
     }
 
     /// Confirm one send by id after exact append-window evidence was found in
@@ -1058,6 +1078,18 @@ pub(crate) fn run_chat_send(
     submit: impl FnOnce(&str) -> Result<(), crate::service::delivery_error::DeliveryError>,
 ) -> ChatSendStatus {
     let result = submit(text).map_err(|error| error.ledger_message());
+    crate::flow_trace::record(
+        &pending.send_id,
+        "send.transport",
+        &pending.tab_id,
+        "",
+        if result.is_ok() {
+            "accepted"
+        } else {
+            "uncertain_or_refused"
+        },
+        None,
+    );
     ledger
         .finish(&pending.send_id, result)
         .expect("a started Chat send remains in the bounded ledger until completion")
