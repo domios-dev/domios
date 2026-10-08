@@ -8,7 +8,7 @@ export interface StreamFrame {
 
 export interface SurfaceNotice {
   text: string;
-  tone?: "info" | "error";
+  tone?: "info" | "warn" | "error";
 }
 
 export interface StreamHandlers {

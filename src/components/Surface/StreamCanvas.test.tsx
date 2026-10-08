@@ -72,6 +72,18 @@ suite.test("the stage size is reported once per distinct viewport", async () => 
   await unmount();
 });
 
+suite.test("collapsing the stage reports hidden once and the same size is reported again", async () => {
+  let hidden = 0;
+  const { recorded, unmount } = await renderCanvas({ onHidden: () => { hidden += 1; } });
+  await resizeStages(0, 0);
+  await resizeStages(0, 0);
+  assert.equal(hidden, 1, "only the visible-to-hidden edge reports");
+  await resizeStages(400, 300);
+  const viewport = viewportRequest({ width: 400, height: 300 }, window.devicePixelRatio);
+  assert.deepEqual(recorded.viewports, [viewport, viewport]);
+  await unmount();
+});
+
 suite.test("interactive clicks, keys and wheel are forwarded as mapped input", async () => {
   const { host, recorded, unmount } = await renderCanvas({ interactive: true });
   const canvas = getByRole(host, "application", liveViewLabel("Jev's Browser", "Login"));

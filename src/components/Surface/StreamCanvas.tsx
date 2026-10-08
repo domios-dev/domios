@@ -13,6 +13,7 @@ export interface StreamCanvasProps {
   decode?: FrameDecoder;
   children?: ReactNode;
   onViewport(viewport: StreamViewport): void;
+  onHidden?(): void;
   onInput(input: StreamInput): void;
   onPick(point: PagePoint, anchor: PopoverAnchor): void;
   onHover(point: PagePoint): void;
@@ -33,6 +34,7 @@ export function StreamCanvas({
   decode = decodeJpegFrame,
   children,
   onViewport,
+  onHidden,
   onInput,
   onPick,
   onHover,
@@ -44,7 +46,7 @@ export function StreamCanvas({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const hintId = useId();
-  const stream = useStreamCanvas({ canvasRef, stageRef, frames, decode, onViewport, onError });
+  const stream = useStreamCanvas({ canvasRef, stageRef, frames, decode, onViewport, onHidden, onError });
   const latest = useRef({ interactive, stream, onInput });
   latest.current = { interactive, stream, onInput };
 

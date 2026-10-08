@@ -5,18 +5,18 @@ import { createLatestWins, type LatestWins } from "./latestWins";
 import { PointAndAsk } from "./PointAndAsk";
 import { StreamCanvas } from "./StreamCanvas";
 import { decideKey, type PagePoint, type StreamInput } from "./streamModel";
-import { SurfaceCapsule } from "./SurfaceCapsule";
 import {
   addressSubmission,
   askPopoverPosition,
   blockedNotice,
-  capsuleModel,
   CHROME_ITEM,
   elementCard,
   failureNotice,
   navigationFailureNotice,
   fileNameFromPath,
   grabSendArgs,
+  isNeedsHuman,
+  needsHumanNotice,
   profileSwitchedNotice,
   resolveToolbar,
   screenshotSavedNotice,
@@ -28,13 +28,14 @@ import {
   withOwner,
   type AskIntent,
   type GrabSelection,
+  type NeedsHumanKind,
   type PopoverAnchor,
   type SurfaceChromeSpec,
   type SurfaceState,
   type ToolbarItemSpec,
 } from "./surfaceChromeModel";
 import { SurfaceNoticeBar } from "./SurfaceNoticeBar";
-import { inputArgs, SURFACE_METHOD, type ScreenshotResult, type SurfaceStreamTransport } from "./surfaceStreamTransport";
+import { inputArgs, SURFACE_METHOD, type ScreenshotResult, type SurfaceNotice, type SurfaceStreamTransport } from "./surfaceStreamTransport";
 import { SurfaceToolbar } from "./SurfaceToolbar";
 import { useSurfaceStream } from "./useSurfaceStream";
 
@@ -78,7 +79,13 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const [sending, setSending] = useState(false);
   const [naming, setNaming] = useState<ToolbarItemSpec | null>(null);
+  const [dismissedNeed, setDismissedNeed] = useState<NeedsHumanKind | null>(null);
   const hover = useRef<LatestWins<PagePoint> | null>(null);
+  const needKind = isNeedsHuman(state.needsHuman) ? state.needsHuman : null;
+
+  useEffect(() => {
+    setDismissedNeed((dismissed) => (dismissed === needKind ? dismissed : null));
+  }, [needKind]);
 
   useEffect(() => {
     // Hover highlight is cosmetic; a failed hover must not raise a notice per mouse move.
@@ -91,6 +98,8 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
   }, [transport]);
 
   const label = surfaceLabel(state.owner, surfaceTitle);
+  const needText = needKind !== dismissedNeed ? needsHumanNotice(state) : null;
+  const shownNotice: SurfaceNotice | null = notice ?? (needText ? { text: needText, tone: "warn" } : null);
   const items = resolveToolbar(chrome, { interactive, picking, state, busy });
   const report = (action: string, error: unknown) => setNotice({ text: failureNotice(action, error), tone: "error" });
 
@@ -228,6 +237,7 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
         frames={stream.frames}
         decode={decode}
         onViewport={stream.onViewport}
+        onHidden={stream.onHidden}
         onInput={onInput}
         onPick={onPick}
         onHover={(point) => { if (!picked) hover.current?.push(point); }}
@@ -236,7 +246,7 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
         onCancelPick={cancelPick}
         onError={(error) => report("Frame", error)}
       >
-        {notice && <SurfaceNoticeBar notice={notice} onDismiss={() => setNotice(null)} />}
+        {shownNotice && <SurfaceNoticeBar notice={shownNotice} onDismiss={() => (notice ? setNotice(null) : setDismissedNeed(needKind))} />}
         {picked && (
           <PointAndAsk
             owner={state.owner}
@@ -247,7 +257,6 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
             onCancel={cancelPick}
           />
         )}
-        <SurfaceCapsule capsule={capsuleModel(state)} />
       </StreamCanvas>
       {naming && (
         <TextPromptDialog

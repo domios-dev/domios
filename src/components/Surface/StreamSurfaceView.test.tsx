@@ -8,8 +8,8 @@ import { createFakeStreamTransport } from "./fakeStreamTransport.testdata";
 import type { FrameDecoder } from "./frameFeed";
 import { StreamSurfaceView } from "./StreamSurfaceView";
 import {
-  capsuleModel,
   grabSendArgs,
+  needsHumanNotice,
   NEW_PROFILE_OPTION,
   profileSwitchedNotice,
   screenshotSavedNotice,
@@ -17,7 +17,8 @@ import {
   type GrabSelection,
   type SurfaceState,
 } from "./surfaceChromeModel";
-import { resizeArgs, SURFACE_METHOD, type ScreenshotResult } from "./surfaceStreamTransport";
+import { resizeArgs, SURFACE_METHOD, type ScreenshotResult, type StreamFrame } from "./surfaceStreamTransport";
+import { FRAME_HEAL_INTERVAL_MS } from "./useSurfaceStream";
 import { changeValue, flushAsync, getByRole, queryByRole, render, resizeStages, testSuite } from "./surfaceTestDom.testdata";
 
 const suite = testSuite("StreamSurfaceView");
@@ -57,11 +58,11 @@ suite.test("connects with the first measured viewport, then resizes and re-sends
   assert.equal(fake.disconnects(), 1, "unmount disconnects the stream");
 });
 
-suite.test("pushed state drives the label and capsule; Take control enables navigation", async () => {
+suite.test("pushed state drives the label; Take control enables navigation", async () => {
   const { fake, region, unmount } = await mount();
   await resizeStages(640, 480);
   await act(async () => fake.emitState(state));
-  assert.equal(getByRole(region(), "status").textContent, capsuleModel(state).text);
+  assert.equal(queryByRole(region(), "status"), null, "an agent with no need shows no notice");
   const back = getByRole(region(), "button", "Back") as HTMLButtonElement;
   assert.ok(back.disabled, "navigation waits for Take control");
   await act(async () => getByRole(region(), "button", "Take control").click());
@@ -140,6 +141,94 @@ suite.test("cancelling the new-profile dialog switches nothing; Clean sends the 
   assert.deepEqual(fake.callsTo("profiles.use").map((call) => call.args), [{ name: "" }]);
   await unmount();
 });
+
+suite.test("a needs-human state shows a dismissible notice that errors override", async () => {
+  const { fake, region, unmount } = await mount();
+  await resizeStages(640, 480);
+  const consent = needsHumanNotice({ ...state, needsHuman: "consent" })!;
+  const captcha = needsHumanNotice({ ...state, needsHuman: "captcha" })!;
+  const dismiss = async (notice: HTMLElement) => act(async () => getByRole(notice, "button", "Dismiss notice").click());
+  await act(async () => fake.emitState({ ...state, needsHuman: "consent" }));
+  assert.equal(getByRole(region(), "status", consent).getAttribute("data-tone"), "warn");
+  await act(async () => fake.emitNotice({ text: "boom", tone: "error" }));
+  assert.equal(queryByRole(region(), "status"), null, "an error notice takes precedence");
+  await dismiss(getByRole(region(), "alert"));
+  await dismiss(getByRole(region(), "status", consent));
+  assert.equal(queryByRole(region(), "status"), null, "dismissing hides the need");
+  await act(async () => fake.emitState({ ...state, needsHuman: "consent" }));
+  assert.equal(queryByRole(region(), "status"), null, "the same need stays dismissed");
+  await act(async () => fake.emitState({ ...state, needsHuman: "captcha" }));
+  await dismiss(getByRole(region(), "status", captcha));
+  await act(async () => fake.emitState({ ...state, needsHuman: "none" }));
+  await act(async () => fake.emitState({ ...state, needsHuman: "captcha" }));
+  assert.ok(getByRole(region(), "status", captcha), "a need that went away and came back shows again");
+  await unmount();
+});
+
+suite.test("hiding and re-showing the stage at the same size re-sends the viewport", async () => {
+  const { fake, unmount } = await mount();
+  const viewport = { w: 640, h: 480, dpr: window.devicePixelRatio };
+  await resizeStages(640, 480);
+  await act(async () => fake.emitOpen());
+  await resizeStages(0, 0);
+  await resizeStages(640, 480);
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.resize).map((call) => call.args), [resizeArgs(viewport), resizeArgs(viewport)]);
+  assert.equal(fake.connections.length, 1, "hiding keeps the stream connected");
+  assert.equal(fake.disconnects(), 0);
+  await unmount();
+});
+
+const frameAt = (deviceWidth: number, deviceHeight: number): StreamFrame => ({ data: "", metadata: { deviceWidth, deviceHeight } });
+
+suite.test("a frame at another client's size re-sends the viewport at most once per interval", async () => {
+  const { fake, unmount } = await mount();
+  const resizes = () => fake.callsTo(SURFACE_METHOD.resize).map((call) => call.args);
+  await resizeStages(640, 480);
+  await act(async () => fake.emitFrame(frameAt(640, 480)));
+  assert.deepEqual(resizes(), [], "a matching frame heals nothing");
+  await act(async () => fake.emitFrame(frameAt(1280, 960)));
+  assert.deepEqual(resizes(), [resizeArgs({ w: 640, h: 480, dpr: window.devicePixelRatio })]);
+  await act(async () => fake.emitFrame(frameAt(1280, 960)));
+  assert.equal(resizes().length, 1, "no second heal within the interval");
+  const realNow = Date.now;
+  Date.now = () => realNow() + FRAME_HEAL_INTERVAL_MS + 1;
+  try {
+    await act(async () => fake.emitFrame(frameAt(1280, 960)));
+  } finally {
+    Date.now = realNow;
+  }
+  assert.equal(resizes().length, 2, "the interval elapsed, so it heals again");
+  await flushAsync();
+  await unmount();
+});
+
+async function withDocument(overrides: { visibilityState?: DocumentVisibilityState; focused?: boolean }, run: () => Promise<void>) {
+  const target = document as unknown as Record<string, unknown>;
+  if (overrides.visibilityState) Object.defineProperty(document, "visibilityState", { value: overrides.visibilityState, configurable: true });
+  if (overrides.focused !== undefined) Object.defineProperty(document, "hasFocus", { value: () => overrides.focused, configurable: true });
+  try {
+    await run();
+  } finally {
+    delete target.visibilityState;
+    delete target.hasFocus;
+  }
+}
+
+for (const [name, overrides] of [
+  ["a hidden document", { visibilityState: "hidden" }],
+  ["an unfocused window", { focused: false }],
+] as const) {
+  suite.test(`${name} never heals a mismatched frame`, async () => {
+    const { fake, unmount } = await mount();
+    await resizeStages(640, 480);
+    await withDocument(overrides, async () => {
+      await act(async () => fake.emitFrame(frameAt(1280, 960)));
+    });
+    assert.equal(fake.callsTo(SURFACE_METHOD.resize).length, 0);
+    await flushAsync();
+    await unmount();
+  });
+}
 
 suite.test("the owner tab's name labels the surface over the pushed owner", async () => {
   const { fake, host, unmount } = await mount([], "Mira");

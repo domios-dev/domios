@@ -26,6 +26,7 @@ interface UseStreamCanvasOptions {
   frames: FrameFeed;
   decode: FrameDecoder;
   onViewport(viewport: StreamViewport): void;
+  onHidden?(): void;
   onError(error: unknown): void;
 }
 
@@ -35,15 +36,15 @@ function currentDpr(): number {
   return typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
 }
 
-export function useStreamCanvas({ canvasRef, stageRef, frames, decode, onViewport, onError }: UseStreamCanvasOptions): StreamCanvasHandle {
+export function useStreamCanvas({ canvasRef, stageRef, frames, decode, onViewport, onHidden, onError }: UseStreamCanvasOptions): StreamCanvasHandle {
   const css = useRef<Size>({ width: 0, height: 0 });
   const dpr = useRef(currentDpr());
   const drawCss = useRef<Rect>(EMPTY_RECT);
   const frame = useRef<DecodedFrame | null>(null);
   const meta = useRef<FrameMetadata | null>(null);
   const reported = useRef<StreamViewport | null>(null);
-  const callbacks = useRef({ onViewport, onError });
-  callbacks.current = { onViewport, onError };
+  const callbacks = useRef({ onViewport, onHidden, onError });
+  callbacks.current = { onViewport, onHidden, onError };
 
   const paint = () => {
     const canvas = canvasRef.current;
@@ -93,7 +94,13 @@ export function useStreamCanvas({ canvasRef, stageRef, frames, decode, onViewpor
       dpr.current = currentDpr();
       paintRef.current();
       const request = viewportRequest(css.current, dpr.current);
-      if (request && !sameViewport(reported.current, request)) {
+      if (!request) {
+        // The shared server viewport may change while hidden, so the next visible size must be re-sent.
+        if (reported.current) {
+          reported.current = null;
+          callbacks.current.onHidden?.();
+        }
+      } else if (!sameViewport(reported.current, request)) {
         reported.current = request;
         callbacks.current.onViewport(request);
       }

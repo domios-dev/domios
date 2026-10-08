@@ -164,6 +164,15 @@ export function sameViewport(a: StreamViewport | null, b: StreamViewport | null)
   return a.w === b.w && a.h === b.h && a.dpr === b.dpr;
 }
 
+const FRAME_SIZE_TOLERANCE_PX = 1;
+
+// Metadata without a device size cannot prove a mismatch, so it counts as matching.
+export function frameMatchesViewport(meta: FrameMetadata | null | undefined, viewport: StreamViewport): boolean {
+  if (!meta?.deviceWidth || !meta.deviceHeight) return true;
+  return Math.abs(meta.deviceWidth - viewport.w) <= FRAME_SIZE_TOLERANCE_PX
+    && Math.abs(meta.deviceHeight - viewport.h) <= FRAME_SIZE_TOLERANCE_PX;
+}
+
 export type ViewportAction = "connect" | "resize" | "none";
 
 export function viewportAction(connected: boolean, lastSent: StreamViewport | null, next: StreamViewport | null): ViewportAction {

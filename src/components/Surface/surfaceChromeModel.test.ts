@@ -5,7 +5,6 @@ import { BROWSER_SURFACE_CHROME } from "./browserChrome";
 import {
   addressSubmission,
   askPopoverPosition,
-  capsuleModel,
   CHROME_ITEM,
   elementCard,
   fileNameFromPath,
@@ -14,6 +13,7 @@ import {
   isNeedsHuman,
   liveViewLabel,
   NEEDS_HUMAN_KINDS,
+  needsHumanNotice,
   NEW_PROFILE_OPTION,
   PROFILE_NAME_MAX,
   profileOptions,
@@ -24,7 +24,6 @@ import {
   toolbarInvocation,
   validateProfileName,
   withOwner,
-  type CapsuleModel,
   type SurfaceState,
   type ToolbarItemSpec,
 } from "./surfaceChromeModel";
@@ -45,23 +44,20 @@ for (const kind of NEEDS_HUMAN_KINDS) assert.ok(isNeedsHuman(kind), kind);
 for (const value of ["none", null, undefined, "", "CAPTCHA"]) assert.ok(!isNeedsHuman(value), String(value));
 
 const base: SurfaceState = { owner: "Jev" };
-const capsuleCases: Array<[string, SurfaceState, CapsuleModel]> = [
-  ["no activity is idle", base, { text: "driven by Jev · idle", tone: "idle" }],
-  ["idle activity is idle", { ...base, activity: "idle" }, { text: "driven by Jev · idle", tone: "idle" }],
-  ["blank activity is idle", { ...base, activity: "  " }, { text: "driven by Jev · idle", tone: "idle" }],
-  ["a verb is acting", { ...base, activity: "clicking @e2" }, { text: "driven by Jev · clicking @e2", tone: "acting" }],
-  ["named profile is shown", { ...base, activity: "typing", profile: "Andrey" }, { text: "driven by Jev · profile Andrey · typing", tone: "acting" }],
-  ["clean profile is hidden", { ...base, profile: "clean" }, { text: "driven by Jev · idle", tone: "idle" }],
-  ["attached profile is hidden", { ...base, profile: "attached" }, { text: "driven by Jev · idle", tone: "idle" }],
-  ["needs-human wins over activity", { ...base, activity: "navigating", needsHuman: "captcha" }, { text: "driven by Jev · needs you: bot check", tone: "needs" }],
-  ["needs none is not a need", { ...base, needsHuman: "none", activity: "typing" }, { text: "driven by Jev · typing", tone: "acting" }],
+const noticeCases: Array<[string, SurfaceState, string | null]> = [
+  ["no need is no notice", base, null],
+  ["needs none is not a need", { ...base, needsHuman: "none", activity: "typing" }, null],
+  ["null is not a need", { ...base, needsHuman: null }, null],
+  ["a cookie dialog names the owner", { ...base, needsHuman: "consent" }, "Jev needs you: cookie dialog"],
+  ["a captcha reads as a bot check", { ...base, activity: "navigating", needsHuman: "captcha" }, "Jev needs you: bot check"],
+  ["a blank owner still names someone", { owner: "  ", needsHuman: "login" }, "The agent needs you: sign-in"],
 ];
-for (const [name, state, expected] of capsuleCases) assert.deepEqual(capsuleModel(state), expected, name);
-const needsTexts = new Set(NEEDS_HUMAN_KINDS.map((kind) => capsuleModel({ ...base, needsHuman: kind }).text));
-assert.equal(needsTexts.size, NEEDS_HUMAN_KINDS.length, "every needs-human kind has its own capsule text");
-for (const kind of NEEDS_HUMAN_KINDS) assert.equal(capsuleModel({ ...base, needsHuman: kind }).tone, "needs", kind);
-for (const state of [base, { ...base, activity: "typing" }]) {
-  assert.ok(!/\bYou\b/.test(capsuleModel(state).text), "the capsule never says driven by You");
+for (const [name, state, expected] of noticeCases) assert.equal(needsHumanNotice(state), expected, name);
+const needsTexts = NEEDS_HUMAN_KINDS.map((kind) => needsHumanNotice({ ...base, needsHuman: kind }));
+assert.equal(new Set(needsTexts).size, NEEDS_HUMAN_KINDS.length, "every needs-human kind has its own notice text");
+for (const text of needsTexts) {
+  assert.ok(text?.startsWith("Jev needs you: "), String(text));
+  assert.ok(!/\bYou\b/.test(text ?? ""), "the notice never names the viewer as the owner");
 }
 
 const ids = (state: SurfaceState, interactive: boolean, picking = false) =>

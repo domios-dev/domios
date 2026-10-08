@@ -13,13 +13,6 @@ export interface SurfaceState {
   profiles?: string[];
 }
 
-export type CapsuleTone = "acting" | "idle" | "needs";
-
-export interface CapsuleModel {
-  text: string;
-  tone: CapsuleTone;
-}
-
 export type ToolbarWhen = "interactive" | "always";
 
 export interface ToolbarInvoke {
@@ -84,11 +77,11 @@ export const PROFILE_NAME_MAX = 40;
 const PROFILE_NAME = /^[A-Za-z0-9_-]+$/;
 
 const NEEDS_HUMAN_TEXT: Record<NeedsHumanKind, string> = {
-  captcha: "needs you: bot check",
-  consent: "needs you: cookie dialog",
-  login: "needs you: login",
-  dialog: "needs you: page dialog",
-  file_chooser: "needs you: file picker",
+  captcha: "bot check",
+  consent: "cookie dialog",
+  login: "sign-in",
+  dialog: "page dialog",
+  file_chooser: "file picker",
 };
 
 export function isNeedsHuman(value: unknown): value is NeedsHumanKind {
@@ -105,26 +98,10 @@ export function liveViewLabel(label: string, pageTitle?: string): string {
   return page ? `Live view of ${label}, ${page}` : `Live view of ${label}`;
 }
 
-function activeVerb(activity: string | null | undefined): string | null {
-  const verb = activity?.trim();
-  return verb && verb !== "idle" ? verb : null;
-}
-
-function namedProfile(profile: string | null | undefined): string | null {
-  return profile && profile !== CLEAN_PROFILE && profile !== ATTACHED_PROFILE ? profile : null;
-}
-
-export function capsuleModel(state: SurfaceState): CapsuleModel {
-  const parts = [`driven by ${state.owner}`];
-  const profile = namedProfile(state.profile);
-  if (profile) parts.push(`profile ${profile}`);
-  if (isNeedsHuman(state.needsHuman)) {
-    parts.push(NEEDS_HUMAN_TEXT[state.needsHuman]);
-    return { text: parts.join(" · "), tone: "needs" };
-  }
-  const verb = activeVerb(state.activity);
-  parts.push(verb ?? "idle");
-  return { text: parts.join(" · "), tone: verb ? "acting" : "idle" };
+export function needsHumanNotice(state: SurfaceState): string | null {
+  if (!isNeedsHuman(state.needsHuman)) return null;
+  const owner = state.owner.trim() || "The agent";
+  return `${owner} needs you: ${NEEDS_HUMAN_TEXT[state.needsHuman]}`;
 }
 
 function enabledWhen(when: ToolbarWhen | undefined, interactive: boolean): boolean {
