@@ -28,6 +28,11 @@ pub enum SystemEvent {
     TabClosed {
         tab_id: String,
     },
+    /// An agent verb ran against a surface tab; `verb` is a bare token, never its arguments.
+    SurfaceActivity {
+        tab_id: String,
+        verb: String,
+    },
     AgentStarted {
         tab_id: String,
         provider: String,
@@ -64,6 +69,7 @@ impl SystemEvent {
             Self::TabTitlePinned { .. } => "tab-title-pinned",
             Self::TabFocused { .. } => "tab-focused",
             Self::TabClosed { .. } => "tab-closed",
+            Self::SurfaceActivity { .. } => "surface-activity",
             Self::AgentStarted { .. } => "agent-started",
             Self::AgentIdle { .. } => "agent-idle",
             Self::ConfigChanged { .. } => "config-changed",

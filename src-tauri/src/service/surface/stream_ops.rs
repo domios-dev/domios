@@ -71,6 +71,13 @@ pub(crate) fn stream_binding(
     })
 }
 
+/// Who drove a `/call`: the surface's own view, or an agent tab (`X-CodeTerm-Tab-Id`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CallOrigin {
+    View,
+    Agent,
+}
+
 /// A refusal is the request's fault (4xx); a failure is the runtime's answer (`{ error }`).
 #[derive(Debug)]
 pub(crate) enum SurfaceCallFailure {
@@ -149,10 +156,14 @@ pub(crate) async fn call_surface(
     tab_id: &str,
     method: &str,
     args: Value,
+    origin: CallOrigin,
 ) -> Result<Value, SurfaceCallFailure> {
     let (runtime, binding) = svc
         .surface_runtime(tab_id)
         .map_err(SurfaceCallFailure::Refused)?;
+    if origin == CallOrigin::Agent && super::is_agent_method(method) {
+        svc.note_surface_activity(&binding.tab_id, method);
+    }
     let ctx = svc.surface_call_ctx(&binding);
     let outcome = runtime
         .call(&ctx, method, args)
@@ -214,6 +225,7 @@ mod tests {
             restore,
             runtime: runtime.map(str::to_string),
             chrome: None,
+            icon: None,
         }
     }
 

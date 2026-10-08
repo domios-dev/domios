@@ -14,7 +14,8 @@
         "renderer": "stream",
         "runtime": "browser",
         "agentBound": true,
-        "restore": "relaunch"
+        "restore": "relaunch",
+        "icon": "globe"
       }
     ]
   },

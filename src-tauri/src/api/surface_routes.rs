@@ -11,7 +11,8 @@ use crate::api::routes::{check_auth, AppState};
 use crate::service::browser::viewport::ViewportRequest;
 use crate::service::surface::runtime::sse_payload;
 use crate::service::surface::{
-    call_surface, open_surface_stream, SurfaceCallFailure, SurfaceError, SurfaceOpenRequest,
+    call_surface, open_surface_stream, CallOrigin, SurfaceCallFailure, SurfaceError,
+    SurfaceOpenRequest,
 };
 use crate::service::{ServiceContext, ServiceState};
 
@@ -152,7 +153,12 @@ pub(crate) async fn call(
     Json(request): Json<SurfaceCallRequest>,
 ) -> RouteResult {
     authorize(&state, &headers)?;
-    match call_surface(&state.svc, &tab_id, &request.method, request.args).await {
+    let origin = if crate::api::tab_routes::caller_tab_header(&headers).is_some() {
+        CallOrigin::Agent
+    } else {
+        CallOrigin::View
+    };
+    match call_surface(&state.svc, &tab_id, &request.method, request.args, origin).await {
         Ok(result) => Ok(Json(json!({ "result": result }))),
         Err(SurfaceCallFailure::Failed(error)) => Ok(Json(json!({ "error": error }))),
         Err(SurfaceCallFailure::Refused(error)) => Err(surface_refusal(error)),
