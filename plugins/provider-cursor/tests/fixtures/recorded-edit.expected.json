@@ -1,0 +1,28 @@
+[
+  {
+    "path": "src/api/routes.rs",
+    "additions": 6,
+    "deletions": 4,
+    "truncated": true,
+    "hunks": [
+      {
+        "oldStart": 1,
+        "oldLines": 4,
+        "newStart": 1,
+        "newLines": 6,
+        "lines": [
+          "-        .route(",
+          "-            \"/api/remote-workers\",",
+          "-            get(agent_routes::remote_workers).post(agent_routes::record_remote_worker),",
+          "-        )",
+          "+        .route(",
+          "+            \"/api/remote-workers\",",
+          "+            get(agent_routes::remote_workers)",
+          "+                .post(agent_routes::record_remote_worker)",
+          "+                .delete(agent_routes::forget_remote_worker),",
+          "+        )"
+        ]
+      }
+    ]
+  }
+]
