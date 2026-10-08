@@ -8,6 +8,22 @@ use crate::service::ServiceContext;
 
 const SHELL_READY_DEADLINE: Duration = Duration::from_secs(10);
 
+pub(crate) fn first_turn(
+    system_prompt: bool,
+    inline_task: bool,
+    task: Option<&str>,
+    starter: Option<&str>,
+) -> Option<String> {
+    let task = task.filter(|task| !task.trim().is_empty())?;
+    if system_prompt {
+        Some(super::launch_delivery::assigned_task_starter(starter))
+    } else if inline_task {
+        None
+    } else {
+        Some(task.to_owned())
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct ShellReadyDeadline;
 
@@ -203,7 +219,15 @@ pub(crate) fn start(service: Arc<ServiceContext>, launch: HiddenLaunch) {
                             else {
                                 return;
                             };
-                            let consumed = match pty_input_task.as_ref() {
+                            let rpc_task = service.agent_registry.with_provider(&provider, |p| {
+                                first_turn(
+                                    matches!(super::launch_delivery::mode_for_descriptor(&p.system_prompt_delivery()), super::launch_delivery::LaunchDeliveryMode::SystemPrompt),
+                                    false,
+                                    task.as_deref(),
+                                    p.starter_prompt_text(crate::agent::provider::StarterPrompt::AssignedTask).as_deref(),
+                                )
+                            }).flatten();
+                            let consumed = match rpc_task.as_ref() {
                                 Some(payload) => super::codex_rpc::bootstrap::consume(&service, &attempt, super::launch_delivery::FallbackDeliverySpec {
                                     channel: crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
                                     payload: payload.clone(),
