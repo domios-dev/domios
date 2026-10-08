@@ -59,6 +59,7 @@ case "${1:-all}" in
       plugins/provider-opencode/tests/opencodePresets.test.ts
       plugins/provider-opencode/tests/decisionModel.test.ts
       plugins/provider-cursor/tests/plugin.test.ts
+      packages/plugin-sdk/src/fileDiffs.test.ts
       plugins/chat-preprocessor/tests/plugin.test.ts
       src/lib/plugins/registry.test.ts
       packages/chat-ui/src/codeterm/recognize.test.ts
@@ -128,6 +129,12 @@ case "${1:-all}" in
       plugins/provider-opencode/tests/modelVariants.test.ts
       plugins/provider-opencode/tests/opencodePresets.test.ts
       plugins/provider-opencode/tests/decisionModel.test.ts
+    )
+    ;;
+  provider-cursor)
+    tests=(
+      plugins/provider-cursor/tests/plugin.test.ts
+      packages/plugin-sdk/src/fileDiffs.test.ts
     )
     ;;
   chat-preprocessor)
