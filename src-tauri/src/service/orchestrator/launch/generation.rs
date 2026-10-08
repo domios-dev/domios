@@ -1,5 +1,29 @@
 use super::*;
 
+pub(super) fn reserve_binding_nonce(
+    svc: &ServiceContext,
+    tab_id: &str,
+    resume_session_id: Option<&str>,
+) -> String {
+    let fork = svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
+        tab.fork_source_session_id
+            .as_deref()
+            .is_some_and(|source| Some(source) == resume_session_id)
+    });
+    if crate::service::codex_rpc::lifecycle::for_tab(tab_id).is_some() {
+        return svc.ensure_session_binding_nonce(tab_id);
+    }
+    match resume_session_id.filter(|_| !fork) {
+        Some(session_id) => {
+            crate::service::launch_session_detection::register_resume_launch_marker(
+                tab_id, session_id,
+            );
+            svc.rotate_session_binding_nonce_for_resume(tab_id, session_id)
+        }
+        None => svc.rotate_session_binding_nonce(tab_id),
+    }
+}
+
 impl LaunchGeneration {
     pub(super) fn begin(tab_id: &str, pty_id: String) -> Self {
         LAUNCH_REGISTRY.lock().begin(tab_id, pty_id)
@@ -12,27 +36,19 @@ impl LaunchGeneration {
         public_send_key: Option<crate::service::public_send_readiness::PublicSendGateKey>,
         origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
         resume_session_id: Option<&str>,
+        reserved_nonce: Option<String>,
     ) -> Result<(), String> {
-        let fork = svc.mux.read().get_tab(&self.tab_id).is_some_and(|tab| {
-            tab.fork_source_session_id
-                .as_deref()
-                .is_some_and(|source| Some(source) == resume_session_id)
-        });
         let sidecar = crate::service::codex_rpc::lifecycle::for_tab(&self.tab_id);
-        let nonce = if sidecar.is_some() {
-            svc.ensure_session_binding_nonce(&self.tab_id)
-        } else {
-            match resume_session_id.filter(|_| !fork) {
-                Some(session_id) => {
-                    crate::service::launch_session_detection::register_resume_launch_marker(
-                        &self.tab_id,
-                        session_id,
-                    );
-                    svc.rotate_session_binding_nonce_for_resume(&self.tab_id, session_id)
-                }
-                None => svc.rotate_session_binding_nonce(&self.tab_id),
-            }
-        };
+        let nonce = reserved_nonce
+            .unwrap_or_else(|| reserve_binding_nonce(svc, &self.tab_id, resume_session_id));
+        if !svc
+            .mux
+            .read()
+            .get_tab(&self.tab_id)
+            .is_some_and(|tab| tab.session_binding_nonce.as_deref() == Some(nonce.as_str()))
+        {
+            return Err("launch binding changed before registration".into());
+        }
         if sidecar.is_none() {
             crate::service::codex_rpc::lifecycle::plain_launch(svc, &self.tab_id, &nonce);
         }
