@@ -117,9 +117,8 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded }: { event: T
       data-testid="file-diff-card"
       data-tool-status={event.status}
       aria-label={`${visual.label} ${heading}`}
-      className="min-w-0 overflow-hidden rounded-md border-l-2"
+      className="min-w-0 overflow-hidden rounded-md"
       style={{
-        borderLeftColor: failed ? "var(--ct-red)" : "var(--ct-border)",
         background: "color-mix(in srgb, var(--ct-surface) 60%, transparent)",
       }}
     >

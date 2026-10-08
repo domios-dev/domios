@@ -35,6 +35,14 @@ function result(id: string, toolId: string, detail: string, patch: Partial<Norma
 }
 
 {
+  const running = call("streaming", "streaming", { toolKind:"command", toolInput:{status:"inProgress"}, toolResult:"partial output" });
+  const pending = materializeToolEvent(running);
+  assert(pending?.status === "pending" && pending.result === "partial output", "source execution stays pending while output streams");
+  assert(materializeToolEvent({...running,toolError:false})?.status === "success", "explicit completion settles streamed output");
+  assert(materializeToolEvent({...running,toolExitCode:2})?.status === "error", "nonzero exit overrides a pending source state");
+}
+
+{
   const items = reduceToolEvents([
     call("call", "same"),
     result("result", "same", "ok"),

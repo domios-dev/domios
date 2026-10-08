@@ -2,6 +2,7 @@ import { localThumbnailSource, type ThumbnailSource, type ToolEvent, type ToolRi
 import { Check, ChevronRight, CircleX, LoaderCircle, Minus } from "lucide-react";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { loadLocalArtifact } from "../localArtifactLoader";
+import { ToolOutputContent } from "../ToolOutputContent";
 import { toolKindVisual } from "./toolKindVisual";
 
 interface ThumbnailState {
@@ -83,9 +84,8 @@ export function RichResultCard({ event, expanded, onToggle }: { event: ToolEvent
       data-rich-kind={event.kind}
       data-tool-status={event.status}
       aria-label={`${visual.label} result`}
-      className="mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-md border-l-2"
+      className="mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-md"
       style={{
-        borderLeftColor: event.status === "error" ? "var(--ct-red)" : "var(--ct-border)",
         background: "color-mix(in srgb, var(--ct-surface) 60%, transparent)",
       }}
     >
@@ -120,6 +120,7 @@ export function RichResultCard({ event, expanded, onToggle }: { event: ToolEvent
         </button>
       </div>
       <div id={regionId} role="region" aria-label={`${visual.label} result details`} hidden={!expanded} className="pb-2 pl-8 pr-3">
+        {expanded && event.result && <ToolOutputContent text={event.result} />}
         {expanded && (rich ? (
           <dl data-testid="chat-rich-result-detail" className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-0.5 font-mono text-[11.5px]">
             {rich.origin && <Field name="source">{rich.origin === "viewed" ? "image view" : "image generation"}</Field>}

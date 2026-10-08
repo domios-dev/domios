@@ -76,7 +76,6 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
   };
   const title = event.description || commandGroupSummary(rows);
   const countLabel = `${rows.length} commands`;
-  const failed = event.status === "error";
   const capped = !expanded && (openRow ?? -1) < COMMAND_TREE_CAP;
 
   return (
@@ -84,9 +83,8 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
       data-testid="chat-command-group"
       data-tool-status={event.status}
       aria-label={`Command, ${countLabel}`}
-      className="mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-md border-l-2"
+      className="mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-md"
       style={{
-        borderLeftColor: failed ? "var(--ct-red)" : event.status === "pending" ? "var(--ct-accent)" : "var(--ct-border)",
         background: "color-mix(in srgb, var(--ct-surface) 60%, transparent)",
       }}
     >
@@ -120,6 +118,7 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
       <div id={regionId} role="region" aria-label="Command output" hidden={!expanded} className="px-3 pb-2">
         {expanded && (
           <RawCommandDisclosure
+            initiallyExpanded
             raw={toolCommand(event).command}
             details={event.status === "pending"
               ? <div data-testid="toolcard-spinner" className="font-mono text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>Running…</div>

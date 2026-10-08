@@ -43,6 +43,12 @@ pub async fn history(client: &Client, thread: &str) -> Result<History, String> {
             .get("id")
             .and_then(Value::as_str)
             .ok_or("Missing history turn id")?;
+        if turn["status"] != "inProgress" || !turn["startedAt"].is_null() {
+            messages.extend(normalizer.apply_all(&Frame::Notification {
+                method: "turn/started".into(),
+                params: json!({"threadId":thread,"turn":turn}),
+            }));
+        }
         let entries = pages(
             client,
             "thread/items/list",
@@ -50,10 +56,24 @@ pub async fn history(client: &Client, thread: &str) -> Result<History, String> {
         )
         .await?;
         for entry in entries {
-            if let Some(message) = normalize_entry(&mut normalizer, thread, &entry) {
-                messages.push(message);
-            }
+            messages.extend(normalize_entries(&mut normalizer, thread, &entry));
         }
+        if turn["status"] != "inProgress" {
+            messages.extend(normalizer.apply_all(&Frame::Notification {
+                method: "turn/completed".into(),
+                params: json!({"threadId":thread,"turn":turn}),
+            }));
+        }
+    }
+    let goal = client
+        .request("thread/goal/get", json!({"threadId":thread}))
+        .await
+        .map_err(rpc_error)?;
+    if !goal["goal"].is_null() {
+        messages.extend(normalizer.apply_all(&Frame::Notification {
+            method: "thread/goal/updated".into(),
+            params: json!({"threadId":thread,"goal":goal["goal"]}),
+        }));
     }
     Ok(History {
         messages,
@@ -88,17 +108,24 @@ async fn pages(client: &Client, method: &str, mut params: Value) -> Result<Vec<V
     }
 }
 
+#[cfg(test)]
 pub fn normalize_entry(
     normalizer: &mut Normalizer,
     thread: &str,
     entry: &Value,
 ) -> Option<ChatMsg> {
+    normalize_entries(normalizer, thread, entry)
+        .into_iter()
+        .next()
+}
+
+fn normalize_entries(normalizer: &mut Normalizer, thread: &str, entry: &Value) -> Vec<ChatMsg> {
     let mut params = entry.clone();
     params["threadId"] = json!(thread);
     if params.get("item").is_none() {
         params["item"] = entry.clone();
     }
-    normalizer.apply(&Frame::Notification {
+    normalizer.apply_all(&Frame::Notification {
         method: "item/completed".into(),
         params,
     })
