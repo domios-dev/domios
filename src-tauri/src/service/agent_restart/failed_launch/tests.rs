@@ -35,6 +35,7 @@ fn failed_launch_without_a_pty_prepares_a_fresh_restart() {
         tab.boot_stage = Some(BootStage::SpawnFailed);
         crate::service::tab::clear_agent_identity_for_lifecycle_exit(tab);
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        fixture.set_agent_full_access(false);
         fixture.service.agent_registry.register_provider(Box::new(
             crate::agent::test_provider::MockProvider::new(provider),
         ));
