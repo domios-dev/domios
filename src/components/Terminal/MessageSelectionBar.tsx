@@ -2,8 +2,9 @@ import { useState } from "react";
 import { Check, Copy, MessageSquarePlus, Quote, X } from "lucide-react";
 
 /** The floating bar of a message selection: count, Copy, Quote into composer, Ask about these, Clear. */
-export function MessageSelectionBar({ count, onCopy, onQuote, onAsk, onClear }: {
+export function MessageSelectionBar({ count, partial = false, onCopy, onQuote, onAsk, onClear }: {
   count: number;
+  partial?: boolean;
   onCopy: () => void;
   onQuote: () => void;
   onAsk: () => void;
@@ -15,7 +16,7 @@ export function MessageSelectionBar({ count, onCopy, onQuote, onAsk, onClear }: 
   return (
     <div className="ct-msg-selection-bar" role="toolbar" aria-label="Selected messages">
       <span className="ct-msg-selection-bar__count" aria-live="polite">
-        {count} {count === 1 ? "message" : "messages"}
+        {count} {partial ? (count === 1 ? "part" : "parts") : (count === 1 ? "message" : "messages")}
       </span>
       <span aria-hidden className="ct-msg-selection-bar__rule" />
       <button type="button" onClick={() => { onCopy(); setCopiedCount(count); }}>

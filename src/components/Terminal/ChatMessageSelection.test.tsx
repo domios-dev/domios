@@ -7,6 +7,7 @@ import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { ChatComposer } from "./ChatComposer";
+import { RichMarkdown } from "@codeterm/chat-ui";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { capsuleSpans } from "./composerCapsules";
 import { composerInsertionStore } from "./composerInsertion";
@@ -55,7 +56,7 @@ function Harness({ tabId, rows }: { tabId: string; rows: SelectableRow[] }) {
           selecting={selection.active}
           cursor={selection.cursor ? selection.cursor === msg.id : index === rows.length - 1}
           handlers={selection.rowHandlers}>
-          <p>{msg.content}</p>
+          {msg.type === "assistant" ? <RichMarkdown text={msg.content} /> : <p>{msg.content}</p>}
         </ChatMessageRow>
       ))}
       <MessageSelectionBar count={selection.count} onCopy={selection.copySelection} onQuote={selection.quoteSelection} onAsk={selection.askSelection} onClear={selection.clear} />
@@ -395,4 +396,17 @@ it("leaves a native text selection alone", async () => {
   });
   await shiftClick("a1");
   expect(bar()).toBeNull();
+});
+
+it("materializes only the targeted part in the quote file and Ask attachment", async () => {
+  const source = "First paragraph.\n\nSecond **paragraph**.";
+  await render("part-files", [asRow(message("parts", "assistant", source))]);
+  await openMenu("parts");
+  await act(async () => item("parts", "Quote into composer")!.click());
+  expect(replyBlock()?.textContent).toContain("First paragraph.");
+  expect(await stored.blobs[0].text).toBe("Fermi:\n> First paragraph.");
+  await openMenu("parts");
+  await act(async () => item("parts", "Ask about this")!.click());
+  expect(await stored.blobs[1].text).toBe("### Fermi\n\nFirst paragraph.");
+  expect(sends()).toEqual([]);
 });
