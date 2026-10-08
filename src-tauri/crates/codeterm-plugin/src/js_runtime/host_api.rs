@@ -37,6 +37,12 @@ struct HeldFileLock {
     file: File,
 }
 
+impl Drop for HeldFileLock {
+    fn drop(&mut self) {
+        let _ = self.file.unlock();
+    }
+}
+
 fn held_file_locks() -> &'static parking_lot::Mutex<HashMap<String, HeldFileLock>> {
     static LOCKS: OnceLock<parking_lot::Mutex<HashMap<String, HeldFileLock>>> = OnceLock::new();
     LOCKS.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))

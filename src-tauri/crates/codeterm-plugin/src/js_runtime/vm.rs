@@ -651,15 +651,6 @@ fn parse_await(result_json: &str) -> Option<AwaitRequest> {
     })
 }
 
-fn call_json_inner<R: serde::de::DeserializeOwned>(
-    vm: &PluginVm,
-    method: &str,
-    args: &[serde_json::Value],
-    strict: bool,
-) -> Result<R, VmError> {
-    call_json_inner_interruptible(vm, method, args, strict, None)
-}
-
 fn call_json_inner_interruptible<R: serde::de::DeserializeOwned>(
     vm: &PluginVm,
     method: &str,

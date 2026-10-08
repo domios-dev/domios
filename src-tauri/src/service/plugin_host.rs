@@ -480,8 +480,12 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
     fn model_provider_process_env(
         &self,
         plugin_id: &str,
-    ) -> Result<std::collections::HashMap<String, String>, ()> {
-        self.model_provider_launch_env(plugin_id).map_err(|_| ())
+    ) -> Result<
+        std::collections::HashMap<String, String>,
+        codeterm_plugin::host_traits::ModelProviderEnvUnavailable,
+    > {
+        self.model_provider_launch_env(plugin_id)
+            .map_err(|_| codeterm_plugin::host_traits::ModelProviderEnvUnavailable)
     }
 
     fn supporter_token(&self, plugin_id: &str) -> Option<String> {
