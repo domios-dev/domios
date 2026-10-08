@@ -33,7 +33,7 @@
   "src/components/AgentRun/toolActivityStream.test.tsx",
   "packages/chat-ui/src/toolcard/fileDiffCards.test.tsx",
   "packages/chat-ui/src/toolcard/richResults.test.tsx",
-  "packages/chat-ui/src/ImageAttachments.test.tsx",
+  "packages/chat-ui/src/AttachmentStrip.test.tsx",
   "packages/chat-ui/src/toolcard/thoughtsAgents.test.tsx",
   "packages/chat-ui/src/toolcard/subAgentCard.test.tsx",
   "src/components/Canvas/planView/PlanParagraphAsk.test.tsx",

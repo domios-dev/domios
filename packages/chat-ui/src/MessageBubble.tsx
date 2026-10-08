@@ -4,7 +4,7 @@ import type {
   NormalizedChatMessage as ChatMessage,
   TimelineItem,
 } from "@codeterm/chat-core";
-import { isTabMarkerPlaceholderLabel, shortTabRef, systemOriginLabel, toolCommand, userVisibleText } from "@codeterm/chat-core";
+import { isTabMarkerPlaceholderLabel, shortTabRef, systemOriginLabel, toolCommand, userMessageAttachments } from "@codeterm/chat-core";
 import {
   Send,            // generic chat (telegram / service)
   Network,         // mesh
@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { ToolCallBubble } from "./ToolCallBubble";
 import { toolCommandShape } from "./codeterm/commandShape";
-import { ImageAttachments } from "./ImageAttachments";
+import { AttachmentStrip } from "./AttachmentStrip";
 import { ThoughtLine } from "./toolcard/ThoughtLine";
 import { ShellCommandItem } from "./ShellCommandItem";
 import { ReminderCard } from "./codeterm/ReminderCard";
@@ -371,21 +371,22 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
       );
     })() : null;
 
-    const visibleUserContent = userVisibleText(message.content, attachments);
+    const userAttachments = userMessageAttachments(message.content, attachments);
+    const visibleUserContent = userAttachments.text;
     const formattedUserContent = effectiveOrigin?.kind === "command" ? (
           <CommandBody commands={effectiveOrigin.commands} body={message.content} />
-        ) : hasPlanRefs(message.content) ? (
-          <LinkedText text={message.content} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
+        ) : hasPlanRefs(visibleUserContent) ? (
+          <LinkedText text={visibleUserContent} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
         ) : (
           visibleUserContent ? renderUserContent(visibleUserContent) : null
         );
 
     const userBubbleInner = (
       <>
-        {formattedUserContent}
-        {attachments && attachments.length > 0 && (
-          <ImageAttachments attachments={attachments} separated={visibleUserContent.trim().length > 0} />
+        {(userAttachments.images.length > 0 || userAttachments.files.length > 0) && (
+          <AttachmentStrip images={userAttachments.images} files={userAttachments.files} captioned={visibleUserContent.trim().length > 0} />
         )}
+        {formattedUserContent}
       </>
     );
 
