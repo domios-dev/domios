@@ -11,7 +11,8 @@ import { clearChatReveal, currentChatReveal } from "../../lib/chatMessageReveal"
 import { invoke } from "../../lib/bridge";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 
-vi.mock("../../lib/bridge", () => ({ invoke: vi.fn(() => Promise.resolve()) }));
+const hostMode = vi.hoisted(() => ({ web: false }));
+vi.mock("../../lib/bridge", () => ({ get IS_WEB() { return hostMode.web; }, invoke: vi.fn(() => Promise.resolve()) }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | null = null;
 let host: HTMLDivElement;
@@ -39,6 +40,7 @@ const messages: NormalizedChatMessage[] = [
 const panel = (onClose = () => {}) => <TabSidePanel tabId="tab" view="changes" cwd="/repo" panelRef={{ current: null }} state="open" onClose={onClose} />;
 afterEach(async () => {
   await act(async () => root?.unmount()); root = null; host?.remove();
+  hostMode.web = false;
   chatChangesStore.clear(); planSidePanelStore.close(); planSidePanelStore.resetDocuments(); tabPanelNavigationStore.clear(); composerInsertionStore.clear(); clearChatReveal(); vi.clearAllMocks();
 });
 
@@ -172,4 +174,17 @@ it("shows one helpful line when the tab has no recorded edits", async () => {
   await render(panel());
   expect(host.textContent).toContain("File edits the agent makes in this tab appear here.");
   expect(host.querySelector('[role="tree"]')).toBeNull();
+});
+
+
+it("disables host OS actions in the web reader without invoking them", async () => {
+  hostMode.web = true;
+  chatChangesStore.set("tab", messages);
+  await render(panel());
+  await act(async () => button("Show changes for src/a.ts").click());
+  expect(button("Open file").disabled).toBe(true);
+  expect(button("Show in Explorer/Finder").disabled).toBe(true);
+  await act(async () => { button("Open file").click(); button("Show in Explorer/Finder").click(); });
+  expect(invoke).not.toHaveBeenCalledWith("open_folder", expect.anything());
+  expect(invoke).not.toHaveBeenCalledWith("reveal_file", expect.anything());
 });

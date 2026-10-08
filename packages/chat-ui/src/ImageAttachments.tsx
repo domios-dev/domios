@@ -1,3 +1,4 @@
+import { useLocalArtifactTabId } from "./LocalArtifactScope";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Download, Image as ImageIcon, X } from "lucide-react";
@@ -10,18 +11,19 @@ interface OpenImage {
 }
 
 function useAttachmentSrc(attachment: ChatAttachment): string | null {
+  const tabId = useLocalArtifactTabId();
   const inline = inlineAttachmentSrc(attachment);
   const path = inline ? undefined : attachment.path;
   const [loaded, setLoaded] = useState<{ path: string; src: string | null } | null>(null);
   useEffect(() => {
     if (!path) return;
     let live = true;
-    loadLocalArtifact(path, "image").then(
+    loadLocalArtifact(path, "image", tabId).then(
       (file) => { if (live) setLoaded({ path, src: file.data }); },
       () => { if (live) setLoaded({ path, src: null }); },
     );
     return () => { live = false; };
-  }, [path]);
+  }, [path, tabId]);
   return inline ?? (loaded && loaded.path === path ? loaded.src : null);
 }
 
