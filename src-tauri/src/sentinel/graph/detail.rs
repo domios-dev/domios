@@ -21,7 +21,7 @@ fn text(input: &str, limit: usize) -> (String, bool) {
     (redacted[..end].to_owned(), end < redacted.len())
 }
 
-fn definition(job: &Sentinel) -> Value {
+pub(super) fn definition(job: &Sentinel) -> Value {
     if job.pipeline.is_some() {
         return json!({"unavailable":"pipeline_definition_not_representable_in_v1"});
     }

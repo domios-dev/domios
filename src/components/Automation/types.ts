@@ -61,6 +61,7 @@ export interface AutomationExecutor {
 }
 
 export interface AgentSentinelDefinition {
+  definition_version?: number;
   source: "stored_agent_definition";
   definition_id: string;
   creator_tab_id: string;

@@ -1,4 +1,5 @@
 mod detail;
+pub(crate) mod files;
 mod history;
 mod runs;
 pub(crate) use detail::configured_fallback;
