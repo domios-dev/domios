@@ -23,15 +23,19 @@ export function AutomationNotices({ state, noun }: { state: AutomationSnapshot; 
   </>;
 }
 
+const cameras = new Map<string, AutomationCamera>();
+
+/** Cameras outlive the view, so a reopened Blueprint keeps its framing and selected node. */
+export function scenarioCamera(scenarioId: string): AutomationCamera {
+  const existing = cameras.get(scenarioId);
+  if (existing) return existing;
+  const created = createAutomationCamera();
+  cameras.set(scenarioId, created);
+  return created;
+}
+
 export function useScenarioCameras() {
-  const cameras = useRef(new Map<string, AutomationCamera>());
-  return (scenarioId: string) => {
-    const existing = cameras.current.get(scenarioId);
-    if (existing) return existing;
-    const created = createAutomationCamera();
-    cameras.current.set(scenarioId, created);
-    return created;
-  };
+  return scenarioCamera;
 }
 
 function AutomationGraphSurface({ adapter, attachment }: AutomationGraphViewProps) {

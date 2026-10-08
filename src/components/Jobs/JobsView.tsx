@@ -12,7 +12,7 @@ import { sentinelJobs } from "../Automation/scenarios";
 import { AUTOMATION_TOOL } from "../Automation/styles";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { legacyScenarioPipeline } from "../Automation/pipelineModel";
-import { BlueprintPipelineCanvas } from "../Automation/AutomationCanvas";
+import { BlueprintPipelineCanvas } from "../Automation/BlueprintPipelineCanvas";
 import { JobConfirmationDialog } from "./JobConfirmationDialog";
 import { cronMeta, JobRow, sentinelRowText } from "./JobRow";
 import { JobsFilterBar } from "./JobsFilterBar";
@@ -73,9 +73,11 @@ interface SurfaceProps {
   jobActionAdapter: JobsActionAdapter;
   onClearStoppedChange: (count: number, onClear: (() => void) | null) => void;
   clearStoppedButtonRef: RefObject<HTMLButtonElement | null>;
+  /** Closes the whole Jobs surface, returning to whatever opened it (a chat card or chip). */
+  onExit?: () => void;
 }
 
-function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, emptyScope, canWiden, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, cronActionAdapter, jobActionAdapter, onClearStoppedChange, clearStoppedButtonRef }: SurfaceProps) {
+function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, emptyScope, canWiden, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, cronActionAdapter, jobActionAdapter, onClearStoppedChange, clearStoppedButtonRef, onExit }: SurfaceProps) {
   const graphs = useWorkspaceGraphs(adapter, connectionId, sources);
   const crons = useCronJobs(cronWorkspace);
   const [selection, setSelection] = useState<Selection>(initialBlueprintId ? { kind: "blueprint", id: initialBlueprintId } : initialScenarioId ? { kind: "scenario", id: initialScenarioId } : initialCronId ? { kind: "cron", id: initialCronId } : null);
@@ -122,6 +124,12 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
   const notices = useMemo(() => ({ graph: graphs.find((graph) => graph.graph?.truncated)?.graph ?? null, loading: false, failed: graphsFailed, stopping: null, stopFailed: null }), [graphs, graphsFailed]);
   const refreshAll = useCallback(() => Promise.all([crons.refresh(), ...graphs.map((graph) => graph.refresh())]), [crons.refresh, graphs]);
   const back = (key: string) => { returnTo.current = key; setSelection(null); };
+  const openedDirectly = useRef(initialScenarioId ?? null);
+  const closeScenario = (id: string) => {
+    if (openedDirectly.current === id && onExit) return onExit();
+    openedDirectly.current = null;
+    back(`scenario:${id}`);
+  };
 
   const requestClearStopped = useCallback(() => {
     if (!canClear || clearable.length === 0) return;
@@ -221,7 +229,7 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
   }
   if (opened) {
     const { graph, scenario } = opened;
-    return <ScopedScenarioPanel adapter={adapter} attachment={graph.attachment} scenario={scenario} initialRunId={initialScenarioId === scenario.id ? initialRunId : undefined} camera={cameraFor(scenario.id)} backLabel="All jobs" headingLevel={3} fill onBack={() => back(`scenario:${scenario.id}`)} />;
+    return <ScopedScenarioPanel adapter={adapter} attachment={graph.attachment} scenario={scenario} initialRunId={initialScenarioId === scenario.id ? initialRunId : undefined} camera={cameraFor(scenario.id)} backLabel={openedDirectly.current === scenario.id && onExit ? "where you were" : "All jobs"} headingLevel={3} fill onBack={() => closeScenario(scenario.id)} />;
   }
   const reading = (crons.jobs === null && !crons.failed) || graphs.some((graph) => graph.loading);
   const empty = jobs.length === 0 && crons.jobs !== null && graphsRead && !crons.failed && !graphsFailed;
@@ -307,7 +315,7 @@ export function JobsView({ workspaces, teams, initialFilter = NO_JOBS_FILTER, in
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       {!context.ready ? <p role="status" className="p-4">Attaching jobs…</p>
         : !layout.teamAvailable ? <p role="alert" className="p-4">The selected Team is unavailable.</p>
-          : <JobsSurface key={JSON.stringify([connectionId, sources, filter])} adapter={adapter} connectionId={connectionId} sources={sources} cronWorkspace={layout.cronWorkspace} filter={filter} emptyScope={layout.emptyScope} canWiden={layout.canWiden} initialScenarioId={initialScenario} initialCronId={initialCron} initialBlueprintId={initialBlueprint} initialRunId={initialRunId} cronActionAdapter={cronActionAdapter} jobActionAdapter={jobActionAdapter} onClearStoppedChange={setClearStopped} clearStoppedButtonRef={clearStoppedButton} />}
+          : <JobsSurface key={JSON.stringify([connectionId, sources, filter])} adapter={adapter} connectionId={connectionId} sources={sources} cronWorkspace={layout.cronWorkspace} filter={filter} emptyScope={layout.emptyScope} canWiden={layout.canWiden} initialScenarioId={initialScenario} initialCronId={initialCron} initialBlueprintId={initialBlueprint} initialRunId={initialRunId} cronActionAdapter={cronActionAdapter} jobActionAdapter={jobActionAdapter} onClearStoppedChange={setClearStopped} clearStoppedButtonRef={clearStoppedButton} onExit={onClose} />}
     </div>
   </section>;
 }
