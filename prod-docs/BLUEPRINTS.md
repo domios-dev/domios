@@ -1,16 +1,27 @@
 # Blueprints
 
-A blueprint watches external status cheaply or carries a conversation with a terminal while an agent does useful work. It runs a bounded shell probe at the requested cadence, hashes the captured result, and classifies only changed output. Use it to wait for CI or build completion instead of repeatedly asking an agent to run the same status check.
+A blueprint runs a bounded status probe, watches terminal output, or carries a terminal conversation while an agent works. It hashes captured output and classifies only changes: use it to wait for CI or builds without repeated agent checks.
 
-Name graphs, handler nodes and crons briefly by meaning: what is watched → what happens. `blueprint create` requires `--name`; update definitions require `name`. Validate create or update definitions with `--dry-run`. Use-case patterns and ready skeletons are in `codeterm docs BLUEPRINT-RECIPES`; `codeterm blueprint recipe [<name>]` prints one.
+Name graphs, handlers and crons by what they watch and do. Create requires `--name`; updates require `name`. Validate with `--dry-run`. Ready skeletons: `codeterm docs BLUEPRINT-RECIPES` or `codeterm blueprint recipe [<name>]`.
+
+## Share a Blueprint
+
+```bash
+codeterm blueprint export <id> --out watch.blueprint.json
+codeterm blueprint import watch.blueprint.json --set binding_1=<value> --set timeout=1h --stopped
+```
+
+Export defaults to JSON on stdout. A `.blueprint.json` recipe has `schema_version: 1`, described `placeholders`, and `definition` with the existing `create` or pipeline `spec` payload. Bind `{{key}}` with `--set`, as with `create --recipe`; that verb also accepts exported files. Invalid versions, missing bindings and invalid create definitions are refused. Imports use the caller's Team and start stopped; `--start` opts in to running.
+
+Owner ids, runtime and history are excluded. Opaque commands, input, event parameters, question/pattern text and local targets become placeholders to protect credentials and local references. Rebind stage `timeout` rather than copying runtime expiry. Jobs offers **+ Import Blueprint** with a destination Team tab and bindings; **Export Blueprint** downloads from the header.
 
 ## When to use a Blueprint graph
 
-Before you repeat a check or wait on an external, agent or cron status, describe the loop once as a graph instead of spending turns on it. Unchanged output costs no model call and no agent turn; you wake only when a declared bucket routes to you. Observation and actions are deterministic, the model only picks one of your finite buckets (never a command, target or reply), and every action stays in the creator's Team, workspace and machine. `other` means no bucket fits.
+Define a graph before repeating an external, agent or cron status check. Unchanged output costs no model call or agent turn; declared buckets route back to you. Observation and actions are deterministic. The model picks a finite bucket, never a command, target or reply. Actions stay in the creator's Team, workspace and machine; `other` means none fits.
 
-Make the probe print one stable verdict: no timestamps or durations (every changed byte costs a classifier call), the verdict before any long output (only the first 32 KiB is kept), and errors that cannot pass for a result. Deterministic `--match` patterns classify matching output first; a connected Choice adapter classifies output that matches no pattern. The `--question` names every bucket and what is `other`. After creating a graph, end your turn: a route wakes you, while a wait tool, `sleep` or background shell loop is still polling. Any tab in the creator's Team and workspace can be observed through terminal output; use `--terminal-pattern` or `--output-settled` for a utility shell.
+Print a stable verdict before long output; only 32 KiB is kept. Timestamps and durations trigger classification, and errors must not resemble success. `--match` classifies first; the Choice adapter handles unmatched output. `--question` defines each bucket and `other`. After creating, end your turn and let a route wake you: waits, sleeps and background loops are polling. Observe same-Team, same-workspace tabs; utility shells need `--terminal-pattern` or `--output-settled`.
 
-A probe puts the creating instance's installed CLI directory first on `PATH` and receives that instance's API URL, configured token and socket path, so `codeterm` commands use the right daemon. A flapping source routes until its transition budget is exhausted; the graph stops and the creator agent gets a routed notice with the reason. A hung probe skips each tick without slowing other graphs. Removing a directly observed tab stops that graph and routes a notice to the creator agent. Removing a CronRun tab ends that run's observation, routes a notice to the creator agent, and leaves the graph waiting for another verified run. A graph created while its creator is solo remains visible to that creator after they join a Team.
+Probes receive the creating instance's CLI directory first on `PATH`, API URL/token and socket path. Flapping stops at the transition budget and notifies the creator; hung probes skip ticks without slowing other graphs. Removing an observed tab stops its graph and notifies the creator. Removing a CronRun tab ends that run, notifies the creator and waits for another verified run. A solo creator's graph remains visible after joining a Team.
 
 ## Create a watch
 
@@ -156,7 +167,7 @@ Stored single-route definitions from older builds and unreadable/corrupt files l
 
 A failed persistence write returns an error and holds Blueprint unavailable; cancellation stays in memory and durability is unconfirmed until a valid store reload. Repair the filesystem first. No stop success or handler replay is inferred.
 
-<!-- revision: 24 -->
+<!-- revision: 25 -->
 
 ## Terminal output and conversation mode
 
