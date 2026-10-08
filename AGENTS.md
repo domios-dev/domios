@@ -58,6 +58,7 @@ Choose the operation before running a command: shared development is `.agents/sk
 ./build.sh worktree-check   # canonical-only integration compile check
 ./build.sh test-one app NAME # one focused app test (pty/cli also supported)
 ./build.sh test-one plan NAME # one focused codeterm-plan test
+node scripts/dev-screenshot.mjs out.png [css-selector]  # see the running dev UI; open the PNG (dev-testing skill)
 ./build.sh release-preflight # refresh and verify both Cargo lockfiles before a production build
 ./build.sh test             # Rust unit tests
 ./build.sh verify           # check + unit tests + source-size gate

@@ -1,6 +1,6 @@
 ---
 name: dev-testing
-description: Test Domios dev instance via API. Use when testing memory, GA interactions, skills, bootstrap, recall quality. Covers tab send, mem check, worker status, file verification.
+description: Test Domios dev instance via API and look at its UI. Use when you need to see the running dev window (screenshot), or test memory, GA interactions, skills, bootstrap, recall quality. Covers screenshots, tab send, mem check, worker status, file verification.
 ---
 
 # Dev Testing
