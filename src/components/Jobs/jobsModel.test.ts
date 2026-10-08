@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import type { CronJob } from "../../lib/types";
 import { fixtureGraph, fixtureNode, identity } from "../Automation/fixtures.testdata";
 import { sentinelJobs } from "../Automation/scenarios";
-import { ALL_JOBS, clearableJobs, jobStateLabel, jobsAccessibleName, jobsForTab, jobsIndicator, mergeJobs, NO_JOBS_FILTER } from "./jobsModel";
+import { ALL_JOBS, blueprintJobs, canStopJob, clearableJobs, jobStateLabel, jobsAccessibleName, jobsForTab, jobsIndicator, mergeJobs, NO_JOBS_FILTER } from "./jobsModel";
 
 function cron(id: string, teamId: string | null, workspaceId = "workspace-a", enabled = true): CronJob {
   return {
@@ -69,4 +69,27 @@ assert.equal(jobsForTab(mergeJobs(NO_JOBS_FILTER, [], liveSentinels), "owner-a")
 assert.deepEqual(jobsForTab(tabJobs, "nobody"), []);
 assert.equal(jobStateLabel("running"), "active");
 assert.equal(jobStateLabel("stopped"), "stopped");
+const pipelineGraph = {
+  ...graph,
+  blueprints: [{ id: graph.scenarios[0].id, name: "Renamed pipeline", owner: { kind: "team" as const, tab_id: "owner-a", team_id: "team-a" }, state: "stopped" as const, run_id: null, current_step: null, last_event_at_ms: null }],
+};
+const pipelines = blueprintJobs(pipelineGraph);
+const pipelineMerged = mergeJobs(NO_JOBS_FILTER, [], tabSentinels, pipelines);
+assert.equal(pipelineMerged.length, 1, "a scenario and pipeline with the same stable identity share one row despite different names");
+assert.equal(pipelineMerged[0].kind, "blueprint");
+const foreignScenario = { ...tabSentinels[0], scenario: { ...tabSentinels[0].scenario, root: { ...tabSentinels[0].scenario.root, workspace_id: "workspace-b" } } };
+assert.equal(mergeJobs(NO_JOBS_FILTER, [], [foreignScenario], pipelines).length, 2, "identity deduplication stays within its workspace");
+assert.equal(pipelineMerged[0].title, "Renamed pipeline");
+assert.equal(clearableJobs(pipelineMerged).length, 1, "a stopped pipeline counts once");
+assert.deepEqual(jobsIndicator({ crons: [], sentinels: tabSentinels, blueprints: pipelines }, NO_JOBS_FILTER), { count: 1, running: 0 });
+assert.equal(mergeJobs({ workspaceId: "workspace-b", teamId: null }, [], tabSentinels, pipelines).length, 0);
+assert.equal(mergeJobs({ workspaceId: null, teamId: "team-b" }, [], tabSentinels, pipelines).length, 0);
+const sameName = blueprintJobs({ ...pipelineGraph, blueprints: [{ ...pipelineGraph.blueprints[0], id: "different-id", name: graph.scenarios[0].name }] });
+assert.equal(mergeJobs(NO_JOBS_FILTER, [], tabSentinels, sameName).length, 2, "equal names never deduplicate different identities");
+const standalone = blueprintJobs({ ...pipelineGraph, scenarios: [], nodes: [], blueprints: [{ ...pipelineGraph.blueprints[0], id: "standalone", state: "running" }] });
+assert.deepEqual(standalone[0].identity, { kind: "sentinel", id: "standalone", workspace_id: "workspace-a", team_id: "team-a", owner_tab_id: "owner-a" });
+assert.equal(canStopJob(mergeJobs(NO_JOBS_FILTER, [], [], standalone)[0]), true);
+assert.equal(clearableJobs(mergeJobs(NO_JOBS_FILTER, [], [], standalone)).length, 0);
+assert.equal(mergeJobs(NO_JOBS_FILTER, [], [], standalone)[0].state, "running");
+
 console.log("Jobs model and indicator and tab-binding cases passed");

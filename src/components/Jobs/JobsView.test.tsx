@@ -333,10 +333,11 @@ async function main() {
     } finally { await view.close(); }
   });
 
-  test("Blueprints group by Team and render the live trigger-step-result chain", async () => {
+  test("a pipeline appears once in Jobs and renders its graph only after opening", async () => {
     const transport = workspaceTransport();
     transport.graph = {
       ...transport.graph,
+      scenarios: [...transport.graph.scenarios, { ...transport.graph.scenarios[0], id: "blueprint-echo", name: "Previous name" }],
       blueprints: [{
         id: "blueprint-echo", name: "Echo pipeline", owner: { kind: "team", tab_id: "creator-a", team_id: attachment.team_id }, state: "running", run_id: "run-a", current_step: 0, last_event_at_ms: 100,
         trigger: { type: "event", summary: "Message received" },
@@ -346,13 +347,30 @@ async function main() {
     };
     const view = await mount(jobsView(transport));
     try {
-      await settle(() => view.host.querySelector('[data-job-key="blueprint:blueprint-echo"][data-job-state="active"]') !== null);
-      assert.ok(view.host.querySelector('[aria-label="Team Team A"]'), "the pipeline is grouped under its owning Team");
-      assert.ok(view.host.querySelector('[aria-current="step"]'), "the current step is highlighted accessibly");
-      const open = view.host.querySelector<HTMLButtonElement>('button[data-job-key="blueprint:blueprint-echo"][data-job-state="active"]');
+      await settle(() => entry(view.host, "blueprint:blueprint-echo") !== null);
+      assert.equal(view.host.querySelectorAll('ul[aria-label="Jobs"] [data-job-key="blueprint:blueprint-echo"]').length, 1);
+      assert.equal(entry(view.host, "scenario:blueprint-echo"), null, "the matching scenario is deduplicated by identity");
+      assert.equal(view.host.querySelector('[aria-label="Blueprints by owner"]'), null);
+      assert.equal(view.host.querySelector('[aria-label="Echo pipeline pipeline"]'), null, "graphs stay out of the list");
+      const open = entry(view.host, "blueprint:blueprint-echo");
+      assert.equal(open?.getAttribute("aria-label"), "Echo pipeline, Blueprint, active");
       await act(async () => open!.click());
       assert.ok(view.host.querySelector('[aria-label="Blueprint view"]'), "opening a pipeline enters its Blueprint view");
       assert.ok(view.host.querySelector('[aria-label="Echo pipeline pipeline"]'), "the Blueprint view keeps the trigger-step-result chain");
+      assert.ok(view.host.querySelector('[aria-current="step"]'));
+      await act(async () => buttonWith(view.host, "All jobs").click());
+      assert.equal(document.activeElement, entry(view.host, "blueprint:blueprint-echo"));
+    } finally { await view.close(); }
+  });
+
+  test("a pipeline deep link opens detail and returns to its list row", async () => {
+    const transport = workspaceTransport();
+    transport.graph = { ...transport.graph, blueprints: [{ id: "deep-pipeline", name: "Deep pipeline", owner: { kind: "team", tab_id: null, team_id: attachment.team_id }, state: "stopped", run_id: null, current_step: null, last_event_at_ms: null }] };
+    const view = await mount(<JobsView workspaces={workspaces} teams={teams} adapter={transport} initialBlueprintId="deep-pipeline" />);
+    try {
+      await settle(() => view.host.querySelector('[aria-label="Deep pipeline pipeline"]') !== null);
+      await act(async () => buttonWith(view.host, "All jobs").click());
+      assert.equal(document.activeElement, entry(view.host, "blueprint:deep-pipeline"));
     } finally { await view.close(); }
   });
 

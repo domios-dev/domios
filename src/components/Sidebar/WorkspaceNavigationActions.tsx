@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Map as MapIcon, Workflow } from "lucide-react";
-import { jobsAccessibleName, jobsIndicator, type JobsFilter, type JobsIndicator } from "../Jobs/jobsModel";
+import { blueprintJobs, jobsAccessibleName, jobsIndicator, type JobsFilter, type JobsIndicator } from "../Jobs/jobsModel";
 import { jobsLayout, type JobsWorkspace } from "../Jobs/jobsLayout";
 import { useCronJobs } from "../Jobs/useCronJobs";
 import { useWorkspaceGraphs } from "../Jobs/useWorkspaceGraphs";
@@ -52,7 +52,8 @@ export function LiveWorkspaceNavigationActions({ scope: scopeProp, workspaces = 
   const jobs = useMemo(() => {
     if (crons.jobs === null || graphs.some((graph) => graph.graph === null)) return NO_JOBS;
     const sentinels = graphs.flatMap((graph) => graph.graph ? sentinelJobs(graph.graph, graph.attachment) : []);
-    return jobsIndicator({ crons: crons.jobs, sentinels }, scope);
+    const blueprints = graphs.flatMap((graph) => graph.graph ? blueprintJobs(graph.graph) : []);
+    return jobsIndicator({ crons: crons.jobs, sentinels, blueprints }, scope);
   }, [crons.jobs, graphs, scope]);
   return <Actions {...props} jobs={jobs} />;
 }
