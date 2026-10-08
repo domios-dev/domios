@@ -18,12 +18,6 @@ export const WEB_UNSUPPORTED: Record<string, string> = {
     "OS clipboard file paths; web uses navigator.clipboard.read()",
   read_clipboard_text:
     "OS clipboard text reader; web uses navigator.clipboard.readText()",
-  read_html_preview_file:
-    "Local file-backed HTML previews are available only in the desktop app",
-  read_local_preview_file:
-    "Local page, image, and document previews are available only in the desktop app",
-  check_local_preview_files:
-    "Local file inspection is available only in the desktop app",
   notify_permission_state:
     "OS toast permission belongs to the machine running the app; the browser mirror has no such grant to read",
   establish_notify_permission:

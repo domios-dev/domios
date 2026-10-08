@@ -120,8 +120,20 @@ async function webJsonWithCallerTab<T>(
   return JSON.parse(text) as T;
 }
 
+function previewTab(args: Args): string {
+  const tabId = s(args, "tabId");
+  if (!tabId) throw new Error("Local previews require a tab identity");
+  return enc(tabId);
+}
+
 /** Commands with a meaningful HTTP equivalent. */
 const HTTP_MAP: Record<string, Mapper> = {
+  read_local_preview_file: (a) => webJson("POST", `/api/tabs/${previewTab(a)}/preview/read`, { path: a.path, kind: a.kind }),
+  read_html_preview_file: async (a) => {
+    const file = await webJson<{ data: string }>("POST", `/api/tabs/${previewTab(a)}/preview/read`, { path: a.path, kind: "page" });
+    return file.data;
+  },
+  check_local_preview_files: (a) => webJson("POST", `/api/tabs/${previewTab(a)}/preview/check`, { paths: a.paths }),
   check_for_update: (a) =>
     webJson("GET", `/api/update/check${a.force ? "?force=true" : ""}`),
   get_update_status: () => webJson("GET", "/api/update/status"),

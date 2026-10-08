@@ -1,7 +1,7 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { configureLocalArtifactLoader, configureLocalArtifactOpener, LocalArtifactBlock, RichMarkdown } from "@codeterm/chat-ui";
+import { configureHtmlFileLoader, configureLocalArtifactLoader, configureLocalArtifactOpener, LocalArtifactScope, LocalArtifactBlock, RichMarkdown } from "@codeterm/chat-ui";
 import { DocumentsButton } from "./DocumentsPanel";
 import { chatDocumentsStore } from "./chatDocumentsStore";
 import { planSidePanelStore } from "../Canvas/planSidePanelStore";
@@ -36,7 +36,7 @@ const panel = (tabId: string, onClose = () => {}, state: "open" | "closing" | "e
 afterEach(async () => {
   await act(async () => root?.unmount()); root = null; host?.remove();
   planSidePanelStore.close(); planSidePanelStore.resetDocuments(); chatDocumentsStore.clear(); tabPanelNavigationStore.clear(); composerInsertionStore.clear(); vi.clearAllMocks();
-  configureLocalArtifactLoader(null); configureLocalArtifactOpener(null);
+  configureHtmlFileLoader(null); configureLocalArtifactLoader(null); configureLocalArtifactOpener(null);
   document.documentElement.removeAttribute("style");
 });
 
@@ -210,4 +210,38 @@ it("the embedded document fullscreen closes with Escape and restores its opener"
   await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })));
   expect(document.querySelector('[role="dialog"]')).toBeNull();
   expect(document.activeElement).toBe(opener);
+});
+
+
+it("carries the reader's tab identity to its loader and disables unavailable OS reveal", async () => {
+  const load = vi.fn(async () => ({ data: "# Tab owned document", media_type: "text/markdown" }));
+  configureLocalArtifactLoader(load);
+  configureLocalArtifactOpener(null);
+  chatDocumentsStore.set("owner", documentsFromTranscript([{ content: "@ds-document /work/owned.md" }]));
+  await render(panel("owner"));
+  await act(async () => button("Open owned.md").click());
+  expect(load).toHaveBeenCalledWith("/work/owned.md", "document", "owner");
+  expect(host.querySelector("h1")?.textContent).toBe("Tab owned document");
+  expect(button("Reveal owned.md").disabled).toBe(true);
+  expect(invoke).toHaveBeenCalledWith("check_local_preview_files", { paths: ["/work/owned.md"], tabId: "owner" });
+});
+
+it("loads inline images with the nearest tab scope and leaves reveal disabled without an OS opener", async () => {
+  const load = vi.fn(async () => ({ data: "data:image/png;base64,aW1hZ2U=", media_type: "image/png" }));
+  configureLocalArtifactLoader(load);
+  configureLocalArtifactOpener(null);
+  await render(<LocalArtifactScope tabId="image-owner"><LocalArtifactBlock directive={{ kind: "image", path: "/work/pixel.png" }} renderMarkdown={(text) => text} /></LocalArtifactScope>);
+  expect(load).toHaveBeenCalledWith("/work/pixel.png", "image", "image-owner");
+  expect(host.querySelector('img[alt="pixel.png"]')?.getAttribute("src")).toBe("data:image/png;base64,aW1hZ2U=");
+  expect(button("Reveal pixel.png").disabled).toBe(true);
+});
+
+
+it("loads file-backed HTML using the reader's tab scope", async () => {
+  const load = vi.fn(async () => "<main>Owned HTML</main>");
+  configureHtmlFileLoader(load);
+  await render(<LocalArtifactScope tabId="page-owner"><LocalArtifactBlock directive={{ kind: "page", path: "/work/view.html" }} renderMarkdown={(text) => text} /></LocalArtifactScope>);
+  expect(load).toHaveBeenCalledWith("/work/view.html", "page-owner");
+  const preview = host.querySelector('iframe[title="HTML preview"]');
+  expect(preview?.getAttribute("srcdoc")).toContain("Owned HTML");
 });

@@ -6,8 +6,11 @@ import { HtmlPreviewBlock } from "./HtmlPreviewBlock";
 import {
   loadLocalArtifact,
   openLocalArtifact,
+  localArtifactOpeningAvailable,
   type LocalPreviewFile,
 } from "./localArtifactLoader";
+
+import { useLocalArtifactTabId } from "./LocalArtifactScope";
 
 import type { LocalArtifactDirective } from "@codeterm/chat-core";
 export { parseLocalArtifactDirective } from "@codeterm/chat-core";
@@ -56,6 +59,8 @@ function LoadedLocalArtifact({
   bare = false,
   onLoaded,
 }: LocalArtifactProps) {
+  const tabId = useLocalArtifactTabId();
+  const canReveal = localArtifactOpeningAvailable();
   const [state, setState] = useState<LoadState>({ status: "loading", file: null, error: "" });
   const [fullscreen, setFullscreen] = useState(false);
   const fullscreenRef = useRef<HTMLDivElement>(null);
@@ -85,7 +90,7 @@ function LoadedLocalArtifact({
     generation.current = request;
     setState({ status: "loading", file: null, error: "" });
     try {
-      const file = await loadLocalArtifact(directive.path, directive.kind);
+      const file = await loadLocalArtifact(directive.path, directive.kind, tabId);
       if (generation.current === request) setState({ status: "ready", file, error: "" });
     } catch (error) {
       if (generation.current === request) {
@@ -96,7 +101,7 @@ function LoadedLocalArtifact({
         });
       }
     }
-  }, [directive.kind, directive.path]);
+  }, [directive.kind, directive.path, tabId]);
 
   useEffect(() => {
     void reload();
@@ -136,7 +141,7 @@ function LoadedLocalArtifact({
         <span className="font-medium" style={{ color: "var(--ct-fg)" }}>{name}</span>
         <span className="min-w-0 flex-1 truncate opacity-60" title={directive.path}>{directive.path}</span>
         <button type="button" onClick={() => setFullscreen(true)} aria-label={`Fullscreen ${name}`} title="Fullscreen"><Maximize2 size={13} aria-hidden /></button>
-        <button type="button" onClick={reveal} aria-label={`Reveal ${name}`} title="Reveal in file manager"><FolderOpen size={13} aria-hidden /></button>
+        <button type="button" onClick={reveal} disabled={!canReveal} aria-label={`Reveal ${name}`} title={canReveal ? "Reveal in file manager" : "Revealing files is available only in the desktop app"}><FolderOpen size={13} aria-hidden /></button>
         <button
           type="button"
           onClick={() => void reload()}

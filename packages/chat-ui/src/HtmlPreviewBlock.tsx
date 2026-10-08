@@ -1,3 +1,4 @@
+import { useLocalArtifactTabId } from "./LocalArtifactScope";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Code2, Copy, Check, Eye, Maximize2, Minimize2, RefreshCw } from "lucide-react";
 import { CodeBlock, findScrollableContainer } from "./CodeBlock";
@@ -181,6 +182,7 @@ function PreviewFrame({
 }
 
 export function HtmlPreviewBlock({ text, fullscreenRequest = 0 }: { text: string; fullscreenRequest?: number }) {
+  const tabId = useLocalArtifactTabId();
   const normalizedText = useMemo(() => text.replace(/\r/g, ""), [text]);
   const filePath = useMemo(() => parseHtmlFileDirective(normalizedText), [normalizedText]);
   const [fileSource, setFileSource] = useState<FileSourceState>({ status: "idle", source: "", error: "" });
@@ -211,7 +213,7 @@ export function HtmlPreviewBlock({ text, fullscreenRequest = 0 }: { text: string
     requestGeneration.current = generation;
     setFileSource({ status: "loading", source: "", error: "" });
     try {
-      const source = await loadHtmlFile(filePath);
+      const source = await loadHtmlFile(filePath, tabId);
       if (requestGeneration.current === generation) {
         setFileSource({ status: "ready", source, error: "" });
       }
@@ -220,7 +222,7 @@ export function HtmlPreviewBlock({ text, fullscreenRequest = 0 }: { text: string
         setFileSource({ status: "error", source: "", error: error instanceof Error ? error.message : String(error) });
       }
     }
-  }, [filePath]);
+  }, [filePath, tabId]);
 
   useEffect(() => {
     if (!filePath) {

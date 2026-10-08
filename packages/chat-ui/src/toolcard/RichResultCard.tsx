@@ -1,3 +1,4 @@
+import { useLocalArtifactTabId } from "../LocalArtifactScope";
 import { localThumbnailSource, type ThumbnailSource, type ToolEvent, type ToolRichResult } from "@codeterm/chat-core";
 import { Check, ChevronRight, CircleX, LoaderCircle, Minus } from "lucide-react";
 import { useEffect, useId, useState, type ReactNode } from "react";
@@ -17,17 +18,18 @@ function fileName(path: string): string {
 }
 
 function useLocalThumbnail(source: ThumbnailSource) {
+  const tabId = useLocalArtifactTabId();
   const path = source.kind === "local" ? source.path : undefined;
   const [state, setState] = useState<ThumbnailState | null>(null);
   useEffect(() => {
     if (!path) return;
     let current = true;
-    loadLocalArtifact(path, "image").then(
+    loadLocalArtifact(path, "image", tabId).then(
       (file) => { if (current) setState(file.data.startsWith("data:image/") ? { path, src: file.data } : { path, failed: true }); },
       () => { if (current) setState({ path, failed: true }); },
     );
     return () => { current = false; };
-  }, [path]);
+  }, [path, tabId]);
   const own = path !== undefined && state?.path === path ? state : null;
   return {
     src: own?.failed ? undefined : own?.src,

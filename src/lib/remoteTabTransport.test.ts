@@ -2,6 +2,15 @@ import { describe, expect, finish, it } from "../test/standaloneTest";
 import { classifyTabTarget, hasCompositeTabArgument, parseCompositeTabId, remoteTransportCall } from "./remoteTabTransport";
 
 describe("remote tab transport adapter", () => {
+  it("routes local previews to the composite tab's owning daemon", () => {
+    for (const command of ["read_local_preview_file", "read_html_preview_file", "check_local_preview_files"]) {
+      const call = remoteTransportCall(command, { tabId: "mesh:peer/shared", path: "/work/preview.html", kind: "page", paths: ["/work/preview.html"] });
+      expect(call?.peerId).toBe("peer");
+      expect(call?.remoteTabId).toBe("shared");
+      expect(call?.suffix).toBe(command === "check_local_preview_files" ? "/preview/check" : "/preview/read");
+    }
+  });
+
   it("uses provider stop for managed calls and preserves legacy PTY interrupts", () => {
     expect(remoteTransportCall("interrupt_agent", { tabId: "mesh:peer/tab", ptyId: "mesh:peer/pty" })?.suffix).toBe("/stop");
     expect(remoteTransportCall("interrupt_agent", { ptyId: "mesh:peer/pty" })?.suffix).toBe("/pty/write");

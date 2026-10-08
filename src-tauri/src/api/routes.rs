@@ -120,7 +120,22 @@ async fn legacy_web_route_gone() -> StatusCode {
 }
 
 pub fn create_router(state: AppState) -> Router {
+    let preview_admission = super::local_preview_routes::admission();
     let router = Router::new()
+        .route(
+            "/api/tabs/{id}/preview/read",
+            super::local_preview_routes::bounded(
+                post(super::local_preview_routes::read),
+                &preview_admission,
+            ),
+        )
+        .route(
+            "/api/tabs/{id}/preview/check",
+            super::local_preview_routes::bounded(
+                post(super::local_preview_routes::check),
+                &preview_admission,
+            ),
+        )
         .route("/api/health", get(health_routes::health))
         .route("/api/identify", get(health_routes::identify))
         .route(
@@ -1126,6 +1141,9 @@ pub fn create_router(state: AppState) -> Router {
     let router = router.layer(middleware::from_fn_with_state(
         state.clone(),
         super::auth::auth_middleware,
+    ));
+    let router = router.layer(middleware::from_fn(
+        super::local_preview_routes::secure_headers,
     ));
     let router = router.layer(cors_layer(api_config.cors, &api_config.cors_allow_origins));
     router
