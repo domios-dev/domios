@@ -517,15 +517,14 @@ impl ClosedTabsStore {
         .ok()
     }
 
-    /// Take (fetch + delete) a whole group: its meta + every tab, newest-first.
+    /// Take a whole group in its captured tab order.
     pub fn take_group(&self, group_id: &str) -> Option<(ClosedGroup, Vec<ClosedTab>)> {
         let res = self.peek_group(group_id)?;
         let _ = self.delete_group(group_id);
         Some(res)
     }
 
-    /// Fetch (without deleting) a whole group: meta + every tab, newest-first; so a
-    /// mid-loop materialize failure on reopen leaves the group intact for retry.
+    /// Fetch a whole group without consuming it, in its captured tab order.
     pub fn peek_group(&self, group_id: &str) -> Option<(ClosedGroup, Vec<ClosedTab>)> {
         let conn = self.conn.lock();
         let group = conn
@@ -557,7 +556,7 @@ impl ClosedTabsStore {
                     SELECT tab_id, parent_tab_id, title, description, backing_json, cwd,
                            agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id
                     FROM closed_tab WHERE group_id = ?1
-                    ORDER BY closed_at DESC, id DESC
+                    ORDER BY id ASC
                     "#,
                 )
                 .ok()?;
@@ -592,6 +591,17 @@ impl ClosedTabsStore {
 
     fn delete_tab(conn: &Connection, row_id: i64) -> rusqlite::Result<usize> {
         conn.execute("DELETE FROM closed_tab WHERE id = ?1", params![row_id])
+    }
+
+    #[cfg(test)]
+    pub(super) fn reject_deletes(&self, reject: bool) {
+        let sql = if reject {
+            "CREATE TRIGGER reject_closed_delete BEFORE DELETE ON closed_tab
+             BEGIN SELECT RAISE(ABORT, 'injected delete failure'); END;"
+        } else {
+            "DROP TRIGGER reject_closed_delete;"
+        };
+        self.conn.lock().execute_batch(sql).unwrap();
     }
 
     /// Deserialize a [`ClosedTab`] from a row whose first column is `tab_id`.
