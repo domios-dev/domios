@@ -221,6 +221,7 @@ async function mount(server: FakeChatServer): Promise<Mounted> {
 
 async function main(): Promise<void> {
   setupHookDom();
+  await mountThenBind();
   const server = new FakeChatServer();
   const app = await mount(server);
   const { fireResync } = await import("../../lib/resync");
@@ -374,6 +375,59 @@ async function main(): Promise<void> {
   console.log(
     `PASS attach hydration: snapshots=${server.starts.length} stops=${server.stops.length} listeners=${server.listens}/${server.unlistens}`,
   );
+}
+
+async function mountThenBind(): Promise<void> {
+  const server = new FakeChatServer();
+  const app = await mount(server);
+  try {
+    server.queueStart(() => ({
+      text: "",
+      start_offset: 0,
+      offset: 0,
+      pending: true,
+      source_session_id: null,
+      session_binding_nonce: "nonce-live",
+      subscription_id: null,
+    }));
+    await app.render(null, "nonce-live", true);
+    assert(app.attachmentState() === "awaiting_session", "fresh Chat must await binding");
+    const listensBeforeBinding = server.listens;
+    const snapshot = deferred<StartResult>();
+    server.queueStart(async (subscriptionId) => ({
+      ...await snapshot.promise,
+      subscription_id: subscriptionId,
+    }));
+    await app.render("sid-live", "nonce-live", true);
+    assert(server.starts.length === 2, "binding must re-subscribe mounted Chat");
+    server.offset = 0;
+    await act(async () => {
+      server.emit([message("first-answer")], "sid-live", "nonce-live");
+      snapshot.resolve({
+        text: "",
+        start_offset: 0,
+        offset: 1,
+        pending: false,
+        messages: [message("first-answer")],
+        source_session_id: "sid-live",
+        session_binding_nonce: "nonce-live",
+      });
+    });
+    await flush();
+    assert(app.messageIds().join(",") === "first-answer", "first answer must render exactly once");
+    await act(async () => server.emit([message("later-answer")], "sid-live", "nonce-live"));
+    assert(
+      app.messageIds().join(",") === "first-answer,later-answer",
+      "mounted Chat must stream later answers after binding",
+    );
+    assert(server.listens === listensBeforeBinding, "binding must retain the mounted listener");
+    assert(server.subscribers.size === 1, "binding must own one live subscription");
+  } finally {
+    await act(async () => app.root.unmount());
+    await flush();
+    app.host.remove();
+  }
+  assert(server.subscribers.size === 0 && server.handler === null, "fresh Chat leaked its subscription");
 }
 
 main().catch((error) => {
