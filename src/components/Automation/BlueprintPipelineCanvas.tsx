@@ -10,10 +10,10 @@ function stateTone(state: string, current: boolean): string {
   return "text-[var(--ct-muted-fg)]";
 }
 
-function stateBorder(state: string, current: boolean): string {
-  if (current) return "border-[var(--ct-accent)] ring-2 ring-[color-mix(in_srgb,var(--ct-accent)_32%,transparent)]";
-  if (state === "failed") return "border-[color-mix(in_srgb,var(--ct-red)_60%,var(--ct-border))]";
-  return "border-[var(--ct-border)]";
+function stateSurface(state: string, current: boolean): string {
+  if (current) return "border-[color-mix(in_srgb,var(--ct-accent)_45%,var(--ct-border))] shadow-[inset_0_0_16px_color-mix(in_srgb,var(--ct-accent)_7%,transparent),var(--ct-shadow-sm)]";
+  if (state === "failed") return "border-[color-mix(in_srgb,var(--ct-red)_60%,var(--ct-border))] shadow-[var(--ct-shadow-sm)]";
+  return "border-[var(--ct-border)] shadow-[var(--ct-shadow-sm)]";
 }
 
 function eventTime(value: number | null): string {
@@ -24,7 +24,7 @@ function PipelineNodeCard({ node }: { node: PipelineViewNode }) {
   const Icon = node.kind === "trigger" ? Play : node.kind === "result" ? Bell : Workflow;
   return <article
     aria-current={node.kind === "step" && node.current ? "step" : undefined}
-    className={`flex h-full flex-col gap-1 rounded-lg border bg-[var(--ct-titlebar-bg)] px-3 py-2.5 shadow-[var(--ct-shadow-sm)] ${stateBorder(node.state, node.current)}`}
+    className={`flex h-full flex-col gap-1 rounded-lg border bg-[var(--ct-titlebar-bg)] px-3 py-2.5 ${stateSurface(node.state, node.current)}`}
   >
     <div className="flex items-center gap-1.5 text-[0.6875rem] uppercase tracking-wider text-[var(--ct-muted-fg)]">
       <Icon size={12} aria-hidden="true" />
