@@ -1,4 +1,3 @@
-use super::PluginManifest;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
