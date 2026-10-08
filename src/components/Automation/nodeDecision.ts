@@ -10,14 +10,15 @@ export function aiKind(name: string, model?: string | null): NodeKind {
 
 export function nodeKind(node: AutomationNode, classifier?: ClassifierConfig): NodeKind {
   if (node.executor?.kind === "agent") return aiKind(node.executor.provider_id ?? "Agent", node.executor.model);
-  if (node.identity.kind === "sentinel" && classifier) return aiKind(classifier.adapter_id, classifier.model);
-  if (node.detail?.definition?.buckets?.some((bucket) => bucket.pattern)) return { ai: false, label: "Pattern match" };
+  if (node.detail?.definition?.buckets?.length && node.detail.definition.buckets.every((bucket) => bucket.pattern)) return { ai: false, label: "Pattern match" };
+  if (node.identity.kind === "sentinel" && node.detail?.definition?.buckets?.some((bucket) => !bucket.pattern) && classifier) return aiKind(classifier.adapter_id, classifier.model);
   if (node.detail?.definition?.probe || node.source?.type === "probe") return { ai: false, label: "Script" };
   return { ai: false, label: node.source?.type === "observe" ? "Observer" : node.identity.kind === "cron" ? "Schedule" : "Rule" };
 }
 
 export function decisionKind(transition: AutomationTransition): NodeKind | null {
-  return transition.decided_by === "adapter" ? aiKind(transition.adapter_id ?? "Classifier", transition.model) : null;
+  return transition.decided_by === "pattern" ? { ai: false, label: "Pattern rules" }
+    : transition.decided_by === "adapter" ? aiKind(transition.adapter_id ?? "Classifier", transition.model) : null;
 }
 
 export function routeDefinitions(node: AutomationNode) {

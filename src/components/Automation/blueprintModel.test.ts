@@ -104,8 +104,8 @@ test("every source kind maps to its node and trigger", () => {
   }
 });
 
-test("pattern-only stages render a Logic node listing their rules", () => {
-  const model = blueprintModel({ ...typedGraph(), configured_fallback: null });
+test("pattern-only stages render a Logic node listing their rules with a configured fallback", () => {
+  const model = blueprintModel(typedGraph());
   const logic = byKey(model.nodes, nodeKeys(follow).decision);
   assert.equal(logic.type, "logic");
   assert.equal(logic.title, "Pattern match");
