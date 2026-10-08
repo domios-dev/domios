@@ -8,12 +8,9 @@ import { loadBundledPlugins } from "./lib/plugins/loader";
 import { installToolOutputCardHarness } from "./components/AgentRun/ToolOutputCard.browserHarness";
 import { installAgentStateIndicatorHarness } from "./components/Terminal/AgentStateIndicator.browserHarness";
 import {
-  configureHtmlFileLoader,
-  configureLocalArtifactLoader,
-  configureLocalArtifactOpener,
   installInboundReportCardHarness,
 } from "@codeterm/chat-ui";
-import { IS_WEB, invoke } from "./lib/bridge";
+import { configureLocalPreviews } from "./lib/configureLocalPreviews";
 import { installCodeTermTestChatHandle, isCodeTermFrontendTestMode } from "./components/Terminal/useChatSession";
 // Stylesheets load here, never from a component: the plain-Node unit runner
 // has no bundler, so a CSS import anywhere in a tested graph is a syntax error.
@@ -34,9 +31,7 @@ installToolOutputCardHarness();
 installAgentStateIndicatorHarness();
 installInboundReportCardHarness(isCodeTermFrontendTestMode());
 installCodeTermTestChatHandle();
-configureHtmlFileLoader((path, tabId) => invoke<string>("read_html_preview_file", { path, tabId }));
-configureLocalArtifactOpener(IS_WEB ? null : (path) => invoke("reveal_file", { path }));
-configureLocalArtifactLoader((path, kind, tabId) => invoke("read_local_preview_file", { path, kind, tabId }));
+configureLocalPreviews();
 
 if (!missionControlPrototype && !isGalleryRoute && !snakePrototype) {
   loadBundledPlugins();
