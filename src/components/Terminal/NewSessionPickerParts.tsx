@@ -1,12 +1,11 @@
 import type { ReactNode } from "react";
 import { AgentIcon } from "../AgentIcon";
-import { FloatingTooltip } from "../shared/FloatingTooltip";
+import { Check } from "lucide-react";
 import { DropdownSelect, type DropdownSelectOption } from "../shared/DropdownMenu";
 import type { NewSessionMode } from "../../lib/newSessionChoice";
 import { Button } from "../shared/Button";
 
 interface ModeCardProps {
-  mode: NewSessionMode;
   selected: boolean;
   label: string;
   description: string;
@@ -15,16 +14,18 @@ interface ModeCardProps {
   "data-testid": string;
 }
 
-function ModeCard({ mode, selected, label, description, glyphs, onSelect, ...rest }: ModeCardProps) {
+function ModeCard({ selected, label, description, glyphs, onSelect, ...rest }: ModeCardProps) {
   return (
     <button
       type="button"
       data-testid={rest["data-testid"]}
       data-selected={selected}
       onClick={onSelect}
-      className="picker-mode-card"
+      className="picker-mode-card ct-liquid-interactive"
+      aria-label={label}
       aria-pressed={selected}
     >
+      <span className="picker-mode-card-check" aria-hidden><Check size={12} /></span>
       <span className="picker-mode-card-glyphs" aria-hidden>
         {glyphs}
       </span>
@@ -50,7 +51,6 @@ export function ModeCards({
   return (
     <div className="picker-mode-cards">
       <ModeCard
-        mode="single"
         selected={mode === "single"}
         label="Single agent"
         description="One chat, one agent"
@@ -63,18 +63,16 @@ export function ModeCards({
         }
       />
       <ModeCard
-        mode="pair"
         selected={mode === "pair"}
         label="Team"
-        description="Orchestrator + Planner, paired"
+        description="Orchestrator + Planner"
         onSelect={() => onSelect("pair")}
         data-testid="picker-mode-orchestration"
         glyphs={
-          <span className={`picker-mode-glyph-pair ${mode === "pair" ? "picker-mode-glyph-pair--assembled" : ""}`}>
+          <span className="picker-mode-glyph-pair">
             <span className="picker-mode-glyph-tile">
               <AgentIcon providerId={orchestratorProviderId} className="text-[16px]" />
             </span>
-            <span className="picker-mode-glyph-bracket" aria-hidden>⟷</span>
             <span className="picker-mode-glyph-tile">
               <AgentIcon providerId={plannerProviderId} className="text-[16px]" />
             </span>
@@ -95,7 +93,6 @@ export function WorkspaceRow({
   onStartCreateWorkspace,
   onConfirmCreateWorkspace,
   onCancelCreateWorkspace,
-  helpText,
 }: {
   workspaces: { id: string; name: string }[];
   selectedWorkspaceId: string;
@@ -106,7 +103,6 @@ export function WorkspaceRow({
   onStartCreateWorkspace: () => void;
   onConfirmCreateWorkspace: () => void;
   onCancelCreateWorkspace: () => void;
-  helpText: string;
 }) {
   const selectedName = workspaces.find((w) => w.id === selectedWorkspaceId)?.name ?? "";
   const NEW_WORKSPACE_VALUE = "__new_workspace__";
@@ -117,17 +113,7 @@ export function WorkspaceRow({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-1.5">
-        <span className="text-[11px] font-medium text-[var(--ct-muted-fg)]">
-          Creates in: {selectedName}
-        </span>
-        <FloatingTooltip
-          content={<div data-testid="workspace-help-tooltip">{helpText}</div>}
-          className="picker-help-glyph"
-        >
-          <span data-testid="workspace-help" className="picker-help-glyph-mark">?</span>
-        </FloatingTooltip>
-      </div>
+      <span className="text-[11px] font-medium text-[var(--ct-muted-fg)]">Workspace</span>
       {creatingWorkspace ? (
         <div className="flex items-center gap-1.5">
           <input
@@ -138,6 +124,7 @@ export function WorkspaceRow({
               if (e.key === "Enter") onConfirmCreateWorkspace();
               if (e.key === "Escape") onCancelCreateWorkspace();
             }}
+            aria-label="Workspace name"
             placeholder="Workspace name"
             className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] text-[12px] text-[var(--ct-fg)] outline-none"
           />
@@ -156,6 +143,7 @@ export function WorkspaceRow({
       ) : (
         <DropdownSelect
           data-testid="picker-workspace"
+          aria-label="Workspace"
           options={workspaceOptions}
           value={selectedWorkspaceId}
           placeholder={selectedName}

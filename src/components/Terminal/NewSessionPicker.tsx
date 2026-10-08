@@ -16,12 +16,9 @@ import {
   type NewSessionChoice,
   type NewSessionMode,
 } from "../../lib/newSessionChoice";
-import { buildDestinationPreview, MODE_HELP_TEXT, WORKSPACE_HELP_TEXT } from "../../lib/newSessionPickerContent";
 import { probeProviderInstallMap } from "../../lib/providerInstallStatus";
-import { AgentIcon } from "../AgentIcon";
 import { OrchestrationPairForm, OrchestrationRoleRow } from "../Sidebar/OrchestrationPairForm";
 import { ModeCards, WorkspaceRow } from "./NewSessionPickerParts";
-import { FloatingTooltip } from "../shared/FloatingTooltip";
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 import { Button } from "../shared/Button";
 import { X } from "lucide-react";
@@ -341,21 +338,6 @@ export function NewSessionPicker({
       && !disabledProviderIds.has(choice.orchestratorProviderId)
       && !disabledProviderIds.has(choice.plannerProviderId);
 
-  const previewText = useMemo(() => {
-    const destinationName = selectedWorkspace?.name ?? "…";
-    if (choice.mode === "pair") {
-      return buildDestinationPreview({ mode: "pair", workspaceName: destinationName });
-    }
-    const provider = visibleProviders.find((p) => p.id === choice.providerId);
-    const model = provider?.available_models?.find((m) => m.id === choice.modelId);
-    return buildDestinationPreview({
-      mode: "single",
-      workspaceName: destinationName,
-      singleProviderLabel: provider?.display_name,
-      singleModelLabel: model?.display_name,
-    });
-  }, [choice, selectedWorkspace, visibleProviders]);
-
   const singleProviderId = choice.mode === "single" ? choice.providerId : (visibleProviders[0]?.id ?? "");
   const orchestratorProviderId = choice.mode === "pair" ? choice.orchestratorProviderId : singleProviderId;
   const plannerProviderId = choice.mode === "pair" ? choice.plannerProviderId : singleProviderId;
@@ -383,9 +365,6 @@ export function NewSessionPicker({
         />
         <div className="relative mb-4 pr-8">
           <h2 id="new-session-picker-title" className="text-[15px] font-medium text-[var(--ct-fg)]">Start a session</h2>
-          <div className="mt-1 text-[12px] text-[var(--ct-muted-fg)]">
-            Choose a single agent or an Orchestrator + Planner pair. Your last choice is remembered.
-          </div>
         </div>
         <button
           type="button"
@@ -398,14 +377,7 @@ export function NewSessionPicker({
           <X aria-hidden size={14} />
         </button>
 
-        <div className="relative mb-1.5 flex items-center gap-1.5">
-          <span id="new-session-picker-mode-label" className="text-[11px] font-medium text-[var(--ct-muted-fg)]">Mode</span>
-          <FloatingTooltip content={<div>{MODE_HELP_TEXT}</div>} className="picker-help-glyph">
-            <span className="picker-help-glyph-mark">?</span>
-          </FloatingTooltip>
-        </div>
-
-        <div className="relative mb-4" role="group" aria-labelledby="new-session-picker-mode-label">
+        <div className="relative mb-4" role="group" aria-label="Session mode">
           <ModeCards
             mode={choice.mode}
             singleProviderId={singleProviderId}
@@ -426,7 +398,6 @@ export function NewSessionPicker({
             onStartCreateWorkspace={handleStartCreateWorkspace}
             onConfirmCreateWorkspace={() => void handleConfirmCreateWorkspace()}
             onCancelCreateWorkspace={handleCancelCreateWorkspace}
-            helpText={WORKSPACE_HELP_TEXT}
           />
         </div>
 
@@ -507,30 +478,6 @@ export function NewSessionPicker({
               onInstallProvider={handleInstallProvider}
             />
           )}
-        </div>
-
-        <div
-          className="relative mt-4 flex items-center gap-2 rounded-md border px-2.5 py-2 text-[11px] text-[var(--ct-muted-fg)]"
-          style={{
-            borderColor: "color-mix(in srgb, var(--ct-border) 70%, transparent)",
-            background: "color-mix(in srgb, var(--ct-bg) 60%, transparent)",
-          }}
-          data-testid="picker-preview"
-          role="status"
-          aria-live="polite"
-        >
-          <span className="flex shrink-0 items-center gap-1" aria-hidden>
-            {choice.mode === "pair" ? (
-              <>
-                <AgentIcon providerId={orchestratorProviderId} className="text-[13px]" />
-                <span className="opacity-50 text-[10px]">⟷</span>
-                <AgentIcon providerId={plannerProviderId} className="text-[13px]" />
-              </>
-            ) : (
-              <AgentIcon providerId={singleProviderId} className="text-[13px]" />
-            )}
-          </span>
-          <span className="min-w-0 truncate">{previewText}</span>
         </div>
 
         {agentConfig?.full_access === undefined && (
