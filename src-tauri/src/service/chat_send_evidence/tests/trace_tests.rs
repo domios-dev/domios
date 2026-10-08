@@ -7,16 +7,13 @@ fn plain_pty_ingress_exact_append_window_answer_reaches_the_dev_sink() {
     let fixture = Fixture::new();
     fixture.append_user_turn("session", "opaque");
     let anchor = fixture.anchor_now("session");
-    let mut exact = ExactTurnCursor::for_anchor(Some(&anchor));
     let mut flow_id = String::new();
     let events = crate::flow_trace::test_capture::capture(|| {
         let flow = crate::flow_trace::PtyFlow::start(None, "tab", "windowed").unwrap();
-        assert!(!contains_exact_user_turn_since(
-            &fixture.registry,
-            &anchor,
-            "opaque",
-            &mut exact
-        ));
+        let mut observation =
+            crate::flow_trace::UnledgeredObservation::new(flow.clone(), "opaque".into(), &anchor);
+        let mut source = crate::flow_trace::SourceCursor::default();
+        assert!(!observation.observe(&fixture.registry, &anchor, Some("nonce"), &source));
         flow.written();
         let mut file = std::fs::OpenOptions::new()
             .append(true)
@@ -28,14 +25,6 @@ fn plain_pty_ingress_exact_append_window_answer_reaches_the_dev_sink() {
         ] {
             writeln!(file, "{row}").unwrap();
         }
-        assert!(contains_exact_user_turn_since(
-            &fixture.registry,
-            &anchor,
-            "opaque",
-            &mut exact
-        ));
-        assert_eq!(exact.matched_user_id.as_deref(), Some("accepted-user-0"));
-        flow.confirmed(&anchor, Some("nonce"), exact.matched_user_id.as_deref());
         let EvidenceWindow::Jsonl { transcript_offset } = anchor.window else {
             unreachable!()
         };
@@ -53,9 +42,10 @@ fn plain_pty_ingress_exact_append_window_answer_reaches_the_dev_sink() {
                 crate::service::tab_chat::rich_to_chat_msgs_live(message, index)
             })
             .collect::<Vec<_>>();
-        let mut source = crate::flow_trace::SourceCursor::default();
         source.pty("tab", "windowed", "session", Some("stale"), &messages);
+        assert!(!observation.observe(&fixture.registry, &anchor, Some("nonce"), &source));
         source.pty("tab", "windowed", "session", Some("nonce"), &messages);
+        assert!(observation.observe(&fixture.registry, &anchor, Some("nonce"), &source));
     });
     let root = events
         .iter()
