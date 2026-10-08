@@ -33,6 +33,19 @@ pub(crate) fn peer_access_allowed(
             .is_none_or(|tab_id| tab_owner(tab_id).as_deref() == Some(peer_id))
 }
 
+pub(crate) fn is_preview_read(method: &Method, path: &str) -> bool {
+    if *method != Method::POST {
+        return false;
+    }
+    let Some(rest) = request_path(path).strip_prefix("/api/tabs/") else {
+        return false;
+    };
+    let Some((tab, suffix)) = rest.split_once('/') else {
+        return false;
+    };
+    !tab.is_empty() && matches!(suffix, "preview/read" | "preview/check")
+}
+
 pub(crate) fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
     let path = request_path(path);
     if path.starts_with("/api/secrets/")
@@ -49,6 +62,17 @@ pub(crate) fn check_access(access: &AccessLevel, method: &Method, path: &str) ->
             access,
             AccessLevel::Full | AccessLevel::ReadOnly | AccessLevel::AgentIsolated
         ) || matches!(access, AccessLevel::Custom(perms) if perms.contains(&Permission::Admin));
+    }
+    if is_preview_read(method, path) {
+        return match access {
+            AccessLevel::Full | AccessLevel::ReadOnly | AccessLevel::AgentIsolated => true,
+            AccessLevel::Custom(perms) => perms.iter().any(|permission| {
+                matches!(
+                    permission,
+                    Permission::Admin | Permission::ReadTabs | Permission::ReadOutput
+                )
+            }),
+        };
     }
     match access {
         AccessLevel::Full => true,
@@ -128,6 +152,38 @@ pub(crate) fn check_access(access: &AccessLevel, method: &Method, path: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_preview_routes_follow_read_permissions_and_isolated_tab_ownership() {
+        for suffix in ["read", "check"] {
+            let path = format!("/api/tabs/owned/preview/{suffix}");
+            assert!(check_access(&AccessLevel::ReadOnly, &Method::POST, &path));
+            assert!(check_access(
+                &AccessLevel::Custom(vec![Permission::ReadOutput]),
+                &Method::POST,
+                &path
+            ));
+            assert!(!check_access(
+                &AccessLevel::Custom(vec![Permission::WriteTabs]),
+                &Method::POST,
+                &path
+            ));
+            assert!(peer_access_allowed(
+                &AccessLevel::AgentIsolated,
+                "peer-a",
+                &Method::POST,
+                &path,
+                |_| Some("peer-a".into())
+            ));
+            assert!(!peer_access_allowed(
+                &AccessLevel::AgentIsolated,
+                "peer-a",
+                &Method::POST,
+                &path,
+                |_| Some("peer-b".into())
+            ));
+        }
+    }
 
     #[test]
     fn read_only_allows_reads_and_mesh_control_only() {

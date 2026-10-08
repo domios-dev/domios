@@ -635,6 +635,7 @@ export interface ApiConfig {
   token: string | null;
   cors: boolean;
   cors_allow_origins?: string[];
+  preview_secret_paths?: string[];
 }
 
 export interface GeneralAgentConfig {
