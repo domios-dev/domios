@@ -1,6 +1,6 @@
 import type { LocalArtifactKind } from "./localArtifactDirective";
 
-export const ATTACHMENT_KINDS = ["image", "file"] as const;
+export const ATTACHMENT_KINDS = ["image", "file", "text", "folder"] as const;
 export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number];
 
 function isAttachmentKind(value: string | undefined): value is AttachmentKind {
@@ -10,7 +10,11 @@ function isAttachmentKind(value: string | undefined): value is AttachmentKind {
 export interface AttachmentMarker {
   kind: AttachmentKind;
   path: string;
+  /** Set on a capsule typed inline in the composer; the bubble renders it where it was typed. */
+  label?: string;
 }
+
+export type AttachmentSegment = { text: string } | { attachment: AttachmentMarker };
 
 export interface ParsedAttachmentMarkers {
   text: string;
@@ -29,7 +33,8 @@ const IMAGE_MIME: Record<string, string> = {
 };
 const DOCUMENT_EXTENSIONS = new Set(["md", "markdown", "txt", "log", "json", "yaml", "yml", "toml", "csv"]);
 
-const MARKER = /<ds-attachment\b([^<>]*?)\/?>/gi;
+// Only the typed attachment form matches; a routed `<domios from=...>` frame is provenance, never an attachment.
+const MARKER = /<domios\b(?=[^<>]*\stype="attachment")([^<>]*?)\/?>/gi;
 const ATTRIBUTE = /([a-z]+)="([^"]*)"/gi;
 
 function extension(path: string): string {
@@ -52,6 +57,8 @@ export function attachmentKindForPath(path: string): AttachmentKind {
 export function attachmentPreviewKind(attachment: AttachmentMarker): LocalArtifactKind | null {
   const ext = extension(attachment.path);
   if (attachment.kind === "image") return ext in IMAGE_MIME ? "image" : null;
+  if (attachment.kind === "folder") return null;
+  if (attachment.kind === "text") return "document";
   if (ext === "html" || ext === "htm") return "page";
   return DOCUMENT_EXTENSIONS.has(ext) ? "document" : null;
 }
@@ -65,8 +72,9 @@ function unescapeAttribute(value: string): string {
 }
 
 /** The text an agent receives for one attachment: the absolute path stays readable inside `path`. */
-export function formatAttachmentMarker(path: string, kind: AttachmentKind = attachmentKindForPath(path)): string {
-  return `<ds-attachment kind="${kind}" path="${escapeAttribute(path)}" />`;
+export function formatAttachmentMarker(path: string, kind: AttachmentKind = attachmentKindForPath(path), label?: string): string {
+  const labelAttribute = label ? ` label="${escapeAttribute(label)}"` : "";
+  return `<domios type="attachment" kind="${kind}" path="${escapeAttribute(path)}"${labelAttribute} />`;
 }
 
 interface Span {
@@ -80,12 +88,11 @@ function markerSpan(match: RegExpMatchArray): Span {
   for (const [, name, value] of match[1].matchAll(ATTRIBUTE)) attributes.set(name.toLowerCase(), unescapeAttribute(value));
   const path = attributes.get("path")?.trim() ?? "";
   const kind = attributes.get("kind");
+  const label = attributes.get("label")?.trim();
   const start = match.index ?? 0;
-  return {
-    start,
-    end: start + match[0].length,
-    attachment: path ? { kind: isAttachmentKind(kind) ? kind : attachmentKindForPath(path), path } : null,
-  };
+  const attachment: AttachmentMarker | null = path ? { kind: isAttachmentKind(kind) ? kind : attachmentKindForPath(path), path } : null;
+  if (attachment && label) attachment.label = label;
+  return { start, end: start + match[0].length, attachment };
 }
 
 function removeSpans(content: string, spans: Span[]): string {
@@ -106,6 +113,10 @@ function pathKey(path: string): string {
   return path.replace(/\\/g, "/");
 }
 
+export function hasAttachmentMarkers(content: string): boolean {
+  return content.includes("<domios") && attachmentMarkerSegments(content).some((segment) => "attachment" in segment);
+}
+
 /** Splits attachment markers out of message text; text without markers is returned unchanged. */
 export function parseAttachmentMarkers(content: string): ParsedAttachmentMarkers {
   const spans = [...content.matchAll(MARKER)].map(markerSpan);
@@ -118,4 +129,17 @@ export function parseAttachmentMarkers(content: string): ParsedAttachmentMarkers
     attachments.push(attachment);
   }
   return { text: removeSpans(content, spans), attachments };
+}
+
+/** Message text split at every marker, in order; a marker without a path stays out of both lists. */
+export function attachmentMarkerSegments(content: string): AttachmentSegment[] {
+  const segments: AttachmentSegment[] = [];
+  let cursor = 0;
+  for (const span of [...content.matchAll(MARKER)].map(markerSpan)) {
+    if (span.start > cursor) segments.push({ text: content.slice(cursor, span.start) });
+    if (span.attachment) segments.push({ attachment: span.attachment });
+    cursor = span.end;
+  }
+  if (cursor < content.length) segments.push({ text: content.slice(cursor) });
+  return segments;
 }

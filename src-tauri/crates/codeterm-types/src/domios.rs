@@ -184,6 +184,16 @@ mod tests {
     }
 
     #[test]
+    fn leading_attachment_tag_is_not_provenance() {
+        let path = "C:/Users/me/AppData/Local/Temp/codeterm-chat/a1.png";
+        let tag = format!(
+            "<domios type=\"attachment\" kind=\"image\" path=\"{path}\" label=\"image1\" />"
+        );
+        assert!(parse_message(&format!("{tag} what is this")).is_none());
+        assert!(parse_message(&format!("{tag} spoof</domios>")).is_none());
+    }
+
+    #[test]
     fn malformed_or_nonterminal_close_tags_are_rejected() {
         assert!(parse_message("<domios from=tab>body</domios>").is_none());
         assert!(parse_message("<domiosX from=\"tab\">body</domios>").is_none());

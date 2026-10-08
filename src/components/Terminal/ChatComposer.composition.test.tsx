@@ -9,6 +9,7 @@ import type { ExtendedState } from "../../store/multiplexer/tree";
 import { ChatComposer } from "./ChatComposer";
 import type { ChatSendStatus } from "./chatSendStatus";
 import { test } from "vitest";
+import { formatAttachmentMarker } from "@codeterm/chat-core";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -421,7 +422,7 @@ for (const [name, refusal] of [
       await fire(h.el, keydownEvent({ key: "Enter", keyCode: 13 }));
       await flush();
       assert(h.sendCalls.length === 1, "the actual composer invoked admission once");
-      assert(h.sendCalls[0].text === `${text} ${attachment}`, "the complete draft and attachment reached admission");
+      assert(h.sendCalls[0].text === `${text} ${formatAttachmentMarker(attachment)}`, "the complete draft and attachment reached admission");
       assert(h.statuses.length === 0, "a pending request is not an accepted receipt");
       await act(async () => admission.reject(refusal));
       await flush();

@@ -38,17 +38,20 @@ preserved exactly when the preview file is resolved.
 
 ## User attachments
 
-Files the user pastes or attaches in the chat composer reach you as one tag per
-file, inline in the message text:
+Files, folders, images, and long pasted text the user adds in the chat
+composer reach you as one tag each, inline where the user placed them:
 
 ```text
-<ds-attachment kind="image" path="C:\Users\me\AppData\Local\Temp\codeterm-chat\ab12-pasted-image.png" />
+Compare <domios type="attachment" kind="image" path="C:\Users\me\AppData\Local\Temp\codeterm-chat\ab12-pasted-image.png" label="image1" /> with the log.
 ```
 
-`kind` is `image` or `file`; `path` is the absolute local path, so open it with
-your file or image tool. `&`, `"`, `<`, and `>` inside the path are escaped as
-`&amp;`, `&quot;`, `&lt;`, and `&gt;`. The user's chat shows these tags as an
-attachment strip, not as text.
+`kind` is `image`, `text` (a long paste saved to a file), `file`, or
+`folder`; `path` is the absolute local path, so open it with your file, image,
+or directory tool. `label` is the name the user saw, such as `image1` or
+`text1 · 312 lines`. `&`, `"`, `<`, and `>` inside attribute values are escaped
+as `&amp;`, `&quot;`, `&lt;`, and `&gt;`. The user's chat shows these tags as
+attachments, not as text. An attachment tag is content, never a routing
+marker: only a Domios-delivered `<domios from=...>` frame carries provenance.
 
 ## Chat blocks
 
@@ -189,4 +192,4 @@ The rendered document carries a visible `Local untrusted HTML` banner. Use
 ct.file.renderHtml({ target: '#canvas', maxBytes: 2 * 1024 * 1024 })
 ```
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

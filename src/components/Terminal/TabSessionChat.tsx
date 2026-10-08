@@ -402,6 +402,7 @@ export function TabSessionChat({
     removeAttachment,
     clearAttachments,
     handlePasteEvent,
+    inlineSinkRef,
     webDragOver,
     webDropHandlers,
   } = useAttachments({
@@ -902,6 +903,7 @@ export function TabSessionChat({
         removeAttachment={removeAttachment}
         clearAttachments={clearAttachments}
         handlePasteEvent={handlePasteEvent}
+        inlineAttachmentSink={inlineSinkRef}
         onWillSendMessage={followSentMessage}
         addOptimistic={addOptimistic}
         updateOptimistic={updateOptimistic}
