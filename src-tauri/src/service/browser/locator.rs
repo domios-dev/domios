@@ -215,7 +215,7 @@ mod tests {
 
     fn existing(paths: &[&str]) -> impl Fn(&Path) -> bool {
         let set: HashSet<PathBuf> = paths.iter().map(PathBuf::from).collect();
-        move |path| set.contains(path)
+        move |path: &Path| set.contains(path)
     }
 
     #[test]

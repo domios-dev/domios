@@ -199,9 +199,13 @@ async fn supervise(
     mut kill: watch::Receiver<bool>,
     exit: watch::Sender<Option<ProcessExit>>,
 ) {
+    // The watch Ref must not live into the kill branch's awaits: it holds the channel's read lock.
+    let kill_requested = async move {
+        let _ = kill.wait_for(|kill| *kill).await;
+    };
     let status = tokio::select! {
         status = child.wait() => status.ok(),
-        _ = kill.wait_for(|kill| *kill) => {
+        () = kill_requested => {
             kill_tree(pid).await;
             let _ = child.start_kill();
             child.wait().await.ok()

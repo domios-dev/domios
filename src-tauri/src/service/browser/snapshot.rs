@@ -207,7 +207,7 @@ pub fn build_snapshot(nodes: &[AxNode], max_lines: usize) -> Snapshot {
         }
         for child in node.child_ids.iter().rev() {
             if let Some(child) = by_id.get(child.as_str()) {
-                stack.push((child, next_depth));
+                stack.push((*child, next_depth));
             }
         }
     }
