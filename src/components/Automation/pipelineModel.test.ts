@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { fixtureGraph } from "./fixtures.testdata";
-import { groupBlueprintsByOwner, legacyScenarioPipeline, pipelineModel, type PipelineView } from "./pipelineModel";
+import { legacyScenarioPipeline, pipelineModel } from "./pipelineModel";
 import type { BlueprintSnapshot, BlueprintStepState } from "./types";
 
 function blueprint(overrides: Partial<BlueprintSnapshot> = {}): BlueprintSnapshot {
@@ -55,9 +55,5 @@ assert.equal(optional.nodes.length, 2, "snapshots without trigger, steps, owner 
 assert.equal(optional.nodes[0].summary, "Trigger details unavailable");
 assert.equal(optional.nodes[optional.nodes.length - 1]?.state, "waiting");
 assert.equal(optional.nodes[optional.nodes.length - 1]?.targetSummary, "Target unavailable");
-
-const teamPipeline = pipelineModel(blueprint({ id: "team-a", owner: { kind: "team", tab_id: "creator-a", team_id: "team-a" } }));
-const groups: readonly PipelineView[] = [branch, teamPipeline];
-assert.deepEqual(groupBlueprintsByOwner(groups).map((group) => group.key), ["tab:tab-a", "team:team-a"]);
 
 console.log("Blueprint pipeline model cases passed");

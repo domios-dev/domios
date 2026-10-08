@@ -118,6 +118,15 @@ describe("web host picker placement", () => {
     pickerButton();
   });
 
+  it("General has no Map or Jobs navigation even when their handlers are supplied", async () => {
+    fixture.state!.workspaces = [general];
+    await act(async () => root!.render(<Sidebar onOpenWorkspaceMap={vi.fn()} onOpenWorkspaceAutomation={vi.fn()} />));
+    const contents = host.querySelector('[data-testid="general-section"]');
+    expect(contents).not.toBeNull();
+    expect(contents!.querySelector('button[aria-label="Map"]')).toBeNull();
+    expect(contents!.querySelector('button[aria-label^="Jobs"]')).toBeNull();
+  });
+
   it("stays mounted when the sidebar collapses", async () => {
     fixture.state!.workspaces = [general];
     await renderShell();

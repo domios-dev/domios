@@ -1,7 +1,7 @@
 // Run: npx tsx src/components/Jobs/JobsFilters.test.tsx
 import assert from "node:assert/strict";
 import { act, useState } from "react";
-import { foreignCron, graphA, graphB, installBridge, installDom, machine, machineTransport, mount, named, remoteTeam, removeCapsules, renderedJobs, runCases, scenarioA, scenarioB, settle, teamA, teamCron, teams, unteamedCron, workspaceA, workspaceB, workspaces } from "./jobsEntry.testdata";
+import { foreignCron, graphA, graphB, installBridge, installDom, machine, machineTransport, mount, named, pipelineFixture, remoteTeam, removeCapsules, renderedJobs, runCases, scenarioA, scenarioB, settle, teamA, teamCron, teams, unteamedCron, workspaceA, workspaceB, workspaces } from "./jobsEntry.testdata";
 
 async function main() {
   const win = installDom();
@@ -100,6 +100,27 @@ async function main() {
       await view.close();
       machine.reset();
     }
+  });
+
+  test("pipeline rows follow workspace and Team capsules and count once for Clear stopped", async () => {
+    machine.graphs = {
+      [workspaceA]: { ...graphA, blueprints: [pipelineFixture(graphA.scenarios[0].id, teamA.id), pipelineFixture("tab-pipeline", null)] },
+      [workspaceB]: { ...graphB, blueprints: [pipelineFixture("foreign-pipeline", null)] },
+    };
+    const view = await mount(<JobsView workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: workspaceA, teamId: teamA.id }} adapter={machineTransport()} />);
+    try {
+      await settle(() => renderedJobs(view.host).length === 2);
+      assert.deepEqual(renderedJobs(view.host), [`blueprint:${graphA.scenarios[0].id}`, `cron:${teamCron.id}`].sort());
+      assert.ok(named(view.host, "Clear stopped, 1 jobs"));
+      await act(async () => named(view.host, "Remove filter: Team Team A")!.click());
+      await settle(() => renderedJobs(view.host).length === 4);
+      assert.ok(named(view.host, "Clear stopped, 2 jobs"));
+      assert.ok(renderedJobs(view.host).includes("blueprint:tab-pipeline"));
+      assert.ok(!renderedJobs(view.host).includes("blueprint:foreign-pipeline"));
+      await act(async () => named(view.host, "Remove filter: Workspace Workspace A")!.click());
+      await settle(() => renderedJobs(view.host).length === 7);
+      assert.ok(renderedJobs(view.host).includes("blueprint:foreign-pipeline"));
+    } finally { await view.close(); machine.reset(); }
   });
 
   test("a peer reset detaches the listed records and the rebind attaches the next connection", async () => {

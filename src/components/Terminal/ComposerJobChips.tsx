@@ -17,7 +17,7 @@ const VISIBLE_JOBS = 3;
 const NO_SOURCES: readonly string[] = [];
 
 function JobIcon({ job }: { job: MergedJob }) {
-  const Icon = job.kind === "cron" ? Clock3 : job.sentinel.type === "Blueprint graph" ? Network : Radar;
+  const Icon = job.kind === "cron" ? Clock3 : job.kind === "sentinel" && job.sentinel.type === "Blueprint graph" ? Network : Radar;
   return <Icon size={12} aria-hidden="true" className="shrink-0 text-[var(--ct-muted-fg)]" />;
 }
 
@@ -29,7 +29,7 @@ function stateTone(chip: TabJob): string {
 function openJob(job: MergedJob) {
   requestOpenJob({
     workspaceId: jobWorkspace(job),
-    target: job.kind === "cron" ? { teamId: null, cronId: job.cron.id } : { teamId: null, scenarioId: job.sentinel.scenario.id },
+    target: job.kind === "cron" ? { teamId: null, cronId: job.cron.id } : job.kind === "blueprint" ? { teamId: null, blueprintId: job.blueprint.pipeline.id } : { teamId: null, scenarioId: job.sentinel.scenario.id },
   });
 }
 
