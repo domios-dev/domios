@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CloseRestoreTabState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paired_planner_tab_id: Option<String>,
     pub command: Option<String>,
     pub stopped: bool,
     pub record_id: Option<String>,

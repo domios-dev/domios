@@ -58,6 +58,10 @@ fn inventory(team_only: bool) -> (MultiplexerState, ClosedStructure, String) {
         session_id: "own-chat-session".into(),
     };
     let loose = mux.create_tab(&workspace).unwrap();
+    let ids = mux.get_workspace(&workspace).unwrap().tabs.clone();
+    mux.get_tab_mut(&ids[0])
+        .unwrap()
+        .pending_paired_planner_tab_id = Some(ids[1].clone());
     let mut record = mux
         .capture_structure(
             &workspace,
@@ -100,6 +104,10 @@ fn workspace_inventory_round_trip_preserves_structure_and_stops_shells() {
         assert_eq!(tab.description, archived.tab.description);
         assert_eq!(tab.role, archived.tab.role);
         assert_eq!(tab.role_profile, archived.tab.role_profile);
+        assert_eq!(
+            tab.pending_paired_planner_tab_id,
+            archived.paired_planner_tab_id
+        );
         assert_eq!(tab.team_id, archived.tab.team_id);
         assert_eq!(tab.restorable_launch, archived.launch);
         assert_eq!(tab.shell_profile, archived.tab.shell_profile);
@@ -173,6 +181,10 @@ fn structure_restore_is_idempotent_after_durable_store_and_desk_restart() {
     assert_eq!(restarted.all_tabs().count(), record.tabs.len());
     for archived in &record.tabs {
         let tab = restarted.get_tab(&archived.tab.id).unwrap();
+        assert_eq!(
+            tab.pending_paired_planner_tab_id,
+            archived.paired_planner_tab_id
+        );
         assert_eq!(tab.agent_session_id, archived.tab.agent_session_id);
         assert_eq!(tab.role, archived.tab.role);
         assert_eq!(tab.role_profile, archived.tab.role_profile);
@@ -277,6 +289,28 @@ fn interrupted_restore_retry_does_not_restop_a_shell_already_started() {
         .unwrap();
     assert!(!state.stopped);
     assert!(state.claim_rerun().is_err());
+}
+
+#[test]
+fn consumed_manager_pair_is_not_revived_by_desk_restart() {
+    let (mut mux, record, _) = inventory(false);
+    mux.close_workspace(&record.workspace.id).unwrap();
+    mux.restore_structure(&record).unwrap();
+    let orchestrator = &record.tabs[0].tab.id;
+    assert!(mux
+        .get_tab(orchestrator)
+        .unwrap()
+        .pending_paired_planner_tab_id
+        .is_some());
+    mux.get_tab_mut(orchestrator)
+        .unwrap()
+        .pending_paired_planner_tab_id = None;
+    let restored = MultiplexerState::from_session_snapshot(&mux.to_session_snapshot());
+    assert!(restored
+        .get_tab(orchestrator)
+        .unwrap()
+        .pending_paired_planner_tab_id
+        .is_none());
 }
 
 #[test]
