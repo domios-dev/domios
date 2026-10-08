@@ -176,6 +176,7 @@ fn unmatched_pattern_records_adapter_and_incomplete_history_is_unknown() {
         json!({"decided_by":"adapter","adapter_id":"adapter","model":"model","confidence":0.9})
     );
     job.transitions.push(Transition {
+        causal_run: None,
         id: "accepted".into(),
         bucket: "done".into(),
         accepted_at: 1000,
@@ -212,6 +213,7 @@ fn fallback_is_configuration_and_does_not_claim_adapter_use() {
 fn invalid_history_provenance_is_not_complete() {
     let mut job = job();
     job.transitions.push(Transition {
+        causal_run: None,
         id: "invalid".into(),
         bucket: "done".into(),
         accepted_at: 1000,

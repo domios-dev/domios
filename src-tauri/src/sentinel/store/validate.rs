@@ -347,6 +347,7 @@ impl Store {
             &uuid::Uuid::new_v4().simple().to_string()[..12]
         );
         let job = Sentinel {
+            causal_run: None,
             id: id.clone(),
             team_id: team,
             creator_tab_id: creator,

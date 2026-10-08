@@ -2,6 +2,7 @@ use super::*;
 
 impl TransitionRecord {
     pub(in crate::repositories::sentinel) fn validate(&self) -> Result<(), StorageError> {
+        optional_text("causal run", &self.causal_run_json)?;
         optional_text("decision provenance", &self.decision_json)?;
         identifier("transition id", &self.id)?;
         identifier("transition bucket", &self.bucket)?;
@@ -25,6 +26,7 @@ impl TransitionRecord {
             + self.id.len()
             + self.bucket.len()
             + optional_len(&self.decision_json)
+            + optional_len(&self.causal_run_json)
             + self
                 .handlers
                 .iter()
@@ -35,6 +37,7 @@ impl TransitionRecord {
 
 impl NewTransition {
     pub(in crate::repositories::sentinel) fn validate(&self) -> Result<(), StorageError> {
+        optional_text("causal run", &self.causal_run_json)?;
         optional_text("decision provenance", &self.decision_json)?;
         identifier("transition id", &self.id)?;
         identifier("transition bucket", &self.bucket)?;
@@ -42,6 +45,10 @@ impl NewTransition {
     }
 
     pub(in crate::repositories::sentinel) fn cost(&self) -> usize {
-        RECORD_OVERHEAD + self.id.len() + self.bucket.len() + optional_len(&self.decision_json)
+        RECORD_OVERHEAD
+            + self.id.len()
+            + self.bucket.len()
+            + optional_len(&self.decision_json)
+            + optional_len(&self.causal_run_json)
     }
 }

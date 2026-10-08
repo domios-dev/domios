@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { fixtureGraph } from "./fixtures.testdata";
+import { decisionGraph, fixtureGraph } from "./fixtures.testdata";
 import { graphRuns, replayEdges, replayFrame } from "./runLogModel";
 import { nodeInspector } from "./nodeInspector";
 import { projectAutomationGraph } from "./projection";
@@ -44,3 +44,30 @@ assert.equal(nodeInspector(coded, action).code?.text, "make");
 assert.equal(nodeInspector(coded, null).code?.text, "printf ready");
 assert.equal(nodeInspector(coded, { ...action, bucket: "other" }).code, null);
 console.log("Run ordering, exact route replay and node-only inspector model passed");
+
+const linked = decisionGraph();
+const [rootNode, childNode] = linked.nodes;
+const context = { id: "run-one", root_node: rootNode.identity.id, root_transition: "root-one", started_at: 100, parent: null };
+const parent = { node: rootNode.identity.id, transition: "root-one", handler: "activate-d" };
+linked.nodes = linked.nodes.map((node, index) => index === 0 ? { ...node, history: [
+  { id: "root-two", bucket: "passed-d", accepted_at: 100, causal_run: { ...context, id: "run-two", root_transition: "root-two" }, handlers: [{ handler_id: "activate-d", status: "noop", execution_id: null, accepted_at: 100 }] },
+  { id: "root-one", bucket: "passed-d", accepted_at: 100, causal_run: context, handlers: [{ handler_id: "activate-d", status: "completed", execution_id: "activation", accepted_at: 100 }] },
+] } : index === 1 ? { ...node, history: [
+  { id: "child-one", bucket: "passed-e", accepted_at: 1, causal_run: { ...context, parent }, handlers: [{ handler_id: "send-e", status: "completed", execution_id: "send", accepted_at: 1 }] },
+] } : node);
+linked.runs = [
+  { id: "run-one", root_node: context.root_node, root_transition: context.root_transition, started_at: 100, state: "completed", incomplete: false, transitions: [
+    { node: childNode.identity, transition_id: "child-one", parent },
+    { node: rootNode.identity, transition_id: "root-one", parent: null },
+  ] },
+  { id: "run-two", root_node: context.root_node, root_transition: "root-two", started_at: 100, state: "completed", incomplete: false, transitions: [{ node: rootNode.identity, transition_id: "root-two", parent: null }] },
+];
+const linkedRuns = graphRuns(linked);
+assert.equal(linkedRuns.length, 2);
+assert.deepEqual(linkedRuns[0].events.map((event) => event.node), [rootNode.name, childNode.name]);
+assert.deepEqual(linkedRuns[0].events.map((event) => event.at), [100, 1]);
+assert.equal(replayEdges(linkedRuns[0]).length, 2);
+assert.deepEqual(replayEdges(linkedRuns[1]), []);
+assert.equal(graphRuns({ ...linked, nodes: [childNode], runs: linked.runs }).length, 0);
+const bounded = graphRuns({ ...linked, nodes: [linked.nodes[0]], runs: linked.runs });
+assert.equal(bounded[0].incomplete, true);

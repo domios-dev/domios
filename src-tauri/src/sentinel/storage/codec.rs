@@ -277,6 +277,10 @@ fn domain_result(record: HandlerResultRecord) -> ResultRecord {
 /// Transitions recorded before versioned history keep `definition_version: None`.
 fn transition(transition: &Transition) -> TransitionRecord {
     TransitionRecord {
+        causal_run_json: transition
+            .causal_run
+            .as_ref()
+            .map(|run| serde_json::json!(run).to_string()),
         decision_json: transition
             .decision
             .as_ref()
@@ -292,6 +296,10 @@ fn transition(transition: &Transition) -> TransitionRecord {
 
 pub(super) fn new_transition(transition: &Transition) -> NewTransition {
     NewTransition {
+        causal_run_json: transition
+            .causal_run
+            .as_ref()
+            .map(|run| serde_json::json!(run).to_string()),
         decision_json: transition
             .decision
             .as_ref()
@@ -305,6 +313,10 @@ pub(super) fn new_transition(transition: &Transition) -> NewTransition {
 
 fn domain_transition(record: TransitionRecord) -> Transition {
     Transition {
+        causal_run: record
+            .causal_run_json
+            .as_deref()
+            .and_then(|json| serde_json::from_str(json).ok()),
         decision: record
             .decision_json
             .as_deref()
@@ -440,6 +452,10 @@ pub(super) fn history_version(stored: StoredDefinition) -> DefinitionVersion {
 
 fn runtime(job: &Sentinel) -> StageRuntime {
     StageRuntime {
+        causal_run_json: job
+            .causal_run
+            .as_ref()
+            .map(|run| serde_json::json!(run).to_string()),
         generation: job.revision,
         next_run: job.next_run,
         expires_at: job.expires_at,
@@ -563,6 +579,10 @@ pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
     }
     let runtime = record.runtime;
     Sentinel {
+        causal_run: runtime
+            .causal_run_json
+            .as_deref()
+            .and_then(|json| serde_json::from_str(json).ok()),
         id: record.identity.id.as_str().to_string(),
         team_id: record.identity.scope.team_id,
         creator_tab_id: record.identity.scope.creator_tab_id,
