@@ -17,7 +17,7 @@ mod delayed_send;
 mod essence_map;
 mod file_actions;
 mod hooks;
-mod html_preview;
+pub(crate) mod html_preview;
 pub use file_actions::*;
 mod model_providers;
 pub mod mux_commands;
