@@ -93,3 +93,53 @@ fn trace_cli_empty_default_does_not_create_a_trace_file() {
     let error: Value = serde_json::from_slice(&invalid.stdout).unwrap();
     assert_eq!(error["ok"], false);
 }
+
+#[test]
+fn trace_cli_joins_a_late_source_link_and_flags_a_missing_assistant() {
+    let root = tempfile::tempdir().unwrap();
+    let mut sink = Sink::open(&root.path().join("logs"), true).unwrap();
+    for event in [
+        Event::new("send", "send.started", "tab", "provider", "accepted"),
+        Event::new("send", "send.written", "tab", "provider", "pty_queue"),
+        Event::new(
+            "source",
+            "transcript.assistant",
+            "tab",
+            "provider",
+            "source_user_turn",
+        ),
+        Event::new(
+            "send",
+            "trace.link",
+            "tab",
+            "provider",
+            "exact_append_window",
+        )
+        .related(Some("source")),
+        Event::new("send", "send.delivered", "tab", "provider", "exact_turn"),
+        Event::new(
+            "missing",
+            "send.delivered",
+            "other-tab",
+            "provider",
+            "exact_turn",
+        ),
+    ] {
+        sink.append(&event).unwrap();
+    }
+    drop(sink);
+    let output = run(root.path(), &["--json", "trace", "show", "tab"]);
+    assert!(output.status.success());
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(result["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|event| event["trace_id"] == "send"));
+    assert!(result["gaps"].as_array().unwrap().is_empty());
+    let output = run(root.path(), &["trace", "show", "other-tab"]);
+    assert!(output.status.success());
+    assert!(String::from_utf8(output.stdout)
+        .unwrap()
+        .contains("no assistant transcript append"));
+}

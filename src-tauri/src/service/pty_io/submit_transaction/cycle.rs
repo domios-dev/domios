@@ -255,12 +255,19 @@ impl Drop for ClaimLease {
 #[derive(Clone)]
 pub(crate) struct SubmitCycleClaim {
     pty_id: String,
+    pub(super) trace_id: Option<String>,
     pub(super) cycle: Arc<SubmitCycle>,
     pub(super) generation: u64,
     _lease: Arc<ClaimLease>,
 }
 
 impl SubmitCycleClaim {
+    pub(crate) fn with_trace_id(mut self, id: &str) -> Self {
+        if crate::flow_trace::enabled() {
+            self.trace_id = Some(id.into());
+        }
+        self
+    }
     pub(crate) fn pty_id(&self) -> &str {
         &self.pty_id
     }
@@ -289,6 +296,7 @@ pub(crate) fn claim_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
     );
     SubmitCycleClaim {
         pty_id: pty_id.to_string(),
+        trace_id: None,
         cycle: Arc::clone(&cycle),
         generation,
         _lease: Arc::new(ClaimLease {

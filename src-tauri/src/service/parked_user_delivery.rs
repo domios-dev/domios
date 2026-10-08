@@ -988,7 +988,8 @@ impl super::ServiceContext {
         let claim = self
             .chat_send_ledger
             .take_user_submit_claim(&record.send_id)
-            .unwrap_or_else(|| super::pty_io::submit_transaction::claim_submit_cycle(pty_id));
+            .unwrap_or_else(|| super::pty_io::submit_transaction::claim_submit_cycle(pty_id))
+            .with_trace_id(&record.send_id);
         if !self.user_send_readiness_is_current(authority, readiness) {
             return Err(DeliveryError::TabBusyRefused {
                 tab: tab_id.into(),

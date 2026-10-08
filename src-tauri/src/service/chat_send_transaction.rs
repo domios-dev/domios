@@ -240,6 +240,16 @@ impl ChatSendLedger {
 
     pub(crate) fn admit_user(&self, record: &UserSendRecord) -> ChatSendStatus {
         let mut state = self.state.lock();
+        if !state.by_id.contains_key(&record.send_id) {
+            crate::flow_trace::record(
+                &record.send_id,
+                "send.started",
+                &record.authority.tab_id,
+                &record.authority.provider_id,
+                "accepted",
+                None,
+            );
+        }
         let status = ChatSendStatus {
             send_id: record.send_id.clone(),
             tab_id: record.authority.tab_id.clone(),
@@ -361,7 +371,9 @@ impl ChatSendLedger {
         send_id: &str,
         claim: crate::service::pty_io::submit_transaction::SubmitCycleClaim,
     ) {
-        self.submit_claims.lock().insert(send_id.to_string(), claim);
+        self.submit_claims
+            .lock()
+            .insert(send_id.to_string(), claim.with_trace_id(send_id));
     }
 
     pub(crate) fn take_user_submit_claim(
@@ -614,6 +626,14 @@ impl ChatSendLedger {
                 .live_binding_by_id
                 .insert(status.send_id.clone(), binding);
         }
+        crate::flow_trace::record(
+            &status.send_id,
+            "send.started",
+            tab_id,
+            "",
+            "accepted",
+            None,
+        );
         Self::prune_terminal(&mut state);
         Ok(Self::with_retention_window(&state, status))
     }
