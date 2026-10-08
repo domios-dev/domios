@@ -896,12 +896,12 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             grace_secs,
         } => {
             let tab_id = resolve_tab(client, tab);
-            let body = serde_json::json!({
-                "force": force,
-                "grace_secs": grace_secs,
-                "provider": provider,
-                "handoff_history": handoff_history,
-            });
+            let body = crate::cmd::agent_restart::RestartRequest {
+                force,
+                grace_secs,
+                provider: provider.as_deref(),
+                handoff_history,
+            };
             match local_http
                 .post(format!("{}/api/tabs/{}/agent/restart", base, tab_id))
                 .json(&body)
