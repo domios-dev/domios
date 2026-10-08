@@ -123,6 +123,13 @@ impl Normalizer {
             .and_then(Value::as_str)
             .map(str::to_owned)
             .or(message.tool_flow_id);
+        if let (Some("command"), Some(input), Some(turn)) = (
+            message.tool_kind.as_deref(),
+            message.tool_input.as_mut(),
+            message.tool_flow_id.as_ref(),
+        ) {
+            input["commandBatchId"] = serde_json::json!(turn);
+        }
         if method == "item/completed"
             && message.kind == "tool_call"
             && message.tool_error.is_none()

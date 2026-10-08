@@ -51,6 +51,12 @@ function SegmentDetail({ event, row, index, navigation }: { event: ToolEvent; ro
       {row.segment.text}
     </pre>
   );
+  if (row.event) return <>
+    {text}
+    <span aria-label={statusName(row.event.status)}><StatusGlyph status={row.event.status} /></span>
+    <ToolOutcomeFacts event={row.event} />
+    {row.event.result && <ToolOutputContent text={row.event.result} maxHeight="12rem" />}
+  </>;
   if (row.role === "command") return text;
   const segment: ToolEvent = {
     id: `${event.id}:segment:${index}`,
@@ -74,7 +80,7 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
     rememberOpenSegment(callKey, next);
     setOpenRowState(next);
   };
-  const title = event.description || commandGroupSummary(rows);
+  const title = event.description || (event.commandBatch ? event.title : undefined) || commandGroupSummary(rows);
   const countLabel = `${rows.length} commands`;
   const capped = !expanded && (openRow ?? -1) < COMMAND_TREE_CAP;
 
@@ -119,10 +125,11 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
         {expanded && (
           <RawCommandDisclosure
             initiallyExpanded
-            raw={toolCommand(event).command}
-            details={event.status === "pending"
-              ? <div data-testid="toolcard-spinner" className="font-mono text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>Running…</div>
-              : event.result && <div data-testid="toolcard-result"><ToolOutputContent text={event.result} maxHeight="12rem" /></div>}
+            raw={event.commandBatch ? event.detail ?? "" : toolCommand(event).command}
+            details={<>
+              {event.status === "pending" && <div data-testid="toolcard-spinner" className="font-mono text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>Running…</div>}
+              {event.result && <div data-testid="toolcard-result"><ToolOutputContent text={event.result} maxHeight="12rem" /></div>}
+            </>}
           />
         )}
       </div>

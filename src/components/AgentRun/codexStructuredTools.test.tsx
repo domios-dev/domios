@@ -91,3 +91,31 @@ describe("Codex structured chat wire contract", () => {
     expect(groupToggle?.getAttribute("aria-expanded")).toBe("false");
   });
 });
+
+describe("structured command batches", () => {
+  const batch = ["(Get-Culture).Name", "Get-Location", "Get-Date"].map((command, index): NormalizedChatMessage => ({
+    id: `batch-${index}`, type: "tool_call", content: "", toolId: `batch-${index}`, toolKind: "command", toolFlowId: "batch-turn",
+    toolInput: { command: `pwsh -Command '${command}'`, commandActions: [{command}], commandBatchId: "batch-turn" },
+    toolDetail: `pwsh -Command '${command}'`, toolError: false, toolExitCode: 0, toolResult: `result ${index}`,
+  }));
+  it("shows the parsed command in a standalone row", async () => {
+    const view = await render(<Call message={batch[0]} />);
+    expect(view.querySelector('[data-testid="toolcard-summary"]')?.textContent).toBe("(Get-Culture).Name");
+    expect(view.querySelector('[data-testid="toolcard-summary"]')?.textContent).not.toContain("pwsh");
+  });
+  it("renders parallel command items in one existing expanded command group", async () => {
+    const view = await render(<Timeline messages={batch} />);
+    expect(view.querySelectorAll('[data-testid="chat-command-group"]')).toHaveLength(1);
+    expect(view.querySelector('[data-testid="chat-command-group-title"]')?.textContent).toBe("(Get-Culture).Name");
+    expect(view.textContent).toContain("3 commands");
+    expect(view.querySelectorAll('[data-testid="chat-command-tree-line"]')).toHaveLength(3);
+    expect(view.querySelector('[data-testid="message-raw-content"]')?.textContent).toContain("pwsh -Command '(Get-Culture).Name'");
+    expect(view.textContent).toContain("result 2");
+  });
+  it("keeps command batches separated by assistant text", async () => {
+    const view = await render(<Timeline messages={[...batch, {id:"between-batches",type:"assistant",content:"Next commands"},
+      ...batch.map((message) => ({...message,id:`later-${message.id}`,toolId:`later-${message.toolId}`}))]} />);
+    expect(view.querySelectorAll('[data-testid="chat-command-group"]')).toHaveLength(2);
+    expect(view.textContent).toContain("Next commands");
+  });
+});

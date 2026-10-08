@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assignedCommand, parseShellComposition, unwrapShellLauncher } from "./shellComposition";
+import { assignedCommand, parseShellComposition, toolCommandLabel, unwrapShellLauncher } from "./shellComposition";
 
 const operators = (command: string, argv?: string[]) => parseShellComposition(command, argv)?.segments.map((segment) => segment.operator);
 
@@ -150,5 +150,23 @@ describe("shell composition", () => {
       expect(() => parseShellComposition(command)).not.toThrow();
       expect(() => parseShellComposition(command, ["pwsh", "-Command", command])).not.toThrow();
     }
+  });
+});
+
+describe("command display labels", () => {
+  it.each([
+    ["command \"C:\\Users\\User\\pwsh.exe\" -Command '(Get-Culture).Name'", "(Get-Culture).Name"],
+    ["bash -lc 'git status --short'", "git status --short"],
+    ['cmd /c "dir & echo ok"', "dir & echo ok"],
+  ])("unwraps %s while preserving the full invocation", (command, expected) => {
+    const event = { message: { id: "command", type: "tool_call" as const, content: "", toolInput: { command } }, detail: command, summary: command };
+    expect(toolCommandLabel(event)).toBe(expected);
+    expect(event.detail).toBe(command);
+  });
+
+  it("uses parsed command actions ahead of the launcher and preserves source quoting", () => {
+    expect(toolCommandLabel({ message: { id: "parsed", type: "tool_call", content: "", toolInput: {
+      command: "wrapper --encoded opaque", commandActions: [{ type: "unknown", command: 'Write-Output "hello world"' }],
+    } } })).toBe('Write-Output "hello world"');
   });
 });

@@ -4,6 +4,7 @@ import {
   parseShellComposition,
   shellSegmentLabel,
   toolCommand,
+  toolCommandLabel,
   type ShellOperator,
   type ShellScript,
   type ShellSegment,
@@ -11,10 +12,10 @@ import {
 } from "@codeterm/chat-core";
 import { invocationFromArgv, type CodetermInvocation } from "./invocation";
 
-export type CommandRow =
+export type CommandRow = (
   | { role: "codeterm"; segment: ShellSegment; invocation: CodetermInvocation }
   | { role: "script"; segment: ShellSegment; script: ShellScript }
-  | { role: "command"; segment: ShellSegment };
+  | { role: "command"; segment: ShellSegment }) & { event?: ToolEvent };
 
 /** How one command call is presented: a single row, a specialized card, or one grouped box of segments. */
 export type CommandShape =
@@ -123,6 +124,18 @@ export function commandShape(command: string, argv?: readonly string[]): Command
 }
 
 export function toolCommandShape(event: ToolEvent): CommandShape {
+  if (event.commandBatch?.length) {
+    const rows = event.commandBatch.flatMap((member): CommandRow[] => {
+      const command = toolCommandLabel(member);
+      const { command: raw, argv } = toolCommand(member);
+      const actions = member.message.toolInput?.commandActions;
+      const composition = Array.isArray(actions) && actions.length
+        ? parseShellComposition(command) : parseShellComposition(raw, argv);
+      const segments = composition?.segments ?? [{ text: command, argv: [command], redirects: [], operator: null }];
+      return segments.map((segment) => ({ ...rowOf(segment), event: member }));
+    });
+    return { kind: "group", rows };
+  }
   const { command, argv } = toolCommand(event);
   return commandShape(command, argv);
 }

@@ -1,4 +1,5 @@
 import { agentActivityOf, buildAgentTree, isAgentActivityMessage, type AgentActivityTree, type AgentNode } from "./agentActivity";
+import { groupCommandBatches } from "./commandBatches";
 import { wellFormedFileDiffs } from "./fileDiffs";
 import { assignedCommand, toolCommand, unwrapShellLauncher } from "./shellComposition";
 import { normalizeToolRichResult } from "./toolRichResult";
@@ -41,6 +42,7 @@ export interface ToolEvent {
   backgroundTaskId?: string;
   message: NormalizedChatMessage;
   stream?: ToolStream;
+  commandBatch?: ToolEvent[];
   /** Sub-agent activity of one session and flow, folded into one card. */
   agents?: AgentActivityTree;
 }
@@ -274,7 +276,11 @@ function groupToolStreams(
       if (item.message.type !== "thinking") run++;
       return;
     }
-    if (item.event.phase !== "call" || !item.event.flowId || item.event.stream) return;
+    if (item.event.message.toolInput?.commandBatchId) {
+      run++;
+      return;
+    }
+    if (item.event.phase !== "call" || !item.event.flowId || item.event.stream || item.event.commandBatch) return;
     const flow = flowKey(item.event.message.sourceSessionId, item.event.flowId);
     const key = `${run}#${flow}`;
     const group = groups.get(key) ?? { flow, run, indexes: [] };
@@ -541,5 +547,5 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
       items[index] = { kind: "tool", event: { ...item.event, status: "unresolved" } };
     }
   }
-  return groupToolStreams(items, openFlows, boundaryFlows, thoughtKeys);
+  return groupCommandBatches(groupToolStreams(items, openFlows, boundaryFlows, thoughtKeys));
 }
