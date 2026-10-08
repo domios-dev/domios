@@ -264,6 +264,12 @@ pub struct SurfaceBacking {
     /// The UI labels the tab after its owner (`parent_tab_id`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub owner_label: bool,
+    /// Last committed top-level page of a relaunching stream surface; local desk state only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_url: Option<String>,
+    /// Named browser profile the surface last ran under; `None` is the clean profile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_profile: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

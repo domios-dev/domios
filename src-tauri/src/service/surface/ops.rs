@@ -48,6 +48,8 @@ impl ServiceContext {
             surface_id: target.surface_id.clone(),
             instance_id: uuid::Uuid::new_v4().simple().to_string(),
             owner_label: owner_label(&surface, request.title_from_owner),
+            resume_url: None,
+            resume_profile: None,
         };
         let row = {
             let mut mux = self.mux.write();

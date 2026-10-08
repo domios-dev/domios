@@ -4,6 +4,7 @@ mod heuristics;
 mod inbox;
 mod input;
 mod page;
+mod resume;
 mod stream;
 mod verbs;
 
@@ -20,8 +21,8 @@ use self::inbox::AnnotationInbox;
 use self::input::{input_commands, InputArgs, NavAction};
 use self::page::PageShared;
 use super::runtime::{
-    SurfaceCallCtx, SurfaceCallOutcome, SurfaceEvents, SurfaceNotice, SurfaceRuntime,
-    SurfaceRuntimeFactory, SurfaceState,
+    SurfaceCallCtx, SurfaceCallOutcome, SurfaceEvents, SurfaceNotice, SurfaceResume,
+    SurfaceRuntime, SurfaceRuntimeFactory, SurfaceState,
 };
 use crate::service::browser::profile::{sanitize_profile_name, ProfileLayout};
 use crate::service::browser::viewport::ViewportRequest;
@@ -47,11 +48,12 @@ impl BrowserRuntimeFactory {
 }
 
 impl SurfaceRuntimeFactory for BrowserRuntimeFactory {
-    fn create(&self, owner_name: &str) -> Arc<dyn SurfaceRuntime> {
+    fn create(&self, owner_name: &str, resume: Option<SurfaceResume>) -> Arc<dyn SurfaceRuntime> {
         Arc::new(BrowserRuntime::new(
             BrowserHostConfig::under_data_dir(&self.data_dir),
             owner_name,
             self.swept.clone(),
+            resume.unwrap_or_default(),
         ))
     }
 }
@@ -69,6 +71,8 @@ pub(crate) struct BrowserRuntime {
     swept: Arc<tokio::sync::OnceCell<()>>,
     shared: Arc<PageShared>,
     profile_request: Mutex<String>,
+    resume_profile: tokio::sync::Mutex<Option<String>>,
+    resume_url: Mutex<Option<String>>,
     grabs: Mutex<GrabStore>,
     inbox: Mutex<AnnotationInbox>,
 }
@@ -78,16 +82,68 @@ fn cdp_error(error: crate::service::browser::CdpError) -> String {
 }
 
 impl BrowserRuntime {
-    fn new(config: BrowserHostConfig, owner: &str, swept: Arc<tokio::sync::OnceCell<()>>) -> Self {
+    fn new(
+        config: BrowserHostConfig,
+        owner: &str,
+        swept: Arc<tokio::sync::OnceCell<()>>,
+        resume: SurfaceResume,
+    ) -> Self {
+        let resume = SurfaceResume {
+            url: resume.url.as_deref().and_then(resume::resumable_url),
+            profile: resume
+                .profile
+                .as_deref()
+                .and_then(resume::resumable_profile),
+        };
+        let shared = PageShared::new(owner);
+        shared.seed_resume(resume.clone());
         Self {
             layout: config.layout.clone(),
             host: BrowserHost::new(config),
             swept,
-            shared: PageShared::new(owner),
+            shared,
             profile_request: Mutex::new(String::new()),
+            resume_profile: tokio::sync::Mutex::new(resume.profile),
+            resume_url: Mutex::new(resume.url),
             grabs: Mutex::new(GrabStore::default()),
             inbox: Mutex::new(AnnotationInbox::default()),
         }
+    }
+
+    /// Once, before the first launch: a remembered profile that was deleted falls back to clean.
+    async fn apply_resume_profile(&self) {
+        let mut pending = self.resume_profile.lock().await;
+        let Some(wanted) = pending.take() else {
+            return;
+        };
+        let available = self.host.profiles().await;
+        match resume::restored_profile(&wanted, &available) {
+            Some(name) => *self.profile_request.lock() = name,
+            None => {
+                self.shared.remember_profile(CLEAN_PROFILE);
+                self.shared.notice(SurfaceNotice::info(format!(
+                    "Profile {wanted} no longer exists; reopened with a clean profile."
+                )));
+            }
+        }
+    }
+
+    /// Once, after the first successful launch; a failed load keeps the tab on the error page.
+    async fn apply_resume_url(&self, page: &PageChannel) {
+        let Some(url) = self.resume_url.lock().take() else {
+            return;
+        };
+        if let Err(error) = self.navigate(page, NavAction::Goto, Some(&url)).await {
+            self.shared.notice(SurfaceNotice::error(format!(
+                "Could not reopen the last page: {error}"
+            )));
+        }
+    }
+
+    /// An explicit profile choice wins over the remembered page and profile.
+    async fn cancel_resume(&self) {
+        self.resume_profile.lock().await.take();
+        self.resume_url.lock().take();
     }
 
     /// Starts (or reuses) Chromium under the requested profile and binds its page listener.
@@ -99,6 +155,7 @@ impl BrowserRuntime {
                 log::info!("[browser] orphan sweep before first launch: {report:?}");
             })
             .await;
+        self.apply_resume_profile().await;
         let profile = self.profile_request.lock().clone();
         let viewport = self.host.viewport();
         let opened = self
@@ -118,8 +175,10 @@ impl BrowserRuntime {
                 state.profile = opened.profile.clone();
                 state.profiles = profiles;
             });
+            self.shared.remember_profile(&opened.profile);
         }
         self.shared.bind(&page);
+        self.apply_resume_url(&page).await;
         Ok(page)
     }
 
@@ -224,6 +283,7 @@ impl BrowserRuntime {
         };
         self.shared
             .notice(SurfaceNotice::info(format!("Switching to {label}…")));
+        self.cancel_resume().await;
         *self.profile_request.lock() = wanted.clone();
         let opened = self.host.use_profile(&wanted).await?;
         if !opened.reused {
@@ -237,6 +297,7 @@ impl BrowserRuntime {
             state.profile = opened.profile.clone();
             state.profiles = profiles;
         });
+        self.shared.remember_profile(&opened.profile);
         Ok(())
     }
 
@@ -301,6 +362,10 @@ impl SurfaceRuntime for BrowserRuntime {
 
     fn annotation_delivered(&self, id: &str) {
         self.inbox.lock().mark_delivered(id);
+    }
+
+    fn resume_updates(&self) -> Option<tokio::sync::watch::Receiver<SurfaceResume>> {
+        Some(self.shared.subscribe_resume())
     }
 
     async fn dispose(&self) {

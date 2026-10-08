@@ -889,6 +889,8 @@ fn surface_child(state: &mut MultiplexerState, workspace_id: &str, owner_id: &st
         surface_id: "board".into(),
         instance_id: surface_id.clone(),
         owner_label: true,
+        resume_url: None,
+        resume_profile: None,
     });
     surface.parent_tab_id = Some(owner_id.to_string());
     surface_id

@@ -659,6 +659,18 @@ async fn perform_relay(
     sender_id: &str,
     cmd: &crate::mesh::types::RelayCommand,
 ) -> Result<crate::mesh::types::RelayResponse, (StatusCode, String)> {
+    let mut response = perform_relay_unredacted(state, sender_id, cmd).await?;
+    if let Some(data) = response.data.as_mut() {
+        crate::api::peer_redaction::redact_for_peer(data);
+    }
+    Ok(response)
+}
+
+async fn perform_relay_unredacted(
+    state: &AppState,
+    sender_id: &str,
+    cmd: &crate::mesh::types::RelayCommand,
+) -> Result<crate::mesh::types::RelayResponse, (StatusCode, String)> {
     // debug, not info — polling peers once put 285k of these in a single
     // rotated log generation, the largest contributor to a 250 MB log dir.
     log::debug!(
