@@ -5,7 +5,7 @@ fn job(id: &str, scenario: &str, creator: &str, team: Option<&str>, stopped: boo
     let mut job: Sentinel = serde_json::from_value(json!({
         "id": id, "workspace_id": "workspace", "team_id": team, "creator_tab_id": creator,
         "cwd": "/tmp", "probe": "status", "question": "Ready?", "buckets": ["ready"],
-        "routes": {}, "matches": {}, "interval_ms": 10000, "next_run": 0, "expires_at": null,
+        "routes": {"ready": []}, "matches": {}, "interval_ms": 10000, "next_run": 0, "expires_at": null,
         "until": null, "last_reason": null,
         "machine": {"paused": false, "stopped": stopped, "last_hash": null, "last_bucket": null}
     }))
