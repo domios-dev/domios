@@ -20,7 +20,7 @@ impl ShellProfile {
 }
 
 fn cmd_script(command: &str) -> String {
-    format!("@echo off\r\n{command}\r\nset \"_ct_exit=%errorlevel%\"\r\ndel \"%~f0\" & exit /b %_ct_exit%\r\n")
+    format!("@echo off\r\n{command}\r\nset \"_ct_exit=%errorlevel%\"\r\n(goto) 2>nul & del \"%~f0\" & exit /b %_ct_exit%\r\n")
 }
 
 #[cfg(test)]

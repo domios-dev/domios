@@ -42,7 +42,8 @@ const WORKER_SUFFIX_MAX_BYTES: usize = 5_000;
 const PRIMER_MAX_BYTES: usize = 2_600;
 const PROVIDER_RULES_MAX_BYTES: usize = 9_700;
 const WORKER_CHARTER_MAX_BYTES: usize = 1_450;
-const ORCHESTRATOR_LAUNCH_MAX_BYTES: usize = 24_883;
+// Re-measured at 25_575 for the owner-approved process rules, chat block guidance and the WSL utility line.
+const ORCHESTRATOR_LAUNCH_MAX_BYTES: usize = 25_600;
 const PLANNER_LAUNCH_MAX_BYTES: usize = 24_840;
 const WORKER_LAUNCH_OVERHEAD_MAX_BYTES: usize = 9_000;
 
