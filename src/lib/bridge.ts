@@ -217,6 +217,8 @@ const HTTP_MAP: Record<string, Mapper> = {
     if (typeof a.workspaceId !== "string" || !a.workspaceId) throw new Error("Automation workspace scope is required");
     return webJson("GET", `/api/automation/graph/workspace?workspace_id=${enc(s(a, "workspaceId"))}`);
   },
+  blueprint_export_file: (a) => webJson("POST", "/api/automation/blueprints/export", { workspace_id: a.workspaceId, team_id: a.teamId, id: a.id }),
+  blueprint_import_file: (a) => webJson("POST", "/api/automation/blueprints/import", { caller_tab_id: a.callerTabId, recipe: a.recipe, assignments: a.assignments }),
   automation_graph_stop_sentinel: (a) => {
     if (typeof a.workspaceId !== "string" || !a.workspaceId) throw new Error("Automation workspace scope is required");
     if (!("teamId" in a) || (a.teamId !== null && typeof a.teamId !== "string")) throw new Error("Automation Team scope is required");

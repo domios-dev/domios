@@ -691,6 +691,7 @@ function AppInner() {
                 onClose={() => { setSettingsSection(undefined); setSettingsOpen(false); }}
                 initialSection={settingsSection}
                 guideRequest={requestedGuide}
+                tabs={state.tabs}
                 workspaces={state.workspaces}
                 teams={state.teams}
               />
