@@ -3,6 +3,17 @@
 Ready Blueprint graph patterns and skeletons. Sources, classification, routes, handlers, escalation, updates and limits
 are in `codeterm docs BLUEPRINTS`. Name each graph by meaning: what is watched → what happens.
 
+## Read a graph as Trigger → Source → Agent or Logic → Action
+
+The Blueprint view draws every stage as four kinds of node, so write definitions that read well in that order:
+
+- **Trigger** starts the stage: a schedule (`--every`), an event from an observed tab or terminal, text input (`blueprint input`), or activation by an earlier stage (`blueprint:<id>` on that stage, with this one `--paused`).
+- **Source** collects what the decision receives: a probe command (`--probe`, the only node that shows code besides command actions), a Team terminal (`--observe tab:<id>` with `--terminal-pattern` or `--output-settled`), an observed tab or cron run, or input data.
+- **Agent** decides with `--question`: write it as the instruction the agent follows, naming every bucket and what it means (`passed: CI finished green; failed: a job failed`). Each bucket becomes an exec pin labelled with that definition, so keep one clause per bucket. **Logic** is the deterministic form: `--match bucket=regex` patterns, checked before the agent.
+- **Action** runs per bucket: `notify`, `send:<tab>`, `cron:<name>`, a labelled `command`, `blueprint:<id>` for the next stage, `escalate`, `respond_prompt` or `stop`. A bucket with `[]` is an open pin: nothing happens. Every action receives the source output as its payload.
+
+Name the graph for what the whole chain does, and give each command a short label; the label is the action's title. `codeterm blueprint nodes` lists every node type in this vocabulary.
+
 ## Use-case patterns
 
 Each pattern names the source, buckets and handlers; put silent buckets as `[]` and check the result with `--dry-run`.
@@ -197,7 +208,7 @@ escalation handler when it needs attention. With an existing same-Team cron and 
 codeterm blueprint create --name ci-result-review-watch --probe "gh run view 456 --json status,conclusion" --question "passed for completed successful CI; failed for completed unsuccessful CI; other while running" --buckets passed,failed --route passed=cron:review_pr --route failed=send:repair_worker --timeout 1h
 ```
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
 
 ## Terminal adapter
 

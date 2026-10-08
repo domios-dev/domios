@@ -209,6 +209,7 @@ pub(super) fn dispatch(
                 "blueprint.list",
                 "blueprint.show",
                 "blueprint.stop",
+                "blueprint.delete",
                 "blueprint.update",
                 "blueprint.validate.update",
                 "blueprint.history",

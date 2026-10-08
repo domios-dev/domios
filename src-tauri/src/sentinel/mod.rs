@@ -2,6 +2,7 @@ pub(crate) mod actions;
 pub(crate) mod amend;
 pub(crate) mod classify;
 pub(crate) mod command;
+pub(crate) mod delete;
 pub(crate) mod escalation;
 pub(crate) mod graph;
 pub(crate) mod handlers;
