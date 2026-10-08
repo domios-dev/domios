@@ -1,39 +1,8 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { Window } from "happy-dom";
+import { FakeResizeObserver, frameQueue, setupSurfaceDom } from "./surfaceDomGlobals.testdata";
 
-type ResizeCallback = (entries: Array<{ contentRect: { width: number; height: number } }>) => void;
-
-class FakeResizeObserver {
-  static instances = new Set<FakeResizeObserver>();
-  constructor(private readonly callback: ResizeCallback) {}
-  observe() { FakeResizeObserver.instances.add(this); }
-  unobserve() { FakeResizeObserver.instances.delete(this); }
-  disconnect() { FakeResizeObserver.instances.delete(this); }
-  emit(width: number, height: number) { this.callback([{ contentRect: { width, height } }]); }
-}
-
-const frameQueue = new Map<number, FrameRequestCallback>();
-let nextFrame = 1;
-
-export function setupSurfaceDom() {
-  const window = new Window({ url: "http://localhost/surface" });
-  const define = (name: string, value: unknown) => Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
-  define("IS_REACT_ACT_ENVIRONMENT", true);
-  define("window", window);
-  define("document", window.document);
-  define("navigator", window.navigator);
-  for (const name of ["HTMLElement", "HTMLInputElement", "HTMLTextAreaElement", "HTMLSelectElement", "HTMLCanvasElement", "SVGElement", "Element", "Node", "Event", "KeyboardEvent", "MouseEvent", "WheelEvent", "PointerEvent", "FocusEvent", "InputEvent"]) {
-    define(name, (window as unknown as Record<string, unknown>)[name]);
-  }
-  define("ResizeObserver", FakeResizeObserver);
-  define("requestAnimationFrame", (callback: FrameRequestCallback) => {
-    const id = nextFrame++;
-    frameQueue.set(id, callback);
-    return id;
-  });
-  define("cancelAnimationFrame", (id: number) => { frameQueue.delete(id); });
-}
+export { setupSurfaceDom };
 
 export async function resizeStages(width: number, height: number) {
   await act(async () => {
@@ -68,8 +37,21 @@ function roleOf(element: Element): string | null {
   return IMPLICIT_ROLES[element.tagName] ?? null;
 }
 
+function labelledBy(element: Element): string | null {
+  const ids = element.getAttribute("aria-labelledby");
+  if (!ids) return null;
+  return ids.split(/\s+/).map((id) => element.ownerDocument.getElementById(id)?.textContent ?? "").join(" ");
+}
+
+function labelFor(element: Element): string | null {
+  const id = element.getAttribute("id");
+  if (!id) return null;
+  const label = [...element.ownerDocument.querySelectorAll("label")].find((candidate) => candidate.getAttribute("for") === id);
+  return label?.textContent ?? null;
+}
+
 function nameOf(element: Element): string {
-  return (element.getAttribute("aria-label") ?? element.textContent ?? "").trim();
+  return (element.getAttribute("aria-label") ?? labelledBy(element) ?? labelFor(element) ?? element.textContent ?? "").trim();
 }
 
 export function queryByRole(scope: ParentNode, role: string, name?: string): HTMLElement | null {
@@ -84,6 +66,14 @@ export function getByRole(scope: ParentNode, role: string, name?: string): HTMLE
   const element = queryByRole(scope, role, name);
   if (!element) throw new Error(`no ${role}${name === undefined ? "" : ` named "${name}"`}`);
   return element;
+}
+
+export async function changeValue(element: HTMLInputElement | HTMLSelectElement, value: string, eventName: "input" | "change") {
+  await act(async () => {
+    const prototype = Object.getPrototypeOf(element) as object;
+    Object.getOwnPropertyDescriptor(prototype, "value")?.set?.call(element, value);
+    element.dispatchEvent(new Event(eventName, { bubbles: true }));
+  });
 }
 
 export async function flushAsync() {

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { TextPromptDialog } from "../shared/TextPromptDialog";
 import { frameBytes, type FrameDecoder } from "./frameFeed";
 import { createLatestWins, type LatestWins } from "./latestWins";
 import { PointAndAsk } from "./PointAndAsk";
@@ -15,16 +16,21 @@ import {
   failureNotice,
   fileNameFromPath,
   grabSendArgs,
+  profileSwitchedNotice,
   resolveToolbar,
   screenshotSavedNotice,
+  selectChoice,
   sentNotice,
   surfaceLabel,
   toolbarInvocation,
+  validateProfileName,
+  withOwner,
   type AskIntent,
   type GrabSelection,
   type PopoverAnchor,
   type SurfaceChromeSpec,
   type SurfaceState,
+  type ToolbarItemSpec,
 } from "./surfaceChromeModel";
 import { SurfaceNoticeBar } from "./SurfaceNoticeBar";
 import { inputArgs, SURFACE_METHOD, type ScreenshotResult, type SurfaceStreamTransport } from "./surfaceStreamTransport";
@@ -36,6 +42,7 @@ export interface StreamSurfaceViewProps {
   chrome: SurfaceChromeSpec;
   surfaceTitle: string;
   initialState: SurfaceState;
+  ownerName?: string | null;
   decode?: FrameDecoder;
   saveScreenshot?(shot: ScreenshotResult): void;
 }
@@ -47,7 +54,11 @@ interface Picked {
 
 const EDITABLE_SELECTOR = "input, textarea, select, [contenteditable='true']";
 
-function downloadScreenshot(shot: ScreenshotResult) {
+interface ProfilesResult {
+  current?: string | null;
+}
+
+export function downloadScreenshot(shot: ScreenshotResult) {
   const url = URL.createObjectURL(new Blob([frameBytes(shot.base64)], { type: "image/png" }));
   const link = document.createElement("a");
   link.href = url;
@@ -56,14 +67,16 @@ function downloadScreenshot(shot: ScreenshotResult) {
   URL.revokeObjectURL(url);
 }
 
-export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialState, decode, saveScreenshot = downloadScreenshot }: StreamSurfaceViewProps) {
+export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialState, ownerName, decode, saveScreenshot = downloadScreenshot }: StreamSurfaceViewProps) {
   const stream = useSurfaceStream(transport, initialState);
-  const { state, notice, setNotice } = stream;
+  const { notice, setNotice } = stream;
+  const state = withOwner(stream.state, ownerName);
   const [interactive, setInteractive] = useState(false);
   const [picking, setPicking] = useState(false);
   const [picked, setPicked] = useState<Picked | null>(null);
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const [sending, setSending] = useState(false);
+  const [naming, setNaming] = useState<ToolbarItemSpec | null>(null);
   const hover = useRef<LatestWins<PagePoint> | null>(null);
 
   useEffect(() => {
@@ -96,11 +109,37 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
     }
   };
 
-  const invokeDeclared = (id: string, value?: string) => {
-    const spec = chrome.toolbar.find((item) => item.id === id);
-    if (!spec) return;
+  const declared = (id: string) => chrome.toolbar.find((item) => item.id === id);
+
+  const runDeclared = <T,>(spec: ToolbarItemSpec, value?: string): Promise<T | undefined> => {
     const { method, args } = toolbarInvocation(spec, value);
-    runBusy(id, method, args).catch((error: unknown) => report(spec.label, error));
+    return runBusy<T>(spec.id, method, args).catch((error: unknown) => {
+      report(spec.label, error);
+      return undefined;
+    });
+  };
+
+  const invokeDeclared = (id: string, value?: string) => {
+    const spec = declared(id);
+    if (spec) void runDeclared(spec, value);
+  };
+
+  const applySelection = (spec: ToolbarItemSpec, value: string) => {
+    if (spec.source !== "profiles") {
+      void runDeclared(spec, value);
+      return;
+    }
+    void runDeclared<ProfilesResult>(spec, value).then((result) => {
+      if (result) setNotice({ text: profileSwitchedNotice(result.current) });
+    });
+  };
+
+  const onSelect = (id: string, value: string) => {
+    const spec = declared(id);
+    if (!spec) return;
+    const choice = selectChoice(spec, value);
+    if (choice.kind === "new-profile") setNaming(spec);
+    else applySelection(spec, choice.value);
   };
 
   const takeScreenshot = (full: boolean) => {
@@ -173,7 +212,7 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
           const value = addressSubmission(raw);
           if (value) invokeDeclared(id, value);
         }}
-        onSelect={(id, value) => invokeDeclared(id, value)}
+        onSelect={onSelect}
       />
       <StreamCanvas
         label={label}
@@ -204,6 +243,20 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
         )}
         <SurfaceCapsule capsule={capsuleModel(state)} />
       </StreamCanvas>
+      {naming && (
+        <TextPromptDialog
+          title="New profile"
+          label="Profile name"
+          description="A named profile keeps logins and cookies across restarts."
+          confirmLabel="Create"
+          validate={validateProfileName}
+          onCancel={() => setNaming(null)}
+          onSubmit={(name) => {
+            setNaming(null);
+            applySelection(naming, name);
+          }}
+        />
+      )}
     </section>
   );
 }
