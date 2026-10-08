@@ -5,6 +5,20 @@ use std::sync::{mpsc::SyncSender, OnceLock};
 static SENDER: OnceLock<SyncSender<Event>> = OnceLock::new();
 static DROPPED: AtomicU64 = AtomicU64::new(0);
 
+mod source;
+mod watch;
+pub(crate) use source::{link_rpc, PtyFlow, SourceCursor};
+pub(crate) use watch::cancel as cancel_tab;
+pub(crate) use watch::ensure as watch_pty;
+
+pub(crate) fn enabled() -> bool {
+    #[cfg(test)]
+    if test_capture::active() {
+        return true;
+    }
+    SENDER.get().is_some()
+}
+
 pub(crate) fn tab_flow(service: &crate::service::ServiceContext, tab: &str) -> Option<String> {
     use tauri::Manager;
     if SENDER.get().is_none() {
@@ -89,13 +103,57 @@ pub(crate) fn record(
     outcome: &str,
     related: Option<&str>,
 ) {
+    #[cfg(test)]
+    if test_capture::record(Event::new(id, stage, tab, provider, outcome).related(related)) {
+        return;
+    }
     if let Some(sender) = SENDER.get() {
-        if sender
-            .try_send(Event::new(id, stage, tab, provider, outcome).related(related))
-            .is_err()
-        {
+        let mut event = Event::new(id, stage, tab, provider, outcome).related(related);
+        event.detail = related.unwrap_or_default().chars().take(240).collect();
+        if sender.try_send(event).is_err() {
             DROPPED.fetch_add(1, Ordering::Relaxed);
         }
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test_capture {
+    use super::Event;
+    use std::cell::RefCell;
+
+    thread_local! {
+        static EVENTS: RefCell<Option<Vec<Event>>> = const { RefCell::new(None) };
+    }
+
+    pub(super) fn active() -> bool {
+        EVENTS.with_borrow(|events| events.is_some())
+    }
+
+    pub(super) fn record(event: Event) -> bool {
+        EVENTS.with_borrow_mut(|events| {
+            if let Some(events) = events {
+                events.push(event);
+                true
+            } else {
+                false
+            }
+        })
+    }
+
+    pub(crate) fn capture(action: impl FnOnce()) -> Vec<Event> {
+        struct Reset;
+        impl Drop for Reset {
+            fn drop(&mut self) {
+                EVENTS.with_borrow_mut(|events| *events = None);
+            }
+        }
+        EVENTS.with_borrow_mut(|events| {
+            assert!(events.is_none());
+            *events = Some(Vec::new());
+        });
+        let _reset = Reset;
+        action();
+        EVENTS.with_borrow_mut(|events| events.take().unwrap())
     }
 }
 

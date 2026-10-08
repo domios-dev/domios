@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 
 mod status_tests;
 mod structured_sequential_tests;
+mod trace_tests;
 
 /// Honest byte-window JSONL provider: parses `{"role":"user","content":..}`
 /// lines strictly from `from_offset`, so the boundary semantics under test
@@ -72,6 +73,10 @@ impl AgentProvider for WindowedJsonlProvider {
                 let content = value.get("content")?.as_str()?.to_string();
                 Some(RichMessage {
                     role,
+                    uuid: value
+                        .get("id")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string),
                     blocks: vec![MessageBlock {
                         kind: "text".into(),
                         data: serde_json::json!({ "text": content }),

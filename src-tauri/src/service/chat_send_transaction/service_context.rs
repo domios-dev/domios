@@ -37,14 +37,6 @@ impl crate::service::ServiceContext {
             None => pending,
         };
         let response = pending.clone();
-        crate::flow_trace::record(
-            &pending.send_id,
-            "send.started",
-            tab_id,
-            "",
-            "accepted",
-            None,
-        );
         let send_id = pending.send_id.clone();
         let svc = self.clone();
         let tab_id = tab_id.to_string();
@@ -217,14 +209,6 @@ impl crate::service::ServiceContext {
             held_before_readiness,
         )?;
         let status = self.chat_send_ledger.admit_user(&record);
-        crate::flow_trace::record(
-            &record.send_id,
-            "send.started",
-            &record.authority.tab_id,
-            &record.authority.provider_id,
-            "accepted",
-            None,
-        );
         let status = if held_before_readiness {
             self.chat_send_ledger
                 .set_user_pending_reason(&record.send_id, Some("awaiting_agent_ready"))

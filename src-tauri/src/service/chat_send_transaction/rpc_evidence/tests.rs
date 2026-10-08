@@ -1,5 +1,50 @@
 use super::*;
 
+#[test]
+fn rpc_ledger_admission_traces_the_existing_id_before_transport_and_exact_turn() {
+    let ledger = ChatSendLedger::default();
+    let events = crate::flow_trace::test_capture::capture(|| {
+        let status = started(&ledger, "nonce-a");
+        ledger.mark_rpc_accepted(&status.send_id).unwrap();
+        assert!(ledger
+            .confirm_rpc_send("tab-a", "foreign", "nonce-a", &status.send_id)
+            .is_none());
+        ledger
+            .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &status.send_id)
+            .unwrap();
+    });
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event.stage.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "send.started",
+            "send.written",
+            "send.delivered",
+            "transcript.append"
+        ]
+    );
+    assert!(events
+        .iter()
+        .all(|event| event.trace_id == events[0].trace_id));
+    assert!(events.iter().all(|event| event.tab == "tab-a"));
+    assert!(ledger.status(&events[0].trace_id).is_some());
+}
+
+#[test]
+fn rejected_ledger_admission_does_not_trace_a_started_flow() {
+    let ledger = ChatSendLedger::default();
+    let events = crate::flow_trace::test_capture::capture(|| {
+        for _ in 0..super::super::MAX_IN_FLIGHT {
+            ledger.try_start("tab-a", "payload", None).unwrap();
+        }
+        assert!(ledger.try_start("tab-a", "rejected", None).is_err());
+    });
+    assert_eq!(events.len(), super::super::MAX_IN_FLIGHT);
+    assert!(events.iter().all(|event| event.stage == "send.started"));
+}
+
 fn started(ledger: &ChatSendLedger, nonce: &str) -> ChatSendStatus {
     let status = ledger.try_start("tab-a", "same payload", None).unwrap();
     assert!(ledger.bind_rpc_send(
