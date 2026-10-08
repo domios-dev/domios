@@ -6,7 +6,7 @@ use super::opencode_sse::{normalize_chat_part, ChatPartEvent, ChatPartUpdate, Me
 use crate::agent::chat_types::ChatMsg;
 use crate::service::ServiceContext;
 
-const RETAINED_ROWS: usize = 440;
+pub(crate) const RETAINED_ROWS: usize = 440;
 
 pub(crate) fn normalize(session_id: &str, value: &Value) -> Result<Vec<ChatMsg>, String> {
     let messages = value
