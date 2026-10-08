@@ -116,3 +116,36 @@ fn failed_orphan_history_delete_does_not_leave_recreated_workspace() {
     assert_eq!(state.all_tabs().count(), 0);
     assert_eq!(state.closed_store.peek_group(&group_id).unwrap().1, records);
 }
+
+#[test]
+fn close_undo_preserves_model_and_effort_overrides_through_sqlite() {
+    use crate::multiplexer::types::RestorableLaunchParameters;
+    let (mut state, id) = MultiplexerState::new();
+    let workspace = state.list_workspaces()[0].id.clone();
+    let launch = RestorableLaunchParameters {
+        captured: true,
+        model: Some("selected-model".into()),
+        requested_model: Some("selected-model".into()),
+        requested_reasoning_effort: Some("low".into()),
+        resolved_reasoning_effort: Some("low".into()),
+        ..Default::default()
+    };
+    {
+        let tab = state.get_tab_mut(&id).unwrap();
+        tab.agent_type = Some("provider".into());
+        tab.agent_session_id = Some("exact-own-session".into());
+        tab.agent_provider_resolved_model = Some("selected-model".into());
+        tab.restorable_launch = launch.clone();
+    }
+    state.close_tab(&id).unwrap();
+    let stored = state.list_recently_closed(&workspace);
+    assert_eq!(stored[0].restorable_launch, launch);
+    assert_eq!(stored[0].model.as_deref(), Some("selected-model"));
+    let restored = state.reopen_closed_tab(&workspace, None).unwrap();
+    let tab = state.get_tab(&restored).unwrap();
+    assert_eq!(tab.restorable_launch, launch);
+    assert_eq!(tab.agent_session_id.as_deref(), Some("exact-own-session"));
+    assert!(tab.close_restore.as_ref().unwrap().exact_session);
+    assert!(tab.session_binding_nonce.is_none());
+    assert!(tab.reported_session_binding_nonce.is_none());
+}

@@ -178,7 +178,7 @@
   },
   "icon": "icon.svg",
   "cliCompatibility": {
-    "supported": [],
+    "supported": ["=1.18.35"],
     "breaking": [
       {
         "range": ">=2.0.0, <3.0.0",

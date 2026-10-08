@@ -362,16 +362,20 @@ fn dispatch_restored_snapshot_launch(
         &input.params,
         &input.launch_parameters,
     );
-    crate::service::launch_agent_in_background(
+    crate::service::orchestrator::launch_agent_in_background_with_env(
         svc.clone(),
         tab_id.to_string(),
         launch_cmd,
         provider_id.to_string(),
         crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
+        false,
+        None,
         input.launch_task.clone(),
         None,
+        Default::default(),
         None,
         None,
+        input.params.resume_session_id.clone(),
     );
 }
 
