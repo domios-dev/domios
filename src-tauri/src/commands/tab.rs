@@ -328,7 +328,21 @@ pub fn chat_start_core(
     let initial_authority = tab_chat_authority(svc, &tab_id);
     if crate::service::structured_endpoint::sse(&tab_id).is_some() && initial_authority.0.is_some()
     {
-        let messages = crate::service::structured_prompt::snapshot::read(svc, &tab_id)?;
+        let archives = svc
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .map(|tab| tab.context_epoch_archives.clone())
+            .unwrap_or_default();
+        let mut messages =
+            super::context_epochs::materialize_archived_context_epochs(svc, &archives);
+        messages.extend(crate::service::structured_prompt::snapshot::read(
+            svc, &tab_id,
+        )?);
+        let start = messages
+            .len()
+            .saturating_sub(crate::service::structured_prompt::snapshot::RETAINED_ROWS);
+        messages.drain(..start);
         if tab_chat_authority(svc, &tab_id) != initial_authority {
             return Err("Transcript binding changed during attach".into());
         }
