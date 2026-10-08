@@ -66,6 +66,8 @@ fn insert_with_options(
         .lock()
         .prepare(
             Create {
+                terminal: None,
+                session: false,
                 name: Some("cron-run-watch".into()),
                 probe: None,
                 observe: Some(TabBinding::CronRun("cron-nightly".into())),

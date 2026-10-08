@@ -470,7 +470,10 @@ fn sentinel_graph_connected_send_resolution_uses_actual_mux_scope_and_agent() {
     let (_dir, mut store, mut mux, owner) = setup();
     let root = create(&mut store, &owner, false, json!({}));
     let target = mux.create_tab(&owner.workspace_id).unwrap();
-    assert!(super::routes::resolve_send(&mux, &root, &target).is_err());
+    assert_eq!(
+        super::routes::resolve_send(&mux, &root, &target).unwrap(),
+        Route::Send(target.clone())
+    );
     mux.get_tab_mut(&target).unwrap().agent_type = Some("supplied-agent".into());
     assert_eq!(
         super::routes::resolve_send(&mux, &root, &target).unwrap(),

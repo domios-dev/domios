@@ -30,7 +30,7 @@ pub(super) fn project(
             });
             if let Some(entries) = group["transitions"].as_array_mut() {
                 entries.push(json!({
-                "node":node["identity"],"transition_id":transition["id"],"parent":context["parent"]
+                "node":node["identity"],"transition_id":transition["id"],"parent":context["parent"],"conversation":node["conversation"]
             }));
             }
             if transition["pending_handlers"] == true
