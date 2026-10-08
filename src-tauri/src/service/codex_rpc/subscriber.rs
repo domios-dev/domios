@@ -137,8 +137,49 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
                     super::status::observe(&svc, &tab, &current, &sidecar, event);
                 }
             }
+            if let Some((thread, client)) = super::send::user_client_id(method, params) {
+                if let Some(turn) = params.get("turnId").and_then(Value::as_str) {
+                    let target = svc
+                        .mux
+                        .read()
+                        .get_tab(&tab)
+                        .filter(|tab| {
+                            tab.agent_session_id.as_deref() == Some(thread)
+                                && tab.launch_session_authenticated()
+                        })
+                        .and_then(|tab| {
+                            Some((tab.session_binding_nonce.clone()?, tab.agent_type.clone()?))
+                        });
+                    if let Some((nonce, provider)) = target {
+                        svc.chat_send_ledger
+                            .trace_rpc_turn(&tab, thread, &nonce, client, turn, &provider);
+                    }
+                }
+            }
             let messages = sidecar.normalizer.lock().apply_all(&frame);
             for message in messages {
+                if method == "item/completed" && crate::flow_trace::enabled() {
+                    let source = svc
+                        .mux
+                        .read()
+                        .get_tab(&tab)
+                        .filter(|tab| {
+                            tab.agent_session_id.as_deref() == Some(&current)
+                                && tab.launch_session_authenticated()
+                        })
+                        .and_then(|tab| {
+                            Some((tab.agent_type.clone()?, tab.session_binding_nonce.clone()?))
+                        });
+                    if let Some((provider, nonce)) = source {
+                        crate::flow_trace::SourceCursor::rpc(
+                            &tab,
+                            &provider,
+                            &current,
+                            Some(&nonce),
+                            &message,
+                        );
+                    }
+                }
                 super::transcript::emit(&svc, &tab, &current, message);
             }
             if method == "turn/started" {

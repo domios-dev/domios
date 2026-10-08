@@ -46,6 +46,7 @@ pub struct Sink {
     dir: std::path::PathBuf,
     file: Option<std::fs::File>,
     written: u64,
+    sources: std::collections::HashMap<String, String>,
 }
 
 impl Sink {
@@ -54,6 +55,7 @@ impl Sink {
             dir: dir.into(),
             file: None,
             written: 0,
+            sources: Default::default(),
         };
         if enabled {
             std::fs::create_dir_all(dir)?;
@@ -79,6 +81,17 @@ impl Sink {
             return Ok(());
         }
         let mut event = event.clone();
+        if event.stage == "trace.link" {
+            if let Some(source) = event.related_id.as_ref() {
+                if self.sources.len() >= 4096 {
+                    self.sources.clear();
+                }
+                self.sources.insert(source.clone(), event.trace_id.clone());
+            }
+        } else if let Some(root) = self.sources.get(&event.trace_id) {
+            event.related_id.get_or_insert(event.trace_id.clone());
+            event.trace_id = root.clone();
+        }
         event.detail = event.detail.chars().take(240).collect();
         let mut bytes = serde_json::to_vec(&event)?;
         bytes.push(b'\n');
@@ -128,17 +141,58 @@ pub fn read(dir: &Path) -> std::io::Result<Vec<Event>> {
         }
     }
     events.sort_by_key(|event| event.ts);
-    Ok(events)
+    Ok(canonicalize(&events))
+}
+
+fn canonicalize(events: &[Event]) -> Vec<Event> {
+    let mut edges = std::collections::HashMap::<&str, Vec<&str>>::new();
+    for event in events {
+        edges.entry(&event.trace_id).or_default();
+        if let Some(id) = event.related_id.as_deref() {
+            edges.entry(&event.trace_id).or_default().push(id);
+            edges.entry(id).or_default().push(&event.trace_id);
+        }
+    }
+    let mut roots = std::collections::HashMap::new();
+    // A send's existing identity wins even when its source delta arrived first.
+    for event in events
+        .iter()
+        .filter(|event| event.stage == "send.started")
+        .chain(events.iter())
+    {
+        let mut pending = vec![event.trace_id.as_str()];
+        while let Some(id) = pending.pop() {
+            if roots.contains_key(id) {
+                continue;
+            }
+            roots.insert(id, event.trace_id.as_str());
+            pending.extend(edges.get(id).into_iter().flatten().copied());
+        }
+    }
+    events
+        .iter()
+        .map(|event| {
+            let mut event = event.clone();
+            if let Some(root) = roots.get(event.trace_id.as_str()) {
+                if *root != event.trace_id {
+                    event.related_id.get_or_insert(event.trace_id.clone());
+                    event.trace_id = (*root).into();
+                }
+            }
+            event
+        })
+        .collect()
 }
 
 pub fn select(events: &[Event], selector: &str, since: u64) -> Vec<Event> {
+    let events = canonicalize(events);
     let mut ids = HashSet::from([selector.to_string()]);
     for event in events.iter().filter(|e| e.ts >= since && e.tab == selector) {
         ids.insert(event.trace_id.clone());
     }
     loop {
         let before = ids.len();
-        for event in events {
+        for event in &events {
             if ids.contains(&event.trace_id)
                 || event.related_id.as_ref().is_some_and(|id| ids.contains(id))
             {
@@ -158,7 +212,13 @@ pub fn select(events: &[Event], selector: &str, since: u64) -> Vec<Event> {
 }
 
 pub fn gaps(events: &[Event]) -> Vec<String> {
+    let events = canonicalize(events);
     let mut gaps = Vec::new();
+    let answered: HashSet<_> = events
+        .iter()
+        .filter(|event| event.stage == "transcript.assistant")
+        .map(|event| event.trace_id.as_str())
+        .collect();
     let stages: HashSet<_> = events
         .iter()
         .map(|event| {
@@ -168,7 +228,10 @@ pub fn gaps(events: &[Event]) -> Vec<String> {
             )
         })
         .collect();
-    for event in events {
+    for event in &events {
+        if event.stage == "send.delivered" && !answered.contains(event.trace_id.as_str()) {
+            gaps.push(format!("{}: send delivered to {} but no assistant transcript append in retained window (pending or missing)", event.trace_id, event.tab));
+        }
         if event.stage == "trace.dropped" {
             gaps.push(format!("trace capture incomplete: {}", event.detail));
         }

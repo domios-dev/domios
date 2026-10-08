@@ -218,6 +218,7 @@ struct PtySubmitTransport<'a> {
     turn_status_generation_at_start: Cell<u64>,
     deferred_ready_seen: Cell<bool>,
     turn_evidence_cursor: RefCell<crate::service::chat_send_evidence::ExactTurnCursor>,
+    trace: Option<crate::flow_trace::PtyFlow>,
     wake_tx: SyncSender<SubmitCycleSignal>,
     wake_rx: Receiver<SubmitCycleSignal>,
     _session_evidence_watcher: RefCell<Option<notify::RecommendedWatcher>>,
@@ -296,6 +297,9 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             .as_ref()
             .and_then(|evidence| evidence.live_binding.as_ref())
             .and_then(|binding| binding.binding_nonce.clone());
+        if let Some(trace) = &self.trace {
+            trace.watch(self.svc, anchor.as_ref(), binding_nonce.as_deref());
+        }
         *self.evidence_tab_id.borrow_mut() = tab_id;
         *self.evidence_anchor.borrow_mut() = anchor.clone();
         *self.evidence_binding_nonce.borrow_mut() = binding_nonce;
@@ -392,12 +396,25 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         if !current_binding || current_generation != self.evidence_pty_generation.get() {
             return false;
         }
-        crate::service::chat_send_evidence::contains_exact_user_turn_since(
+        let found = crate::service::chat_send_evidence::contains_exact_user_turn_since(
             &self.svc.agent_registry,
             &anchor,
             text,
             &mut self.turn_evidence_cursor.borrow_mut(),
-        )
+        );
+        if found {
+            if let Some(trace) = &self.trace {
+                trace.confirmed(
+                    &anchor,
+                    evidence_binding_nonce.as_deref(),
+                    self.turn_evidence_cursor
+                        .borrow()
+                        .matched_user_id
+                        .as_deref(),
+                );
+            }
+        }
+        found
     }
 
     fn turn_generation(&self) -> u64 {
@@ -510,7 +527,11 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         }
         let timeout = deadline.saturating_duration_since(Instant::now());
         let callback = self.payload_queued.clone();
+        let trace = self.trace.clone();
         let on_enqueued = move || {
+            if let Some(trace) = trace {
+                trace.written();
+            }
             if let Some(callback) = callback {
                 callback();
             }
@@ -952,6 +973,13 @@ fn submit_text_with_key_claimed_and_parts_revalidated(
         });
     }
     let submit_cycle = Arc::clone(&claim.cycle);
+    let trace = crate::flow_trace::PtyFlow::transaction(
+        svc,
+        pty_id,
+        claim.trace_id.as_deref(),
+        text,
+        enter,
+    );
     let submit_generation = claim.generation;
     let paste_capability = PasteEncodingCapability::for_strategy(&strategy);
     let (wake_tx, wake_rx) = mpsc::sync_channel(1);
@@ -992,6 +1020,7 @@ fn submit_text_with_key_claimed_and_parts_revalidated(
         turn_evidence_cursor: RefCell::new(
             crate::service::chat_send_evidence::ExactTurnCursor::for_anchor(None),
         ),
+        trace,
         wake_tx,
         wake_rx,
         _session_evidence_watcher: RefCell::new(None),

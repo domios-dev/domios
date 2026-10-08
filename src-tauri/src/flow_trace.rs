@@ -5,6 +5,20 @@ use std::sync::{mpsc::SyncSender, OnceLock};
 static SENDER: OnceLock<SyncSender<Event>> = OnceLock::new();
 static DROPPED: AtomicU64 = AtomicU64::new(0);
 
+mod source;
+mod watch;
+pub(crate) use source::{link_rpc, PtyFlow, SourceCursor};
+pub(crate) use watch::cancel as cancel_tab;
+pub(crate) use watch::ensure as watch_pty;
+
+pub(crate) fn enabled() -> bool {
+    #[cfg(test)]
+    if test_capture::active() {
+        return true;
+    }
+    SENDER.get().is_some()
+}
+
 pub(crate) fn tab_flow(service: &crate::service::ServiceContext, tab: &str) -> Option<String> {
     use tauri::Manager;
     if SENDER.get().is_none() {
@@ -94,10 +108,9 @@ pub(crate) fn record(
         return;
     }
     if let Some(sender) = SENDER.get() {
-        if sender
-            .try_send(Event::new(id, stage, tab, provider, outcome).related(related))
-            .is_err()
-        {
+        let mut event = Event::new(id, stage, tab, provider, outcome).related(related);
+        event.detail = related.unwrap_or_default().chars().take(240).collect();
+        if sender.try_send(event).is_err() {
             DROPPED.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -110,6 +123,10 @@ pub(crate) mod test_capture {
 
     thread_local! {
         static EVENTS: RefCell<Option<Vec<Event>>> = const { RefCell::new(None) };
+    }
+
+    pub(super) fn active() -> bool {
+        EVENTS.with_borrow(|events| events.is_some())
     }
 
     pub(super) fn record(event: Event) -> bool {

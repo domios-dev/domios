@@ -42,6 +42,7 @@ pub(crate) fn contains_exact_user_turn(
 pub(crate) struct ExactTurnCursor {
     jsonl_offset: Option<u64>,
     confirmed: bool,
+    pub(crate) matched_user_id: Option<String>,
 }
 
 impl ExactTurnCursor {
@@ -92,11 +93,24 @@ pub(crate) fn contains_exact_user_turn_since(
                 crate::service::tab_chat::rich_to_chat_msgs(rich, index)
                     .iter()
                     .any(|message| {
-                        message.kind == "user"
+                        let matched = message.kind == "user"
                             && normalize_turn_evidence_with(
                                 &message.content,
                                 anchor.turn_normalization,
-                            ) == expected
+                            ) == expected;
+                        if matched && crate::flow_trace::enabled() {
+                            cursor.matched_user_id =
+                                (rich.uuid.as_ref().is_some_and(|id| !id.is_empty())
+                                    || rich.record_start.is_some())
+                                .then(|| {
+                                    crate::service::tab_chat::rich_to_chat_msgs_live(rich, index)
+                                        .into_iter()
+                                        .find(|message| message.kind == "user")
+                                        .map(|message| message.id)
+                                })
+                                .flatten();
+                        }
+                        matched
                     })
             })
         }

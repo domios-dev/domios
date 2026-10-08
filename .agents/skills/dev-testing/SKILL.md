@@ -44,11 +44,11 @@ node scripts/dev-screenshot.mjs /tmp/prod.png '' --api-port 7685   # another ins
 
 It prints the file path and the running build SHA; open the PNG with your file-read/image tool to see it. Check the build SHA before judging a change: the screenshot shows what is running, not what is merged. For state the picture cannot show (counts, attributes), evaluate DOM over the same port (`Runtime.evaluate`) instead of guessing from pixels.
 
-## Find GA tab
-
-DEV flow tracing writes bounded, rotated `~/.codeterm-dev/logs/trace.jsonl`; production writes no trace events.
+DEV flow tracing writes bounded, rotated `~/.codeterm-dev/logs/trace.jsonl`; production writes no trace events. Unledgered PTY input uses a fresh trace ID; existing sends retain their IDs.
 From a DEV-bound shell, use `codeterm trace recent --limit 20`, then `codeterm trace show <trace_id|tab_id> --since 1h` to see ordered stages and gaps in the retained window.
-Linked delivery, attempt and report IDs are preserved; a missing stage is diagnostic evidence, not a delivery verdict.
+Exact protocol-turn and append-window source links join assistant appends, including late links; a missing assistant stage means pending or missing evidence, not a delivery verdict.
+
+## Find GA tab
 
 The GA tab is protected. Find it by the protected flag:
 ```bash
