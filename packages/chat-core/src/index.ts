@@ -53,6 +53,7 @@ export {
   type UserMessageAttachments,
 } from "./userAttachments";
 export {
+  ATTACHMENT_KINDS,
   attachmentKindForPath,
   attachmentPreviewKind,
   formatAttachmentMarker,
