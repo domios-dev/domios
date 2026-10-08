@@ -267,6 +267,9 @@ pub struct ProviderDescriptor {
     pub notifications_schema: Vec<SettingField>,
     pub supports_lazy_skills: bool,
     pub has_hooks: bool,
+    /// Provider writes custom model endpoints into its own config (`model_provider_config`).
+    #[serde(default)]
+    pub supports_model_endpoints: bool,
     /// Provider supplies its own explicit permission/sandbox bypass flags.
     #[serde(default)]
     pub supports_permission_bypass: bool,

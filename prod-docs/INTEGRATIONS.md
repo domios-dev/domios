@@ -27,7 +27,7 @@ telegram_allowed_users = []     # Telegram user IDs as strings, empty = allow al
 
 Connected services are shown as icons next to the tab title in the sidebar (`connected_services` field on the tab object).
 
-Settings UI: Settings > Integrations > Telegram (toggle + allowed users list).
+Settings UI: Settings > General > Messengers (Telegram bot bridge toggle + allowed users list).
 
 ### Discord (coming soon)
 
@@ -130,7 +130,7 @@ A plugin contributes graph nodes through `capabilities.graphNodes` in its manife
 - **eventSources** declare up to 16 event kinds per plugin (`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`, at most 64 bytes, unique per plugin) with a 1-128 byte title and typed `params`/`payload` schemas. The schema subset is an object of scalar or one-level scalar-array properties (at most 32; `maxLength` <= 65536, `maxItems` <= 256) with optional `description` and `enum`; `$ref`, combinators (`oneOf`/`anyOf`), `patternProperties` and nested objects are refused at parse.
 ### Model endpoints and presets
 
-`codeterm model-provider` routes to the installed provider declaring model configuration support. Settings > Extensions exposes the same provider operations; its secret selector copies an existing saved secret into the endpoint's owned slot.
+`codeterm model-provider` routes to the installed provider declaring model configuration support. In the app, each such harness's plugin page has a **Custom model endpoints** section with the same operations plus edit and model discovery: a typed key is saved to the secret store (masked, never shown again), or a saved secret is copied into the endpoint's owned slot. The HTTP endpoint `POST /api/model-providers` accepts `?provider=<id>` to address one harness.
 
 ```bash
 codeterm model-provider add --name local --kind openai-compatible --base-url http://localhost:1234/v1 --secret local-key --model model-id
@@ -176,4 +176,4 @@ Full secret-store reference, including CLI, storage internals, error mapping, an
 
 Settings UI: Settings > Secrets — backend picker, server URL + Apply (Bitwarden), Install Bitwarden CLI button (when `bw` missing), login (password or API key), default scope, recently saved items, lock / sign-out.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

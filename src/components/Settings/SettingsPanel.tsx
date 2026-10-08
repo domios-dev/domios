@@ -24,7 +24,8 @@ import { ShellDiagnosticsBanner } from "./ShellDiagnosticsBanner";
 import { AgentsOverview, AgentProviderScreen } from "./AgentsTab";
 import { GeneralAgentCard } from "./GeneralAgentCard";
 import { NotificationsOverview } from "./NotificationsTab";
-import { IntegrationsTab } from "./IntegrationsTab";
+import { MessengersCard } from "./MessengersCard";
+import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import { SecretsTab } from "./SecretsTab";
 import { LogsTab } from "./LogsTab";
 import { JobsView } from "../Jobs/JobsView";
@@ -37,9 +38,10 @@ import {
   SECTION_ICONS,
   SETTINGS_SECTIONS,
   sectionTitle,
-  normalizeSection,
+  resolveSettingsLink,
   settingsRouteForHelpTarget,
   type SettingsCardAnchorId,
+  type SettingsLinkId,
 } from "./sections";
 import { UI_PANEL } from "../shared/design";
 
@@ -47,13 +49,20 @@ interface SettingsPanelProps {
   config: AppConfig;
   onUpdateConfig: (config: AppConfig) => Promise<void>;
   onClose: () => void;
-  initialSection?: SectionId;
+  initialSection?: SettingsLinkId;
   guideRequest?: GuideRequest;
   workspaces?: readonly JobsWorkspace[];
   teams?: readonly Team[];
 }
 
 const NO_WORKSPACES: readonly JobsWorkspace[] = [];
+
+function initialStack(link: SettingsLinkId | undefined, guideRequest: GuideRequest | undefined): Route[] {
+  const route = resolveSettingsLink(link);
+  if (!route) return [{ kind: "root" }];
+  const helpSection = route.section === "guide" ? guideRequest?.section : undefined;
+  return [{ kind: "root" }, { kind: "section", id: route.section, helpSection, card: route.card }];
+}
 const NO_TEAMS: readonly Team[] = [];
 
 /** Names the settings dialog from its live header — one panel is mounted at a time. */
@@ -73,12 +82,7 @@ export function SettingsPanel({
   workspaces = NO_WORKSPACES,
   teams = NO_TEAMS,
 }: SettingsPanelProps) {
-  const normalizedInitial = normalizeSection(initialSection);
-  const [stack, setStack] = useState<Route[]>(
-    normalizedInitial
-      ? [{ kind: "root" }, { kind: "section", id: normalizedInitial, helpSection: normalizedInitial === "guide" ? guideRequest?.section : undefined }]
-      : [{ kind: "root" }],
-  );
+  const [stack, setStack] = useState<Route[]>(() => initialStack(initialSection, guideRequest));
   const top = stack[stack.length - 1];
   const push = useCallback((r: Route) => setStack((s) => [...s, r]), []);
   const pop = useCallback(
@@ -86,12 +90,7 @@ export function SettingsPanel({
     [],
   );
   useEffect(() => {
-    const n = normalizeSection(initialSection);
-    if (n) {
-      setStack([{ kind: "root" }, { kind: "section", id: n, helpSection: n === "guide" ? guideRequest?.section : undefined }]);
-    } else {
-      setStack([{ kind: "root" }]);
-    }
+    setStack(initialStack(initialSection, guideRequest));
   }, [initialSection, guideRequest]);
 
   // Settings is a full-view modal — Esc closes it (matching the close button).
@@ -254,11 +253,15 @@ export function SettingsPanel({
             {top.kind === "section" && top.id === "general" && (
               <SettingsPage
                 title="General"
-                subtitle="General Agent, theme, fonts, cursor, behavior, and keybindings."
+                subtitle="General Agent, messengers, theme, fonts, cursor, behavior, and keybindings."
               >
                 <ShellDiagnosticsBanner onDismissSettings={onClose} />
 
                 <GeneralAgentCard config={localConfig} onUpdate={update} />
+
+                <SettingsCardAnchor id="telegram-bridge" focused={top.card === "telegram-bridge"}>
+                  <MessengersCard config={localConfig} onUpdate={update} />
+                </SettingsCardAnchor>
 
                 <SettingsCard icon={<Palette size={16} />} title="Color Theme">
                   <label className="block">
@@ -466,12 +469,6 @@ export function SettingsPanel({
                   onProviderGone={pop}
                 />
               </div>
-            )}
-
-            {top.kind === "section" && top.id === "integrations" && (
-              <SettingsPage title="Integrations" subtitle="Telegram, Discord, and external bridges.">
-                <IntegrationsTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
-              </SettingsPage>
             )}
 
             {top.kind === "section" && top.id === "secrets" && (
