@@ -121,7 +121,6 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
         renderDetail={(index) => <SegmentDetail event={event} row={rows[index]} index={index} navigation={navigation} />}
       />
       <div id={regionId} role="region" aria-label="Command output" hidden={!expanded} className="px-3 pb-2">
-        {expanded && event.status === "pending" && <div data-testid="toolcard-spinner" className="font-mono text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>Running…</div>}
       </div>
     </section>
   );
