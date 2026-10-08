@@ -28,6 +28,10 @@ fn live_mode_uses_the_route_probe_and_falls_back_with_a_reason() {
         reason: "bound server has no model route".into(),
     };
     assert_eq!(
+        effective_model_switch_mode(ModelSwitchMode::LiveCommand, Some(&unavailable)),
+        (ModelSwitchMode::LiveCommand, None)
+    );
+    assert_eq!(
         effective_model_switch_mode(ModelSwitchMode::Live, Some(&unavailable)),
         (
             ModelSwitchMode::RestartResume,

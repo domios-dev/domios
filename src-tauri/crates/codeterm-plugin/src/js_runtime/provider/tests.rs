@@ -7,6 +7,8 @@ use serde_json::json;
 use std::path::PathBuf;
 use std::time::Duration;
 
+mod live_model_command;
+
 fn load(manifest_json: &str, plugin_js: &str) -> JsProvider {
     let mut m: PluginManifest = serde_json::from_str(manifest_json).expect("parse manifest");
     m.source_path = Some(PathBuf::from("/tmp/test-plugin/plugin.json"));

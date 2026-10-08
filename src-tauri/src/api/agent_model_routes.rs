@@ -18,6 +18,8 @@ pub struct AgentModelBody {
     pub model: String,
     pub reasoning_effort: Option<String>,
     pub runtime_mode: Option<crate::service::codex_rpc::model::RuntimeMode>,
+    #[serde(default)]
+    pub restart_resume: bool,
 }
 
 pub async fn agent_model_handler(
@@ -38,12 +40,15 @@ pub async fn agent_model_handler(
     };
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
-        svc.agent_switch_model_with_controls_and_force(
+        svc.agent_switch_model_with_restart_fallback(
             &tab_id,
             &body.model,
             body.reasoning_effort.as_deref(),
             body.runtime_mode,
-            body.force,
+            crate::service::codex_rpc::model::ModelSwitchOptions {
+                force: body.force,
+                restart_resume: body.restart_resume,
+            },
         )
     })
     .await;
@@ -131,7 +136,9 @@ pub(crate) fn model_switch_error_status(error: &ModelSwitchError) -> StatusCode 
         } => StatusCode::GATEWAY_TIMEOUT,
         ModelSwitchError::RelaunchFailed { .. } => StatusCode::INTERNAL_SERVER_ERROR,
         ModelSwitchError::ModelMismatch { .. } => StatusCode::BAD_GATEWAY,
-        ModelSwitchError::LiveSwitchFailed(_) => StatusCode::BAD_GATEWAY,
+        ModelSwitchError::LiveSwitchFailed(_) | ModelSwitchError::LiveCommandFailed(_) => {
+            StatusCode::BAD_GATEWAY
+        }
     }
 }
 
@@ -146,6 +153,7 @@ pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::V
         ModelSwitchError::RelaunchFailed { .. } => "relaunch_failed",
         ModelSwitchError::ModelMismatch { .. } => "model_mismatch",
         ModelSwitchError::LiveSwitchFailed(_) => "live_switch_failed",
+        ModelSwitchError::LiveCommandFailed(_) => "live_command_failed",
     };
     let mut body = serde_json::json!({
         "ok": false,
@@ -154,6 +162,10 @@ pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::V
     });
     if matches!(error, ModelSwitchError::LiveSwitchFailed(_)) {
         body["mode_used"] = "live".into();
+    }
+    if matches!(error, ModelSwitchError::LiveCommandFailed(_)) {
+        body["mode_used"] = "live_command".into();
+        body["restart_fallback_available"] = true.into();
     }
     match error {
         ModelSwitchError::BackgroundWork { items } => {
@@ -182,7 +194,8 @@ pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::V
         }
         ModelSwitchError::NotFound(_)
         | ModelSwitchError::NotSwitchable(_)
-        | ModelSwitchError::LiveSwitchFailed(_) => {}
+        | ModelSwitchError::LiveSwitchFailed(_)
+        | ModelSwitchError::LiveCommandFailed(_) => {}
     }
     body
 }

@@ -482,6 +482,8 @@ pub struct CommandsConfig {
     #[serde(default)]
     pub model_switch: crate::provider::ModelSwitchMode,
     #[serde(default)]
+    pub model_switch_commands: Option<crate::provider::ModelSwitchCommands>,
+    #[serde(default)]
     pub auto_approve_flags: Vec<String>,
     /// Each element may contain `{model}` placeholder.
     #[serde(default)]

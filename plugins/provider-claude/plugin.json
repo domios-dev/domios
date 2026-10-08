@@ -172,7 +172,23 @@
     "freshContext": "/new",
     "exit": "/exit",
     "stopKey": "\u001b",
-    "modelSwitch": "restart_resume",
+    "modelSwitch": "live_command",
+    "modelSwitchCommands": {
+      "transcript": {
+        "recordType": "user",
+        "contentPath": ["message", "content"],
+        "prefix": "<local-command-stdout>",
+        "suffix": "</local-command-stdout>"
+      },
+      "model": {
+        "command": "/model {model}",
+        "confirmation": "(?i)^Set model to .*?(?:{model}|{display_name})(?:[^a-z0-9_-]|$)"
+      },
+      "effort": {
+        "command": "/effort {effort}",
+        "confirmation": "(?i)^Set effort level to {effort}(?:[^a-z0-9_-]|$)"
+      }
+    },
     "autoApproveFlags": [
       "--dangerously-skip-permissions"
     ],
