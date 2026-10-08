@@ -122,6 +122,7 @@ pub(crate) fn launch_with_dispatch(
     };
     let prerequisite_hint = codeterm_plugin::provider_cli::missing_prerequisite_hint(prerequisites);
     let handle = svc.spawn_tab(SpawnTabSpec {
+        shell: None,
         creator_tab_id: caller.clone(),
         title: Some(
             match operation {

@@ -480,12 +480,17 @@ impl ServiceContext {
             return Ok(());
         }
 
-        let (cwd, protected, agent_type) = {
+        let (cwd, protected, agent_type, profile) = {
             let mux = self.mux.read();
             let tab = mux
                 .get_tab(tab_id)
                 .ok_or_else(|| format!("Tab {} not found or has no PTY", tab_id))?;
-            (tab.cwd.clone(), tab.protected, tab.agent_type.clone())
+            (
+                tab.cwd.clone(),
+                tab.protected,
+                tab.agent_type.clone(),
+                tab.shell_profile.clone(),
+            )
         };
         if protected {
             return Err(format!(
@@ -502,8 +507,15 @@ impl ServiceContext {
         };
         let t0 = std::time::Instant::now();
         let spawn_gate = self.pty.lock().spawn_gate();
-        let built =
-            crate::pty::manager::build_session(spawn_gate, None, cwd.clone(), cols, 40, env_vars)?;
+        let built = crate::pty::manager::build_session_with_profile(
+            spawn_gate,
+            None,
+            cwd.clone(),
+            cols,
+            40,
+            env_vars,
+            profile.as_ref().filter(|_| agent_type.is_none()),
+        )?;
         let (pty_id, _) = self.pty.lock().register_session(None, built);
         self.screen_state.lock().resize(&pty_id, cols, 40);
         log::info!(

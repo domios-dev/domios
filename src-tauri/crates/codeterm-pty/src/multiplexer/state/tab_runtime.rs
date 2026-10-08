@@ -22,6 +22,7 @@ impl MultiplexerState {
             tab_type: TabType::Terminal,
             purpose: Default::default(),
             icon: None,
+            shell_profile: None,
             utility_created_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()

@@ -87,6 +87,7 @@ fn resolve_spawn_workspace_prefers_caller_tab_over_focused_workspace() {
 fn spawn_caller_tab_id_prefers_cli_spawner_then_team_creator() {
     let mut agent = AgentSpawnSpec::default();
     let mut spec = SpawnTabSpec {
+        shell: None,
         creator_tab_id: Some("creator-tab".into()),
         ..Default::default()
     };
@@ -178,6 +179,7 @@ fn valid_role_worker_and_manager_are_accepted() {
 
 pub fn agent_spec(provider: &str) -> SpawnTabSpec {
     SpawnTabSpec {
+        shell: None,
         visibility: TabVisibility::Visible,
         command: TabCommand::Agent(AgentSpawnSpec {
             provider: provider.into(),
@@ -695,6 +697,7 @@ fn resume_agent_model_does_not_inject_default() {
 #[test]
 fn shell_spec_roundtrips_json() {
     let spec = SpawnTabSpec {
+        shell: None,
         title: Some("scratch".into()),
         ..Default::default()
     };
@@ -707,6 +710,7 @@ fn shell_spec_roundtrips_json() {
 #[test]
 fn agent_spec_roundtrips_json() {
     let spec = SpawnTabSpec {
+        shell: None,
         visibility: TabVisibility::Hidden,
         command: TabCommand::Agent(AgentSpawnSpec {
             provider: "claude".into(),

@@ -2,6 +2,9 @@
 
 Domios ships skills that teach Claude Code how to control the terminal.
 
+
+Shell profiles are available through `codeterm tab new --list-shells`; select one with `codeterm tab new --shell <profile-id>`. Profiles include native shells and installed WSL distributions on Windows. For Linux tooling or reproducing a Linux-only failure, open a utility shell with `codeterm tab new --purpose qa --shell wsl:Ubuntu --cmd "uname -a"` (use the distribution id from the list). WSL shells map host drive paths to `/mnt/<drive>/...` and report Linux working directories back as host paths; the selected profile survives restore. Agents continue running natively; agent launches inside WSL are not supported. Choose a default shell in Settings > General; Automatic preserves the existing OS shell choice. Refresh shells there or in the New Terminal menu after installing a shell.
+
 ## Installation
 
 Domios installs its control skill automatically on every start; register other skills through `codeterm mem skill` and find them with `codeterm mem search`. A skill copy whose `<!-- revision: N -->` is strictly newer than the bundled one is never downgraded; the provider copies are generated, so edit the canonical skill rather than a mirror.
@@ -135,4 +138,4 @@ Agent hierarchy and session integration: `codeterm docs AGENT-CONTROL`.
 
 For `send --every --mesh` and `delayed create/edit --every --mesh`, the peer must advertise `delayed_recurrence` in `codeterm identify` features. If it does not, the request is refused with the peer name and version; update that peer or send a one-shot explicitly.
 
-<!-- revision: 85 -->
+<!-- revision: 86 -->

@@ -365,6 +365,7 @@ mod tests {
                     split_tree: SplitNodeSnapshot::Leaf {
                         purpose: Default::default(),
                         icon: None,
+                        shell_profile: None,
                         utility_created_at: 0,
                         tab_id: "tab-picker".into(),
                         cwd: None,

@@ -36,6 +36,12 @@ impl ServiceContext {
         };
         if let Some(tab_id) = tab_id {
             self.publish_shell_command_state(tab_id, pty_id, command_state);
+            for event in &events {
+                if let crate::agent::command_detection::CommandLifecycle::CwdChanged { cwd } = event
+                {
+                    self.update_tab_cwd(tab_id, cwd.clone());
+                }
+            }
         }
         if events.is_empty() {
             return;
