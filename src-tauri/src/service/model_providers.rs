@@ -1,7 +1,7 @@
 use super::ServiceContext;
 use crate::secrets::{SaveRequest, SecretError, SecretStoreState, SecretString, SecretValue};
 use codeterm_plugin::{
-    model_providers::{ModelProviderConfig, ModelProviderDefinition},
+    model_providers::{EndpointKind, ModelProviderConfig, ModelProviderDefinition},
     AgentProvider,
 };
 use serde::Deserialize;
@@ -71,6 +71,19 @@ pub enum ModelProviderRequest {
         provider: ModelProviderDefinition,
         source_secret: String,
     },
+    Update {
+        provider: ModelProviderDefinition,
+        #[serde(default, deserialize_with = "optional_secret_from_wire")]
+        value: Option<SecretString>,
+    },
+    Discover {
+        kind: EndpointKind,
+        base_url: String,
+        #[serde(default, deserialize_with = "optional_secret_from_wire")]
+        value: Option<SecretString>,
+        #[serde(default)]
+        source_secret: Option<String>,
+    },
     Remove {
         name: String,
     },
@@ -82,6 +95,12 @@ pub enum ModelProviderRequest {
 
 fn secret_from_wire<'de, D: serde::Deserializer<'de>>(d: D) -> Result<SecretString, D::Error> {
     String::deserialize(d).map(SecretString::from)
+}
+
+fn optional_secret_from_wire<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<SecretString>, D::Error> {
+    Option::<String>::deserialize(d).map(|value| value.map(SecretString::from))
 }
 
 pub fn select_owner(
@@ -98,6 +117,20 @@ pub fn select_owner(
         return Err(ModelProviderError::Ambiguous);
     }
     Ok(owner)
+}
+
+pub fn select_owner_for(
+    providers: &[Arc<dyn AgentProvider>],
+    requested: Option<&str>,
+) -> Result<Arc<dyn AgentProvider>, ModelProviderError> {
+    let Some(id) = requested else {
+        return select_owner(providers);
+    };
+    providers
+        .iter()
+        .find(|p| p.id() == id && p.model_provider_config().is_some())
+        .cloned()
+        .ok_or(ModelProviderError::Unsupported)
 }
 
 #[derive(Debug)]
@@ -204,6 +237,58 @@ fn delete_secret(store: &SecretStoreState, id: &str) -> Result<(), ModelProvider
     .map_err(secret_error)
 }
 
+fn read_secret_value(
+    store: &SecretStoreState,
+    name: &str,
+) -> Result<SecretString, ModelProviderError> {
+    if name.trim().is_empty() {
+        return Err(ModelProviderError::InvalidRequest);
+    }
+    tauri::async_runtime::block_on(async {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            store.read().await.get(name).await
+        })
+        .await
+    })
+    .map_err(|_| ModelProviderError::Timeout)?
+    .map(|secret| secret.value)
+    .map_err(secret_error)
+}
+
+fn valid_key(value: &SecretString) -> bool {
+    !value.is_empty() && value.len() <= 65536
+}
+
+fn valid_models(models: &[String]) -> bool {
+    !models
+        .iter()
+        .any(|m| m.is_empty() || m.len() > 256 || m.chars().any(char::is_control))
+}
+
+fn discover(
+    store: &SecretStoreState,
+    kind: EndpointKind,
+    base_url: String,
+    value: Option<SecretString>,
+    source_secret: Option<String>,
+) -> Result<Value, ModelProviderError> {
+    let key = match (value, source_secret) {
+        (Some(value), None) if valid_key(&value) => value,
+        (None, Some(name)) => read_secret_value(store, &name)?,
+        _ => return Err(ModelProviderError::InvalidRequest),
+    };
+    let probe = ModelProviderDefinition {
+        id: "discover".into(),
+        kind,
+        base_url,
+        models: Vec::new(),
+        key_env: None,
+        name: None,
+        secret_name: None,
+    };
+    Ok(json!({ "models": connection::test(&probe, &key)? }))
+}
+
 fn valid_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 64
@@ -242,23 +327,19 @@ pub fn execute(
             mut provider,
             source_secret,
         } => {
-            if !valid_id(&provider.id) || source_secret.trim().is_empty() {
+            if !valid_id(&provider.id) {
                 return Err(ModelProviderError::InvalidRequest);
             }
-            let source = tauri::async_runtime::block_on(async {
-                tokio::time::timeout(Duration::from_secs(10), async {
-                    store.read().await.get(&source_secret).await
-                })
-                .await
-            })
-            .map_err(|_| ModelProviderError::Timeout)?
-            .map_err(secret_error)?;
+            let value = read_secret_value(store, &source_secret)?;
             provider.secret_name = Some(format!("domios/model-provider/{}", provider.id));
-            ModelProviderRequest::Add {
-                provider,
-                value: source.value,
-            }
+            ModelProviderRequest::Add { provider, value }
         }
+        ModelProviderRequest::Discover {
+            kind,
+            base_url,
+            value,
+            source_secret,
+        } => return discover(store, kind, base_url, value, source_secret),
         request => request,
     };
     let path = adapter.path().map_err(|_| ModelProviderError::Config)?;
@@ -277,6 +358,7 @@ pub fn execute(
         .map_err(|_| ModelProviderError::Config)?;
     match request {
         ModelProviderRequest::AddFromSecret { .. }
+        | ModelProviderRequest::Discover { .. }
         | ModelProviderRequest::PresetAdd { .. }
         | ModelProviderRequest::PresetRemove { .. }
         | ModelProviderRequest::PresetList => unreachable!(),
@@ -295,8 +377,7 @@ pub fn execute(
             value,
         } => {
             if !valid_id(&provider.id)
-                || value.is_empty()
-                || value.len() > 65536
+                || !valid_key(&value)
                 || provider
                     .secret_name
                     .as_ref()
@@ -316,11 +397,7 @@ pub fn execute(
             if provider.models.is_empty() {
                 provider.models = connection::test(&provider, &value)?;
             }
-            if provider
-                .models
-                .iter()
-                .any(|m| m.is_empty() || m.len() > 256 || m.chars().any(char::is_control))
-            {
+            if !valid_models(&provider.models) {
                 return Err(ModelProviderError::InvalidRequest);
             }
             providers.push(provider.clone());
@@ -357,6 +434,62 @@ pub fn execute(
             }
             Ok(json!({ "provider": provider }))
         }
+        ModelProviderRequest::Update { provider, value } => {
+            let index = providers
+                .iter()
+                .position(|p| p.id == provider.id)
+                .ok_or(ModelProviderError::NotFound)?;
+            if value.as_ref().is_some_and(|v| !valid_key(v)) {
+                return Err(ModelProviderError::InvalidRequest);
+            }
+            connection::validate_url(&provider.base_url)?;
+            let original = providers.clone();
+            let current = providers[index].clone();
+            let stored = get_secret(store, owner, &current)?;
+            let mut next = ModelProviderDefinition {
+                kind: provider.kind,
+                base_url: provider.base_url,
+                models: provider.models,
+                ..current.clone()
+            };
+            if next.models.is_empty() {
+                next.models = connection::test(&next, value.as_ref().unwrap_or(&stored.value))?;
+            }
+            if !valid_models(&next.models) {
+                return Err(ModelProviderError::InvalidRequest);
+            }
+            providers[index] = next.clone();
+            write_config(adapter, &path, &config, &providers)?;
+            if let Some(value) = value {
+                let saved = tauri::async_runtime::block_on(async {
+                    tokio::time::timeout(Duration::from_secs(10), async {
+                        store
+                            .read()
+                            .await
+                            .save(SaveRequest {
+                                name: stored.name.clone(),
+                                value,
+                                notes: Some(ownership(owner, &current.id)),
+                                folder: None,
+                                organization: None,
+                                collection: None,
+                                overwrite: true,
+                            })
+                            .await
+                    })
+                    .await
+                })
+                .map_err(|_| ModelProviderError::Timeout)
+                .and_then(|saved| saved.map_err(secret_error));
+                if let Err(error) = saved {
+                    let current_config = read_config(&path)?;
+                    write_config(adapter, &path, &current_config, &original)
+                        .map_err(|_| ModelProviderError::CleanupFailed)?;
+                    return Err(error);
+                }
+            }
+            Ok(json!({ "provider": next }))
+        }
         ModelProviderRequest::Remove { name } => {
             let provider = providers
                 .iter()
@@ -389,9 +522,10 @@ pub fn execute(
 impl ServiceContext {
     pub fn model_provider_command(
         &self,
+        provider: Option<&str>,
         request: ModelProviderRequest,
     ) -> Result<Value, ModelProviderError> {
-        let owner = select_owner(&self.agent_registry.all_provider_arcs())?;
+        let owner = select_owner_for(&self.agent_registry.all_provider_arcs(), provider)?;
         let adapter = owner
             .model_provider_config()
             .ok_or(ModelProviderError::Unsupported)?;
@@ -401,6 +535,7 @@ impl ServiceContext {
                 | ModelProviderRequest::PresetRemove { .. }
                 | ModelProviderRequest::Add { .. }
                 | ModelProviderRequest::AddFromSecret { .. }
+                | ModelProviderRequest::Update { .. }
                 | ModelProviderRequest::Remove { .. }
         );
         let preset_list = matches!(&request, ModelProviderRequest::PresetList);

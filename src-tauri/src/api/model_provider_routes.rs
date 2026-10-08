@@ -1,16 +1,22 @@
 use super::routes::AppState;
 use crate::service::model_providers::{ModelProviderError, ModelProviderRequest};
 use axum::{
-    extract::{ConnectInfo, State},
+    extract::{ConnectInfo, Query, State},
     http::{HeaderMap, StatusCode},
     Json,
 };
 use std::net::SocketAddr;
 
+#[derive(serde::Deserialize)]
+pub struct ModelProviderScope {
+    provider: Option<String>,
+}
+
 pub async fn manage(
     State(state): State<AppState>,
     ConnectInfo(remote): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
+    Query(scope): Query<ModelProviderScope>,
     Json(request): Json<ModelProviderRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let token = state.config.lock().api.token.clone();
@@ -24,10 +30,14 @@ pub async fn manage(
             Json(serde_json::json!({"kind":"local_only"})),
         ));
     }
-    let result = tokio::task::spawn_blocking(move || state.svc.model_provider_command(request))
-        .await
-        .map_err(|_| ModelProviderError::Config)
-        .and_then(|result| result);
+    let result = tokio::task::spawn_blocking(move || {
+        state
+            .svc
+            .model_provider_command(scope.provider.as_deref(), request)
+    })
+    .await
+    .map_err(|_| ModelProviderError::Config)
+    .and_then(|result| result);
     result.map(Json).map_err(|kind| {
         (
             StatusCode::BAD_REQUEST,

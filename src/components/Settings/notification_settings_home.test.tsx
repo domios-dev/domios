@@ -12,7 +12,7 @@ import { NotificationsOverview } from "./NotificationsTab";
 import {
   SECTION_ICONS,
   SETTINGS_SECTIONS,
-  normalizeSection,
+  resolveSettingsLink,
   sectionTitle,
   type SectionId,
 } from "./sections";
@@ -679,17 +679,17 @@ async function theMovedSurfacesRenderInExactlyOnePlace() {
 /** 8. The legacy deep link now resolves to the section the controls live in. */
 async function theLegacyDeepLinkResolvesToTheNotificationsSection() {
   assert(
-    normalizeSection("notifications") === "notifications",
-    `the notifications deep link resolves to itself, got ${normalizeSection("notifications")}`,
+    resolveSettingsLink("notifications")?.section === "notifications",
+    `the notifications deep link resolves to itself, got ${resolveSettingsLink("notifications")?.section}`,
   );
   assert(
-    normalizeSection("notifications") !== ("agents" as SectionId),
+    resolveSettingsLink("notifications")?.section !== ("agents" as SectionId),
     "it must never land on the page the controls just left",
   );
-  assert(normalizeSection(undefined) === undefined, "no section still means the section grid");
+  assert(resolveSettingsLink(undefined)?.section === undefined, "no section still means the section grid");
   for (const section of SETTINGS_SECTIONS) {
     assert(
-      normalizeSection(section.id) === section.id,
+      resolveSettingsLink(section.id)?.section === section.id,
       `${section.id} maps to itself, so the alias rewrites nothing`,
     );
   }
@@ -702,7 +702,7 @@ async function theLegacyDeepLinkResolvesToTheNotificationsSection() {
 
   // The target is a real, rendered destination rather than a dangling id.
   assert(
-    SETTINGS_SECTIONS.some((section) => section.id === normalizeSection("notifications")),
+    SETTINGS_SECTIONS.some((section) => section.id === resolveSettingsLink("notifications")?.section),
     "the resolved id is a section the nav actually offers",
   );
   const agentsEntry = SETTINGS_SECTIONS.find((section) => section.id === "agents");

@@ -3,7 +3,7 @@
 import {
   SECTION_ICONS,
   SETTINGS_SECTIONS,
-  normalizeSection,
+  resolveSettingsLink,
   sectionTitle,
   type SectionId,
 } from "./sections";
@@ -55,9 +55,16 @@ test("notification_settings_home: notifications section title and icon resolve",
 
 test("notification_settings_home: no nav id resolves to a different section", () => {
   for (const section of SETTINGS_SECTIONS) {
-    assert(normalizeSection(section.id) === section.id, `${section.id} maps to itself`);
+    const route = resolveSettingsLink(section.id);
+    assert(route?.section === section.id && route.card === undefined, `${section.id} maps to itself`);
   }
-  assert(normalizeSection(undefined) === undefined, "no section stays no section");
+  assert(resolveSettingsLink(undefined) === undefined, "no section stays no section");
+});
+
+test("the retired integrations link lands on the Messengers card in General", () => {
+  const route = resolveSettingsLink("integrations");
+  assert(route?.section === "general" && route.card === "telegram-bridge", "integrations routes to the Telegram bridge card");
+  assert(!SETTINGS_SECTIONS.some((s) => (s.id as string) === "integrations"), "integrations is no longer a nav entry");
 });
 
 test("notification_settings_home: the agents description no longer claims notifications", () => {
