@@ -1450,12 +1450,15 @@ function changeDiff(path, value) {
   if (!path.trim() || !value || typeof value !== "object" || Array.isArray(value)) return null;
   const change = value;
   if ((change.type === "add" || change.type === "delete") && typeof change.content === "string") {
-    return fileDiff(path, contentHunks(change.content, change.type === "add" ? "+" : "-"), "");
+    return { ...fileDiff(path, contentHunks(change.content, change.type === "add" ? "+" : "-"), ""), kind: change.type };
   }
   if (change.type !== "update" || typeof change.unified_diff !== "string") return null;
-  const hunks = unifiedHunks(change.unified_diff);
+  const movePath = typeof change.move_path === "string" && change.move_path.trim() ? change.move_path : "";
+  const binary = /^(Binary files|GIT binary patch)/m.test(change.unified_diff);
+  const hunks = unifiedHunks(change.unified_diff) ?? (binary || movePath && !change.unified_diff ? [] : null);
   if (!hunks) return null;
-  return fileDiff(path, hunks, typeof change.move_path === "string" && change.move_path.trim() ? change.move_path : "");
+  if (binary) return { ...fileDiff(path, [], movePath), binary: true, kind: movePath ? "rename" : "modify" };
+  return { ...fileDiff(path, hunks, movePath), kind: movePath ? "rename" : "modify" };
 }
 function changedPaths(changes) {
   if (!changes || typeof changes !== "object" || Array.isArray(changes)) return [];
