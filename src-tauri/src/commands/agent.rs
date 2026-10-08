@@ -192,14 +192,19 @@ pub async fn switch_agent_model(
     model: String,
     reasoning_effort: Option<String>,
     runtime_mode: Option<crate::service::codex_rpc::model::RuntimeMode>,
+    restart_resume: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     let svc = (*svc).clone();
     tokio::task::spawn_blocking(move || {
-        svc.agent_switch_model_with_controls(
+        svc.agent_switch_model_with_restart_fallback(
             &tab_id,
             &model,
             reasoning_effort.as_deref(),
             runtime_mode,
+            crate::service::codex_rpc::model::ModelSwitchOptions {
+                force: false,
+                restart_resume: restart_resume == Some(true),
+            },
         )
     })
     .await

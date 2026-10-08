@@ -120,6 +120,8 @@ Each provider owns its model and reasoning-effort catalog. A live provider catal
 
 Model availability has three honest states: available, unavailable, and unknown. A confirmed unavailable model is disabled. A failed or inconclusive availability check remains unknown and selectable; it is never reported as unavailable. Provider group labels, per-group usage, and quota values come from that provider, and Domios does not infer missing labels or balances. Unsupported reasoning efforts are refused at launch rather than silently downgraded. See the [core essence](core.md) for provider boundaries and session ownership.
 
+The status-line model picker shows “Switches in place” for providers with live model commands. Busy tabs refuse the change until idle. Confirmed model and effort changes preserve the session; unconfirmed changes report failure and offer a separate restart confirmation.
+
 Providers that declare NextTurn switching apply model, reasoning effort and runtime-mode changes to the next turn without restarting. A successful request remains pending until the tab's own thread reports the setting or model. Structured sidecar tabs use app-server items for both live chat and history, and approval replies use the exact server request ID. Disabling the capability restores the plain-PTY transcript and control path.
 
 ### Web UI and health

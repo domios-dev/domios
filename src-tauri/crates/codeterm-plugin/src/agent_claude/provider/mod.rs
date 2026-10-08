@@ -15,6 +15,7 @@ mod interactive;
 mod launch;
 pub(crate) mod launch_session;
 mod model_capabilities;
+mod model_switch;
 mod onboarding;
 mod permission_hook;
 mod permission_prompt;
@@ -493,7 +494,11 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn model_switch(&self) -> crate::provider::ModelSwitchMode {
-        crate::provider::ModelSwitchMode::RestartResume
+        crate::provider::ModelSwitchMode::LiveCommand
+    }
+
+    fn model_switch_commands(&self) -> Option<crate::provider::ModelSwitchCommands> {
+        Some(model_switch::commands())
     }
 
     fn exit_command(&self) -> Option<&str> {
@@ -663,11 +668,11 @@ mod tests {
     }
 
     #[test]
-    fn claude_switches_model_by_resuming_with_launch_args() {
+    fn claude_switches_model_with_a_live_command() {
         let p = ClaudeProvider::new();
         assert_eq!(
             p.model_switch(),
-            crate::provider::ModelSwitchMode::RestartResume
+            crate::provider::ModelSwitchMode::LiveCommand
         );
         assert_eq!(p.model_launch_args("sonnet"), vec!["--model", "sonnet"]);
     }
