@@ -667,7 +667,7 @@ pub fn run() {
                     );
 
                     // Same register_plugin seam as the hot-reload watcher; a capability-only plugin is NOT registered as an agent.
-                    cap_registries.register_plugin(p.manifest(), p.vm());
+                    cap_registries.register_plugin_with_trust(p.manifest(), p.vm(), trust);
                     if !caps.agent_provider {
                         plugin::audit::append_daemon_reloaded(&id, &version);
                         continue;
@@ -965,6 +965,7 @@ pub fn run() {
                     vm.set_service(Arc::downgrade(&host));
                 }
                 plugin::js_runtime::set_watcher_service(Arc::downgrade(&host));
+                crate::service::plugin_prompt::refresh(&service_state.agent_command_registry);
                 crate::service::plugin_skills::spawn_sync(service_state.mem.clone(), service_state.agent_command_registry.clone());
                 for provider in chatbackend_registry.active() {
                     crate::agent::model_binary_watch::install_chatbackend(

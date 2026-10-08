@@ -47,7 +47,13 @@ impl PluginManifest {
 
     /// Strict parse plus the cross-field capability rules every load path enforces.
     pub fn from_json_str(text: &str) -> Result<Self, String> {
-        let manifest: PluginManifest = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        let mut manifest: PluginManifest = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        if let Some(raw) = manifest.agent_prompt_line.take() {
+            match crate::agent_prompt_lines::validate_agent_prompt_line(&raw) {
+                Ok(line) => manifest.agent_prompt_line = Some(line),
+                Err(error) => log::warn!("[plugin] {}: {error}", manifest.id),
+            }
+        }
         manifest.capabilities.validate_tab_menu()?;
         manifest.capabilities.validate_surfaces()?;
         for credential in &manifest.credentials {

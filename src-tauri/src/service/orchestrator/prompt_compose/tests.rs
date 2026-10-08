@@ -416,3 +416,26 @@ fn utility_guidance_reaches_managers_and_roleless_but_not_workers() {
     assert!(!worker.contains(crate::prompts::UTILITY_TAB_GUIDANCE.trim()));
     assert!(crate::prompts::UTILITY_TAB_GUIDANCE.lines().count() <= 3);
 }
+
+#[test]
+fn built_in_plugins_section_follows_the_primer_and_is_absent_without_contributors() {
+    const SECTION: &str = "Built-in plugins:\n- OPAQUE_CORE_LINE_q7";
+    let primer = crate::prompts::AGENT_CODETERM_PRIMER.trim();
+    let after_primer = format!("{primer}\n\n{SECTION}\n\n");
+
+    let plain = super::agent_system_prompt_with_plugins(Some("opaque-task"), None);
+    assert!(!plain.contains("Built-in plugins:"));
+    let with = super::agent_system_prompt_with_plugins(Some("opaque-task"), Some(SECTION));
+    assert!(with.starts_with(&after_primer));
+    assert_eq!(with.replacen(&format!("{SECTION}\n\n"), "", 1), plain);
+
+    let worker_plain = super::worker_agent_system_prompt_with_plugins(None, "opaque", None, None);
+    assert!(!worker_plain.contains("Built-in plugins:"));
+    let worker =
+        super::worker_agent_system_prompt_with_plugins(None, "opaque", None, Some(SECTION));
+    assert_eq!(worker.matches(&after_primer).count(), 1);
+    assert_eq!(
+        worker.replacen(&format!("{SECTION}\n\n"), "", 1),
+        worker_plain
+    );
+}

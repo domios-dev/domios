@@ -54,6 +54,15 @@ pub struct CapabilityRegistries {
 
 impl CapabilityRegistries {
     pub fn register_plugin(&self, manifest: &PluginManifest, vm: &Arc<super::PluginVm>) {
+        self.register_plugin_with_trust(manifest, vm, crate::provider::ProviderTrust::Unknown);
+    }
+
+    pub fn register_plugin_with_trust(
+        &self,
+        manifest: &PluginManifest,
+        vm: &Arc<super::PluginVm>,
+        trust: crate::provider::ProviderTrust,
+    ) {
         let id = &manifest.id;
         let caps = &manifest.capabilities;
         // Models must be removed when a manifest drops `chatBackend`, because they belong to that capability.
@@ -177,7 +186,7 @@ impl CapabilityRegistries {
                 id.clone(),
                 Arc::new(
                     super::JsAgentCommandHandler::new(vm.clone(), id.clone(), true)
-                        .with_catalog(super::catalog_from_manifest(manifest)),
+                        .with_catalog(super::catalog_from_manifest(manifest, trust)),
                 ),
             );
         }
@@ -712,8 +721,11 @@ impl HotReloadRegistry {
                 }
                 let had_tab_menu = self.caps.tab_menu.contains(&id);
                 let had_agent_commands = self.caps.agent_command.contains(&id);
-                self.caps
-                    .register_plugin(provider.manifest(), provider.vm());
+                self.caps.register_plugin_with_trust(
+                    provider.manifest(),
+                    provider.vm(),
+                    provider.trust(),
+                );
                 self.notify_event_sources_changed();
                 if had_tab_menu || self.caps.tab_menu.contains(&id) {
                     self.emit_tab_menu_changed();

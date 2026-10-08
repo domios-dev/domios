@@ -31,6 +31,11 @@ pub struct AgentVerbCatalog {
     /// the `codeterm capabilities` listing; the mem item and `plugin get` carry it.
     #[serde(skip)]
     pub guide: Option<String>,
+    #[serde(skip)]
+    pub trust: crate::provider::ProviderTrust,
+    /// The validated `agentPromptLine`; whether it reaches prompts depends on `trust`.
+    #[serde(skip)]
+    pub prompt_line: Option<String>,
 }
 
 impl AgentVerbCatalog {
@@ -74,6 +79,8 @@ impl AgentVerbCatalog {
             verbs,
             keywords,
             guide: None,
+            trust: crate::provider::ProviderTrust::Unknown,
+            prompt_line: None,
         }
     }
 
@@ -82,6 +89,20 @@ impl AgentVerbCatalog {
             .map(|g| g.trim().to_string())
             .filter(|g| !g.is_empty());
         self
+    }
+
+    pub fn with_prompt_line(
+        mut self,
+        trust: crate::provider::ProviderTrust,
+        prompt_line: Option<String>,
+    ) -> Self {
+        self.trust = trust;
+        self.prompt_line = prompt_line;
+        self
+    }
+
+    pub fn is_core(&self) -> bool {
+        self.trust == crate::provider::ProviderTrust::System
     }
 
     pub fn invocation(&self) -> String {
