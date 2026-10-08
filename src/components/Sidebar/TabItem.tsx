@@ -1,4 +1,4 @@
-import { ShellPurposeIcon, ShellStatus } from "../shared/ShellStatus";
+import { ShellPurposeIcon } from "../shared/ShellStatus";
 import { isUtilityShell, shellPurposeLabel } from "../../lib/shellCommandState";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ShieldCheck, TriangleAlert } from "lucide-react";
@@ -93,10 +93,12 @@ function GroupCollapseChevron({
   );
 }
 
-function TabWorkingActivity({ active }: { active: boolean }) {
+function TabWorkingActivity({ active, label }: { active: boolean; label?: string }) {
   return (
     <span
       data-testid="tab-working-activity"
+      role={label ? "img" : undefined}
+      aria-label={label}
       className="inline-flex items-center shrink-0"
     >
       <ActivityDots size="small" tone="muted" active={active} />
@@ -232,6 +234,7 @@ function TabItemInner({
   const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
   const isGeneralAgent = isGeneralAgentTab(tab);
   const utilityShell = isUtilityShell(tab);
+  const shellRunning = utilityShell && tab.shell_command_state?.activity === "running";
   const accessibleTitle = isGeneralAgent ? "General Agent" : utilityShell ? `${shellPurposeLabel(tab.purpose)}, ${displayTitle}` : displayTitle;
   const roleShield = restoreFailure.showIdentityBadges
     ? (isGeneralAgent ? "General Agent" : roleShieldLabel(tab))
@@ -356,7 +359,7 @@ function TabItemInner({
           ) : tab.tab_type === "Choice" ? (
             <ChoiceIcon className={`${touchMode ? "scale-110" : isSubTab ? "scale-90" : ""}`} />
           ) : (
-            utilityShell ? <ShellPurposeIcon purpose={tab.purpose} /> : <TerminalIcon className={`${touchMode ? "scale-110" : isSubTab ? "scale-90" : ""}`} />
+            utilityShell ? <ShellPurposeIcon purpose={tab.purpose} running={shellRunning} /> : <TerminalIcon className={`${touchMode ? "scale-110" : isSubTab ? "scale-90" : ""}`} />
           )}
         </span>
         <span className="min-w-0 flex-1">
@@ -376,8 +379,8 @@ function TabItemInner({
               {hasAgent && (status === "Working" || status === "Idle") && (
                 <TabWorkingActivity active={status === "Working"} />
               )}
+              {shellRunning && <TabWorkingActivity active label={`${displayTitle} working`} />}
             </span>
-            {utilityShell && <ShellStatus tab={tab} />}
             {collapsed && groupCollapsible && collapsedSummary ? (
               <span
                 data-testid="group-collapsed-summary"
@@ -459,7 +462,7 @@ function TabItemInner({
       >
         {accessibleTitle} tab status {status ?? "Unknown"}
       </span>}
-      <div className="shrink-0 relative z-[1] flex items-center min-w-5 justify-end">
+      <div className={`shrink-0 relative z-[1] flex items-center justify-end ${utilityShell ? "" : "min-w-5"}`}>
         {tabModelBadge && !touchMode ? (
           <SidebarModelBadge label={tabModelBadge} title={tabModelTitle} />
         ) : null}
@@ -472,11 +475,11 @@ function TabItemInner({
             }}
             contextMenuTargetRef={tabRef}
             className={
-              touchMode
+              utilityShell ? undefined : touchMode
                 ? "flex h-11 w-11 items-center justify-center"
                 : "sidebar-tab-close absolute inset-y-0 right-0 flex items-center"
             }
-            trigger={<RowMenuButton label="Tab actions" touchMode={touchMode} />}
+            trigger={utilityShell ? null : <RowMenuButton label="Tab actions" touchMode={touchMode} />}
           />
         )}
       </div>
