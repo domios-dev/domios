@@ -111,6 +111,7 @@ fn provider_descriptor_round_trip() {
             }],
             supports_lazy_skills: true,
             has_hooks: true,
+            supports_model_endpoints: true,
             supports_permission_bypass: true,
             cli_binary: Some("testcli".into()),
             install_command: Some("npm i -g testcli".into()),
@@ -275,6 +276,7 @@ fn default_describe_assembles_from_methods() {
     assert!(desc.settings_schema.is_empty());
     assert!(!desc.supports_lazy_skills); // default false
     assert!(!desc.has_hooks); // default false
+    assert!(!desc.supports_model_endpoints);
     assert!(!desc.supports_structured_prompts); // default false
     assert_eq!(desc.transport, ProviderTransport::Pty);
     assert_eq!(desc.behavior_config, BehaviorConfig::OwnPromptSet);

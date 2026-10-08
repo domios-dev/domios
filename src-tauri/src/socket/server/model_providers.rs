@@ -13,6 +13,8 @@ pub(super) fn dispatch(
         "model_provider.preset.list" => "preset_list",
         "model_provider.add" => "add",
         "model_provider.add_from_secret" => "add_from_secret",
+        "model_provider.update" => "update",
+        "model_provider.discover" => "discover",
         "model_provider.remove" => "remove",
         "model_provider.list" => "list",
         "model_provider.test" => "test",
@@ -26,9 +28,14 @@ pub(super) fn dispatch(
     };
     let mut params = params.unwrap_or_else(|| json!({}));
     let object = params.as_object_mut().ok_or_else(invalid)?;
+    let provider = match object.remove("provider") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(id)) => Some(id),
+        Some(_) => return Err(invalid()),
+    };
     object.insert("action".into(), json!(action));
     let request: ModelProviderRequest = serde_json::from_value(params).map_err(|_| invalid())?;
-    svc.model_provider_command(request)
+    svc.model_provider_command(provider.as_deref(), request)
         .map_err(|error| JsonRpcError {
             code: -32000,
             message: error.to_string(),
