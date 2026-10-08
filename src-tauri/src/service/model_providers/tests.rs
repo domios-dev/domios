@@ -335,7 +335,8 @@ fn model_provider_decision_exec_uses_owned_launch_env_without_exposing_keys() {
         module.exports.default.modelProviderConfigPath = () => {};
         module.exports.default.decide = () => host.exec.async({{
             bin:'node', args:['-e',"process.stdout.write(JSON.stringify({{type:'noul',p:process.env.DOMIOS_PROVIDER_DEMO_KEY ? 0.8 : 0}}))"], timeoutMs:2000
-        }}, result => JSON.parse(result.stdout));
+        }}, result => {{ globalThis.fixtureExecReceipt = result; return JSON.parse(result.stdout); }});
+        module.exports.default.fixtureExecReceipt = () => globalThis.fixtureExecReceipt || null;
     "#,
         serde_json::to_string(&path).unwrap()
     );
@@ -368,17 +369,19 @@ fn model_provider_decision_exec_uses_owned_launch_env_without_exposing_keys() {
         .unwrap()
         .is_empty());
     assert!(!std::fs::read_to_string(&path).unwrap().contains(&key));
-    let model = JsDecisionModel::new(vm, "arbitrary-owner", TokenMode::None);
+    let model = JsDecisionModel::new(vm.clone(), "arbitrary-owner", TokenMode::None);
     let request = DecisionRequest {
         state: json!({}),
         instructions: "opaque".into(),
         question: DecisionQuestion::Noul { criteria: None },
     };
+    let answer = model.decide(&request, std::time::Instant::now() + Duration::from_secs(3));
+    let receipt =
+        codeterm_plugin::js_runtime::call_json::<serde_json::Value>(&vm, "fixtureExecReceipt", &[]);
     assert_eq!(
-        model
-            .decide(&request, std::time::Instant::now() + Duration::from_secs(3))
-            .unwrap(),
-        DecisionAnswer::Noul { p: 0.8 }
+        answer,
+        Ok(DecisionAnswer::Noul { p: 0.8 }),
+        "exec receipt={receipt:?}"
     );
     fixture
         .service
