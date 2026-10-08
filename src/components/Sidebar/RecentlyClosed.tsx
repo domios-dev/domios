@@ -3,7 +3,7 @@ import { formatAge } from "../../lib/timeLabels";
 import { createPortal } from "react-dom";
 import { GitBranch, Layers } from "lucide-react";
 import type { ClosedTabView, ClosedStructureView } from "../../lib/types";
-import { describeRestore, restorableStructures } from "../../lib/closeHistoryModel";
+import { closedLabel, describeRestore, restorableStructures } from "../../lib/closeHistoryModel";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { SidebarModelBadge } from "./SidebarModelBadge";
@@ -202,10 +202,11 @@ function RecentlyClosedInner({
           )}
           {inventories.map((record) => <div key={record.id} className="flex items-center gap-2 p-2">
             <span className="min-w-0 flex-1">
-              <span className={`${text} block truncate`}>{record.label}</span>
+              <span className={`${text} block truncate`}>{closedLabel(record)}</span>
               <span className={`${metaText} block text-[var(--ct-muted)]`}>{describeRestore(record)}</span>
             </span>
-            <button type="button" aria-label={`Restore ${record.label}`} disabled={restoring !== null}
+            <button type="button" aria-label={`Restore ${closedLabel(record)}`} disabled={restoring !== null}
+              className="shrink-0 rounded-md border border-[var(--ct-border)] px-2 py-0.5 text-[11px] text-[var(--ct-fg)] hover:bg-[var(--ct-surface-hover,var(--ct-surface))] disabled:opacity-50"
               onClick={() => { void restore(record.id); }}>Restore</button>
           </div>)}
           {groups.map((group) => {
