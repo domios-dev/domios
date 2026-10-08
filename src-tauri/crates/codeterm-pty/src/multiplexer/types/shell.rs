@@ -1,5 +1,21 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CloseRestoreTabState {
+    pub command: Option<String>,
+    pub stopped: bool,
+    pub record_id: Option<String>,
+    pub exact_session: bool,
+}
+
+impl CloseRestoreTabState {
+    pub fn claim_rerun(&mut self) -> Result<Option<String>, String> {
+        if !self.stopped { return Err("Restored shell has already been started".into()); }
+        self.stopped = false;
+        Ok(self.command.clone())
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShellPurpose {

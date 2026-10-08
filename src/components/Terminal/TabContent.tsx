@@ -1,4 +1,5 @@
 import { TerminalTab } from "./TerminalTab";
+import { RestoredShell } from "./RestoredShell";
 import { TabSessionChat } from "./TabSessionChat";
 import { TabTopBar } from "./TabTopBar";
 import { isTabVisible } from "../MemoryPanel/workerFocusStore";
@@ -77,7 +78,7 @@ export function TabContent({
     tab.agent_provider_resolved_model ?? tab.agent_session_model ?? tab.agent_requested_model ?? null;
   const cwd = tab.cwd ?? workspaceCwd ?? null;
 
-  const body = isChatBackend ? (
+  const body = tab.close_restore?.stopped ? <RestoredShell tab={tab} /> : isChatBackend ? (
     <TabSessionChat tabId={tab.id} api={api} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} />
   ) : (
     <TerminalTab

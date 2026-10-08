@@ -1,0 +1,302 @@
+use std::collections::HashSet;
+use std::sync::LazyLock;
+
+use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
+use tauri::Manager;
+
+use super::{session_persist, ServiceContext};
+use crate::multiplexer::state::{ClosedStructure, StructureState};
+
+static RESTORE_LOCK: Mutex<()> = Mutex::new(());
+static WORKSPACE_CLOSES: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+
+pub(super) struct WorkspaceCloseGuard(String);
+
+impl WorkspaceCloseGuard {
+    pub fn new(id: &str) -> Self {
+        WORKSPACE_CLOSES.lock().insert(id.into());
+        Self(id.into())
+    }
+}
+
+impl Drop for WorkspaceCloseGuard {
+    fn drop(&mut self) {
+        WORKSPACE_CLOSES.lock().remove(&self.0);
+    }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+struct Resources {
+    plans: Vec<crate::plan::Plan>,
+    crons: Vec<crate::cron::store::CronJob>,
+    blueprints: Vec<crate::sentinel::store::Sentinel>,
+}
+
+impl ServiceContext {
+    pub(crate) fn recover_close_inventories(&self) -> Result<(), String> {
+        let records = self.mux.read().closed_structure_records()?;
+        for record in records
+            .into_iter()
+            .filter(|record| record.state == StructureState::Captured)
+        {
+            self.settle_close_inventory(Some(&record.id))?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn capture_close_inventory(
+        &self,
+        workspace: &str,
+        team: Option<&str>,
+    ) -> Result<Option<String>, String> {
+        if team.is_some() && WORKSPACE_CLOSES.lock().contains(workspace) {
+            return Ok(None);
+        }
+        let id = format!("close_{}", uuid::Uuid::new_v4());
+        let mut record = self.mux.read().capture_structure(
+            workspace,
+            team,
+            id.clone(),
+            super::team::now_ms(),
+        )?;
+        let team_ids: HashSet<_> = record.teams.iter().map(|team| team.id.as_str()).collect();
+        let plans = self
+            .plan_store
+            .list_full()
+            .into_iter()
+            .filter(|plan| {
+                plan.team_id
+                    .as_deref()
+                    .is_some_and(|id| team_ids.contains(id))
+            })
+            .collect();
+        let in_scope = |workspace_id: &str, team_id: Option<&str>| {
+            workspace_id == workspace && team.is_none_or(|id| team_id == Some(id))
+        };
+        let crons = self
+            .app_handle
+            .try_state::<crate::CronState>()
+            .map(|state| {
+                state
+                    .lock()
+                    .list()
+                    .iter()
+                    .filter(|job| in_scope(&job.workspace_id, job.team_id.as_deref()))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        let blueprints = self
+            .app_handle
+            .try_state::<crate::sentinel::scheduler::Handle>()
+            .map(|handle| {
+                handle
+                    .store
+                    .lock()
+                    .list()
+                    .iter()
+                    .filter(|job| in_scope(&job.workspace_id, job.team_id.as_deref()))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        record.resources = serde_json::to_value(Resources {
+            plans,
+            crons,
+            blueprints,
+        })
+        .map_err(|error| error.to_string())?;
+        self.mux.read().save_closed_structure(&record)?;
+        Ok(Some(id))
+    }
+
+    pub(super) fn settle_close_inventory(&self, id: Option<&str>) -> Result<(), String> {
+        let Some(id) = id else {
+            return Ok(());
+        };
+        let mux = self.mux.read();
+        let record = mux.closed_structure(id)?.ok_or("Close inventory missing")?;
+        let changed = mux.get_workspace(&record.workspace.id).is_none()
+            || record
+                .tabs
+                .iter()
+                .any(|item| mux.get_tab(&item.tab.id).is_none())
+            || record
+                .teams
+                .iter()
+                .any(|team| mux.get_team(&team.id).is_none());
+        if changed {
+            mux.finish_structure_close(id)?;
+        } else {
+            mux.discard_closed_structure(id)?;
+        }
+        drop(mux);
+        self.emit_state_changed();
+        Ok(())
+    }
+
+    pub(super) fn restore_close_inventory(
+        &self,
+        id: &str,
+    ) -> Result<Option<(String, String)>, String> {
+        let _restore = RESTORE_LOCK.lock();
+        let Some(mut record) = self.mux.read().closed_structure(id)? else {
+            return Ok(None);
+        };
+        let result = (
+            record.workspace.id.clone(),
+            record.workspace.active_tab_id.clone().unwrap_or_default(),
+        );
+        if record.state == StructureState::Restored {
+            return Ok(Some(result));
+        }
+        if record.state == StructureState::Captured {
+            return Err("Close has not completed".into());
+        }
+        let resources: Resources =
+            serde_json::from_value(record.resources.clone()).map_err(|error| error.to_string())?;
+        for plan in &resources.plans {
+            if self.plan_store.get(&plan.id).is_none() {
+                self.ensure_plan_project_loaded(std::path::Path::new(&plan.project_path))?;
+            }
+        }
+        for item in &mut record.tabs {
+            if item.tab.role == Some(crate::multiplexer::types::AgentRole::Worker) {
+                if let Some(binding) = &item.tab.task_binding {
+                    let lane = binding
+                        .plan_id
+                        .as_deref()
+                        .and_then(|id| self.plan_store.get(id))
+                        .and_then(|plan| {
+                            plan.tasks
+                                .into_iter()
+                                .find(|task| Some(task.id.as_str()) == binding.task_id.as_deref())
+                        })
+                        .and_then(|task| task.lane.worktree_path);
+                    if let Some(path) = lane.filter(|path| std::path::Path::new(path).is_dir()) {
+                        item.tab.cwd = Some(path);
+                    } else if item
+                        .tab
+                        .cwd
+                        .as_deref()
+                        .is_some_and(|path| !std::path::Path::new(path).is_dir())
+                    {
+                        item.tab.cwd = record.workspace.cwd.clone();
+                    }
+                }
+            }
+        }
+        record.restore_tabs()?;
+        self.validate_restore_plans(&resources)?;
+        record.state = StructureState::Restoring;
+        self.mux.read().save_closed_structure(&record)?;
+        self.mux.write().restore_structure(&record)?;
+        session_persist::write_session_snapshot(&self.app_handle, &self.mux)?;
+        self.restore_history_plans(&resources)?;
+        self.restore_history_automation(&resources)?;
+        record.state = StructureState::Restored;
+        self.mux.read().save_closed_structure(&record)?;
+        self.emit_state_changed();
+        Ok(Some(result))
+    }
+
+    fn validate_restore_plans(&self, resources: &Resources) -> Result<(), String> {
+        for saved in &resources.plans {
+            let current = self
+                .plan_store
+                .get(&saved.id)
+                .ok_or_else(|| format!("Plan {} is unavailable", saved.id))?;
+            if current.team_id.is_some() && current.team_id != saved.team_id {
+                return Err(format!("Plan {} belongs to another Team", saved.id));
+            }
+            if current.owner.tab_id.is_some() && current.owner.tab_id != saved.owner.tab_id {
+                return Err(format!("Plan {} has another Orchestrator", saved.id));
+            }
+        }
+        Ok(())
+    }
+
+    fn restore_history_plans(&self, resources: &Resources) -> Result<(), String> {
+        for saved in &resources.plans {
+            self.plan_store
+                .with_plan(&saved.id, super::team::now_ms(), |current| {
+                    current.team_id = saved.team_id.clone();
+                    current.owner = saved.owner.clone();
+                    current.planner = saved.planner.clone();
+                    current.status = saved.status.clone();
+                    current.orphaned = None;
+                    Ok(())
+                })
+                .map_err(|error| error.to_string())?;
+            self.emit_plan_changed(&saved.id);
+        }
+        Ok(())
+    }
+
+    fn restore_history_automation(&self, resources: &Resources) -> Result<(), String> {
+        if !resources.crons.is_empty() {
+            let cron = self
+                .app_handle
+                .try_state::<crate::CronState>()
+                .ok_or("Cron store unavailable")?;
+            for job in &resources.crons {
+                crate::cron::store::commit(cron.inner(), |store| {
+                    if store.get(&job.id).is_some() {
+                        return Ok(crate::cron::store::Prepared::unchanged(()));
+                    }
+                    Ok(crate::cron::store::Prepared::new(
+                        crate::cron::store::CronChange::Create(job.clone()),
+                        (),
+                    ))
+                })
+                .map_err(|error| error.to_string())?;
+            }
+            if let Some(wake) = self.app_handle.try_state::<crate::CronWake>() {
+                wake.notify_all();
+            }
+            self.emit_cron_changed();
+        }
+        if !resources.blueprints.is_empty() {
+            let handle = self
+                .app_handle
+                .try_state::<crate::sentinel::scheduler::Handle>()
+                .ok_or("Blueprint store unavailable")?;
+            for job in &resources.blueprints {
+                if handle.store.lock().get(&job.id).is_some() {
+                    continue;
+                }
+                crate::sentinel::storage::commit(&handle.store, |store| {
+                    store.stage_insert(job.clone())
+                })?;
+            }
+            handle.notify();
+        }
+        Ok(())
+    }
+
+    pub fn rerun_restored_shell(&self, tab_id: &str) -> Result<(), String> {
+        let _restore = RESTORE_LOCK.lock();
+        let command = {
+            let mut mux = self.mux.write();
+            let tab = mux.get_tab_mut(tab_id).ok_or("Tab not found")?;
+            if !tab.is_utility_shell() {
+                return Err("Only restored utility shells can rerun".into());
+            }
+            let state = tab
+                .close_restore
+                .as_mut()
+                .ok_or("Tab has no saved command")?;
+            let command = state.claim_rerun()?;
+            tab.utility_command_pending = command.is_some();
+            command
+        };
+        session_persist::write_session_snapshot(&self.app_handle, &self.mux)?;
+        self.ensure_tab_pty_for_send(tab_id)?;
+        if let Some(command) = command {
+            self.send_shell_cmd(tab_id, &command)?;
+        }
+        self.emit_state_changed();
+        Ok(())
+    }
+}

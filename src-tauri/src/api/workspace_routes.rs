@@ -229,11 +229,15 @@ pub async fn reopen_closed_group(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(group_id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
     let cmd = crate::dispatch::Command::WorkspaceReopenClosedGroup { group_id };
-    let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref())
-        .map_err(|_| (StatusCode::NOT_FOUND, "No closed group"))?;
+    let service = state.svc.clone();
+    let result =
+        tokio::task::spawn_blocking(move || crate::dispatch::dispatch(&cmd, service.as_ref()))
+            .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
     Ok(Json(result.into_json()))
 }
 

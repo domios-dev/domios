@@ -97,6 +97,7 @@ fn leaf(tab_id: &str) -> SplitNodeSnapshot {
         icon: None,
         shell_profile: None,
         utility_created_at: 0,
+        close_restore: None,
         tab_id: tab_id.into(),
         cwd: Some("D:/Developer/codeterm".into()),
         title: Some("claude — orchestrator".into()),

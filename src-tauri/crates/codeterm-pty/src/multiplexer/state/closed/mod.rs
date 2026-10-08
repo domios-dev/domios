@@ -4,6 +4,9 @@
 
 mod restore_plan;
 mod store;
+mod structure;
+mod structure_mux;
+pub use structure::{ArchivedTab, ClosedStructure, ClosedStructureView, StructureState};
 
 #[cfg(test)]
 mod restore_roundtrip_tests;
