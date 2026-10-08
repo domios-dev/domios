@@ -9,7 +9,7 @@ import rehypeSanitize from "rehype-sanitize";
 import { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, normalizeMultilineHtmlBlocks, rehypeScrubInlineStyles } from "./htmlSanitize";
 import { HtmlPreviewBlock } from "./HtmlPreviewBlock";
 import { LocalArtifactBlock, parseLocalArtifactDirective } from "./LocalArtifactBlock";
-import { parseChatBlocks } from "./blocks/registry";
+import { isolateBlockDirectives, parseChatBlocks } from "./blocks/registry";
 import { rehypeSourceOffsets } from "./sourceOffsets";
 import { rehypeMarkdownLineBreaks } from "./markdownLineBreaks";
 import { Prism as SyntaxHighlighter, createElement } from "react-syntax-highlighter";
@@ -190,7 +190,7 @@ export function RichMarkdown({
   const h1Text = pickUiFontScaleValue(fontScale, ["text-sm", "text-base", "text-lg", "text-xl"]);
   const h2Text = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
   const h3Text = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
-  const renderedText = useMemo(() => normalizeMultilineHtmlBlocks(text), [text]);
+  const renderedText = useMemo(() => normalizeMultilineHtmlBlocks(isolateBlockDirectives(text)), [text]);
   const rehypePlugins = useMemo(() => {
     if (containsHtmlMarkup(renderedText)) return HTML_REHYPE_PLUGINS;
     return sourcePositions && renderedText === text ? SOURCE_OFFSET_REHYPE_PLUGINS : LINE_BREAK_REHYPE_PLUGINS;
