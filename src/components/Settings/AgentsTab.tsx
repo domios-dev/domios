@@ -9,7 +9,7 @@ import { SchemaRenderer } from "./SchemaRenderer";
 import { ProviderInstallCard } from "./ProviderInstallCard";
 import { ProviderIntegrationHealthCard } from "./ProviderIntegrationHealthCard";
 import { ModelEndpointsCard } from "./model_endpoints/ModelEndpointsCard";
-import { providerPageSections } from "./providerPageSections";
+import { providerPageSections, providerSummary } from "./providerPageSections";
 import { SupporterAgentCard } from "./SupporterAgentCard";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import type { SettingsCardAnchorId } from "./sections";
@@ -108,7 +108,7 @@ export function AgentsOverview({
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="text-[13px] font-medium text-[var(--ct-fg)]">{p.display_name}</div>
-                  <div className="text-[11px] text-[var(--ct-muted-fg)] mt-0.5">{p.id}</div>
+                  <div className="text-[11px] text-[var(--ct-muted-fg)] mt-0.5">{providerSummary(p)}</div>
                 </div>
                 <ChevronRight size={14} className="shrink-0 text-[var(--ct-muted)]" />
               </Button>
@@ -172,7 +172,7 @@ export function AgentProviderScreen({
         </div>
         <div className="min-w-0">
           <div className="text-xs font-medium text-[var(--ct-fg)]">{provider.display_name}</div>
-          <div className="text-[11px] text-[var(--ct-muted-fg)]">{provider.id}</div>
+          <div className="text-[11px] text-[var(--ct-muted-fg)]">{providerSummary(provider)}</div>
         </div>
       </div>
       <ProviderInstallCard provider={provider} />
