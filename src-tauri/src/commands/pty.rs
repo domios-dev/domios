@@ -37,7 +37,7 @@ pub async fn spawn_pty_core(
     };
     let state = &svc.pty;
     let mux_state = &svc.mux;
-    // Protected tabs reuse their backend PTY; wait briefly to avoid duplicate launch.
+    // Protected tabs belong to the backend lifecycle, including while it is starting.
     if let Some(ref pid) = tab_id {
         let (is_protected, existing) = {
             let m = mux_state.read();
@@ -91,21 +91,21 @@ pub async fn spawn_pty_core(
         }
         if is_protected {
             drop(pty_claim.take());
-            let svc_wait = svc.clone();
-            let tab_wait = pid.clone();
-            let relinked = tokio::task::spawn_blocking(move || {
-                svc_wait.await_pty_link_blocking(&tab_wait, std::time::Duration::from_secs(5))
+            return crate::service::orchestrator::tab_relink_signal::await_relink(|| {
+                let existing = {
+                    let mux = mux_state.read();
+                    let Some(tab) = mux.get_tab(pid) else {
+                        return Some(Err(format!("Tab {pid} closed before PTY link")));
+                    };
+                    tab.pty_id.clone()
+                }?;
+                state
+                    .lock()
+                    .get_session(&existing)
+                    .is_some()
+                    .then_some(Ok(existing))
             })
-            .await
-            .map_err(|error| format!("protected Tab relink waiter failed: {error}"))?;
-            if let Ok(existing) = relinked {
-                return Ok(existing);
-            }
-            log::warn!(
-                "[spawn_pty] protected Tab {} still has no backend pty after 5s — falling through",
-                pid,
-            );
-            pty_claim = Some(svc.pty_ownership.acquire_async(pid.clone()).await?);
+            .await;
         }
     }
 
