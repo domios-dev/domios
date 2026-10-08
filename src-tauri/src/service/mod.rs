@@ -23,6 +23,7 @@ mod analytics_host;
 pub(crate) mod background_work;
 pub(crate) mod background_work_watch;
 mod blueprint_pipeline;
+mod blueprint_portable;
 pub(crate) mod boot_owner_prompt;
 pub mod boot_stage;
 pub(crate) mod boot_wait;

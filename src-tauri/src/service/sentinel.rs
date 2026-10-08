@@ -289,7 +289,26 @@ impl ServiceContext {
         caller: &SentinelCaller,
         create: Create,
     ) -> Result<Sentinel, String> {
+        self.sentinel_create_in_state(caller, create, None)
+    }
+
+    pub(crate) fn sentinel_create_stopped(
+        &self,
+        caller: &SentinelCaller,
+        create: Create,
+        stopped: bool,
+    ) -> Result<Sentinel, String> {
+        self.sentinel_create_in_state(caller, create, Some(stopped))
+    }
+
+    fn sentinel_create_in_state(
+        &self,
+        caller: &SentinelCaller,
+        create: Create,
+        imported_stopped: Option<bool>,
+    ) -> Result<Sentinel, String> {
         let mut job = self.prepare_sentinel_create(caller, create)?;
+        job.machine.stopped = imported_stopped.unwrap_or(false);
         let handle = self
             .app_handle
             .try_state::<Handle>()
@@ -304,7 +323,8 @@ impl ServiceContext {
             }
             validate_send_scope(&mux, &job)?;
             let tab = mux.get_tab(&caller.tab).ok_or("blueprint creator gone")?;
-            job.agent_authored = tab.agent_type.is_some() && tab.session_binding_nonce.is_some();
+            job.agent_authored = imported_stopped.is_some()
+                || (tab.agent_type.is_some() && tab.session_binding_nonce.is_some());
             handle.store.lock().stage_insert(job.clone())
         };
         staged.settle(&handle.store)?;
