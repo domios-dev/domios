@@ -138,13 +138,17 @@ Team Mission Control and the workspace automation entry list named Blueprints; a
 
 An exact Team graph view may include version-1 node detail for that Team's stored definition: redacted probe text, question, bucket patterns and command handlers. This narrow exception does not expose execution output or environment. The workspace overview returns `definition.unavailable`; a mismatched scope never grants definition access. Probe and command text are capped at 4096 bytes with explicit truncation flags; an unrepresentable definition or one exceeding 64 KiB is unavailable. Pipeline definitions are unavailable in version 1. Origin remains unknown without positive provenance. An absent creator name does not imply system ownership. Accepted transitions retain pattern or adapter provenance, adapter/model identity and confidence separately from the configured fallback. `adapter_used` stays null when retained history lacks decision provenance. A next-check timestamp appears only for an authoritative active schedule.
 
-## Inspect and stop
+## Inspect, stop and delete
 
 ```bash
 codeterm blueprint list --json
 codeterm blueprint show BLUEPRINT_ID --json
 codeterm blueprint stop BLUEPRINT_ID --json
+codeterm blueprint delete BLUEPRINT_ID [--stop]
+codeterm blueprint delete --stopped
 ```
+
+`delete` removes a whole Blueprint with every stage and its history; naming a stage deletes the Blueprint it belongs to. Only the creator tab or the Team owner may delete, and only inside the caller's Team and workspace. A running Blueprint is refused unless `--stop` is passed. `--stopped` deletes every stopped Blueprint the caller may delete and prints the removed ids; deletion cannot be undone.
 
 These commands show or manage only the calling tab's blueprints in its creation scope and workspace. A solo graph remains visible to its creator after that tab joins a Team; it is not shared with the new Team. `show` includes the probe, accepted bucket, hash, next run, expiry, and last decision reason. Stopped watches remain inspectable. Closing a Team stops and removes its Team-owned blueprints, including in-flight route claims. A removed creator stops the watch. The store admits at most 64 active and 256 total blueprints; dormant stages count toward the total. Watches are local to the creator's machine; `--mesh` is refused.
 
@@ -152,7 +156,7 @@ Stored single-route definitions from older builds and unreadable/corrupt files l
 
 A failed persistence write returns an error and holds Blueprint unavailable; cancellation stays in memory and durability is unconfirmed until a valid store reload. Repair the filesystem first. No stop success or handler replay is inferred.
 
-<!-- revision: 23 -->
+<!-- revision: 24 -->
 
 ## Terminal output and conversation mode
 

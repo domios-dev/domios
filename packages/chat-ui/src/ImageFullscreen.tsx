@@ -26,7 +26,7 @@ export function ImageFullscreen({ image, anchorRef, onClose }: {
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   useFullscreenKeyboard(true, panelRef, onClose);
-  const { host, bounds } = useFullscreenHostBounds(true, anchorRef);
+  const { bounds } = useFullscreenHostBounds(true, anchorRef);
   const path = image.path;
   return createPortal(
     <FullscreenOverlay panelRef={panelRef} label={`Image ${image.name}`} onClose={onClose} style={bounds}>
@@ -62,6 +62,6 @@ export function ImageFullscreen({ image, anchorRef, onClose }: {
         />
       </div>
     </FullscreenOverlay>,
-    host ?? document.body,
+    document.body,
   );
 }

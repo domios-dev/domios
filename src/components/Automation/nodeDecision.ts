@@ -32,16 +32,3 @@ export function routeDefinitions(node: AutomationNode) {
     return { name: route.name, description };
   });
 }
-
-export function decisionRule(node: AutomationNode, classifier?: ClassifierConfig) {
-  if (node.executor?.kind === "agent") return `Agent · ${nodeKind(node).label}`;
-  const patterns = node.detail?.definition?.buckets?.some((bucket) => bucket.pattern);
-  const adapter = classifier ? `${aiKind(classifier.adapter_id, classifier.model).label} classifier (adapter: ${classifier.adapter_id})` : "Classifier unavailable";
-  if (node.identity.kind === "sentinel") return patterns ? `Pattern match first; ${classifier ? adapter + " when no pattern matches" : "unmatched output takes other"}` : adapter;
-  return node.source?.type ?? "Configured rule";
-}
-
-export function nodeType(node: AutomationNode, classifier?: ClassifierConfig) {
-  const kind = nodeKind(node, classifier);
-  return kind.ai ? "Agent" : kind.label === "Script" ? "Code" : node.identity.kind === "cron" ? "Schedule" : "Logic";
-}

@@ -16,6 +16,8 @@ const LEAF_FIELDS: &[&str] = &[
     "purpose",
     "icon",
     "utility_created_at",
+    "shell_profile",
+    "close_restore",
     "title",
     "description",
     "title_level",
@@ -134,6 +136,8 @@ fn valid_leaf_value(field: &str, value: &Value) -> bool {
         | "chatbackend_session_id"
         | "cwd" => value.is_string() || value.is_null(),
         "agent_identity"
+        | "shell_profile"
+        | "close_restore"
         | "ownership"
         | "model_fallback"
         | "model_identity_mismatch"

@@ -937,6 +937,7 @@ export function Sidebar({
               const hasOrphaned = views.some((v) => v.orphaned);
               return (
                 <RecentlyClosed
+                  structures={state.closed_structures ?? []}
                   views={views}
                   showWorkspace={state.workspaces.length > 1 || hasOrphaned}
                   onReopen={(wsId, idx, orphaned, tabId) => {

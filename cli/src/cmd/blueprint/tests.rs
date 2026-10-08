@@ -717,3 +717,65 @@ mod command_tests {
         assert_eq!(params["spec"], spec);
     }
 }
+
+fn parse_delete(args: &[&str]) -> Result<BlueprintAction, clap::Error> {
+    use clap::Parser;
+    let argv = ["codeterm", "blueprint", "delete"]
+        .into_iter()
+        .chain(args.iter().copied());
+    let crate::args::cli::Commands::Blueprint { action } =
+        crate::args::cli::Cli::try_parse_from(argv)?.command
+    else {
+        panic!("wrong command")
+    };
+    Ok(action)
+}
+
+#[test]
+fn blueprint_delete_wire_carries_id_stop_and_caller() {
+    let (method, params) = request(
+        parse_delete(&["graph", "--stop"]).unwrap(),
+        Some("caller".into()),
+        Some("nonce".into()),
+    )
+    .unwrap();
+    assert_eq!(method, "blueprint.delete");
+    assert_eq!(
+        params,
+        json!({"id":"graph","stopped":false,"stop":true,"caller_tab_id":"caller","session_binding_nonce":"nonce"})
+    );
+    let (_, params) = request(
+        parse_delete(&["--stopped"]).unwrap(),
+        Some("caller".into()),
+        None,
+    )
+    .unwrap();
+    assert_eq!(params["id"], Value::Null);
+    assert_eq!(params["stopped"], true);
+    assert_eq!(params["stop"], false);
+}
+
+#[test]
+fn blueprint_delete_refuses_ambiguous_or_empty_targets() {
+    assert!(parse_delete(&[]).is_err(), "a target is required");
+    assert!(
+        parse_delete(&["graph", "--stopped"]).is_err(),
+        "id and --stopped conflict"
+    );
+    assert!(
+        parse_delete(&["--stopped", "--stop"]).is_err(),
+        "--stop needs one id"
+    );
+}
+
+#[test]
+fn blueprint_delete_message_lists_removed_roots() {
+    assert_eq!(
+        deleted_message(&json!({"deleted":["a","b"]})),
+        "Deleted a, b."
+    );
+    assert_eq!(
+        deleted_message(&json!({"deleted":[]})),
+        "No blueprints deleted."
+    );
+}

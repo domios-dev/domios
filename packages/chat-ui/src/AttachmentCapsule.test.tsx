@@ -143,3 +143,22 @@ describe("inline attachment capsules in the user bubble", () => {
     expect(written).toEqual({});
   });
 });
+
+describe("context capsules", () => {
+  it("preview the head of their stored text on focus and name the capsule, not its temp file", async () => {
+    const QUOTE = "/tmp/codeterm-chat/q1-quote-notes.md";
+    configureLocalArtifactLoader(vi.fn(async (path: string) => {
+      if (path !== QUOTE) throw new Error("missing");
+      return { data: "From `/d/notes.md:3`:\n> First paragraph here.", media_type: "text/markdown" };
+    }));
+    configureLocalArtifactOpener(async () => {});
+    const host = await render(`see ${formatAttachmentMarker(QUOTE, "quote", "quote1 · notes.md:3")}`);
+    const [capsule] = capsules(host);
+    expect(capsule.dataset.attachmentKind).toBe("quote");
+    await act(async () => capsule.focus());
+    await act(async () => { await Promise.resolve(); });
+    expect(host.querySelector('[data-testid="capsule-preview-text"]')?.textContent).toBe("From `/d/notes.md:3`:\n> First paragraph here.");
+    expect(host.textContent).toContain("Quote");
+    expect(host.textContent).not.toContain("q1-quote-notes.md");
+  });
+});

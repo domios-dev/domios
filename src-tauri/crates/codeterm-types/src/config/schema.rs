@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::notification::{NotifyDestination, NotifyLevel};
 
 pub use super::dream_hygiene::DreamHygieneConfig;
+pub use super::model_defaults::ModelDefaultsConfig;
 pub use super::supporter::{
     MemoryRerankConfig, SupporterConfig, SupporterConnection, SupporterSources,
 };
@@ -56,6 +57,8 @@ pub struct AppConfig {
     pub runaway: RunawayConfig,
     #[serde(default)]
     pub kpi: KpiConfig,
+    #[serde(default)]
+    pub model_defaults: ModelDefaultsConfig,
 }
 
 impl Default for AppConfig {
@@ -84,6 +87,7 @@ impl Default for AppConfig {
             ui: UiConfig::default(),
             runaway: RunawayConfig::default(),
             kpi: KpiConfig::default(),
+            model_defaults: ModelDefaultsConfig::default(),
         }
     }
 }

@@ -1,4 +1,4 @@
-import { timestampMs, type ChangesTurn, type FileDiff, type FileDiffHunk, type RecordedFileChange } from "@codeterm/chat-core";
+import { fileDiffText, hunkHeader, timestampMs, type ChangesTurn, type FileDiffHunk, type RecordedFileChange } from "@codeterm/chat-core";
 
 export type ChangesScope = "all" | { turnId: string };
 export type ChangeBarBlock = "add" | "del" | "none";
@@ -55,18 +55,8 @@ export function turnNumber(turns: readonly ChangesTurn[], turnId: string): numbe
   return index < 0 ? null : index + 1;
 }
 
-export function hunkHeader(hunk: FileDiffHunk): string {
-  return `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`;
-}
-
-function diffText(diff: FileDiff): string {
-  const before = diff.kind === "add" ? "/dev/null" : `a/${diff.path}`;
-  const after = diff.kind === "delete" ? "/dev/null" : `b/${diff.movePath ?? diff.path}`;
-  return [`--- ${before}`, `+++ ${after}`, ...diff.hunks.flatMap((hunk) => [hunkHeader(hunk), ...hunk.lines])].join("\n");
-}
-
 export function unifiedDiffText(file: RecordedFileChange): string {
-  return file.diffs.map(diffText).join("\n");
+  return file.diffs.map(fileDiffText).join("\n");
 }
 
 /** A fence longer than any backtick run inside the body, so the block cannot close early. */
@@ -80,6 +70,31 @@ export function hunkReference(path: string, hunk: FileDiffHunk): string {
   const end = hunk.newStart + Math.max(0, hunk.newLines - 1);
   const lines = hunk.newLines > 1 ? `${hunk.newStart}-${end}` : `${hunk.newStart}`;
   return `Recorded change in \`${path}:${lines}\`:\n${fenced([hunkHeader(hunk), ...hunk.lines].join("\n"), "diff")}`;
+}
+
+function baseName(path: string): string {
+  return path.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean).pop() ?? path;
+}
+
+export function hunkCounts(hunk: FileDiffHunk): { additions: number; deletions: number } {
+  return {
+    additions: hunk.lines.filter((line) => line.startsWith("+")).length,
+    deletions: hunk.lines.filter((line) => line.startsWith("-")).length,
+  };
+}
+
+/** "diff · ChangesPanel.tsx +26 −4" */
+export function diffCapsuleLabel(path: string, counts: { additions: number; deletions: number }): string {
+  return `diff · ${baseName(path)} +${counts.additions} −${counts.deletions}`;
+}
+
+/** What a diff capsule's file holds: the change summary, where the file lives now, and its recorded diff. */
+export function changeContext(path: string, file: RecordedFileChange, location: string | null): string {
+  const lines = [changeReference(path, file)];
+  if (location) lines.push(`Current file: \`${location}\``);
+  const diff = unifiedDiffText(file);
+  if (diff) lines.push(fenced(diff, "diff"));
+  return lines.join("\n\n");
 }
 
 export function changeReference(path: string, file: RecordedFileChange, maxHunks = 3): string {

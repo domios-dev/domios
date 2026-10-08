@@ -123,11 +123,11 @@ export function PlanSidePanelHost({ api }: { api: ApiConfig }) {
   const onExited = useCallback(() => setMounted(false), []);
   useEffect(() => {
     const reset = () => {
-      planSidePanelStore.close();
-      planSidePanelStore.resetDocuments();
+      planSidePanelStore.suspend();
+      planSidePanelStore.resetCache();
       chatDocumentsStore.clear();
       chatChangesStore.clear();
-      tabPanelNavigationStore.clear();
+      tabPanelNavigationStore.resetCache();
       setMounted(false);
     };
     window.addEventListener("codeterm-peer-switch-reset", reset);

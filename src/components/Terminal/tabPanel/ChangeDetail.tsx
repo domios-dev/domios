@@ -5,14 +5,15 @@ import type { ChangesTurn, RecordedFileChange, ToolEvent } from "@codeterm/chat-
 import { IS_WEB, invoke } from "../../../lib/bridge";
 import { requestChatMessageReveal, useChatReveal } from "../../../lib/chatMessageReveal";
 import { setClientTabUiMode } from "../../../lib/clientTabUiMode";
-import { CHANGE_STATUS, changeReference, changesFilePath, hunkHeader, hunkReference, turnNumber, unifiedDiffText } from "../changesViewModel";
+import { hunkHeader } from "@codeterm/chat-core";
+import { CHANGE_STATUS, changeContext, changesFilePath, diffCapsuleLabel, hunkCounts, hunkReference, turnNumber, unifiedDiffText } from "../changesViewModel";
 import { insertIntoComposer } from "../composerInsertion";
 import { BackBar, ChangeBar, ChatAction, CopyAction, CountPair, IconAction, PanelPage, StatusGlyph, copyText } from "./PanelParts";
 
-/** Adds the file as a composer chip (while it still exists) and a reference to its recorded hunks. */
+/** Adds one diff capsule holding the recorded change and the file's current location while it still exists. */
 export function askAboutChange(tabId: string, file: RecordedFileChange, path: string, cwd?: string | null, current = file) {
-  const target = changesFilePath(current, cwd);
-  insertIntoComposer(tabId, { attachments: target && current.kind !== "delete" ? [target] : [], text: changeReference(path, file) });
+  const target = current.kind === "delete" ? null : changesFilePath(current, cwd);
+  insertIntoComposer(tabId, { kind: "diff", label: diffCapsuleLabel(path, file), content: changeContext(path, file, target) });
 }
 
 export function ChangeDetail({ tabId, file, currentFile, turns, path, cwd, display, onBack }: {
@@ -69,7 +70,7 @@ export function ChangeDetail({ tabId, file, currentFile, turns, path, cwd, displ
       {missingTurn && <p role="status" className="tab-panel__note"><Info size={13} aria-hidden />This turn is outside the loaded chat history. Load older messages in chat to find it.</p>}
       {hasHunks && <div className="tab-panel__diffs">
         <FileDiffCards event={event} initiallyExpanded rawCommand={false} renderHunkActions={(_diff, hunk) => <ChatAction compact text="Add to chat"
-          label={`Add hunk ${hunkHeader(hunk)} to chat`} onClick={() => insertIntoComposer(tabId, { text: hunkReference(path, hunk) })} />} />
+          label={`Add hunk ${hunkHeader(hunk)} to chat`} onClick={() => insertIntoComposer(tabId, { kind: "diff", label: diffCapsuleLabel(path, hunkCounts(hunk)), content: hunkReference(path, hunk) })} />} />
       </div>}
     </section>
   </PanelPage>;

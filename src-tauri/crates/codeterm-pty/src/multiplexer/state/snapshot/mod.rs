@@ -86,6 +86,7 @@ impl MultiplexerState {
             focused_tab_id: self.focused_tab_id.clone(),
             generation,
             recently_closed: self.recent_closed_view(),
+            closed_structures: self.closed_structure_views(),
             tab_statuses: HashMap::new(),
         }
     }
@@ -146,6 +147,12 @@ impl MultiplexerState {
                 icon: tab.and_then(|p| p.icon.clone()),
                 shell_profile: tab.and_then(|p| p.shell_profile.clone()),
                 utility_created_at: tab.map(|p| p.utility_created_at).unwrap_or_default(),
+                close_restore: tab.and_then(|p| {
+                    p.close_restore.clone().map(|mut state| {
+                        state.paired_planner_tab_id = p.pending_paired_planner_tab_id.clone();
+                        state
+                    })
+                }),
                 tab_id: tab_id.to_string(),
                 cwd: tab.and_then(|p| normalized_snapshot_cwd(p.cwd.as_deref())),
                 title: tab.map(|p| p.title.clone()),
@@ -455,6 +462,7 @@ fn install_leaf(
         purpose,
         icon,
         utility_created_at,
+        close_restore,
         shell_profile,
         tab_id,
         cwd,
@@ -580,6 +588,7 @@ fn install_leaf(
             icon: icon.clone(),
             shell_profile: shell_profile.clone(),
             utility_created_at: *utility_created_at,
+            close_restore: close_restore.clone(),
             utility_command_pending: false,
             shell_command_state: Default::default(),
             pending_delivery: pending_delivery.clone(),
@@ -637,7 +646,9 @@ fn install_leaf(
             team_id: team_id.clone(),
             watcher: watcher.clone(),
             parent_tab_id: parent_tab_id.clone(),
-            pending_paired_planner_tab_id: None,
+            pending_paired_planner_tab_id: close_restore
+                .as_ref()
+                .and_then(|state| state.paired_planner_tab_id.clone()),
             can_spawn: if codeterm_types::agent::is_legacy_cartographer_worker_binding(
                 role.as_deref(),
                 role_profile.as_deref(),

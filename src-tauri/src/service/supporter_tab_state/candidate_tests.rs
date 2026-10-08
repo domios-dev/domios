@@ -381,7 +381,7 @@ fn supporter_first_opinion_safe_response_provider_choice_in_same_redacted_batch(
         .unwrap()
         .pending_prompt
         .is_none());
-    let (mut redacted, _, seen) = StubHost::new(
+    let (mut redacted, redacted_calls, seen) = StubHost::new(
         "Fixture selection\n❯ 1. Update\n2. Skip\nEnter to confirm\ntoken=private-value",
         StubModel::answering(Ok(choice(OTHER, 0.99))),
     );
@@ -391,10 +391,49 @@ fn supporter_first_opinion_safe_response_provider_choice_in_same_redacted_batch(
         .join()
         .unwrap();
     let request = seen.lock().clone().unwrap();
+    assert_eq!(redacted_calls.load(Ordering::SeqCst), 1);
     assert!(!request.questions.contains_key("safe_choice"));
     assert!(!serde_json::to_string(&request)
         .unwrap()
         .contains("private-value"));
+    assert!(candidates::spawn(&redacted, &config, &id, None, |_, _, _| {}).is_none());
+    assert_eq!(redacted_calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn supporter_first_opinion_is_admitted_once_per_launch_after_periodic_observation() {
+    let (mut host, calls, _) = StubHost::new(
+        "opaque screen",
+        StubModel::answering(Ok(choice(OTHER, 0.99))),
+    );
+    let id = tab();
+    let config = enabled();
+    run(&host, &id, ObservationTrigger::WorkerIdle).unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    candidates::spawn(&host, &config, &id, None, |_, _, _| {})
+        .unwrap()
+        .join()
+        .unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert!(candidates::spawn(&host, &config, &id, None, |_, _, _| {}).is_none());
+    assert!(candidates::spawn_with_origin(
+        &host,
+        &config,
+        &id,
+        None,
+        ObservationTrigger::ParkedEdge,
+        None,
+        None,
+        |_, _, _| {},
+    )
+    .is_none());
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    host.session_key = Some("next-launch".into());
+    candidates::spawn(&host, &config, &id, None, |_, _, _| {})
+        .unwrap()
+        .join()
+        .unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
 }
 
 struct CandidateModel {
