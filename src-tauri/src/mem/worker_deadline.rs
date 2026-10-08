@@ -1,13 +1,19 @@
 use codeterm_types::config::MemoryConfig;
 
 pub(crate) const WORKER_WATCHDOG_GRACE_SECS: u64 = 120;
+const MAX_WORKER_RUN_SECS: u64 = 45 * 60;
+
+pub(crate) fn worker_watchdog_deadline_secs(run_deadline_secs: u64) -> u64 {
+    (run_deadline_secs + WORKER_WATCHDOG_GRACE_SECS).min(MAX_WORKER_RUN_SECS)
+}
 
 pub(crate) fn worker_deadline_secs(intent: &str, config: &MemoryConfig) -> u64 {
-    if crate::mem::workers::is_dreaming_intent(intent) {
+    let configured = if crate::mem::workers::is_dreaming_intent(intent) {
         config.dreaming_timeout_seconds
     } else {
         config.worker_timeout_seconds
-    }
+    };
+    configured.min(MAX_WORKER_RUN_SECS)
 }
 
 #[cfg(test)]
@@ -35,9 +41,25 @@ mod tests {
     #[test]
     fn watchdog_backstop_exceeds_run_watcher_deadline() {
         let run_deadline = worker_deadline_secs("dreaming:rem", &config());
-        let watchdog_deadline = run_deadline + WORKER_WATCHDOG_GRACE_SECS;
+        let watchdog_deadline = worker_watchdog_deadline_secs(run_deadline);
 
         assert_eq!(WORKER_WATCHDOG_GRACE_SECS, 120);
         assert!(watchdog_deadline > run_deadline);
+    }
+
+    #[test]
+    fn memory_workers_have_a_forty_five_minute_ceiling() {
+        let config = MemoryConfig {
+            worker_timeout_seconds: 7200,
+            dreaming_timeout_seconds: 7200,
+            ..MemoryConfig::default()
+        };
+        for intent in ["extract:item", "dreaming:rem"] {
+            assert_eq!(worker_deadline_secs(intent, &config), 2700);
+            assert_eq!(
+                worker_watchdog_deadline_secs(worker_deadline_secs(intent, &config)),
+                2700
+            );
+        }
     }
 }

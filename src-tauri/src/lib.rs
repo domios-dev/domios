@@ -235,11 +235,13 @@ pub fn run() {
             commands::save_clipboard_image,
             commands::save_clipboard_file,
             commands::materialize_dropped_files,
+            commands::attachment_path_kinds,
             clipboard_files::read_clipboard_files,
             clipboard_files::read_clipboard_text,
             commands::save_temp_file,
             commands::read_html_preview_file,
             commands::read_local_preview_file,
+            commands::check_local_preview_files,
             commands::read_workspace_essence_maps,
             commands::read_workspace_essence_source,
             commands::copy_image_to_clipboard,
@@ -266,6 +268,7 @@ pub fn run() {
             commands::mux_commands::mux_reorder_child,
             commands::mux_commands::mux_reorder_workspace,
             commands::mux_commands::mux_create_tab,
+            commands::mux_commands::shell_profiles,
             commands::mux_commands::mux_close_tab,
             commands::mux_commands::mux_set_active_tab,
             commands::mux_commands::mux_set_active_tab_and_workspace,
@@ -352,6 +355,8 @@ pub fn run() {
             session::list_saved_sessions,
             session::load_session,
             commands::automation_graph_snapshot,
+            commands::automation_node_files,
+            commands::reveal_file,
             commands::automation_graph_workspace_snapshot,
             commands::automation_graph_stop_sentinel,
             commands::automation_graph_delete_sentinel,
@@ -1029,7 +1034,7 @@ pub fn run() {
             // Resume unfinished extraction only when auto-extract is on; `mem extract-pending` stays the manual path.
             if crate::config::memory_config().auto_extract {
                 let svc_for_extract = service_state.clone();
-                let queued = crate::mem::auto_extract::run_extract_pending(
+                let queued = crate::mem_host::resume_extract_pending(
                     svc_for_extract,
                     usize::MAX,
                 );

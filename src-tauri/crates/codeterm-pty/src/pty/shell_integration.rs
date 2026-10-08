@@ -21,7 +21,7 @@ use std::sync::Mutex;
 static SCRIPTS_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Data dir where shell integration scripts live.
-fn integration_dir() -> PathBuf {
+pub(super) fn integration_dir() -> PathBuf {
     codeterm_paths::data_dir().join("shell-integration")
 }
 
@@ -70,6 +70,10 @@ if (-not $global:__CodeTermShellIntegrationLoaded) {
       [Console]::Write(([char]27 + ']633;E;;' + $global:__CodeTermShellNonce + [char]7))
       $exitCode = if ($lastSucceeded) { 0 } elseif ($lastNativeExit -is [int] -and $lastNativeExit -ne 0) { $lastNativeExit } else { 1 }
       [Console]::Write(([char]27 + ']633;D;' + $exitCode + [char]7))
+    }
+    $cwd = $executionContext.SessionState.Path.CurrentLocation
+    if ($cwd.Provider.Name -eq 'FileSystem') {
+      [Console]::Write(([char]27 + ']7;' + [Uri]::new($cwd.ProviderPath).AbsoluteUri + [char]7))
     }
     [Console]::Write(([char]27 + ']633;A' + [char]7))
     $rendered = & $global:__CodeTermOriginalPrompt
@@ -294,12 +298,20 @@ if [ -z "${CODETERM_SHELL_INTEGRATION:-}" ]; then
     done
     builtin printf '%s' "$out"
   }
-  __ct_osc7() { builtin printf '\033]7;file://%s%s\033\\' "$(hostname)" "$PWD"; }
+  __ct_cwd() {
+    if [ "${CODETERM_HOST_PATHS:-}" = "1" ]; then cygpath -am "$PWD"
+    else builtin printf '%s' "$PWD"; fi
+  }
+  __ct_osc7() {
+    builtin local dir="$(__ct_cwd)"
+    case "$dir" in [a-zA-Z]:/*) dir="/$dir" ;; esac
+    builtin printf '\033]7;file://%s%s\033\\' "$(hostname)" "$dir"
+  }
   __ct_in_command_execution="1"
   __ct_current_command=""
   __ct_prompt_start() { builtin printf '\e]633;A\a'; }
   __ct_prompt_end()   { builtin printf '\e]633;B\a'; }
-  __ct_update_cwd()   { builtin printf '\e]633;P;Cwd=%s\a' "$(__ct_escape_value "$PWD")"; __ct_osc7; }
+  __ct_update_cwd()   { builtin printf '\e]633;P;Cwd=%s\a' "$(__ct_escape_value "$(__ct_cwd)")"; __ct_osc7; }
   __ct_output_start() {
     if [ -z "${__ct_first_prompt-}" ]; then return; fi
     builtin printf '\e]633;E;%s;%s\a' "$(__ct_escape_value "${__ct_current_command}")" "$__ct_nonce"
@@ -489,6 +501,31 @@ mod tests {
         let mut cmd = CommandBuilder::new("/bin/bash");
         apply_env(&mut cmd, "/bin/bash"); // must not panic
         assert!(!cmd.is_default_prog());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bash_host_path_reporting_uses_the_shell_mount_mapping() {
+        let home = tempfile::tempdir().unwrap();
+        let harness = format!(
+            "cygpath() {{ printf '%s' 'C:/repo with spaces'; }}\n{BASH_RC}\n__ct_update_cwd"
+        );
+        let mut command = std::process::Command::new("/bin/bash");
+        command
+            .args(["--noprofile", "--norc", "-c", &harness])
+            .env("HOME", home.path())
+            .env("CODETERM_HOST_PATHS", "1")
+            .env_remove("CODETERM_SHELL_INTEGRATION");
+        codeterm_util::process_util::no_window_std(&mut command);
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(stdout.contains("633;P;Cwd=C:/repo with spaces"));
+        assert!(stdout.contains("/C:/repo with spaces\x1b\\"));
     }
 
     #[cfg(target_os = "windows")]

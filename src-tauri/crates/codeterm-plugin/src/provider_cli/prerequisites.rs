@@ -74,7 +74,11 @@ fn valid_binary(binary: &str) -> bool {
                 | "throw"
                 | "Write-Output"
                 | "Write-Error"
+                | "irm"
+                | "iex"
+                | "iwr"
         )
+        && !is_powershell_cmdlet(binary)
         && binary
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
@@ -83,6 +87,16 @@ fn valid_binary(binary: &str) -> bool {
             .chars()
             .next()
             .is_some_and(|c| c.is_ascii_alphabetic() || matches!(c, '_' | '.'))
+}
+
+/// PowerShell Verb-Noun cmdlets (Invoke-RestMethod, Set-ExecutionPolicy) are shell built-ins, not binaries.
+fn is_powershell_cmdlet(token: &str) -> bool {
+    let mut parts = token.splitn(2, '-');
+    let (Some(verb), Some(noun)) = (parts.next(), parts.next()) else {
+        return false;
+    };
+    let capitalized = |s: &str| s.chars().next().is_some_and(|c| c.is_ascii_uppercase());
+    capitalized(verb) && capitalized(noun) && verb.chars().all(|c| c.is_ascii_alphabetic())
 }
 
 fn setup_hint(binary: &str) -> String {
@@ -155,6 +169,18 @@ mod tests {
         );
         assert_eq!(
             command_binaries("if unknown-script; then something; fi"),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn powershell_builtins_are_not_prerequisites() {
+        assert_eq!(
+            command_binaries("irm https://x.ai/cli/install.ps1 | iex"),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            command_binaries("$s = Join-Path $env:TEMP 'a.ps1'; Invoke-WebRequest -Uri 'https://e/x' -OutFile $s; & $s"),
             Vec::<String>::new()
         );
     }

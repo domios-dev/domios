@@ -13,6 +13,7 @@ pub mod embed_queue;
 mod embed_schedule;
 pub mod embeddings;
 pub mod extraction_authority;
+pub mod extraction_retry;
 pub mod file_sync;
 pub mod graph;
 pub mod graph_layout;

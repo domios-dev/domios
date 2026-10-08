@@ -50,6 +50,20 @@ export function getPluginProviderMeta(id: string | null | undefined): PluginProv
   return cache[id];
 }
 
+/** The whole cache; its identity changes on every update, so it doubles as a store snapshot. */
+export function pluginProviderMetaRecord(): Readonly<Record<string, PluginProviderMeta>> {
+  return cache;
+}
+
+/** Display name for a known plugin id; undefined when unknown or when the manifest names it by its id. */
+export function pluginDisplayName(
+  record: Readonly<Record<string, PluginProviderMeta>>,
+  pluginId: string,
+): string | undefined {
+  const name = record[pluginId]?.displayName?.trim();
+  return name && name !== pluginId ? name : undefined;
+}
+
 export function subscribePluginProviderMeta(fn: () => void): () => void {
   subscribers.add(fn);
   return () => {

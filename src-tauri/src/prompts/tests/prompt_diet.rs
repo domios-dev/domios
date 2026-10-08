@@ -30,9 +30,10 @@ const CHARTER_TASK_TOKEN: &str = "task_opaque_6f3b2";
 /// the surface 25 bytes over the previous 17_900. Raised to the new measurement
 /// rather than trimming another author's contract blind; the next addition pays
 /// the same cost of re-measuring deliberately.
-// Re-measured with the plan/task flag fragment both surfaces carry.
-const ORCHESTRATOR_CONTRACT_MAX_BYTES: usize = 21_293;
-const PLANNER_CONTRACT_MAX_BYTES: usize = 20_916;
+// Re-measured at 21_687 for the owner-approved Planner lifecycle, owner-feedback and revert-and-bounce rules.
+const ORCHESTRATOR_CONTRACT_MAX_BYTES: usize = 21_700;
+// Planner re-measured at 21_207 for its owner-approved lifecycle and owner-evidence rules.
+const PLANNER_CONTRACT_MAX_BYTES: usize = 21_220;
 // Worker suffix and launch overhead re-measured at 4_667 and 8_105 for the
 // provider-native subagent rule (9d4ae23d1).
 const WORKER_SUFFIX_MAX_BYTES: usize = 5_000;
@@ -41,8 +42,10 @@ const WORKER_SUFFIX_MAX_BYTES: usize = 5_000;
 const PRIMER_MAX_BYTES: usize = 2_600;
 const PROVIDER_RULES_MAX_BYTES: usize = 9_700;
 const WORKER_CHARTER_MAX_BYTES: usize = 1_450;
-const ORCHESTRATOR_LAUNCH_MAX_BYTES: usize = 24_883;
-const PLANNER_LAUNCH_MAX_BYTES: usize = 24_840;
+// Re-measured at 25_575 for the owner-approved process rules, chat block guidance and the WSL utility line.
+const ORCHESTRATOR_LAUNCH_MAX_BYTES: usize = 25_600;
+// Re-measured at 25_126 alongside the planner contract and shared chat block guidance.
+const PLANNER_LAUNCH_MAX_BYTES: usize = 25_150;
 const WORKER_LAUNCH_OVERHEAD_MAX_BYTES: usize = 9_000;
 
 fn lf_len(text: &str) -> usize {

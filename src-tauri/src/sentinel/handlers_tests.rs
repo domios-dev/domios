@@ -629,3 +629,58 @@ fn sentinel_handlers_activation_requires_durable_declared_claim_and_checks_activ
         .contains("capacity"));
     assert!(store.get(&target).unwrap().machine.paused);
 }
+
+#[test]
+fn sentinel_causal_run_json_activation_and_downstream_accept_survive_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sentinels.json");
+    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let mut store = Store::new(path.clone(), clock.clone());
+    let mut child_definition = definition();
+    child_definition["paused"] = json!(true);
+    let child = store
+        .create(
+            serde_json::from_value(child_definition).unwrap(),
+            owner(),
+            false,
+        )
+        .unwrap();
+    let mut parent_definition = definition();
+    parent_definition["handlers"] =
+        json!({"done":[{"id":"child","type":"sentinel","parameters":{"target":child.id}}]});
+    let parent = store
+        .create(
+            serde_json::from_value(parent_definition).unwrap(),
+            owner(),
+            false,
+        )
+        .unwrap();
+    let (parent, id) = transition(&mut store, &parent);
+    store
+        .claim_handler(&parent, &id, &parent.routes["done"][0])
+        .unwrap()
+        .unwrap();
+    assert!(store.activate(&parent, &id, &child.id).unwrap());
+    let context = store.get(&child.id).unwrap().causal_run.clone().unwrap();
+    assert_eq!(context.parent.as_ref().unwrap().node, parent.id);
+    assert_eq!(context.parent.as_ref().unwrap().transition, id);
+    drop(store);
+    let mut store = Store::new(path, clock);
+    let child = store.get(&child.id).unwrap().clone();
+    assert_eq!(child.causal_run.as_ref(), Some(&context));
+    transition(&mut store, &child);
+    assert_eq!(
+        store.get(&child.id).unwrap().transitions[0]
+            .causal_run
+            .as_ref(),
+        Some(&context)
+    );
+    assert_eq!(
+        store.get(&parent.id).unwrap().transitions[0]
+            .causal_run
+            .as_ref()
+            .unwrap()
+            .id,
+        context.id
+    );
+}

@@ -3,6 +3,8 @@ import { FileCode, Terminal } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { commandRowLabel, type CommandRow } from "../codeterm/commandShape";
 import { describeAction } from "../codeterm/templates";
+import { usePluginNameResolver } from "../codeterm/PluginNames";
+import type { PluginNameResolver } from "../codeterm/pluginAction";
 import { actionVisual } from "./CodetermActionCard";
 import { toolKindVisual, type ToolKindVisual } from "./toolKindVisual";
 
@@ -39,9 +41,9 @@ function lineLabel(count: number): string {
   return `${count} ${count === 1 ? "line" : "lines"}`;
 }
 
-function segmentBranch(row: CommandRow): Branch {
+function segmentBranch(row: CommandRow, resolvePlugin?: PluginNameResolver): Branch {
   if (row.role === "codeterm") {
-    const { lead, object } = describeAction(row.invocation);
+    const { lead, object } = describeAction(row.invocation, undefined, undefined, undefined, resolvePlugin);
     const visual = actionVisual(row.invocation);
     return { kind: "segment", role: row.role, glyph: visual.glyph, color: visual.color, lead, object };
   }
@@ -139,6 +141,7 @@ export function CommandTree({ rows, cap, openIndex, onLine, onMore, renderDetail
   renderDetail?: (index: number) => ReactNode;
   label?: string;
 }) {
-  const branches = useMemo(() => rows.map((row) => segmentBranch(row)), [rows]);
+  const resolvePlugin = usePluginNameResolver();
+  const branches = useMemo(() => rows.map((row) => segmentBranch(row, resolvePlugin)), [rows, resolvePlugin]);
   return <BranchList branches={branches} cap={cap} openIndex={openIndex} onBranch={onLine} onMore={onMore} renderDetail={renderDetail} label={label} />;
 }

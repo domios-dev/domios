@@ -65,3 +65,33 @@ pub(super) fn prepare(
 ) -> Result<InputFiles, String> {
     materialize(data_dir, blueprint_id, run_id, &spec.data, deadline)
 }
+
+pub(super) fn text_output(
+    job: &super::store::Sentinel,
+    deadline: Instant,
+) -> Result<super::probe::Output, String> {
+    use std::io::Read;
+    let spec = job.input.as_ref().ok_or("input source missing")?;
+    let run_id = uuid::Uuid::new_v4().simple().to_string();
+    let data_dir = crate::paths::data_dir();
+    let run_dir = codeterm_types::sentinel_input::run_dir(&data_dir, &job.id, &run_id)?;
+    let _cleanup = Cleanup::new(run_dir);
+    let files = prepare(&data_dir, &job.id, &run_id, spec, deadline)?;
+    let mut bytes = Vec::new();
+    std::fs::File::open(files.source)
+        .map_err(|error| error.to_string())?
+        .take((codeterm_types::blueprint_terminal::MAX_PAYLOAD_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    if bytes.is_empty() || bytes.len() > codeterm_types::blueprint_terminal::MAX_PAYLOAD_BYTES {
+        return Err("input text must contain 1..32768 UTF-8 bytes".into());
+    }
+    let text = String::from_utf8(bytes.clone()).map_err(|_| "input text is not UTF-8")?;
+    Ok(super::probe::Output {
+        text,
+        bytes,
+        success: true,
+        exit_code: Some(0),
+        ..Default::default()
+    })
+}

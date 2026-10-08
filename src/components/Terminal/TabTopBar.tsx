@@ -1,3 +1,7 @@
+import { ComposerContextMeter } from "./ComposerContextMeter";
+import { DocumentsButton } from "./DocumentsPanel";
+import { ChangesButton } from "./ChangesPanel";
+import { planSidePanelStore } from "../Canvas/planSidePanelStore";
 import { ShellPurposeIcon, ShellStatus } from "../shared/ShellStatus";
 import { isUtilityShell } from "../../lib/shellCommandState";
 import { useCallback, useEffect, useState } from "react";
@@ -100,6 +104,7 @@ export function TabTopBar({
   workspaceId,
   tabMenu,
 }: TabTopBarProps) {
+  useEffect(() => { if (isActive) planSidePanelStore.activateTab(tabId); }, [isActive, tabId]);
   const [reconnecting, setReconnecting] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -249,6 +254,9 @@ export function TabTopBar({
             modelGroups={usageModelGroups}
           />
         )}
+        <ComposerContextMeter tabId={tabId} />
+        <DocumentsButton tabId={tabId} />
+        <ChangesButton tabId={tabId} />
         {entries.length > 0 && (
           <TabActionsMenu
             entries={entries}

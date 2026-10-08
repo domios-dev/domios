@@ -255,6 +255,7 @@ mod tests {
             tab_type: TabType::Terminal,
             purpose: Default::default(),
             icon: None,
+            shell_profile: None,
             utility_created_at: 0,
             utility_command_pending: false,
             shell_command_state: Default::default(),

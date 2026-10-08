@@ -1,6 +1,6 @@
 import {ProviderCapabilityBadge} from "./ProviderCapabilityBadge";
 import {cachedSlashCommands} from "../../lib/providerCapabilities";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { ComposerBubbleRow } from "./ComposerBubbles";
 import { ComposerDock } from "./ComposerDock";
 import { useComposerLayout } from "./useComposerLayout";
@@ -42,6 +42,10 @@ import { composeAttachmentDraft } from "./meshAttachmentHandoff";
 import { composerAttachmentHandoff } from "./composerAttachmentHandoff";
 import { ReceiverTargetMarks } from "./ReceiverTargetMark";
 import { usePluginTabMenu } from "../../lib/pluginTabMenu";
+import { useComposerInsertions } from "./useComposerInsertions";
+import { ComposerCapsuleField } from "./ComposerCapsuleField";
+import { hasCapsuleTokens } from "./composerCapsules";
+import { useComposerCapsules, type InlineAttachmentSink } from "./useComposerCapsules";
 
 const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
 const VOICE_TRANSCRIBE_ERROR = "⚠️ Voice transcription failed — tap the mic to retry.";
@@ -184,6 +188,7 @@ function ChatComposerImpl({
   showComposerError,
   onOpenTerminalFallback,
   promptDock,
+  inlineAttachmentSink,
   chatBackend = false,
   isActive = true,
 }: {
@@ -210,6 +215,8 @@ function ChatComposerImpl({
   showComposerError: (message: string) => void;
   onOpenTerminalFallback?: () => void;
   promptDock?: ReactNode;
+  /** Where pasted and dropped files land as capsules at the caret. */
+  inlineAttachmentSink?: MutableRefObject<InlineAttachmentSink | null>;
 }) {
   recordComposerRender(tabId);
   const isActiveRef = useRef(isActive);
@@ -247,6 +254,9 @@ function ChatComposerImpl({
     },
     [showComposerError],
   );
+  const capsules = useComposerCapsules({ tabId, textareaRef, sinkRef: inlineAttachmentSink, onError: flagComposerError });
+  const [composing, setComposing] = useState(false);
+  const capsulesActive = !composing && hasCapsuleTokens(input);
   const capabilities = useMuxSelector(useCallback(state => state.tabs[tabId]?.provider_signals?.capabilities, [tabId]));
   const firstLine = input.split("\n")[0] || "";
   const suggestions = useMemo(
@@ -268,6 +278,8 @@ function ChatComposerImpl({
       }
     });
   }, []);
+
+  useComposerInsertions(tabId, { draft: input, setDraft: setInput, addAttachments, textareaRef, focus: refocusComposer });
 
   useLayoutEffect(() => { recordComposerPaint(); }, [input]);
 
@@ -351,6 +363,7 @@ function ChatComposerImpl({
       allAttachments,
       recordedVoiceAttachments,
       composerAttachmentHandoff,
+      capsules.registryRef.current,
     );
   }
 
@@ -384,6 +397,7 @@ function ChatComposerImpl({
       updateOptimistic(placeholderId, VOICE_TRANSCRIBE_ERROR);
       setInput("");
       clearAttachments();
+      capsules.clear();
       refocusComposer();
       return;
     }
@@ -412,11 +426,12 @@ function ChatComposerImpl({
           observeChatSendStatus(await sendTrackedChatMessage(tabId, optimisticId, composed));
         }
       }
-      recall.remember(text);
+      recall.remember(capsules.toPortable(text));
       if (currentDraftRef.current.revision === submittedDraft.revision
         && textareaRef.current?.value === submittedDraft.input) {
         setInput("");
         clearAttachments();
+        capsules.clear();
       }
     } catch (e) {
       console.warn("[chat-send] optimistic delivery failed", {
@@ -447,6 +462,7 @@ function ChatComposerImpl({
       await createDelayedMessage(tabId, composed, scheduledAtMs, recurrence);
       setInput("");
       clearAttachments();
+      capsules.clear();
       setScheduleOpen(false);
       setDelayedQueueOpen(true);
       await refreshDelayedMessages();
@@ -564,105 +580,125 @@ function ChatComposerImpl({
             highlighted={pickerHighlight}
             onPick={pickSuggestion}
           />
-          <textarea
-            data-testid="chat-composer"
-            data-tab-id={tabId}
-            aria-label="Message composer"
-            aria-invalid={composerInvalid}
-            ref={textareaRef}
+          <ComposerCapsuleField
+            tabId={tabId}
             value={input}
-            onChange={(e) => {
-              setComposerInvalid(false);
-              recall.reset();
-              setInput(e.target.value);
-            }}
-            onBeforeInput={(e) => {
-              recordComposerBeforeInput(e.nativeEvent.inputType || "beforeinput");
-            }}
-            onKeyDown={(e) => {
-              recordComposerIgnoredKey(e.key);
-              if (isImeKeyEvent(compositionGate, e.nativeEvent.isComposing, e.nativeEvent.keyCode)) return;
-              const shortcutContext = { composerFocus: isActive, composing: compositionGate.active,
-                pickerOpen, atStart: e.currentTarget.selectionStart === 0 };
-              if ((e.code === "ArrowUp" || e.code === "ArrowDown") && evaluateWhen("composerFocus && !composing && !pickerOpen && atStart", shortcutContext)) {
-                const previous = recall.move(input, e.code === "ArrowUp" ? -1 : 1);
-                if (previous !== undefined) { e.preventDefault(); setInput(previous); }
-                return;
-              }
-              if (e.code === "KeyS" && (e.ctrlKey || e.metaKey) && e.shiftKey && evaluateWhen("composerFocus && !composing && !pickerOpen", shortcutContext)) {
-                e.preventDefault();
-                setInput(recall.stash(input));
-                return;
-              }
-              if (touchMode && e.key === "Enter" && !e.shiftKey) {
-                setPickerOpen(false);
-                return;
-              }
-              if (pickerOpen) {
-                if (e.key === "ArrowDown") {
-                  e.preventDefault();
-                  setPickerHighlight((h) => Math.min(h + 1, suggestions.length - 1));
+            registry={capsules.registry}
+            active={capsulesActive}
+            textareaRef={textareaRef}
+            marginPx={composerLayout.editorPx > COMPOSER_MIN_HEIGHT ? 8 : 0}
+            onRemove={capsules.remove}
+          >
+            <textarea
+              data-testid="chat-composer"
+              data-tab-id={tabId}
+              aria-label="Message composer"
+              aria-invalid={composerInvalid}
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => {
+                setComposerInvalid(false);
+                recall.reset();
+                setInput(e.target.value);
+              }}
+              onBeforeInput={(e) => {
+                recordComposerBeforeInput(e.nativeEvent.inputType || "beforeinput");
+              }}
+              onKeyDown={(e) => {
+                recordComposerIgnoredKey(e.key);
+                if (isImeKeyEvent(compositionGate, e.nativeEvent.isComposing, e.nativeEvent.keyCode)) return;
+                if (capsules.handleKeyDown(e)) return;
+                const shortcutContext = { composerFocus: isActive, composing: compositionGate.active,
+                  pickerOpen, atStart: e.currentTarget.selectionStart === 0 };
+                if ((e.code === "ArrowUp" || e.code === "ArrowDown") && evaluateWhen("composerFocus && !composing && !pickerOpen && atStart", shortcutContext)) {
+                  const previous = recall.move(capsules.toPortable(input), e.code === "ArrowUp" ? -1 : 1);
+                  if (previous !== undefined) { e.preventDefault(); setInput(capsules.fromPortable(previous)); }
                   return;
                 }
-                if (e.key === "ArrowUp") {
+                if (e.code === "KeyS" && (e.ctrlKey || e.metaKey) && e.shiftKey && evaluateWhen("composerFocus && !composing && !pickerOpen", shortcutContext)) {
                   e.preventDefault();
-                  setPickerHighlight((h) => Math.max(h - 1, 0));
+                  setInput(capsules.fromPortable(recall.stash(capsules.toPortable(input))));
                   return;
                 }
-                if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
-                  e.preventDefault();
-                  if (e.key === "Enter" && cliFallbackCommandPayload(input)) {
-                    void send();
-                    return;
-                  }
-                  const cmd = suggestions[pickerHighlight];
-                  if (cmd) pickSuggestion(cmd);
-                  return;
-                }
-                if (e.key === "Escape") {
-                  e.preventDefault();
+                if (touchMode && e.key === "Enter" && !e.shiftKey) {
                   setPickerOpen(false);
                   return;
                 }
-              }
-              if (composerEnterIntent(e.key, e.shiftKey, e.nativeEvent.isComposing) === "submit") {
-                e.preventDefault();
-                void send();
-              }
-            }}
-            onCompositionStart={() => {
-              beginComposition(compositionGate);
-              if (typeof window !== "undefined") window.__composerPerf?.compositionEvents.push("start");
-            }}
-            onCompositionEnd={(e) => {
-              endComposition(compositionGate);
-              // Commit the finished draft once and run the autosize the gate
-              // deferred; both are no-ops when state already mirrors the DOM.
-              setInput(e.currentTarget.value);
-              measureComposer();
-              if (typeof window !== "undefined") window.__composerPerf?.compositionEvents.push("end");
-            }}
-            onPaste={(e) => void handlePasteEvent(e.nativeEvent)}
-            placeholder={pendingPrompt
-              ? "Agent may be waiting in the terminal."
-              : "Message"}
-            rows={1}
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="sentences"
-            spellCheck={false}
-            enterKeyHint={touchMode ? "enter" : "send"}
-            inputMode="text"
-            className="block w-full min-h-5 flex-1 self-center resize-none bg-transparent py-0 pr-1 text-[15px] leading-5 outline-none placeholder:text-[var(--ct-muted-fg)]"
-            style={{
-              color: "var(--ct-fg, #c9d1d9)",
-              border: "none",
-              lineHeight: `${COMPOSER_MIN_HEIGHT}px`,
-              // Margin, not padding: padding would feed back into the scrollHeight autosize.
-              margin: composerLayout.editorPx > COMPOSER_MIN_HEIGHT ? "8px 0" : 0,
-              overflowY: "auto",
-            }}
-          />
+                if (pickerOpen) {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setPickerHighlight((h) => Math.min(h + 1, suggestions.length - 1));
+                    return;
+                  }
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setPickerHighlight((h) => Math.max(h - 1, 0));
+                    return;
+                  }
+                  if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+                    e.preventDefault();
+                    if (e.key === "Enter" && cliFallbackCommandPayload(input)) {
+                      void send();
+                      return;
+                    }
+                    const cmd = suggestions[pickerHighlight];
+                    if (cmd) pickSuggestion(cmd);
+                    return;
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setPickerOpen(false);
+                    return;
+                  }
+                }
+                if (composerEnterIntent(e.key, e.shiftKey, e.nativeEvent.isComposing) === "submit") {
+                  e.preventDefault();
+                  void send();
+                }
+              }}
+              onCompositionStart={() => {
+                beginComposition(compositionGate);
+                if (capsulesActive) setComposing(true);
+                if (typeof window !== "undefined") window.__composerPerf?.compositionEvents.push("start");
+              }}
+              onCompositionEnd={(e) => {
+                endComposition(compositionGate);
+                setComposing(false);
+                // Commit the finished draft once and run the autosize the gate
+                // deferred; both are no-ops when state already mirrors the DOM.
+                setInput(e.currentTarget.value);
+                measureComposer();
+                if (typeof window !== "undefined") window.__composerPerf?.compositionEvents.push("end");
+              }}
+              onPaste={(e) => {
+                if (capsules.handlePaste(e)) return;
+                void handlePasteEvent(e.nativeEvent);
+              }}
+              onCopy={(e) => capsules.handleCopy(e, false)}
+              onCut={(e) => capsules.handleCopy(e, true)}
+              onSelect={(e) => capsules.snapSelection(e.currentTarget)}
+              placeholder={pendingPrompt
+                ? "Agent may be waiting in the terminal."
+                : "Message"}
+              rows={1}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="sentences"
+              spellCheck={false}
+              enterKeyHint={touchMode ? "enter" : "send"}
+              inputMode="text"
+              className="block w-full min-h-5 resize-none bg-transparent py-0 pr-1 text-[15px] leading-5 outline-none placeholder:text-[var(--ct-muted-fg)]"
+              style={{
+                color: capsulesActive ? "transparent" : "var(--ct-fg, #c9d1d9)",
+                caretColor: "var(--ct-fg, #c9d1d9)",
+                border: "none",
+                lineHeight: `${COMPOSER_MIN_HEIGHT}px`,
+                // Margin, not padding: padding would feed back into the scrollHeight autosize.
+                margin: composerLayout.editorPx > COMPOSER_MIN_HEIGHT ? "8px 0" : 0,
+                overflowY: "auto",
+              }}
+            />
+          </ComposerCapsuleField>
         </ComposerActions>
       </div>
     </ComposerDock>
@@ -686,6 +722,7 @@ export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
   && a.showComposerError === b.showComposerError
   && a.onOpenTerminalFallback === b.onOpenTerminalFallback
   && a.promptDock === b.promptDock
+  && a.inlineAttachmentSink === b.inlineAttachmentSink
   && a.chatBackend === b.chatBackend
   && a.isActive === b.isActive
 );

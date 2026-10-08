@@ -379,6 +379,65 @@ export const enHelpContent: HelpLocaleContent = {
       ],
     },
     {
+      id: "phone",
+      title: "Answer your agents from your phone",
+      subtitle: "Message your General Agent through a Telegram bot",
+      blocks: [
+        {
+          type: "paragraph",
+          text: "Connect a Telegram bot and your General Agent answers you wherever you are. Write from your phone, send voice notes that arrive transcribed, and get a message when an agent needs you.",
+        },
+        {
+          type: "list",
+          ordered: true,
+          items: [
+            "Create a bot with @BotFather in Telegram and copy the token it gives you.",
+            "Save the token to ~/.codeterm/secrets/telegram.token on this machine.",
+            "Open the Telegram settings below, turn the bridge on and add your Telegram user ID to the allowed users.",
+            "Restart the bridge, then send your bot a message.",
+          ],
+        },
+        { type: "settings-link", label: "Connect Telegram", target: "telegram-bridge" },
+        {
+          type: "tip",
+          text: "Only allowed user IDs reach your machine. Leave the list empty only on a bot nobody else knows about.",
+        },
+        {
+          type: "ask",
+          label: "Ask the General Agent: help me connect my phone",
+          question:
+            "A user is reading the Domios guide (phone section) and pressed 'Ask the agent'. Check whether the Telegram bot bridge is enabled, whether a token is stored and which user IDs are allowed. Walk them through the next missing step only, one step at a time.",
+        },
+      ],
+    },
+    {
+      id: "messenger-plugins",
+      title: "Let agents use your Telegram and Teams",
+      subtitle: "Plugins that act from your own messenger accounts",
+      blocks: [
+        {
+          type: "paragraph",
+          text: "The bot bridge talks as a bot. These plugins sign in as you, so agents can find a chat by name, read recent history, search messages and send text or files from your own account.",
+        },
+        { type: "plugin", pluginId: "telegram-client" },
+        { type: "plugin", pluginId: "teams-client" },
+        {
+          type: "list",
+          items: [
+            "Install runs only when you press it, the same as in Plugins.",
+            "After installing, open the plugin to sign in. Your session stays on this machine.",
+            "Agents send from your account only when you ask them to.",
+          ],
+        },
+        {
+          type: "ask",
+          label: "Ask the General Agent: what can you do with my messengers?",
+          question:
+            "A user is reading the Domios guide (messenger plugins section) and pressed 'Ask the agent'. Check whether telegram-client and teams-client are installed and signed in on this machine. Show each with @ds-plugin and give two concrete things you could do for them with the ones that are ready.",
+        },
+      ],
+    },
+    {
       id: "tips",
       title: "Tips & shortcuts",
       subtitle: "Everyday commands and where to look when things break",

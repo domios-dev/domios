@@ -3,6 +3,7 @@ import { invoke } from "../../lib/bridge";
 import { X, TerminalSquare, FolderOpen, Sparkles, SquarePlus } from "lucide-react";
 import { isMac } from "../../lib/keybindings";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
+import { useShellProfiles } from "../../hooks/useShellProfiles";
 import { useConfig } from "../../hooks/useConfig";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { RowMenuButton } from "../shared/RowMenuButton";
@@ -21,7 +22,7 @@ interface WorkspaceItemProps {
   onToggleExpand: () => void;
   onClose: () => void;
   onRename: (name: string) => void;
-  onNewTerminal: () => void;
+  onNewTerminal: (shell?: string) => void;
   onNewSession: () => void;
   onOpenMap?: () => void;
   onOpenAutomation?: () => void;
@@ -80,6 +81,7 @@ function WorkspaceItemInner({
     if (e.key === "Escape") { setEditing(false); }
   }, [commitRename]);
 
+  const { profiles, refresh: refreshShells, loading: shellsLoading, error: shellsError } = useShellProfiles();
   const { config } = useConfig();
   const agentsConfig = config.agents ?? {};
   // plugins with a `src/index.ts` FE module, which left drop-in `~/.codeterm/plugins/<id>/plugin.js` plugins invisible in the workspace menu.
@@ -135,7 +137,14 @@ function WorkspaceItemInner({
       {
         label: "New Terminal",
         icon: <TerminalSquare size={11} strokeWidth={1.5} />,
-        onClick: onNewTerminal,
+        submenu: {
+          label: "New Terminal",
+          items: [
+            { label: "Default shell", onClick: () => onNewTerminal() },
+            ...profiles.map((profile) => ({ label: profile.name, onClick: () => onNewTerminal(profile.id) })),
+            { label: shellsError ? "Retry shell detection" : "Refresh shells", disabled: shellsLoading, onClick: () => void refreshShells() },
+          ],
+        },
       },
     ];
     if (workspace.cwd) {
@@ -156,7 +165,7 @@ function WorkspaceItemInner({
       });
     }
     return items;
-  }, [onNewTerminal, onNewSession, newSessionDisabled, onNewAgent, onClose, workspace.protected, workspace.cwd, agentsConfig, providers]);
+  }, [onNewTerminal, onNewSession, newSessionDisabled, onNewAgent, onClose, workspace.protected, workspace.cwd, agentsConfig, providers, profiles, refreshShells, shellsLoading, shellsError]);
 
   return <>
     <div

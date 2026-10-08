@@ -105,11 +105,11 @@ testWindow.HTMLElement.prototype.scrollIntoView = function () {
 
   test("guide_control_opens_settings_section_and_focuses_heading", async () => {
     await withHarness("@ds-guide supporter-agent", async (host) => {
-      const control = host.querySelector('[data-testid="chat-ds-guide"] button') as HTMLButtonElement;
+      const control = host.querySelector('[data-testid="chat-ds-guide"] [data-block-action="open"]') as HTMLButtonElement;
       assert(control && control.type === "button" && !control.disabled, "Guide control inaccessible");
       assert((control.getAttribute("aria-label") ?? control.textContent)?.trim(), "Guide control has no accessible name");
       const metadata = GUIDE_SECTIONS.find((section) => section.id === "supporter-agent");
-      assert(metadata && control.textContent?.includes(metadata.title), "section title did not reach control");
+      assert(metadata && control.getAttribute("aria-label")?.includes(metadata.title), "section title did not reach control");
       await act(async () => control.click());
       assertDestination(host, "supporter-agent");
 
@@ -117,7 +117,7 @@ testWindow.HTMLElement.prototype.scrollIntoView = function () {
       await act(async () => memoryNav.click());
       const selector = host.querySelector('[data-testid="help-section-select"]') as HTMLSelectElement;
       assert(selector.value === "memory", "Guide navigation did not change section");
-      const liveControl = host.querySelector('[data-testid="chat-ds-guide"] button') as HTMLButtonElement;
+      const liveControl = host.querySelector('[data-testid="chat-ds-guide"] [data-block-action="open"]') as HTMLButtonElement;
       await act(async () => liveControl.click());
       assertDestination(host, "supporter-agent");
     });
@@ -126,7 +126,7 @@ testWindow.HTMLElement.prototype.scrollIntoView = function () {
   test("unknown_guide_id_shows_notice_and_opens_first_section", async () => {
     await withHarness("@ds-guide unknown-section-3c2", async (host) => {
       assert(host.querySelector('[data-testid="chat-guide-notice"]'), "unknown id notice missing");
-      const control = host.querySelector('[data-testid="chat-ds-guide"] button') as HTMLButtonElement;
+      const control = host.querySelector('[data-testid="chat-ds-guide"] [data-block-action="open"]') as HTMLButtonElement;
       await act(async () => control.click());
       assertDestination(host, GUIDE_SECTIONS[0].id);
     });
@@ -134,7 +134,7 @@ testWindow.HTMLElement.prototype.scrollIntoView = function () {
 
   test("guide_directive_is_generic_across_sections", async () => {
     await withHarness("@ds-guide memory", async (host) => {
-      const control = host.querySelector('[data-testid="chat-ds-guide"] button') as HTMLButtonElement;
+      const control = host.querySelector('[data-testid="chat-ds-guide"] [data-block-action="open"]') as HTMLButtonElement;
       await act(async () => control.click());
       assertDestination(host, "memory");
     });

@@ -46,6 +46,8 @@ export interface InstalledPlugin {
   icon_svg?: string | null;
   icon_color?: string | null;
   description?: string | null;
+  /** One-line outcome from the manifest `pitch`, shown on chat plugin cards. */
+  pitch?: string | null;
   /** Opt-in agent-facing instructions. Absent means AI configuration is unsupported. */
   config_help?: string | null;
   homepage?: string | null;
@@ -91,6 +93,7 @@ export interface MarketplaceRow extends DiffRow {
   icon_svg?: string | null;
   icon_color?: string | null;
   description?: string | null;
+  pitch?: string | null;
   config_help?: string | null;
   homepage?: string | null;
   readme_markdown?: string | null;

@@ -1025,6 +1025,7 @@ pub async fn open_chat_backend_tab(
     let handle = state
         .svc
         .spawn_tab(SpawnTabSpec {
+            shell: None,
             workspace_id: req.workspace_id,
             visibility: TabVisibility::Visible,
             command: TabCommand::ChatBackend {

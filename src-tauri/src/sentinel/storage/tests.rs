@@ -364,6 +364,7 @@ fn storage_sentinel_definition_versions_are_independent_of_runtime_state() {
     assert_eq!(
         after.runtime,
         StageRuntime {
+            causal_run_json: None,
             generation,
             ..first.runtime.clone()
         },
@@ -381,6 +382,7 @@ fn storage_sentinel_definition_versions_are_independent_of_runtime_state() {
         generation,
         codec::outcome(&job),
         crate::storage::NewTransition {
+            causal_run_json: None,
             decision_json: None,
             id: "eval-after-update".into(),
             bucket: "done".into(),
@@ -504,6 +506,26 @@ fn storage_sentinel_two_parents_activate_child_once_and_survive_reopen() {
     let child = restored.get(&child.id).unwrap();
     assert_eq!(child.machine.last_bucket.as_deref(), Some("done"));
     assert_eq!(child.revision, 1, "activated exactly once");
+    let first_run = restored.get(&first.id).unwrap().transitions[0]
+        .causal_run
+        .as_ref()
+        .unwrap();
+    let second_run = restored.get(&second.id).unwrap().transitions[0]
+        .causal_run
+        .as_ref()
+        .unwrap();
+    let child_run = child.transitions[0].causal_run.as_ref().unwrap();
+    assert_ne!(first_run.id, second_run.id);
+    assert_eq!(first_run.started_at, second_run.started_at);
+    assert_eq!(child_run.id, first_run.id);
+    assert_eq!(child.causal_run.as_ref(), Some(child_run));
+    assert_eq!(child_run.parent.as_ref().unwrap().node, first.id);
+    assert_eq!(child_run.parent.as_ref().unwrap().handler, "join");
+    assert_eq!(
+        child_run.parent.as_ref().unwrap().transition,
+        restored.get(&first.id).unwrap().transitions[0].id
+    );
+
     assert_eq!(
         restored.get(&second.id).unwrap().transitions[0].handlers[0].status,
         Status::Noop

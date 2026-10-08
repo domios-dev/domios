@@ -298,6 +298,8 @@ pub struct ResultRecord {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Transition {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub causal_run: Option<codeterm_types::blueprint_run::Context>,
     #[serde(default)]
     pub decision: Option<super::provenance::Decision>,
     pub id: String,
@@ -456,12 +458,32 @@ impl Store {
         {
             return Staged::ready(Ok(false));
         }
-        if super::store::transition_budget_spent(current) {
+        if super::store::transition_budget_spent(current)
+            || (current.session
+                && super::session::usage(&self.jobs, current, now).exchanges
+                    >= codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT)
+        {
+            let reason = if current.session {
+                "session_safety_limit"
+            } else {
+                "transition_budget_exhausted"
+            };
+            return self.stage_stop(&job.id, reason).map(|_| false);
+        }
+        if current.session
+            && super::session::usage(&self.jobs, current, now).recent
+                >= codeterm_types::blueprint_terminal::SESSION_RATE_LIMIT
+        {
             return self
-                .stage_stop(&job.id, "transition_budget_exhausted")
+                .stage_stop(&job.id, "session_rate_limit")
                 .map(|_| false);
         }
+        let causal_run = current
+            .causal_run
+            .clone()
+            .unwrap_or_else(|| codeterm_types::blueprint_run::Context::root(&job.id, id, now));
         let transition = Transition {
+            causal_run: Some(causal_run),
             decision,
             id: id.into(),
             bucket: bucket.into(),
@@ -565,7 +587,11 @@ impl Store {
             .flat_map(|t| &t.handlers)
             .filter(|r| r.claim_id.is_some())
             .count();
-        if actions >= usize::from(current.max_actions) {
+        if actions >= super::store::action_limit(current)
+            || (current.session
+                && super::session::usage(&self.jobs, current, now).actions
+                    >= codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT)
+        {
             return Ok(Gate::Exhausted);
         }
         Ok(Gate::Claim)
@@ -583,9 +609,12 @@ impl Store {
             Ok(Gate::Refuse) => return Staged::ready(Ok(None)),
             Ok(Gate::RateLimited) => return Staged::ready(Err(ESCALATION_RATE_LIMITED.into())),
             Ok(Gate::Exhausted) => {
-                return self
-                    .stage_stop(&job.id, "action_budget_exhausted")
-                    .map(|_| None)
+                let reason = if job.session {
+                    "session_safety_limit"
+                } else {
+                    "action_budget_exhausted"
+                };
+                return self.stage_stop(&job.id, reason).map(|_| None);
             }
             Err(error) => return Staged::ready(Err(error)),
         }

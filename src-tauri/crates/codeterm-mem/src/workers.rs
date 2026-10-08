@@ -1,4 +1,4 @@
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -97,6 +97,10 @@ pub struct GraphWorkerInfo {
     pub report: Option<String>,
     pub done_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_observed_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extraction_retry: Option<crate::extraction_retry::ExtractionRetry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub log_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_provider: Option<String>,
@@ -122,6 +126,16 @@ pub struct GraphWorkerInfo {
 }
 
 impl GraphWorkerInfo {
+    pub fn duration_ms(&self, now: u64) -> Option<u64> {
+        let end = if self.status == WorkerStatus::Orphaned {
+            self.last_observed_at
+        } else if self.status.is_terminal() {
+            self.done_at
+        } else {
+            Some(now)
+        };
+        end.map(|end| end.saturating_sub(self.spawned_at))
+    }
     /// The two facts composed for display. Pre-contract records carry no
     /// execution_end / finalization, so they surface as unverified rather than
     /// as a truthful completion.
@@ -133,6 +147,9 @@ impl GraphWorkerInfo {
 pub struct GraphWorkerRegistry {
     inner: RwLock<HashMap<String, GraphWorkerInfo>>,
     persist_path: PathBuf,
+    pub extraction_retries: crate::extraction_retry::ExtractionRetries,
+    changed: tokio::sync::watch::Sender<u64>,
+    persistence: Mutex<()>,
 }
 
 fn now_ms() -> u64 {
@@ -164,13 +181,49 @@ impl GraphWorkerRegistry {
                 ),
             }
         }
+        let retries = crate::extraction_retry::ExtractionRetries::load(
+            persist_path.with_extension("extraction-retries.json"),
+        );
+        for worker in inner
+            .values_mut()
+            .filter(|worker| worker.status.is_terminal())
+        {
+            match retries.finish(
+                &worker.intent,
+                &worker.worker_id,
+                worker
+                    .execution_end
+                    .as_ref()
+                    .is_some_and(ExecutionEnd::is_reported),
+                worker
+                    .execution_end
+                    .as_ref()
+                    .and_then(ExecutionEnd::detail)
+                    .map(str::to_string)
+                    .or_else(|| Some("worker orphaned during daemon restart".into())),
+                worker.last_observed_at.unwrap_or(worker.spawned_at),
+            ) {
+                Ok(Some(retry)) => worker.extraction_retry = Some(retry),
+                Err(error) => log::error!("[extraction-retry] startup: {error}"),
+                _ => {}
+            }
+        }
+        if let Err(error) = retries.abandon_unfinished(now_ms()) {
+            log::error!("[extraction-retry] startup recovery: {error}");
+        }
         Arc::new(Self {
             inner: RwLock::new(inner),
+            extraction_retries: retries,
+            changed: tokio::sync::watch::channel(0).0,
+            persistence: Mutex::new(()),
             persist_path,
         })
     }
 
     fn persist(&self) {
+        let _persistence = self.persistence.lock();
+        self.changed
+            .send_modify(|version| *version = version.wrapping_add(1));
         const MAX_HISTORY: usize = 200;
         {
             let mut map = self.inner.write();
@@ -198,7 +251,8 @@ impl GraphWorkerRegistry {
         }
         match serde_json::to_string_pretty(&items) {
             Ok(text) => {
-                if let Err(e) = std::fs::write(&self.persist_path, text) {
+                if let Err(e) = codeterm_util::atomic_write::write_atomic(&self.persist_path, text)
+                {
                     log::warn!("[graph-workers] persist write: {}", e);
                 }
             }
@@ -229,6 +283,40 @@ impl GraphWorkerRegistry {
         self.inner.read().get(worker_id).cloned()
     }
 
+    pub async fn wait_terminal(&self, worker_id: &str) {
+        let mut changed = self.changed.subscribe();
+        loop {
+            if self
+                .get(worker_id)
+                .is_none_or(|worker| worker.status.is_terminal())
+            {
+                return;
+            }
+            if changed.changed().await.is_err() {
+                return;
+            }
+        }
+    }
+
+    pub fn observe_activity(&self, worker_id: &str) {
+        let now = now_ms();
+        let changed = {
+            let mut map = self.inner.write();
+            if let Some(worker) = map.get_mut(worker_id).filter(|worker| {
+                !worker.status.is_terminal()
+                    && now.saturating_sub(worker.last_observed_at.unwrap_or(0)) >= 30_000
+            }) {
+                worker.last_observed_at = Some(now);
+                true
+            } else {
+                false
+            }
+        };
+        if changed {
+            self.persist();
+        }
+    }
+
     pub fn active_by_intent(&self, intent: &str) -> Option<String> {
         self.inner
             .read()
@@ -244,6 +332,7 @@ impl GraphWorkerRegistry {
                 .get_mut(worker_id)
                 .ok_or_else(|| format!("worker not found: {}", worker_id))?;
             w.status = status;
+            w.last_observed_at = Some(now_ms());
         }
         self.persist();
         Ok(())
@@ -256,6 +345,7 @@ impl GraphWorkerRegistry {
                 .get_mut(worker_id)
                 .ok_or_else(|| format!("worker not found: {}", worker_id))?;
             w.progress_text = Some(text);
+            w.last_observed_at = Some(now_ms());
         }
         self.persist();
         Ok(())
@@ -323,6 +413,26 @@ impl GraphWorkerRegistry {
             let w = map
                 .get_mut(worker_id)
                 .ok_or_else(|| format!("worker not found: {}", worker_id))?;
+            if w.status.is_terminal() && w.execution_end.is_some() {
+                return Ok(w.clone());
+            }
+            let ended_at = now_ms();
+            let reason = end.detail().map(str::to_string).or_else(|| match end {
+                ExecutionEnd::Orphaned => Some("worker orphaned".into()),
+                ExecutionEnd::Cancelled => Some("worker cancelled".into()),
+                _ => None,
+            });
+            match self.extraction_retries.finish(
+                &w.intent,
+                worker_id,
+                end.is_reported(),
+                reason.clone(),
+                ended_at,
+            ) {
+                Ok(Some(retry)) => w.extraction_retry = Some(retry),
+                Err(error) => log::error!("[extraction-retry] finish: {error}"),
+                _ => {}
+            }
             w.status = match &end {
                 ExecutionEnd::Reported | ExecutionEnd::Cancelled => WorkerStatus::Done,
                 ExecutionEnd::ProcessEnded { .. } | ExecutionEnd::TimedOut { .. } => {
@@ -331,10 +441,10 @@ impl GraphWorkerRegistry {
                 ExecutionEnd::Orphaned => WorkerStatus::Orphaned,
             };
             w.execution_end = Some(end);
-            if let Some(report) = report {
+            if let Some(report) = report.or(reason) {
                 w.report = Some(report);
             }
-            w.done_at = Some(now_ms());
+            w.done_at = Some(ended_at);
             w.clone()
         };
         self.persist();
@@ -402,24 +512,13 @@ impl GraphWorkerRegistry {
     }
 
     pub fn kill(&self, worker_id: &str) -> Result<GraphWorkerInfo, String> {
-        let info = {
-            let mut map = self.inner.write();
-            let w = map
-                .get_mut(worker_id)
-                .ok_or_else(|| format!("worker not found: {}", worker_id))?;
-            if !w.status.is_terminal() {
-                w.status = WorkerStatus::Done;
-            }
-            if w.execution_end.is_none() {
-                w.execution_end = Some(ExecutionEnd::Cancelled);
-            }
-            if w.done_at.is_none() {
-                w.done_at = Some(now_ms());
-            }
-            w.clone()
-        };
-        self.persist();
-        Ok(info)
+        if let Some(worker) = self
+            .get(worker_id)
+            .filter(|worker| worker.status.is_terminal())
+        {
+            return Ok(worker);
+        }
+        self.finish_execution(worker_id, None, ExecutionEnd::Cancelled)
     }
 }
 
@@ -465,9 +564,10 @@ fn load_worker_records(
                 if !item.status.is_terminal() {
                     item.status = WorkerStatus::Orphaned;
                     item.execution_end = Some(ExecutionEnd::Orphaned);
-                    if item.done_at.is_none() {
-                        item.done_at = Some(now_ms());
-                    }
+                    item.done_at = item.last_observed_at;
+                    item.report.get_or_insert_with(|| {
+                        "daemon restarted before worker completion; end time unknown".into()
+                    });
                 }
                 inner.insert(item.worker_id.clone(), item);
             }
@@ -511,6 +611,8 @@ pub fn make_info(
         color,
         report: None,
         done_at: None,
+        last_observed_at: None,
+        extraction_retry: None,
         log_path: None,
         agent_provider: None,
         model: None,
@@ -539,6 +641,52 @@ mod tests {
             "user:test".into(),
             "hsl(0,0%,0%)".into(),
         )
+    }
+
+    #[test]
+    fn worker_orphan_duration_uses_observed_activity_not_restart_time() {
+        let path = tmp_path("heartbeat");
+        let reg = GraphWorkerRegistry::load(path.clone());
+        let mut worker = fresh_info("gw_heartbeat");
+        worker.spawned_at = 1000;
+        worker.last_observed_at = Some(4000);
+        reg.register(worker);
+        let loaded = GraphWorkerRegistry::load(path);
+        let orphan = loaded.get("gw_heartbeat").unwrap();
+        assert_eq!(orphan.status, WorkerStatus::Orphaned);
+        assert_eq!(orphan.done_at, Some(4000));
+        assert_eq!(orphan.duration_ms(90_000_000), Some(3000));
+        let mut historical = orphan;
+        historical.last_observed_at = None;
+        historical.done_at = Some(90_000_000);
+        assert_eq!(historical.duration_ms(100_000_000), None);
+        historical.status = WorkerStatus::Error;
+        historical.done_at = None;
+        assert_eq!(historical.duration_ms(100_000_000), None);
+    }
+
+    #[tokio::test]
+    async fn worker_terminal_event_records_error_and_preserves_first_end() {
+        let reg = GraphWorkerRegistry::load(tmp_path("end-event"));
+        reg.register(fresh_info("gw_end"));
+        let end = ExecutionEnd::ProcessEnded {
+            detail: "launch refused".into(),
+        };
+        let first = reg.finish_execution("gw_end", None, end.clone()).unwrap();
+        reg.wait_terminal("gw_end").await;
+        assert_eq!(first.report.as_deref(), Some("launch refused"));
+        assert!(first.done_at.is_some());
+        let second = reg
+            .finish_execution(
+                "gw_end",
+                None,
+                ExecutionEnd::TimedOut {
+                    detail: "late watchdog".into(),
+                },
+            )
+            .unwrap();
+        assert_eq!(second.execution_end, Some(end));
+        assert_eq!(second.done_at, first.done_at);
     }
 
     #[test]
@@ -582,7 +730,7 @@ mod tests {
         let alive_after = reg2.get("gw_alive").unwrap();
         let done_after = reg2.get("gw_done").unwrap();
         assert_eq!(alive_after.status, WorkerStatus::Orphaned);
-        assert!(alive_after.done_at.is_some());
+        assert_eq!(alive_after.done_at, None);
         assert_eq!(done_after.status, WorkerStatus::Done);
         assert_eq!(done_after.done_at, Some(123));
     }

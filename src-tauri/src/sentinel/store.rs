@@ -23,6 +23,10 @@ pub(super) type ScopeKey = (String, Option<String>);
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Create {
+    #[serde(default)]
+    pub terminal: Option<codeterm_types::blueprint_terminal::Config>,
+    #[serde(default)]
+    pub session: bool,
     pub name: Option<String>,
     #[serde(default)]
     pub probe: Option<String>,
@@ -58,6 +62,12 @@ fn default_every() -> String {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sentinel {
+    #[serde(default)]
+    pub terminal: Option<codeterm_types::blueprint_terminal::Config>,
+    #[serde(default)]
+    pub session: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub causal_run: Option<codeterm_types::blueprint_run::Context>,
     pub id: String,
     pub team_id: Option<String>,
     pub creator_tab_id: String,
@@ -252,6 +262,9 @@ impl Store {
 
     pub(crate) fn stage_insert(&mut self, job: Sentinel) -> Staged<Sentinel> {
         if let Err(error) = self.ensure_available() {
+            return Staged::ready(Err(error));
+        }
+        if let Err(error) = escalation::validate(&job) {
             return Staged::ready(Err(error));
         }
         if let Some(capability) = job.pending_capability() {
@@ -681,10 +694,29 @@ impl Store {
         if !self.backend.is_json() {
             return self.sqlite_activate(source, transition, id, input_activation.then_some(now));
         }
+        let causal_run = self.get(&source.id).and_then(|current| {
+            let record = current
+                .transitions
+                .iter()
+                .find(|record| record.id == transition)?;
+            let handler = current.routes.get(&record.bucket)?.iter().find(|handler| {
+                matches!(&handler.action, Route::Sentinel(target) if target == id)
+                    && record.handlers.iter().any(|claim| {
+                        claim.handler_id == handler.id
+                            && claim.claim_id.is_some()
+                            && claim.status == handlers::Status::Unconfirmed
+                    })
+            })?;
+            record
+                .causal_run
+                .as_ref()
+                .map(|run| run.child(&source.id, transition, &handler.id))
+        });
         let previous = self.jobs.clone();
         let Some(target) = self.jobs.iter_mut().find(|job| job.id == id) else {
             return Staged::ready(Err("blueprint target disappeared".into()));
         };
+        target.causal_run = causal_run;
         target.machine.paused = false;
         if input_activation {
             target.next_run = now;
@@ -791,6 +823,7 @@ impl Store {
             .iter()
             .filter(|job| {
                 !job.machine.stopped
+                    && job.terminal.is_none()
                     && !job.machine.paused
                     && !job.expires_at.is_some_and(|at| now >= at)
                     && (matches!(job.observe.as_ref(), Some(TabBinding::Tab(id)) if id == tab_id)
@@ -827,7 +860,12 @@ impl Store {
                         codeterm_types::blueprint_pipeline::Trigger::Input { .. }
                     ) && job.next_run == codeterm_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS
                 });
-                let next = if event_trigger
+                let next = if ((job.terminal.is_some()
+                    || (job.input.is_some()
+                        && job.next_run
+                            == codeterm_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS))
+                    && !self.wake_pending.contains(&job.id))
+                    || event_trigger
                     || (input_waiting && !self.wake_pending.contains(&job.id))
                     || job.machine.paused
                     || active
@@ -858,13 +896,14 @@ impl Store {
         !live.is_empty()
             && live.iter().all(|job| {
                 job.expires_at.is_none()
-                    && job.pipeline.as_ref().is_some_and(|pipeline| {
-                        matches!(
-                            &pipeline.trigger,
-                            codeterm_types::blueprint_pipeline::Trigger::Event { .. }
-                                | codeterm_types::blueprint_pipeline::Trigger::Input { .. }
-                        )
-                    })
+                    && ((job.terminal.is_some() || job.input.is_some())
+                        || job.pipeline.as_ref().is_some_and(|pipeline| {
+                            matches!(
+                                &pipeline.trigger,
+                                codeterm_types::blueprint_pipeline::Trigger::Event { .. }
+                                    | codeterm_types::blueprint_pipeline::Trigger::Input { .. }
+                            )
+                        }))
             })
     }
 }
@@ -920,7 +959,7 @@ fn apply_finish(current: &mut Sentinel, job: &Sentinel, transition: Option<Trans
 }
 
 mod due;
-pub(super) use due::transition_budget_spent;
+pub(super) use due::{action_limit, transition_budget_spent};
 use due::{plan_due, scheduled_stop_notices};
 
 mod validate;

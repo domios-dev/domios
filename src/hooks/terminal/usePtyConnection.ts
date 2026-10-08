@@ -7,6 +7,7 @@ import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
 import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 import { writeTerminalHistory } from "./terminalHistoryWrite";
+import { writeTerminalOutput } from "./terminalOutputWrite";
 import { writeTerminalInput } from "./terminalInputWrite";
 import {
   captureTerminalViewport,
@@ -84,6 +85,9 @@ export function usePtyConnection({
     (s) => s.tabs[tabId]?.cwd ?? null,
     (a, b) => a === b,
   );
+  const wslDistro = useMuxSelector((s) => s.tabs[tabId]?.shell_profile?.wsl_distro ?? null);
+  const wslDistroRef = useRef(wslDistro);
+  wslDistroRef.current = wslDistro;
   const tabCwdRef = useRef(tabCwd);
   const hiddenViewportRef = useRef<TerminalViewport>({ followOutput: true, line: 0 });
   const cancelVisibleReplayRef = useRef<(() => void) | null>(null);
@@ -285,7 +289,7 @@ export function usePtyConnection({
         };
         let cancelled = false;
         cancelActiveWrite = () => { cancelled = true; };
-        term.write(payload, () => {
+        writeTerminalOutput(term, payload, () => {
           if (!cancelled) completeWrite();
         });
 
@@ -389,7 +393,7 @@ export function usePtyConnection({
         }
         onPtySpawned?.(tabId, spawnedId);
 
-        if (!cwd) {
+        if (!cwd && !wslDistroRef.current) {
           const defaultCwd = await invoke<string>("get_default_cwd").catch(() => null);
           if (defaultCwd) {
             invoke("mux_update_tab_cwd", { tabId, cwd: defaultCwd }).catch(() => {});

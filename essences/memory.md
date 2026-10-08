@@ -36,6 +36,8 @@ The graph hub report provides bounded, deterministic cluster suggestions and exi
 
 Run completion and diary finalization are separate facts. If a deadline or blocking command-approval prompt ends a dreaming run, the host preserves the work already logged, marks unfinished stages as cut short and records partial finalization with its reason. It never upgrades interrupted work to success, and it preserves an already completed diary.
 
+Hidden memory workers record execution failures and stop within a 45-minute ceiling, or a shorter configured deadline. Extraction retries are bounded and backed off; exhausted items remain failed with a visible reason until an explicit retry or a change to the source or launch cause. Restarting the app does not reset that budget. Activity groups repeated identical failures and labels age separately from duration. An orphan's duration ends at its last observed activity, or remains unknown when that evidence is absent.
+
 ```map
 anchors:
   - core:memory

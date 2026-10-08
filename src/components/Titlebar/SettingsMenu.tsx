@@ -94,11 +94,11 @@ export function SettingsMenu({ onOpenSection }: SettingsMenuProps) {
       onClick={() => void applyUpdate()}
       disabled={installing}
       title={installing ? "Installing update" : `Install update${latestVersion ? ` v${latestVersion}` : ""}`}
-      className="group inline-flex items-center gap-1 h-6 rounded-full pl-1.5 pr-2 text-[11px] font-medium leading-none text-white transition-[filter,transform] duration-150 hover:brightness-110 disabled:opacity-70"
+      className="group inline-flex items-center gap-1 h-6 rounded-full pl-1.5 pr-2 text-[11px] font-medium leading-none text-[var(--ct-on-accent)] transition-[filter,transform] duration-150 hover:brightness-110 disabled:opacity-70"
       style={{
         background:
-          "linear-gradient(180deg, color-mix(in srgb, var(--ct-accent, #3b82f6) 84%, #fff 16%), var(--ct-accent, #3b82f6))",
-        border: "1px solid color-mix(in srgb, #fff 18%, transparent)",
+          "linear-gradient(180deg, color-mix(in srgb, var(--ct-accent, #3b82f6) 84%, var(--ct-sheen) 16%), var(--ct-accent, #3b82f6))",
+        border: "1px solid color-mix(in srgb, var(--ct-sheen) 18%, transparent)",
         boxShadow: "0 1px 2px rgba(0,0,0,0.28)",
       }}
     >

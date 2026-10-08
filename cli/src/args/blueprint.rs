@@ -24,9 +24,18 @@ pub enum BlueprintAction {
         name: Option<String>,
         #[arg(long, conflicts_with = "observe", required_unless_present_any = ["observe", "input", "spec", "recipe"])]
         probe: Option<String>,
-        /// Observe a same-Team agent tab or cron run
+        /// Observe a same-Team tab or cron run; shells require terminal-pattern or output-settled
         #[arg(long, conflicts_with = "probe", required_unless_present_any = ["probe", "input", "spec", "recipe"], value_parser = parse_observe)]
         observe: Option<String>,
+        /// Fire with the new terminal output delta when this regex matches
+        #[arg(long, requires = "observe")]
+        terminal_pattern: Option<String>,
+        /// Fire when terminal output settles for this many milliseconds (10..60000)
+        #[arg(long, requires = "observe", value_parser = clap::value_parser!(u64).range(10..=60000))]
+        output_settled: Option<u64>,
+        /// Keep exchanges outside transition/action budgets; stop at 16384 exchanges or 120/minute
+        #[arg(long)]
+        session: bool,
         /// Watch data instead of a probe or observation: text|audio|video|image
         #[arg(long, value_parser = parse_input_kind, requires = "input_source", conflicts_with_all = ["probe", "observe", "every", "rearm_on_change"])]
         input: Option<String>,
@@ -92,6 +101,17 @@ pub enum BlueprintAction {
     List,
     /// Show one blueprint
     Show { id: String },
+    /// Deliver a text body to a running text input stage
+    #[command(group = clap::ArgGroup::new("text_source").args(["from_pad", "text_file"]).required(true))]
+    Input {
+        id: String,
+        /// Read a UTF-8 body from the caller's Agent Pad
+        #[arg(long)]
+        from_pad: Option<String>,
+        /// Read a UTF-8 body from a file
+        #[arg(long)]
+        text_file: Option<std::path::PathBuf>,
+    },
     /// Stop one blueprint
     Stop { id: String },
     /// Replace one definition at the expected version

@@ -21,6 +21,7 @@ export type {
   ToolRichResult,
 } from "./types";
 export type { ChatMsg } from "./gen/ChatMsg";
+export { sessionChanges, fileDiffFromEdit, type SessionChanges, type ChangesTurn, type RecordedFileChange } from "./sessionChanges";
 export { SYSTEM_ORIGIN_LABEL, systemOriginLabel } from "./originLabels";
 export {
   DOMIOS_CLOSE_TAG,
@@ -44,7 +45,28 @@ export {
   normalizeChatText,
   type FingerprintableChatMessage,
 } from "./normalize";
-export { attachmentFileName, inlineAttachmentSrc, userVisibleText } from "./userAttachments";
+export {
+  attachmentFileName,
+  inlineAttachmentSrc,
+  userMessageAttachments,
+  userVisibleText,
+  type UserMessageAttachments,
+} from "./userAttachments";
+export {
+  ATTACHMENT_KINDS,
+  attachmentKindForPath,
+  attachmentMarkerSegments,
+  hasAttachmentMarkers,
+  attachmentPreviewKind,
+  formatAttachmentMarker,
+  imageMimeType,
+  isImagePath,
+  parseAttachmentMarkers,
+  type AttachmentKind,
+  type AttachmentMarker,
+  type AttachmentSegment,
+  type ParsedAttachmentMarkers,
+} from "./attachmentMarker";
 export { ECHO_SKEW_MS, matchedOptimisticEchoes, collapseDuplicateUserMessages, type OptimisticEcho } from "./dedupe";
 export { mergeById } from "./merge";
 export { timestampMs } from "./time";
@@ -136,3 +158,6 @@ export {
   type WatcherVerdictAction,
   type WatcherVerdictStatus,
 } from "./watcherVerdict";
+
+export { parseLocalArtifactDirective } from "./localArtifactDirective";
+export type { LocalArtifactDirective, LocalArtifactKind } from "./localArtifactDirective";

@@ -93,7 +93,19 @@ pub fn save_with_prefixed_name(
 /// Pass-through (no alias) when the path is already safe ASCII and stable, or
 /// already inside the chat bucket (idempotent). Large stable files are linked,
 /// not copied, to avoid duplicating bytes into temp; ephemeral/small files copy.
+/// How a dropped path reaches the composer: a folder stays a path, anything readable is a file.
+pub fn dropped_path_kind(path: &Path) -> &'static str {
+    match std::fs::metadata(path) {
+        Ok(meta) if meta.is_dir() => "folder",
+        Ok(_) => "file",
+        Err(_) => "missing",
+    }
+}
+
 pub fn materialize_dropped_path(path: &Path) -> Result<PathBuf, String> {
+    if path.is_dir() {
+        return Ok(path.to_path_buf());
+    }
     let dir = bucket_dir(CHAT_BUCKET);
     if path.starts_with(&dir) {
         return Ok(path.to_path_buf());
@@ -480,6 +492,21 @@ mod tests {
         assert_eq!(std::fs::read(&safe).unwrap().len(), source_len(&source));
 
         let _ = std::fs::remove_file(&safe);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn test_dropped_folder_keeps_its_path_and_kind() {
+        let dir = std::env::temp_dir().join(format!("codeterm-папка-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("notes.txt");
+        std::fs::write(&file, b"x").unwrap();
+
+        assert_eq!(dropped_path_kind(&dir), "folder");
+        assert_eq!(dropped_path_kind(&file), "file");
+        assert_eq!(dropped_path_kind(&dir.join("absent")), "missing");
+        assert_eq!(materialize_dropped_path(&dir).unwrap(), dir);
+
         let _ = std::fs::remove_dir_all(dir);
     }
 

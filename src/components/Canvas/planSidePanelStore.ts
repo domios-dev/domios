@@ -3,6 +3,8 @@ import { useSyncExternalStore } from "react";
 /** What the app-level side panel shows: a task when taskId is set, the plan otherwise. */
 export interface PlanSidePanelTarget {
   planId: string;
+  documentsTabId?: string;
+  tabView?: "documents" | "changes";
   taskId?: string;
   teamId?: string | null;
   canonicalProjectPath?: string;
@@ -17,6 +19,7 @@ export interface PlanSidePanelEntry {
 export const PLAN_SIDE_PANEL_ATTRIBUTE = "data-plan-side-panel";
 
 let entry: PlanSidePanelEntry | null = null;
+const rememberedDocuments = new Map<string, PlanSidePanelTarget>();
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -32,6 +35,7 @@ function focusedOutsidePanel(): HTMLElement | null {
 
 export const planSidePanelStore = {
   open(target: PlanSidePanelTarget) {
+    if (target.documentsTabId) rememberedDocuments.set(target.documentsTabId, target);
     const outside = focusedOutsidePanel();
     entry = { target, opener: outside ?? entry?.opener ?? null };
     notify();
@@ -41,9 +45,17 @@ export const planSidePanelStore = {
     const closed = entry;
     if (!closed) return null;
     entry = null;
+    if (closed.target.documentsTabId) rememberedDocuments.delete(closed.target.documentsTabId);
     notify();
     return closed;
   },
+  activateTab(tabId: string) {
+    if (entry?.target.documentsTabId === tabId) return;
+    if (entry?.target.documentsTabId) { entry = null; notify(); }
+    const remembered = rememberedDocuments.get(tabId);
+    if (remembered) this.open(remembered);
+  },
+  resetDocuments() { rememberedDocuments.clear(); },
   get(): PlanSidePanelEntry | null {
     return entry;
   },

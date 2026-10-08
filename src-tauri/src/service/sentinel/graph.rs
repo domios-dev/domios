@@ -1,3 +1,5 @@
+mod files;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{json, Value};
@@ -309,6 +311,7 @@ impl ServiceContext {
                 team.as_deref().unwrap_or_default(),
                 snapshot.revision
             ));
+            combined.runs.extend(snapshot.runs);
             combined.truncated |= snapshot.truncated;
             let scenario_room = graph::MAX_NODES.saturating_sub(combined.scenarios.len());
             if snapshot.scenarios.len() > scenario_room {
@@ -933,6 +936,7 @@ mod tests {
             edges: Vec::new(),
             truncated: false,
             configured_fallback: Value::Null,
+            runs: vec![],
         };
         project_pipeline_contract(
             &mut snapshot,
@@ -954,6 +958,8 @@ mod tests {
         let job = store
             .prepare(
                 Create {
+                    terminal: None,
+                    session: false,
                     name: Some("legacy stage".into()),
                     probe: Some("printf ready".into()),
                     observe: None,

@@ -126,19 +126,12 @@ describe("compound command group", () => {
     expect(body?.querySelector(".token")).not.toBeNull();
   });
 
-  it("shows the whole call's output while the exact raw command starts collapsed", async () => {
+  it("shows the parsed command tree without a raw block or a combined output dump", async () => {
     const host = await render(<ToolCallBubble event={singleEvent(codexRollout())} expanded onToggle={() => {}} />);
-    const disclosure = host.querySelector('[data-testid="chat-command-group"] > [role="region"] [data-testid="raw-command-disclosure"] > button');
-    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    expect(host.querySelector('[data-testid="chat-command-group"] [data-testid="raw-command-disclosure"]')).toBeNull();
     expect(host.querySelector('[data-testid="message-raw-content"]')).toBeNull();
-    expect(host.querySelectorAll('[data-testid="toolcard-result"]')).toHaveLength(1);
-    await click(disclosure);
-    expect(disclosure?.getAttribute("aria-expanded")).toBe("true");
-    expect(host.querySelector('[data-testid="message-raw-content"]')?.textContent).toBe(CODEX_PIPELINE);
-    await click(disclosure);
-    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
-    expect(host.querySelector('[data-testid="message-raw-content"]')).toBeNull();
-    expect(host.querySelectorAll('[data-testid="toolcard-result"]')).toHaveLength(1);
+    expect(host.querySelectorAll('[data-testid="toolcard-result"]')).toHaveLength(0);
+    expect(lines(host).length).toBeGreaterThan(0);
   });
 
   it("titles a Claude Bash compound by its description and lists segments as a plain tree", async () => {
@@ -248,11 +241,7 @@ describe("compact command tree", () => {
     expect(title).toBe("codeterm plan doctor +3");
     expect(host.querySelectorAll('[data-testid="toolcard-exit-code"]')).toHaveLength(1);
     expect(host.querySelectorAll('[data-testid="toolcard-duration"]')).toHaveLength(1);
-    const disclosure = host.querySelector('[data-testid="raw-command-disclosure"] > button');
-    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
-    expect(host.querySelector('[data-testid="message-raw-content"]')).toBeNull();
+    expect(host.querySelector('[data-testid="raw-command-disclosure"]')).toBeNull();
     expect(lines(host)).toHaveLength(4);
-    await click(disclosure);
-    expect(host.querySelector('[data-testid="message-raw-content"]')?.textContent).toBe(PLAN_CHAIN);
   });
 });

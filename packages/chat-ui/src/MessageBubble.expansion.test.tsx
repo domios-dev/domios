@@ -196,7 +196,7 @@ async function run() {
   const commandView = completedCommandCard?.querySelector<HTMLElement>('[data-testid="raw-command-disclosure"]');
   assert(commandView && !commandView.querySelector('[data-testid="message-raw-content"]'), "collapsed raw disclosure hides the full invocation");
   assert(commandView.textContent?.includes("clean"), "collapsed raw disclosure keeps the result visible");
-  const commandRaw = Array.from(commandView?.querySelectorAll("button") ?? []).find((button) => button.textContent === "Show raw command");
+  const commandRaw = Array.from(commandView?.querySelectorAll("button") ?? []).find((button) => button.textContent === "Raw command");
   await act(async () => commandRaw?.click());
   assert(commandRaw?.getAttribute("aria-expanded") === "true", "raw command disclosure expands");
   assert(commandView?.querySelector('[data-testid="message-raw-content"]')?.textContent === "git status --short", "raw command disclosure preserves the full invocation");

@@ -1,5 +1,6 @@
 use super::ServiceContext;
 use crate::agent::status::TabStatus;
+use tauri::Manager;
 
 impl ServiceContext {
     #[cfg(debug_assertions)]
@@ -47,8 +48,15 @@ impl ServiceContext {
             let status = self.agent_tracker.lock().get_status(pty_id);
             return (status, status);
         }
-        if let Some(tab_id) = self.mux.read().tab_id_for_pty(pty_id) {
+        let observed_tab = { self.mux.read().tab_id_for_pty(pty_id) };
+        if let Some(tab_id) = observed_tab {
             super::supporter_tab_state::note_output(&tab_id);
+            if let Some(handle) = self
+                .app_handle
+                .try_state::<crate::sentinel::scheduler::Handle>()
+            {
+                handle.terminal_output(&tab_id, generation, data);
+            }
         }
         crate::service::pty_io::submit_transaction::wake_submit_cycle_output(pty_id);
         let stage = std::time::Instant::now();

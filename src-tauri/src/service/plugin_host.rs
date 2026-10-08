@@ -654,6 +654,7 @@ fn enqueue_agent_turn(
         let title = format!("plugin:{intent}");
         let spawn_result = tokio::task::spawn_blocking(move || {
             let spec = SpawnTabSpec {
+                shell: None,
                 visibility: TabVisibility::Hidden,
                 audience: crate::multiplexer::types::TabAudience::Automation,
                 title: Some(title),

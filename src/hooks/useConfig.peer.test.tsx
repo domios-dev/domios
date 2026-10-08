@@ -10,7 +10,7 @@ register(`data:text/javascript,${encodeURIComponent(`
 const leaves = {
   './UpdateSection': ['UpdateSection'], './ShellDiagnosticsBanner': ['ShellDiagnosticsBanner'],
   './AgentsTab': ['AgentsOverview', 'AgentProviderScreen'], './GeneralAgentCard': ['GeneralAgentCard'],
-  './NotificationsTab': ['NotificationsOverview'], './IntegrationsTab': ['IntegrationsTab'],
+  './NotificationsTab': ['NotificationsOverview'], './MessengersCard': ['MessengersCard'],
   './SecretsTab': ['SecretsTab'], './LogsTab': ['LogsTab'], '../../help/HelpPanel': ['HelpPanel'],
 };
 export async function resolve(specifier, context, next) {

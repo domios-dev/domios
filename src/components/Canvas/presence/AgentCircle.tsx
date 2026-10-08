@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { agentInitials, type PresenceAgent } from "./identity";
+import { PRESENCE_INK, agentInitials, type PresenceAgent } from "./identity";
 
 export interface AgentCircleProps {
   agent: PresenceAgent;
@@ -33,7 +33,7 @@ export function AgentCircle({ agent, size = 18, live = false, ring = true, title
         flexShrink: 0,
         boxSizing: "border-box",
         background: agent.color,
-        color: "#fff",
+        color: PRESENCE_INK,
         border: ring ? "1.5px solid var(--ct-bg)" : "none",
         boxShadow: `0 0 0 1px color-mix(in srgb, ${agent.color} 65%, transparent)`,
         fontSize: Math.round(size * 0.42),

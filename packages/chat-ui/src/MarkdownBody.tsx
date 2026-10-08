@@ -9,7 +9,7 @@ import rehypeSanitize from "rehype-sanitize";
 import { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, normalizeMultilineHtmlBlocks, rehypeScrubInlineStyles } from "./htmlSanitize";
 import { HtmlPreviewBlock } from "./HtmlPreviewBlock";
 import { LocalArtifactBlock, parseLocalArtifactDirective } from "./LocalArtifactBlock";
-import { GuideDirective, parseGuideDirective } from "./GuideDirective";
+import { parseChatBlocks } from "./blocks/registry";
 import { rehypeSourceOffsets } from "./sourceOffsets";
 import { rehypeMarkdownLineBreaks } from "./markdownLineBreaks";
 import { Prism as SyntaxHighlighter, createElement } from "react-syntax-highlighter";
@@ -195,11 +195,8 @@ export function RichMarkdown({
     if (containsHtmlMarkup(renderedText)) return HTML_REHYPE_PLUGINS;
     return sourcePositions && renderedText === text ? SOURCE_OFFSET_REHYPE_PLUGINS : LINE_BREAK_REHYPE_PLUGINS;
   }, [renderedText, sourcePositions, text]);
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      rehypePlugins={rehypePlugins}
-      components={{
+  const components = useMemo<NonNullable<React.ComponentProps<typeof ReactMarkdown>["components"]>>(
+    () => ({
         h1: ({ node: _node, ...props }) => (
           <h1 className={`${h1Text} font-bold mt-3 mb-1`} style={{ color: "var(--ct-fg)" }} {...props} />
         ),
@@ -209,6 +206,15 @@ export function RichMarkdown({
         h3: ({ node: _node, ...props }) => (
           <h3 className={`${h3Text} font-medium mt-1.5 mb-0.5`} style={{ color: "var(--ct-fg)" }} {...props} />
         ),
+        h4: ({ node: _node, ...props }) => (
+          <h4 className={`${h3Text} font-semibold mt-1.5 mb-0.5`} style={{ color: "var(--ct-fg)" }} {...props} />
+        ),
+        h5: ({ node: _node, ...props }) => (
+          <h5 className={`${h3Text} font-medium mt-1 mb-0.5`} style={{ color: "var(--ct-fg)" }} {...props} />
+        ),
+        h6: ({ node: _node, ...props }) => (
+          <h6 className="text-xs font-medium uppercase tracking-wide mt-1 mb-0.5" style={{ color: "var(--ct-muted-fg)" }} {...props} />
+        ),
         p: ({ node, children, ...props }) => {
           const textChild = React.Children.toArray(children).every((child) => typeof child === "string")
             ? React.Children.toArray(children).join("")
@@ -216,12 +222,10 @@ export function RichMarkdown({
           const directiveSource = textChild === null
             ? null
             : sourceForNode(renderedText, node) ?? textChild;
-          const guideSource = textChild === null ? null : sourceForStandaloneLine(renderedText, node);
-          const guideSection = localArtifacts && guideSource
-            ? parseGuideDirective(guideSource)
-            : null;
-          if (guideSection !== null) {
-            return <GuideDirective sectionId={guideSection} />;
+          const blockSource = localArtifacts ? sourceForStandaloneLine(renderedText, node) : null;
+          const blocks = blockSource ? parseChatBlocks(blockSource) : null;
+          if (blocks) {
+            return <>{blocks.map((block, index) => <React.Fragment key={`${index}:${block.source}`}>{block.render()}</React.Fragment>)}</>;
           }
           const directive = localArtifacts && directiveSource
             ? parseLocalArtifactDirective(directiveSource)
@@ -328,7 +332,14 @@ export function RichMarkdown({
             style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg) 30%, transparent)" }}
           />
         ),
-      }}
+    }),
+    [fontScale, h1Text, h2Text, h3Text, localArtifacts, renderedText],
+  );
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={rehypePlugins}
+      components={components}
     >
       {renderedText}
     </ReactMarkdown>

@@ -67,7 +67,7 @@ export function MeshPresenceTray() {
 
   const dotStyle =
     state === "online"
-      ? { background: "#22c55e", boxShadow: "0 0 6px rgba(34,197,94,0.55)" }
+      ? { background: "var(--ct-green)", boxShadow: "0 0 6px color-mix(in srgb, var(--ct-green) 55%, transparent)" }
       : state === "offline"
         ? { background: "transparent", border: "1.5px solid var(--ct-muted, #888)" }
         : { background: "var(--ct-muted, #888)", opacity: 0.4 };
@@ -105,7 +105,7 @@ export function MeshPresenceTray() {
             label="Online"
             sub="Visible to peers"
             active={state === "online"}
-            dotStyle={{ background: "#22c55e", boxShadow: "0 0 6px rgba(34,197,94,0.55)" }}
+            dotStyle={{ background: "var(--ct-green)", boxShadow: "0 0 6px color-mix(in srgb, var(--ct-green) 55%, transparent)" }}
             onClick={() => choose("online")}
           />
           <PresenceItem

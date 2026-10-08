@@ -1,5 +1,5 @@
 import React from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 
 interface Props {
   raw: string;
@@ -23,8 +23,8 @@ export function RawCommandDisclosure({ raw, children, details, initiallyExpanded
         className="inline-flex w-fit items-center gap-1 py-0 font-mono text-[10.5px] transition-colors hover:brightness-125"
         style={{ color: "var(--ct-muted-fg)", background: "transparent" }}
       >
-        <ChevronDown aria-hidden="true" size={12} strokeWidth={1.8} className={open ? "rotate-180" : ""} />
-        {open ? "Hide raw command" : "Show raw command"}
+        <ChevronRight aria-hidden="true" size={12} strokeWidth={1.8} className={open ? "rotate-90" : ""} />
+        Raw command
       </button>
       {open && (
         <pre

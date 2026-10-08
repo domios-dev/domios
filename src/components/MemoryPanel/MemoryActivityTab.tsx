@@ -18,6 +18,7 @@ import { RunChatPopup } from "../AgentRun/RunChatPopup";
 import { AgentIcon } from "../AgentIcon";
 import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
 import { isTerminalWorkerStatus } from "../AgentRun/workerEmptyState";
+import { groupRecentWorkers, workerFailureReason, workerTimeLabels } from "./workerActivityModel";
 
 interface Props {
   api: ApiConfig;
@@ -135,7 +136,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
   }, [autoScroll]);
 
   const live = useMemo(() => workers.filter((w) => !isTerminalWorkerStatus(w.status)), [workers]);
-  const recent = useMemo(() => workers.filter((w) => isTerminalWorkerStatus(w.status)).slice(0, 20), [workers]);
+  const recent = useMemo(() => groupRecentWorkers(workers).slice(0, 20), [workers]);
 
   const handleKill = useCallback(
     async (workerId: string) => {
@@ -355,10 +356,11 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
                   Recent
                 </div>
                 <div className="space-y-1">
-                  {recent.map((w) => (
+                  {recent.map(({ worker: w, count }) => (
                     <WorkerCard
                       key={w.worker_id}
                       worker={w}
+                      count={count}
                       onOpen={() => setLogWorker(w)}
                       onKill={null}
                     />
@@ -401,26 +403,30 @@ interface WorkerCardProps {
   worker: GraphWorkerInfo;
   onOpen: () => void;
   onKill: (() => void) | null;
+  count?: number;
 }
 
-export function WorkerCard({ worker, onOpen, onKill }: WorkerCardProps) {
+export function WorkerCard({ worker, onOpen, onKill, count = 1 }: WorkerCardProps) {
   const isDone = isTerminalWorkerStatus(worker.status);
-  const elapsed = (() => {
-    const end = isDone && worker.done_at ? worker.done_at : Date.now();
-    const diff = end - worker.spawned_at;
-    const secs = Math.floor(diff / 1000);
-    if (secs < 60) return `${secs}s`;
-    const mins = Math.floor(secs / 60);
-    return `${mins}m ${secs % 60}s`;
-  })();
+  const time = workerTimeLabels(worker, Date.now());
+  const reason = workerFailureReason(worker);
   const intent = worker.intent.replace(/^extract:/, "").replace(/^dreaming:/, "REM:");
   return (
     <div
       onClick={onOpen}
+      role="button"
+      tabIndex={0}
+      aria-label={`Open ${worker.intent} · ${worker.status}`}
+      onKeyDown={(event) => {
+        if (event.target === event.currentTarget && (event.code === "Enter" || event.code === "Space")) {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
       data-testid="memory-worker-card"
       data-worker-id={worker.worker_id}
       data-worker-status={worker.status}
-      className="flex items-center gap-2 px-2.5 py-1.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)]/60 hover:border-[var(--ct-accent)] cursor-pointer transition-colors"
+      className="flex flex-wrap items-center gap-2 px-2.5 py-1.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)]/60 hover:border-[var(--ct-accent)] cursor-pointer transition-colors"
       title={isDone ? "View log" : "View live output"}
     >
       <span className="flex-1 text-[11px] truncate text-[var(--ct-fg)]">{intent}</span>
@@ -436,7 +442,11 @@ export function WorkerCard({ worker, onOpen, onKill }: WorkerCardProps) {
           {worker.model}
         </span>
       )}
-      <span className="text-[9px] tabular-nums text-[var(--ct-muted-fg)] shrink-0">{elapsed}</span>
+      <span className="text-[9px] text-[var(--ct-muted-fg)]">{worker.status}{count > 1 ? ` ×${count}` : ""}</span>
+      {worker.extraction_retry?.parked && <span className="text-[9px] text-red-400">Failed · parked after {worker.extraction_retry.attempt} attempts</span>}
+      {worker.extraction_retry?.retry_after != null && <span className="text-[9px] text-[var(--ct-muted-fg)]">Retry eligible {new Date(worker.extraction_retry.retry_after).toLocaleString()}</span>}
+      {reason && <span className="w-full text-[9px] truncate text-red-400" title={reason}>{reason}</span>}
+      <span className="text-[9px] tabular-nums text-[var(--ct-muted-fg)] shrink-0">{time.age} · {time.duration}</span>
       {onKill && (
         <button
           data-testid="memory-worker-kill"

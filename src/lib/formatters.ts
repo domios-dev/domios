@@ -1,3 +1,5 @@
+import { formatAge, formatUntil } from "./timeLabels";
+
 /** Common cron schedule presets for UI selectors. */
 export const SCHEDULE_PRESETS = [
   { label: "Every minute", value: "* * * * *" },
@@ -59,13 +61,8 @@ export function describeSchedule(cron: string): string {
   return cron;
 }
 
-/** Relative time from a timestamp (ms) — "just now", "5m ago", "2h ago", "3d ago". */
 export function timeAgo(ts: number): string {
-  const diff = Date.now() - ts;
-  if (diff < 60_000) return "just now";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return `${Math.floor(diff / 86_400_000)}d ago`;
+  return formatAge(ts, Date.now());
 }
 
 /** Format a timestamp for display — "Apr 2, 10:30 AM". */
@@ -77,9 +74,7 @@ export function formatTime(ms: number): string {
 export function formatFuture(ms: number): string {
   const diff = ms - Date.now();
   if (diff < 0) return "overdue";
-  if (diff < 60_000) return "<1m";
-  if (diff < 3_600_000) return `in ${Math.floor(diff / 60_000)}m`;
-  if (diff < 86_400_000) return `in ${Math.floor(diff / 3_600_000)}h`;
+  if (diff < 86_400_000) return formatUntil(ms, Date.now());
   if (diff < 2 * 86_400_000) {
     const d = new Date(ms);
     return `tomorrow ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;

@@ -117,6 +117,7 @@ impl SpawnTabSpec {
             })
         });
         Self {
+            shell: None,
             workspace_id: params.workspace_id.clone(),
             parent_tab_id: params.parent_tab_id.clone(),
             team_id: params.team_id.clone(),
