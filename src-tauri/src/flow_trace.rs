@@ -107,13 +107,16 @@ pub(crate) fn record(
     outcome: &str,
     related: Option<&str>,
 ) {
+    if !enabled() {
+        return;
+    }
+    let mut event = Event::new(id, stage, tab, provider, outcome).related(related);
+    event.detail = related.unwrap_or_default().chars().take(240).collect();
     #[cfg(test)]
-    if test_capture::record(Event::new(id, stage, tab, provider, outcome).related(related)) {
+    if test_capture::record(event.clone()) {
         return;
     }
     if let Some(sender) = SENDER.get() {
-        let mut event = Event::new(id, stage, tab, provider, outcome).related(related);
-        event.detail = related.unwrap_or_default().chars().take(240).collect();
         if sender.try_send(event).is_err() {
             DROPPED.fetch_add(1, Ordering::Relaxed);
         }

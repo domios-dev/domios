@@ -8,6 +8,24 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
+#[test]
+fn captured_trace_link_preserves_source_and_bounded_display_detail() {
+    let source = "é".repeat(300);
+    let events = crate::flow_trace::test_capture::capture(|| {
+        crate::flow_trace::record(
+            "send",
+            "trace.link",
+            "tab",
+            "provider",
+            "exact_append_window",
+            Some(&source),
+        );
+    });
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].related_id.as_deref(), Some(source.as_str()));
+    assert_eq!(events[0].detail, "é".repeat(240));
+}
+
 fn persisted(
     events: Vec<codeterm_types::trace::Event>,
     id: &str,
