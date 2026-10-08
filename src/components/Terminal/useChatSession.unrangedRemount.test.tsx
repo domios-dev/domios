@@ -21,6 +21,7 @@ async function scenario(source: string, unbound = false) {
   const session = unbound ? null : source;
   let handler: ((event: { payload: ChatMsgEvent }) => void) | undefined;
   let snapshot: NormalizedChatMessage[] = [];
+  let pending = false;
   let nonce = "nonce";
   let starts = 0;
   let stops = 0;
@@ -33,7 +34,7 @@ async function scenario(source: string, unbound = false) {
     if (command === "chat_stop") { stops++; return; }
     if (command === "chat_start") {
       starts++;
-      return { text: "", start_offset: 0, offset: 0, pending: false,
+      return { text: "", start_offset: 0, offset: 0, pending,
         messages: snapshot, source_session_id: session, session_binding_nonce: nonce,
         subscription_id: args?.subscriptionId };
     }
@@ -73,13 +74,22 @@ async function scenario(source: string, unbound = false) {
   root = await mount();
   assert.deepEqual(rendered(), expected, `${source}: snapshot replay changed retained history`);
   await act(async () => root.unmount());
+  pending = true;
+  snapshot = [];
+  root = await mount();
+  await act(async () => handler?.({ payload: { tab_id: source,
+    messages: [{ id: "new-epoch", type: "assistant", content: "new-epoch" }],
+    source_session_id: session, session_binding_nonce: nonce } }));
+  assert.deepEqual(rendered(), ["new-epoch"], `${source}: pending replay retained the prior epoch`);
+  await act(async () => root.unmount());
+  pending = false;
   nonce = "rotated";
   snapshot = [];
   root = await mount();
   assert.deepEqual(rendered(), [], `${source}: prior binding leaked into a new authority`);
   await act(async () => root.unmount());
-  assert.equal(starts, 4);
-  assert.equal(stops, 4);
+  assert.equal(starts, 5);
+  assert.equal(stops, 5);
   host.remove();
 }
 
