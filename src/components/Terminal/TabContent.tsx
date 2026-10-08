@@ -1,4 +1,6 @@
 import { TerminalTab } from "./TerminalTab";
+import { useLayoutEffect } from "react";
+import { consumePendingCommand, consumePendingCwd } from "../../lib/pendingCommands";
 import { RestoredShell } from "./RestoredShell";
 import { TabSessionChat } from "./TabSessionChat";
 import { TabTopBar } from "./TabTopBar";
@@ -51,6 +53,12 @@ export function TabContent({
   const descriptor = useAgentDescriptor(tab?.agent_type);
   const { providers } = useAgentProviders();
   const headerTabMenu = useHeaderTabMenu(tab, workspaceId, descriptor);
+  useLayoutEffect(() => {
+    if (tab?.close_restore?.record_id) {
+      consumePendingCommand(tab.id);
+      consumePendingCwd(tab.id);
+    }
+  }, [tab?.id, tab?.close_restore?.record_id]);
 
   if (!tab) return null;
   if (!isTabVisible(tab)) return null;

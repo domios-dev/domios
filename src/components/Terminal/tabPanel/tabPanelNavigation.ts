@@ -61,7 +61,11 @@ export const tabPanelNavigationStore = {
     writeTabPanel("navigation", tabId, next);
     for (const listener of listeners) listener();
   },
-  clear() { states.clear(); for (const listener of listeners) listener(); },
+  clear() {
+    for (const id of states.keys()) writeTabPanel("navigation", id, null);
+    this.resetCache();
+  },
+  resetCache() { states.clear(); for (const listener of listeners) listener(); },
   subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
 };
 

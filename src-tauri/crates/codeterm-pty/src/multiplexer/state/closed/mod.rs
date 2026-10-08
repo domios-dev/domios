@@ -6,6 +6,8 @@ mod restore_plan;
 mod store;
 mod structure;
 mod structure_mux;
+#[cfg(test)]
+mod structure_tests;
 pub use structure::{ArchivedTab, ClosedStructure, ClosedStructureView, StructureState};
 
 #[cfg(test)]

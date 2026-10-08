@@ -32,7 +32,7 @@ export interface MultiplexerActionsContextType {
   /** Reopen a recently-closed tab (index 0 = most recent). */
   reopenClosed: (workspaceId: string, index?: number) => void;
   /** Reopen a whole closed group (cascade subtree or workspace) by id. */
-  reopenGroup: (groupId: string) => Promise<void>;
+  reopenGroup: (groupId: string) => void | Promise<void>;
   /** Reopen a tab from the orphaned ring (workspace was deleted). */
   restoreOrphaned: (tabId: string) => void;
   setActiveTab: (workspaceId: string, tabId: string) => void;

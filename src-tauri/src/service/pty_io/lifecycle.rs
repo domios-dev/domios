@@ -823,6 +823,10 @@ mod lifecycle_recovery_tests;
 #[path = "lifecycle/restored_snapshot_launch_tests.rs"]
 mod restored_snapshot_launch_tests;
 
+#[cfg(test)]
+#[path = "lifecycle/close_restore_tests.rs"]
+mod close_restore_tests;
+
 pub(crate) fn kill_live_tab_pty(
     manager: &mut crate::pty::manager::PtyManager,
     pty_id: &str,
