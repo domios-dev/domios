@@ -239,6 +239,7 @@ fn main_impl() {
     };
 
     let result = match cli.command {
+        Commands::Trace { .. } => unreachable!(),
         Commands::Identify => cmd::identify::handle(&mut client, cli.json, resolved_socket),
 
         Commands::Capabilities => {

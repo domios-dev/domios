@@ -247,6 +247,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
         outcome => return outcome,
     }
     log::info!("Cron fired: job={}, run={}", job_id, run_id);
+    crate::flow_trace::record(&run_id, "cron.started", "", "", "fired", None);
 
     // Spawn agent via the unified spawn_tab surface.
     let skill_block = spec.skill.as_deref().map(crate::commands::cron_skill_block);
@@ -309,6 +310,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
 
     match service.spawn_tab(spawn_spec) {
         Ok(handle) => {
+            crate::flow_trace::record(&run_id, "cron.spawned", &handle.tab_id, "", "spawned", None);
             log::info!(
                 "Cron agent spawned: job={}, tab={}, tab={}",
                 job_id,

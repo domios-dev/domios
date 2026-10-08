@@ -38,6 +38,18 @@ impl ServiceContext {
                 return;
             }
             if let Some(evidence) = evidence.as_ref() {
+                crate::flow_trace::record_flow(
+                    &pending.delivery_id,
+                    "relay.observed",
+                    target,
+                    &entry.binding.provider,
+                    match evidence {
+                        crate::agent::provider::ReplyRelayEvidence::Answered(_) => "answered",
+                        crate::agent::provider::ReplyRelayEvidence::Ended(_) => "ended",
+                        crate::agent::provider::ReplyRelayEvidence::Unavailable(_) => "unavailable",
+                    },
+                    pending.task.as_ref().map(|task| task.attempt_id.as_str()),
+                );
                 log::debug!("[reply-relay] target={target} observed delivery={} after_offset={} evidence={}", pending.delivery_id, after_offset, match evidence {
                     crate::agent::provider::ReplyRelayEvidence::Answered(_) => "answered",
                     crate::agent::provider::ReplyRelayEvidence::Ended(_) => "ended",
@@ -84,6 +96,14 @@ impl ServiceContext {
                 )
             };
             if let Some(report) = report {
+                crate::flow_trace::record_flow(
+                    &pending.delivery_id,
+                    "report.parsed",
+                    target,
+                    &entry.binding.provider,
+                    "accepted",
+                    pending.task.as_ref().map(|task| task.attempt_id.as_str()),
+                );
                 self.publish_tool_less_worker_report(target, &entry.binding, &pending, report);
             }
             let open_senders = {
@@ -178,6 +198,35 @@ impl ServiceContext {
             .model(model)
             .from_agent(Some(true));
         envelope.id = Some(format!("reply-relay:{}", pending.delivery_id));
+        if crate::paths::is_dev_instance() {
+            envelope.trace_id = Some(
+                pending
+                    .task
+                    .as_ref()
+                    .map(|task| task.attempt_id.clone())
+                    .unwrap_or_else(|| pending.delivery_id.clone()),
+            );
+        }
+        crate::flow_trace::record_flow(
+            &pending.delivery_id,
+            "relay.reply",
+            &pending.sender_tab,
+            &binding.provider,
+            "sending",
+            pending.task.as_ref().map(|task| task.attempt_id.as_str()),
+        );
+        crate::flow_trace::record(
+            pending
+                .task
+                .as_ref()
+                .map(|task| task.attempt_id.as_str())
+                .unwrap_or(&pending.delivery_id),
+            "relay.link",
+            target,
+            &binding.provider,
+            "sending",
+            envelope.id.as_deref(),
+        );
         envelope.relay_hops = hops;
         envelope.relay_notice = notice;
         if let Err(error) = self.gateway_deliver(

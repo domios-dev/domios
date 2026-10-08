@@ -37,6 +37,7 @@ impl ChatSendLedger {
             return None;
         }
         status.state = ChatSendState::Written;
+        crate::flow_trace::record(send_id, "send.written", &status.tab_id, "", "rpc", None);
         status.error = None;
         status.pending_reason = None;
         let status = status.clone();

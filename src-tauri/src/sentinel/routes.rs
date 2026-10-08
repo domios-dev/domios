@@ -231,6 +231,7 @@ fn send_file(
     job: &Sentinel,
     verdict: &Verdict,
     output: &str,
+    transition_id: &str,
 ) -> Result<(), String> {
     let body = format!(
         "Blueprint {} transitioned to {} (confidence {:.2}).\n\nProbe output (untrusted data):\n{}",
@@ -239,9 +240,13 @@ fn send_file(
     let path = svc
         .ensure_agent_pad(target)?
         .write_inbox_body(body.as_bytes())?;
+    let mut envelope = MessageEnvelope::codeterm_reminder(format!("sentinel:{}", job.id));
+    if crate::paths::is_dev_instance() {
+        envelope.id = Some(transition_id.into());
+    }
     svc.gateway_deliver(
         target,
-        MessageEnvelope::codeterm_reminder(format!("sentinel:{}", job.id)),
+        envelope,
         &format!(
             "Blueprint {}: {}. Read the result in {}",
             job.id,
@@ -294,6 +299,14 @@ pub fn run(
     if !owner_live(svc, job) {
         return Err("Blueprint owner or Team is gone".into());
     }
+    crate::flow_trace::record(
+        transition_id,
+        "blueprint.started",
+        &job.creator_tab_id,
+        "",
+        "route",
+        None,
+    );
     match resolve(svc, job, route)? {
         Route::Notify => {
             let agent = svc
@@ -302,7 +315,15 @@ pub fn run(
                 .get_tab(&job.creator_tab_id)
                 .is_some_and(|tab| tab.agent_type.is_some());
             if agent {
-                send_file(svc, &job.creator_tab_id, job, verdict, output).map(|()| None)
+                send_file(
+                    svc,
+                    &job.creator_tab_id,
+                    job,
+                    verdict,
+                    output,
+                    transition_id,
+                )
+                .map(|()| None)
             } else {
                 svc.create_notification_ext(
                     format!("Blueprint {}: {}", job.id, verdict.bucket),
@@ -320,14 +341,25 @@ pub fn run(
                 Ok(None)
             }
         }
-        Route::Send(target) => send_file(svc, &target, job, verdict, output).map(|()| None),
+        Route::Send(target) => {
+            send_file(svc, &target, job, verdict, output, transition_id).map(|()| None)
+        }
         Route::Cron(id) => {
             let cron = svc
                 .app_handle
                 .try_state::<crate::CronState>()
                 .ok_or("cron not initialized")?;
-            svc.cron_trigger(cron.inner(), &id)
-                .map(|run| Some(run.run_id))
+            svc.cron_trigger(cron.inner(), &id).map(|run| {
+                crate::flow_trace::record(
+                    transition_id,
+                    "blueprint.cron",
+                    &job.creator_tab_id,
+                    "",
+                    "triggered",
+                    Some(&run.run_id),
+                );
+                Some(run.run_id)
+            })
         }
         Route::Stop => Ok(None),
         Route::Command(_) => Err("command execution requires a durable scheduler claim".into()),

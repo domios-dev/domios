@@ -164,6 +164,22 @@ impl ServiceContext {
             notice: envelope.relay_notice,
             spawn_brief: false,
         })?;
+        if let Some(id) = envelope
+            .id
+            .as_deref()
+            .filter(|_| crate::paths::is_dev_instance())
+        {
+            crate::flow_trace::record_flow(
+                id,
+                "relay.expected",
+                &target,
+                &provider,
+                "pending",
+                self.reply_relay_task_binding(&target)
+                    .as_ref()
+                    .map(|task| task.attempt_id.as_str()),
+            );
+        }
         let capture = self.chat_send_anchor(&target);
         let own_binding = self.current_reply_relay_binding(&target);
         let (session_id, after_offset) = if let Some(binding) = own_binding {
@@ -255,11 +271,23 @@ impl ServiceContext {
         let Some(normalization) = normalization else {
             return;
         };
+        let task = crate::paths::is_dev_instance()
+            .then(|| self.reply_relay_task_binding(target))
+            .flatten();
+        let delivery_id = uuid::Uuid::new_v4().to_string();
+        crate::flow_trace::record_flow(
+            &delivery_id,
+            "relay.expected",
+            target,
+            &provider,
+            "spawn_brief",
+            task.as_ref().map(|task| task.attempt_id.as_str()),
+        );
         self.reply_relays.staged.lock().insert(
             target.into(),
             vec![PendingReplyRelay {
                 sender_tab: sender.into(),
-                delivery_id: uuid::Uuid::new_v4().to_string(),
+                delivery_id,
                 provider_id: provider,
                 session_id: String::new(),
                 binding_nonce: String::new(),
@@ -418,6 +446,13 @@ impl ServiceContext {
             pending.session_id,
             pending.after_offset
         );
+        let trace_pending = crate::paths::is_dev_instance().then(|| {
+            (
+                pending.delivery_id.clone(),
+                pending.provider_id.clone(),
+                pending.task.as_ref().map(|task| task.attempt_id.clone()),
+            )
+        });
         {
             let mut model = entry.model.lock();
             let mut worker = entry.worker.lock();
@@ -426,6 +461,16 @@ impl ServiceContext {
                 return Err("relay capacity or duplicate delivery".into());
             }
             worker.track(worker_pending);
+        }
+        if let Some((id, provider, attempt)) = trace_pending {
+            crate::flow_trace::record_flow(
+                &id,
+                "relay.registered",
+                target,
+                &provider,
+                "registered",
+                attempt.as_deref(),
+            );
         }
         let _ = entry.signal.try_send(());
         Ok(())

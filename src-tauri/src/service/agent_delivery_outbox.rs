@@ -18,6 +18,12 @@ impl ServiceContext {
         mut payload: AgentDeliveryPayload,
         visible_text: &str,
     ) -> Result<Delivery, String> {
+        if crate::paths::is_dev_instance() && payload.trace_id.is_none() {
+            let id = crate::flow_trace::tab_flow(self, target)
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            crate::flow_trace::record(&id, "message.started", target, "", "accepted", None);
+            payload.trace_id = Some(id);
+        }
         self.pin_agent_delivery_binding(target, &mut payload)?;
         let encoded = serde_json::to_string(&payload)
             .map_err(|_| "agent delivery payload serialization failed")?;
@@ -26,6 +32,9 @@ impl ServiceContext {
         let pty_claim = self.pty_ownership.acquire(target);
         if owner.has_pending(target)? {
             let id = owner.enqueue(target, &encoded, idempotency_key)?;
+            if let Some(flow) = payload.trace_id.as_deref() {
+                crate::flow_trace::record(flow, "delivery.queued", target, "", "held", Some(&id));
+            }
             drop(pty_claim);
             self.schedule_agent_delivery_flush(target);
             return Ok(Delivery::Pending { delivery_id: id });
@@ -45,6 +54,16 @@ impl ServiceContext {
                     && self.agent_delivery_binding_matches(target, &payload) =>
             {
                 let id = owner.enqueue(target, &encoded, idempotency_key)?;
+                if let Some(flow) = payload.trace_id.as_deref() {
+                    crate::flow_trace::record(
+                        flow,
+                        "delivery.queued",
+                        target,
+                        "",
+                        "held",
+                        Some(&id),
+                    );
+                }
                 let blocked = owner.block_after_refusal(target, generation);
                 drop(pty_claim);
                 log::warn!(
@@ -247,6 +266,7 @@ impl ServiceContext {
                 self.publish_retired_delivery_status(receipt);
                 if receipt.status == Some(AgentDeliveryReceiptStatus::Delivered) {
                     let payload = AgentDeliveryPayload {
+                        trace_id: None,
                         transport: super::messenger::QueuedAgentPayload::Text {
                             text: receipt.exact_text.clone(),
                         },
@@ -584,6 +604,14 @@ impl ServiceContext {
         queued: bool,
         outcome: &str,
     ) {
+        if let Some(id) = payload
+            .trace_id
+            .as_deref()
+            .or(payload.idempotency_key.as_deref())
+            .or(delivery_id)
+        {
+            crate::flow_trace::record(id, "message.written", tab_id, "", outcome, delivery_id);
+        }
         if let Some(observer) = payload.observer.as_ref() {
             match observer {
                 DeliveryWriteObserver::Report {
