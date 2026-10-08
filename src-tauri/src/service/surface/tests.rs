@@ -2,7 +2,8 @@ use codeterm_plugin::surfaces::{SurfaceDecl, SurfaceRenderer, SurfaceRestore};
 
 use super::model::{
     choose_owner, owner_label, parse_surface_target, resolve_surface_decl, surface_placement,
-    surface_tab_row, PluginSurfaceFacts, SurfaceError, SurfaceTarget,
+    surface_renderable, surface_tab_row, DeclaredSurfaceRow, PluginSurfaceFacts, SurfaceError,
+    SurfaceTarget,
 };
 use super::{surface_input_refusal, SurfaceTransport, SURFACE_NO_INPUT, SURFACE_NO_TEXT};
 use crate::multiplexer::state::MultiplexerState;
@@ -16,6 +17,20 @@ fn board(agent_bound: bool) -> SurfaceDecl {
         renderer: SurfaceRenderer::View,
         agent_bound,
         restore: SurfaceRestore::Relaunch,
+        runtime: None,
+        chrome: None,
+    }
+}
+
+fn browser_stream() -> SurfaceDecl {
+    SurfaceDecl {
+        id: "board".into(),
+        title: "Browser".into(),
+        renderer: SurfaceRenderer::Stream,
+        agent_bound: true,
+        restore: SurfaceRestore::Placeholder,
+        runtime: Some("browser".into()),
+        chrome: Some(serde_json::json!({ "items": [] })),
     }
 }
 
@@ -62,6 +77,7 @@ fn surface_open_validation_needs_an_enabled_view_plugin_declaring_the_surface() 
     let declared = |view_registered| PluginSurfaceFacts {
         declared: Some(vec![board(true)]),
         view_registered,
+        runtimes: Vec::new(),
     };
     assert_eq!(
         resolve_surface_decl(&target(), &declared(true)),
@@ -78,12 +94,51 @@ fn surface_open_validation_needs_an_enabled_view_plugin_declaring_the_surface() 
     let view_without_surfaces = PluginSurfaceFacts {
         declared: None,
         view_registered: true,
+        runtimes: Vec::new(),
     };
     let undeclared = parse_surface_target("dash:other").unwrap();
     let error = resolve_surface_decl(&target(), &view_without_surfaces).unwrap_err();
     assert_eq!(error.code(), "surface_not_declared");
     let error = resolve_surface_decl(&undeclared, &declared(true)).unwrap_err();
     assert_eq!(error.code(), "surface_not_declared");
+}
+
+#[test]
+fn surface_open_of_a_stream_surface_needs_its_runtime_not_a_view() {
+    let facts = |runtimes: Vec<String>| PluginSurfaceFacts {
+        declared: Some(vec![browser_stream()]),
+        view_registered: false,
+        runtimes,
+    };
+    assert_eq!(
+        resolve_surface_decl(&target(), &facts(vec!["browser".into()])),
+        Ok(browser_stream())
+    );
+    assert_eq!(
+        resolve_surface_decl(&target(), &facts(Vec::new())),
+        Err(SurfaceError::RuntimeUnavailable("browser".into()))
+    );
+    assert!(surface_renderable(
+        &browser_stream(),
+        false,
+        &["browser".into()]
+    ));
+    assert!(!surface_renderable(
+        &board(false),
+        false,
+        &["browser".into()]
+    ));
+    let row = DeclaredSurfaceRow::new("web", &browser_stream());
+    let value = serde_json::to_value(&row).unwrap();
+    assert_eq!(value["renderer"], "stream");
+    assert_eq!(value["runtime"], "browser");
+    assert_eq!(value["chrome"], serde_json::json!({ "items": [] }));
+    assert!(
+        serde_json::to_value(DeclaredSurfaceRow::new("dash", &board(false)))
+            .unwrap()
+            .get("runtime")
+            .is_none()
+    );
 }
 
 #[test]

@@ -19,6 +19,8 @@ pub(crate) enum SurfaceError {
         owner_workspace: String,
     },
     NotASurface(String),
+    NotAStreamSurface(String),
+    RuntimeUnavailable(String),
     TabNotFound(String),
     Placement(String),
 }
@@ -34,6 +36,8 @@ impl SurfaceError {
             Self::OwnerIsSurface(_) => "surface_owner_is_surface",
             Self::WorkspaceMismatch { .. } => "surface_workspace_mismatch",
             Self::NotASurface(_) => "not_a_surface",
+            Self::NotAStreamSurface(_) => "not_a_stream_surface",
+            Self::RuntimeUnavailable(_) => "surface_runtime_unavailable",
             Self::TabNotFound(_) => "tab_not_found",
             Self::Placement(_) => "surface_placement_failed",
         }
@@ -45,7 +49,7 @@ impl SurfaceError {
                 format!("'{raw}' is not <plugin_id>:<surface_id>")
             }
             Self::PluginUnavailable(plugin) => format!(
-                "plugin {plugin} is not installed and enabled with a view, or declares no surfaces"
+                "plugin {plugin} is not installed and enabled, or declares no surfaces it can render"
             ),
             Self::SurfaceNotDeclared {
                 plugin_id,
@@ -66,6 +70,12 @@ impl SurfaceError {
             ),
             Self::NotASurface(tab) => {
                 format!("Tab {tab} is not a surface tab; close it with `codeterm tab close`")
+            }
+            Self::NotAStreamSurface(tab) => {
+                format!("Tab {tab} is not a stream surface; it has no frames or runtime calls")
+            }
+            Self::RuntimeUnavailable(runtime) => {
+                format!("no core surface runtime named {runtime} is registered")
             }
             Self::TabNotFound(tab) => format!("Tab {tab} not found"),
             Self::Placement(detail) => detail.clone(),
@@ -105,6 +115,10 @@ pub(crate) struct DeclaredSurfaceRow {
     pub renderer: SurfaceRenderer,
     pub agent_bound: bool,
     pub restore: SurfaceRestore,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chrome: Option<serde_json::Value>,
 }
 
 impl DeclaredSurfaceRow {
@@ -116,6 +130,8 @@ impl DeclaredSurfaceRow {
             renderer: surface.renderer,
             agent_bound: surface.agent_bound,
             restore: surface.restore,
+            runtime: surface.stream_runtime().map(str::to_string),
+            chrome: surface.chrome.clone(),
         }
     }
 }
@@ -143,6 +159,19 @@ pub(crate) fn parse_surface_target(raw: &str) -> Result<SurfaceTarget, SurfaceEr
 pub(crate) struct PluginSurfaceFacts {
     pub declared: Option<Vec<SurfaceDecl>>,
     pub view_registered: bool,
+    pub runtimes: Vec<String>,
+}
+
+/// Whether core can render `surface` now: its view is registered, or its stream runtime exists.
+pub(crate) fn surface_renderable(
+    surface: &SurfaceDecl,
+    view_registered: bool,
+    runtimes: &[String],
+) -> bool {
+    match surface.stream_runtime() {
+        Some(runtime) => runtimes.iter().any(|known| known == runtime),
+        None => view_registered,
+    }
 }
 
 pub(crate) fn resolve_surface_decl(
@@ -164,12 +193,15 @@ pub(crate) fn resolve_surface_decl(
         .iter()
         .find(|surface| surface.id == target.surface_id)
         .ok_or_else(not_declared)?;
-    match surface.renderer {
-        SurfaceRenderer::View if !facts.view_registered => {
-            Err(SurfaceError::ViewUnavailable(target.plugin_id.clone()))
-        }
-        SurfaceRenderer::View => Ok(surface.clone()),
+    if surface_renderable(surface, facts.view_registered, &facts.runtimes) {
+        return Ok(surface.clone());
     }
+    Err(match (surface.renderer, surface.stream_runtime()) {
+        (SurfaceRenderer::Stream, Some(runtime)) => {
+            SurfaceError::RuntimeUnavailable(runtime.to_string())
+        }
+        _ => SurfaceError::ViewUnavailable(target.plugin_id.clone()),
+    })
 }
 
 /// A tab that may own surfaces by default: one that carries an agent identity.
