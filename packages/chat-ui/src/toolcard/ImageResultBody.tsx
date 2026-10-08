@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { Check, Copy, FolderOpen, Maximize2 } from "lucide-react";
-import { ImageFullscreen, revealLocalFile } from "../ImageFullscreen";
+import { ImageFullscreen, REVEAL_UNAVAILABLE, revealLocalFile } from "../ImageFullscreen";
+import { localArtifactOpeningAvailable } from "../localArtifactLoader";
 
 const FOOTER_ACTION = "ct-liquid-interactive inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] hover:bg-[var(--ct-surface)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)]";
 
@@ -27,6 +28,7 @@ export function ImageResultBody({ src, path, localPath, name, alt }: { src: stri
   const [fullscreen, setFullscreen] = useState(false);
   const close = useCallback(() => setFullscreen(false), []);
   const figureRef = useRef<HTMLElement>(null);
+  const canReveal = localArtifactOpeningAvailable();
   return (
     <figure ref={figureRef} data-testid="chat-rich-result-figure" className="m-0 mb-1.5 overflow-hidden rounded-lg border" style={{ borderColor: "var(--ct-border)" }}>
       <button
@@ -48,7 +50,7 @@ export function ImageResultBody({ src, path, localPath, name, alt }: { src: stri
       <figcaption className="flex min-w-0 items-center gap-1 border-t py-1 pl-2.5 pr-1" style={{ borderColor: "var(--ct-border)", background: "var(--ct-surface)" }}>
         <span data-field="path" className="min-w-0 flex-1 truncate font-mono text-[11px]" style={{ color: "var(--ct-muted-fg)" }} title={path}>{path}</span>
         <CopyPathButton path={path} />
-        <button type="button" className={FOOTER_ACTION} style={{ color: "var(--ct-muted-fg)" }} aria-label={`Reveal ${name}`} title="Reveal in file manager" onClick={() => revealLocalFile(localPath)}>
+        <button type="button" className={FOOTER_ACTION} style={{ color: "var(--ct-muted-fg)" }} aria-label={`Reveal ${name}`} title={canReveal ? "Reveal in file manager" : REVEAL_UNAVAILABLE} disabled={!canReveal} onClick={() => revealLocalFile(localPath)}>
           <FolderOpen size={12} aria-hidden />
           Reveal
         </button>

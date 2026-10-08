@@ -180,6 +180,8 @@ pub struct BucketDefinition {
 /// Authored configuration of one stage; runtime state never lives here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StageDefinition {
+    pub terminal: Option<codeterm_types::blueprint_terminal::Config>,
+    pub session: bool,
     pub name: Option<String>,
     pub source: StageSource,
     pub pipeline: Option<codeterm_types::blueprint_pipeline::BlueprintSpec>,
@@ -740,6 +742,18 @@ impl HandlerDefinition {
 
 impl StageDefinition {
     pub(super) fn validate(&self) -> Result<(), StorageError> {
+        if let Some(terminal) = &self.terminal {
+            terminal
+                .validate()
+                .map_err(|error| StorageError::invalid("terminal", error))?;
+            if !matches!(&self.source, StageSource::Observe(observe) if observe.kind == ObserveKind::Tab)
+            {
+                return Err(StorageError::invalid(
+                    "terminal",
+                    "requires a direct tab observation",
+                ));
+            }
+        }
         optional_text("sentinel name", &self.name)?;
         match &self.source {
             StageSource::Probe(command) => text("sentinel probe", command)?,
@@ -1124,7 +1138,7 @@ fn validate_run_transition_count(
         &definition.source,
         StageSource::Observe(observe) if observe.kind == ObserveKind::CronRun
     );
-    if runtime.run_transitions > definition.max_transitions
+    if (!definition.session && runtime.run_transitions > definition.max_transitions)
         || (runtime.run_transitions > 0 && (!cron_run || runtime.run.is_none()))
     {
         return Err(StorageError::invalid(

@@ -69,6 +69,7 @@ pub(super) fn bounded_id(id: &str) -> bool {
 /// A stage evaluates exactly one source: a shell probe, a tab observation or an input
 /// definition. Only a cron-run source binds a run, and prompt answers require a tab source.
 pub(crate) fn validate(job: &Sentinel) -> Result<(), String> {
+    super::terminal::validate(job)?;
     let sources =
         (!job.probe.is_empty() as u8) + (job.observe.is_some() as u8) + (job.input.is_some() as u8);
     if sources != 1 {
@@ -116,11 +117,11 @@ pub(crate) fn validate_tab_scope(
         && tab.audience == crate::multiplexer::types::TabAudience::UserOwnedAutomation;
     let creator_joined_team =
         job.team_id.is_none() && job.creator_tab_id == tab_id && tab.team_id.is_some();
-    if tab.agent_type.is_none()
+    if (tab.agent_type.is_none() && job.terminal.is_none())
         || (tab.team_id != job.team_id && !exact_cron_run && !creator_joined_team)
         || mux.find_workspace_for_tab(tab_id).as_deref() != Some(job.workspace_id.as_str())
     {
-        return Err("observation tab must be an agent in the creator's Team and workspace".into());
+        return Err("observation tab must be in the creator's Team and workspace (shells require terminal options)".into());
     }
     Ok(tab.clone())
 }

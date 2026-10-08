@@ -67,11 +67,11 @@ export function graphRuns(graph: AutomationGraph): GraphRun[] {
     };
     entries.filter((entry) => entry.parent === null).forEach(visit);
     entries.forEach(visit);
-    return [{ key: run.id, at: run.started_at, name: root.name, events, state: run.state, incomplete: run.incomplete || entries.length < run.transitions.length }];
+    return [{ key: run.id, at: run.started_at, name: root.name, events, state: run.state, conversation: root.conversation, incomplete: run.incomplete || entries.length < run.transitions.length }];
   });
   for (const piece of pieces) {
     if (piece.transition.causal_run) continue;
-    runs.push({ key: piece.key, at: piece.transition.accepted_at, name: piece.node.name, events: eventsFor(piece), state: "unlinked", incomplete: false });
+    runs.push({ key: piece.key, at: piece.transition.accepted_at, name: piece.node.name, events: eventsFor(piece), state: "unlinked", conversation: piece.node.conversation, incomplete: false });
   }
   return runs.sort((a, b) => b.at - a.at || a.key.localeCompare(b.key));
 }

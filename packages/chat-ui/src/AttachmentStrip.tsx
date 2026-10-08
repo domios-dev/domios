@@ -1,7 +1,8 @@
 import { useCallback, useRef, useState } from "react";
 import { FileText, Image as ImageIcon } from "lucide-react";
 import { attachmentFileName, inlineAttachmentSrc, type AttachmentMarker, type ChatAttachment } from "@codeterm/chat-core";
-import { ImageFullscreen, revealLocalFile, type FullscreenImage } from "./ImageFullscreen";
+import { ImageFullscreen, REVEAL_UNAVAILABLE, revealLocalFile, type FullscreenImage } from "./ImageFullscreen";
+import { localArtifactOpeningAvailable } from "./localArtifactLoader";
 import { useLocalImage } from "./localImage";
 
 const TILE_BORDER = "color-mix(in srgb, var(--ct-accent, #58a6ff) 38%, transparent)";
@@ -47,14 +48,16 @@ function ImageTile({ attachment, large, onOpen }: { attachment: ChatAttachment; 
 
 function FileChip({ file }: { file: AttachmentMarker }) {
   const name = file.path.split(/[\\/]/).filter(Boolean).pop() ?? file.path;
+  const canReveal = localArtifactOpeningAvailable();
   return (
     <button
       type="button"
       data-testid="chat-file-attachment"
       aria-label={`Reveal file ${name}`}
-      title={file.path}
+      title={canReveal ? file.path : `${file.path} (${REVEAL_UNAVAILABLE})`}
+      disabled={!canReveal}
       onClick={() => revealLocalFile(file.path)}
-      className="ct-liquid-interactive inline-flex h-7 min-w-0 max-w-full items-center gap-1.5 rounded-full border px-2.5 font-mono text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]"
+      className="ct-liquid-interactive disabled:cursor-default inline-flex h-7 min-w-0 max-w-full items-center gap-1.5 rounded-full border px-2.5 font-mono text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]"
       style={{
         background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, transparent)",
         borderColor: TILE_BORDER,

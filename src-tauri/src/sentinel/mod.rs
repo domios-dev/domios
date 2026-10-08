@@ -14,9 +14,11 @@ pub(crate) mod provenance;
 pub(crate) mod routes;
 pub(crate) mod run_binding;
 pub(crate) mod scheduler;
+mod session;
 pub(crate) mod source;
 pub(crate) mod storage;
 pub(crate) mod store;
+pub(crate) mod terminal;
 #[cfg(test)]
 mod tests;
 pub(crate) mod wake;

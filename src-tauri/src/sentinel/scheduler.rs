@@ -17,6 +17,7 @@ use super::{
 };
 mod events;
 mod probe_failure;
+mod text;
 
 use crate::cron::clock::SharedClock;
 use crate::service::{supporter, ServiceState};
@@ -47,6 +48,7 @@ fn journal_refusal_prevented_effect(error: &std::io::Error) -> bool {
 #[derive(Clone)]
 pub struct Handle {
     pub store: Arc<Mutex<Store>>,
+    pub(super) inbox: Arc<Mutex<super::terminal::Inbox>>,
     pending_run_bindings: Arc<Mutex<BTreeMap<String, super::run_binding::PendingRunBinding>>>,
     wake: Arc<(std::sync::Mutex<u64>, std::sync::Condvar)>,
     pub(super) probe_owner: Arc<probe::owner::ProbeResourceOwner>,
@@ -118,6 +120,7 @@ impl Handle {
 pub(crate) fn fixture_handle(store: Store, app: tauri::AppHandle) -> Handle {
     Handle {
         store: Arc::new(Mutex::new(store)),
+        inbox: Arc::new(Mutex::new(super::terminal::Inbox::default())),
         pending_run_bindings: Arc::new(Mutex::new(BTreeMap::new())),
         wake: Arc::new((std::sync::Mutex::new(0), std::sync::Condvar::new())),
         probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
@@ -136,6 +139,7 @@ pub(super) fn emit_changes(store: &Arc<Mutex<Store>>, app: &tauri::AppHandle) {
 pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::Storage) {
     let mut handle = Handle {
         store: Arc::new(Mutex::new(Store::with_storage(storage, clock))),
+        inbox: Arc::new(Mutex::new(super::terminal::Inbox::default())),
         pending_run_bindings: Arc::new(Mutex::new(BTreeMap::new())),
         wake: Arc::new((std::sync::Mutex::new(0), std::sync::Condvar::new())),
         probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
@@ -163,6 +167,7 @@ pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::St
         log::error!("[blueprint-input] startup orphan sweep failed: {error}");
     }
     let store = handle.store.clone();
+    let inbox = handle.inbox.clone();
     let pending_run_bindings = handle.pending_run_bindings.clone();
     let wake = handle.wake.clone();
     let probe_owner = Arc::downgrade(&handle.probe_owner);
@@ -195,6 +200,7 @@ pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::St
                 }
                 let run_handle = Handle {
                     store: store.clone(),
+                    inbox: inbox.clone(),
                     pending_run_bindings: pending_run_bindings.clone(),
                     wake: wake.clone(),
                     probe_owner: owner.clone(),
@@ -204,6 +210,8 @@ pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::St
                 super::run_binding::process_pending(&svc, &run_handle);
                 super::run_binding::reconcile_runs(&svc, &run_handle);
                 expire_escalations(&store, &svc);
+                run_handle.reconcile_terminal_sources(&svc);
+                run_handle.prepare_text_events();
                 match storage::commit(&store, Store::stage_due) {
                     Ok(leases) => {
                         let notices = store.lock().take_stop_notices();
@@ -216,6 +224,7 @@ pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::St
                             };
                             let worker_handle = Handle {
                                 store: store.clone(),
+                                inbox: inbox.clone(),
                                 pending_run_bindings: pending_run_bindings.clone(),
                                 wake: wake.clone(),
                                 probe_owner: owner,
@@ -229,6 +238,7 @@ pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::St
                             std::thread::spawn(move || {
                                 tick(&worker_handle, &svc, &lease);
                                 worker_handle.store.lock().release(&lease.job.id);
+                                worker_handle.prepare_text_events();
                                 worker_handle.notify();
                             });
                         }
@@ -251,7 +261,10 @@ pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::St
             if probe_owner.upgrade().is_none_or(|owner| owner.is_closing()) {
                 return;
             }
-            let wait_ms = scheduler_wait_ms(&store.lock());
+            let now = store.lock().clock.now_ms();
+            let terminal_deadline = inbox.lock().deadline();
+            let wait_ms = scheduler_wait_ms(&store.lock())
+                .min(terminal_deadline.map_or(u64::MAX, |at| at.saturating_sub(now).max(1)));
             let event_wait_only = store.lock().event_wait_only();
             let guard = match generation.lock() {
                 Ok(guard) => guard,
@@ -260,7 +273,7 @@ pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::St
             if *guard != observed {
                 continue;
             }
-            if event_wait_only {
+            if event_wait_only && terminal_deadline.is_none() {
                 drop(wake_condvar.wait_while(guard, |value| *value == observed));
             } else {
                 let _ = wake_condvar.wait_timeout_while(
@@ -504,8 +517,6 @@ pub fn record(
     }))
 }
 
-/// Input evaluation lives in the runtime lane; this arm records a typed skip, runs no probe
-/// and spends no Choice request until that lane replaces it.
 fn record_input_unavailable(handle: &Handle, svc: &ServiceState, lease: &Lease) {
     let mut job = lease.job.clone();
     job.last_reason = Some("input_runtime_unavailable".into());
@@ -657,7 +668,9 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
         });
         return;
     }
-    if lease.job.input.is_some() {
+    if lease.job.input.as_ref().is_some_and(|input| {
+        input.kind != codeterm_types::sentinel_input::MediaKind::Text || input.convert_to.is_some()
+    }) {
         record_input_unavailable(handle, svc, lease);
         return;
     }
@@ -669,7 +682,23 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
             .map(|at| Duration::from_millis(at.saturating_sub(now)))
             .unwrap_or(probe::PROBE_RUNTIME)
     };
-    let observed = if let Some(binding) = &lease.job.observe {
+    let observed = if lease.job.input.is_some() || lease.job.terminal.is_some() {
+        let text = handle.inbox.lock().take(&lease.job.id);
+        match text {
+            Some(text) => Ok(probe::Output {
+                bytes: text.as_bytes().to_vec(),
+                text,
+                success: true,
+                exit_code: Some(0),
+                ..probe::Output::default()
+            }),
+            None if lease.job.input.is_some() => {
+                super::input::text_output(&lease.job, std::time::Instant::now() + remaining)
+                    .map_err(|_| probe::process::ProbeFailure::new("input_text_unavailable"))
+            }
+            None => return,
+        }
+    } else if let Some(binding) = &lease.job.observe {
         source::observe(svc, &lease.job, binding)
     } else {
         probe::run_with_environment(
@@ -853,6 +882,10 @@ pub(super) fn advance(
         return;
     }
     let mut job = lease.job.clone();
+    if job.terminal.is_some() || job.input.is_some() {
+        job.machine.last_hash = None;
+        job.machine.last_bucket = None;
+    }
     let scope = Scope::from(&job);
     let outcome = machine::evaluate_with_other_rearm(
         &mut job.machine,
@@ -1040,6 +1073,7 @@ pub(super) fn advance(
 pub(super) fn fixture_handle_without_app(store: Store) -> Handle {
     Handle {
         store: Arc::new(Mutex::new(store)),
+        inbox: Arc::new(Mutex::new(super::terminal::Inbox::default())),
         pending_run_bindings: Arc::new(Mutex::new(BTreeMap::new())),
         wake: Arc::new((std::sync::Mutex::new(0), std::sync::Condvar::new())),
         probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),

@@ -27,6 +27,9 @@ interface ForkSite {
 }
 
 const INVENTORY: ForkSite[] = [
+  { file: "src/lib/configureLocalPreviews.ts", anchor: 'configureLocalArtifactOpener(IS_WEB ? null : (path) => invoke("reveal_file", { path }));', ordinal: 1, cls: "capability-gate", note: "OS file reveal is unavailable in the browser mirror" },
+  { file: "src/components/Terminal/tabPanel/ChangeDetail.tsx", anchor: '<IconAction label="Open file" icon={ExternalLink} disabled={IS_WEB || !target || deleted} title={IS_WEB ? "Opening files in the OS is available only in the desktop app" : undefined} onClick={() => perform("open_folder")} />', ordinal: 1, cls: "capability-gate", note: "browser mirror cannot open a file in the host OS" },
+  { file: "src/components/Terminal/tabPanel/ChangeDetail.tsx", anchor: '<IconAction label="Show in Explorer/Finder" icon={FolderOpen} disabled={IS_WEB || !target || deleted} title={IS_WEB ? "Opening files in the OS is available only in the desktop app" : undefined} onClick={() => perform("reveal_file")} />', ordinal: 1, cls: "capability-gate", note: "browser mirror cannot reveal a file in the host OS" },
   { file: "src/App.tsx", anchor: "if (!IS_WEB) {", ordinal: 1, cls: "capability-gate", note: "frontend-ready generation handshake belongs to the native shell" },
   { file: "src/components/Terminal/NewSessionPicker.tsx", anchor: "if (IS_WEB) {", ordinal: 1, cls: "platform-adaptation", note: "new-workspace: native folder dialog on desktop vs name-input fallback on web" },
   { file: "src/components/Terminal/sessionBindingApi.ts", anchor: "if (IS_WEB) {", ordinal: 1, cls: "transport-shim", note: "session rebind uses the web bridge mapping vs authenticated native daemon fetch" },

@@ -1,3 +1,4 @@
+import { LocalArtifactScope } from "../LocalArtifactScope";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -108,7 +109,7 @@ async function render(messages: NormalizedChatMessage[]): Promise<HTMLElement> {
   document.body.append(host);
   const root = createRoot(host);
   mounted.push({ root, host });
-  await act(async () => root.render(<Timeline messages={messages} />));
+  await act(async () => root.render(<LocalArtifactScope tabId="result-owner"><Timeline messages={messages} /></LocalArtifactScope>));
   await flush();
   return host;
 }
@@ -179,7 +180,7 @@ describe("image results", () => {
     const view = await render([generated()]);
     const [row] = rows(view);
     expect(loader).toHaveBeenCalledTimes(1);
-    expect(loader).toHaveBeenCalledWith(imageEnd.saved_path, "image");
+    expect(loader).toHaveBeenCalledWith(imageEnd.saved_path, "image", "result-owner");
     const img = row.querySelector<HTMLImageElement>('[data-testid="chat-rich-result-thumbnail"]');
     expect(img?.getAttribute("src")).toBe(PNG);
     expect(img?.getAttribute("alt")).toBe("Generated image: lighthouse.png");
@@ -225,7 +226,7 @@ describe("image results", () => {
   it("reads an ImageView file URI as its local path while the detail keeps the exact source path", async () => {
     const view = await render([viewed()]);
     const [row] = rows(view);
-    expect(loader).toHaveBeenCalledWith("C:/repo/shots/before.png", "image");
+    expect(loader).toHaveBeenCalledWith("C:/repo/shots/before.png", "image", "result-owner");
     expect(row.querySelector('[data-testid="chat-rich-result-thumbnail"]')?.getAttribute("alt")).toBe("Viewed image: before.png");
     await click(toggle(row));
     expect(figurePath(row)).toBe(imageViewItem.path);
@@ -252,7 +253,7 @@ describe("image results", () => {
   it("falls back to text when the local file cannot be read", async () => {
     const view = await render([generated({ saved_path: "C:\\repo\\missing.png" })]);
     const [row] = rows(view);
-    expect(loader).toHaveBeenCalledWith("C:\\repo\\missing.png", "image");
+    expect(loader).toHaveBeenCalledWith("C:\\repo\\missing.png", "image", "result-owner");
     expect(view.querySelector("img")).toBeNull();
     await click(toggle(row));
     expect(field(row, "thumbnail")).toBe("not shown: local file could not be read");
