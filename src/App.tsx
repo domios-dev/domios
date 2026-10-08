@@ -32,6 +32,7 @@ import { EssenceMapCanvas } from "./components/Canvas/EssenceMapCanvas";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
 import { PlanSidePanelHost } from "./components/Canvas/PlanSidePanelHost";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
+import { useBlueprintRunPopups } from "./components/Automation/useBlueprintRunPopups";
 import { JobsView, type JobsTarget } from "./components/Jobs/JobsView";
 import { OPEN_JOB_EVENT, type OpenJobDetail } from "./components/Jobs/openJobEvent";
 import { jobsEntryFilter, jobsOpenEntry, type JobsOpenScope } from "./components/Jobs/jobsLayout";
@@ -223,9 +224,11 @@ function AppInner() {
     clearNotifications,
     answerNotification,
     dismissToast,
+    upsertToast,
     spawnClaudeTab,
   } = useMultiplexer();
   const state = useMuxState();
+  useBlueprintRunPopups(state.workspaces, state.generation, state.toasts, upsertToast);
   const navigateToNotificationTab = useCallback(
     (tabId: string, workspaceId: string | null) => {
       if (workspaceId) {
@@ -765,7 +768,7 @@ function AppInner() {
           )}
           {automationWorkspaceId && mainView === "workspace" && (
             <div className="absolute inset-0" style={{ zIndex: 26 }}>
-              <JobsView key={`${automationWorkspaceId}:${jobsScope}:${jobsTarget?.request ?? 0}`} workspaces={state.workspaces} teams={state.teams} tabs={state.tabs} initialFilter={jobsEntryFilter(jobsOpenEntry(automationWorkspaceId, jobsScope, jobsTarget?.teamId))} initialScenarioId={jobsTarget?.scenarioId} initialCronId={jobsTarget?.cronId} initialBlueprintId={jobsTarget?.blueprintId} onClose={closeWorkspaceAutomation} />
+              <JobsView key={`${automationWorkspaceId}:${jobsScope}:${jobsTarget?.request ?? 0}`} workspaces={state.workspaces} teams={state.teams} tabs={state.tabs} initialFilter={jobsEntryFilter(jobsOpenEntry(automationWorkspaceId, jobsScope, jobsTarget?.teamId))} initialScenarioId={jobsTarget?.scenarioId} initialRunId={jobsTarget?.runId} initialCronId={jobsTarget?.cronId} initialBlueprintId={jobsTarget?.blueprintId} onClose={closeWorkspaceAutomation} />
             </div>
           )}
           {workspaceMapWorkspaceId && mainView === "workspace" && (

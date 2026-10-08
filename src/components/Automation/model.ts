@@ -44,7 +44,7 @@ export function scopedAutomationGraph(graph: AutomationGraph, scope: AutomationS
     return allTeams || ownerTeam === scope.team_id;
   });
   const runs = graph.runs?.filter((run) => roots.some((root) => root.identity.id === run.root_node));
-  return { ...graph, scenarios, nodes, edges, runs, ...(blueprints ? { blueprints } : {}) };
+  return { ...graph, scenarios, nodes, edges, ...(runs ? { runs } : {}), ...(blueprints ? { blueprints } : {}) };
 }
 
 export function automationState(node: AutomationNode): string {

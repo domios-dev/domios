@@ -20,6 +20,13 @@ fn sentinel_node_files_read_only_definition_paths_include_script_and_references(
     );
     assert_eq!(missing.len(), 1);
     assert!(!missing[0].exists);
+    let parent = references("linked/../data.json", &cwd, |_| FileKind::File);
+    assert_eq!(
+        parent[0].path,
+        cwd.join("linked/../data.json").to_string_lossy()
+    );
+    let quoted = references("Get-Content 'a.json','b.json'", &cwd, |_| FileKind::File);
+    assert_eq!(quoted.len(), 2);
     let duplicates = references("./inputs/a.json inputs/a.json", &cwd, |_| FileKind::File);
     assert_eq!(duplicates.len(), 1);
     assert!(references("assets/", &cwd, |_| FileKind::Other).is_empty());

@@ -25,12 +25,12 @@ export interface ScenarioState {
 const DRAWER_MOTION: PresenceMotion = { enter: "ct-plan-side-panel-in", exit: "ct-plan-side-panel-out" };
 
 /** `fill` stretches the scenario over a bounded parent's remaining height; embedded consumers keep content height. */
-export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBack, headingLevel = 2, fill = false, children }: {
+export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBack, headingLevel = 2, fill = false, initialRunId, children }: {
   state: ScenarioState; scope: AutomationScope; scenario: AutomationScenario; camera: AutomationCamera;
-  backLabel: string; onBack: () => void; headingLevel?: 2 | 3; fill?: boolean; children?: ReactNode;
+  backLabel: string; onBack: () => void; headingLevel?: 2 | 3; fill?: boolean; initialRunId?: string; children?: ReactNode;
 }) {
-  const [runsOpen, setRunsOpen] = useState(false);
-  const [selectedRun, setSelectedRun] = useState<string | null>(null);
+  const [runsOpen, setRunsOpen] = useState(!!initialRunId);
+  const [selectedRun, setSelectedRun] = useState<string | null>(initialRunId ?? null);
   const [selected, setSelected] = useState<string | null>(null);
   const opener = useRef<HTMLElement | null>(null);
   const body = useRef<HTMLDivElement>(null);
