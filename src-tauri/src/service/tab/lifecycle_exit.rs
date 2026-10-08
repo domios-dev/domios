@@ -13,6 +13,11 @@ fn clear_agent_identity_after_prompt_clear(
     tab: &mut crate::multiplexer::types::Tab,
     had_prompt: bool,
 ) -> bool {
+    if tab.boot_stage == Some(crate::service::boot_stage::BootStage::SpawnFailed) {
+        if let Some(provider) = tab.agent_type.clone() {
+            tab.restorable_launch.failed_provider = Some(provider);
+        }
+    }
     if let (Some(provider_id), Some(session_id)) =
         (tab.agent_type.as_deref(), tab.agent_session_id.as_deref())
     {

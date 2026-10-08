@@ -1038,6 +1038,7 @@ fn requested_and_actual_model_identity_round_trips_through_snapshot() {
 fn restorable_launch_parameters_round_trip_in_snapshot() {
     let (mut state, tab_id) = MultiplexerState::new();
     let launch = crate::multiplexer::types::RestorableLaunchParameters {
+        failed_provider: Some("failed-provider-fixture".into()),
         context_files: None,
         context_skills: None,
         worker_restart: None,

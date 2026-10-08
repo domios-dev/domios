@@ -483,6 +483,7 @@ pub fn start_general_agent(
     );
     crate::service::launch_diagnostics::log_launch_environment("general_agent", &tab_id, &env_vars);
 
+    let pty_claim = svc.pty_ownership.acquire(&tab_id);
     let pty_id = {
         let mut manager = pty.lock();
         match manager.spawn_with_id(None, None, Some(general_cwd.clone()), cols, rows, env_vars) {
@@ -496,17 +497,20 @@ pub fn start_general_agent(
         }
     };
 
-    let displaced = {
-        let mut m = mux.write();
-        let d = m.link_pty(&tab_id, pty_id.clone());
-        if let Some(tab) = m.get_tab_mut(&tab_id) {
-            tab.auto_approve = permission_bypass;
-        }
-        d
-    };
-    crate::service::orchestrator::tab_relink_signal::notify_tab_relinked();
-    if let Some(orphan) = displaced {
-        svc.kill_ptys(&[orphan]);
+    let selection = svc.link_pty_with_claim(&pty_claim, &tab_id, pty_id, true);
+    drop(pty_claim);
+    if !selection.linked {
+        fail_general_agent_start(
+            svc,
+            mux,
+            &tab_id,
+            "General Agent Tab closed before PTY link",
+        );
+        return;
+    }
+    let pty_id = selection.pty_id;
+    if let Some(tab) = mux.write().get_tab_mut(&tab_id) {
+        tab.auto_approve = permission_bypass;
     }
     svc.set_and_lock_tab_agent_type_from(
         &tab_id,

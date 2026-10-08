@@ -98,6 +98,31 @@ fn restart_requires_observed_live_process_evidence() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn failed_general_agent_without_live_identity_remains_a_restart_target() {
+    let mut mux = crate::multiplexer::state::MultiplexerState::empty();
+    crate::service::general_agent::ensure_general_workspace(&mut mux, true);
+    let tab_id = mux
+        .resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)
+        .unwrap();
+    mux.get_tab_mut(&tab_id).unwrap().boot_stage =
+        Some(codeterm_types::pty::BootStage::SpawnFailed);
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.set_agent_full_access(false);
+    let snap = fixture
+        .service
+        .general_agent_restart_snapshot(&tab_id)
+        .unwrap();
+    assert_eq!(snap.tab_id, tab_id);
+    assert!(snap.pty_id.is_empty());
+    assert!(snap.session_id.is_none());
+    assert!(
+        crate::service::general_agent::claim_general_agent_tab_retry(&tab_id, &fixture.service.mux)
+            .unwrap()
+    );
+}
+
+#[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn surviving_shell_stale_metadata_is_cleared_before_restart_acceptance() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();

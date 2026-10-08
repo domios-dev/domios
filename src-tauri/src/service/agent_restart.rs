@@ -292,6 +292,9 @@ impl ServiceContext {
         if let Some(outcome) = self.restart_general_agent_if_target(tab_id, force, false)? {
             return outcome;
         }
+        if let Some(snap) = self.failed_launch_restart_snapshot(tab_id)? {
+            return self.restart_live_agent(snap, force, grace_secs, None, RestartMode::SkipExit);
+        }
         if let Some(snap) = self.unverified_launch_shell_snapshot(tab_id)? {
             return self.restart_live_agent(snap, force, grace_secs, None, RestartMode::SkipExit);
         }
@@ -562,7 +565,7 @@ impl ServiceContext {
         self.require_background_work_safe(&target.tab_id, force)?;
         if self.is_unverified_launch_shell(&target) {
             target.session_id = None;
-        } else {
+        } else if require_idle {
             self.require_tab_restart_liveness(&target.tab_id)?;
         }
         if let Some(reason) = evidenced_transcript_block(&target) {
@@ -1150,6 +1153,7 @@ pub(crate) fn screen_shows_agent_tui(
 }
 
 mod exit_recovery;
+mod failed_launch;
 mod model_switch;
 mod relaunch;
 mod unverified_shell;
