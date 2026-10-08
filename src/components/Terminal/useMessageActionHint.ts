@@ -9,7 +9,7 @@ export function useMessageActionHint(row: RefObject<HTMLElement | null>, disable
   if (!controller.current) controller.current = createStillHoverHint({
     schedule: (callback, delay) => window.setTimeout(callback, delay),
     cancel: (handle) => window.clearTimeout(handle as number),
-    allowed: () => !live.current && !window.matchMedia("(prefers-reduced-motion: reduce)").matches && !row.current?.closest('[data-motion="paused"]'),
+    allowed: () => !live.current && !window.matchMedia("(pointer: coarse)").matches && !window.matchMedia("(prefers-reduced-motion: reduce)").matches && !row.current?.closest('[data-motion="paused"]'),
     claim: () => messageHintBudget.claim(),
     show: () => setHint(true),
   });

@@ -593,3 +593,65 @@
 .ct-msg-row[data-selecting] .ct-message-part:not([data-selected]):hover {
   background: color-mix(in srgb, var(--ct-accent, #58a6ff) 5%, transparent);
 }
+
+.ct-msg-row[data-touch-owned] {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.ct-msg-sheet-wrap {
+  position: fixed;
+  z-index: 1000;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  left: max(12px, env(safe-area-inset-left));
+  right: max(12px, env(safe-area-inset-right));
+  width: auto;
+  max-width: 360px;
+  margin-inline: auto;
+}
+
+.ct-msg-sheet-wrap .ct-msg-menu {
+  width: 100%;
+  box-sizing: border-box;
+  max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: 16px;
+}
+
+.ct-msg-sheet-wrap :is(.ct-msg-menu__item, .ct-msg-scope button) {
+  min-height: 44px;
+  white-space: normal;
+}
+
+.ct-msg-menu__preview {
+  margin: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ct-accent, #58a6ff) 8%, transparent);
+  color: var(--ct-fg, #c9d1d9);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 108px;
+  overflow-y: auto;
+}
+
+@media (pointer: coarse) {
+  .ct-msg-dot__button { display: none; }
+  .ct-msg-dot__more { animation: none; }
+  .ct-msg-row[data-selecting] [data-message-gutter] { touch-action: none; }
+  .ct-part-gutter { width: 24px; right: -24px; }
+  .ct-msg-selection-bar {
+    padding: 4px 6px;
+    gap: 2px;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: max-content;
+    max-width: calc(100% - 16px);
+    bottom: max(8px, env(safe-area-inset-bottom));
+  }
+  .ct-msg-selection-bar button { min-height: 44px; min-width: 44px; }
+}
