@@ -75,7 +75,7 @@ export function useTabChatBlockHost(tabId: string): ChatBlockHost {
       refresh: () => {},
     };
     return {
-      askAbout: (text) => insertIntoComposer(tabId, { text }),
+      askAbout: ({ title, text }) => insertIntoComposer(tabId, { kind: "quote", detail: title, content: text }),
       pin: (source) => {
         if (pinnedBlocksStore.toggle(tabId, source)) planSidePanelStore.open({ planId: "", documentsTabId: tabId, tabView: "documents" });
       },
