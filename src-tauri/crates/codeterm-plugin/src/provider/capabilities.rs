@@ -157,6 +157,15 @@ pub struct ModelSwitchTranscript {
 pub struct ModelSwitchCommand {
     pub command: String,
     pub confirmation: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<ModelSwitchPrompt>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModelSwitchPrompt {
+    pub screen_regex: String,
+    pub response_keys: Vec<String>,
 }
 
 /// Which runtime drives a provider's tab: a PTY process or a JS chatBackend.

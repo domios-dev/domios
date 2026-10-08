@@ -182,7 +182,11 @@
       },
       "model": {
         "command": "/model {model}",
-        "confirmation": "(?i)^Set model to .*?(?:{model}|{display_name})(?:[^a-z0-9_-]|$)"
+        "confirmation": "(?i)^Set model to .*?(?:{model}|{display_name})(?:[^a-z0-9_-]|$)",
+        "prompt": {
+          "screenRegex": "(?im)^\\s*Switch model\\?\\s*$[\\s\\S]*^\\s*❯ 1\\. Yes, switch to (?:{model}|{display_name})(?: [^\\r\\n]+)?\\s*$[\\s\\S]*^\\s*2\\. No, go back\\s*\\z",
+          "responseKeys": ["\r"]
+        }
       },
       "effort": {
         "command": "/effort {effort}",

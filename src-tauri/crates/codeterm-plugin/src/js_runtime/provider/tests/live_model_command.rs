@@ -5,7 +5,8 @@ fn live_command_mode_and_templates_round_trip_through_manifest() {
     let mut manifest: serde_json::Value = serde_json::from_str(MIN_MANIFEST).unwrap();
     manifest["commands"]["modelSwitch"] = json!("live_command");
     manifest["commands"]["modelSwitchCommands"] = json!({
-        "model": {"command": "/choose {model}", "confirmation": "^accepted {model}$"},
+        "model": {"command": "/choose {model}", "confirmation": "^accepted {model}$",
+            "prompt": {"screenRegex": "^confirm {model}$", "responseKeys": ["y", "\r"]}},
         "effort": {"command": "/reason {effort}", "confirmation": "^accepted {effort}$"},
         "transcript": {"recordType": "opaque", "contentPath": ["payload"], "prefix": "<ok>", "suffix": "</ok>"}
     });
@@ -14,6 +15,12 @@ fn live_command_mode_and_templates_round_trip_through_manifest() {
         provider.model_switch(),
         crate::provider::ModelSwitchMode::LiveCommand
     );
+    let mut invalid = manifest.clone();
+    invalid["commands"]["modelSwitchCommands"]["model"]["prompt"]["typo"] = json!(true);
+    assert!(serde_json::from_value::<PluginManifest>(invalid).is_err());
+    let mut invalid = manifest.clone();
+    invalid["commands"]["modelSwitchCommands"]["model"]["prompt"]["responseKeys"] = json!("y");
+    assert!(serde_json::from_value::<PluginManifest>(invalid).is_err());
     let commands = provider.model_switch_commands().unwrap();
     assert_eq!(
         serde_json::to_value(commands).unwrap(),

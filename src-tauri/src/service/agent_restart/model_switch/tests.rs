@@ -14,6 +14,52 @@ const NEXT_MODEL: &str = "next-model-b2";
 const EFFORT: &str = "effort-c3";
 
 #[test]
+fn live_confirmation_accepts_bare_model_alias_with_verified_binding() {
+    let registry = crate::agent::registry::AgentRegistry::new();
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("opaque-provider".into());
+    tab.agent_session_id = Some(SESSION.into());
+    tab.session_binding_nonce = Some(NONCE.into());
+    tab.reported_session_binding_nonce = Some(NONCE.into());
+    tab.agent_session_model = Some("opus".into());
+    tab.agent_session_model_identity = Some(crate::multiplexer::types::SessionModelIdentity {
+        session_id: SESSION.into(),
+        session_binding_nonce: NONCE.into(),
+        launch_report: None,
+        model_switch_turn_confirmed: false,
+    });
+    assert!(live_model_confirmation_matches(
+        &registry,
+        tab,
+        "opaque-provider",
+        SESSION,
+        NONCE,
+        "opus"
+    ));
+    assert!(!live_model_confirmation_matches(
+        &registry,
+        tab,
+        "opaque-provider",
+        SESSION,
+        NONCE,
+        "sonnet"
+    ));
+    tab.agent_session_model_identity
+        .as_mut()
+        .unwrap()
+        .session_binding_nonce = "old-nonce".into();
+    assert!(!live_model_confirmation_matches(
+        &registry,
+        tab,
+        "opaque-provider",
+        SESSION,
+        NONCE,
+        "opus"
+    ));
+}
+
+#[test]
 fn live_mode_uses_the_route_probe_and_falls_back_with_a_reason() {
     let available = crate::service::structured_prompt::LiveModelSwitchResult::Applied {
         observed_model: None,
