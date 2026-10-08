@@ -6,10 +6,11 @@ import { useBlueprintMotion } from "./useBlueprintMotion";
 export function useBlueprintReplay(steps: readonly ReplayStep[] | null, nonce: number): ReplayFrame | null {
   const reduced = !useBlueprintMotion();
   const [elapsed, setElapsed] = useState(0);
+  const path = JSON.stringify(steps);
+  const total = (steps?.length ?? 0) * REPLAY_STEP_MS;
   useEffect(() => {
     setElapsed(0);
-    if (!steps || reduced || !steps.length) return;
-    const total = steps.length * REPLAY_STEP_MS;
+    if (!total || reduced) return;
     let start: number | null = null;
     let request = 0;
     const frame = (at: number) => {
@@ -20,6 +21,6 @@ export function useBlueprintReplay(steps: readonly ReplayStep[] | null, nonce: n
     };
     request = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(request);
-  }, [steps, reduced, nonce]);
+  }, [path, total, reduced, nonce]);
   return useMemo(() => steps ? replayFrame(steps, elapsed, reduced) : null, [steps, elapsed, reduced]);
 }
