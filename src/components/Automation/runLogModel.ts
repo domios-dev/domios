@@ -1,3 +1,4 @@
+import { decisionKind } from "./nodeDecision";
 import { projectAutomationGraph, type PresentationEdge } from "./projection";
 import { automationKey, type AutomationGraph, type AutomationTransition, type AutomationNode } from "./types";
 
@@ -28,13 +29,14 @@ export function graphRuns(graph: AutomationGraph): GraphRun[] {
       const command = handler.command_result;
       const duration = command && Number.isSafeInteger(command.started_at) && Number.isSafeInteger(command.finished_at) && command.started_at >= 0 && command.finished_at >= command.started_at ? command.finished_at - command.started_at : null;
       return {
+        classifier: decisionKind(transition), confidence: transition.confidence, reason: transition.reason,
         at: handler.accepted_at ?? transition.accepted_at, node: node.name, outcome: transition.bucket,
         target: edge ? names.get(edge.to) ?? null : handler.handler_id,
         status: handler.status ?? "Unknown", duration,
         edgeId: handler.status === "skipped" || handler.status === "noop" ? null : edge?.id ?? null,
       };
     });
-    if (!events.length) events.push({ at: transition.accepted_at, node: node.name, outcome: transition.bucket, target: null, status: "No action", duration: null, edgeId: null });
+    if (!events.length) events.push({ classifier: decisionKind(transition), confidence: transition.confidence, reason: transition.reason, at: transition.accepted_at, node: node.name, outcome: transition.bucket, target: null, status: "No action", duration: null, edgeId: null });
     return events;
   };
   const runs: GraphRun[] = (graph.runs ?? []).flatMap((run) => {
@@ -85,5 +87,5 @@ export function replayFrame(edges: readonly string[], elapsedMs: number, reduced
 
 export function runEventLine(event: RunEvent): string {
   const time = new Date(event.at).toLocaleTimeString();
-  return `${time} ${event.node} → ${event.outcome}${event.target ? ` → ${event.target}` : ""} (${event.status}${event.duration === null ? "" : `, ${event.duration} ms`})`;
+  return `${time} ${event.node} → ${event.outcome}${event.target ? ` → ${event.target}` : ""} (${event.status}${event.confidence != null ? ` · confidence ${Math.round(event.confidence * 100)}%` : ""}${event.reason ? ` · ${event.reason}` : ""}${event.duration === null ? "" : `, ${event.duration} ms`})`;
 }

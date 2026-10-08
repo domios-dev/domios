@@ -11,13 +11,15 @@ pub(super) fn project(job: &Sentinel, remaining: &mut usize) -> Vec<Value> {
         *remaining -= cost;
         true
     }).map(|transition| {
-        json!({"causal_run":transition.causal_run,"id":transition.id,"bucket":transition.bucket,"accepted_at":transition.accepted_at,"routes_current":job.amendments.iter().all(|amendment| amendment.at < transition.accepted_at),
+        let mut result = json!({"causal_run":transition.causal_run,"id":transition.id,"bucket":transition.bucket,"accepted_at":transition.accepted_at,"routes_current":job.amendments.iter().all(|amendment| amendment.at < transition.accepted_at),
             "pending_handlers":pending_handlers(job, transition),
             "handlers":transition.handlers.iter().take(64).map(|handler| {
                 let mut result = super::record(handler);
                 result["handler_id"] = json!(handler.handler_id);
                 result
-            }).collect::<Vec<_>>()})
+            }).collect::<Vec<_>>()});
+        super::detail::project_decision(&mut result, transition.decision.as_ref());
+        result
     }).collect()
 }
 
@@ -70,13 +72,22 @@ mod tests {
                 accepted_at: index,
                 terminal: false,
                 handlers: vec![],
-                decision: None,
+                decision: Some(crate::sentinel::provenance::Decision {
+                    decided_by: crate::sentinel::provenance::DecidedBy::Adapter,
+                    adapter_id: Some("fixture-adapter".into()),
+                    model: Some("fixture-model".into()),
+                    confidence: Some(0.87),
+                }),
             })
             .collect();
         let history = project(&job, &mut 4096);
         assert_eq!(history.len(), MAX_TRANSITIONS);
         assert_eq!(history[0]["id"], "event-69");
         assert_eq!(history[63]["id"], "event-6");
+        assert_eq!(history[0]["decided_by"], "adapter");
+        assert_eq!(history[0]["adapter_id"], "fixture-adapter");
+        assert_eq!(history[0]["model"], "fixture-model");
+        assert_eq!(history[0]["confidence"], 0.87);
         assert_eq!(project(&job, &mut 2).len(), 2);
         assert!(!json!(history).to_string().contains("private-"));
     }

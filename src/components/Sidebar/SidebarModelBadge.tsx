@@ -1,3 +1,5 @@
+export const MODEL_BADGE_STYLE = "px-1 py-0 text-[8px] leading-tight rounded font-mono border border-[var(--ct-border)]";
+
 interface SidebarModelBadgeProps {
   label: string;
   title?: string;
@@ -7,7 +9,7 @@ interface SidebarModelBadgeProps {
 export function SidebarModelBadge({ label, title, className = "" }: SidebarModelBadgeProps) {
   return (
     <span
-      className={`sidebar-tab-badge px-1 py-0 text-[8px] leading-tight rounded font-mono uppercase tracking-wider border border-[var(--ct-border)] text-[var(--ct-muted-fg)] ${className}`}
+      className={`sidebar-tab-badge ${MODEL_BADGE_STYLE} uppercase tracking-wider text-[var(--ct-muted-fg)] ${className}`}
       title={title}
       aria-label={title}
     >
