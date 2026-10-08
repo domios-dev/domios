@@ -1,3 +1,4 @@
+import { formatAttachmentMarker } from "@codeterm/chat-core";
 import { classifyTabTarget, type TabTarget } from "../../lib/remoteTabTransport";
 import { planComposerAttachments, type ComposerAttachmentPlan } from "./composerAttachmentPlan";
 
@@ -102,12 +103,12 @@ async function resolveLocalParts(
   let transcribeFailed = false;
   const parts = await Promise.all(
     plans.map(async ({ path, transcribe }) => {
-      if (!transcribe) return deps.quote(path);
+      if (!transcribe) return formatAttachmentMarker(path);
       try {
         return await deps.transcribeLocal(path);
       } catch {
         transcribeFailed = true;
-        return deps.quote(path);
+        return formatAttachmentMarker(path);
       }
     }),
   );
@@ -135,7 +136,7 @@ async function transferPart(
   if (!transferred?.path || transferred.path === plan.path) {
     throw new AttachmentTransferError(`${name} was not sent to the remote tab: the target host kept no copy`);
   }
-  return kind === "voice" && transferred.reference ? transferred.reference : deps.quote(transferred.path);
+  return kind === "voice" && transferred.reference ? transferred.reference : formatAttachmentMarker(transferred.path);
 }
 
 export function assertNoSourceAttachmentPaths(

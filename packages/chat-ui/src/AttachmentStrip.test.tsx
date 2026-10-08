@@ -3,7 +3,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { MessageBubble } from "./MessageBubble";
-import { configureLocalArtifactLoader } from "./localArtifactLoader";
+import { formatAttachmentMarker } from "@codeterm/chat-core";
+import { configureLocalArtifactLoader, configureLocalArtifactOpener } from "./localArtifactLoader";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -28,6 +29,7 @@ afterEach(async () => {
     host.remove();
   }
   configureLocalArtifactLoader(null);
+  configureLocalArtifactOpener(null);
 });
 
 async function flush() {
@@ -82,7 +84,7 @@ describe("user image attachments", () => {
     expect(dialog!.querySelector(`img[alt="${NAME}"]`)?.getAttribute("src")).toBe(PNG);
 
     await act(async () => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
     });
     expect(viewer()).toBeNull();
   });
@@ -95,9 +97,9 @@ describe("user image attachments", () => {
     button.focus();
     expect(document.activeElement).toBe(button);
     await act(async () => button.click());
-    expect(document.activeElement?.getAttribute("aria-label")).toBe("Close image");
+    expect(viewer()!.contains(document.activeElement)).toBe(true);
     await act(async () => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
     });
     expect(document.activeElement).toBe(button);
   });
@@ -111,5 +113,45 @@ describe("user image attachments", () => {
       (candidate) => candidate.getAttribute("aria-label") === "Open image missing.png",
     );
     expect(button?.disabled).toBe(true);
+  });
+});
+
+const userTurn = (content: string): NormalizedChatMessage => ({ id: "user-1", type: "user", content });
+const DOC = "/home/me/reports/q3 summary.pdf";
+
+describe("attachment markers in the user bubble", () => {
+  it("renders marker attachments as a strip and keeps only the typed text", async () => {
+    const host = await render(userTurn(`check these ${formatAttachmentMarker(PATH)} ${formatAttachmentMarker(DOC)}`));
+    const strip = host.querySelector('[role="group"][aria-label="Attachments"]');
+    expect(strip).toBeTruthy();
+    expect(openButton(strip!)?.querySelector("img")?.getAttribute("src")).toBe(PNG);
+    expect(strip!.querySelector('button[aria-label="Reveal file q3 summary.pdf"]')).toBeTruthy();
+    expect(host.textContent).toContain("check these");
+    expect(host.textContent).not.toContain("ds-attachment");
+    expect(host.textContent).not.toContain(PATH);
+  });
+
+  it("opens a marker image in the shared fullscreen overlay and reveals files through the host opener", async () => {
+    const revealed: string[] = [];
+    configureLocalArtifactOpener(async (path) => { revealed.push(path); });
+    const host = await render(userTurn(`${formatAttachmentMarker(PATH)} ${formatAttachmentMarker(DOC)}`));
+    await act(async () => openButton(host)!.click());
+    expect(viewer()?.querySelector(`img[alt="${NAME}"]`)?.getAttribute("src")).toBe(PNG);
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Reveal file q3 summary.pdf"]')!.click());
+    expect(revealed).toEqual([DOC]);
+  });
+
+  it("shows a raw codeterm-chat temp path from an older transcript as an attachment", async () => {
+    const host = await render(userTurn(`look at this ${PATH}`));
+    expect(openButton(host)).toBeTruthy();
+    expect(host.textContent).toContain("look at this");
+    expect(host.textContent).not.toContain(PATH);
+  });
+
+  it("leaves a message without attachments untouched", async () => {
+    const plain = String.raw`plain C:\repo\shot.png text`;
+    const host = await render(userTurn(plain));
+    expect(host.querySelector('[aria-label="Attachments"]')).toBeNull();
+    expect(host.textContent).toContain(plain);
   });
 });
