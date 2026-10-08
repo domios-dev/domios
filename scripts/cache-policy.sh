@@ -74,6 +74,7 @@ ct_effective_cache_key_scope() {
 }
 
 ct_configure_sccache() {
+  export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-10G}"
   [ "${CODETERM_USE_SCCACHE:-1}" = "0" ] && return 0
   command -v sccache >/dev/null 2>&1 || {
     echo "[cache-policy] sccache unavailable; building without RUSTC_WRAPPER"
@@ -93,6 +94,7 @@ ct_configure_sccache() {
 }
 
 ct_require_prestarted_sccache() {
+  export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-10G}"
   command -v sccache >/dev/null 2>&1 || {
     echo "[cache-policy] ERROR: exceptional worktree compilation requires sccache" >&2
     return 2
@@ -132,4 +134,32 @@ ct_check_provenance() {
   node scripts/cache-provenance.mjs check \
     --kind "$1" --profile "$2" --target "$3" --flags "${4:-}" --features "${5:-}" \
     --manifest "$6"
+}
+
+ct_cache_retention() {
+  local dir bash_exe self_pid result=0
+  dir="$(ct_gateway_dir)"
+  bash_exe="$BASH"
+  if command -v cygpath >/dev/null 2>&1; then bash_exe="$(cygpath -w "$bash_exe")"; fi
+  if ! mkdir "$dir/state.lock" 2>/dev/null; then
+    echo "[cache-policy] gateway metadata is busy; retention was not started" >&2
+    return 75
+  fi
+  self_pid="${CT_GATEWAY_MUTEX_PID:-$$}"
+  printf '%s\n' "$self_pid" > "$dir/state.lock/pid"
+  CT_GATEWAY_MUTEX_START="$(ct_gateway_process_start_token "$self_pid")"
+  printf '%s\n' "$CT_GATEWAY_MUTEX_START" > "$dir/state.lock/start_token"
+  if [ -z "$CT_GATEWAY_MUTEX_START" ]; then
+    ct_gateway_mutex_release "$dir"
+    echo "[cache-policy] cannot identify retention owner; no cache paths changed" >&2
+    return 2
+  fi
+  CT_CACHE_RETENTION_LOCK_HELD=1 CT_CACHE_BASH="$bash_exe" \
+    node "$(ct_repo_root)/scripts/cache-retention.mjs" "$1" "$dir" "$(pwd -P)" "${2:-}" || result=$?
+  ct_gateway_mutex_release "$dir"
+  return "$result"
+}
+
+ct_mark_exceptional_target() {
+  ct_cache_retention mark "$CARGO_TARGET_DIR"
 }
