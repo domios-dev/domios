@@ -12,6 +12,7 @@ fn tab_with(id: &str, backing: TabBacking) -> Tab {
         shell_profile: None,
         utility_created_at: 0,
         utility_command_pending: false,
+        close_restore: None,
         shell_command_state: Default::default(),
         pending_delivery: None,
         title: "Terminal".to_string(),

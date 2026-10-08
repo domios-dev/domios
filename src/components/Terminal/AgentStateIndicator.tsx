@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Square, Terminal, X } from "lucide-react";
 import { ActivityDots } from "../shared/ActivityDots";
 import type { Tab } from "../../lib/types";
@@ -64,6 +65,7 @@ export function AgentStateIndicator({
   onCancel,
   onOpenTerminal,
   onRebind,
+  renderIdentity,
 }: {
   state: AgentState;
   providerName?: string | null;
@@ -74,6 +76,7 @@ export function AgentStateIndicator({
   onCancel?: () => void;
   onOpenTerminal?: () => void;
   onRebind?: () => void;
+  renderIdentity?: (label: string) => ReactNode;
 }) {
   const isWorking = state.state === "working";
   const isQuiet = state.state === "quiet";
@@ -84,7 +87,8 @@ export function AgentStateIndicator({
   const actualEffort = reasoningEffort?.actual_source === "session-owned"
     ? reasoningEffort.actual?.trim()
     : null;
-  const text = [providerName?.trim(), model?.trim(), actualEffort, status].filter(Boolean).join(" · ");
+  const identity = [providerName?.trim(), model?.trim(), actualEffort].filter(Boolean).join(" · ");
+  const text = [identity, status].filter(Boolean).join(" · ");
 
   return (
     <div
@@ -103,13 +107,31 @@ export function AgentStateIndicator({
         rhythm={phase}
         active={isWorking}
       />
-      <span
-        className="ct-agent-msg min-w-0 flex-1 truncate text-sm font-medium tracking-tight"
-        style={{ fontFamily: "var(--ct-font-mono)" }}
-        title={text || undefined}
-      >
-        {compactStatusMessage(text)}
-      </span>
+      {renderIdentity && identity ? (
+        <>
+          <span
+            className="ct-agent-msg ct-agent-identity flex min-w-0 shrink text-sm font-medium tracking-tight"
+            style={{ fontFamily: "var(--ct-font-mono)" }}
+          >
+            {renderIdentity(identity)}
+          </span>
+          <span
+            className="ct-agent-msg min-w-0 flex-1 truncate text-sm font-medium tracking-tight"
+            style={{ fontFamily: "var(--ct-font-mono)" }}
+            title={status || undefined}
+          >
+            {status ? `· ${compactStatusMessage(status)}` : ""}
+          </span>
+        </>
+      ) : (
+        <span
+          className="ct-agent-msg min-w-0 flex-1 truncate text-sm font-medium tracking-tight"
+          style={{ fontFamily: "var(--ct-font-mono)" }}
+          title={text || undefined}
+        >
+          {compactStatusMessage(text)}
+        </span>
+      )}
       {onStop && (!isQuiet && !isQuestion) && (
         <button
           type="button"

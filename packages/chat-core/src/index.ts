@@ -54,8 +54,10 @@ export {
 } from "./userAttachments";
 export {
   ATTACHMENT_KINDS,
+  DOMIOS_TEXT_MIME,
   attachmentKindForPath,
   attachmentMarkerSegments,
+  CONTEXT_TEXT_KINDS,
   hasAttachmentMarkers,
   attachmentPreviewKind,
   formatAttachmentMarker,
@@ -67,6 +69,26 @@ export {
   type AttachmentSegment,
   type ParsedAttachmentMarkers,
 } from "./attachmentMarker";
+export { fileDiffText, hunkHeader } from "./fileDiffs";
+export {
+  attachmentTagsAsLabels,
+  clipMessage,
+  markdownPlainText,
+  messageClipboard,
+  messageHeading,
+  messageMarkdownClipboard,
+  messagePlainText,
+  messagesClipboard,
+  messagesMarkdown,
+  messagesQuote,
+  messagesReference,
+  sourceDiffersFromVisible,
+  toolEventText,
+  type ClipboardFlavours,
+  type ClipMessage,
+  type ClipNames,
+  type ClipRole,
+} from "./messageClipboard";
 export { ECHO_SKEW_MS, matchedOptimisticEchoes, collapseDuplicateUserMessages, type OptimisticEcho } from "./dedupe";
 export { mergeById } from "./merge";
 export { timestampMs } from "./time";

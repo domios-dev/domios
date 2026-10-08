@@ -331,7 +331,25 @@ impl ServiceContext {
         force: bool,
     ) -> Result<TeamCloseResult, String> {
         let caller_kind = caller.kind();
+        let workspace = self
+            .mux
+            .read()
+            .get_team(team_id)
+            .ok_or_else(|| format!("Team {team_id} not found"))?
+            .workspace_id
+            .clone();
+        let service = self.clone();
+        let capture_team = team_id.to_string();
+        let inventory = tokio::task::spawn_blocking(move || {
+            service.capture_close_inventory(&workspace, Some(&capture_team))
+        })
+        .await
+        .map_err(|error| error.to_string())??;
         let result = self.close_team_inner(team_id, caller, force).await;
+        let service = self.clone();
+        tokio::task::spawn_blocking(move || service.settle_close_inventory(inventory.as_deref()))
+            .await
+            .map_err(|error| error.to_string())??;
         if let Err(error) = &result {
             log::warn!("[team-close] caller={caller_kind} team={team_id} failed: {error}");
         }
@@ -976,7 +994,7 @@ pub(crate) fn reconcile_dangling_team_plan_bindings(
     plan_store.archive_active_plans_without_live_team(&live_team_ids, now_ms)
 }
 
-fn now_ms() -> u64 {
+pub(super) fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

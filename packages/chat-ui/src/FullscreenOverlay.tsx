@@ -32,13 +32,25 @@ export function useFullscreenKeyboard(open: boolean, ref: RefObject<HTMLDivEleme
   }, [open, ref, close]);
 }
 
+function largestRendered(elements: NodeListOf<Element>): Element | null {
+  let best: Element | null = null;
+  let bestArea = 0;
+  for (const element of elements) {
+    const rect = element.getBoundingClientRect();
+    const area = rect.width * rect.height;
+    if (area > bestArea) { best = element; bestArea = area; }
+  }
+  return best;
+}
+
 /** Pins an open overlay to the tab that hosts the anchor, so fullscreen covers the tab rather than the window. */
 export function useFullscreenHostBounds(open: boolean, anchorRef: RefObject<HTMLElement | null>, hostSelector?: string): {
   host: Element | null;
   bounds: CSSProperties | undefined;
 } {
   const [bounds, setBounds] = useState<CSSProperties>();
-  const host = hostSelector ? document.querySelector(hostSelector) : anchorRef.current?.closest("[data-tab-id]") ?? null;
+  // A tab id also tags sidebar rows, mode switches and hidden views, so the host is the largest rendered match.
+  const host = hostSelector ? largestRendered(document.querySelectorAll(hostSelector)) : anchorRef.current?.closest("[data-tab-id]") ?? null;
   useEffect(() => {
     if (!open || !host) return;
     const update = () => { const rect = host.getBoundingClientRect(); setBounds({ top: rect.top, left: rect.left, width: rect.width, height: rect.height }); };
@@ -58,7 +70,7 @@ export function FullscreenOverlay({ panelRef, label, style, onClose, children }:
   onClose: () => void;
   children: ReactNode;
 }) {
-  return <div ref={panelRef} className="fixed z-50 bg-black/85 backdrop-blur-sm" style={style ?? { inset: "0px" }} onClick={onClose} role="dialog" aria-modal="true" aria-label={label}>
+  return <div ref={panelRef} className="fixed z-[60] bg-black/85 backdrop-blur-sm" style={style ?? { inset: "0px" }} onClick={onClose} role="dialog" aria-modal="true" aria-label={label}>
     <div className="mx-auto flex h-full w-full flex-col border border-[var(--ct-border)] bg-[var(--ct-bg)] p-2 shadow-2xl" onClick={(event) => event.stopPropagation()}>{children}</div>
   </div>;
 }

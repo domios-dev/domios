@@ -21,8 +21,9 @@ mod task_keys;
 mod workspace;
 
 pub use closed::{
-    ClosedGroup, ClosedTabView, ClosedTabsStore, GroupKind, PreparedWorkspaceClose,
-    TabCloseReservation, CLOSED_GROUP_CAP, RECENTLY_CLOSED_CAP, RECENTLY_CLOSED_VIEW_LIMIT,
+    ArchivedTab, ClosedGroup, ClosedStructure, ClosedStructureView, ClosedTabView, ClosedTabsStore,
+    GroupKind, PreparedWorkspaceClose, StructureState, TabCloseReservation, CLOSED_GROUP_CAP,
+    RECENTLY_CLOSED_CAP, RECENTLY_CLOSED_VIEW_LIMIT,
 };
 pub use snapshot::SnapshotMergeReport;
 pub use status_view::{
@@ -86,6 +87,7 @@ pub struct MultiplexerState {
     /// store at startup via [`MultiplexerState::attach_closed_store`].
     pub(super) closed_store: ClosedTabsStore,
     workspace_close_reservations: HashMap<String, String>,
+    tab_close_reservations: HashMap<String, (String, String)>,
 }
 
 pub struct TeamCloseTransaction {
@@ -139,6 +141,8 @@ pub struct MultiplexerSnapshot {
     /// persisted session snapshot — keeps both lean.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recently_closed: Vec<ClosedTabView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub closed_structures: Vec<ClosedStructureView>,
     /// Aggregate Idle/Working/Waiting/Dead per PTY-backed tab, mirrored from
     /// `TabStatusTracker` so a fresh page load hydrates the same rail color a
     /// live `tab-status-changed` event would have delivered. Only populated by
@@ -163,6 +167,7 @@ impl MultiplexerState {
                 generation: AtomicU64::new(self.generation.load(Ordering::Relaxed)),
                 closed_store: ClosedTabsStore::in_memory(),
                 workspace_close_reservations: self.workspace_close_reservations.clone(),
+                tab_close_reservations: self.tab_close_reservations.clone(),
             },
         }
     }
@@ -205,6 +210,7 @@ impl MultiplexerState {
             generation: AtomicU64::new(0),
             closed_store: ClosedTabsStore::in_memory(),
             workspace_close_reservations: HashMap::new(),
+            tab_close_reservations: HashMap::new(),
         }
     }
 
@@ -317,6 +323,7 @@ impl MultiplexerState {
             shell_profile: None,
             utility_created_at: 0,
             utility_command_pending: false,
+            close_restore: None,
             shell_command_state: Default::default(),
             pending_delivery: None,
             title: names::generate_tab_name(),
@@ -420,6 +427,7 @@ impl MultiplexerState {
             generation: AtomicU64::new(0),
             closed_store: ClosedTabsStore::in_memory(),
             workspace_close_reservations: HashMap::new(),
+            tab_close_reservations: HashMap::new(),
         };
 
         (state, tab_id)

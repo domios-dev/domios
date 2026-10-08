@@ -1,4 +1,5 @@
-import { Puzzle, SearchX } from "lucide-react";
+import { Puzzle } from "lucide-react";
+import { BlockNotice } from "./BlockNotice";
 import { ChatBlockFrame, type ChatBlockAction, type ChatBlockStatus } from "./ChatBlockFrame";
 import { useChatBlockHost, type PluginBlockHost } from "./ChatBlockHost";
 import { useLiveBinding } from "./liveBinding";
@@ -73,25 +74,11 @@ function PluginCard({ plugin, host, source }: { plugin: PluginBlockInfo; host: P
       )}
       actions={actions}
       fullPage={{ label: "Open in Plugins", open: () => host.openInPlugins(plugin.id) }}
-      askText={`About the ${plugin.name} plugin (\`${source}\`): `}
+      askText={`About the ${plugin.name} plugin (\`${source}\`)`}
     />
   );
 }
 
 function PluginNotice({ source, title, text, missing = false }: { source: string; title: string; text: string; missing?: boolean }) {
-  return (
-    <div
-      data-testid="chat-block"
-      data-chat-block="plugin"
-      data-plugin-missing={missing || undefined}
-      role="note"
-      aria-label={`Plugin ${title}`}
-      className="my-2 flex w-fit max-w-[34rem] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs"
-      style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg) 22%, transparent)", color: "var(--ct-muted-fg)" }}
-      title={source}
-    >
-      {missing ? <SearchX size={13} aria-hidden="true" /> : <Puzzle size={13} aria-hidden="true" />}
-      <span>{text}</span>
-    </div>
-  );
+  return <BlockNotice name="plugin" source={source} label={`Plugin ${title}`} text={text} icon={Puzzle} missing={missing} />;
 }

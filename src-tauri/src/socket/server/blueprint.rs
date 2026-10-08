@@ -153,6 +153,29 @@ pub(super) fn dispatch(
             serde_json::to_value(svc.sentinel_stop(&caller, &id).map_err(error)?)
                 .map_err(|e| error(e.to_string()))
         }
+        "blueprint.delete" => {
+            let flag = |name: &str| {
+                params
+                    .as_ref()
+                    .and_then(|value| value.get(name))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            };
+            let id = params
+                .as_ref()
+                .and_then(|value| value.get("id"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            let target = match (&id, flag("stopped")) {
+                (Some(id), false) => crate::sentinel::delete::DeleteTarget::One(id),
+                (None, true) => crate::sentinel::delete::DeleteTarget::Stopped,
+                _ => return Err(error("pass exactly one of id or stopped")),
+            };
+            let deleted = svc
+                .blueprint_delete(&caller, target, flag("stop"))
+                .map_err(error)?;
+            Ok(json!({ "deleted": deleted }))
+        }
         "blueprint.update" => {
             let id = get_string_param(params, "id")?;
             let expect_version = params

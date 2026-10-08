@@ -10,6 +10,7 @@ fn role_claim_leaf(role: &str, role_profile: Option<&str>) -> SplitNodeSnapshot 
         icon: None,
         shell_profile: None,
         utility_created_at: 0,
+        close_restore: None,
         tab_id: "db79d2da".into(),
         cwd: None,
         title: Some("Plan card fixture".into()),

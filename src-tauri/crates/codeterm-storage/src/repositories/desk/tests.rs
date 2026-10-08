@@ -8,6 +8,29 @@ use std::time::Duration;
 #[path = "tests/ordered_rows.rs"]
 mod ordered_rows;
 
+#[test]
+fn restored_shell_fields_preserve_command_profile_and_stopped_state() {
+    let values = serde_json::json!({
+        "close_restore": {"command": "opaque-command", "stopped": true, "record_id": "close-id", "exact_session": false},
+        "shell_profile": {"id": "fixture", "name": "Fixture", "executable": "fixture-shell", "args": [], "wsl_distro": null}
+    });
+    assert!(DeskLeafFields {
+        values: values.clone()
+    }
+    .validate()
+    .is_ok());
+    assert!(DeskLeafFields {
+        values: serde_json::json!({"close_restore": "wrong-type"})
+    }
+    .validate()
+    .is_err());
+    assert!(DeskLeafFields {
+        values: serde_json::json!({"shell_profile": 9})
+    }
+    .validate()
+    .is_err());
+}
+
 static NEXT_ROOT: AtomicU64 = AtomicU64::new(0);
 
 struct TempRoot(PathBuf);

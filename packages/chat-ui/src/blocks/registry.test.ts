@@ -1,6 +1,6 @@
 // Run: npx tsx packages/chat-ui/src/blocks/registry.test.ts
 
-import { parseChatBlock, parseChatBlocks, type ChatBlockDefinition } from "./registry";
+import { isolateBlockDirectives, parseChatBlock, parseChatBlocks, type ChatBlockDefinition } from "./registry";
 import { parsePluginId } from "./pluginBlockModel";
 
 const tests: Array<[string, () => void]> = [];
@@ -10,6 +10,12 @@ function test(name: string, run: () => void) {
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
+
+test("directives_under_a_lead_line_get_their_own_paragraph_outside_fences", () => {
+  const isolated = isolateBlockDirectives("Phone:\n@ds-guide phone\nPlugins:\n@ds-plugin git\n```\n@ds-plugin git\n```");
+  assert(isolated === "Phone:\n\n@ds-guide phone\n\nPlugins:\n\n@ds-plugin git\n\n```\n@ds-plugin git\n```", `unexpected isolation: ${JSON.stringify(isolated)}`);
+  assert(isolateBlockDirectives("plain text") === "plain text", "text without directives changed");
+});
 
 test("plugin_directive_parses_a_standalone_line_with_a_valid_id", () => {
   const block = parseChatBlock("@ds-plugin telegram-client");

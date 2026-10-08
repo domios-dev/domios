@@ -31,7 +31,8 @@ pub(crate) use spawn_model::{
     unrequested_substitution_severity, CatalogBackgroundModelPort,
 };
 pub(crate) use spawn_model_catalogue::{
-    catalogue_models_match, resolve_agent_model_selection, validate_agent_model, InvalidModelError,
+    catalogue_lookup_model, catalogue_models_match, model_catalogue_capability,
+    resolve_agent_model_selection, validate_agent_model, InvalidModelError,
 };
 
 #[path = "spawn_hidden_delivery.rs"]
@@ -1016,15 +1017,24 @@ impl ServiceContext {
         let role_for_thread = agent.role.clone();
         let role_profile_for_thread = agent.role_profile.clone();
         let cron_run = agent.launch_purpose == super::unattended_launch::LaunchPurpose::CronRun;
-        // PtyInput providers (codex/opencode) don't embed the task in the launch command — it must be typed into the TUI after boot. InlineFlag (claude) bakes it in, so PtyInput delivery is skipped there.
-        let task_delivery = self
+        let pty_input_task = self
             .agent_registry
-            .with_provider(&provider, |p| p.task_delivery())
-            .unwrap_or(crate::agent::provider::TaskDelivery::PtyInput);
-        let pty_input_task = match task_delivery {
-            crate::agent::provider::TaskDelivery::PtyInput => wrapped_task.clone(),
-            crate::agent::provider::TaskDelivery::InlineFlag => None,
-        };
+            .with_provider(&provider, |p| {
+                super::spawn_hidden_launch::first_turn(
+                    matches!(
+                        super::launch_delivery::mode_for_descriptor(&p.system_prompt_delivery()),
+                        super::launch_delivery::LaunchDeliveryMode::SystemPrompt
+                    ),
+                    matches!(
+                        p.task_delivery(),
+                        crate::agent::provider::TaskDelivery::InlineFlag
+                    ),
+                    wrapped_task.as_deref(),
+                    p.starter_prompt_text(crate::agent::provider::StarterPrompt::AssignedTask)
+                        .as_deref(),
+                )
+            })
+            .flatten();
         super::spawn_hidden_launch::start(
             svc_outer,
             super::spawn_hidden_launch::HiddenLaunch {

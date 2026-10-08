@@ -452,7 +452,7 @@ fn supporter_first_opinion_narrative_and_observation_survive_journal_and_feed() 
     );
     let tab_id = tab();
     run(&host, &tab_id, ObservationTrigger::WorkerIdle).unwrap();
-    run(&host, &tab_id, ObservationTrigger::WorkerIdle).unwrap();
+    run(&host, &tab_id, ObservationTrigger::PromptConfirmation).unwrap();
     let feed = host.runtime.feed(100, None).unwrap();
     let observations: Vec<_> = feed
         .iter()

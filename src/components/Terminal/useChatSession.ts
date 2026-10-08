@@ -34,6 +34,7 @@ import {
 } from "./chatSessionDiagnostics";
 import {
   commitTranscriptBatch,
+  readTranscriptWindow,
   replaceTranscriptWindow,
   resetTranscriptWindow,
   stampConfirmedTranscriptRow,
@@ -183,7 +184,11 @@ export function useChatSession({
     pendingLiveEventsRef.current = [];
     preserveSnapshotAnchorRef.current = preserveViewport;
     replaceOnNextLiveEventRef.current = false;
-    if (!preserveViewport) {
+    const authority = readTranscriptWindow(windowKeyRef.current).transcript.authority;
+    if (authority != null && (
+      authority.sourceSessionId !== agentSessionIdRef.current
+      || authority.sessionBindingNonce !== (sessionBindingNonceRef.current ?? null)
+    )) {
       resetTranscriptWindow(windowKeyRef.current);
       clearPersistedChatScrollState(windowKeyRef.current);
     }
@@ -304,8 +309,6 @@ export function useChatSession({
     if (!active) {
       pendingLiveEventsRef.current = [];
       adoptedBindingsRef.current.clear();
-      resetTranscriptWindow(windowKeyRef.current);
-      clearPersistedChatScrollState(windowKeyRef.current);
       setListenerReady(false);
       setLoading(false);
       setTranscriptUnavailable(null);
@@ -393,8 +396,6 @@ export function useChatSession({
       attachmentRef.current.release();
       pendingLiveEventsRef.current = [];
       adoptedBindingsRef.current.clear();
-      resetTranscriptWindow(windowKeyRef.current);
-      clearPersistedChatScrollState(windowKeyRef.current);
     };
   }, [
     active,
@@ -498,6 +499,7 @@ export function useChatSession({
           // The store has no transcript yet; the first live event completes the
           // attach. Nothing here waits on elapsed time.
           if (res.source_missing === true) setTranscriptUnavailable("no_transcript_source");
+          // A pending snapshot delegates the new replay epoch to its first live batch.
           replaceOnNextLiveEventRef.current = true;
           const pending = pendingLiveEventsRef.current.splice(0);
           if (pending.length > 0) {
@@ -507,7 +509,8 @@ export function useChatSession({
           return;
         }
         replaceOnNextLiveEventRef.current = false;
-        replaceTranscriptWindow(
+        const snapshotRange = batchRange(res.start_offset, res.offset);
+        if (snapshotRange != null || (res.messages?.length ?? 0) > 0) replaceTranscriptWindow(
           windowKeyRef.current,
           {
             kind: "snapshot",
@@ -515,7 +518,7 @@ export function useChatSession({
               sourceSessionId: res.source_session_id,
               sessionBindingNonce: res.session_binding_nonce,
             },
-            range: batchRange(res.start_offset, res.offset),
+            range: snapshotRange,
             rows: res.messages ?? [],
           },
           preserveSnapshotAnchorRef.current,

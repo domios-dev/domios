@@ -1,13 +1,13 @@
 # @codeterm/plugin-sdk
 
-Type-only SDK for authoring [Domios](https://github.com/rollacode/codeterm)
+SDK for authoring [Domios](https://github.com/rollacode/codeterm)
 plugin **logic** in TypeScript.
 
 A Domios plugin's logic half runs in a confined QuickJS VM and talks to the
 host only through the injected `host.*` API. This package gives you the typed
 contracts for that surface — the `host` global, and the capability interfaces a
-plugin can implement — with zero runtime weight (it's purely types; your bundler
-erases the imports).
+plugin can implement. Type imports have zero runtime weight. The optional pure
+diff helpers are bundled only when imported as values.
 
 ```ts
 import type { PluginModule } from "@codeterm/plugin-sdk";
@@ -34,6 +34,12 @@ Exports: `Host`, `HostFs`, `HostShell`, `HostPath`, `DirEntry`, `ExecOpts`,
 `GraphNodesManifestCapability`, `EventSourceDeclaration`, `NodeSchema`,
 `DecisionModelCapability`, `DecisionModelInfo`, `DecisionRequest`,
 `DecisionAnswer`, `DecisionPrimitives`, `DecisionQuestion`, …).
+
+`recordedTextDiff(path, oldText, newText)` maps explicit old/new evidence into
+FileDiff records. Both strings are required. Ranges are relative to the recorded
+fragment and marked `truncated`; missing file context or creation evidence is
+never inferred. CR characters are preserved. `recordedPatchDiff(path, patch,
+kind)` retains unified hunk coordinates and rejects incomplete hunk counts.
 
 ## Graph nodes and the converter capability
 

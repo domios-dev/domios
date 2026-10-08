@@ -46,6 +46,8 @@ import { useComposerInsertions } from "./useComposerInsertions";
 import { ComposerCapsuleField } from "./ComposerCapsuleField";
 import { hasCapsuleTokens } from "./composerCapsules";
 import { useComposerCapsules, type InlineAttachmentSink } from "./useComposerCapsules";
+import { ComposerMentionPicker, useComposerMentions } from "./ComposerMentionPicker";
+import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
 
 const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
 const VOICE_TRANSCRIBE_ERROR = "⚠️ Voice transcription failed — tap the mic to retry.";
@@ -208,7 +210,7 @@ function ChatComposerImpl({
   removeAttachment: (path: string) => void;
   clearAttachments: () => void;
   handlePasteEvent: (event: ClipboardEvent) => void | Promise<void>;
-  onWillSendMessage: () => void;
+  onWillSendMessage: (text: string) => void;
   addOptimistic: (content: string) => string;
   updateOptimistic: (id: string, content: string) => void;
   observeChatSendStatus: (status: ChatSendStatus) => void;
@@ -279,7 +281,9 @@ function ChatComposerImpl({
     });
   }, []);
 
-  useComposerInsertions(tabId, { draft: input, setDraft: setInput, addAttachments, textareaRef, focus: refocusComposer });
+  useComposerInsertions(tabId, capsules.insertContext);
+  const mentionPicker = useComposerMentions(input, setInput, refocusComposer);
+  const { expand: expandDsTasks, plansSink } = useDsTasksExpander(tabId);
 
   useLayoutEffect(() => { recordComposerPaint(); }, [input]);
 
@@ -392,7 +396,7 @@ function ChatComposerImpl({
       refocusComposer();
       return;
     }
-    const { composed, transcribeFailed } = draftResult;
+    const { composed: draftText, transcribeFailed } = draftResult;
     if (placeholderId && transcribeFailed) {
       updateOptimistic(placeholderId, VOICE_TRANSCRIBE_ERROR);
       setInput("");
@@ -401,12 +405,20 @@ function ChatComposerImpl({
       refocusComposer();
       return;
     }
+    const expansion = expandDsTasks(draftText);
+    if (expansion.kind === "error") {
+      if (placeholderId) updateOptimistic(placeholderId, `⚠️ ${expansion.message}`);
+      flagComposerError(expansion.message);
+      refocusComposer();
+      return;
+    }
+    const composed = expansion.kind === "expanded" ? expansion.text : draftText;
     let optimisticId: string;
     if (placeholderId) {
       updateOptimistic(placeholderId, composed);
       optimisticId = placeholderId;
     } else {
-      onWillSendMessage();
+      onWillSendMessage(composed);
       optimisticId = addOptimistic(composed);
     }
     setComposerInvalid(false);
@@ -580,6 +592,13 @@ function ChatComposerImpl({
             highlighted={pickerHighlight}
             onPick={pickSuggestion}
           />
+          <ComposerMentionPicker
+            mentions={mentionPicker.mentions}
+            highlighted={mentionPicker.highlighted}
+            onHighlight={mentionPicker.setHighlighted}
+            onPick={mentionPicker.pick}
+          />
+          {plansSink}
           <ComposerCapsuleField
             tabId={tabId}
             value={input}
@@ -608,6 +627,7 @@ function ChatComposerImpl({
                 recordComposerIgnoredKey(e.key);
                 if (isImeKeyEvent(compositionGate, e.nativeEvent.isComposing, e.nativeEvent.keyCode)) return;
                 if (capsules.handleKeyDown(e)) return;
+                if (mentionPicker.handleKey(e)) return;
                 const shortcutContext = { composerFocus: isActive, composing: compositionGate.active,
                   pickerOpen, atStart: e.currentTarget.selectionStart === 0 };
                 if ((e.code === "ArrowUp" || e.code === "ArrowDown") && evaluateWhen("composerFocus && !composing && !pickerOpen && atStart", shortcutContext)) {

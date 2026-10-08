@@ -1,0 +1,26 @@
+[
+  {
+    "name": "edit strings", "input": {"filePath":"a.ts","oldString":"old","newString":"new\nextra"}, "metadata": {},
+    "expected": [{"path":"a.ts","additions":2,"deletions":1,"hunks":[{"oldStart":1,"oldLines":1,"newStart":1,"newLines":2,"lines":["-old","+new","+extra"]}]}]
+  },
+  {
+    "name": "metadata diff", "input": {"filePath":"a.ts"}, "metadata": {"diff":"--- a/a.ts\n+++ b/a.ts\n@@ -5,2 +5,2 @@\n context\n-old\n+new\n"},
+    "expected": [{"path":"a.ts","kind":"modify","additions":1,"deletions":1,"truncated":false,"hunks":[{"oldStart":5,"oldLines":2,"newStart":5,"newLines":2,"lines":[" context","-old","+new"]}]}]
+  },
+  {
+    "name": "truncated patch", "input": {"filePath":"a.ts"}, "metadata": {"patch":"@@ -1,5 +1,5 @@\n-x\n+y"},
+    "expected": [{"path":"a.ts","additions":1,"deletions":1,"truncated":true,"hunks":[{"oldStart":1,"oldLines":5,"newStart":1,"newLines":5,"lines":["-x","+y"]}]}]
+  },
+  {
+    "name": "multiple files", "input": {}, "metadata": {"files":[{"filePath":"a.ts","type":"delete","diff":"@@ -1 +0,0 @@\n-x"},{"filePath":"b.ts","movePath":"c.ts","diff":"@@ -1 +1 @@\n-x\n+y"}]},
+    "expected": [{"path":"a.ts","kind":"delete","additions":0,"deletions":1,"truncated":false,"hunks":[{"oldStart":1,"oldLines":1,"newStart":0,"newLines":0,"lines":["-x"]}]},{"path":"b.ts","movePath":"c.ts","kind":"rename","additions":1,"deletions":1,"truncated":false,"hunks":[{"oldStart":1,"oldLines":1,"newStart":1,"newLines":1,"lines":["-x","+y"]}]}]
+  },
+  {
+    "name": "binary patch", "input": {"filePath":"image.png"}, "metadata": {"diff":"diff --git a/image.png b/image.png\nBinary files a/image.png and b/image.png differ"},
+    "expected": [{"path":"image.png","additions":0,"deletions":0,"hunks":[],"binary":true,"truncated":false}]
+  },
+  {
+    "name": "malformed patch falls back", "input": {"file_path":"a.ts","old_string":"x\r\n","new_string":"y\r\n"}, "metadata": {"patch":"not a patch"},
+    "expected": [{"path":"a.ts","additions":1,"deletions":1,"hunks":[{"oldStart":1,"oldLines":1,"newStart":1,"newLines":1,"lines":["-x","+y"]}]}]
+  }
+]

@@ -32,6 +32,7 @@ use super::tab_transport::TabTransport;
 use super::ServiceContext;
 use crate::api::mem_routes::decision::SupporterRegistry;
 
+mod admission;
 mod candidates;
 pub(crate) mod coordinator;
 pub(crate) use candidates::{allows_prompt as candidate_allows_prompt, CandidateVerdict};
@@ -47,6 +48,9 @@ pub(crate) use identity::correlation::project_diagnostics as project_observation
 #[cfg(test)]
 use observer::{choice_model, observation_answers, observe_guarded};
 pub(crate) use observer::{prepare_observation, spawn_observer};
+pub(crate) fn forget_observations(tab: &str) {
+    admission::forget(tab);
+}
 pub(crate) use privacy::value as redact_decision_diagnostic;
 pub(crate) use privacy::{screen as redact_screen, text as redact_text};
 mod questions;

@@ -243,6 +243,17 @@ pub(crate) fn claim_restored_launch(
     {
         return Ok(None);
     }
+    if tab.restored_from_snapshot
+        && tab
+            .close_restore
+            .as_ref()
+            .is_some_and(|state| state.exact_session)
+        && (!session_valid || tab.agent_session_id.is_none())
+    {
+        return Err(format!(
+            "The exact saved session for Tab {tab_id} is unavailable"
+        ));
+    }
     let Some(mode) = restored_agent_materialization(
         tab.restored_from_snapshot,
         tab.agent_booting,
@@ -477,6 +488,13 @@ impl ServiceContext {
         tab_id: &str,
         pty_claim: &crate::service::pty_ownership::TabPtyClaim,
     ) -> Result<(), String> {
+        if self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.close_restore
+                .as_ref()
+                .is_some_and(|state| state.stopped)
+        }) {
+            return Err("Restored shell is stopped; use Rerun command or Start shell".into());
+        }
         if self.resolve_pty_id(tab_id).is_ok() {
             self.emit_pty_reattached(tab_id);
             self.materialize_restored_agent_for_send(tab_id)?;
@@ -553,7 +571,7 @@ impl ServiceContext {
 
     pub(crate) fn materialize_restored_agent_for_send(&self, tab_id: &str) -> Result<(), String> {
         self.recover_missing_restored_provider(tab_id)?;
-        let (provider_id, session_id, cwd, launch_parameters) = {
+        let (provider_id, session_id, cwd, launch_parameters, exact_session, session_cwd) = {
             let mux = self.mux.read();
             let tab = mux
                 .get_tab(tab_id)
@@ -563,24 +581,40 @@ impl ServiceContext {
                 tab.agent_session_id.clone(),
                 tab.cwd.clone(),
                 restorable_launch_parameters(tab),
+                tab.restored_from_snapshot
+                    && tab
+                        .close_restore
+                        .as_ref()
+                        .is_some_and(|state| state.exact_session),
+                tab.close_restore
+                    .as_ref()
+                    .and_then(|state| state.session_cwd.clone())
+                    .or_else(|| tab.cwd.clone()),
             )
         };
         let Some(provider_id) = provider_id else {
             return Ok(());
         };
-        let resume_enabled = crate::config::resume_sessions_enabled(&provider_id);
+        let resume_enabled = exact_session || crate::config::resume_sessions_enabled(&provider_id);
         let resume_session_id = crate::service::restored_launch::restored_resume_session_id(
             resume_enabled,
             session_id.as_deref(),
         );
         let session_valid = resume_session_id
-            .zip(cwd.as_deref())
+            .zip(if exact_session {
+                session_cwd.as_deref()
+            } else {
+                cwd.as_deref()
+            })
             .map(|(sid, dir)| {
                 self.agent_registry
                     .with_provider(&provider_id, |p| p.session_exists(dir, sid))
                     .unwrap_or(false)
             })
             .unwrap_or(false);
+        if exact_session && !session_valid {
+            return Err(format!("The exact saved session for Tab {tab_id} is unavailable; restore will not launch another session"));
+        }
         let _workspace_id = self.restored_tab_context(tab_id).ok_or_else(|| {
             format!(
                 "Tab {} is a restored agent Tab but has no tab context for materialization",
@@ -799,6 +833,10 @@ mod lifecycle_recovery_tests;
 #[cfg(test)]
 #[path = "lifecycle/restored_snapshot_launch_tests.rs"]
 mod restored_snapshot_launch_tests;
+
+#[cfg(test)]
+#[path = "lifecycle/close_restore_tests.rs"]
+mod close_restore_tests;
 
 pub(crate) fn kill_live_tab_pty(
     manager: &mut crate::pty::manager::PtyManager,

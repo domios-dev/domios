@@ -1,4 +1,4 @@
-// @codeterm/plugin-sdk — type-only SDK for authoring CodeTerm plugin logic in TS.
+// @codeterm/plugin-sdk — plugin contracts and pure recorded-diff mapping helpers.
 export type {ProviderAuthStatus, ProviderSessionObservations} from "./providerSignals";
 export type {
   Host,
@@ -45,5 +45,6 @@ export type {
 export * from "./capabilities";
 export type { ProviderCompatibilityManifest, ProviderCompatibilityReason } from "./providerCompatibility";
 export type { ChatMsg } from "./gen/ChatMsg";
+export { recordedTextDiff, recordedPatchDiff, type RecordedFileDiff } from "./fileDiffs";
 
 export type { ModelProviderConfig, ModelProviderDefinition, ModelPreset } from './modelProviders';

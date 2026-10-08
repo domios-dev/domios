@@ -394,8 +394,7 @@ fn run(host: &StubHost, tab_id: &str, trigger: ObservationTrigger) -> Option<Sha
         tab_id,
         trigger,
         "fixture-structural-verdict",
-    )
-    .expect("enabled observer starts")
+    )?
     .join()
     .expect("observer thread completes")
 }
