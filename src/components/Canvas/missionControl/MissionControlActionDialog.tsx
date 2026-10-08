@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
-import { trapDialogTab } from "./dialogFocusTrap";
+import { trapDialogTab } from "../../shared/dialogFocusTrap";
 
 export interface MissionControlActionRequest {
   key: string;
