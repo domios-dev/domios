@@ -15,7 +15,8 @@ it("wires still hover to the hint and suppresses it for reduced or paused motion
   let api: ReturnType<typeof useMessageActionHint>;
   const media = window.matchMedia("(prefers-reduced-motion: reduce)");
   let reduced = true;
-  vi.spyOn(window, "matchMedia").mockImplementation(() => ({ ...media, matches: reduced, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+  let coarse = false;
+  vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ ...media, matches: query === "(pointer: coarse)" ? coarse : reduced, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
   function Harness() {
     const ref = useRef<HTMLDivElement>(null);
     api = useMessageActionHint(ref, false);
@@ -30,6 +31,10 @@ it("wires still hover to the hint and suppresses it for reduced or paused motion
     expect(host.textContent).toBe("dot");
     expect(claim).not.toHaveBeenCalled();
     reduced = false;
+    coarse = true;
+    act(() => { api.leave(); api.enter(); vi.advanceTimersByTime(600); });
+    expect(claim).not.toHaveBeenCalled();
+    coarse = false;
     host.dataset.motion = "paused";
     act(() => { api.leave(); api.enter(); vi.advanceTimersByTime(600); });
     expect(claim).not.toHaveBeenCalled();

@@ -4,6 +4,7 @@ import type { ClipMessage } from "@codeterm/chat-core";
 import { MessageActionsDot, type DotSide, type MessageMenuActions } from "./MessageActionsMenu";
 import { useMessageActionScope } from "./useMessageActionScope";
 import { useMessageActionHint } from "./useMessageActionHint";
+import { useMessageTouch } from "./useMessageTouch";
 
 export interface MessageRowHandlers {
   clipFor: (id: string) => ClipMessage | null;
@@ -13,6 +14,9 @@ export interface MessageRowHandlers {
   joinNextFor: (id: string) => boolean;
   select: (id: string) => void;
   rowMouseDown: (id: string, event: MouseEvent<HTMLElement>) => void;
+  toggle: (id: string) => void;
+  range: (from: string, to: string, start: boolean) => void;
+  endRange: () => void;
   quote: (clip: ClipMessage) => void;
   ask: (clip: ClipMessage) => void;
 }
@@ -38,6 +42,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({ msg, ariaLabel, sel
   const rowRef = useRef<HTMLDivElement>(null);
   const [hot, setHot] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [touchMenu, setTouchMenu] = useState(false);
   const [partId, setPartId] = useState<string | null>(null);
   const [whole, setWhole] = useMessageActionScope();
   const parts = handlers.partsFor(msg.id);
@@ -51,6 +56,13 @@ export const ChatMessageRow = memo(function ChatMessageRow({ msg, ariaLabel, sel
     ask: handlers.ask,
     select: () => handlers.select(targetId),
   }), [handlers, targetId]);
+  useMessageTouch(rowRef, {
+    selecting,
+    open: (id) => { setPartId(id); setTouchMenu(true); setMenuOpen(true); hint.opened(); },
+    toggle: handlers.toggle,
+    range: handlers.range,
+    endRange: handlers.endRange,
+  });
 
   const placeDot = (offset: number | null) => {
     const row = rowRef.current;
@@ -63,11 +75,12 @@ export const ChatMessageRow = memo(function ChatMessageRow({ msg, ariaLabel, sel
   const onOpenChange = (open: boolean) => {
     if (open && !menuOpen) hint.opened();
     setMenuOpen(open);
+    if (!open) setTouchMenu(false);
     if (!open) setHot(rowRef.current?.matches(":hover, :focus-within") ?? false);
   };
 
   const dot = clip && !selecting ? (
-    <MessageActionsDot whole={whole} hasParts={parts.length > 1} onScopeChange={setWhole} clip={clip} side={side} open={menuOpen} onOpenChange={onOpenChange} actions={actions} hint={hint.hint} onHintEnd={hint.finish} />
+    <MessageActionsDot touch={touchMenu} whole={whole} hasParts={parts.length > 1} onScopeChange={setWhole} clip={clip} side={side} open={menuOpen} onOpenChange={onOpenChange} actions={actions} hint={hint.hint} onHintEnd={hint.finish} />
   ) : null;
 
   return (
@@ -87,7 +100,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({ msg, ariaLabel, sel
       aria-label={ariaLabel}
       tabIndex={cursor ? 0 : -1}
       className="ct-msg-row"
-      onPointerEnter={(event) => { setHot(true); if (event.pointerType === "mouse") hint.enter(); }}
+      onPointerEnter={(event) => { if (event.pointerType === "mouse") { setHot(true); hint.enter(); } }}
       onPointerMove={() => hint.move()}
       onPointerLeave={() => { hint.leave(); if (!menuOpen) setHot(false); }}
       onMouseMove={(event) => {
