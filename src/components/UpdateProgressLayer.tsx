@@ -1,4 +1,6 @@
-import { AlertTriangle, CheckCircle2, Download, Loader2, RotateCw, X } from "lucide-react";
+import { useEffect } from "react";
+import { useMultiplexer } from "../store/multiplexer";
+import { CheckCircle2, Loader2, RotateCw } from "lucide-react";
 import { useUpdate, type UpdateStatus } from "../hooks/useUpdate";
 import { BusySpinner } from "./shared/BusyState";
 
@@ -15,65 +17,15 @@ const STATUS_COPY: Record<UpdateStatus, { title: string; body: string }> = {
 
 export function UpdateProgressLayer() {
   const update = useUpdate();
-  if (!update.toastOpen && !update.blocking) return null;
-
-  if (update.blocking) {
-    return <UpdateBlockingOverlay />;
-  }
-
-  return <UpdateToast />;
-}
-
-function UpdateToast() {
-  const {
-    status,
-    latestVersion,
-    progress,
-    downloadedBytes,
-    downloadTotalBytes,
-    dismissUpdateToast,
-    error,
-  } = useUpdate();
-  const copy = STATUS_COPY[status];
-  const isError = status === "error";
-  const showProgress = status === "checking" || status === "downloading" || status === "applying";
-
-  return (
-    <div className="fixed right-3 top-11 z-[80] pointer-events-none">
-      <div className="pointer-events-auto w-[min(360px,calc(100vw-1.5rem))] rounded-lg border border-[var(--ct-border)] bg-[var(--ct-sidebar-bg)] shadow-2xl ct-float">
-        <div className="flex items-start gap-3 px-3 py-3">
-          <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${isError ? "bg-[var(--ct-red)]/15 text-[var(--ct-red)]" : "bg-[var(--ct-accent)]/15 text-[var(--ct-accent)]"}`}>
-            {isError ? <AlertTriangle size={16} /> : <Download size={16} />}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center justify-between gap-2">
-              <div className="truncate text-sm font-medium text-[var(--ct-fg)]">
-                {latestVersion && !isError ? `${copy.title} v${latestVersion}` : copy.title}
-              </div>
-              <button
-                type="button"
-                onClick={dismissUpdateToast}
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-                title="Dismiss"
-              >
-                <X size={14} />
-              </button>
-            </div>
-            <div className="mt-1 text-xs leading-relaxed text-[var(--ct-muted-fg)]">
-              {error || copy.body}
-            </div>
-            {showProgress && (
-              <ProgressBar
-                progress={progress}
-                downloadedBytes={downloadedBytes}
-                downloadTotalBytes={downloadTotalBytes}
-              />
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  const { upsertToast } = useMultiplexer();
+  const { status, latestVersion, error, toastOpen, blocking, dismissUpdateToast } = update;
+  useEffect(() => {
+    if (!toastOpen || blocking) return;
+    const copy = STATUS_COPY[status];
+    upsertToast({ id: "app-update", tab_id: null, workspace_id: null, title: latestVersion ? `${copy.title} v${latestVersion}` : copy.title, body: error || copy.body, severity: status === "error" ? "Error" : "Info", level: status === "error" ? "failure" : "verbose" });
+    dismissUpdateToast();
+  }, [status, latestVersion, error, toastOpen, blocking, dismissUpdateToast, upsertToast]);
+  return blocking ? <UpdateBlockingOverlay /> : null;
 }
 
 function UpdateBlockingOverlay() {
