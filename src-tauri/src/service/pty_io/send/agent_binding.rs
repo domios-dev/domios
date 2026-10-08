@@ -13,7 +13,7 @@ impl ServiceContext {
         if payload
             .expected_pty_id
             .as_deref()
-            .is_some_and(|expected| expected != binding.0)
+            .is_some_and(|expected| Some(expected) != binding.0.as_deref())
             || payload
                 .expected_session_id
                 .as_deref()
@@ -25,7 +25,7 @@ impl ServiceContext {
         {
             return Err("agent_unavailable: recipient session binding changed".into());
         }
-        payload.expected_pty_id = Some(binding.0);
+        payload.expected_pty_id = binding.0;
         payload.expected_session_id = binding.1;
         payload.expected_binding_nonce = Some(binding.2);
         Ok(())
@@ -42,7 +42,10 @@ impl ServiceContext {
         payload_matches_binding(payload, &binding)
     }
 
-    fn queued_agent_binding(&self, tab_id: &str) -> Option<(String, Option<String>, String)> {
+    fn queued_agent_binding(
+        &self,
+        tab_id: &str,
+    ) -> Option<(Option<String>, Option<String>, String)> {
         let mux = self.mux.read();
         let resolved = mux.resolve_tab_id(tab_id)?;
         delivery_binding(mux.get_tab(&resolved)?)
@@ -53,13 +56,6 @@ impl ServiceContext {
         tab_id: &str,
         payload: &crate::service::messenger::AgentDeliveryPayload,
     ) -> Result<(), String> {
-        let Some(_expected_pty_id) = payload.expected_pty_id.as_deref() else {
-            return Err(DeliveryError::TabBusyRefused {
-                tab: tab_id.to_string(),
-                detail: "queued agent delivery has no PTY authority".into(),
-            }
-            .ledger_message());
-        };
         let Some(_expected_binding_nonce) = payload.expected_binding_nonce.as_deref() else {
             return Err(DeliveryError::TabBusyRefused {
                 tab: tab_id.to_string(),
@@ -83,6 +79,12 @@ impl ServiceContext {
                 .ledger_message()
             })?
         };
+        #[cfg(test)]
+        if let Some(result) =
+            crate::service::agent_delivery_outbox::test_boundary::submit(tab_id, payload)
+        {
+            return result;
+        }
         let permit = {
             let pty = self.pty.lock();
             if pty.get_session(&pty_id).is_none() {
@@ -129,18 +131,20 @@ impl ServiceContext {
 
 fn delivery_binding(
     tab: &crate::multiplexer::types::Tab,
-) -> Option<(String, Option<String>, String)> {
-    let (pty_id, _) = optimistic_agent_pty_target(tab).ok()?;
+) -> Option<(Option<String>, Option<String>, String)> {
+    if tab.agent_type.is_none() || tab.is_chat_backend() {
+        return None;
+    }
+    let pty_id = tab.pty_id.clone();
     if tab.restored_from_snapshot
         || tab.boot_stage == Some(codeterm_types::pty::BootStage::SpawnFailed)
     {
         return None;
     }
     let nonce = tab.session_binding_nonce.clone()?;
-    let provisional = tab
-        .provisional_launch
-        .as_ref()
-        .is_some_and(|launch| launch.pty_id == pty_id && launch.binding_nonce == nonce);
+    let provisional = tab.provisional_launch.as_ref().is_some_and(|launch| {
+        Some(&launch.pty_id) == pty_id.as_ref() && launch.binding_nonce == nonce
+    });
     (tab.agent_booting
         || provisional
         || tab.launch_session_authenticated()
@@ -150,9 +154,12 @@ fn delivery_binding(
 
 fn payload_matches_binding(
     payload: &crate::service::messenger::AgentDeliveryPayload,
-    binding: &(String, Option<String>, String),
+    binding: &(Option<String>, Option<String>, String),
 ) -> bool {
-    payload.expected_pty_id.as_deref() == Some(binding.0.as_str())
+    payload
+        .expected_pty_id
+        .as_ref()
+        .is_none_or(|pty| Some(pty) == binding.0.as_ref())
         && payload
             .expected_session_id
             .as_ref()
@@ -168,6 +175,9 @@ fn queued_delivery_target(
         delivery_binding(tab).ok_or_else(|| "recipient launch is unavailable".to_string())?;
     if !payload_matches_binding(payload, &binding) {
         return Err("recipient launch changed".into());
+    }
+    if binding.0.is_none() {
+        return Err("recipient launch is awaiting PTY registration".into());
     }
     if binding.1.is_some() && !tab.launch_session_authenticated() {
         return Err("recipient launch is awaiting session binding".into());
