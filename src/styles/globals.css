@@ -18,8 +18,11 @@
 @import "../components/shared/rowKebab.css";
 @import "../components/Terminal/tabBarPill.css";
 @import "../components/shared/card.css";
+@import "../components/shared/row.css";
+@import "../components/shared/field.css";
 @import "../components/Sidebar/spinalCord.css";
 @import "../components/Settings/logs.css";
+@import "../components/Usage/spend.css";
 @import "../components/Canvas/missionControl/missionControl.css";
 @import "../components/Surface/surface.css";
 @import "../components/Sidebar/surfaceTether.css";
@@ -4093,8 +4096,7 @@ button,
   flex-direction: column;
   gap: 0.35rem;
   padding: 0.45rem 0.65rem 0.55rem;
-  border-bottom: 1px solid var(--ct-border-subtle);
-  background: color-mix(in srgb, var(--ct-titlebar-bg) 55%, transparent);
+  background: var(--ct-bg);
 }
 .active-work-strip-label {
   font-size: 0.62rem;

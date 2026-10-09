@@ -1,0 +1,35 @@
+.ct-spend {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 6px;
+}
+
+.ct-spend__tile {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ct-fg) 4%, transparent);
+}
+
+.ct-spend__value {
+  color: var(--ct-fg);
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.ct-spend__cap {
+  color: var(--ct-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.ct-spend__label {
+  color: var(--ct-muted-fg);
+  font-size: 10.5px;
+}

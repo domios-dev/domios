@@ -105,6 +105,47 @@
   color: var(--ct-accent);
 }
 
+.ct-spinal-pop__settings {
+  position: relative;
+  border: 0;
+  cursor: pointer;
+  transition: background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.ct-spinal-pop__settings > svg {
+  transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    transform var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
+}
+
+.ct-spinal-pop__settings > svg:last-child {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 16px;
+  height: 16px;
+  padding: 2px;
+  border-radius: 50%;
+  background: var(--ct-bg);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ct-fg) 10%, transparent);
+  color: var(--ct-muted-fg);
+}
+
+.ct-spinal-pop__settings:hover,
+.ct-spinal-pop__settings:focus-visible {
+  background: color-mix(in srgb, var(--ct-accent) 22%, transparent);
+  outline: none;
+}
+
+.ct-spinal-pop__settings:hover > svg:last-child,
+.ct-spinal-pop__settings:focus-visible > svg:last-child {
+  color: var(--ct-accent);
+  transform: rotate(60deg);
+}
+
+.ct-spinal-pop .ct-spend {
+  margin: 4px -4px 12px;
+}
+
 .ct-spinal-pop__title {
   display: block;
   color: var(--ct-fg);
@@ -212,7 +253,7 @@
 
 .ct-spinal-pop__feed {
   max-height: 260px;
-  margin: 0 -4px 10px;
+  margin: 0 -4px;
   padding: 8px 6px;
   overflow-y: auto;
   border-radius: 12px;
@@ -298,6 +339,7 @@
 @media (prefers-reduced-motion: reduce) {
   .ct-spinal-btn,
   .ct-spinal-btn__label,
+  .ct-spinal-pop__settings > svg,
   .ct-spinal-pop__ask {
     transition: none;
   }
