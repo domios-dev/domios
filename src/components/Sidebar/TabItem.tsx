@@ -387,6 +387,20 @@ function TabItemInner({
     }).catch((error) => console.warn("Tab action failed:", error));
   };
 
+  const tabMenu = menuEntries.length > 0 ? (
+    <TabMenu
+      entries={menuEntries}
+      onAction={runMenuAction}
+      onOpenChange={(open) => {
+        if (open) telegramThread.refresh();
+      }}
+      contextMenuTargetRef={tabRef}
+      className={touchMode ? "flex h-11 w-11 items-center justify-center" : "sidebar-tab-kebab"}
+      identity={{ icon: menuIcon, title: isGeneralAgent ? "General Agent" : displayTitle, subtitle: menuSubtitle }}
+      trigger={<RowMenuButton label="Tab actions" touchMode={touchMode} />}
+    />
+  ) : null;
+
   const animClass = isClosing
     ? closePhase === 2
       ? "sidebar-tab-closing-2"
@@ -411,7 +425,7 @@ function TabItemInner({
         sidebar-tab group flex items-center justify-between cursor-pointer transition-colors relative
         ${touchMode ? "sidebar-tab-touch" : ""}
         ${attachment ? "sidebar-tab--attachment" : ""}
-        ${touchMode ? (attachment ? "min-h-9 pl-5 pr-2 py-1" : "min-h-11 pl-5 pr-2 py-2") : attachment ? "pl-4 pr-2 py-0.5" : "pl-4 pr-2 py-1.5"}
+        ${touchMode ? (attachment ? "min-h-9 pl-5 pr-2 py-1" : "min-h-11 pl-5 pr-2 py-2") : attachment ? "pl-4 pr-4 py-0.5" : "pl-4 pr-4 py-1.5"}
         ${animClass}
         ${isActive || editing ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
       `}
@@ -577,27 +591,12 @@ function TabItemInner({
       >
         {accessibleTitle} tab status {tabState.status}
       </span>}
-      <div className={`shrink-0 relative z-[1] flex min-w-5 items-center justify-end ${touchMode ? "" : `sidebar-tab-end ${tabText}`}`}>
+      <div className={`shrink-0 relative z-[1] flex items-center justify-end ${touchMode ? "" : `sidebar-tab-end ${tabText}`}`}>
         {!attachment && !touchMode && <MeshDot label={meshLabel} />}
         {attachmentToggle && attachmentToggle.count > 0 && <AttachmentToggleButton toggle={attachmentToggle} />}
-        {menuEntries.length > 0 && (
-          <TabMenu
-            entries={menuEntries}
-            onAction={runMenuAction}
-            onOpenChange={(open) => {
-              if (open) telegramThread.refresh();
-            }}
-            contextMenuTargetRef={tabRef}
-            className={
-              touchMode
-                ? "flex h-11 w-11 items-center justify-center"
-                : "sidebar-tab-close absolute inset-y-0 right-0 flex items-center"
-            }
-            identity={{ icon: menuIcon, title: isGeneralAgent ? "General Agent" : displayTitle, subtitle: menuSubtitle }}
-            trigger={<RowMenuButton label="Tab actions" touchMode={touchMode} />}
-          />
-        )}
+        {touchMode && tabMenu}
       </div>
+      {!touchMode && tabMenu}
     </div>
   );
 }
