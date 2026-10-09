@@ -99,7 +99,7 @@ for (let run = startRun; run < startRun + repeats; run++) {
             }
             const marker = `SWITCH_ACK_${run}_${providerId}_${Date.now()}_${turnIndex++}`;
             const before = await readChat(api, target.tabId);
-            const text = `Reply with exactly ${marker}. Do not use tools.`;
+            const text = `Reply with only the token on the next line, with no punctuation or tools:\n${marker}`;
             await send(text);
             await expect(target.chat.getByRole("article", { name: "assistant message" }).filter({ hasText: marker })).toHaveCount(1, { timeout: 180_000 });
             await expect(target.chat.locator('[data-agent-state="idle"]')).toHaveCount(1, { timeout: 180_000 });
@@ -151,8 +151,8 @@ for (let run = startRun; run < startRun + repeats; run++) {
                 if (document.querySelector('[data-testid="status-model-picker"]')) return;
                 state.closed = true;
                 const applying = Array.from(document.querySelectorAll(`[data-tab-id="${tabId}"] [role="status"]`)).some(node => node.textContent === "Applying…");
-                if (applying) { state.applying = true; state.applyingStarted ??= performance.now(); }
-                else if (state.applyingStarted !== undefined) state.applyingEnded ??= performance.now();
+                if (applying) { state.applying = true; state.applyingStarted ??= window.performance.now(); }
+                else if (state.applyingStarted !== undefined) state.applyingEnded ??= window.performance.now();
               };
               const observer = new MutationObserver(observe);
               observer.observe(document.body, { childList: true, subtree: true, characterData: true });
@@ -165,7 +165,7 @@ for (let run = startRun; run < startRun + repeats; run++) {
                 const probe = (window as ProbeWindow).__switchProbe;
                 if (probe.applyingStarted === undefined) return {};
                 return probe.applyingEnded === undefined
-                  ? { applyingLowerBoundMs: performance.now() - probe.applyingStarted }
+                  ? { applyingLowerBoundMs: window.performance.now() - probe.applyingStarted }
                   : { applyingMs: probe.applyingEnded - probe.applyingStarted };
               });
               Object.assign(row, timing);
