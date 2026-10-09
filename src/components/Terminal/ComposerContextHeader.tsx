@@ -80,9 +80,19 @@ function delayedTone(message: DelayedMessage): string {
   return message.state === "stashed" ? "stashed" : "scheduled";
 }
 
-export function ComposerContextHeader({ tabId, workspaceId, delayed, onEditDelayed, onDeleteDelayed, onScheduleDelayed, draftActive = false, adapter, jobActionAdapter }: ComposerContextHeaderProps) {
+type ResolvedPlan = ReturnType<typeof useResolvedTabActivity>;
+
+export function ComposerContextHeader(props: ComposerContextHeaderProps) {
+  return useTabHasPlan(props.tabId) ? <PlannedContextHeader {...props} /> : <ContextHeaderBody {...props} plan={null} />;
+}
+
+function PlannedContextHeader(props: ComposerContextHeaderProps) {
+  const plan = useResolvedTabActivity(props.tabId, props.workspaceId);
+  return <ContextHeaderBody {...props} plan={plan.activity ? plan : null} />;
+}
+
+function ContextHeaderBody({ tabId, workspaceId, delayed, onEditDelayed, onDeleteDelayed, onScheduleDelayed, draftActive = false, adapter, jobActionAdapter, plan }: ComposerContextHeaderProps & { plan: ResolvedPlan | null }) {
   const { chips, byKey, blueprints, context, refresh } = useTabJobs(tabId, workspaceId, adapter, jobActionAdapter);
-  const hasPlan = useTabHasPlan(tabId);
   const [requested, setRequested] = useState<ContextKind | null>(null);
   const [shown, setShown] = useState<ContextKind | null>(null);
   const [confirming, setConfirming] = useState<MergedJob | null>(null);
@@ -108,7 +118,7 @@ export function ComposerContextHeader({ tabId, workspaceId, delayed, onEditDelay
   const kinds = (Object.keys(counts) as ContextKind[]).filter((kind) => counts[kind] > 0);
   const open = requested && counts[requested] > 0 ? requested : null;
 
-  if (!hasPlan && kinds.length === 0) return null;
+  if (!plan && kinds.length === 0) return null;
 
   const toggle = (kind: ContextKind) => {
     setRequested(open === kind ? null : kind);
@@ -203,7 +213,7 @@ export function ComposerContextHeader({ tabId, workspaceId, delayed, onEditDelay
   return (
     <div className="ct-ctx" data-testid="composer-context-header" data-open-kind={open ?? undefined}>
       <div className="ct-ctx__head">
-        {hasPlan ? <PlanTitle tabId={tabId} workspaceId={workspaceId} /> : fallbackTitle()}
+        {plan ? <PlanTitle plan={plan} /> : fallbackTitle()}
         {kinds.length > 0 && (
           <div className="ct-ctx__kinds" role="group" aria-label="Linked to this tab">
             {kinds.map((kind) => {
@@ -283,8 +293,7 @@ function ContextTitle({ kind, prefix, primary, secondary, extra, onOpen }: {
   );
 }
 
-function PlanTitle({ tabId, workspaceId }: { tabId: string; workspaceId: string | null }) {
-  const { activity, onOpen } = useResolvedTabActivity(tabId, workspaceId);
+function PlanTitle({ plan: { activity, onOpen } }: { plan: ResolvedPlan }) {
   if (!activity) return null;
   if (activity.kind === "working") {
     return <ContextTitle kind="task" prefix="Task:" primary={activity.taskTitle} secondary={`Plan: ${activity.planTitle}`} onOpen={onOpen} />;
