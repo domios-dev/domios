@@ -1,6 +1,6 @@
 import type { CronJob } from "../../lib/types";
 import { ALL_JOBS_SCOPE, automationKey, type AutomationGraph, type AutomationIdentity } from "../Automation/types";
-import { blueprintTitle, type BlueprintScenarioJob } from "../Automation/scenarios";
+import { sentinelTitle, type SentinelJob } from "../Automation/scenarios";
 import { pipelineModel, type PipelineView } from "../Automation/pipelineModel";
 
 export interface BlueprintJob {
@@ -13,7 +13,7 @@ export function blueprintJobs(graph: AutomationGraph): BlueprintJob[] {
   return (graph.blueprints ?? []).map((blueprint) => {
     const scenario = graph.scenarios.find((entry) => entry.id === blueprint.id);
     const identity: AutomationIdentity = scenario?.root ?? {
-      kind: "blueprint", id: blueprint.id, workspace_id: graph.workspace_id,
+      kind: "sentinel", id: blueprint.id, workspace_id: graph.workspace_id,
       team_id: blueprint.owner?.team_id ?? null, owner_tab_id: blueprint.owner?.tab_id ?? null,
     };
     const root = graph.nodes.find((node) => automationKey(node.identity) === automationKey(identity));
@@ -34,7 +34,7 @@ export const NO_JOBS_FILTER: JobsFilter = { workspaceId: null, teamId: null };
 export type MergedJob =
   | { kind: "cron"; cron: CronJob; title: string; active: boolean; state: string }
   | { kind: "blueprint"; blueprint: BlueprintJob; title: string; active: boolean; state: string }
-  | { kind: "sentinel"; sentinel: BlueprintScenarioJob; title: string; active: boolean; state: string };
+  | { kind: "sentinel"; sentinel: SentinelJob; title: string; active: boolean; state: string };
 
 export function cronState(job: CronJob): string {
   if (job.last_run && (job.last_run.status === "Running" || job.last_run.status === "AwaitingOwnerPrompt")) return "Running";
@@ -46,7 +46,7 @@ export function matchesJobsFilter(filter: JobsFilter, workspaceId: string, teamI
     && (filter.teamId === null || (teamId ?? null) === filter.teamId);
 }
 
-export function mergeJobs(filter: JobsFilter, crons: readonly CronJob[], sentinels: readonly BlueprintScenarioJob[], blueprints: readonly BlueprintJob[] = []): MergedJob[] {
+export function mergeJobs(filter: JobsFilter, crons: readonly CronJob[], sentinels: readonly SentinelJob[], blueprints: readonly BlueprintJob[] = []): MergedJob[] {
   const blueprintIds = new Set(blueprints.map((job) => JSON.stringify([job.identity.workspace_id, job.pipeline.id])));
   const jobs: MergedJob[] = [
     ...crons.filter((job) => matchesJobsFilter(filter, job.workspace_id, job.team_id)).map((cron): MergedJob => ({
@@ -64,7 +64,7 @@ export function mergeJobs(filter: JobsFilter, crons: readonly CronJob[], sentine
     ...sentinels.filter((job) => !blueprintIds.has(JSON.stringify([job.scenario.root.workspace_id, job.scenario.id])) && matchesJobsFilter(filter, job.scenario.root.workspace_id, job.scenario.root.team_id)).map((sentinel): MergedJob => ({
       kind: "sentinel",
       sentinel,
-      title: blueprintTitle(sentinel.scenario, sentinel.root),
+      title: sentinelTitle(sentinel.scenario, sentinel.root),
       active: ["active", "running", "finishing"].includes(sentinel.state.toLowerCase()),
       state: sentinel.state,
     })),
@@ -88,7 +88,7 @@ export function isJobRunning(job: MergedJob): boolean {
   return job.kind === "cron" ? job.state === "Running" : job.active;
 }
 
-export function jobsIndicator(jobs: { crons: readonly CronJob[]; sentinels: readonly BlueprintScenarioJob[]; blueprints?: readonly BlueprintJob[] }, scope: JobsFilter): JobsIndicator {
+export function jobsIndicator(jobs: { crons: readonly CronJob[]; sentinels: readonly SentinelJob[]; blueprints?: readonly BlueprintJob[] }, scope: JobsFilter): JobsIndicator {
   const merged = mergeJobs(scope, jobs.crons, jobs.sentinels, jobs.blueprints);
   return { count: merged.length, running: merged.filter(isJobRunning).length };
 }
@@ -131,7 +131,7 @@ function boundTabIds(job: MergedJob): (string | null | undefined)[] {
   if (job.kind === "blueprint") return [job.blueprint.identity.owner_tab_id];
   const { scenario, root } = job.sentinel;
   const targets = root?.outcomes.flatMap((outcome) => outcome.handlers.map((handler) => handler.target?.kind === "worker" ? handler.target.id : null)) ?? [];
-  return [scenario.root.owner_tab_id, root?.identity.owner_tab_id, root?.blueprint_definition?.creator_tab_id, ...targets];
+  return [scenario.root.owner_tab_id, root?.identity.owner_tab_id, root?.sentinel_definition?.creator_tab_id, ...targets];
 }
 
 export function tabJobState(job: MergedJob): TabJobState {

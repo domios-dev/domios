@@ -1,7 +1,7 @@
 import { ALL_JOBS_SCOPE, automationKey, sameScope, type AutomationGraph, type AutomationIdentity, type AutomationNode, type AutomationScope } from "./types";
 
 export function isScenarioRoot(node: AutomationNode, root: AutomationIdentity): boolean {
-  return node.identity.kind === "blueprint" && automationKey(node.identity) === automationKey(root);
+  return node.identity.kind === "sentinel" && automationKey(node.identity) === automationKey(root);
 }
 
 export function scopedAutomationGraph(graph: AutomationGraph, scope: AutomationScope): AutomationGraph {

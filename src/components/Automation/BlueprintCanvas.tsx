@@ -2,8 +2,9 @@ import { useCallback, useId, useLayoutEffect, useRef, type ReactNode } from "rea
 import { LocateFixed, Minus, Plus } from "lucide-react";
 import type { ViewportTransform } from "../Canvas/useCanvasViewport";
 import { BlueprintNodeCard } from "./BlueprintNodeCard";
-import { blueprintLegend, blueprintNodeKinds } from "./blueprintKinds";
+import { NODE_TYPE_LABEL } from "./blueprintInspector";
 import type { BlueprintLayout } from "./blueprintLayout";
+import type { BlueprintNodeType } from "./blueprintModel";
 import type { ReplayFrame } from "./blueprintRunModel";
 import { nodeStatus } from "./BlueprintNodeCard";
 import { AUTOMATION_TOOL } from "./styles";
@@ -12,6 +13,7 @@ import { useBlueprintMotion } from "./useBlueprintMotion";
 import type { BlueprintReplayOutcome } from "./blueprintReplayOutcome";
 import { BlueprintLiquidSignal } from "./BlueprintLiquidSignal";
 
+const LEGEND: readonly BlueprintNodeType[] = ["trigger", "source", "agent", "logic", "action"];
 
 export interface CanvasReplay {
   frame: ReplayFrame;
@@ -51,7 +53,7 @@ export function BlueprintCanvas({ layout, selected, camera, onSelect, replay, pa
         <button type="button" className={AUTOMATION_TOOL} title="Readable view of the selected node, or the first stage" onClick={viewport.fit}><LocateFixed size={13} aria-hidden="true" />Fit</button>
       </div>
       <ul aria-label="Node types" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--ct-muted-fg)]">
-        {blueprintLegend.filter((type) => types.has(type)).map((type) => <li key={type} className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: `var(--bp-${type}, var(--ct-muted))` }} aria-hidden="true" />{blueprintNodeKinds[type].label}</li>)}
+        {LEGEND.filter((type) => types.has(type)).map((type) => <li key={type} className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: `var(--bp-${type}, var(--ct-muted))` }} aria-hidden="true" />{NODE_TYPE_LABEL[type]}</li>)}
       </ul>
       {toolbar}
     </div>
@@ -97,7 +99,7 @@ export function BlueprintCanvas({ layout, selected, camera, onSelect, replay, pa
             data-replay-outcome={outcome?.nodeKey === node.key ? outcome.failed ? "failed" : "finished" : undefined}
             data-missing={node.action?.handler?.availability && node.action.handler.availability !== "available" ? "true" : undefined}
             aria-pressed={selected === node.key}
-            aria-label={`${blueprintNodeKinds[node.type].label} node: ${node.title} · ${node.subtitle}${status ? ` · ${status}` : ""}${outcome?.nodeKey === node.key ? ` · ${outcome.label}` : ""}`}
+            aria-label={`${NODE_TYPE_LABEL[node.type]} node: ${node.title} · ${node.subtitle}${status ? ` · ${status}` : ""}${outcome?.nodeKey === node.key ? ` · ${outcome.label}` : ""}`}
             style={{ left: box.x, top: box.y, width: box.width, height: box.height }}
             onFocus={() => viewport.reveal(box)}
             onClick={() => onSelect(node.key)}

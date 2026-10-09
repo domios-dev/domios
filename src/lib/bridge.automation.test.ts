@@ -46,17 +46,17 @@ async function main() {
     assert.equal(requests.length, 0);
     console.log("✓ All jobs uses a workspace-scoped snapshot endpoint");
 
-    await invoke("automation_graph_stop_blueprint", { ...scope, id: "sentinel /?" });
+    await invoke("automation_graph_stop_sentinel", { ...scope, id: "sentinel /?" });
     const stop = requests.pop()!;
     assert.equal(new URL(stop.url).pathname, "/api/automation/blueprints/sentinel%20%2F%3F/stop");
     assert.equal(stop.init?.method, "POST");
     assert.deepEqual(JSON.parse(String(stop.init?.body)), { workspace_id: scope.workspaceId, team_id: scope.teamId });
     assert.equal(new Headers(stop.init?.headers).has("X-CodeTerm-Tab-Id"), false);
-    await assert.rejects(invoke("automation_graph_stop_blueprint", scope));
+    await assert.rejects(invoke("automation_graph_stop_sentinel", scope));
     assert.equal(requests.length, 0);
     console.log("✓ stop POST preserves scoped ID/body without creator impersonation");
 
-    await invoke("automation_graph_delete_blueprint", { ...scope, id: "sentinel /?" });
+    await invoke("automation_graph_delete_sentinel", { ...scope, id: "sentinel /?" });
     const deletion = requests.pop()!;
     assert.equal(new URL(deletion.url).pathname, "/api/automation/blueprints/sentinel%20%2F%3F");
     assert.equal(deletion.init?.method, "DELETE");
@@ -68,12 +68,12 @@ async function main() {
       requests.push({ url: String(input), init });
       return Response.json({ ok: false, status: 403, data: { error: "peer-refused" } });
     };
-    await assert.rejects(invoke("automation_graph_stop_blueprint", { ...scope, id: "sentinel-a" }));
+    await assert.rejects(invoke("automation_graph_stop_sentinel", { ...scope, id: "sentinel-a" }));
     assert.equal(requests.length, 1);
     assert.equal(new URL(requests[0].url).pathname, "/api/mesh/relay-to");
     assert.deepEqual(JSON.parse(String(requests[0].init?.body)), { target_peer_id: "peer-fixture", method: "POST", path: "/api/automation/blueprints/sentinel-a/stop", body: { workspace_id: scope.workspaceId, team_id: scope.teamId } });
     console.log("✓ peer stop refusal remains unavailable without local fallback");
-    await assert.rejects(invoke("automation_graph_delete_blueprint", { ...scope, id: "sentinel-a" }));
+    await assert.rejects(invoke("automation_graph_delete_sentinel", { ...scope, id: "sentinel-a" }));
     assert.equal(requests.length, 2);
     assert.equal(new URL(requests[1].url).pathname, "/api/mesh/relay-to");
     const deletionRelay = JSON.parse(String(requests[1].init?.body));

@@ -17,7 +17,7 @@ async function main() {
   };
   adapter.stopResult.resolve();
   await stopMergedJob(standalone, context);
-  assert.deepEqual(adapter.stops, [{ kind: "blueprint", id: "pipeline-only", workspace_id: "workspace-a", team_id: "team-a", owner_tab_id: "owner-a" }]);
+  assert.deepEqual(adapter.stops, [{ kind: "sentinel", id: "pipeline-only", workspace_id: "workspace-a", team_id: "team-a", owner_tab_id: "owner-a" }]);
   assert.equal(refreshes, 1, "stopping refreshes the graph state");
   await deleteMergedJob(standalone, context);
   assert.deepEqual(adapter.deletes, adapter.stops, "deleting uses the same scoped pipeline identity");

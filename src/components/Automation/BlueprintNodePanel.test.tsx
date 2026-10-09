@@ -8,7 +8,7 @@ import { typedGraph, watchIdentity } from "./blueprintModel.testdata";
 import { runRow, type ReplayStep } from "./blueprintRunModel";
 import { RunDivider } from "./RunDivider";
 import { RunLog } from "./RunLog";
-import { graphRuns } from "./blueprintRunModel";
+import { graphRuns } from "./runLogModel";
 import { automationKey, type AutomationGraph } from "./types";
 import { useBlueprintReplay } from "./useBlueprintReplay";
 

@@ -3,7 +3,7 @@ import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { describeSchedule, formatFuture } from "../../lib/formatters";
 import { formatDuration } from "../../lib/timeLabels";
 import type { CronJob } from "../../lib/types";
-import type { BlueprintScenarioJob } from "../Automation/scenarios";
+import type { SentinelJob } from "../Automation/scenarios";
 import { AUTOMATION_ROW, stateTone } from "../Automation/styles";
 import { DropdownMenu } from "../shared/DropdownMenu";
 import { RowMenuButton } from "../shared/RowMenuButton";
@@ -68,7 +68,7 @@ export function cronMeta(job: CronJob): string {
 }
 
 /** A Blueprint row's secondary line describes what it does; ids live only in the hover hint. */
-export function sentinelRowText(job: BlueprintScenarioJob, title: string): { meta: string; idHint: string } {
+export function sentinelRowText(job: SentinelJob, title: string): { meta: string; idHint: string } {
   const { root, scenario } = job;
   const purpose = root?.purpose?.trim();
   const schedule = root?.schedule?.trim();

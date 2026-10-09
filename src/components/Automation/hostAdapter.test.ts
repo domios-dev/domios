@@ -43,9 +43,9 @@ async function main() {
     console.log("✓ committed-change subscription filters exact scopes or any Team in the workspace");
 
     await hostAutomationAdapter.stop(attachment, sentinelIdentity);
-    assert.deepEqual(calls.pop(), { command: "automation_graph_stop_blueprint", args: { workspaceId: attachment.workspace_id, teamId: attachment.team_id, id: sentinelIdentity.id } });
+    assert.deepEqual(calls.pop(), { command: "automation_graph_stop_sentinel", args: { workspaceId: attachment.workspace_id, teamId: attachment.team_id, id: sentinelIdentity.id } });
     await hostAutomationAdapter.delete({ ...attachment, team_id: ALL_JOBS_SCOPE }, { ...sentinelIdentity, team_id: "team-b" });
-    assert.deepEqual(calls.pop(), { command: "automation_graph_delete_blueprint", args: { workspaceId: attachment.workspace_id, teamId: "team-b", id: sentinelIdentity.id } });
+    assert.deepEqual(calls.pop(), { command: "automation_graph_delete_sentinel", args: { workspaceId: attachment.workspace_id, teamId: "team-b", id: sentinelIdentity.id } });
     await assert.rejects(hostAutomationAdapter.delete(attachment, { ...sentinelIdentity, team_id: "other" }));
     await assert.rejects(hostAutomationAdapter.stop(attachment, { ...sentinelIdentity, team_id: "other" }));
     assert.equal(calls.length, 0);

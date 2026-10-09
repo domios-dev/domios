@@ -1,9 +1,21 @@
-import { nodeIcon } from "./blueprintKinds";
-export { nodeIcon } from "./blueprintKinds";
+import { Bell, Bot, CalendarClock, CircleStop, Clock3, Cpu, Ellipsis, FileInput, GitBranch, Hand, MessageSquareReply, Play, Radio, Send, ShieldAlert, SquareTerminal, Workflow, Zap, type LucideIcon } from "lucide-react";
 import { HEADER_HEIGHT, type LaidOutBlueprintNode } from "./blueprintLayout";
 import type { BlueprintNode, BlueprintPin } from "./blueprintModel";
 import { automationState } from "./model";
 import { stateTone } from "./styles";
+
+const TRIGGER_ICON: Record<string, LucideIcon> = { schedule: Clock3, event: Radio, manual: Hand, activated: Workflow };
+const SOURCE_ICON: Record<string, LucideIcon> = { probe: SquareTerminal, terminal: SquareTerminal, observe: Radio, input: FileInput };
+const ACTION_ICON: Record<string, LucideIcon> = { notify: Bell, send: Send, cron: CalendarClock, command: SquareTerminal, sentinel: Play, escalate: ShieldAlert, respond_prompt: MessageSquareReply, stop: CircleStop };
+
+export function nodeIcon(node: BlueprintNode): LucideIcon {
+  if (node.type === "trigger") return TRIGGER_ICON[node.trigger ?? "schedule"] ?? Zap;
+  if (node.type === "source") return SOURCE_ICON[node.source ?? "probe"] ?? Cpu;
+  if (node.type === "agent") return Bot;
+  if (node.type === "logic") return GitBranch;
+  if (node.action?.overflow) return Ellipsis;
+  return ACTION_ICON[node.action?.handler?.type ?? ""] ?? Zap;
+}
 
 function Pin({ pin }: { pin: BlueprintPin }) {
   const stroke = pin.kind === "exec" ? "var(--bp-exec)" : "var(--bp-data)";
