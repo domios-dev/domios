@@ -7,6 +7,16 @@ impl ServiceContext {
         tab_id: &str,
         payload: &mut crate::service::messenger::AgentDeliveryPayload,
     ) -> Result<(), String> {
+        let restored = {
+            let mux = self.mux.read();
+            mux.resolve_tab_id(tab_id)
+                .and_then(|id| mux.get_tab(&id))
+                .filter(|tab| tab.restored_from_snapshot && !tab.agent_booting)
+                .map(|tab| tab.id.clone())
+        };
+        if let Some(restored) = restored {
+            self.materialize_restored_agent_for_send(&restored)?;
+        }
         let binding = self
             .queued_agent_binding(tab_id)
             .ok_or_else(|| "agent_unavailable: recipient has no active PTY launch".to_string())?;
@@ -135,7 +145,15 @@ fn delivery_binding(
     if tab.agent_type.is_none() || tab.is_chat_backend() {
         return None;
     }
-    let pty_id = tab.pty_id.clone();
+    let pty_id = if tab.agent_booting
+        && matches!(
+            tab.boot_stage,
+            Some(codeterm_types::pty::BootStage::PtyStarting)
+        ) {
+        None
+    } else {
+        tab.pty_id.clone()
+    };
     if tab.restored_from_snapshot
         || tab.boot_stage == Some(codeterm_types::pty::BootStage::SpawnFailed)
     {

@@ -161,6 +161,9 @@ and model/effort before close and after Undo/Recently Closed restore.
 |------|---------|---------------------------|
 | Fresh OpenCode | Route a pad-backed send before any UI composer turn | Send is accepted or held; exactly one own-session user turn and contextual answer appear. |
 | OpenCode 1.18.35 | Close, then Undo | Compatibility is supported; the original session id, prior messages and contextual answer remain. |
+| Immediate Undo send | Make a pad-backed contextual send the next operation after Undo, without waiting for readiness | Send is held against the incoming launch; after its own session authenticates, exactly one user turn and contextual answer appear. |
+| Immediate relaunch send | Send when a confirmed restart/resume picker closes, before readiness | Send is held; the new launch authenticates the saved session and receives exactly one user turn and contextual answer. |
+| Failed pending launch | Hold a send during a launch that then fails before input | One `launch_ended_before_write` settlement reports `bytes_written: false`; no payload reaches this or a subsequent launch. |
 | Aider | Close, then Recently Closed restore; route input at reader_ready | Input is held until exact saved history-marker binding, then written once; original history and contextual answer appear. |
 | Grok | Close, then Recently Closed restore; route input before binding | Input is held until current-PTY PID-registry binding, then written once; original session history and contextual answer appear. |
 | Codex | Confirm low effort, close, then Undo | Original session and model remain; confirmed effort is still low. |
