@@ -25,7 +25,7 @@ type SwitchRow = { run: number; sha: string; provider: string; step: string; ver
   tabId?: string; model?: string; effort?: string; effortEvidence?: string; mode?: string; closeMs?: number; pendingMs?: number; confirmMs?: number; failureMs?: number; recordModel?: string;
   applyingMs?: number; applyingLowerBoundMs?: number };
 type SwitchProbe = { applying: boolean; closed: boolean; errorToast: boolean; applyingStarted?: number; applyingEnded?: number };
-type ProbeWindow = typeof window & { __switchProbe: SwitchProbe; __switchObserver: MutationObserver };
+type ProbeWindow = typeof window & { __switchProbe: SwitchProbe; __switchObserver: { disconnect(): void }; __switchObserverOwner: string };
 
 test.describe.configure({ mode: "default" });
 for (let run = startRun; run < startRun + repeats; run++) {
@@ -145,21 +145,34 @@ for (let run = startRun; run < startRun + repeats; run++) {
             if (await showAll.isVisible()) await showAll.click();
             await picker.locator(`[role="option"][title="${model.id}"]`).click();
             if (effort) await picker.locator(`[aria-label="Reasoning"] [role="tab"][data-value="${effort}"]`).click();
-            await ui.page.evaluate((tabId) => {
+            await capsule.evaluate((trigger, tabId) => {
               (window as ProbeWindow).__switchObserver?.disconnect();
+              const host = trigger.parentElement!;
+              const titlebar = document.querySelector('[data-testid="titlebar"]');
               const state: SwitchProbe = { applying: false, closed: false, errorToast: false };
               (window as ProbeWindow).__switchProbe = state;
               const observe = () => {
-                if (document.querySelector(`[data-notification-id="model-switch:${tabId}"]`)) state.errorToast = true;
-                if (document.querySelector('[data-testid="status-model-picker"]')) return;
+                if (trigger.getAttribute("aria-expanded") !== "false") return;
                 state.closed = true;
-                const applying = Array.from(document.querySelectorAll(`[data-tab-id="${tabId}"] [role="status"]`)).some(node => node.textContent === "Applying…");
+                const applying = Array.from(host.children).some(node => node.getAttribute("role") === "status" && node.textContent === "Applying…");
                 if (applying) { state.applying = true; state.applyingStarted ??= window.performance.now(); }
                 else if (state.applyingStarted !== undefined) state.applyingEnded ??= window.performance.now();
               };
               const observer = new MutationObserver(observe);
-              observer.observe(document.body, { childList: true, subtree: true, characterData: true });
-              (window as ProbeWindow).__switchObserver = observer;
+              observer.observe(host, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["aria-expanded"] });
+              const notificationId = `model-switch:${tabId}`;
+              const toastObserver = new MutationObserver(changes => {
+                for (const change of changes) for (const node of change.addedNodes) {
+                  if (node instanceof Element && (node.getAttribute("data-notification-id") === notificationId ||
+                    node.querySelector(`[data-notification-id="${notificationId}"]`))) state.errorToast = true;
+                }
+              });
+              if (titlebar) {
+                state.errorToast = titlebar.querySelector(`[data-notification-id="${notificationId}"]`) !== null;
+                toastObserver.observe(titlebar, { childList: true, subtree: true });
+              }
+              (window as ProbeWindow).__switchObserverOwner = tabId;
+              (window as ProbeWindow).__switchObserver = { disconnect: () => { observer.disconnect(); toastObserver.disconnect(); } };
             }, target.tabId);
             const started = performance.now();
             const switchedAtMs = Date.now();
@@ -312,6 +325,20 @@ for (let run = startRun; run < startRun + repeats; run++) {
           }
           await ui.page.keyboard.press("Escape");
         } finally {
+          if (agent) {
+            const signal = AbortSignal.timeout(15_000);
+            let expired!: () => void;
+            const deadline = new Promise<never>((_resolve, reject) => {
+              expired = () => reject(new Error("Own probe disconnect deadline"));
+              signal.addEventListener("abort", expired, { once: true });
+            });
+            try {
+              await Promise.race([ui.page.evaluate(tabId => {
+                if ((window as ProbeWindow).__switchObserverOwner === tabId) (window as ProbeWindow).__switchObserver?.disconnect();
+              }, agent.tabId), deadline]);
+            } catch (error) { console.log(`[switch-probe-cleanup] ${agent.tabId}: ${String(error)}`); }
+            finally { signal.removeEventListener("abort", expired); }
+          }
           if (agent) await info.attach(`${providerId}-stream-resyncs.json`, { body: JSON.stringify(agent.events.resyncs, null, 2), contentType: "application/json" });
           await agent?.events.close();
         }
