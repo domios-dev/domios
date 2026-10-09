@@ -259,6 +259,27 @@
   outline: none;
 }
 
+@media (max-width: 640px) {
+  .ct-chat-bottom-bar .ct-agent-stop {
+    position: absolute;
+    right: 4px;
+    bottom: calc(100% + 10px);
+    width: 32px;
+    height: 32px;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    background: var(--ct-glass-sheen), var(--ct-glass-bg);
+    box-shadow: var(--ct-glass-edge), var(--ct-shadow-capsule);
+    backdrop-filter: blur(var(--ct-glass-blur)) saturate(var(--ct-glass-saturate));
+    color: var(--ct-fg);
+  }
+
+  .ct-chat-bottom-bar .ct-agent-stop__label {
+    display: none;
+  }
+}
+
 /* Open-terminal control — tinted to the question's tone (color set inline);
    brightens on intent. The route to answer a structural question with no card. */
 .ct-agent-open-term {

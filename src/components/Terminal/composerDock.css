@@ -82,6 +82,7 @@
 
 .ct-chat-shell { container: ct-chat / inline-size; }
 .ct-chat-bottom-bar {
+  position: relative;
   margin: 0 max(0.5rem, calc((100% - 58rem) / 2)) 0.5rem;
   padding-block: 0.5rem 0.375rem;
   border-radius: 1.575rem;
