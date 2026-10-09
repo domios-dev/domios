@@ -264,6 +264,11 @@ Neither the fixtures nor the oracle address production port 7685.
 
 ## Plugin test launcher troubleshooting
 
+If a fresh lane reports `Cannot find module .../node_modules/tsx/dist/cli.mjs`,
+its local dependencies are missing. Run `pnpm install --frozen-lockfile` in that
+lane, then rerun `node scripts/run-plugin-tests.mjs <provider>`; do not link
+another checkout's `node_modules` or count launcher failures as executed tests.
+
 `npm run test:plugins` uses the repository launcher, which selects Git Bash on
 Windows and `bash` elsewhere. If it reports that Git Bash is missing, install
 Git for Windows at its standard location and rerun the same command.

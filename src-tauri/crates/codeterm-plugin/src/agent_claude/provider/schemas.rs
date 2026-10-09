@@ -48,6 +48,15 @@ pub(crate) fn reasoning_effort_launch_args_format() -> Vec<String> {
     manifest.commands.reasoning_effort_launch_args_format
 }
 
+pub(super) fn model_switch_commands() -> provider::ModelSwitchCommands {
+    let manifest: crate::js_runtime::PluginManifest =
+        serde_json::from_str(BUNDLED_MANIFEST).expect("bundled Claude manifest parses");
+    manifest
+        .commands
+        .model_switch_commands
+        .expect("bundled Claude manifest declares live model commands")
+}
+
 pub(super) fn launch_permissions() -> Option<provider::LaunchPermissionCapability> {
     let manifest: crate::js_runtime::PluginManifest =
         serde_json::from_str(BUNDLED_MANIFEST).expect("bundled Claude manifest parses");
