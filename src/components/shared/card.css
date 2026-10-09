@@ -16,6 +16,16 @@
   background: color-mix(in srgb, var(--ct-card-tone) 3%, color-mix(in srgb, var(--ct-fg) 2.5%, var(--ct-bg)));
 }
 
+.ct-card--quiet {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--ct-fg) 1.5%, var(--ct-bg));
+}
+
+.ct-card--error {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--ct-muted-fg) 34%, transparent);
+}
+
 .ct-card__head {
   display: flex;
   width: 100%;
