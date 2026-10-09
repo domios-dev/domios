@@ -6,6 +6,30 @@ pub(crate) fn append_restore_notice(tab_id: &str, messages: &mut Vec<ChatMsg>) {
     append_from_journal(&load, tab_id, messages);
 }
 
+pub(crate) fn snapshot(
+    tab_id: &str,
+    messages: Vec<ChatMsg>,
+    since: usize,
+) -> (Vec<ChatMsg>, usize) {
+    snapshot_from_journal(
+        &TabLifecycleJournal::shared().load(),
+        tab_id,
+        messages,
+        since,
+    )
+}
+
+fn snapshot_from_journal(
+    load: &crate::session::lifecycle::JournalLoad,
+    tab_id: &str,
+    mut messages: Vec<ChatMsg>,
+    since: usize,
+) -> (Vec<ChatMsg>, usize) {
+    append_from_journal(load, tab_id, &mut messages);
+    let total = messages.len();
+    (messages.into_iter().skip(since).collect(), total)
+}
+
 fn append_from_journal(
     load: &crate::session::lifecycle::JournalLoad,
     tab_id: &str,
@@ -61,5 +85,21 @@ mod tests {
         append_from_journal(&reopened.load(), "own", &mut messages);
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].kind, "system");
+        let (empty_history, count) = snapshot_from_journal(&reopened.load(), "own", Vec::new(), 0);
+        assert_eq!(count, 1);
+        assert_eq!(empty_history[0].id, messages[0].id);
+        let provider_message = ChatMsg {
+            id: "provider-turn".into(),
+            kind: "user".into(),
+            ..Default::default()
+        };
+        let (history, count) =
+            snapshot_from_journal(&reopened.load(), "own", vec![provider_message], 1);
+        assert_eq!(count, 2);
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].id, "provider-turn");
+        let (history, count) = snapshot_from_journal(&reopened.load(), "own", messages, 1);
+        assert_eq!(count, 1);
+        assert!(history.is_empty());
     }
 }
