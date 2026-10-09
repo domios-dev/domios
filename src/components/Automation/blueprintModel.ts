@@ -239,7 +239,7 @@ export function blueprintModel(graph: AutomationGraph, classifier: ClassifierCon
       nodes.push({
         key, type: "action", stageKey, stage, title: actionTitle(handler.type, target?.name ?? null, label),
         subtitle: target?.executor?.model ? `${target.executor.provider_id ?? "agent"} · ${target.executor.model}` : `on ${bucket.name}`,
-        body: command ? { kind: "code", text: command.command, language: "bash" } : null,
+        body: typeof command?.command === "string" ? { kind: "code", text: command.command, language: "bash" } : null,
         inputs: [{ id: "exec", kind: "exec", side: "in", label: "", connected: true }, { id: "payload", kind: "data", side: "in", label: "payload", connected: false }],
         outputs: chain ? [{ id: "then", kind: "exec", side: "out", label: "", connected: true }] : [],
         action: { bucket: bucket.name, handler, result: accepted ?? handler.last_result ?? null, target, overflow: 0 },
