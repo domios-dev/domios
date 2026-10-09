@@ -60,11 +60,12 @@ body,
 .gallery-fill { width: 100%; min-width: 0; justify-self: stretch; }
 .gallery-fill--narrow { width: min(100%, 18rem); justify-self: center; }
 .gallery-transcript { align-self: stretch; padding: 4px 6px; font-size: 13px; }
-.gallery-jobs { height: 560px; align-self: stretch; overflow: hidden; border-radius: 6px; }
+.gallery-panel { position: relative; height: 560px; align-self: stretch; overflow: hidden; border-radius: 6px; }
 .gallery-phone-viewport { width: min(100%, 390px); justify-self: center; padding-top: 56px; }
 .gallery-rail-stage { justify-self: stretch; display: flex; padding: 4px 0; }
 .gallery-rail { width: 56px; border-radius: 14px; background: var(--ct-sidebar-bg); }
 .gallery-sidebar { width: 100%; max-width: 280px; justify-self: center; background: var(--ct-sidebar-bg); border-radius: 6px; padding: 4px 0; }
+.gallery-selection { min-height: 280px; align-self: stretch; }
 .gallery-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; }
 
 @media (max-width: 720px) {

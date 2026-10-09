@@ -53,7 +53,7 @@ provideForWorkspace("automation_graph_workspace_snapshot", EMPTY_WORKSPACE, grap
 type JobsSpecimenProps = Omit<JobsViewProps, "workspaces" | "teams"> & { menu?: boolean };
 
 function JobsSpecimen({ menu = false, ...props }: JobsSpecimenProps) {
-  const view = <div className="gallery-fill gallery-jobs"><JobsView workspaces={WORKSPACES} teams={[]} {...props} /></div>;
+  const view = <div className="gallery-fill gallery-panel"><JobsView workspaces={WORKSPACES} teams={[]} {...props} /></div>;
   return menu ? <PinnedMenu trigger='[aria-label="Actions for Nightly release train"]'>{view}</PinnedMenu> : view;
 }
 

@@ -3,13 +3,15 @@ import claudeManifest from "../../../plugins/provider-claude/plugin.json";
 import claudeIcon from "../../../plugins/provider-claude/icon.svg?raw";
 import codexManifest from "../../../plugins/provider-codex/plugin.json";
 import codexIcon from "../../../plugins/provider-codex/icon.svg?raw";
+import { defaultConfig } from "../../../src/hooks/useConfig";
 import { setAgentDescriptors } from "../../../src/lib/agentDescriptorCache";
-import type { ApiConfig, ModelSwitchMode, ProviderDescriptor, Tab, TabStatus, Team } from "../../../src/lib/types";
+import { daemonHttpBase } from "../../../src/lib/webApi";
+import type { ApiConfig, AppConfig, ModelSwitchMode, ProviderDescriptor, Tab, TabStatus, Team } from "../../../src/lib/types";
 import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerActionsContextType } from "../../../src/store/multiplexer/context";
 import { createMuxStateStore } from "../../../src/store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../../src/store/multiplexer/tree";
 import { PlansProvider } from "../../../src/components/Canvas/PlansProvider";
-import { mockCommand, provideList } from "../mocks/backend";
+import { mockCommand, mockHttp, provideList } from "../mocks/backend";
 
 type Manifest = {
   id: string;
@@ -102,6 +104,19 @@ export function shellTab(id: string, overrides: Partial<Tab> = {}): Tab {
 }
 
 export const API: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: null, cors: true };
+
+/** A daemon API on its own origin, so one specimen state answers HTTP from its own mocks. */
+export function httpApi(name: string): ApiConfig {
+  return { ...API, host: `${name}.gallery.test` };
+}
+
+export function mockDaemon(api: ApiConfig, path: string, handler: Parameters<typeof mockHttp>[2]): void {
+  mockHttp(daemonHttpBase(api), path, handler);
+}
+
+export function appConfig(api: ApiConfig = API): AppConfig {
+  return { ...defaultConfig(), api };
+}
 
 export function muxState(tabs: Tab[], statuses: Record<string, TabStatus> = {}, workspaceId = WORKSPACE_ID): ExtendedState {
   return {

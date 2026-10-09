@@ -74,3 +74,22 @@ declare global {
 }
 
 window.__galleryUnmockedCommands = () => [...unhandled];
+
+type HttpHandler = (url: URL, init?: RequestInit) => unknown;
+const httpRoutes = new Map<string, HttpHandler>();
+const GALLERY_HOST = ".gallery.test";
+
+/** Answers daemon HTTP calls to `origin + path` with the handler's JSON (or its Response, as is). */
+export function mockHttp(origin: string, path: string, handler: HttpHandler): void {
+  httpRoutes.set(`${origin}${path}`, handler);
+}
+
+const nativeFetch = window.fetch.bind(window);
+// Gallery daemon origins never reach the network: unmocked paths answer 404 like a daemon without the route.
+window.fetch = async (input, init) => {
+  const url = new URL(input instanceof Request ? input.url : String(input), window.location.href);
+  const route = httpRoutes.get(`${url.origin}${url.pathname}`);
+  if (!route) return url.hostname.endsWith(GALLERY_HOST) ? new Response("", { status: 404 }) : nativeFetch(input, init);
+  const body = await route(url, init);
+  return body instanceof Response ? body : new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+};

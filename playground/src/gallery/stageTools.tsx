@@ -42,15 +42,20 @@ function mirrorPseudoRules(): void {
   }
 }
 
+/** Forces a mirrored pseudo-state onto one element, e.g. a portalled trigger outside any ForcePseudo subtree. */
+export function forcePseudo(target: Element, state: PseudoState): void {
+  mirrorPseudoRules();
+  const cls = PSEUDO.find(([pseudo]) => pseudo === `:${state}`)?.[1];
+  if (cls && !target.classList.contains(cls)) target.classList.add(cls);
+}
+
 /** Applies a forced pseudo-state class to the first element matching `selector` inside the children. */
 export function ForcePseudo({ selector, state, children }: { selector: string; state: PseudoState; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    mirrorPseudoRules();
-    const cls = PSEUDO.find(([pseudo]) => pseudo === `:${state}`)?.[1];
     const apply = () => {
       const target = ref.current?.querySelector(selector);
-      if (cls && target && !target.classList.contains(cls)) target.classList.add(cls);
+      if (target) forcePseudo(target, state);
     };
     apply();
     const observer = new MutationObserver(apply);
@@ -86,7 +91,7 @@ function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
-async function waitFor<T>(read: () => T | null | undefined, attempts = 60): Promise<T | null> {
+export async function waitFor<T>(read: () => T | null | undefined, attempts = 60): Promise<T | null> {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const value = read();
     if (value) return value;
@@ -237,4 +242,19 @@ export function PhoneViewport({ children }: { children: ReactNode }) {
     }
   }, []);
   return <div className={PHONE_SCOPE}>{children}</div>;
+}
+
+/** Clicks the first element matching `selector` once it renders, so a disclosure opens through its own handler. */
+export function ClickOnce({ selector, children }: { selector: string; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let alive = true;
+    void waitFor(() => ref.current?.querySelector<HTMLElement>(selector), 240).then((target) => {
+      if (alive) target?.click();
+    });
+    return () => {
+      alive = false;
+    };
+  }, [selector]);
+  return <div ref={ref} className="gallery-fill">{children}</div>;
 }
