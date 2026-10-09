@@ -24,7 +24,7 @@ fn failed_restore_keeps_identity_session_and_exact_restore_data() {
         tab.role = Some(AgentRole::Manager);
         tab.role_profile = Some("general_agent".into());
         tab.boot_stage = Some(stage);
-        tab.boot_error = Some("opaque-launch-failure".into());
+        tab.boot_failure_reason = Some("opaque-launch-failure".into());
         tab.close_restore = Some(crate::multiplexer::types::CloseRestoreTabState {
             exact_session: true,
             session_cwd: Some("saved-cwd".into()),
@@ -48,7 +48,7 @@ fn failed_restore_keeps_identity_session_and_exact_restore_data() {
         assert_eq!(tab.role, Some(AgentRole::Manager));
         assert_eq!(tab.role_profile.as_deref(), Some("general_agent"));
         assert_eq!(tab.boot_stage, Some(stage));
-        assert_eq!(tab.boot_error.as_deref(), Some("opaque-launch-failure"));
+        assert_eq!(tab.boot_failure_reason.as_deref(), Some("opaque-launch-failure"));
         let restore = tab.close_restore.as_ref().unwrap();
         assert!(restore.exact_session);
         assert_eq!(restore.session_cwd.as_deref(), Some("saved-cwd"));
