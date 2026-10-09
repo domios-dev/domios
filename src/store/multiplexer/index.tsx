@@ -53,6 +53,7 @@ import {
 import { onRemoteTransportState } from "../../lib/remoteTabTransportState";
 import { resumeRemoteOutputStreams } from "../../lib/outputStream";
 import { resumeRemoteTabEvents, subscribeRemoteTabEvent } from "../../lib/remoteTabEvents";
+import { spawnFreshGeneralSession, type SessionLaunchIntent } from "../../lib/generalSession";
 
 export { useMultiplexer } from "./context";
 export { useMuxState, useMuxSelector } from "./selectorStore";
@@ -755,7 +756,23 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     model?: string,
     reasoningEffort?: string,
     preset?: string,
+    intent?: SessionLaunchIntent,
   ): Promise<SpawnedTab | null> => {
+    if (intent === "fresh_general") {
+      const guardKey = `${workspaceId}:fresh_general`;
+      if (spawnInFlight.current.has(guardKey)) return null;
+      spawnInFlight.current.add(guardKey);
+      try {
+        const result = await spawnFreshGeneralSession(workspaceId, agentId, cwd, guardedInvoke);
+        applyBackendState(result.snapshot);
+        return { workspaceId: result.workspace_id, tabId: result.tab_id };
+      } catch (error) {
+        notifySpawnFailure(workspaceId, agentId, error);
+        return null;
+      } finally {
+        spawnInFlight.current.delete(guardKey);
+      }
+    }
     const useRestSpawn = IS_WEB;
     if (useRestSpawn) {
       try {

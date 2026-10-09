@@ -46,8 +46,6 @@ pub fn apply_general_agent_kind(tab: &mut Tab) {
     tab.depth = 1;
 }
 
-/// The kind is machine-scoped: carrying it outside the General workspace would
-/// mint a second machine coordinator, so strays are demoted and returned.
 pub fn confine_general_agent_kind(mux: &mut MultiplexerState) -> Vec<String> {
     let sanctioned = mux.resolve_tab_id(super::GENERAL_ALIAS);
     let general_workspace = sanctioned
@@ -59,9 +57,10 @@ pub fn confine_general_agent_kind(mux: &mut MultiplexerState) -> Vec<String> {
         .values()
         .filter(|tab| tab.role_profile.as_deref() == Some(GENERAL_AGENT_KIND))
         .filter(|tab| {
-            Some(tab.id.as_str()) != sanctioned.as_deref()
-                || general_workspace.is_none()
+            general_workspace.is_none()
                 || mux.find_workspace_for_tab(&tab.id) != general_workspace
+                || (Some(tab.id.as_str()) != sanctioned.as_deref()
+                    && !super::session_contract::sanctioned_session(tab))
         })
         .map(|tab| tab.id.clone())
         .collect();

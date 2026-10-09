@@ -39,10 +39,10 @@ The hub. One service owns every operation on workspaces, tabs, agents and plans,
 
 ### General Agent {#core:general-agent}
 
-The protected, always-on agent singleton for one installation. It owns the General workspace identity, represents the machine in the mesh, receives bridge and mesh traffic, and coordinates project agents.
+Main is the protected, always-on agent singleton for one installation. It owns the General workspace identity, represents the machine in the mesh, receives bridge and mesh traffic, and coordinates project agents. The General workspace also hosts independent General-role sessions created by the owner.
 
 - Part of: core:agents-and-providers.
-- Invariants: exactly one protected General workspace and tab exist; routing reaches the singleton through its own tab; its provider session is resumed only from explicit ownership evidence; its permanent prompt is regenerated from installation and user identity, personality, shared agent guidance, and current memory when available; unavailable memory does not block startup; first-run bootstrap is a separate one-time message and is not sent on session resume; the [Supporter contract](supporter-agent.md#bounded-recovery-and-unattended-work) owns bounded General Agent recovery and its deterministic crash exception.
+- Invariants: exactly one protected General workspace and Main tab exist; routing reaches Main through its own tab; its provider session is resumed only from explicit ownership evidence; independent General sessions use the daemon's General home, configured provider and model policy, and permanent prompt, with their own tab, provider session and launch provenance; their launch preserves Main's aliases, selection, binding and durable session state; General identity stays confined to sanctioned sessions in General; the permanent prompt is regenerated from installation and user identity, personality, shared agent guidance, and current memory when available; unavailable memory does not block startup; first-run bootstrap belongs to Main and is not sent on session resume; the [Supporter contract](supporter-agent.md#bounded-recovery-and-unattended-work) owns bounded Main recovery and its deterministic crash exception; independent-session exits cannot trigger Main recovery.
 - Dependent capabilities: workspaces and tabs, agent providers, session continuity, Telegram bridge, and remote work.
 
 ### Crash-recovery supervisor {#core:crash-recovery-supervisor}

@@ -165,7 +165,7 @@ impl ServiceContext {
         &self,
         exited: &Tab,
     ) -> Result<RestartOutcome, RestartAttemptError> {
-        if !crate::service::general_agent::is_general_agent(exited) {
+        if !crate::service::general_agent::session_contract::owns_main(&self.mux.read(), exited) {
             return Err(AgentRestartError::BadRequest(
                 "exit recovery target is not the General Agent".into(),
             )
