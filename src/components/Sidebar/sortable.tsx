@@ -1,5 +1,6 @@
 import { useMemo, type CSSProperties, type ReactNode } from "react";
 import {
+  type CollisionDetection,
   DndContext,
   type DragEndEvent,
   KeyboardSensor,
@@ -131,11 +132,25 @@ export function SidebarDnd({
   );
 
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+    <DndContext sensors={sensors} collisionDetection={sameGroupCollision} onDragEnd={onDragEnd}>
       {children}
     </DndContext>
   );
 }
+
+function sameGroup(a: SortableGroupData | undefined, b: SortableGroupData | undefined): boolean {
+  return Boolean(a && b && a.group === b.group && a.groupKey === b.groupKey);
+}
+
+/** Only rows of the dragged row's own group can be targets, so nested groups never steal the drop. */
+export const sameGroupCollision: CollisionDetection = (args) => {
+  const activeData = args.active.data.current as SortableGroupData | undefined;
+  return closestCenter({
+    ...args,
+    droppableContainers: args.droppableContainers.filter((container) =>
+      sameGroup(activeData, container.data.current as SortableGroupData | undefined)),
+  });
+};
 
 export function commitSidebarDrag(event: DragEndEvent, handlers: ReorderHandlers): void {
   const { active, over } = event;
