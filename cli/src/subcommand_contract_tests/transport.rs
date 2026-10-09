@@ -14,6 +14,13 @@ const TASK_LOCAL_ONLY: &str = "task management is local-only — run it on the t
 /// Column 0 is the clap name, so coverage can be compared against the parser.
 const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
     (
+        "trace",
+        &["codeterm", "trace", "recent"],
+        Local::PreSocket,
+        MeshRelay::Fallthrough,
+        ApiVerdict::Unsupported("trace files are local-only; run on the owning instance"),
+    ),
+    (
         "identify",
         &["codeterm", "identify"],
         Local::Socket,
@@ -424,7 +431,7 @@ fn mesh_unsupported_reasons_are_preserved() {
         assert!(body.is_none(), "`{name}` refusal must carry no body");
         checked += 1;
     }
-    assert_eq!(checked, 20, "unsupported command count changed");
+    assert_eq!(checked, 21, "unsupported command count changed");
 }
 
 #[test]
