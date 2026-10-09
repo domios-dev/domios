@@ -2347,9 +2347,18 @@ button,
   margin-top: 0;
   border-top: 0;
   border-bottom: 1px solid color-mix(in srgb, var(--ct-border) 65%, transparent);
-  background: transparent;
   color: var(--ct-muted-fg);
   text-align: left;
+}
+
+.sidebar-general-section > .sidebar-structural-header,
+.sidebar-structural-section > .sidebar-structural-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: color-mix(in srgb, var(--ct-sidebar-bg) 86%, transparent);
+  backdrop-filter: blur(14px) saturate(1.5);
+  -webkit-backdrop-filter: blur(14px) saturate(1.5);
 }
 
 .sidebar-structural-label {

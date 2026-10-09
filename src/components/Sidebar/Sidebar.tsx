@@ -759,175 +759,177 @@ export function Sidebar({
                   </section>
                 );
               })()}
-              <div className={`sidebar-structural-header ${isCompact ? "justify-center" : ""}`}>
-                {!isCompact && <SidebarDisclosure
-                  data-testid="workspaces-section-toggle"
-                  className="sidebar-structural-toggle"
-                  expanded={workspacesSectionExpanded}
-                  onClick={toggleWorkspacesSection}
-                >
-                  <span className="sidebar-structural-label">WORKSPACES</span>
-                </SidebarDisclosure>}
-                <div className="sidebar-structural-action">
-                  {isCompact && (
-                    <button onClick={handleNewWorkspace} className="sidebar-new-workspace" title="New workspace" aria-label="Create workspace">
-                      <FolderPlusIcon size={12} />
-                    </button>
-                  )}
+              <div className="sidebar-structural-section">
+                <div className={`sidebar-structural-header ${isCompact ? "justify-center" : ""}`}>
+                  {!isCompact && <SidebarDisclosure
+                    data-testid="workspaces-section-toggle"
+                    className="sidebar-structural-toggle"
+                    expanded={workspacesSectionExpanded}
+                    onClick={toggleWorkspacesSection}
+                  >
+                    <span className="sidebar-structural-label">WORKSPACES</span>
+                  </SidebarDisclosure>}
+                  <div className="sidebar-structural-action">
+                    {isCompact && (
+                      <button onClick={handleNewWorkspace} className="sidebar-new-workspace" title="New workspace" aria-label="Create workspace">
+                        <FolderPlusIcon size={12} />
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-              {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (isCompact ? (
-                <div className="flex flex-col items-center py-1">
-                  {ordinaryWorkspaces.map((ws) => {
-                    const isActive = ws.id === state.active_workspace_id;
-                    const isActiveVisual = isActive && isWorkspaceMode;
-                    const isExpanded = expandedWorkspaces.has(ws.id);
-                    return (
-                      <div key={ws.id} className="w-full flex flex-col items-center">
-                        <button
-                          onClick={() => { setActiveWorkspace(ws.id); toggleExpanded(ws.id); onNavigateToTab?.(); }}
-                          className={`w-full py-1.5 flex items-center justify-center transition-colors ${
-                            isActiveVisual ? "text-[var(--ct-fg)]" : "text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)]"
-                          }`}
-                          aria-label={`Workspace ${ws.name}`}
-                          aria-expanded={isExpanded}
-                          title={ws.name}
-                        >
-                          <FolderIcon size={12} open={isExpanded} className={isExpanded ? "opacity-70" : "opacity-40"} />
-                        </button>
-                        {isExpanded && (
-                          <>
-                            {flattenSidebarTabs(ws.tabs, state.tabs).map((tab) => {
-                          const isTabActive = isWorkspaceTabActive(
-                            isActiveVisual,
-                            workspaceCanvasActive,
-                            tab.id,
-                            state.activeTabIds[ws.id],
-                          );
-                          return (
-                            <button
-                              key={tab.id}
-                              onClick={() => { setActiveTab(ws.id, tab.id); onNavigateToTab?.(); }}
-                              className={`w-8 h-7 flex items-center justify-center rounded transition-colors ${
-                                isTabActive
-                                  ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                                  : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)]"
-                              }`}
-                              aria-label={`Open tab ${displayTitleForTab(tab)}`}
-                              title={displayTitleForTab(tab)}
-                            >
-                              {tab?.agent_type ? (
-                                <AgentIcon providerId={tab.agent_type} className="text-[12px]" />
-                              ) : (
-                                <TerminalIcon size={11} />
-                              )}
-                            </button>
-                          );
-                            })}
-                          </>
-                        )}
-                        <div className="w-5 h-px bg-[var(--ct-border)] my-0.5" />
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <SidebarDnd handlers={dndHandlers}>
-                  <WorkspaceCardGrid
-                    workspaces={ordinaryWorkspaces}
-                    selectedWorkspaceId={selectedWorkspaceId}
-                    statuses={workspaceStatuses}
-                    sortIds={workspaceSortIds}
-                    onSelect={(workspaceId) => {
-                      setSelectedWorkspaceId(workspaceId);
-                      persistSelectedWorkspaceId(workspaceId);
-                      setActiveWorkspace(workspaceId);
-                    }}
-                    onCreate={handleNewWorkspace}
-                  />
-                  {ordinaryWorkspaces.map((ws) => {
-                    const sortedTabs = tabsInWorkspace(ws.tabs, state.tabs);
-                    const selected = ws.id === selectedWorkspaceId;
-                    const isActiveVisual = ws.id === state.active_workspace_id && isWorkspaceMode;
-                    const wsOrchestrators = Object.values(state.tabs).filter((tab) => anchorsTeam(tab));
-                    return (
-                      <div
-                        key={ws.id}
-                        data-testid="workspace-detail"
-                        data-workspace-id={ws.id}
-                        role="region"
-                        aria-label={`${ws.name} workspace contents`}
-                        hidden={!selected}
-                      >
-                    <WorkspaceItem
-                      workspace={ws}
-                      isActive={isActiveVisual}
-                      isExpanded
-                      onClick={() => { setActiveWorkspace(ws.id); onNavigateToTab?.(); }}
-                      onToggleExpand={() => {}}
-                      onClose={() => requestWorkspaceClose(ws.id)}
-                      onRename={(name) => renameWorkspace(ws.id, name)}
-                      onNewTerminal={(shell) => createTab(ws.id, undefined, shell)}
-                      onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
-                      onOpenMap={() => onOpenWorkspaceMap?.(ws.id)}
-                      onOpenAutomation={() => onOpenWorkspaceAutomation?.(ws.id)}
-                      newSessionDisabled={firstRunActive}
-                      onNewAgent={(agentId) => handleAgentSpawn(agentId, ws.id, ws.cwd ?? null)}
-                      canClose={true}
-                      status={workspaceStatuses[ws.id]}
-                      showDisclosure={false}
-                      detailHeader
-                      touchMode={touchMode}
-                      countActiveJobs={selected}
-                      uiFontScale={uiFontScale}
+                {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (isCompact ? (
+                  <div className="flex flex-col items-center py-1">
+                    {ordinaryWorkspaces.map((ws) => {
+                      const isActive = ws.id === state.active_workspace_id;
+                      const isActiveVisual = isActive && isWorkspaceMode;
+                      const isExpanded = expandedWorkspaces.has(ws.id);
+                      return (
+                        <div key={ws.id} className="w-full flex flex-col items-center">
+                          <button
+                            onClick={() => { setActiveWorkspace(ws.id); toggleExpanded(ws.id); onNavigateToTab?.(); }}
+                            className={`w-full py-1.5 flex items-center justify-center transition-colors ${
+                              isActiveVisual ? "text-[var(--ct-fg)]" : "text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)]"
+                            }`}
+                            aria-label={`Workspace ${ws.name}`}
+                            aria-expanded={isExpanded}
+                            title={ws.name}
+                          >
+                            <FolderIcon size={12} open={isExpanded} className={isExpanded ? "opacity-70" : "opacity-40"} />
+                          </button>
+                          {isExpanded && (
+                            <>
+                              {flattenSidebarTabs(ws.tabs, state.tabs).map((tab) => {
+                            const isTabActive = isWorkspaceTabActive(
+                              isActiveVisual,
+                              workspaceCanvasActive,
+                              tab.id,
+                              state.activeTabIds[ws.id],
+                            );
+                            return (
+                              <button
+                                key={tab.id}
+                                onClick={() => { setActiveTab(ws.id, tab.id); onNavigateToTab?.(); }}
+                                className={`w-8 h-7 flex items-center justify-center rounded transition-colors ${
+                                  isTabActive
+                                    ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
+                                    : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)]"
+                                }`}
+                                aria-label={`Open tab ${displayTitleForTab(tab)}`}
+                                title={displayTitleForTab(tab)}
+                              >
+                                {tab?.agent_type ? (
+                                  <AgentIcon providerId={tab.agent_type} className="text-[12px]" />
+                                ) : (
+                                  <TerminalIcon size={11} />
+                                )}
+                              </button>
+                            );
+                              })}
+                            </>
+                          )}
+                          <div className="w-5 h-px bg-[var(--ct-border)] my-0.5" />
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <SidebarDnd handlers={dndHandlers}>
+                    <WorkspaceCardGrid
+                      workspaces={ordinaryWorkspaces}
+                      selectedWorkspaceId={selectedWorkspaceId}
+                      statuses={workspaceStatuses}
+                      sortIds={workspaceSortIds}
+                      onSelect={(workspaceId) => {
+                        setSelectedWorkspaceId(workspaceId);
+                        persistSelectedWorkspaceId(workspaceId);
+                        setActiveWorkspace(workspaceId);
+                      }}
+                      onCreate={handleNewWorkspace}
                     />
-                    <SidebarWorkspaceTabs
-                          workspace={ws}
-                          activeTabId={state.activeTabIds[ws.id] ?? null}
-                          sortedTabs={sortedTabs}
-                          tabs={state.tabs}
-                          tabStatuses={state.tabStatuses}
-                          declaredAttentionByTab={declaredAttention}
-                          teams={state.teams}
-                          planIndex={planIndex}
-                          plans={fullPlans.plans}
-                          activeWork={activeWork}
-                          providers={visibleProviders}
-                          providersLoading={providersLoading}
-                          closingTabIds={new Set(closingTabs.keys())}
-                          appearingTabIds={appearingTabs}
-                          isActiveVisual={isActiveVisual}
-                          workspaceCanvasActive={workspaceCanvasActive}
-                          touchMode={touchMode}
-                          uiFontScale={uiFontScale}
-                          compact={isCompact}
-                          sidebarActionText={sidebarActionText}
-                          orchestrators={wsOrchestrators}
-                          onBeforeOpenPlan={() => {
-                            setActiveWorkspace(ws.id);
-                            onNavigateToTab?.();
-                          }}
-                          onActivateTab={(tabId) => {
-                            setActiveTab(ws.id, tabId);
-                            onNavigateToTab?.();
-                          }}
-                          onCloseTab={(tabId) => animatedCloseTab(ws.id, tabId)}
-                          onRenameTab={(tabId, title) => setTabTitle(ws.id, tabId, title)}
-                          onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
-                          onOpenRemoteTab={() => setRemotePickerWorkspaceId(ws.id)}
-                          newSessionDisabled={firstRunActive}
-                          onRenameTeam={teamActions?.onRenameTeam}
-                          onAddTeamMember={teamActions?.onAddTeamMember}
-                          onCloseTeam={teamActions?.onCloseTeam
-                            ? (teamId) => requestTeamClose(ws.id, teamId)
-                            : undefined}
-                          onOpenSentinelJob={onOpenWorkspaceAutomation ? (target) => onOpenWorkspaceAutomation(ws.id, target) : undefined}
-                        />
-                      </div>
-                    );
-                  })}
-                </SidebarDnd>
-              ))}
+                    {ordinaryWorkspaces.map((ws) => {
+                      const sortedTabs = tabsInWorkspace(ws.tabs, state.tabs);
+                      const selected = ws.id === selectedWorkspaceId;
+                      const isActiveVisual = ws.id === state.active_workspace_id && isWorkspaceMode;
+                      const wsOrchestrators = Object.values(state.tabs).filter((tab) => anchorsTeam(tab));
+                      return (
+                        <div
+                          key={ws.id}
+                          data-testid="workspace-detail"
+                          data-workspace-id={ws.id}
+                          role="region"
+                          aria-label={`${ws.name} workspace contents`}
+                          hidden={!selected}
+                        >
+                      <WorkspaceItem
+                        workspace={ws}
+                        isActive={isActiveVisual}
+                        isExpanded
+                        onClick={() => { setActiveWorkspace(ws.id); onNavigateToTab?.(); }}
+                        onToggleExpand={() => {}}
+                        onClose={() => requestWorkspaceClose(ws.id)}
+                        onRename={(name) => renameWorkspace(ws.id, name)}
+                        onNewTerminal={(shell) => createTab(ws.id, undefined, shell)}
+                        onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
+                        onOpenMap={() => onOpenWorkspaceMap?.(ws.id)}
+                        onOpenAutomation={() => onOpenWorkspaceAutomation?.(ws.id)}
+                        newSessionDisabled={firstRunActive}
+                        onNewAgent={(agentId) => handleAgentSpawn(agentId, ws.id, ws.cwd ?? null)}
+                        canClose={true}
+                        status={workspaceStatuses[ws.id]}
+                        showDisclosure={false}
+                        detailHeader
+                        touchMode={touchMode}
+                        countActiveJobs={selected}
+                        uiFontScale={uiFontScale}
+                      />
+                      <SidebarWorkspaceTabs
+                            workspace={ws}
+                            activeTabId={state.activeTabIds[ws.id] ?? null}
+                            sortedTabs={sortedTabs}
+                            tabs={state.tabs}
+                            tabStatuses={state.tabStatuses}
+                            declaredAttentionByTab={declaredAttention}
+                            teams={state.teams}
+                            planIndex={planIndex}
+                            plans={fullPlans.plans}
+                            activeWork={activeWork}
+                            providers={visibleProviders}
+                            providersLoading={providersLoading}
+                            closingTabIds={new Set(closingTabs.keys())}
+                            appearingTabIds={appearingTabs}
+                            isActiveVisual={isActiveVisual}
+                            workspaceCanvasActive={workspaceCanvasActive}
+                            touchMode={touchMode}
+                            uiFontScale={uiFontScale}
+                            compact={isCompact}
+                            sidebarActionText={sidebarActionText}
+                            orchestrators={wsOrchestrators}
+                            onBeforeOpenPlan={() => {
+                              setActiveWorkspace(ws.id);
+                              onNavigateToTab?.();
+                            }}
+                            onActivateTab={(tabId) => {
+                              setActiveTab(ws.id, tabId);
+                              onNavigateToTab?.();
+                            }}
+                            onCloseTab={(tabId) => animatedCloseTab(ws.id, tabId)}
+                            onRenameTab={(tabId, title) => setTabTitle(ws.id, tabId, title)}
+                            onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
+                            onOpenRemoteTab={() => setRemotePickerWorkspaceId(ws.id)}
+                            newSessionDisabled={firstRunActive}
+                            onRenameTeam={teamActions?.onRenameTeam}
+                            onAddTeamMember={teamActions?.onAddTeamMember}
+                            onCloseTeam={teamActions?.onCloseTeam
+                              ? (teamId) => requestTeamClose(ws.id, teamId)
+                              : undefined}
+                            onOpenSentinelJob={onOpenWorkspaceAutomation ? (target) => onOpenWorkspaceAutomation(ws.id, target) : undefined}
+                          />
+                        </div>
+                      );
+                    })}
+                  </SidebarDnd>
+                ))}
+              </div>
             </div>
             {remotePickerWorkspaceId && (
               <RemoteTabPicker
