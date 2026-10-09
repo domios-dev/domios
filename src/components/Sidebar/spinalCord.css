@@ -18,26 +18,25 @@
 }
 
 .ct-spinal-btn[data-connected] {
-  color: color-mix(in srgb, var(--ct-green) 55%, var(--ct-muted-fg));
+  color: color-mix(in srgb, var(--ct-green) 14%, var(--ct-fg));
 }
 
 .ct-spinal-btn[data-connected]:hover,
 .ct-spinal-btn[data-connected]:focus-visible,
 .ct-spinal-btn[data-connected][aria-expanded="true"] {
-  border-color: color-mix(in srgb, var(--ct-green) 22%, transparent);
-  background: color-mix(in srgb, var(--ct-green) 7%, var(--ct-bg));
-  color: color-mix(in srgb, var(--ct-green) 62%, var(--ct-fg));
+  border-color: transparent;
+  background: color-mix(in srgb, var(--ct-fg) 6%, transparent);
+  color: color-mix(in srgb, var(--ct-green) 14%, var(--ct-fg));
 }
 
 .ct-spinal-btn[data-connected]:hover .ct-spinal-vertebrae rect,
 .ct-spinal-btn[data-connected]:focus-visible .ct-spinal-vertebrae rect {
-  fill: color-mix(in srgb, var(--ct-green) 30%, transparent);
+  fill: currentColor;
 }
 
 .ct-spinal-btn[data-connected] .ct-spinal-vertebrae {
-  fill: color-mix(in srgb, currentColor 16%, transparent);
-  stroke: currentColor;
-  stroke-width: 1.1;
+  fill: currentColor;
+  opacity: 0.85;
 }
 
 .ct-spinal-vertebrae--reflex rect {
@@ -55,15 +54,15 @@
   height: 18px;
   margin: -9px 0 0 -9px;
   border-radius: 50%;
-  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--ct-green) 60%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ct-green) 38%, transparent);
   pointer-events: none;
   animation: ct-spinal-reflex-ring 760ms var(--ct-ease-liquid-settle) both;
 }
 
 @keyframes ct-spinal-reflex {
-  0% { fill: color-mix(in srgb, var(--ct-green) 16%, transparent); transform: scale(1); }
-  35% { fill: var(--ct-green); transform: scale(1.3, 1.15); }
-  100% { fill: color-mix(in srgb, var(--ct-green) 16%, transparent); transform: scale(1); }
+  0% { fill: currentColor; transform: scale(1); }
+  35% { fill: color-mix(in srgb, var(--ct-green) 70%, var(--ct-fg)); transform: scale(1.25, 1.12); }
+  100% { fill: currentColor; transform: scale(1); }
 }
 
 @keyframes ct-spinal-reflex-ring {
