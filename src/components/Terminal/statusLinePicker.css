@@ -144,7 +144,7 @@ button.ct-status-identity:focus-visible {
   padding: 10px;
   border: 1px solid var(--ct-border-default);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--ct-surface) 97%, transparent);
+  background: var(--ct-bg);
   -webkit-backdrop-filter: blur(18px) saturate(1.2);
   backdrop-filter: blur(18px) saturate(1.2);
   box-shadow: var(--ct-shadow-xl);

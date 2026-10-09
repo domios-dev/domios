@@ -773,7 +773,7 @@ export function TabSessionChat({
         onScroll={handleScroll}
         onKeyDown={messageSelection.onKeyDown}
         data-selecting={messageSelection.active || undefined}
-        className="ct-hover-reveal-scrollbar ct-chat-surface ct-chat-scroller absolute inset-0 overflow-y-auto overscroll-contain px-5 py-3 select-text"
+        className="ct-hover-reveal-scrollbar ct-chat-surface absolute inset-0 overflow-y-auto overscroll-contain px-5 py-3 select-text"
         data-testid="tab-session-chat-messages"
         role="log"
         aria-label="Conversation"
