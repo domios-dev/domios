@@ -409,67 +409,17 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
 
-    // Prefer backend-reader output when available; it handles decoding/state transitions.
-    {
-        let rx_opt = session.backend_reader_rx.lock().unwrap().take();
-        if let Some(mut rx) = rx_opt {
-            let result = rx.recv().await;
-            match result {
-                Some(mut data) => {
-                    if let Some(mark) = crate::pty::manager::take_spawn_time(&pty_id) {
-                        log::info!(
-                            "[pty-first-byte] pty={} elapsed={}ms bytes={} (via backend channel)",
-                            &pty_id[..pty_id.len().min(8)],
-                            mark.when.elapsed().as_millis(),
-                            data.len()
-                        );
-                    }
-                    coalesce_backend_chunks(&mut rx, &mut data);
-                    *session.backend_reader_rx.lock().unwrap() = Some(rx);
-                    return Ok(data);
-                }
-                None => {
-                    *session.backend_reader_rx.lock().unwrap() = None;
-                    return Err("PTY closed".to_string());
-                }
-            }
+    if session.backend_output.is_configured() {
+        let data = session.backend_output.read().await?;
+        if let Some(mark) = crate::pty::manager::take_spawn_time(&pty_id) {
+            log::info!(
+                "[pty-first-byte] pty={} elapsed={}ms bytes={} (via backend channel)",
+                &pty_id[..pty_id.len().min(8)],
+                mark.when.elapsed().as_millis(),
+                data.len()
+            );
         }
-    }
-
-    {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
-        loop {
-            let backend_active = { svc.pty.lock().has_backend_reader(&pty_id) };
-            if !backend_active {
-                break;
-            }
-            let rx_ready = session.backend_reader_rx.lock().unwrap().is_some();
-            if rx_ready {
-                let rx_opt = session.backend_reader_rx.lock().unwrap().take();
-                if let Some(mut rx) = rx_opt {
-                    let result = rx.recv().await;
-                    match result {
-                        Some(mut data) => {
-                            coalesce_backend_chunks(&mut rx, &mut data);
-                            *session.backend_reader_rx.lock().unwrap() = Some(rx);
-                            return Ok(data);
-                        }
-                        None => {
-                            *session.backend_reader_rx.lock().unwrap() = None;
-                            return Err("PTY closed".to_string());
-                        }
-                    }
-                }
-            }
-            if std::time::Instant::now() >= deadline {
-                log::warn!(
-                    "[read_pty] backend reader active but channel never appeared for {} — falling back to raw clone",
-                    &pty_id[..pty_id.len().min(8)]
-                );
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-        }
+        return Ok(data);
     }
 
     if !svc
@@ -562,17 +512,6 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
                 }
             }
             Err(e)
-        }
-    }
-}
-
-fn coalesce_backend_chunks(rx: &mut tokio::sync::mpsc::Receiver<Vec<u8>>, data: &mut Vec<u8>) {
-    const COALESCE_CAP: usize = 64 * 1024;
-
-    while data.len() < COALESCE_CAP {
-        match rx.try_recv() {
-            Ok(mut next) => data.append(&mut next),
-            Err(_) => break,
         }
     }
 }

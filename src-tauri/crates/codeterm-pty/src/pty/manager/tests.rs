@@ -46,7 +46,7 @@ fn backend_channel_claim_is_visible_and_idempotent() {
         "claim must be visible immediately (read_pty guard keys on this)"
     );
     assert!(
-        session.backend_reader_rx.lock().unwrap().is_some(),
+        session.backend_output.is_configured(),
         "rx side must exist for the frontend to consume"
     );
 
