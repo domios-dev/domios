@@ -57,19 +57,28 @@ fn next_delay(byte_idle_ms: u64, semantic_idle_ms: u64) -> Option<Duration> {
         .map(Duration::from_millis)
 }
 
+fn next_deadline(
+    now: Instant,
+    quiescence: Option<(u64, u64)>,
+    suppression: Option<Instant>,
+) -> Option<Instant> {
+    quiescence
+        .and_then(|(byte_idle, semantic_idle)| next_delay(byte_idle, semantic_idle))
+        .map(|delay| now + delay)
+        .into_iter()
+        .chain(suppression)
+        .min()
+}
+
 pub(crate) fn schedule(svc: &ServiceContext, pty_id: &str) {
     let Some(wake) = WAKE.get() else { return };
     let now = Instant::now();
-    let delay = svc
-        .agent_tracker
-        .lock()
-        .quiescence(pty_id, now)
-        .and_then(|(byte_idle, semantic_idle)| next_delay(byte_idle, semantic_idle));
-    let deadline = delay
-        .map(|delay| now + delay)
-        .into_iter()
-        .chain(ServiceContext::agent_stop_suppression_deadline(pty_id))
-        .min();
+    let quiescence = svc.agent_tracker.lock().quiescence(pty_id, now);
+    let deadline = next_deadline(
+        now,
+        quiescence,
+        ServiceContext::agent_stop_suppression_deadline(pty_id),
+    );
     let mut deadlines = wake.deadlines.lock();
     let previous = deadlines.next();
     deadlines.set(pty_id, deadline);
