@@ -222,8 +222,34 @@ fn sentinel_graph_missing_exact_target_has_no_foreign_metadata() {
             .iter()
             .find(|n| n["identity"]["id"] == owner.creator_tab_id)
             .unwrap()["availability"],
-        "missing"
+        "available"
     );
+    jobs[0].routes.get_mut("done").unwrap()[0].target = Some(graph::Identity {
+        kind: "worker".into(),
+        id: owner.creator_tab_id.clone(),
+        workspace_id: owner.workspace_id.clone(),
+        team_id: None,
+        owner_tab_id: Some("foreign-owner".into()),
+    });
+    let graph = graph::project(
+        &owner.workspace_id,
+        None,
+        &jobs,
+        &mux,
+        &BTreeMap::new(),
+        Value::Null,
+        store.clock.now_ms(),
+        &store.live_leases(),
+    )
+    .unwrap();
+    let missing = graph
+        .nodes
+        .iter()
+        .find(|node| node["identity"]["id"] == owner.creator_tab_id)
+        .unwrap();
+    assert_eq!(missing["availability"], "missing");
+    assert_eq!(missing["name"], "Missing worker");
+    assert_eq!(missing["executor"], Value::Null);
 }
 
 #[test]

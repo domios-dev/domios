@@ -11,7 +11,7 @@ fn sentinel_node_files_read_only_definition_paths_include_script_and_references(
     let files = references(&source, &cwd, |_| FileKind::File);
     assert_eq!(files.len(), 3);
     assert_eq!(files[0].name, "run.py");
-    assert_eq!(files[1].path, cwd.join("inputs/a.json").to_string_lossy());
+    assert_eq!(Path::new(&files[1].path), cwd.join("inputs/a.json"));
     assert_eq!(files[2].path, absolute.to_string_lossy());
     let missing = references(
         "python 'scripts/missing.py' $RUNTIME/file.txt https://host/file.txt",
@@ -21,10 +21,7 @@ fn sentinel_node_files_read_only_definition_paths_include_script_and_references(
     assert_eq!(missing.len(), 1);
     assert!(!missing[0].exists);
     let parent = references("linked/../data.json", &cwd, |_| FileKind::File);
-    assert_eq!(
-        parent[0].path,
-        cwd.join("linked/../data.json").to_string_lossy()
-    );
+    assert_eq!(Path::new(&parent[0].path), cwd.join("linked/../data.json"));
     let quoted = references("Get-Content 'a.json','b.json'", &cwd, |_| FileKind::File);
     assert_eq!(quoted.len(), 2);
     let duplicates = references("./inputs/a.json inputs/a.json", &cwd, |_| FileKind::File);

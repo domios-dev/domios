@@ -110,14 +110,19 @@ impl ServiceFixture {
             .expect("test PTY");
         {
             let mut mux = self.service.mux.write();
+            mux.link_pty(tab_id, pty_id.clone());
             let tab = mux.get_tab_mut(tab_id).expect("test tab");
             tab.backing = crate::multiplexer::types::TabBacking::Pty;
-            tab.pty_id = Some(pty_id.clone());
             tab.agent_session_id = Some(session_id.to_string());
             tab.session_binding_nonce = Some(binding_nonce.to_string());
             tab.reported_session_binding_nonce = Some(binding_nonce.to_string());
             tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
         }
+        self.service
+            .pty
+            .lock()
+            .rearm_guarded_input(&pty_id)
+            .expect("test PTY input permit");
         TestPtyGuard {
             pty: Arc::clone(&self.service.pty),
             pty_id,

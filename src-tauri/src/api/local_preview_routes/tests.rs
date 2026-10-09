@@ -161,7 +161,8 @@ async fn missing_directory_wrong_kind_and_oversized_files_match_desktop_refusals
     let missing = fixture.root.join("missing.md");
     let directory = fixture.root.join("directory.md");
     std::fs::create_dir(&directory).unwrap();
-    let wrong = fixture.write("wrong.bin", "opaque");
+    let wrong = fixture.write("wrong.bin", [b'a', 0, b'b']);
+    let non_utf8 = fixture.write("non-utf8.bin", [0xff, 0xfe]);
     let document = fixture.write("document.md", "opaque");
     let large_document = fixture.write("large.md", vec![b'x'; 1_000_001]);
     let large_page = fixture.write("large.html", vec![b'x'; 200_001]);
@@ -170,7 +171,9 @@ async fn missing_directory_wrong_kind_and_oversized_files_match_desktop_refusals
         (&missing, "document"),
         (&directory, "document"),
         (&wrong, "document"),
+        (&non_utf8, "document"),
         (&document, "image"),
+        (&document, "page"),
         (&document, "unknown"),
         (&large_document, "document"),
         (&large_page, "page"),
@@ -197,25 +200,41 @@ async fn missing_directory_wrong_kind_and_oversized_files_match_desktop_refusals
 async fn batch_check_filters_unreferenced_secret_missing_and_unsupported_paths() {
     let fixture = Fixture::new();
     let allowed = fixture.write("allowed.md", "opaque");
+    let allowed_text = fixture.write("text.bin", "opaque");
     let unrelated = fixture.write("unrelated.md", "opaque");
     let secret = fixture.write("credentials.json", "opaque");
-    let wrong = fixture.write("wrong.bin", "opaque");
+    let wrong = fixture.write("wrong.bin", [b'a', 0, b'b']);
+    let non_utf8 = fixture.write("non-utf8.bin", [0xff, 0xfe]);
+    let binary_document = fixture.write("binary.md", [b'a', 0, b'b']);
     let missing = fixture.root.join("missing.md");
-    for path in [&allowed, &secret, &wrong, &missing] {
+    for path in [
+        &allowed,
+        &allowed_text,
+        &secret,
+        &wrong,
+        &non_utf8,
+        &binary_document,
+        &missing,
+    ] {
         fixture.reference(&fixture.owner, path);
     }
     let response = fixture
         .post(
             &fixture.owner,
             "check",
-            serde_json::json!({"paths": [&allowed, &unrelated, &secret, &wrong, &missing]}),
+            serde_json::json!({"paths": [&allowed, &allowed_text, &unrelated, &secret, &wrong, &non_utf8, &binary_document, &missing]}),
             Some("Bearer preview-test-token"),
         )
         .await;
     assert_eq!(response.status(), StatusCode::OK);
     assert_headers(&response);
     let result = json(response).await;
-    assert_eq!(result["paths"], serde_json::json!([allowed]));
+    assert_eq!(result["paths"], serde_json::json!([allowed, allowed_text]));
+    let response = fixture
+        .read(&fixture.owner, &allowed_text, "document")
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(json(response).await["data"], "opaque");
 }
 
 #[test]

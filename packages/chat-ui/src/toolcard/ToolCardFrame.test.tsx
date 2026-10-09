@@ -26,7 +26,7 @@ async function render(node: React.ReactElement) {
 }
 
 const { host } = await render(<CommandCard event={event()} expanded={false} onToggle={() => {}} />);
-if (!host.textContent?.includes("command") || !host.textContent?.includes("run preview")) throw new Error("summary row regression");
+if (!host.textContent?.includes("command") || !host.textContent?.includes("echo preview")) throw new Error(`summary row regression: ${host.textContent}`);
 if (!host.querySelector("svg")) throw new Error("glyph regression");
 if (host.querySelector('[data-testid="toolcard-command"]')) throw new Error("command should start hidden");
 if (host.querySelector('[data-testid="raw-command-disclosure"]')) throw new Error("collapsed card must hide its raw command disclosure");

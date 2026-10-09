@@ -194,6 +194,8 @@ impl ServiceContext {
         if owner.pending_head(tab_id).ok().flatten().is_some() {
             self.schedule_agent_delivery_flush(tab_id);
         }
+        #[cfg(test)]
+        test_boundary::finished(tab_id);
     }
 
     fn reconcile_retired_agent_deliveries(
@@ -541,6 +543,26 @@ impl ServiceContext {
         if let Some(DeliveryWriteObserver::Report { report_id, .. }) = payload.observer.as_ref() {
             self.report_store.lock().release_delivery(report_id);
         }
+        self.notify_event(
+            "agent-delivery-status",
+            serde_json::json!({
+                "tab_id": tab_id,
+                "delivery_id": delivery_id,
+                "status": "failed",
+                "code": "launch_ended_before_write",
+                "bytes_written": false,
+            }),
+        );
+        if let Some(flow) = payload.trace_id.as_deref() {
+            crate::flow_trace::record(
+                flow,
+                "delivery.failed",
+                tab_id,
+                "",
+                "launch_ended_before_write",
+                Some(delivery_id),
+            );
+        }
         log::warn!(
             "[agent-delivery] tab={} delivery={} outcome=expired_launch",
             tab_id,
@@ -743,3 +765,6 @@ fn worker_brief_flagged(role: Option<crate::multiplexer::types::AgentRole>) -> b
 #[cfg(test)]
 #[path = "agent_delivery_outbox/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+pub(crate) mod test_boundary;

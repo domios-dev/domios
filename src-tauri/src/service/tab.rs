@@ -471,7 +471,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn rearm_authenticated_agent_input(&self, tab_id: &str) {
+    pub(crate) fn reconcile_authenticated_agent_input(&self, tab_id: &str) {
         let pty_id = self.mux.read().get_tab(tab_id).and_then(|tab| {
             tab.launch_session_authenticated()
                 .then(|| tab.pty_id.clone())
@@ -480,6 +480,8 @@ impl ServiceContext {
         if let Some(pty_id) = pty_id {
             let _ = self.pty.lock().rearm_guarded_input(&pty_id);
             crate::service::boot_wait::notify_boot_changed();
+            self.reconcile_boot_stage_with_session_binding(tab_id);
+            self.wake_agent_deliveries_on_state_change(tab_id);
         }
     }
 

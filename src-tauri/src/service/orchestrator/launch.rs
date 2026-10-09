@@ -450,6 +450,13 @@ pub(crate) fn launch_agent_in_background_with_env(
     let public_send_key = public_send::arm(&svc, &tab_id, &agent_cmd, startup_turn_text);
     // thread spawns: callers get the tab id immediately and may send right away.
     mark_tab_agent_launch_started(&svc.mux, &tab_id);
+    let authenticated = svc
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .is_some_and(|tab| tab.launch_session_authenticated());
+    let reserved_nonce = (!authenticated)
+        .then(|| generation::reserve_binding_nonce(&svc, &tab_id, resume_session_id.as_deref()));
     crate::service::boot_wait::notify_boot_changed();
     std::thread::spawn(move || {
         let public_send_guard = public_send::guard(&svc, &tab_id, public_send_key);
@@ -700,6 +707,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             public_send_key,
             origin,
             resume_session_id.as_deref(),
+            reserved_nonce,
         ) {
             let failure = LaunchFailure::StartupSupervision(error.clone());
             launch.fail(&svc, failure);
@@ -821,6 +829,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                             public_send_key,
                             origin,
                             resume_session_id.as_deref(),
+                            None,
                         ) {
                             let failure = LaunchFailure::StartupSupervision(error.clone());
                             launch.fail(&svc, failure);
@@ -980,7 +989,10 @@ pub(crate) fn launch_agent_in_background_with_env(
                 &pty_id,
                 &agent_cmd,
                 &readiness_attempt,
-                session_starts_on_first_turn || user_composer_required,
+                user_input::requires_initial_composer(
+                    session_starts_on_first_turn || user_composer_required,
+                    resume_session_id.as_deref(),
+                ),
                 input_readiness_timeout,
                 provider_readiness,
                 composer_cursor_position,
