@@ -339,7 +339,6 @@ function MemoryDreamsTabImpl({ api }: Props) {
           <div
             ref={carouselRef}
             className="flex gap-4 overflow-x-auto px-5 pb-3 snap-x snap-mandatory scroll-pl-5"
-            style={{ scrollbarWidth: "thin" }}
             data-testid="memory-dream-carousel"
           >
             {diaryEntries.map((entry, index) => (

@@ -135,14 +135,15 @@ body {
 
 /* xterm v6 custom scrollbar widget (div-based, not native) */
 .xterm .xterm-scrollable-element > .scrollbar.vertical {
-  width: 6px !important;
+  width: 4px !important;
   right: 1px !important;
 }
 
 .xterm .xterm-scrollable-element > .scrollbar > .slider {
   border-radius: 99px !important;
   left: 1px !important;
-  width: 4px !important;
+  width: 2px !important;
+  background: var(--ct-scrollbar-thumb) !important;
 }
 
 /* Mobile/touch controls: slightly smaller to avoid oversized buttons on phone */
@@ -931,24 +932,6 @@ button,
   opacity: 0 !important;
   position: absolute !important;
   pointer-events: auto !important;
-}
-
-/* =========================================================================
-   Ghost scrollbar for xterm viewport (fallback for older xterm versions)
-   ========================================================================= */
-
-.xterm-viewport::-webkit-scrollbar {
-  width: 6px;
-}
-.xterm-viewport::-webkit-scrollbar-track {
-  background: transparent;
-}
-.xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 3px;
-}
-.xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
 }
 
 /* =========================================================================
@@ -2312,30 +2295,6 @@ button,
   padding: 6px 12px 5px;
 }
 
-.ct-hover-reveal-scrollbar {
-  scrollbar-color: color-mix(in srgb, var(--ct-muted) 52%, transparent) transparent;
-  scrollbar-width: thin;
-}
-
-.ct-hover-reveal-scrollbar::-webkit-scrollbar {
-  width: 2px;
-  height: 2px;
-}
-
-.ct-hover-reveal-scrollbar::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 99px;
-  transition: background-color 120ms ease;
-}
-
-.ct-hover-reveal-scrollbar:hover::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--ct-muted) 72%, transparent);
-}
-
-.ct-hover-reveal-scrollbar::-webkit-scrollbar-button {
-  display: none;
-}
-
 .sidebar-general-section > .sidebar-structural-header {
   margin-top: 0;
   border-top: 0;
@@ -2417,8 +2376,6 @@ button,
   overflow-x: auto;
   overflow-y: hidden;
   padding: 4px 8px 7px;
-  scrollbar-color: color-mix(in srgb, var(--ct-muted) 55%, transparent) transparent;
-  scrollbar-width: thin;
 }
 
 .sidebar-workspace-card-grid {
@@ -3421,25 +3378,6 @@ button,
 .ct-canvas-title {
   font-size: 14px;
   line-height: 1.2;
-}
-
-/* Visible thin scrollbar for canvas document nodes (spec) — a real scroll
-   affordance so a tall spec reads as scrollable, not clipped. */
-.ct-canvas-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--ct-fg) 26%, transparent) transparent;
-}
-.ct-canvas-scroll::-webkit-scrollbar { width: 9px; }
-.ct-canvas-scroll::-webkit-scrollbar-track { background: transparent; }
-.ct-canvas-scroll::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--ct-fg) 24%, transparent);
-  border-radius: 5px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-.ct-canvas-scroll::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--ct-fg) 40%, transparent);
-  background-clip: padding-box;
 }
 
 /* Mobile terminal sheet */
@@ -4837,7 +4775,6 @@ button.plan-peer-chip:focus-visible {
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
-  scrollbar-width: thin;
 }
 .plan-board-column {
   display: flex;
@@ -4880,7 +4817,6 @@ button.plan-peer-chip:focus-visible {
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
   scrollbar-gutter: stable;
 }
 .plan-board-column-empty {
