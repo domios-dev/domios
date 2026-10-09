@@ -6,6 +6,21 @@ use crate::session::lifecycle::{LifecycleKey, LifecycleTransition, TabLifecycleJ
 use super::ServiceContext;
 
 impl ServiceContext {
+    pub(crate) fn note_session_conversation(&self, tab_id: &str, session_id: &str) {
+        let key = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id)
+                .filter(|tab| tab.agent_session_id.as_deref() == Some(session_id))
+                .and_then(|_| mux.lifecycle_key(tab_id))
+        };
+        if let Some(key) = key {
+            if let Err(error) =
+                TabLifecycleJournal::shared().note_conversation_started(key, session_id)
+            {
+                log::warn!("[conversation-evidence] Tab {tab_id}: {error}");
+            }
+        }
+    }
     /// Open a lifecycle operation and bind the tab to it. Later transitions
     /// key off the returned lineage.
     pub(crate) fn open_lifecycle_epoch(&self, tab_id: &str) -> Option<LifecycleKey> {

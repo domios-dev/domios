@@ -409,6 +409,8 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             &mut self.turn_evidence_cursor.borrow_mut(),
         );
         if found {
+            self.svc
+                .note_session_conversation(&tab_id, &anchor.session_id);
             if let Some(trace) = &self.trace {
                 trace.confirmed(
                     &anchor,
