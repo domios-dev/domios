@@ -222,6 +222,23 @@ export function SettingsPanel({
               <SettingsPage title="General">
                 <ShellDiagnosticsBanner onDismissSettings={onClose} />
 
+                <SettingsCard
+                  icon={<Power size={16} />}
+                  title="Startup"
+                  description="Resume the daemon, mesh and crons without opening the app."
+                >
+                  <Toggle
+                    label="Launch Domios on system start"
+                    checked={autostartEnabled ?? false}
+                    onChange={handleAutostartToggle}
+                  />
+                  <Toggle
+                    label="Enable Librarian (background skill vectorizer)"
+                    checked={localConfig.memory?.librarian_enabled ?? true}
+                    onChange={(v) => update("memory", { librarian_enabled: v })}
+                  />
+                </SettingsCard>
+
                 <SettingsCard icon={<Palette size={16} />} title="Appearance">
                   <label className="ct-settings-toggle">
                     <span>Theme</span>
@@ -365,23 +382,6 @@ export function SettingsPanel({
                     label="Copy on select"
                     checked={localConfig.terminal.copy_on_select}
                     onChange={(v) => update("terminal", { copy_on_select: v })}
-                  />
-                </SettingsCard>
-
-                <SettingsCard
-                  icon={<Power size={16} />}
-                  title="Startup"
-                  description="Resume the daemon, mesh and crons without opening the app."
-                >
-                  <Toggle
-                    label="Launch Domios on system start"
-                    checked={autostartEnabled ?? false}
-                    onChange={handleAutostartToggle}
-                  />
-                  <Toggle
-                    label="Enable Librarian (background skill vectorizer)"
-                    checked={localConfig.memory?.librarian_enabled ?? true}
-                    onChange={(v) => update("memory", { librarian_enabled: v })}
                   />
                 </SettingsCard>
 
