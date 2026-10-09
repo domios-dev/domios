@@ -891,27 +891,12 @@ pub fn resolve_model(provider_id: &str, requested: Option<&str>) -> Resolved {
     }
 }
 
-pub fn resolve_family_model(provider_id: &str, family: &str) -> Option<String> {
-    let family = family.trim();
-    if family.is_empty() {
-        return None;
-    }
-    let family_lower = family.to_lowercase();
-    let models = resolve_models(provider_id);
-    let matches: Vec<&ModelInfo> = models
-        .iter()
-        .filter(|m| m.id.to_lowercase().contains(&family_lower))
-        .collect();
-    match matches.as_slice() {
-        [] => None,
-        [model] => Some(model.id.clone()),
-        many => resolve_default(provider_id)
-            .and_then(|default| {
-                many.iter()
-                    .find(|m| m.id.eq_ignore_ascii_case(&default))
-                    .map(|m| m.id.clone())
-            })
-            .or_else(|| Some(family.to_string())),
+pub fn resolve_observed_model(provider_id: &str, observed: String) -> String {
+    let resolved = resolve_model(provider_id, Some(&observed));
+    if resolved.fell_back {
+        observed
+    } else {
+        resolved.id
     }
 }
 

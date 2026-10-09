@@ -17,13 +17,6 @@ impl JsProvider {
     pub(super) fn detect_session_model_wire(&self, method: &str, args: &[Value]) -> Option<String> {
         self.try_call::<Option<String>>(method, args)
             .flatten()
-            .map(|model| {
-                let resolved = crate::model_catalog::resolve_model(self.id(), Some(&model));
-                if resolved.fell_back {
-                    model
-                } else {
-                    resolved.id
-                }
-            })
+            .map(|model| crate::model_catalog::resolve_observed_model(self.id(), model))
     }
 }
