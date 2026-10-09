@@ -75,7 +75,7 @@ imageData?: string | null, imageMimeType?: string | null,
 /**
  * System-message provenance (skill_context, <cmd>_meta, meta, …).
  */
-systemSubtype?: string | null, timelineMarker?: ChatTimelineMarker | null, sessionIntent?: ChatSessionIntent | null, fromLabel?: string | null, fromTab?: string | null, fromModel?: string | null, fromMesh?: string | null, fromPlugin?: string | null, pluginIconSvg?: string | null, inboundKind?: string | null, fromPurpose?: string | null, fromContext?: string | null, 
+systemSubtype?: string | null, timelineMarker?: ChatTimelineMarker | null, sessionIntent?: ChatSessionIntent | null, fromLabel?: string | null, fromTab?: string | null, fromModel?: string | null, fromPurpose?: string | null, fromContext?: string | null, fromMesh?: string | null, fromPlugin?: string | null, pluginIconSvg?: string | null, inboundKind?: string | null, 
 /**
  * XML tag name for local-command entries.
  */
