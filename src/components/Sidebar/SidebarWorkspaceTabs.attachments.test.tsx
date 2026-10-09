@@ -26,11 +26,7 @@ test("a loose owner's surface tucks under it as an attachment, not a tree child"
     assert(!row(host, child.id)?.closest('[data-testid="surface-attachments"]'), "an ordinary child is not an attachment");
     assert(host.querySelectorAll('[data-tab-id="snake-browser"]').length === 1, "the surface renders once");
 
-    const toggle = row(host, owner.id)?.querySelector<HTMLButtonElement>('[data-testid="attachment-toggle"]');
-    assert(toggle?.getAttribute("aria-label") === "Hide 1 surface", "owner row offers to fold its surface");
-    await act(async () => toggle.click());
-    assert(!row(host, surface.id), "collapsing the owner hides its surface");
-    assert(row(host, owner.id)?.querySelector('[data-testid="attachment-toggle"]')?.getAttribute("data-collapsed") === "true", "collapsed owner keeps the globe badge");
+    assert(!row(host, owner.id)?.querySelector('[data-testid="attachment-toggle"]'), "surfaces cannot be hidden from the owner row");
   } finally {
     await act(async () => root.unmount());
     host.remove();
