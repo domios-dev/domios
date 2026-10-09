@@ -85,6 +85,11 @@
   --ct-blur-lg: 32px;
   --ct-blur-overlay: 24px;
 
+  /* Automation kind tones, shared by the composer context, Jobs and chat deliveries */
+  --ct-tone-blueprint: color-mix(in srgb, var(--ct-accent) 62%, var(--ct-fg));
+  --ct-tone-cron: var(--ct-yellow);
+  --ct-tone-delayed: var(--ct-green);
+
   /* Frosted glass surfaces (menus, popovers) */
   --ct-glass-blur: 40px;
   --ct-glass-saturate: 1.6;

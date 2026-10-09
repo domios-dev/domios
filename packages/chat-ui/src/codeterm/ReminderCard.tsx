@@ -60,14 +60,14 @@ export function ReminderCard({
     .join("\n");
   return (
     <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto" data-testid="chat-reminder-card">
-      <div className="ct-chat-card">
-        <div className="ct-chat-card__head">
-          <span className="ct-chat-card__icon"><AlarmClock size={14} strokeWidth={2} aria-hidden="true" /></span>
+      <div className="ct-card">
+        <div className="ct-card__head">
+          <span className="ct-card__icon"><AlarmClock size={14} strokeWidth={2} aria-hidden="true" /></span>
           <span className="min-w-0 flex-1">
-            <span className="ct-chat-card__title">
+            <span className="ct-card__title">
               Reminder
-              {whoSet && <span className="ct-chat-card__meta">from {whoSet}</span>}
-              {model && <span className="ct-chat-card__meta">· {model}</span>}
+              {whoSet && <span className="ct-card__meta">from {whoSet}</span>}
+              {model && <span className="ct-card__meta">· {model}</span>}
             </span>
             {subline && (
               <span
@@ -99,7 +99,7 @@ export function ReminderCard({
           )}
         </div>
         {body.trim() && (
-          <div className="ct-chat-card__body" data-reminder-id={id}>
+          <div className="ct-card__body" data-reminder-id={id}>
             {renderUserContent(body)}
           </div>
         )}

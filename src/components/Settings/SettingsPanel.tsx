@@ -487,7 +487,7 @@ export function SettingsPanel({
 
             {top.kind === "section" && top.id === "jobs" && (
               <div className="-mx-5 -my-5 h-[calc(100%+2.5rem)] min-h-[420px]" data-settings-page="jobs">
-                <JobsView workspaces={workspaces} teams={teams} tabs={tabs} initialFilter={jobsEntryFilter({ kind: "machine" })} onClose={pop} />
+                <JobsView workspaces={workspaces} teams={teams} tabs={tabs} initialFilter={jobsEntryFilter({ kind: "machine" })} onClose={pop} embedded />
               </div>
             )}
 

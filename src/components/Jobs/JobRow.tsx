@@ -1,15 +1,15 @@
-import { useState, type ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { describeSchedule, formatFuture } from "../../lib/formatters";
 import { formatDuration } from "../../lib/timeLabels";
 import type { CronJob } from "../../lib/types";
 import type { BlueprintScenarioJob } from "../Automation/scenarios";
-import { AUTOMATION_ROW, stateTone } from "../Automation/styles";
+import { AUTOMATION_ROW, AUTOMATION_TONE, stateTone } from "../Automation/styles";
 import { DropdownMenu } from "../shared/DropdownMenu";
 import { RowMenuButton } from "../shared/RowMenuButton";
 
 // The stretched ::after makes the whole card open the job while the menu sits above it.
-const JOB_OPEN = "flex min-w-0 flex-1 items-center gap-3 text-left outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:outline-2 focus-visible:after:outline-offset-2 focus-visible:after:outline-[var(--ct-accent)]";
+const JOB_OPEN = "flex min-w-0 flex-1 items-center gap-3 text-left outline-none after:absolute after:inset-0 after:rounded-[14px] focus-visible:after:outline-2 focus-visible:after:outline-offset-2 focus-visible:after:outline-[var(--ct-accent)]";
 
 export interface JobAction {
   label: string;
@@ -19,13 +19,14 @@ export interface JobAction {
   onClick: () => void;
 }
 
-export function JobRow({ jobKey: key, icon, name, meta, idHint, type, state, actionItems, onOpen, onTriggerRef, error }: {
+export function JobRow({ jobKey: key, icon, name, meta, idHint, type, tone, state, actionItems, onOpen, onTriggerRef, error }: {
   jobKey: string;
   icon: ReactNode;
   name: string;
   meta: string;
   idHint?: string;
   type: string;
+  tone: keyof typeof AUTOMATION_TONE;
   state: string;
   actionItems: JobAction[];
   onOpen: () => void;
@@ -35,19 +36,16 @@ export function JobRow({ jobKey: key, icon, name, meta, idHint, type, state, act
   const actionsLabel = `Actions for ${name}`;
   const touchMode = useTouchOptimizedUi();
   const [menuOpen, setMenuOpen] = useState(false);
-  const reveal = touchMode || menuOpen ? "" : "opacity-0 group-hover:opacity-60 group-focus-within:opacity-100 hover:!opacity-100";
+  const reveal = touchMode || menuOpen ? "" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100";
   return <li className="min-w-0">
-    <div className={`${AUTOMATION_ROW} relative`}>
+    <div className={`${AUTOMATION_ROW} relative`} style={{ "--ct-card-tone": AUTOMATION_TONE[tone] } as CSSProperties}>
       <button type="button" data-job-key={key} aria-label={`${name}, ${type}, ${state}`} title={idHint} className={JOB_OPEN} onClick={onOpen}>
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-[var(--ct-titlebar-bg)] text-[var(--ct-muted-fg)]">{icon}</span>
+        <span className="ct-card__icon" title={type}>{icon}</span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[length:var(--ct-font-size-sm)] font-medium">{name}</span>
           <span className="block truncate text-xs text-[var(--ct-muted-fg)]">{meta}</span>
         </span>
-        <span className="flex shrink-0 flex-col items-end gap-1">
-          <span className="rounded-full border border-[var(--ct-border)] px-2 py-px text-[0.6875rem] text-[var(--ct-muted-fg)]">{type}</span>
-          <span className="flex items-center gap-1.5 text-xs text-[var(--ct-muted-fg)]"><span className={`h-1.5 w-1.5 rounded-full ${stateTone(state)}`} aria-hidden="true" />{state}</span>
-        </span>
+        <span className="flex shrink-0 items-center gap-1.5 text-xs text-[var(--ct-muted-fg)]"><span className={`h-1.5 w-1.5 rounded-full ${stateTone(state)}`} aria-hidden="true" />{state}</span>
       </button>
       <DropdownMenu
         menuLabel={actionsLabel}

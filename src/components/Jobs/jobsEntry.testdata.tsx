@@ -115,7 +115,6 @@ export const viewControls = (host: HTMLElement) => {
   const section = host.querySelector<HTMLElement>('section[aria-label="Jobs"]');
   assert.ok(section, "Jobs view rendered");
   return {
-    heading: section.querySelector("header h2") !== null,
     controls: Array.from(section.querySelectorAll<HTMLButtonElement>("header button")).map((button) => button.getAttribute("aria-label")),
     jobs: renderedJobs(section),
   };

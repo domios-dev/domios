@@ -1,9 +1,9 @@
 .ct-ctx {
   --ct-ctx-plan: var(--ct-accent);
   --ct-ctx-task: var(--ct-green);
-  --ct-ctx-blueprints: color-mix(in srgb, var(--ct-accent) 62%, var(--ct-fg));
-  --ct-ctx-crons: var(--ct-yellow);
-  --ct-ctx-delayed: var(--ct-green);
+  --ct-ctx-blueprints: var(--ct-tone-blueprint);
+  --ct-ctx-crons: var(--ct-tone-cron);
+  --ct-ctx-delayed: var(--ct-tone-delayed);
   display: flex;
   flex-direction: column;
   padding-inline: var(--ct-composer-gutter-x);

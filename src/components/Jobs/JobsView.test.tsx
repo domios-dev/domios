@@ -122,7 +122,7 @@ async function main() {
 
   test("Jobs import entry opens the placeholder form and cancel restores the list", async () => {
     const view = await mount(jobsView(workspaceTransport()));
-    await act(async () => buttonWith(view.host, "+ Import Blueprint").click());
+    await act(async () => buttonWith(view.host, "Import Blueprint").click());
     assert(view.host.querySelector('form[aria-label="Import Blueprint"]'));
     assert(view.host.querySelector('input[type="file"]'));
     await act(async () => buttonWith(view.host, "Cancel import").click());

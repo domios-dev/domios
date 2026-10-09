@@ -17,7 +17,7 @@
 @import "../components/Sidebar/sidebarPanel.css";
 @import "../components/shared/rowKebab.css";
 @import "../components/Terminal/tabBarPill.css";
-@import "../../packages/chat-ui/src/chatCard.css";
+@import "../components/shared/card.css";
 @import "../components/Canvas/missionControl/missionControl.css";
 @import "../components/Surface/surface.css";
 @import "../components/Sidebar/surfaceTether.css";
