@@ -314,7 +314,10 @@ fn chat_send_and_gateway_deliveries_substitute_too() {
     let error =
         Messenger::deliver_with_pad_file(&fixture.service, &recipient, envelope, &gateway_body)
             .expect_err("an unbound agent cannot report a completed PTY write");
-    assert!(error.contains("no authenticated PTY session"));
+    assert_eq!(
+        error,
+        "agent_unavailable: recipient has no active PTY launch"
+    );
     let pad = AgentPad::open(fixture.temp.path(), &recipient).unwrap();
     let files = pad.list().unwrap();
     assert!(files.iter().any(|file| {

@@ -2,13 +2,16 @@ use super::*;
 use crate::multiplexer::state::MultiplexerState;
 
 fn tab(id: &str, age: u64, activity: ShellActivity) -> Tab {
-    let (mux, first) = MultiplexerState::new();
-    let mut tab = mux.get_tab(&first).unwrap().clone();
+    let (mut mux, first) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&first).unwrap();
+    let shell = mux.create_tab(&workspace).unwrap();
+    let mut tab = mux.get_tab(&shell).unwrap().clone();
     tab.id = id.into();
     tab.team_id = Some("team".into());
     tab.purpose = ShellPurpose::Build;
     tab.utility_created_at = age;
     tab.shell_command_state.activity = activity;
+    assert!(tab.is_utility_shell());
     tab
 }
 
