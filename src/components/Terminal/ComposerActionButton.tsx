@@ -47,6 +47,7 @@ export function ComposerActionButton({
         ref={buttonRef}
         type="button"
         data-testid={mainIsSend ? "composer-send-button" : "composer-voice-button"}
+        data-send={mainIsSend ? "true" : "false"}
         title={mainTitle}
         onPointerDown={(e) => {
           if (mainIsSend) {
@@ -90,7 +91,6 @@ export function ComposerActionButton({
         disabled={voiceBusy || (mainIsSend && sendDisabled)}
       >
         <ActionButtonIcon
-          mainIsSend={mainIsSend}
           isLocked={isLocked}
           voiceActive={voiceActive}
           cancelArmed={cancelArmed}
@@ -117,22 +117,25 @@ function VoiceLockPill() {
 }
 
 function ActionButtonIcon({
-  mainIsSend,
   isLocked,
   voiceActive,
   cancelArmed,
 }: {
-  mainIsSend: boolean;
   isLocked: boolean;
   voiceActive: boolean;
   cancelArmed: boolean;
 }) {
-  if (mainIsSend) return <SendIcon size={20} />;
   // Armed to cancel: red cross. Locked: dark pause. Recording: red mic.
   if (cancelArmed) return <X size={30} strokeWidth={2.6} color={recordingFg} />;
   if (isLocked) return <Square size={18} fill={lockedFg} color={lockedFg} />;
   if (voiceActive) return <Mic size={30} strokeWidth={2.4} color={recordingFg} />;
-  return <Mic size={20} strokeWidth={2.2} />;
+  return (
+    <>
+      <span className="ct-send-bloom" aria-hidden />
+      <span className="ct-send-glyph ct-send-glyph--mic" aria-hidden><Mic size={20} strokeWidth={2.2} /></span>
+      <span className="ct-send-glyph ct-send-glyph--send" aria-hidden><SendIcon size={20} /></span>
+    </>
+  );
 }
 
 function actionButtonStyle(
@@ -143,11 +146,7 @@ function actionButtonStyle(
 ): CSSProperties & { "--ct-liquid-base-transform": string } {
   const accent = voiceActive || mainIsSend || isLocked;
   return {
-    background: mainIsSend
-      ? "color-mix(in srgb, var(--ct-accent) 78%, var(--ct-bg))"
-      : accent
-        ? "var(--ct-accent)"
-        : "var(--ct-surface, #161b22)",
+    background: voiceActive || isLocked ? "var(--ct-accent)" : "var(--ct-surface, #161b22)",
     border: accent
       ? "1px solid color-mix(in srgb, var(--ct-on-accent, #fff) 22%, var(--ct-accent))"
       : "1px solid var(--ct-border)",
