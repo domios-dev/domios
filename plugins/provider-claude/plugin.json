@@ -171,6 +171,7 @@
     "compact": "/compact",
     "freshContext": "/new",
     "exit": "/exit",
+    "idleRestartTermination": true,
     "stopKey": "\u001b",
     "modelSwitch": "restart_resume",
     "modelSwitchCommands": {

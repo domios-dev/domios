@@ -133,6 +133,7 @@ impl LaunchRegistry {
         };
         *ack.ready.lock() = true;
         ack.changed.notify_all();
+        crate::service::agent_restart::timing::stage(tab_id, &binding.pty_id, "session-bound");
         true
     }
 
@@ -543,6 +544,7 @@ pub(crate) fn launch_agent_in_background_with_env(
         if !launch.emit(&svc, BootStage::PtySpawned) {
             return;
         }
+        crate::service::agent_restart::timing::stage(&tab_id, &pty_id, "relaunch-spawn");
         // Off the boot critical path: reading the provider's install report
         // touches disk, and the tab is already up by here.
         svc.announce_integration_silence(&tab_id, &agent_cmd);

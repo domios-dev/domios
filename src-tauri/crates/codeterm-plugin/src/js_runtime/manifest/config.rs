@@ -467,6 +467,8 @@ pub struct CommandsConfig {
     pub fresh_context: Option<String>,
     #[serde(default)]
     pub exit: Option<String>,
+    #[serde(default)]
+    pub idle_restart_termination: bool,
     /// Raw key bytes the host should send to interrupt the agent's
     /// current operation (NOT a clean exit — think Esc / Ctrl+C while
     /// the model is generating). Examples: `""` for Esc,
