@@ -300,7 +300,7 @@ function TeamMenu({
               }}>
                 <span className="ct-menu-row__icon"><ChevronLeft size={14} /></span> Back
               </button>
-              <div className="sidebar-team-menu-label">Choose model</div>
+              <div className="ct-menu-caption">Choose model</div>
               {selectedProvider.available_models?.length ? (() => {
                 const sections = groupOptionsByLabel(selectedProvider.available_models);
                 const modelButton = (model: ModelInfo) => {
@@ -377,7 +377,7 @@ function TeamMenu({
               <button type="button" role="menuitem" className="ct-menu-row ct-menu-back" onClick={() => setProviderRole(null)}>
                 <span className="ct-menu-row__icon"><ChevronLeft size={14} /></span> Back
               </button>
-              <div className="sidebar-team-menu-label">Choose agent</div>
+              <div className="ct-menu-caption">Choose agent</div>
               {providersLoading ? <div data-testid="team-picker-loading" role="status">Loading available providers…</div> : null}
               {!providersLoading && spawnProviders.length === 0 ? <div data-testid="team-picker-empty" role="status">No providers are available to add.</div> : null}
               {onAddMember && !providersLoading && spawnProviders.map((provider) => (

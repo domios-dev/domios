@@ -179,6 +179,15 @@
   outline: none;
 }
 
+.ct-menu-caption {
+  padding: 7px 9px 4px;
+  color: var(--ct-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .ct-menu-back {
   font-weight: 600;
 }

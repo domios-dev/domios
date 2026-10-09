@@ -320,7 +320,7 @@ function ModelPickerPopover({
       role="dialog"
       aria-labelledby={titleId}
       data-testid="status-model-picker"
-      className="ct-model-picker ct-float"
+      className="ct-menu ct-model-picker"
       style={{ width: PICKER_WIDTH, left: anchor?.left ?? 0, bottom: anchor?.bottom ?? 0, visibility: anchor ? undefined : "hidden" }}
       onKeyDown={(event) => {
         if (event.code !== "Escape" && event.code !== "Enter" && event.code !== "NumpadEnter") return;
@@ -365,7 +365,7 @@ function ModelPickerPopover({
         {groups.length === 0 && <p className="ct-model-picker__empty">No model matches “{query.trim()}”.</p>}
         {groups.map((group) => (
           <div key={group.label || "models"} role="group" aria-label={group.label || "Models"}>
-            {group.label && <div className="ct-model-picker__group">{group.label}</div>}
+            {group.label && <div className="ct-menu-caption">{group.label}</div>}
             {group.rows.map((row) => {
               const isCurrent = matchesModel({ id: row.id, display_name: row.label }, currentModel);
               return (
@@ -376,7 +376,7 @@ function ModelPickerPopover({
                 aria-selected={row.current}
                 aria-disabled={row.unavailable || busy || undefined}
                 data-current={isCurrent || undefined}
-                className="ct-model-picker__option"
+                className="ct-menu-row ct-model-picker__option"
                 title={row.unavailable ? "Not available on this account" : row.id}
                 onClick={() => { if (!row.unavailable && !busy) chooseModel(row.id); }}
                 onKeyDown={(event) => {

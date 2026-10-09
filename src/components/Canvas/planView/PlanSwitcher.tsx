@@ -98,13 +98,13 @@ function KebabMenu({
       ref={ref}
       role="menu"
       data-testid="plan-switcher-menu"
-      className="plan-switcher-menu"
+      className="ct-menu plan-switcher-menu"
       onKeyDown={onKeyDown}
     >
       <button
         type="button"
         role="menuitem"
-        className="plan-switcher-menu-item"
+        className="ct-menu-row"
         onClick={() => act({ kind: "rename", planId: plan.id })}
       >
         Rename
@@ -112,7 +112,7 @@ function KebabMenu({
       <button
         type="button"
         role="menuitem"
-        className="plan-switcher-menu-item"
+        className="ct-menu-row"
         onClick={copyId}
       >
         Copy plan ID
@@ -121,7 +121,7 @@ function KebabMenu({
         <button
           type="button"
           role="menuitem"
-          className="plan-switcher-menu-item"
+          className="ct-menu-row"
           onClick={() => {
             window.open(plan.docUrl!, "_blank", "noreferrer");
             onClose();
@@ -134,7 +134,7 @@ function KebabMenu({
         <button
           type="button"
           role="menuitem"
-          className="plan-switcher-menu-item"
+          className="ct-menu-row"
           onClick={() => act({ kind: "unarchive", planId: plan.id })}
         >
           Unarchive
@@ -143,7 +143,8 @@ function KebabMenu({
         <button
           type="button"
           role="menuitem"
-          className="plan-switcher-menu-item plan-switcher-menu-item-danger"
+          className="ct-menu-row"
+          data-danger="true"
           onClick={doArchive}
         >
           Archive…
@@ -377,7 +378,7 @@ function ArchivedPlansDropdown({
           ref={listboxRef}
           role="listbox"
           data-testid="plan-switcher-archived-list"
-          className="plan-switcher-popover plan-switcher-archived-popover"
+          className="ct-menu plan-switcher-popover plan-switcher-archived-popover"
           aria-label="Archived plans"
           onKeyDown={onListboxKeyDown}
         >
@@ -394,11 +395,11 @@ function ArchivedPlansDropdown({
               >
                 <button
                   type="button"
-                  className="plan-switcher-opt-select"
+                  className="ct-menu-row plan-switcher-opt-select"
                   title={plan.inflightTooltip ? `${plan.title}\n${plan.inflightTooltip}` : plan.title}
                   onClick={() => selectAndClose(plan.id)}
                 >
-                  {plan.title}
+                  <span className="min-w-0 flex-1 truncate">{plan.title}</span>
                   {inflightBadge(plan)}
                 </button>
                 <KebabTrigger
@@ -521,11 +522,11 @@ function OverflowSwitcher({
       >
         <button
           type="button"
-          className="plan-switcher-opt-select"
+          className="ct-menu-row plan-switcher-opt-select"
           title={plan.inflightTooltip ? `${plan.title}\n${plan.inflightTooltip}` : plan.title}
           onClick={() => selectAndClose(plan.id)}
         >
-          {plan.title}
+          <span className="min-w-0 flex-1 truncate">{plan.title}</span>
           {inflightBadge(plan)}
         </button>
         <KebabTrigger
@@ -570,14 +571,15 @@ function OverflowSwitcher({
           ref={listboxRef}
           role="listbox"
           data-testid="plan-switcher-listbox"
-          className="plan-switcher-popover"
+          className="ct-menu plan-switcher-popover"
           aria-label="Select plan"
           onKeyDown={onListboxKeyDown}
         >
           {activePlans.map((p) => renderRow(p, false))}
           {archivedPlans.length > 0 && (
             <>
-              <div className="plan-switcher-sep" aria-hidden>
+              <div className="ct-menu-separator" aria-hidden />
+              <div className="ct-menu-caption" aria-hidden>
                 Archived
               </div>
               {archivedPlans.map((p) => renderRow(p, true))}
