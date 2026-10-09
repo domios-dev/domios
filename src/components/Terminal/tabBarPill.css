@@ -30,7 +30,14 @@
   background: color-mix(in srgb, var(--ct-fg) 7%, var(--ct-bg));
   color: var(--ct-fg);
   outline: none;
-  transform: translateY(-1px);
+  animation: ct-bar-pill-sway var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
+}
+
+@keyframes ct-bar-pill-sway {
+  0% { transform: scale(1, 1); }
+  35% { transform: scale(1.025, 0.975); }
+  70% { transform: scale(0.995, 1.01); }
+  100% { transform: scale(1, 1); }
 }
 
 .ct-bar-pill:active {
@@ -128,5 +135,6 @@
   .ct-bar-pill:hover,
   .ct-bar-pill:active {
     transform: none;
+    animation: none;
   }
 }

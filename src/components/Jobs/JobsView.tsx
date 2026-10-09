@@ -320,7 +320,7 @@ export function JobsView({ workspaces, teams, tabs = {}, initialFilter = NO_JOBS
   const connectionId = `host:${context.ready ? context.generation : "detached"}`;
   return <section aria-label="Jobs" tabIndex={-1} className="flex h-full min-h-0 flex-col bg-[var(--ct-bg)] text-[var(--ct-fg)]">
     <header hidden={detailOpen} className="ct-jobs-header flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
-      {onClose && <BackPill ariaLabel="Close jobs" onBack={close} />}
+      {onClose && <BackPill label="where you were" onBack={close} />}
       <h2 className="flex items-center gap-2 text-[length:var(--ct-font-size-md)] font-semibold"><Workflow size={16} className="shrink-0 text-[var(--ct-tone-blueprint)]" aria-hidden="true" />Jobs</h2>
       <JobsFilterBar filter={filter} layout={layout} teams={teams} onChange={changeFilter} />
       <div className="ml-auto flex shrink-0 items-center gap-2">

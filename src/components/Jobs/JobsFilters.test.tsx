@@ -41,7 +41,7 @@ async function main() {
       assert.deepEqual(renderedJobs(view.host), [`cron:${teamCron.id}`, `cron:${unteamedCron.id}`, scenarioA].sort());
       assert.deepEqual(machine.cronReads[machine.cronReads.length - 1], { workspaceId: workspaceA }, "Cron records are read for the exact workspace");
       assert.ok(transport.attachments.every((scope) => scope.workspace_id === workspaceA), "only the filtered workspace graph is attached");
-      await act(async () => named(view.host, "Close jobs")!.click());
+      await act(async () => named(view.host, "Back to where you were")!.click());
       assert.equal(view.host.querySelector('section[aria-label="Jobs"]'), null);
     } finally { await view.close(); }
   });

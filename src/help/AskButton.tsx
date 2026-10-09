@@ -1,25 +1,14 @@
-import { useState } from "react";
 import { Bot, Check, Loader2 } from "lucide-react";
-import { invoke } from "../lib/bridge";
 import { BusySpinner } from "../components/shared/BusyState";
+import { useAskGeneral } from "./useAskGeneral";
 
-type AskState = "idle" | "sending" | "sent" | "error";
-
-/** Sends the question to the General Agent tab (alias "main") and reports state inline. */
+/** Sends the question to the General Agent and reports state inline. */
 export function AskButton({ label, question }: { label: string; question: string }) {
-  const [state, setState] = useState<AskState>("idle");
+  const { state, ask } = useAskGeneral();
 
-  const onClick = async () => {
+  const onClick = () => {
     if (state === "sending") return;
-    setState("sending");
-    try {
-      await invoke("chat_send_text", { tabId: "main", text: question });
-      setState("sent");
-      setTimeout(() => setState("idle"), 4000);
-    } catch {
-      setState("error");
-      setTimeout(() => setState("idle"), 4000);
-    }
+    void ask(question);
   };
 
   return (
