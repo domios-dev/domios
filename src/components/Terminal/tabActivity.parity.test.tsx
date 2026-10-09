@@ -10,12 +10,14 @@ import type { ExtendedState } from "../../store/multiplexer/tree";
 import type { Tab, TabStatus } from "../../lib/types";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 
+delete (harnessWindow as unknown as { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__;
+
 const agent: Tab = { id: "grok", title: "Grok", agent_type: "grok", pty_id: "pty", tab_type: "Terminal", cwd: null, agent_session_id: "own-session", session_binding_nonce: "own-nonce" };
 let state: ExtendedState = {
   workspaces: [], tabs: { grok: agent }, teams: [], active_workspace_id: null, focused_tab_id: null,
   notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 0, pendingCloses: [],
 };
-const store = createMuxStateStore(() => state);
+const store = createMuxStateStore(() => ({ ...state, tabs: { grok: { ...state.tabs.grok } } }));
 let stopped = 0;
 __setInvokeForTest(async (command) => {
   if (command === "interrupt_agent") stopped++;
@@ -23,7 +25,7 @@ __setInvokeForTest(async (command) => {
     source_session_id: "own-session", session_binding_nonce: "own-nonce",
     subscription_id: "activity-subscription", messages: [], offset: 0, text: "",
   } as never;
-  if (command === "delayed_send_list") return [] as never;
+  if (command === "delayed_send_list" || command === "chat_send_status") return [] as never;
   return {} as never;
 });
 __setListenForTest(async () => () => {});
