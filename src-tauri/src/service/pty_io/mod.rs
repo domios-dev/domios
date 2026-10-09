@@ -8,6 +8,7 @@ pub(crate) const PASTE_RENDER_WINDOW: std::time::Duration = std::time::Duration:
 
 mod actions;
 mod batch;
+mod control_key;
 mod inject;
 mod lifecycle;
 mod send;
