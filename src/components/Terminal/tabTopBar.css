@@ -1,0 +1,4 @@
+.ct-tab-top-bar {
+  background: transparent;
+  border-bottom: 1px solid var(--ct-border-default);
+}
