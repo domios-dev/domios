@@ -1,6 +1,6 @@
 import type { Specimen } from "./types";
 
-const CATEGORY_ORDER = ["Chrome", "Buttons", "Controls", "Menus", "Chat", "Composer", "Voice", "Status", "Automation", "Sidebar"];
+const CATEGORY_ORDER = ["Chrome", "Buttons", "Controls", "Menus", "Chat", "Composer", "Voice", "Status", "Automation", "Plans", "Settings", "Sidebar"];
 
 export function groupSpecimens(specimens: Specimen[], query = "") {
   const search = query.trim().toLowerCase();
