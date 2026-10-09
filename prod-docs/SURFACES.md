@@ -114,8 +114,8 @@ The viewer uses the two routes below; the owner agent uses its plugin's verbs.
 ### The browser
 
 The `browser` plugin declares `browser:browser`, a stream surface on the
-`browser` runtime. Its owner agent drives it with
-`codeterm plugin browser <verb>`; `codeterm plugin browser help` prints the
+`browser` runtime. Its owner agent drives it with the plugin verbs
+(`codeterm plugin browser <verb>`); the plugin's `help` verb prints the
 full guide. The verbs act only on the calling agent's own browser, and
 `open` creates it when the agent has none. When the user points at an element
 and sends a question, change or bug, the owner agent receives it as a Domios
