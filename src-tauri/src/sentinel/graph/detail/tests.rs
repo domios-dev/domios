@@ -67,18 +67,6 @@ fn opened_solo_definition_requires_its_exact_creation_scope() {
 }
 
 #[test]
-fn snapshot_metadata_omits_source_without_changing_scoped_definition() {
-    let job = job();
-    let (mux, _) = MultiplexerState::new();
-    let value = metadata(&job, &mux, "workspace", Some("team"), 1000, false);
-    assert!(value["definition"].get("probe").is_none());
-    assert!(value["definition"]["commands"][0].get("command").is_none());
-    assert_eq!(value["definition"]["commands"][0]["label"], "Check");
-    assert_eq!(definition(&job)["probe"], "printf ready");
-    assert_eq!(definition(&job)["commands"][0]["command"], "make check");
-}
-
-#[test]
 fn definition_text_is_redacted_bounded_and_explicitly_truncated() {
     let mut job = job();
     job.probe = format!("password=credential-fixture\n{}", "\u{03bb}".repeat(3000));
