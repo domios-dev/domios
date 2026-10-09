@@ -298,7 +298,7 @@ impl ServiceContext {
                 || tab.agent_session_id.as_deref() != Some(session_id)
                 || tab.agent_booting
                 || !tab.restored_from_snapshot
-                || tab.lifecycle_epoch != Some(key.epoch)
+                || tab.lifecycle_epoch != Some(key.epoch.0)
                 || tab.lifecycle_operation_id.as_deref() != Some(key.operation_id.as_str())
             {
                 return false;
