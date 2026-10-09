@@ -14,8 +14,7 @@ pub(super) struct Wake {
 pub(super) async fn run(
     svc: ServiceContext,
     tab_id: String,
-    base_url: String,
-    cwd: String,
+    binding: super::subscription::Binding,
     mut signal: watch::Receiver<Wake>,
     live: std::sync::Arc<parking_lot::Mutex<bool>>,
 ) {
@@ -34,14 +33,15 @@ pub(super) async fn run(
     let mut state = ChatStreamState::default();
     let mut recovery = Recovery::default();
     loop {
-        if signal.has_changed().is_err() || super::tab_gone(&svc, &tab_id) {
+        if signal.has_changed().is_err()
+            || super::subscription::current(&svc, &tab_id).as_ref() != Some(&binding)
+        {
             return;
         }
         let result = follow(
             &svc,
             &tab_id,
-            &base_url,
-            &cwd,
+            &binding,
             &client,
             &mut signal,
             &mut state,
@@ -49,26 +49,18 @@ pub(super) async fn run(
             &live,
         )
         .await;
-        if signal.has_changed().is_err() {
+        if signal.has_changed().is_err()
+            || super::subscription::current(&svc, &tab_id).as_ref() != Some(&binding)
+        {
             return;
         }
         let error = result.err().unwrap_or_else(|| "event stream ended".into());
         transport_state(&svc, &tab_id, "reconnecting", &error);
         if recovery.failed() {
-            let bound = svc
-                .mux
-                .read()
-                .get_tab(&tab_id)
-                .is_some_and(|tab| tab.agent_session_id.is_some());
-            let status = if recovery.ever_healthy || bound {
-                "failed"
-            } else {
-                "awaiting_server"
-            };
             transport_state(
                 &svc,
                 &tab_id,
-                status,
+                "failed",
                 "Reconnect budget exhausted; waiting for provider output or binding evidence.",
             );
             if signal.changed().await.is_err() {
@@ -83,17 +75,18 @@ pub(super) async fn run(
 async fn follow(
     svc: &ServiceContext,
     tab_id: &str,
-    base_url: &str,
-    cwd: &str,
+    binding: &super::subscription::Binding,
     client: &reqwest::Client,
     signal: &mut watch::Receiver<Wake>,
     state: &mut ChatStreamState,
     recovery: &mut Recovery,
     live: &parking_lot::Mutex<bool>,
 ) -> Result<(), String> {
+    let base_url = &binding.base_url;
+    let cwd = &binding.cwd;
     let request = client
         .get(format!("{base_url}/event"))
-        .query(&[("directory", cwd)])
+        .query(&[("directory", cwd.as_str())])
         .header("Accept", "text/event-stream")
         .send();
     let mut response = tokio::select! {
@@ -110,6 +103,9 @@ async fn follow(
     let mut healthy = false;
     let mut snapshot_revision = signal.borrow().snapshot;
     loop {
+        if super::subscription::current(svc, tab_id).as_ref() != Some(binding) {
+            return Ok(());
+        }
         let bound = svc
             .mux
             .read()
@@ -129,7 +125,7 @@ async fn follow(
                 let chunk = chunk.map_err(|_| "event heartbeat silence deadline")?
                     .map_err(|error| error.to_string())?.ok_or("event stream ended")?;
                 for event in frames.push(&chunk)? {
-                    if signal.has_changed().is_err() { return Ok(()); }
+                    if signal.has_changed().is_err() || super::subscription::current(svc, tab_id).as_ref() != Some(binding) { return Ok(()); }
                     deadline = super::recovery::heartbeat_deadline(Instant::now());
                     if !healthy {
                         recovery.healthy();

@@ -50,6 +50,7 @@ pub(super) fn acknowledge_and_reconcile_session_binding(
     let launch_identity = authenticated_launch_identity(&svc.mux, tab_id, claim, report_nonce);
     acknowledge_authenticated_launch(&svc.mux, tab_id, claim, report_nonce);
     if claim.nonce_verified {
+        crate::service::structured_prompt::maybe_start_subscriber(svc, tab_id);
         svc.reconcile_authenticated_agent_input(tab_id);
     }
     launch_identity
