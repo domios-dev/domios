@@ -4,7 +4,7 @@ import { actionKind, actionTitle, blueprintActions, blueprintLegend, blueprintNo
 import { blueprintModel } from "./blueprintModel";
 import { typedGraph } from "./blueprintModel.testdata";
 
-const fixture = JSON.parse(readFileSync(new URL("../../../../tests/fixtures/blueprint-nodes.golden.json", import.meta.url), "utf8")) as { nodes: { kind: string; type: string }[] };
+const fixture = JSON.parse(readFileSync(new URL("../../../tests/fixtures/blueprint-nodes.golden.json", import.meta.url), "utf8")) as { nodes: { kind: string; type: string }[] };
 const catalogTypes = (kind: string) => fixture.nodes.filter((node) => node.kind === kind).map((node) => node.type).sort();
 assert.deepEqual(Object.keys(blueprintSteps).sort(), catalogTypes("step"));
 assert.deepEqual(Object.keys(blueprintActions).sort(), catalogTypes("handler"));
