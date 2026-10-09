@@ -675,6 +675,15 @@ pub fn tab_chat_snapshot(
     tab_id: &str,
     since: usize,
 ) -> Result<(Vec<ChatMsg>, usize), String> {
+    let (messages, _) = tab_transcript_snapshot(svc, tab_id, 0)?;
+    Ok(restore_notice::snapshot(tab_id, messages, since))
+}
+
+fn tab_transcript_snapshot(
+    svc: &crate::service::ServiceContext,
+    tab_id: &str,
+    since: usize,
+) -> Result<(Vec<ChatMsg>, usize), String> {
     if crate::service::structured_endpoint::sse(tab_id).is_some() {
         let messages = crate::service::structured_prompt::snapshot::read(svc, tab_id)?;
         let total = messages.len();
