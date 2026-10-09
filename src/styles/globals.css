@@ -225,22 +225,6 @@ body {
     height: 1.4rem !important;
   }
 
-  button.ct-composer-round-button,
-  .ct-composer-action-shell {
-    width: 2.5rem !important;
-    height: 2.5rem !important;
-    min-width: 2.5rem !important;
-    min-height: 2.5rem !important;
-    aspect-ratio: 1 / 1;
-  }
-
-  button.ct-composer-round-button.ct-composer-inner-button {
-    width: 2rem !important;
-    height: 2rem !important;
-    min-width: 2rem !important;
-    min-height: 2rem !important;
-  }
-
 }
 
 /* ── Voice composer (Telegram-style capture) ───────────────────────── */

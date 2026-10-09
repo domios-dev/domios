@@ -9,6 +9,12 @@
   --ct-composer-inner-control-size: var(--ct-control-height-micro);
   --ct-composer-card-border: 1px;
 }
+@media (pointer: coarse), (max-width: 768px) {
+  :root {
+    --ct-composer-control-size: 2.5rem;
+    --ct-composer-inner-control-size: 2rem;
+  }
+}
 .ct-composer-dock {
   padding: 0 var(--ct-composer-gutter-x) var(--ct-composer-gutter-b);
   border-top: 1px solid transparent;
