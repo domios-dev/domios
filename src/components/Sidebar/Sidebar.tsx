@@ -5,7 +5,8 @@ import { IS_WEB } from "../../lib/webApi";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { isPhoneViewport } from "../../hooks/useSidebarViewport";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
-import { useMultiplexer, useMuxState } from "../../store/multiplexer";
+import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
+import { selectSidebarState, sidebarStateEqual } from "./sidebarState";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { AppConfig, CronJob, Tab } from "../../lib/types";
@@ -142,7 +143,7 @@ export function Sidebar({
     selectTabByTab,
     addNotification,
   } = useMultiplexer();
-  const state = useMuxState();
+  const state = useMuxSelector(selectSidebarState, sidebarStateEqual);
   const declaredAttention = useMemo(
     () => declaredAttentionByTab(state.notifications),
     [state.notifications],

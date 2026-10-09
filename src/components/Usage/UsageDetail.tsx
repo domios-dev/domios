@@ -155,7 +155,7 @@ export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: Usag
 
       <div className="ct-usage-foot">
         <span className="live">
-          <span className="pulse" />
+          <span className="pulse ct-live-pulse" />
           <span>last updated {formatRelative(now, snapshot.captured_at)}</span>
         </span>
         <button type="button" className="link" onClick={onOpenHistory}>
@@ -233,7 +233,7 @@ export function UsageSpendDetail({ snapshot, flipUp, onRefresh }: UsageDetailPro
 
       <div className="ct-usage-foot">
         <span className="live">
-          <span className="pulse" />
+          <span className="pulse ct-live-pulse" />
           <span>last updated {formatRelative(now, snapshot.captured_at)}</span>
         </span>
       </div>

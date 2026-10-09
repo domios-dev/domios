@@ -32,6 +32,7 @@ import type {
   OrchestrationPairInput,
   OrchestrationPairResult,
   TabBootStageEvent,
+  MeshPeersResponse,
 } from "../../lib/types";
 import type { ExtendedState } from "./tree";
 import { reducer, type Action } from "./reducer";
@@ -43,7 +44,7 @@ import { createMuxStateStore } from "./selectorStore";
 import { createRefreshCoalescer } from "./refreshCoalescer";
 import { createPeerRebindGate } from "./peerRebindGate";
 import type { Tab } from "../../lib/types";
-import { remoteTabsFromOrdinaryProjection } from "./remoteTabProjection";
+import { remoteTabsFromOrdinaryProjection, shouldRefreshRemoteTabs } from "./remoteTabProjection";
 import {
   loadAttachedRemoteTabs,
   projectAttachedRemoteTab,
@@ -202,7 +203,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   useEffect(() => mountWebLifecycle(), []);
 
   const remoteProjectionActiveRef = useRef(true);
+  const hasPairedPeersRef = useRef<boolean | null>(null);
   const refreshRemoteProjection = useCallback(async () => {
+    if (!shouldRefreshRemoteTabs(hasPairedPeersRef.current, stateRef.current.tabs, attachedRemoteTabsRef.current)) return;
     const ordinary = await invoke<Tab[]>("ordinary_tabs_list");
     if (!remoteProjectionActiveRef.current) return;
     const remote = remoteTabsFromOrdinaryProjection(ordinary);
@@ -276,10 +279,21 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     remoteProjectionActiveRef.current = true;
-    void requestRemoteRefresh();
     let active = true;
+    let peerReadGeneration = 0;
     let meshUnlisten: (() => void) | undefined;
     let muxUnlisten: (() => void) | undefined;
+    const refreshPeers = async () => {
+      const generation = ++peerReadGeneration;
+      hasPairedPeersRef.current = null;
+      try {
+        const peers = await invoke<MeshPeersResponse>("mesh_list_peers");
+        if (active && generation === peerReadGeneration && Array.isArray(peers?.paired)) {
+          hasPairedPeersRef.current = peers.paired.length > 0;
+        }
+      } catch {}
+      if (active && generation === peerReadGeneration) void requestRemoteRefresh();
+    };
     const onMeshStateChanged = () => {
       for (const tab of Object.values(stateRef.current.tabs)) {
         if (!tab.remote_peer_id) continue;
@@ -287,11 +301,13 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           dispatch({ type: "UPDATE_REMOTE_CHANNEL", tabId: tab.id, channel, availability: "reconnecting" });
         }
       }
-      void requestRemoteRefresh();
+      void refreshPeers();
     };
     void listen("mesh-state-changed", onMeshStateChanged).then((fn) => {
-      if (active) meshUnlisten = fn;
-      else fn();
+      if (active) {
+        meshUnlisten = fn;
+        void refreshPeers();
+      } else fn();
     });
     void listen("mux-state-changed", () => {
       void requestRemoteRefresh();
