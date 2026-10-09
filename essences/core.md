@@ -86,7 +86,7 @@ A capability-declared RPC sidecar leaves the tab backed by its PTY. Its transcri
 
 A NextTurn model, effort or runtime-mode request is pending until thread-owned settings or model evidence confirms it. It never restarts the tab. The next turn carries those controls without changing machine-global defaults. Completed compaction items restore the developer contract and cached client context; duplicate notifications do not inject twice.
 
-Providers may declare live model and effort commands. These run only at an idle prompt in the same verified session. Confirmation comes from fresh output in that session; a timeout reports failure and never restarts automatically. Restart and resume remains an explicit fallback. The provider owns whether its command also saves a default for future sessions.
+Providers may declare live model and effort commands. These run only at an idle prompt in the same verified session. Confirmation comes from fresh output or a changed provider-declared identity record in that session; a timeout reports failure and never restarts automatically. Restart and resume remains an explicit fallback. The provider owns whether its command also saves a default for future sessions.
 
 #### Provider lifecycle
 

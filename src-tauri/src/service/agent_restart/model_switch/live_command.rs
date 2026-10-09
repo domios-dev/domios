@@ -11,6 +11,7 @@ const MAX_CONFIRMATION_BYTES: u64 = 1024 * 1024;
 
 mod picker;
 mod prompt;
+mod session_identity;
 mod transport;
 use picker::CommandPicker;
 use prompt::CommandPrompt;
@@ -228,6 +229,20 @@ impl ServiceContext {
                 "the provider has no live effort command".into(),
             ));
         }
+        if commands.confirmation_source
+            == crate::agent::provider::ModelSwitchConfirmationSource::Transcript
+            && (commands.transcript.record_type.is_empty()
+                || commands.transcript.content_path.is_empty()
+                || commands.model.confirmation.trim().is_empty()
+                || commands
+                    .effort
+                    .as_ref()
+                    .is_some_and(|command| command.confirmation.trim().is_empty()))
+        {
+            return Err(ModelSwitchError::LiveCommandFailed(
+                "the transcript confirmation declaration is incomplete".into(),
+            ));
+        }
         let display_name = self
             .agent_registry
             .with_provider(&snap.provider, |provider| {
@@ -273,7 +288,12 @@ impl ServiceContext {
             )
         });
         for (command, command_effort) in planned_commands(&commands, model_changed, effort) {
-            self.run_model_command(&target, command_effort, command, &commands.transcript)?;
+            self.run_declared_model_command(&target, command_effort, command, &commands)?;
+            if !target.current(self) {
+                return Err(ModelSwitchError::LiveCommandFailed(
+                    "the command session identity changed".into(),
+                ));
+            }
             if let Some(effort) = command_effort {
                 {
                     let mut mux = self.mux.write();
@@ -335,6 +355,22 @@ impl ServiceContext {
                 evidence: ModelSwitchEvidence::LiveSessionRecord,
             },
         })
+    }
+
+    fn run_declared_model_command(
+        &self,
+        target: &CommandTarget,
+        effort: Option<&str>,
+        template: &ModelSwitchCommand,
+        commands: &crate::agent::provider::ModelSwitchCommands,
+    ) -> Result<(), ModelSwitchError> {
+        if commands.confirmation_source
+            == crate::agent::provider::ModelSwitchConfirmationSource::SessionIdentity
+        {
+            self.run_session_identity_command(target, effort, template)
+        } else {
+            self.run_model_command(target, effort, template, &commands.transcript)
+        }
     }
 
     fn run_model_command(

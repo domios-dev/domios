@@ -236,6 +236,7 @@ fn invalid_prompt_declarations_refuse_before_injection() {
 #[test]
 fn effort_only_plan_sends_only_effort_and_preserves_model_identity() {
     let commands = crate::agent::provider::ModelSwitchCommands {
+        confirmation_source: Default::default(),
         model: ModelSwitchCommand {
             command: "/choose {model}".into(),
             confirmation: "model".into(),

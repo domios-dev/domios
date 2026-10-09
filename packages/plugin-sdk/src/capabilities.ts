@@ -328,6 +328,7 @@ export interface AgentProvider {
   /** Requires manifest capabilities.replyRelay. Read after a captured UTF-8 append boundary; null without authoritative completion. */
   readReplyRelayTurn?(cwd: string, sessionId: string, afterOffset: number): ReplyRelayEvidence | null;
   detectActiveSession?(cwd: string, currentSid?: string): string | null;
+  sessionModelIdentityPath?(cwd: string, sessionId: string): string | null;
   detectSessionModel?(cwd: string, sessionId: string): string | null;
   sessionModelTranscriptBoundary?(cwd: string, sessionId: string): SessionModelTranscriptBoundary | null;
   detectSessionModelAfterBoundary?(
