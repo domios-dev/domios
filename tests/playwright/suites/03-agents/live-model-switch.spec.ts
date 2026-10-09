@@ -1,6 +1,8 @@
-// WHAT: Status-line model and effort switching on real DEV provider tabs.
-// WHY: Optimistic capsules cannot prove which model handled a turn.
-// ORACLE: Exact own-session turn records, unique Chat bubbles, identity and measured transitions.
+/**
+ * WHAT: Status-line model and effort switching on real DEV provider tabs.
+ * WHY: Optimistic capsules cannot prove which model handled a turn.
+ * ORACLE: Exact own-session turn records, unique Chat bubbles, identity and measured transitions.
+ */
 import { performance } from "node:perf_hooks";
 import { writeFileSync } from "node:fs";
 import { expect, test } from "../../helpers/fixtures";
@@ -11,6 +13,8 @@ import { detectChatPrefix } from "../../../../src/lib/chatPrefixes";
 const providers = (process.env.PW_SWITCH_PROVIDERS ?? "claude,codex,grok").split(",");
 if (providers.some(id => !["claude", "codex", "opencode", "grok"].includes(id))) throw new Error("Unknown switch matrix provider");
 const restored = restoreManifest();
+const selectedSteps = process.env.PW_SWITCH_STEPS?.split(",");
+if (selectedSteps?.some(step => !["idle", "effort", "combined", "busy", "back"].includes(step))) throw new Error("Unknown switch scenario");
 const repeats = restored ? 1 : Number(process.env.PW_SWITCH_RUNS ?? 3);
 if (!Number.isInteger(repeats) || repeats < 1 || repeats > 3) throw new Error("PW_SWITCH_RUNS must be 1..3");
 const startRun = Number(process.env.PW_SWITCH_RUN_NUMBER ?? 1);
@@ -97,7 +101,7 @@ for (let run = startRun; run < startRun + repeats; run++) {
             }
             const marker = `SWITCH_ACK_${run}_${providerId}_${Date.now()}_${turnIndex++}`;
             const before = await readChat(api, target.tabId);
-            const text = `Reply with exactly ${marker}. Do not use tools.`;
+            const text = `Reply with only the token on the next line, with no punctuation or tools:\n${marker}`;
             await send(text);
             await expect(target.chat.getByRole("article", { name: "assistant message" }).filter({ hasText: marker })).toHaveCount(1, { timeout: 180_000 });
             await expect(target.chat.locator('[data-agent-state="idle"]')).toHaveCount(1, { timeout: 180_000 });
@@ -149,8 +153,8 @@ for (let run = startRun; run < startRun + repeats; run++) {
                 if (document.querySelector('[data-testid="status-model-picker"]')) return;
                 state.closed = true;
                 const applying = Array.from(document.querySelectorAll(`[data-tab-id="${tabId}"] [role="status"]`)).some(node => node.textContent === "Applying…");
-                if (applying) { state.applying = true; state.applyingStarted ??= performance.now(); }
-                else if (state.applyingStarted !== undefined) state.applyingEnded ??= performance.now();
+                if (applying) { state.applying = true; state.applyingStarted ??= window.performance.now(); }
+                else if (state.applyingStarted !== undefined) state.applyingEnded ??= window.performance.now();
               };
               const observer = new MutationObserver(observe);
               observer.observe(document.body, { childList: true, subtree: true, characterData: true });
@@ -163,7 +167,7 @@ for (let run = startRun; run < startRun + repeats; run++) {
                 const probe = (window as ProbeWindow).__switchProbe;
                 if (probe.applyingStarted === undefined) return {};
                 return probe.applyingEnded === undefined
-                  ? { applyingLowerBoundMs: performance.now() - probe.applyingStarted }
+                  ? { applyingLowerBoundMs: window.performance.now() - probe.applyingStarted }
                   : { applyingMs: probe.applyingEnded - probe.applyingStarted };
               });
               Object.assign(row, timing);
@@ -201,6 +205,7 @@ for (let run = startRun; run < startRun + repeats; run++) {
           step = "baseline";
           await ack(a);
           const scenario = async (name: string, action: () => Promise<void>) => {
+            if (selectedSteps && !selectedSteps.includes(name)) return;
             step = name;
             try { await action(); } catch (error) {
               const detail = error instanceof Error ? error.stack : String(error);
@@ -307,11 +312,12 @@ for (let run = startRun; run < startRun + repeats; run++) {
           }
           await ui.page.keyboard.press("Escape");
         } finally {
+          if (agent) await info.attach(`${providerId}-stream-resyncs.json`, { body: JSON.stringify(agent.events.resyncs, null, 2), contentType: "application/json" });
           await agent?.events.close();
         }
       }
     } finally {
-      const summary = { run, sha, workspace, rows, failures, tabs: retained };
+      const summary = { run, sha, workspace, requestedSteps: selectedSteps ?? ["idle", "effort", "combined", "busy", "back"], rows, failures, tabs: retained };
       writeFileSync(info.outputPath("matrix.json"), JSON.stringify(summary, null, 2));
       await info.attach("matrix.json", { path: info.outputPath("matrix.json"), contentType: "application/json" });
       console.log(JSON.stringify(summary));
