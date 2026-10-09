@@ -104,7 +104,7 @@ fn a_general_agent_kind_outside_the_general_workspace_is_stripped() {
 }
 
 #[test]
-fn a_second_general_agent_inside_the_general_workspace_is_stripped() {
+fn a_sanctioned_general_session_inside_the_general_workspace_keeps_its_role() {
     let (mut mux, general_id) = general_mux();
     let general_ws = mux
         .find_workspace_for_tab(&general_id)
@@ -112,14 +112,25 @@ fn a_second_general_agent_inside_the_general_workspace_is_stripped() {
     let sibling = mux.create_tab(&general_ws).expect("sibling Tab");
     if let Some(tab) = mux.get_tab_mut(&sibling) {
         apply_general_agent_kind(tab);
+        tab.provisioned_cwd = Some(super::super::general_dir().to_string_lossy().to_string());
     }
 
     let stripped = confine_general_agent_kind(&mut mux);
 
+    assert!(stripped.is_empty());
+    assert!(is_general_agent(mux.get_tab(&sibling).expect("sibling")));
     assert_eq!(
-        stripped,
-        vec![sibling.clone()],
-        "only the aliased General tab keeps the machine kind"
+        mux.resolve_tab_id(super::super::GENERAL_ALIAS),
+        Some(general_id)
     );
-    assert_eq!(mux.get_tab(&sibling).expect("sibling").role, None);
+}
+
+#[test]
+fn an_unprovisioned_general_kind_inside_general_is_stripped() {
+    let (mut mux, main) = general_mux();
+    let workspace = mux.find_workspace_for_tab(&main).unwrap();
+    let sibling = mux.create_tab(&workspace).unwrap();
+    apply_general_agent_kind(mux.get_tab_mut(&sibling).unwrap());
+    assert_eq!(confine_general_agent_kind(&mut mux), vec![sibling.clone()]);
+    assert_eq!(mux.get_tab(&sibling).unwrap().role, None);
 }

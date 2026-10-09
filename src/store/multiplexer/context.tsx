@@ -7,6 +7,7 @@ import type {
 } from "../../lib/types";
 import type { RemotePeerTabs } from "../../lib/remoteTabPortal";
 import type { MuxStateStore } from "./selectorStore";
+import type { SessionLaunchIntent } from "../../lib/generalSession";
 
 /** Ids returned by a successful spawn — enough to resolve + select the tab. */
 export interface SpawnedTab {
@@ -61,6 +62,7 @@ export interface MultiplexerActionsContextType {
     model?: string,
     reasoningEffort?: string,
     preset?: string,
+    intent?: SessionLaunchIntent,
   ) => Promise<SpawnedTab | null>;
   /** Paired creation (task_7e5f9354): create a plan plus an Orchestrator +
    *  Planner tab bound to it, in one call. */
