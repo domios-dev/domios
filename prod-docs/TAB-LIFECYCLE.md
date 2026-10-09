@@ -20,6 +20,7 @@ For backup, stop Domios cleanly and copy the complete `storage/` directory, incl
 6. A provider exit observed while a graceful shutdown is armed (update, quit, restart, signal) keeps the tab's provider, session and nonces. The committed desk state still names the session the next boot resumes. Outside a shutdown the same exit clears the identity into binding lineage, from which `agent restart` resumes the verified session in place with the launch arguments its spawn recorded (model, effort, arguments, identity instructions). When a tab instead has `LaunchBindingUnconfirmed`, a live shell-ready PTY, a known provider and no verified recovery session selectable from its lineage and lifecycle journal, `agent restart` starts that provider fresh from its recorded launch and reports `fresh_launch`. A provider started by hand in that surviving shell inherits the exited launch's nonce; when its session-start hook reports that newest retired nonce and no launch owns the tab, the tab adopts it as a verified binding and reaches `agent_ready`.
 7. A team member whose provider exited to its shell before shutdown restores as that shell and is not relaunched. The report names it `agent_exited_before_shutdown` with `exited_session_id`; `agent restart` recovers it.
 8. A restored agent whose saved cwd is no longer a directory is not relaunched anywhere else: the Tab keeps its session and cwd, shows `spawn_failed` naming the missing directory, and raises a notification. Restore the directory, then `codeterm agent restart --tab ID`.
+9. Restore never replaces an unavailable exact saved session. When its provider confirms the session is missing, the failure card offers **Start new session** beside **Keep shell**. The explicit action, also available as `codeterm agent restart --tab ID --fresh`, preserves tab identity, cwd, Team, plan binding, model and effort while clearing the dead session and exact-restore binding. An existing exact session is refused; a live agent requires `--force`.
 
 ## Resume after restart
 
@@ -217,4 +218,4 @@ The summary reports restarted, pending and failed restart counts, and updates
 in place as pending tabs finish. Update runs, safe prompt answers and individual
 restart outcomes enter the Supporter journal.
 
-<!-- revision: 44 -->
+<!-- revision: 45 -->

@@ -162,6 +162,7 @@ enum RestartMode {
     Standard,
     SkipExit,
     ProviderUpdate,
+    Fresh,
 }
 
 #[derive(Debug)]
@@ -247,62 +248,14 @@ impl ServiceContext {
         force: bool,
         grace_secs: u64,
     ) -> Result<RestartOutcome, RestartAttemptError> {
-        self.agent_restart_observed_with_options(tab_id, force, grace_secs, None, false)
-    }
-
-    pub(crate) fn agent_restart_observed_with_options(
-        &self,
-        tab_id: &str,
-        force: bool,
-        grace_secs: u64,
-        target_provider: Option<String>,
-        handoff_history: bool,
-    ) -> Result<RestartOutcome, RestartAttemptError> {
-        if handoff_history && target_provider.is_none() {
-            return Err(AgentRestartError::BadRequest(
-                "history handoff requires a target provider".into(),
-            )
-            .into());
-        }
-        if let Some(target_provider) = target_provider.as_deref() {
-            let current_provider = {
-                let mux = self.mux.read();
-                mux.resolve_tab_id(tab_id)
-                    .and_then(|resolved| mux.get_tab(&resolved))
-                    .and_then(|tab| tab.agent_type.clone())
-            };
-            let Some(current_provider) = current_provider else {
-                return Err(AgentRestartError::BadRequest(
-                    "provider restart requires a live PTY agent Tab".into(),
-                )
-                .into());
-            };
-            if current_provider != target_provider {
-                let mut snap = self.snapshot_tab_for_restart(tab_id)?;
-                self.prepare_provider_change(&mut snap, target_provider, handoff_history)?;
-                return self.restart_live_agent(
-                    snap,
-                    force,
-                    grace_secs,
-                    None,
-                    RestartMode::Standard,
-                );
-            }
-        }
-        if let Some(outcome) = self.restart_general_agent_if_target(tab_id, force, false)? {
-            return outcome;
-        }
-        if let Some(snap) = self.failed_launch_restart_snapshot(tab_id)? {
-            return self.restart_live_agent(snap, force, grace_secs, None, RestartMode::SkipExit);
-        }
-        if let Some(snap) = self.unverified_launch_shell_snapshot(tab_id)? {
-            return self.restart_live_agent(snap, force, grace_secs, None, RestartMode::SkipExit);
-        }
-        if let Some(exited_tab_id) = self.absent_restart_target(tab_id)? {
-            return self.recover_exited_provider(&exited_tab_id, force, false);
-        }
-        let snap = self.snapshot_tab_for_restart(tab_id)?;
-        self.restart_live_agent(snap, force, grace_secs, None, RestartMode::Standard)
+        self.agent_restart_observed_with_options(
+            tab_id,
+            RestartOptions {
+                force,
+                grace_secs,
+                ..Default::default()
+            },
+        )
     }
 
     fn prepare_provider_change(
@@ -372,7 +325,10 @@ impl ServiceContext {
         self.require_background_work_safe(&snap.tab_id, force)?;
         let target_provider = snap.target_provider.as_deref().unwrap_or(&snap.provider);
         let provider_changed = target_provider != snap.provider;
-        if !provider_changed {
+        if mode != RestartMode::Fresh && !provider_changed {
+            self.require_exact_session_restart(&snap)?;
+        }
+        if !provider_changed && mode != RestartMode::Fresh {
             if let Some(reason) = evidenced_transcript_block(&snap) {
                 return Err(AgentRestartError::BadRequest(reason).into());
             }
@@ -383,15 +339,23 @@ impl ServiceContext {
         if mode == RestartMode::ProviderUpdate {
             self.require_provider_update_idle(&snap.tab_id)?;
         }
+        if mode == RestartMode::Fresh {
+            self.require_fresh_restart_allowed(&snap, force)?;
+        }
         crate::service::task_files::release_tab(self, &snap.tab_id);
         self.record_lifecycle(
             &snap.tab_id,
             crate::session::lifecycle::LifecycleTransition::RestartRequested,
         );
 
-        let session_was_stale =
-            !provider_changed && snap.session_id.is_some() && !self.session_file_present(&snap);
+        let session_was_stale = mode == RestartMode::Fresh
+            || (!provider_changed
+                && snap.session_id.is_some()
+                && !self.session_file_present(&snap));
         let mut outcome = RestartOutcome::accepted(&snap, session_was_stale, force);
+        if mode == RestartMode::Fresh {
+            outcome.session_id = None;
+        }
         let session_present = !provider_changed && !session_was_stale && snap.session_id.is_some();
         let relaunch = match model_switch {
             Some(launch) if session_present => {
@@ -424,11 +388,16 @@ impl ServiceContext {
         if mode == RestartMode::ProviderUpdate {
             self.require_provider_update_idle(&snap.tab_id)?;
         }
-        if mode != RestartMode::SkipExit {
+        if mode != RestartMode::SkipExit && mode != RestartMode::Fresh {
             self.require_background_work_safe(&snap.tab_id, force)?;
             self.request_graceful_exit(&snap, force, Duration::from_secs(grace_secs.max(1)));
         }
         self.require_background_work_safe(&snap.tab_id, force)?;
+        if mode == RestartMode::Fresh {
+            self.require_fresh_restart_allowed(&snap, force)?;
+        } else if !provider_changed {
+            self.require_exact_session_restart(&snap)?;
+        }
         if force {
             super::background_work::force_notice(
                 self,
@@ -446,6 +415,9 @@ impl ServiceContext {
         }
         outcome.old_pty_torn_down = true;
         crate::service::codex_rpc::lifecycle::stop_tab(&snap.tab_id);
+        if mode == RestartMode::Fresh {
+            self.commit_fresh_restart(&snap)?;
+        }
         if provider_changed {
             let reset = {
                 let mut mux = self.mux.write();
@@ -720,12 +692,11 @@ impl ServiceContext {
     }
 
     fn session_file_present(&self, snap: &TabRestartSnapshot) -> bool {
-        let (Some(cwd), Some(sid)) = (snap.cwd.as_deref(), snap.session_id.as_deref()) else {
-            return false;
-        };
-        self.agent_registry
-            .with_provider(&snap.provider, |p| p.session_exists(cwd, sid))
-            .unwrap_or(false)
+        let tab = self.mux.read().get_tab(&snap.tab_id).cloned();
+        tab.is_some_and(|tab| {
+            self.restart_session_exists(&tab, &snap.provider, snap.session_id.as_deref())
+                == Some(true)
+        })
     }
 
     fn request_graceful_exit(&self, snap: &TabRestartSnapshot, force: bool, grace: Duration) {
@@ -1154,6 +1125,9 @@ pub(crate) fn screen_shows_agent_tui(
 
 mod exit_recovery;
 mod failed_launch;
+mod fresh;
+mod options;
+pub(crate) use options::RestartOptions;
 mod model_switch;
 mod relaunch;
 mod unverified_shell;

@@ -45,3 +45,16 @@ assert(!healthyRole.showFailureBadge, "healthy tab has no failure badge");
 assert(healthyRole.showIdentityBadges, "healthy tab keeps its identity badges");
 
 console.log("✓ restoreFailurePresentation: restore view, badge, identity, and action decisions");
+
+const missing = restoreFailurePresentation(
+  { bootStage: "spawn_failed", agentType: "fixture-provider", protectedTab: false },
+  "restored_session_unavailable: session_missing: opaque-session", false,
+);
+assert(missing.actions.startNewSession, "missing exact session offers an explicit fresh start");
+assert(missing.actions.keepShell, "missing exact session still offers its shell");
+assert(!missing.actions.startFreshAgent, "missing session does not open the provider picker");
+const existing = restoreFailurePresentation(
+  { bootStage: "spawn_failed", agentType: "fixture-provider", protectedTab: false },
+  "restored_session_unavailable: opaque-existing-session", false,
+);
+assert(!existing.actions.startNewSession, "existing or unverified session cannot be replaced from the card");
