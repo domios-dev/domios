@@ -730,7 +730,7 @@ export function TabSessionChat({
     <PluginNameProvider resolve={resolvePluginName}>
     <div
       ref={chatRootRef}
-      className="w-full h-full flex flex-col relative"
+      className="ct-chat-shell w-full h-full flex flex-col relative"
       data-testid="tab-session-chat"
       data-tab-id={tabId}
       role="region"
@@ -773,7 +773,7 @@ export function TabSessionChat({
         onScroll={handleScroll}
         onKeyDown={messageSelection.onKeyDown}
         data-selecting={messageSelection.active || undefined}
-        className="ct-hover-reveal-scrollbar ct-chat-surface absolute inset-0 overflow-y-auto overscroll-contain p-3 select-text"
+        className="ct-hover-reveal-scrollbar ct-chat-surface ct-chat-scroller absolute inset-0 overflow-y-auto overscroll-contain p-3 select-text"
         data-testid="tab-session-chat-messages"
         role="log"
         aria-label="Conversation"
@@ -896,7 +896,7 @@ export function TabSessionChat({
         />
       )}
       </div>
-      <div data-composer-height-surface className="shrink-0">
+      <div data-composer-height-surface className="ct-chat-bottom-bar shrink-0">
       {isWatcherTab && watcherSpec ? (
         <WatcherReadOnlyBar
           watcher={watcherSpec}
