@@ -219,8 +219,13 @@ pub async fn switch_agent_model(
     reasoning_effort: Option<String>,
     runtime_mode: Option<crate::service::codex_rpc::model::RuntimeMode>,
     restart_resume: Option<bool>,
+    cancel: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     let svc = (*svc).clone();
+    if cancel == Some(true) {
+        svc.cancel_staged_model_switch(&tab_id);
+        return Ok(serde_json::json!({"ok": true, "cancelled": true}));
+    }
     tokio::task::spawn_blocking(move || {
         svc.agent_switch_model_with_restart_fallback(
             &tab_id,

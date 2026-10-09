@@ -13,6 +13,7 @@ use crate::multiplexer::types::RestorableLaunchParameters;
 use crate::service::{ServiceContext, SpawnAgentParams};
 
 mod live_command;
+pub(super) mod staging;
 
 /// Deadline for the relaunched session to report its model before returning pending.
 pub(crate) const MODEL_OBSERVE_TIMEOUT_SECS: u64 = 20;
@@ -31,6 +32,7 @@ pub(crate) enum ModelSwitchConfirmation {
         evidence: ModelSwitchEvidence,
     },
     Pending,
+    AfterTurn,
 }
 
 #[derive(Debug, Clone)]
@@ -436,6 +438,25 @@ impl ServiceContext {
         force: bool,
         restart_fallback: bool,
     ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
+        self.execute_model_switch(
+            tab_id,
+            requested,
+            requested_effort,
+            force,
+            restart_fallback,
+            None,
+        )
+    }
+
+    fn execute_model_switch(
+        &self,
+        tab_id: &str,
+        requested: &str,
+        requested_effort: Option<&str>,
+        force: bool,
+        restart_fallback: bool,
+        staged: Option<&staging::SwitchRequest>,
+    ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
         let requested = requested.trim();
         let (resolved_tab, provider) = {
             let mux = self.mux.read();
@@ -490,6 +511,9 @@ impl ServiceContext {
             declared_mode
         };
         let snap = self.snapshot_tab_for_restart(&resolved_tab)?;
+        if let Some(request) = staged {
+            request.require_mechanism(declared_mode)?;
+        }
         let session_id = self.verified_resumable_session(&snap)?;
         let effort = requested_effort.map(str::to_owned).or_else(|| {
             let saved = self
@@ -522,6 +546,25 @@ impl ServiceContext {
                     .or_else(|| tab.agent_provider_resolved_model.clone())
             })
         };
+        if let Some(request) = staged {
+            request.require_snapshot(&snap)?;
+            request.require_current(self)?;
+        } else if !self.tab_is_idle(&snap.tab_id) {
+            return self.stage_model_switch(
+                &snap,
+                &session_id,
+                requested,
+                effort.as_deref(),
+                staging::StagingParams {
+                    mechanism: declared_mode,
+                    force,
+                    restart_fallback,
+                    previous_model,
+                },
+            );
+        } else {
+            self.cancel_staged_model_switch(&snap.tab_id);
+        }
         if declared_mode == ModelSwitchMode::LiveCommand {
             return self.switch_model_by_command(
                 &snap,
@@ -546,6 +589,11 @@ impl ServiceContext {
         };
         let (mechanism, fallback_reason) =
             effective_model_switch_mode(declared_mode, live_result.as_ref());
+        if staged.is_some() && fallback_reason.is_some() {
+            return Err(ModelSwitchError::LiveSwitchFailed(
+                fallback_reason.unwrap_or_default(),
+            ));
+        }
         if let Some(crate::service::structured_prompt::LiveModelSwitchResult::Applied {
             observed_model,
             confirmation_detail,

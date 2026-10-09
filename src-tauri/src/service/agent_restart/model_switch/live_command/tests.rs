@@ -2,6 +2,25 @@ use std::cell::Cell;
 
 use super::*;
 
+#[test]
+fn session_identity_planner_uses_actual_model_after_unconfirmed_picker_switch() {
+    use crate::agent::provider::ModelSwitchConfirmationSource::{SessionIdentity, Transcript};
+    let current = planning_model(SessionIdentity, Some("previous".into()), || {
+        Some("actual".into())
+    });
+    assert_eq!(current.as_deref(), Some("actual"));
+    assert_eq!(
+        planning_model(SessionIdentity, Some("previous".into()), || None),
+        None
+    );
+    assert_eq!(
+        planning_model(Transcript, Some("previous".into()), || panic!(
+            "transcript uses its record"
+        )),
+        Some("previous".into())
+    );
+}
+
 fn source() -> ModelSwitchTranscript {
     ModelSwitchTranscript {
         record_type: "opaque-type".into(),

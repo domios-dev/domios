@@ -2,6 +2,11 @@ import { describe, expect, finish, it } from "../test/standaloneTest";
 import { classifyTabTarget, hasCompositeTabArgument, parseCompositeTabId, remoteTransportCall } from "./remoteTabTransport";
 
 describe("remote tab transport adapter", () => {
+  it("routes staged model cancellation to the owning daemon", () => {
+    const call = remoteTransportCall("switch_agent_model", { tabId: "mesh:peer/owned", model: "", cancel: true });
+    expect(call?.suffix).toBe("/agent/model");
+    expect(call?.body).toEqual({ model: "", reasoning_effort: undefined, runtime_mode: undefined, cancel: true });
+  });
   it("preserves explicit fresh session intent for the owning tab", () => {
     const call = remoteTransportCall("restart_agent_tab", { tabId: "mesh:peer/restored", fresh: true });
     expect(call?.suffix).toBe("/agent/restart");

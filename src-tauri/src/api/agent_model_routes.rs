@@ -15,7 +15,10 @@ use crate::service::agent_restart::{
 pub struct AgentModelBody {
     #[serde(default)]
     pub force: bool,
+    #[serde(default)]
     pub model: String,
+    #[serde(default)]
+    pub cancel: bool,
     pub reasoning_effort: Option<String>,
     pub runtime_mode: Option<crate::service::codex_rpc::model::RuntimeMode>,
     #[serde(default)]
@@ -39,6 +42,10 @@ pub async fn agent_model_handler(
         }
     };
     let svc = state.svc.clone();
+    if body.cancel {
+        svc.cancel_staged_model_switch(&tab_id);
+        return Json(serde_json::json!({"ok": true, "cancelled": true})).into_response();
+    }
     let result = tokio::task::spawn_blocking(move || {
         svc.agent_switch_model_with_restart_fallback(
             &tab_id,
@@ -95,9 +102,10 @@ pub(crate) fn model_switch_success_body(outcome: &ModelSwitchOutcome) -> serde_j
         "launched_model": outcome.launched_model,
         "model_confirmation": match &outcome.confirmation {
             ModelSwitchConfirmation::Observed { .. } => "observed",
-            ModelSwitchConfirmation::Pending => "pending",
+            ModelSwitchConfirmation::Pending | ModelSwitchConfirmation::AfterTurn => "pending",
         },
         "session_id": outcome.session_id,
+        "staged": matches!(outcome.confirmation, ModelSwitchConfirmation::AfterTurn),
     });
     if let Some(detail) = &outcome.confirmation_detail {
         body["confirmation_detail"] = detail.clone().into();
