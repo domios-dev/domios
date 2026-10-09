@@ -5,9 +5,11 @@ import {
   canvasToPage,
   layoutStream,
   sameViewport,
+  stageRectToPage,
   viewportRequest,
   type FrameMetadata,
   type PagePoint,
+  type PageRect,
   type Rect,
   type Size,
   type StreamViewport,
@@ -18,6 +20,9 @@ export interface StreamCanvasHandle {
   mapPoint(clientX: number, clientY: number): PagePoint | null;
   localPoint(clientX: number, clientY: number): { x: number; y: number };
   stageSize(): Size;
+  /** The drawn frame inside the stage, in stage CSS px. */
+  drawRect(): Rect;
+  pageRect(start: { x: number; y: number }, end: { x: number; y: number }): PageRect | null;
 }
 
 interface UseStreamCanvasOptions {
@@ -144,5 +149,7 @@ export function useStreamCanvas({ canvasRef, stageRef, frames, decode, onViewpor
       return { x: clientX - (rect?.left ?? 0), y: clientY - (rect?.top ?? 0) };
     },
     stageSize: () => css.current,
+    drawRect: () => drawCss.current,
+    pageRect: (start, end) => stageRectToPage(start, end, drawCss.current, meta.current),
   };
 }

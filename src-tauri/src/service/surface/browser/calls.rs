@@ -3,6 +3,7 @@ use serde_json::{json, Value};
 
 use super::grab::{self, Annotation, GrabTarget};
 use super::input::{InputArgs, NavAction};
+use super::snip::SnipIdArgs;
 use super::BrowserRuntime;
 use crate::service::browser::viewport::ViewportRequest;
 use crate::service::browser::PageChannel;
@@ -59,7 +60,7 @@ fn parse<T: for<'de> Deserialize<'de>>(method: &str, args: Value) -> Result<T, S
     serde_json::from_value(args).map_err(|error| format!("{method}: invalid args: {error}"))
 }
 
-fn now_ms() -> u128 {
+pub(super) fn now_ms() -> u128 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_millis())
@@ -140,6 +141,13 @@ impl BrowserRuntime {
                 json!({ "id": id, "label": label, "target": card })
             }
             "grab.send" => return self.grab_send(ctx, parse(method, args)?).await,
+            "snip.capture" => self.snip_capture(parse(method, args)?).await?,
+            "snip.cancel" => {
+                let snip: SnipIdArgs = parse(method, args)?;
+                self.snip_cancel(&snip.id);
+                Value::Null
+            }
+            "snip.send" => return self.snip_send(ctx, parse(method, args)?).await,
             other => return Err(format!("unknown view method \"{other}\"")),
         };
         Ok(SurfaceCallOutcome::value(value))

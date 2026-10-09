@@ -4,8 +4,8 @@ import "./surfaceDomGlobals.testdata";
 import { resetWarmStreamForTest } from "../Terminal/voice/useVoiceRecorder";
 import assert from "node:assert/strict";
 import { act } from "react";
-import { PointAndAsk } from "./PointAndAsk";
-import { askDialogLabel, askPlaceholder, elementCard } from "./surfaceChromeModel";
+import { PointAndAsk, SNIP_IMAGE_LABEL, type AskSubject } from "./PointAndAsk";
+import { askDialogLabel, askPlaceholder, elementCard, SNIP_DIALOG_LABEL, snipPlaceholder } from "./surfaceChromeModel";
 import { changeValue, getByRole, queryByRole, render, testSuite } from "./surfaceTestDom.testdata";
 
 const suite = testSuite("PointAndAsk");
@@ -17,7 +17,7 @@ const card = elementCard({
 });
 const path = `Header · ${selector}`;
 
-async function renderAsk(sending = false) {
+async function renderAsk(sending = false, subject: AskSubject = { kind: "element", card }) {
   const sends: string[] = [];
   let cancels = 0;
   const stage = document.createElement("div");
@@ -29,10 +29,10 @@ async function renderAsk(sending = false) {
   stage.appendChild(canvas);
   document.body.appendChild(stage);
   const view = await render(
-    <PointAndAsk owner="Jev" card={card} position={{ left: 10, top: 10 }} sending={sending} onSend={(comment) => sends.push(comment)} onCancel={() => { cancels += 1; }} />,
+    <PointAndAsk owner="Jev" subject={subject} position={{ left: 10, top: 10 }} sending={sending} onSend={(comment) => sends.push(comment)} onCancel={() => { cancels += 1; }} />,
   );
   stage.appendChild(view.host);
-  const dialog = getByRole(view.host, "dialog", askDialogLabel(card));
+  const dialog = getByRole(view.host, "dialog", subject.kind === "element" ? askDialogLabel(card) : SNIP_DIALOG_LABEL);
   const editor = getByRole(dialog, "textbox", "Your question") as HTMLTextAreaElement;
   const type = (value: string) => changeValue(editor as unknown as HTMLInputElement, value, "input");
   const key = (init: KeyboardEventInit) => act(async () => { editor.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init })); });
@@ -116,6 +116,30 @@ suite.test("sending shows the busy send button and ignores Enter", async () => {
   assert.ok(byTestId(dialog, "composer-send-button")?.disabled);
   await key({ key: "Enter" });
   assert.deepEqual(sends, []);
+  await unmount();
+});
+
+suite.test("an area shows the snip as a removable screenshot chip with its context line", async () => {
+  let removed = 0;
+  const context = "Area 420×180 at (312, 96) · Cart · https://shop.test/cart";
+  const subject: AskSubject = { kind: "area", context, image: { thumbnail: "data:image/jpeg;base64,AA==" }, onRemoveImage: () => { removed += 1; } };
+  const { dialog, editor, unmount } = await renderAsk(false, subject);
+  const chip = byTestId(dialog, "attachment-chip");
+  assert.ok(chip, "the snip sits in the input like a chat attachment");
+  assert.equal(chip.textContent, SNIP_IMAGE_LABEL);
+  assert.equal(chip.querySelector("img")?.getAttribute("src"), "data:image/jpeg;base64,AA==", "the chip shows the crop thumbnail");
+  assert.equal(document.getElementById(dialog.getAttribute("aria-describedby") ?? "")?.textContent, context);
+  assert.equal(editor.placeholder, snipPlaceholder("Jev"));
+  await act(async () => getByRole(chip, "button", `Remove ${SNIP_IMAGE_LABEL}`).click());
+  assert.equal(removed, 1);
+  await unmount();
+});
+
+suite.test("an area without its image keeps only the context line", async () => {
+  const subject: AskSubject = { kind: "area", context: "Area 10×10 at (0, 0)", image: null, onRemoveImage: () => undefined };
+  const { dialog, unmount } = await renderAsk(false, subject);
+  assert.equal(byTestId(dialog, "attachment-chip"), null);
+  assert.ok(visibleText(dialog).includes("Area 10×10 at (0, 0)"));
   await unmount();
 });
 

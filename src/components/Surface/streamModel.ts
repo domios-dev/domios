@@ -148,6 +148,47 @@ export function canvasToPage(
   return { x: deviceX / scale, y: (deviceY - offsetTop) / scale };
 }
 
+/** A page area in document CSS px: viewport position plus the frame's scroll offset. */
+export interface PageRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), high);
+
+/** Stage-local point pinned inside the drawn frame, so a drag past the letterbox stops at its edge. */
+export function clampToDraw(point: { x: number; y: number }, drawRect: Rect): { x: number; y: number } {
+  return { x: clamp(point.x, drawRect.x, drawRect.x + drawRect.width), y: clamp(point.y, drawRect.y, drawRect.y + drawRect.height) };
+}
+
+export function stageRectToPage(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  drawRect: Rect,
+  frameMeta: FrameMetadata | null,
+): PageRect | null {
+  if (drawRect.width <= 0 || drawRect.height <= 0) return null;
+  const deviceWidth = frameMeta?.deviceWidth || drawRect.width;
+  const deviceHeight = frameMeta?.deviceHeight || drawRect.height;
+  const scale = frameMeta?.pageScaleFactor || 1;
+  const offsetTop = frameMeta?.offsetTop ?? 0;
+  const scrollX = frameMeta?.scrollOffsetX ?? 0;
+  const scrollY = frameMeta?.scrollOffsetY ?? 0;
+  const toPage = (point: { x: number; y: number }) => {
+    const local = clampToDraw(point, drawRect);
+    const deviceX = ((local.x - drawRect.x) / drawRect.width) * deviceWidth;
+    const deviceY = ((local.y - drawRect.y) / drawRect.height) * deviceHeight;
+    return { x: deviceX / scale + scrollX, y: Math.max(0, deviceY - offsetTop) / scale + scrollY };
+  };
+  const a = toPage(start);
+  const b = toPage(end);
+  const x = Math.round(Math.min(a.x, b.x));
+  const y = Math.round(Math.min(a.y, b.y));
+  return { x, y, width: Math.round(Math.max(a.x, b.x)) - x, height: Math.round(Math.max(a.y, b.y)) - y };
+}
+
 export function viewportRequest(container: Size, dpr: number): StreamViewport | null {
   const w = Math.round(container.width);
   const h = Math.round(container.height);

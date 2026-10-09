@@ -1,8 +1,8 @@
 import { Clock3, Image as ImageIcon, Paperclip, X } from "lucide-react";
 
-function AttachmentChip({ path, onRemove }: { path: string; onRemove: () => void }) {
-  const name = path.split(/[\\/]/).pop() || path;
-  const Icon = /\.(avif|bmp|gif|heic|heif|ico|jpe?g|png|svg|tiff?|webp)$/i.test(name) ? ImageIcon : Paperclip;
+export function AttachmentChip({ path, label, thumbnail, onRemove }: { path: string; label?: string; thumbnail?: string | null; onRemove: () => void }) {
+  const name = label || path.split(/[\\/]/).pop() || path;
+  const Icon = thumbnail || /\.(avif|bmp|gif|heic|heif|ico|jpe?g|png|svg|tiff?|webp)$/i.test(name) || label ? ImageIcon : Paperclip;
   return (
     <div
       data-testid="attachment-chip"
@@ -13,7 +13,9 @@ function AttachmentChip({ path, onRemove }: { path: string; onRemove: () => void
         border: "1px solid color-mix(in srgb, var(--ct-accent, #58a6ff) 35%, transparent)",
       }}
     >
-      <Icon size={12} aria-hidden="true" className="shrink-0 opacity-70" />
+      {thumbnail
+        ? <img data-testid="attachment-chip-thumb" src={thumbnail} alt="" className="-ml-1 h-5 w-5 shrink-0 rounded-[5px] object-cover" />
+        : <Icon size={12} aria-hidden="true" className="shrink-0 opacity-70" />}
       <span className="min-w-0 max-w-[200px] truncate" title={path}>{name}</span>
       <button
         type="button"
