@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { CircleCheck, Clock3, Map, Plus, Timer, Workflow, X } from "lucide-react";
+import { CircleCheck, Clock3, Infinity as InfinityIcon, Map, Plus, Timer, Workflow, X } from "lucide-react";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { JobConfirmationDialog } from "../Jobs/JobConfirmationDialog";
 import { deleteJobConfirmation, deleteMergedJob, stopMergedJob, type JobsActionAdapter } from "../Jobs/jobActions";
@@ -38,7 +38,13 @@ function stateTone(state: string): string {
 }
 
 function delayedWhen(message: DelayedMessage): string {
+  if (message.state === "stashed") return "stashed";
   return message.state === "failed" ? "failed" : formatRelative(message.scheduledAtMs);
+}
+
+function delayedTone(message: DelayedMessage): string {
+  if (message.state === "failed") return "waiting";
+  return message.state === "stashed" ? "stashed" : "scheduled";
 }
 
 export function ComposerContextHeader({ tabId, workspaceId, delayed, onEditDelayed, onDeleteDelayed, onScheduleDelayed, draftActive = false, adapter, jobActionAdapter }: ComposerContextHeaderProps) {
@@ -141,10 +147,12 @@ export function ComposerContextHeader({ tabId, workspaceId, delayed, onEditDelay
     crons: () => <>{[...cronChips].sort((a, b) => Number(b.state === "waiting on you") - Number(a.state === "waiting on you")).map(jobBubble)}</>,
     delayed: () => (
       <>
-        {delayed.map((message) => (
-          <span key={message.id} className="ct-ctx-bubble" data-tone={message.state === "failed" ? "waiting" : "scheduled"}>
-            <button type="button" className="ct-ctx-bubble__open" aria-label={`Edit delayed message: ${message.text}`} onMouseDown={(event) => event.preventDefault()} onClick={() => onEditDelayed(message)}>
-              <span className="ct-ctx-bubble__meta">{delayedWhen(message)}</span>
+        {[...delayed].sort((a, b) => Number(a.state === "stashed") - Number(b.state === "stashed")).map((message) => (
+          <span key={message.id} className="ct-ctx-bubble" data-tone={delayedTone(message)}>
+            <button type="button" className="ct-ctx-bubble__open" aria-label={`Edit ${message.state === "stashed" ? "stashed" : "delayed"} message: ${message.text}`} onMouseDown={(event) => event.preventDefault()} onClick={() => onEditDelayed(message)}>
+              {message.state === "stashed"
+                ? <InfinityIcon size={13} aria-label="Stashed, sends only when you schedule it" className="ct-ctx-bubble__stash" />
+                : <span className="ct-ctx-bubble__meta">{delayedWhen(message)}</span>}
               <span className="ct-ctx-bubble__title ct-ctx-bubble__title--text">{message.text}</span>
             </button>
             <button type="button" className="ct-ctx-bubble__dismiss" aria-label="Cancel delayed message" title="Cancel" onMouseDown={(event) => event.preventDefault()} onClick={() => onDeleteDelayed(message.id)}>
@@ -164,7 +172,7 @@ export function ComposerContextHeader({ tabId, workspaceId, delayed, onEditDelay
     if (owned) return <ContextTitle kind="blueprints" prefix="Blueprint:" primary={owned.blueprint.name} secondary={jobStateLabel(owned.blueprint.state)} />;
     const job = blueprintChips[0] ?? cronChips[0];
     if (job) return <ContextTitle kind={job.kind === "cron" ? "crons" : "blueprints"} prefix={job.kind === "cron" ? "Cron:" : "Blueprint:"} primary={job.title} secondary={jobStateLabel(job.state)} />;
-    const next = [...delayed].sort((a, b) => a.scheduledAtMs - b.scheduledAtMs)[0];
+    const next = delayed.filter((message) => message.state !== "stashed").sort((a, b) => a.scheduledAtMs - b.scheduledAtMs)[0];
     return next ? <ContextTitle kind="delayed" prefix="Next:" primary={delayedWhen(next)} secondary={next.text} /> : null;
   };
 
