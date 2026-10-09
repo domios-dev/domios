@@ -4,8 +4,9 @@ import { useSurfaceTakeControl } from "../../lib/surfaceControlStore";
 import type { FrameDecoder } from "./frameFeed";
 import { createLatestWins, type LatestWins } from "./latestWins";
 import { PointAndAsk } from "./PointAndAsk";
+import { SnipFrame } from "./SnipOverlay";
 import { StreamCanvas } from "./StreamCanvas";
-import { decideKey, type PagePoint, type PageRect, type StreamInput } from "./streamModel";
+import { decideKey, type PagePoint, type PageRect, type Rect, type StreamInput } from "./streamModel";
 import {
   addressSubmission,
   askPopoverPosition,
@@ -88,6 +89,8 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
   const [picked, setPicked] = useState<Picked | null>(null);
   const [snipping, setSnipping] = useState(false);
   const [snipped, setSnipped] = useState<Snipped | null>(null);
+  const [snipFrame, setSnipFrame] = useState<Rect | null>(null);
+  const snipRun = useRef(0);
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const [sending, setSending] = useState(false);
   const [naming, setNaming] = useState<ToolbarItemSpec | null>(null);
@@ -112,7 +115,7 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
   const label = surfaceLabel(state.owner, surfaceTitle);
   const needText = needKind !== dismissedNeed ? needsHumanNotice(state) : null;
   const shownNotice: SurfaceNotice | null = notice ?? (needText ? { text: needText, tone: "warn" } : null);
-  const items = resolveToolbar(chrome, { interactive, picking, snipping: snipping || snipped !== null, state, busy });
+  const items = resolveToolbar(chrome, { interactive, picking, snipping: snipping || snipped !== null || snipFrame !== null, state, busy });
   const report = (action: string, error: unknown) => setNotice({ text: failureNotice(action, error), tone: "error" });
 
   const markBusy = (id: string, on: boolean) => setBusy((current) => {
@@ -177,6 +180,8 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
 
   const cancelSnip = () => {
     setSnipping(false);
+    setSnipFrame(null);
+    snipRun.current += 1;
     if (!snipped) return;
     setSnipped(null);
     // The core evicts stale captures anyway, so a failed discard is not worth a notice.
@@ -191,7 +196,7 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
         setPicking(true);
       }
     } else if (id === CHROME_ITEM.snip) {
-      if (snipping || snipped) cancelSnip();
+      if (snipping || snipped || snipFrame) cancelSnip();
       else {
         if (picking) cancelPick();
         setSnipping(true);
@@ -206,11 +211,19 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
     else if (state.url && canOpenExternally(state.url)) openExternal(state.url);
   };
 
-  const onSnip = (rect: PageRect, anchor: PopoverAnchor) => {
+  const onSnip = (rect: PageRect, anchor: PopoverAnchor, frame: Rect) => {
     setSnipping(false);
+    setSnipFrame(frame);
+    const run = ++snipRun.current;
     runBusy<SnipCapture>(CHROME_ITEM.snip, SURFACE_METHOD.snipCapture, snipCaptureArgs(rect))
-      .then((capture) => setSnipped({ capture, rect, position: askPopoverPosition(anchor), image: true }))
-      .catch((error: unknown) => report("Snip", error));
+      .then((capture) => {
+        if (run === snipRun.current) setSnipped({ capture, rect, position: askPopoverPosition(anchor), image: true });
+        else transport.invoke(SURFACE_METHOD.snipCancel, { id: capture.id }).catch(() => undefined);
+      })
+      .catch((error: unknown) => {
+        if (run === snipRun.current) setSnipFrame(null);
+        report("Snip", error);
+      });
   };
 
   const onSendSnip = (comment: string) => {
@@ -222,6 +235,7 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
       .finally(() => {
         setSending(false);
         setSnipped(null);
+        setSnipFrame(null);
       });
   };
 
@@ -294,6 +308,7 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
         onCancelSnip={cancelSnip}
         onError={(error) => report("Frame", error)}
       >
+        {snipFrame && <SnipFrame frame={snipFrame} />}
         {stream.paused && <SurfacePreviewPaused notice={stream.paused} />}
         {shownNotice && <SurfaceNoticeBar notice={shownNotice} onDismiss={() => (notice ? setNotice(null) : setDismissedNeed(needKind))} />}
         {picked && (

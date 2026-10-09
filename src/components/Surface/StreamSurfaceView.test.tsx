@@ -107,6 +107,25 @@ const pointer = (type: string, clientX: number, clientY: number) =>
   new PointerEvent(type, { bubbles: true, cancelable: true, clientX, clientY, button: 0, pointerId: 1 });
 const snipOverlay = (scope: ParentNode) => scope.querySelector<HTMLElement>("[data-testid='surface-snip']");
 const escape = () => new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+const snipFrame = (scope: ParentNode) => scope.querySelector<HTMLElement>("[data-testid='surface-snip-frame']");
+
+function assertFrameAtSelection(scope: ParentNode) {
+  const frame = snipFrame(scope);
+  assert.ok(frame, "the snipped area stays outlined on the live page");
+  assert.deepEqual(
+    [frame.style.left, frame.style.top, frame.style.width, frame.style.height],
+    ["100px", "75px", "100px", "75px"],
+    "the frame sits where the area was dragged, in stage px",
+  );
+}
+
+function assertNoLargeImage(scope: ParentNode) {
+  const images = [...scope.querySelectorAll("img")];
+  assert.ok(
+    images.every((image) => image.dataset.testid === "attachment-chip-thumb"),
+    "the only image in the surface is the chip thumbnail",
+  );
+}
 
 async function startSnip(options: MountOptions = {}) {
   const view = await mount({ surfaceTabId: SURFACE_TAB, ...options });
@@ -144,6 +163,8 @@ suite.test("snip and ask works beside the agent: drag, capture in page coords, o
   await dragArea(region());
   assert.equal(snipOverlay(region()), null, "release finishes the selection");
   assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipCapture).map((call) => call.args), [{ x: 320, y: 880, w: 320, h: 240 }], "canvas rect maps to the scrolled page");
+  assertFrameAtSelection(region());
+  assertNoLargeImage(host);
   const dialog = getByRole(host, "dialog", SNIP_DIALOG_LABEL);
   const chip = dialog.querySelector<HTMLElement>("[data-testid='attachment-chip']");
   assert.equal(chip?.textContent, SNIP_IMAGE_LABEL, "the snip sits in the input as a screenshot chip");
@@ -153,6 +174,7 @@ suite.test("snip and ask works beside the agent: drag, capture in page coords, o
   assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipSend).map((call) => call.args), [{ id: "s1", comment: "why is this cut off?", image: true }]);
   assert.equal(fake.callsTo(SURFACE_METHOD.snipCancel).length, 0, "a sent capture is not discarded");
   assert.equal(queryByRole(host, "dialog"), null);
+  assert.equal(snipFrame(region()), null, "sending clears the frame with the composer");
   control.assertUntouched(region());
   await unmount();
 });
@@ -177,14 +199,33 @@ suite.test("Esc cancels the selection and the composer without sending anything"
   assert.deepEqual(fake.calls.filter((call) => call.method.startsWith("snip.")), [], "nothing captured");
   await act(async () => getByRole(region(), "button", "Snip and ask").click());
   await dragArea(region());
+  assertFrameAtSelection(region());
   const editor = getByRole(getByRole(host, "dialog", SNIP_DIALOG_LABEL), "textbox", "Your question");
   await changeValue(editor as unknown as HTMLInputElement, "draft", "input");
   await act(async () => { editor.dispatchEvent(escape()); });
   await flushAsync();
   assert.equal(queryByRole(host, "dialog"), null);
+  assert.equal(snipFrame(region()), null, "Esc clears the frame with the composer");
   assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipSend), [], "nothing sent");
   assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipCancel).map((call) => call.args), [{ id: "s1" }], "the capture is discarded");
   control.assertUntouched(region());
+  await unmount();
+});
+
+suite.test("a snip cancelled while its capture is in flight discards the late capture and opens nothing", async () => {
+  const { fake, region, host, unmount } = await startSnip();
+  let finish: (value: SnipCapture) => void = () => undefined;
+  fake.respond(SURFACE_METHOD.snipCapture, () => new Promise<SnipCapture>((resolve) => { finish = resolve; }));
+  await dragArea(region());
+  assertFrameAtSelection(region());
+  await act(async () => getByRole(region(), "button", "Pick element").click());
+  assert.equal(snipFrame(region()), null, "switching to Pick clears the pending frame");
+  await act(async () => finish(capture));
+  await flushAsync();
+  assert.equal(queryByRole(host, "dialog"), null, "the late capture opens no composer");
+  assert.equal(snipFrame(region()), null);
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipCancel).map((call) => call.args), [{ id: "s1" }], "the late capture is discarded");
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipSend), []);
   await unmount();
 });
 
