@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { SHELL_NARROW_MAX_PX, SHELL_NARROW_QUERY } from "../../../src/lib/shellBreakpoint";
 
 const PSEUDO = [
   [":hover", "gallery-pseudo-hover"],
@@ -139,4 +140,101 @@ export function PinnedMenu({ trigger, submenu, via = "pointerdown", menuSelector
     };
   }, [trigger, submenu, via, menuSelector]);
   return <div ref={ref} className="gallery-fill">{children}</div>;
+}
+
+const PHONE_SCOPE = "gallery-phone-viewport";
+const phoneSpecimens = new Set<string>();
+let phoneMediaMirrored = false;
+
+function phoneRoute(): boolean {
+  const route = window.location.hash.replace(/^#gallery\//, "");
+  return phoneSpecimens.has(route);
+}
+
+function forcedMediaList(query: string): MediaQueryList {
+  return {
+    matches: true,
+    media: query,
+    onchange: null,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    dispatchEvent: () => false,
+  };
+}
+
+function splitSelectors(text: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === "(" || char === "[") depth += 1;
+    else if (char === ")" || char === "]") depth -= 1;
+    else if (char === "," && depth === 0) {
+      parts.push(text.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  parts.push(text.slice(start).trim());
+  return parts;
+}
+
+function scopeSelector(selector: string): string {
+  const root = /^(:root|html|body)\b/.exec(selector);
+  return root ? `.${PHONE_SCOPE}${selector.slice(root[0].length)}` : `.${PHONE_SCOPE} ${selector}`;
+}
+
+function appliesOnPhone(condition: string): boolean {
+  if (/^\s*not\b/.test(condition)) return false;
+  return condition.split(",").some((query) => {
+    const max = /(?:max-width:\s*|width\s*<=?\s*)(\d+)px/.exec(query);
+    return Boolean(max && Number(max[1]) >= SHELL_NARROW_MAX_PX && !/min-width|width\s*>/.test(query));
+  });
+}
+
+function mirrorPhoneRules(list: CSSRuleList, parent: CSSStyleSheet | CSSGroupingRule): void {
+  for (const rule of Array.from(list)) {
+    if (rule instanceof CSSMediaRule && appliesOnPhone(rule.conditionText)) {
+      for (const inner of Array.from(rule.cssRules)) {
+        if (!(inner instanceof CSSStyleRule)) continue;
+        const selector = splitSelectors(inner.selectorText).map(scopeSelector).join(", ");
+        try {
+          parent.insertRule(`${selector} { ${inner.style.cssText} }`, parent.cssRules.length);
+        } catch {
+          // Selectors the engine rejects after scoping stay unmirrored.
+        }
+      }
+    } else if (rule instanceof CSSLayerBlockRule || rule instanceof CSSSupportsRule) {
+      mirrorPhoneRules(rule.cssRules, rule);
+    }
+  }
+}
+
+/**
+ * Makes `specimenId` render as a phone (max-width 640px) inside the desktop gallery: the product's
+ * SHELL_NARROW matchMedia answers true on that route only, and phone-width @media rules are mirrored
+ * under the wrapper so the stage gets the phone stylesheet without an iframe.
+ */
+export function forcePhoneViewport(specimenId: string): void {
+  phoneSpecimens.add(specimenId);
+  if (phoneSpecimens.size > 1) return;
+  const native = window.matchMedia.bind(window);
+  window.matchMedia = (query: string) => (query === SHELL_NARROW_QUERY && phoneRoute() ? forcedMediaList(query) : native(query));
+}
+
+export function PhoneViewport({ children }: { children: ReactNode }) {
+  useEffect(() => {
+    if (phoneMediaMirrored) return;
+    phoneMediaMirrored = true;
+    for (const sheet of Array.from(document.styleSheets)) {
+      try {
+        mirrorPhoneRules(sheet.cssRules, sheet);
+      } catch {
+        // Cross-origin sheets are not readable.
+      }
+    }
+  }, []);
+  return <div className={PHONE_SCOPE}>{children}</div>;
 }

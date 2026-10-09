@@ -26,10 +26,13 @@ export interface ChatBottomBarProps {
   /** Loops: strip open, then a draft is typed and the strip folds away. */
   typingLoop?: boolean;
   narrow?: boolean;
+  /** Phone variant: clicks the glass context pill so the header unfolds. */
+  unfold?: boolean;
+  workspaceId?: string;
 }
 
 /** TabSessionChat's bottom bar: context slot, status row, then the shipped ChatComposer. */
-export function ChatBottomBar({ tab, status = null, draft, attachments = [], showStatus = true, openKind, typingLoop = false, narrow = false }: ChatBottomBarProps) {
+export function ChatBottomBar({ tab, status = null, draft, attachments = [], showStatus = true, openKind, typingLoop = false, narrow = false, unfold = false, workspaceId }: ChatBottomBarProps) {
   const root = useRef<HTMLDivElement>(null);
   const [contextSlot, setContextSlot] = useState<HTMLDivElement | null>(null);
   const activity = tabActivity(tab, status);
@@ -40,11 +43,13 @@ export function ChatBottomBar({ tab, status = null, draft, attachments = [], sho
     let timer = 0;
     const query = <T extends Element>(selector: string) => root.current?.querySelector<T>(selector) ?? null;
     const whenReady = (selector: string, run: (element: HTMLElement) => void, attempts = 80) => {
+      if (!alive) return;
       const element = query<HTMLElement>(selector);
       if (element) run(element);
       else if (attempts > 0 && alive) timer = window.setTimeout(() => whenReady(selector, run, attempts - 1), 50);
     };
     if (draft) whenReady('textarea[data-testid="chat-composer"]', (element) => typeInto(element as HTMLTextAreaElement, draft));
+    if (unfold) whenReady('[data-testid="composer-context-pill"][aria-expanded="false"]', (pill) => pill.click());
     const kind = typingLoop ? "delayed" : openKind;
     if (kind) {
       whenReady(`.ct-ctx-kind[data-kind="${kind}"]`, (button) => {
@@ -66,9 +71,9 @@ export function ChatBottomBar({ tab, status = null, draft, attachments = [], sho
       alive = false;
       window.clearTimeout(timer);
     };
-  }, [draft, openKind, typingLoop]);
+  }, [draft, openKind, typingLoop, unfold]);
 
-  return <ProductProviders tabs={[tab]} plans>
+  return <ProductProviders tabs={[tab]} workspaceId={workspaceId} plans>
     <div ref={root} className={narrow ? "gallery-fill gallery-fill--narrow" : "gallery-fill"}>
       <div data-composer-height-surface className="ct-chat-bottom-bar shrink-0">
         <div ref={setContextSlot} className="ct-ctx-slot" />

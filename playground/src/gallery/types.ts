@@ -12,7 +12,7 @@ export type Specimen = {
   category: string;
   where: string;
   states: SpecimenState[];
-  stage?: "wide";
+  stage?: "wide" | "full";
   notes?: string;
 };
 
