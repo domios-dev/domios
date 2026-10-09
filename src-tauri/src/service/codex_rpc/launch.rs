@@ -133,32 +133,36 @@ pub fn prepare(svc: &ServiceContext, tab: &str, provider: &str, command: String)
         }
         return command;
     }
-    let Some(plan) = PLANS.lock().remove(tab) else {
-        super::diagnostics::fallback(svc, tab, provider, "deferred launch plan missing");
-        if let Some(sidecar) = super::lifecycle::for_tab(tab) {
-            return remote_command(&sidecar);
+    let plan = match PLANS.lock().remove(tab) {
+        Some(plan) => plan,
+        None => {
+            if let Some(sidecar) = super::lifecycle::for_tab(tab) {
+                return remote_command(&sidecar);
+            }
+            // A restart can clear the plan between defer and prepare; rebuild it from the tab
+            // instead of dropping to the plain PTY lane.
+            log::warn!(
+                "[codex-rpc] tab={tab} deferred launch plan missing; rebuilding it from the tab"
+            );
+            let params = svc
+                .mux
+                .read()
+                .get_tab(tab)
+                .map(|tab| SpawnAgentParams {
+                    agent: Some(provider.into()),
+                    cwd: tab.cwd.clone(),
+                    resume_session_id: tab.agent_session_id.clone(),
+                    model: tab.restorable_launch.model.clone(),
+                    reasoning_effort: tab.restorable_launch.resolved_reasoning_effort.clone(),
+                    ..Default::default()
+                })
+                .unwrap_or_default();
+            Plan {
+                params,
+                task: None,
+                injected: None,
+            }
         }
-        super::lifecycle::plain_launch(svc, tab, &svc.ensure_session_binding_nonce(tab));
-        let params = svc
-            .mux
-            .read()
-            .get_tab(tab)
-            .map(|tab| SpawnAgentParams {
-                agent: Some(provider.into()),
-                cwd: tab.cwd.clone(),
-                resume_session_id: tab.agent_session_id.clone(),
-                model: tab.restorable_launch.model.clone(),
-                reasoning_effort: tab.restorable_launch.resolved_reasoning_effort.clone(),
-                ..Default::default()
-            })
-            .unwrap_or_default();
-        return crate::service::orchestrator::build_agent_command(
-            provider,
-            &params,
-            None,
-            None,
-            &svc.agent_registry,
-        );
     };
     if super::lifecycle::for_tab(tab).is_none() {
         svc.rotate_session_binding_nonce(tab);
