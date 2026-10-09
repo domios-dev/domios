@@ -192,6 +192,22 @@ fn launch_gate_allows_unknown_provider_state_with_readiness_evidence() {
 }
 
 #[test]
+fn authenticated_resume_accepts_binding_while_busy_without_composer_evidence() {
+    assert_eq!(
+        decide_launch_input(
+            LaunchInputObservation {
+                session_bound: true,
+                composer_ready: false,
+                provider_busy: true,
+                ..input_observation()
+            },
+            LaunchInputMode::Standard,
+        ),
+        Ok(Some(LaunchInputEvidence::SessionBinding)),
+    );
+}
+
+#[test]
 fn launch_gate_refuses_provider_and_pending_prompt_dialogs() {
     for state in [
         TabState::UpdatePrompt,

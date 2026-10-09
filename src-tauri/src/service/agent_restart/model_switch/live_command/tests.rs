@@ -66,7 +66,274 @@ fn timeout_fails_without_rewriting_or_restarting() {
         || false,
     );
     assert!(result.is_err());
+    assert!(result.unwrap_err().contains("restart and resume"));
     assert_eq!(writes.get(), 1);
+}
+
+fn target() -> CommandTarget {
+    CommandTarget {
+        tab_id: "tab".into(),
+        pty_id: "pty".into(),
+        provider: "provider".into(),
+        session_id: "session".into(),
+        binding_nonce: "nonce".into(),
+        cwd: None,
+        model: "m[1]".into(),
+        display_name: "Display".into(),
+    }
+}
+
+fn command_prompt() -> CommandPrompt {
+    CommandPrompt::new(
+        &crate::agent::provider::ModelSwitchPrompt {
+            screen_regex: "^confirm {model}$".into(),
+            response_keys: vec!["y".into(), "\r".into()],
+        },
+        &target(),
+        None,
+    )
+    .unwrap()
+}
+
+#[test]
+fn declared_prompt_answers_once_only_after_own_injection() {
+    let writes = Cell::new(0);
+    let write = |keys: &[u8]| {
+        assert_eq!(keys, b"y\r");
+        writes.set(writes.get() + 1);
+        Ok(())
+    };
+    let mut prompt = command_prompt();
+    prompt.respond("confirm m[1]", write).unwrap();
+    assert_eq!(writes.get(), 0);
+    execute_command(
+        || true,
+        || Ok(()),
+        || {
+            prompt.injected();
+            prompt.respond("confirm other", write).unwrap();
+            prompt.respond("confirm m[1]", write).unwrap();
+            prompt.respond("confirm m[1]", write).unwrap();
+            true
+        },
+    )
+    .unwrap();
+    assert_eq!(writes.get(), 1);
+}
+
+#[test]
+fn failed_injection_never_authorizes_prompt_response() {
+    let mut prompt = command_prompt();
+    assert!(execute_command(
+        || true,
+        || Err("write refused".into()),
+        || {
+            prompt.injected();
+            true
+        }
+    )
+    .is_err());
+    prompt
+        .respond("confirm m[1]", |_| panic!("unowned prompt response"))
+        .unwrap();
+}
+
+#[test]
+fn answered_prompt_timeout_fails_without_repeating_response() {
+    let writes = Cell::new(0);
+    let mut prompt = command_prompt();
+    let result = execute_command(
+        || true,
+        || Ok(()),
+        || {
+            prompt.injected();
+            for _ in 0..3 {
+                prompt
+                    .respond("confirm m[1]", |_| {
+                        writes.set(writes.get() + 1);
+                        Ok(())
+                    })
+                    .unwrap();
+            }
+            false
+        },
+    );
+    assert!(result.unwrap_err().contains("restart and resume"));
+    assert_eq!(writes.get(), 1);
+}
+
+#[test]
+fn response_failure_is_not_retried() {
+    let mut prompt = command_prompt();
+    prompt.injected();
+    assert!(prompt
+        .respond("confirm m[1]", |_| Err("closed".into()))
+        .unwrap_err()
+        .contains("could not be answered"));
+    prompt
+        .respond("confirm m[1]", |_| panic!("response replay"))
+        .unwrap();
+}
+
+#[test]
+fn command_target_refuses_rebound_session_pty_and_nonce() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    let expected = target();
+    tab.pty_id = Some(expected.pty_id.clone());
+    tab.agent_type = Some(expected.provider.clone());
+    tab.agent_session_id = Some(expected.session_id.clone());
+    tab.session_binding_nonce = Some(expected.binding_nonce.clone());
+    tab.reported_session_binding_nonce = Some(expected.binding_nonce.clone());
+    assert!(expected.matches(tab));
+    tab.pty_id = Some("replacement".into());
+    assert!(!expected.matches(tab));
+    tab.pty_id = Some(expected.pty_id.clone());
+    tab.agent_session_id = Some("replacement".into());
+    assert!(!expected.matches(tab));
+    tab.agent_session_id = Some(expected.session_id.clone());
+    tab.session_binding_nonce = Some("replacement".into());
+    tab.reported_session_binding_nonce = Some("replacement".into());
+    assert!(!expected.matches(tab));
+}
+
+#[test]
+fn preexisting_declared_prompt_refuses_command_without_answering() {
+    let mut prompt = command_prompt();
+    let result = execute_command(
+        || !prompt.present("confirm m[1]"),
+        || panic!("command injection"),
+        || true,
+    );
+    assert!(result.is_err());
+    prompt
+        .respond("confirm m[1]", |_| panic!("preexisting prompt response"))
+        .unwrap();
+}
+
+#[test]
+fn invalid_prompt_declarations_refuse_before_injection() {
+    for (screen_regex, response_keys) in [
+        ("[", vec!["y"]),
+        (".*", vec!["y"]),
+        ("confirm", vec![]),
+        ("confirm", vec![""]),
+    ] {
+        assert!(CommandPrompt::new(
+            &crate::agent::provider::ModelSwitchPrompt {
+                screen_regex: screen_regex.into(),
+                response_keys: response_keys.into_iter().map(str::to_owned).collect(),
+            },
+            &target(),
+            None
+        )
+        .is_err());
+    }
+}
+
+#[test]
+fn effort_only_plan_sends_only_effort_and_preserves_model_identity() {
+    let commands = crate::agent::provider::ModelSwitchCommands {
+        model: ModelSwitchCommand {
+            command: "/choose {model}".into(),
+            confirmation: "model".into(),
+            prompt: None,
+        },
+        effort: Some(ModelSwitchCommand {
+            command: "/reason {effort}".into(),
+            confirmation: "^accepted {effort}$".into(),
+            prompt: None,
+        }),
+        transcript: source(),
+    };
+    let plan = planned_commands(&commands, false, Some("high"));
+    assert_eq!(plan.len(), 1);
+    assert_eq!(
+        render_command(&plan[0].0.command, "chosen", plan[0].1).unwrap(),
+        "/reason high"
+    );
+    let pattern =
+        confirmation_pattern(&plan[0].0.confirmation, "chosen", "Display", plan[0].1).unwrap();
+    assert!(transcript_confirms(
+        &serde_json::json!({"type":"opaque-type", "payload":"<opaque>accepted high</opaque>"})
+            .to_string(),
+        &source(),
+        &pattern
+    ));
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_requested_model = Some("chosen".into());
+    tab.agent_session_model = Some("actual-model".into());
+    record_confirmed_effort(tab, "high");
+    assert_eq!(tab.agent_requested_model.as_deref(), Some("chosen"));
+    assert_eq!(tab.agent_session_model.as_deref(), Some("actual-model"));
+    assert_eq!(
+        tab.reasoning_effort_identity.requested.as_deref(),
+        Some("high")
+    );
+    assert_eq!(
+        tab.reasoning_effort_identity.resolved.as_deref(),
+        Some("high")
+    );
+    assert_eq!(
+        tab.reasoning_effort_identity.actual.as_deref(),
+        Some("high")
+    );
+    assert_eq!(planned_commands(&commands, true, Some("high")).len(), 2);
+}
+
+#[test]
+fn effort_only_confirmation_records_high_with_unchanged_session_pty_and_nonce() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    let mut target = target();
+    target.model = "opus".into();
+    tab.pty_id = Some(target.pty_id.clone());
+    tab.agent_type = Some(target.provider.clone());
+    tab.agent_session_id = Some(target.session_id.clone());
+    tab.session_binding_nonce = Some(target.binding_nonce.clone());
+    tab.reported_session_binding_nonce = Some(target.binding_nonce.clone());
+    tab.agent_session_model = Some("opus".into());
+    tab.agent_requested_model = Some("opus".into());
+    tab.agent_provider_resolved_model = Some("opus".into());
+    record_confirmed_effort(tab, "low");
+    let before = (
+        tab.agent_session_id.clone(),
+        tab.pty_id.clone(),
+        tab.session_binding_nonce.clone(),
+    );
+    assert!(tab.agent_session_model_identity.is_none());
+    record_target_effort(&target, tab, "high").unwrap();
+    assert_eq!(
+        tab.reasoning_effort_identity.requested.as_deref(),
+        Some("high")
+    );
+    assert_eq!(
+        tab.reasoning_effort_identity.resolved.as_deref(),
+        Some("high")
+    );
+    assert_eq!(
+        tab.reasoning_effort_identity.actual.as_deref(),
+        Some("high")
+    );
+    assert_eq!(tab.agent_requested_model.as_deref(), Some("opus"));
+    assert_eq!(tab.agent_provider_resolved_model.as_deref(), Some("opus"));
+    assert_eq!(tab.agent_session_model.as_deref(), Some("opus"));
+    assert!(tab.agent_session_model_identity.is_none());
+    assert_eq!(
+        (
+            tab.agent_session_id.clone(),
+            tab.pty_id.clone(),
+            tab.session_binding_nonce.clone()
+        ),
+        before
+    );
+    tab.session_binding_nonce = Some("new-nonce".into());
+    assert!(record_target_effort(&target, tab, "low").is_err());
+    assert_eq!(
+        tab.reasoning_effort_identity.actual.as_deref(),
+        Some("high")
+    );
 }
 
 #[test]

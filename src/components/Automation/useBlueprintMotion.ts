@@ -11,9 +11,9 @@ export function useBlueprintMotion(owner?: RefObject<HTMLElement | null>): boole
     const sync = () => setStaticMotion(
       query?.matches === true || (owner?.current ?? document.body)?.closest('[data-motion="paused"]') != null,
     );
-    const observer = new window.MutationObserver(sync);
+    const observer = typeof MutationObserver === "undefined" ? null : new MutationObserver(sync);
     let ancestor: HTMLElement | null = owner?.current ?? document.body;
-    while (ancestor) {
+    while (observer && ancestor) {
       observer.observe(ancestor, { attributes: true, attributeFilter: ["data-motion"] });
       ancestor = ancestor.parentElement;
     }
@@ -21,7 +21,7 @@ export function useBlueprintMotion(owner?: RefObject<HTMLElement | null>): boole
     query?.addEventListener("change", sync);
     return () => {
       query?.removeEventListener("change", sync);
-      observer.disconnect();
+      observer?.disconnect();
     };
   }, [owner]);
   return !staticMotion;

@@ -54,6 +54,14 @@ fn media(path: &std::path::Path, kind: &str) -> Result<(&'static str, u64), Stri
     Ok(result)
 }
 
+fn preview_text(bytes: Vec<u8>) -> Result<String, String> {
+    if bytes.contains(&0) {
+        return Err("Binary file: text preview is unavailable".into());
+    }
+    String::from_utf8(bytes)
+        .map_err(|_| "Binary or non-UTF-8 file: text preview is unavailable".to_string())
+}
+
 pub(crate) fn read_local_preview_file_guarded(
     path: &str,
     kind: &str,
@@ -68,11 +76,7 @@ pub(crate) fn read_local_preview_file_guarded(
             base64::engine::general_purpose::STANDARD.encode(bytes)
         )
     } else {
-        if bytes.contains(&0) {
-            return Err("Binary file: text preview is unavailable".into());
-        }
-        String::from_utf8(bytes)
-            .map_err(|_| "Binary or non-UTF-8 file: text preview is unavailable".to_string())?
+        preview_text(bytes)?
     };
     Ok(LocalPreviewFile {
         data,
@@ -97,13 +101,17 @@ pub(crate) fn check_local_preview_files_guarded(
     let paths = paths
         .into_iter()
         .filter(|path| {
-            let Ok(source) = PreviewSource::open(path, &guard) else {
+            let Ok(mut source) = PreviewSource::open(path, &guard) else {
                 log::debug!("[local-preview] inspection refused");
                 return false;
             };
-            ["page", "document", "image"]
-                .iter()
-                .any(|kind| media(&source.path, kind).is_ok_and(|(_, limit)| source.size <= limit))
+            if media(&source.path, "image").is_ok_and(|(_, limit)| source.size <= limit) {
+                return true;
+            }
+            source
+                .read(DOCUMENT_PREVIEW_FILE_LIMIT)
+                .and_then(preview_text)
+                .is_ok()
         })
         .collect();
     LocalPreviewFiles {
