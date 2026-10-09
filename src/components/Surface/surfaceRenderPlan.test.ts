@@ -33,8 +33,9 @@ const ready = (overrides: Partial<DeclaredSurface>) => ({ status: "ready" as con
 
 assert.deepEqual(surfaceRenderPlan({ status: "loading" }, true), { kind: "pending" });
 assert.deepEqual(surfaceRenderPlan(ready({ renderer: "view" }), true), { kind: "view" });
-assert.deepEqual(surfaceRenderPlan({ status: "ready", declared: null }, true), { kind: "view" }, "an undeclared surface keeps the view, as a disabled plugin did before");
-assert.deepEqual(surfaceRenderPlan({ status: "failed", error: "HTTP 500" }, true), { kind: "view" }, "an unreadable declaration keeps the view");
+assert.deepEqual(surfaceRenderPlan({ status: "ready", declared: null }, true), { kind: "unavailable" }, "an undeclared surface never falls back to the plugin view");
+assert.deepEqual(surfaceRenderPlan({ status: "failed", error: "HTTP 500" }, true), { kind: "unavailable", error: "HTTP 500" }, "an unreadable declaration carries its error");
+assert.deepEqual(surfaceRenderPlan({ status: "failed", error: "HTTP 500" }, false), { kind: "unavailable", error: "HTTP 500" }, "a hidden tab is unavailable too");
 assert.deepEqual(
   surfaceRenderPlan(ready({ renderer: "stream", runtime: "browser" }), true),
   { kind: "stream", runtime: "browser", chrome: BROWSER_SURFACE_CHROME, live: true },

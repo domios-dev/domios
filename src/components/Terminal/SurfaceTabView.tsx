@@ -70,6 +70,20 @@ function SurfaceActorTag({ surfaceTabId }: { surfaceTabId: string }) {
   );
 }
 
+function SurfaceUnavailable({ title, error }: { title: string; error?: string }) {
+  return (
+    <div role="status" data-testid="surface-unavailable" className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-sm text-[var(--ct-muted-fg)]">
+      <p>{title} unavailable: the plugin is not loaded</p>
+      {error && (
+        <details className="max-w-full text-xs">
+          <summary className="cursor-pointer select-none">Details</summary>
+          <code className="mt-1 block break-all">{error}</code>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function OwnerChip({ ownerName, ownerTab, onFocusOwner }: { ownerName: string; ownerTab: Tab | null; onFocusOwner?: () => void }) {
   const provider = useTabProvider(ownerTab);
   const content = (
@@ -147,6 +161,7 @@ export function SurfaceTabView({
         {plan.kind === "stream" && plan.live && (
           <StreamSurfaceBody tab={tab} api={api} ownerName={ownerName} chrome={plan.chrome} createTransport={createTransport} />
         )}
+        {plan.kind === "unavailable" && <SurfaceUnavailable title={tab.title || backing.surface_id} error={plan.error} />}
         {plan.kind === "unsupported" && (
           <p role="alert" className="p-4 text-sm text-[var(--ct-muted-fg)]">{plan.message}</p>
         )}
