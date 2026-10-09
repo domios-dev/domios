@@ -92,13 +92,10 @@ describe("surface owner block", () => {
     expect(all("surface-tether-droplet")).toHaveLength(0);
   });
 
-  it("collapsing the owner hides its surfaces and the tether", async () => {
+  it("always shows the owner's surfaces with no collapse toggle", async () => {
     await mount([surface("s1"), surface("s2")]);
-    expect(lastToggle).toMatchObject({ count: 2, collapsed: false });
-    await act(async () => lastToggle!.onToggle());
-    expect(all("attachment-row")).toHaveLength(0);
-    expect(all("surface-tether")).toHaveLength(0);
-    expect(lastToggle).toMatchObject({ count: 2, collapsed: true });
+    expect(lastToggle).toBeNull();
+    expect(all("attachment-row")).toHaveLength(2);
   });
 
   it("drops the tether in the narrow sidebar", async () => {
