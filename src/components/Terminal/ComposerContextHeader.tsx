@@ -6,7 +6,7 @@ import { deleteJobConfirmation, deleteMergedJob, stopMergedJob, type JobsActionA
 import { canStopJob, jobStateLabel, tabJobKey, type MergedJob, type TabJob } from "../Jobs/jobsModel";
 import { requestOpenJob } from "../Jobs/openJobEvent";
 import { openTabJob, useTabJobs } from "../Jobs/useTabJobs";
-import { formatRelative, type DelayedMessage } from "./delayedSend";
+import { formatScheduledTime, type DelayedMessage } from "./delayedSend";
 import { useResolvedTabActivity, useTabHasPlan } from "./useTabPlanActivity";
 import { usePhoneViewport } from "../../hooks/useSidebarViewport";
 
@@ -74,7 +74,7 @@ function stateTone(state: string): string {
 
 function delayedWhen(message: DelayedMessage): string {
   if (message.state === "stashed") return "stashed";
-  return message.state === "failed" ? "failed" : formatRelative(message.scheduledAtMs);
+  return message.state === "failed" ? "failed" : formatScheduledTime(message.scheduledAtMs);
 }
 
 function delayedTone(message: DelayedMessage): string {
