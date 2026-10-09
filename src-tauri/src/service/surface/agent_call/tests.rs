@@ -8,7 +8,12 @@ fn browser_decl() -> SurfaceDecl {
     .unwrap()
 }
 
-fn attach_surface(mux: &mut MultiplexerState, workspace: &str, owner: &str, surface_id: &str) -> String {
+fn attach_surface(
+    mux: &mut MultiplexerState,
+    workspace: &str,
+    owner: &str,
+    surface_id: &str,
+) -> String {
     let tab = mux.create_tab(workspace).unwrap();
     let surface = mux.get_tab_mut(&tab).unwrap();
     surface.backing = TabBacking::Surface(SurfaceBacking {
@@ -73,7 +78,10 @@ fn surface_agent_call_args_are_a_word_array() {
         parse_verb_call(r#"["button","Sign in"]"#).unwrap().args,
         vec!["button".to_string(), "Sign in".to_string()]
     );
-    assert_eq!(parse_verb_call(r#"[800]"#).unwrap().args, vec!["800".to_string()]);
+    assert_eq!(
+        parse_verb_call(r#"[800]"#).unwrap().args,
+        vec!["800".to_string()]
+    );
     assert_eq!(parse_verb_call("").unwrap(), VerbCall::default());
     assert_eq!(parse_verb_call("null").unwrap(), VerbCall::default());
     assert!(parse_verb_call(r#"{"a":1}"#).is_err());
@@ -152,8 +160,13 @@ fn surface_agent_call_without_of_keeps_the_callers_own_browser() {
         })
     );
     assert_eq!(plan(&team, &team.qa, "open", None), Ok(CallPlan::Open));
-    assert!(matches!(plan(&team, &team.qa, "status", None), Ok(CallPlan::Answer(_))));
-    assert!(plan(&team, &team.qa, "click", None).unwrap_err().contains("no browser open"));
+    assert!(matches!(
+        plan(&team, &team.qa, "status", None),
+        Ok(CallPlan::Answer(_))
+    ));
+    assert!(plan(&team, &team.qa, "click", None)
+        .unwrap_err()
+        .contains("no browser open"));
 }
 
 #[test]
@@ -163,8 +176,18 @@ fn surface_agent_call_of_resolves_by_tab_id_title_or_surface_id_and_names_the_ac
         tab_id: team.snake_browser.clone(),
         actor: Some("QA".into()),
     });
-    for of in [team.snake.as_str(), "Snake", "snake", " SNAKE ", team.snake_browser.as_str()] {
-        assert_eq!(plan(&team, &team.qa, "click", Some(of)), expected, "--of {of}");
+    for of in [
+        team.snake.as_str(),
+        "Snake",
+        "snake",
+        " SNAKE ",
+        team.snake_browser.as_str(),
+    ] {
+        assert_eq!(
+            plan(&team, &team.qa, "click", Some(of)),
+            expected,
+            "--of {of}"
+        );
     }
     assert_eq!(
         plan(&team, &team.snake, "click", Some("Snake")),
@@ -184,7 +207,9 @@ fn surface_agent_call_of_lists_candidates_when_the_title_is_ambiguous() {
     let error = plan(&team, &team.qa, "click", Some("Twin")).unwrap_err();
     assert!(error.contains("names 2 agents"), "{error}");
     assert!(error.contains(&twin) && error.contains(&other), "{error}");
-    assert!(plan(&team, &team.qa, "click", Some(&twin)).unwrap_err().contains("has no browser"));
+    assert!(plan(&team, &team.qa, "click", Some(&twin))
+        .unwrap_err()
+        .contains("has no browser"));
 }
 
 #[test]
@@ -215,17 +240,21 @@ fn surface_agent_call_of_stays_inside_the_callers_workspace() {
 #[test]
 fn surface_agent_call_of_is_refused_to_mesh_controlled_callers() {
     let mut team = team();
-    team.mux.get_tab_mut(&team.qa).unwrap().ownership = Some(codeterm_types::pty::RemoteOwnership {
-        controller_title: "Remote".into(),
-        controller_tab_id: None,
-        peer_id: "peer-1".into(),
-        peer_name: "Mac".into(),
-        team: None,
-    });
+    team.mux.get_tab_mut(&team.qa).unwrap().ownership =
+        Some(codeterm_types::pty::RemoteOwnership {
+            controller_title: "Remote".into(),
+            controller_tab_id: None,
+            peer_id: "peer-1".into(),
+            peer_name: "Mac".into(),
+            team: None,
+        });
     assert!(plan(&team, &team.qa, "click", Some("Snake"))
         .unwrap_err()
         .contains("mesh peer"));
-    assert!(matches!(plan(&team, &team.qa, "open", None), Ok(CallPlan::Open)));
+    assert!(matches!(
+        plan(&team, &team.qa, "open", None),
+        Ok(CallPlan::Open)
+    ));
 }
 
 #[test]
@@ -239,7 +268,16 @@ fn surface_agent_call_of_cannot_close_another_agents_browser() {
 #[test]
 fn surface_agent_call_of_runs_every_verb_on_the_owners_path_with_the_actor() {
     let team = team();
-    for verb in ["open", "status", "goto", "snapshot", "click", "type", "screenshot", "annotate"] {
+    for verb in [
+        "open",
+        "status",
+        "goto",
+        "snapshot",
+        "click",
+        "type",
+        "screenshot",
+        "annotate",
+    ] {
         let foreign = plan(&team, &team.qa, verb, Some("Snake")).unwrap();
         assert_eq!(
             foreign,
@@ -267,7 +305,10 @@ fn surface_agent_call_annotate_refuses_the_owners_own_browser() {
     let team = team();
     for of in [None, Some("Snake")] {
         let error = plan(&team, &team.snake, "annotate", of).unwrap_err();
-        assert_eq!(error, "annotate targets another agent's browser; use --of <agent>");
+        assert_eq!(
+            error,
+            "annotate targets another agent's browser; use --of <agent>"
+        );
     }
 }
 

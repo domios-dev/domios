@@ -158,7 +158,12 @@ fn browser_annotation_markdown_names_the_annotating_agent() {
 
 #[test]
 fn browser_annotate_args_take_a_click_locator_a_comment_and_an_optional_intent() {
-    let words = |items: &[&str]| items.iter().map(|item| item.to_string()).collect::<Vec<_>>();
+    let words = |items: &[&str]| {
+        items
+            .iter()
+            .map(|item| item.to_string())
+            .collect::<Vec<_>>()
+    };
     assert_eq!(
         parse_annotate(&words(&["@e3", "too small"])),
         Ok(AnnotateRequest {
@@ -175,7 +180,12 @@ fn browser_annotate_args_take_a_click_locator_a_comment_and_an_optional_intent()
             intent: "bug",
         })
     );
-    for bad in [&[][..], &["@e3"][..], &["@e3", " "][..], &["@e3", "x", "--intent"][..]] {
+    for bad in [
+        &[][..],
+        &["@e3"][..],
+        &["@e3", " "][..],
+        &["@e3", "x", "--intent"][..],
+    ] {
         assert!(parse_annotate(&words(bad)).is_err(), "{bad:?}");
     }
     assert!(parse_annotate(&words(&["@e3", "x", "--intent", "rant"])).is_err());

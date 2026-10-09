@@ -132,7 +132,8 @@ pub(crate) fn resolve_owner_tab(
     let workspace = mux
         .find_workspace_for_tab(caller_tab)
         .ok_or("the calling tab has no workspace")?;
-    let in_workspace = |tab_id: &str| mux.find_workspace_for_tab(tab_id).as_deref() == Some(workspace.as_str());
+    let in_workspace =
+        |tab_id: &str| mux.find_workspace_for_tab(tab_id).as_deref() == Some(workspace.as_str());
     let owner = match mux.resolve_tab_id(raw).and_then(|id| mux.get_tab(&id)) {
         Some(tab) if tab.surface().is_some() => tab
             .parent_tab_id
@@ -233,9 +234,8 @@ pub(crate) fn plan_agent_call(
         .map(|tab| tab.title.trim().to_string())
         .filter(|title| !title.is_empty())
         .unwrap_or_else(|| owner.clone());
-    let tab_id = open.ok_or_else(|| {
-        format!("{owner_name} has no {noun}; it opens its own with `open`")
-    })?;
+    let tab_id =
+        open.ok_or_else(|| format!("{owner_name} has no {noun}; it opens its own with `open`"))?;
     if verb == "close" {
         return Err(format!(
             "close only closes your own {noun}; {owner_name}'s stays open"
@@ -327,8 +327,7 @@ impl ServiceContext {
         self.note_surface_activity(&binding.tab_id, verb, actor.as_deref());
         if verb == "annotate" {
             let annotating = runtime.clone();
-            let outcome =
-                block_on_runtime(async move { annotating.annotate(&ctx, &args).await })?;
+            let outcome = block_on_runtime(async move { annotating.annotate(&ctx, &args).await })?;
             return Ok(self.deliver_agent_annotation(runtime.as_ref(), &binding, outcome));
         }
         let verb = verb.to_string();
