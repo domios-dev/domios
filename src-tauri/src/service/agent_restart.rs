@@ -29,6 +29,7 @@ pub const RESTART_READY_TIMEOUT_SECS: u64 = 45;
 /// Lives on `ServiceContext` and survives across requests.
 #[derive(Default)]
 pub struct RestartTrackerState {
+    staged_models: model_switch::staging::PendingSwitches,
     last_restart: HashMap<String, Instant>,
     in_progress: HashSet<String>,
 }
