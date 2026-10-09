@@ -15,6 +15,25 @@ fn session_identity_manifest_needs_no_transcript_confirmation_regex() {
         commands.confirmation_source,
         crate::provider::ModelSwitchConfirmationSource::SessionIdentity
     );
+    manifest["commands"]["modelSwitchCommands"]["turnCompletion"] = json!({
+        "eventPointer": "/params/update/sessionUpdate", "eventValue": "turn_completed", "sessionPointer": "/params/sessionId",
+        "startEventValue": "user_message_chunk", "turnPointer": "/params/update/prompt_id", "activeTurnPointer": "/params/_meta/promptId"
+    });
+    let provider = load(&manifest.to_string(), "module.exports.default = {};");
+    let commands = provider.model_switch_commands().unwrap();
+    assert_eq!(
+        serde_json::to_value(commands.turn_completion.unwrap()).unwrap(),
+        manifest["commands"]["modelSwitchCommands"]["turnCompletion"]
+    );
+    let root = tempfile::tempdir().unwrap();
+    let foreign = tempfile::NamedTempFile::new().unwrap();
+    manifest["sessions"] = json!({"rootDir": root.path().to_string_lossy(), "cwdEncoding": "none"});
+    let script = format!(
+        "module.exports.default = {{ sessionJsonlPath() {{ return {}; }} }};",
+        serde_json::to_string(&foreign.path().to_string_lossy()).unwrap()
+    );
+    let provider = load(&manifest.to_string(), &script);
+    assert!(provider.session_jsonl_path("/work", "own").is_none());
     manifest["commands"]["modelSwitchCommands"]["confirmationSource"]["kind"] = json!("guess");
     assert!(serde_json::from_value::<PluginManifest>(manifest).is_err());
 }

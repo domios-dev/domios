@@ -39,6 +39,7 @@ fn replacement_disconnects_old_waiter_and_only_latest_can_claim() {
     let (tx2, rx2) = channel();
     queue.replace(first.clone(), tx1);
     queue.replace(second.clone(), tx2);
+    assert_eq!(rx1.recv(), Ok(()));
     assert!(rx1.recv().is_err());
     assert!(!queue.claim(&first));
     queue.signal_completed(&second.tab_id, &second.session_id, &second.nonce);
@@ -55,6 +56,7 @@ fn cancel_disconnects_wait_and_idle_cannot_claim_cancelled_request() {
     let mut queue = PendingSwitches::default();
     queue.replace(request.clone(), tx);
     queue.cancel(&request.tab_id);
+    assert_eq!(rx.recv(), Ok(()));
     assert!(rx.recv().is_err());
     queue.signal_idle(&request.tab_id);
     assert!(!queue.claim(&request));

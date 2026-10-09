@@ -229,6 +229,16 @@ The default `confirmationSource: {kind: "transcript"}` preserves the existing
 `transcript` declaration and fresh wrapped-stdout confirmation.
 No new sandbox host function or filesystem grant is exposed.
 
+Busy model changes require authenticated own-turn completion; Idle alone never
+releases a staged change. Providers without hooks may declare
+`commands.modelSwitchCommands.turnCompletion` with `eventPointer`, `eventValue`,
+`sessionPointer`, `startEventValue`, `turnPointer` and `activeTurnPointer`.
+Pointers use JSON Pointer syntax against records in the exact bound session's
+`sessionJsonlPath`. The host captures an append boundary, observes file events,
+and matches the completed turn id against the latest provider-authored active
+turn id. A new user record invalidates prior completion evidence. Missing,
+foreign, partial or pre-boundary records cannot release the staged operation.
+
 `parseUsage` snapshots carry `billing_mode` (`subscription`, `api`, `unknown`)
 and `limits_reported` (boolean). Unknown is the default. Subscription snapshots
 with no reported metrics display that limits were not reported, without guessed
