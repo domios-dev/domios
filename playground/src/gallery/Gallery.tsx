@@ -9,13 +9,13 @@ export const specimens = Object.values(modules)
   .filter((specimen): specimen is Specimen => Boolean(specimen))
   .sort((a, b) => a.title.localeCompare(b.title));
 
-const CATEGORY_ORDER = ["Buttons", "Controls", "Menus", "Composer", "Voice", "Status", "Sidebar"];
+const CATEGORY_ORDER = ["Chrome", "Buttons", "Controls", "Menus", "Chat", "Composer", "Voice", "Status", "Automation", "Sidebar"];
 
 function GalleryShell({ activeId, children }: { activeId?: string; children: ReactNode }) {
   const groups = CATEGORY_ORDER.map((category) => ({ category, entries: specimens.filter((specimen) => specimen.category === category) })).filter((group) => group.entries.length);
   return <div className="gallery-catalog">
     <aside className="gallery-nav" aria-label="Component catalog">
-      <a className="gallery-nav-title" href="#gallery">Component gallery</a>
+      <a className="gallery-nav-title" href="#gallery">Domios Design</a>
       {groups.map(({ category, entries }) => <section key={category} className="gallery-nav-group" aria-labelledby={`gallery-category-${category}`}>
         <h2 id={`gallery-category-${category}`}>{category}</h2>
         {entries.map((specimen) => <a key={specimen.id} className={activeId === specimen.id ? "is-active" : ""} href={`#gallery/${specimen.id}`} aria-current={activeId === specimen.id ? "page" : undefined}>{specimen.title}</a>)}
@@ -55,7 +55,7 @@ export function GalleryDetail({ id }: { id: string }) {
       <p className="portal-kicker">{specimen.where}</p>
       <h1>{specimen.title}</h1>
       {specimen.notes && <p className="portal-lede">{specimen.notes}</p>}
-      <section className={`gallery-state-board${specimen.stage === "wide" ? " gallery-state-board--wide" : ""}`} aria-label={`${specimen.title} states`}>
+      <section className={`gallery-state-board${specimen.stage ? ` gallery-state-board--${specimen.stage}` : ""}`} aria-label={`${specimen.title} states`}>
         {specimen.states.map((state) => <StateStage key={state.id} state={state} />)}
       </section>
     </main></GalleryShell>;

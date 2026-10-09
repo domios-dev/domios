@@ -103,12 +103,12 @@ export function shellTab(id: string, overrides: Partial<Tab> = {}): Tab {
 
 export const API: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: null, cors: true };
 
-export function muxState(tabs: Tab[], statuses: Record<string, TabStatus> = {}): ExtendedState {
+export function muxState(tabs: Tab[], statuses: Record<string, TabStatus> = {}, workspaceId = WORKSPACE_ID): ExtendedState {
   return {
-    workspaces: [{ id: WORKSPACE_ID, name: "CodeTerm", tabs: tabs.map((tab) => tab.id), active_tab_id: tabs[0]?.id ?? null, cwd: "/Developer/codeterm" }],
+    workspaces: [{ id: workspaceId, name: "CodeTerm", tabs: tabs.map((tab) => tab.id), active_tab_id: tabs[0]?.id ?? null, cwd: "/Developer/codeterm" }],
     tabs: Object.fromEntries(tabs.map((tab) => [tab.id, tab])),
     teams: [TEAM],
-    active_workspace_id: WORKSPACE_ID,
+    active_workspace_id: workspaceId,
     focused_tab_id: tabs[0]?.id ?? null,
     notifications: [],
     tabStatuses: statuses,
@@ -121,11 +121,11 @@ export function muxState(tabs: Tab[], statuses: Record<string, TabStatus> = {}):
 
 const actions = new Proxy({}, { get: () => async () => undefined }) as MultiplexerActionsContextType;
 
-export function ProductProviders({ tabs = [], plans = false, children }: { tabs?: Tab[]; plans?: boolean; children: ReactNode }) {
+export function ProductProviders({ tabs = [], plans = false, workspaceId, children }: { tabs?: Tab[]; plans?: boolean; workspaceId?: string; children: ReactNode }) {
   const store = useMemo(() => {
-    const state = muxState(tabs);
+    const state = muxState(tabs, {}, workspaceId);
     return createMuxStateStore(() => state);
-  }, [tabs]);
+  }, [tabs, workspaceId]);
   return <MultiplexerActionsContext.Provider value={actions}>
     <MuxStateStoreContext.Provider value={store}>
       {plans ? <PlansProvider api={API}>{children}</PlansProvider> : children}

@@ -27,7 +27,19 @@ export function provideForTab(command: string, tabId: string, value: unknown): v
   byTab.set(command, table);
 }
 
+const byWorkspace = new Map<string, Map<string, unknown>>();
+
+/** Answers `command` with `value` when it is called for `workspaceId`, ahead of any shared handler or list. */
+export function provideForWorkspace(command: string, workspaceId: string, value: unknown): void {
+  const table = byWorkspace.get(command) ?? new Map<string, unknown>();
+  table.set(workspaceId, value);
+  byWorkspace.set(command, table);
+}
+
 export async function mockInvoke<T>(command: string, args?: Args): Promise<T> {
+  const workspaceId = args?.workspaceId ?? args?.workspace_id;
+  const scoped = byWorkspace.get(command);
+  if (scoped && workspaceId != null && scoped.has(String(workspaceId))) return scoped.get(String(workspaceId)) as T;
   const handler = handlers.get(command);
   if (handler) return (await handler(args)) as T;
   const table = byTab.get(command);
