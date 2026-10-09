@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { KebabGlyph } from "../../shared/RowMenuButton";
 
 const SEGMENTED_MAX = 3;
 
@@ -177,7 +178,7 @@ function KebabTrigger({
       aria-expanded={isOpen}
       onClick={onToggle}
     >
-      ⋯
+      <KebabGlyph />
     </button>
   );
 }

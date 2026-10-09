@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { MoreHorizontal, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
+import { KebabGlyph } from "../shared/RowMenuButton";
 import { Button } from "../shared/Button";
 import { Chip } from "../shared/Chip";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
@@ -120,7 +121,7 @@ export function PluginDetailHeader({
                   title="More actions"
                   loading={isBusy("remove")}
                 >
-                  <MoreHorizontal size={16} aria-hidden="true" />
+                  <KebabGlyph />
                 </Button>
               }
             />

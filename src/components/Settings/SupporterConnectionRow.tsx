@@ -1,5 +1,6 @@
 import { useRef, useState, type ReactNode } from "react";
-import { ExternalLink, MoreHorizontal } from "lucide-react";
+import { ExternalLink } from "lucide-react";
+import { KebabGlyph } from "../shared/RowMenuButton";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { Button } from "../shared/Button";
 import { UI_INPUT } from "../shared/design";
@@ -146,7 +147,7 @@ export function SupporterConnectionRow({ row, controls, stale, unavailableReason
                 aria-expanded={menuOpen}
                 className="!h-7 !w-7 !min-h-7 !p-0"
               >
-                <MoreHorizontal size={16} aria-hidden="true" />
+                <KebabGlyph />
               </Button>
             }
           />
