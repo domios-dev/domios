@@ -18,7 +18,7 @@ function streamFixture(status: string) {
 }
 
 test("lagged stream resync reads only own state and resumes subsequent frames", async () => {
-  const fixture = streamFixture("Working");
+  const fixture = streamFixture("working");
   const events = await TabEvents.open(fixture.api, "owned");
   try {
     const working = events.waitFor(event => event.seq > 3 && event.data.status === "Working", 1000, "resynced working");
@@ -36,7 +36,7 @@ test("lagged stream resync reads only own state and resumes subsequent frames", 
 });
 
 test("resync cannot manufacture a missed Working transition from current Idle", async () => {
-  const fixture = streamFixture("Idle");
+  const fixture = streamFixture("idle");
   const events = await TabEvents.open(fixture.api, "owned");
   try {
     const idle = events.waitFor(event => event.data.status === "Idle", 1000, "current idle");
