@@ -85,7 +85,7 @@ export function inspectBlueprintNode(node: BlueprintNode, graph: AutomationGraph
   return {
     ...base, properties,
     purpose: `Runs when the decision chooses ${action.bucket}; it receives the source output as its payload.`,
-    code: command ? { text: command.command, language: "bash", truncated: command.command_truncated } : null,
+    code: typeof command?.command === "string" ? { text: command.command, language: "bash", truncated: command.command_truncated } : null,
     command: handler.type === "command" ? { handler, result: action.result } : null,
     files: command ? { identity: stage.identity, bucket: action.bucket, handler: handler.id } : null,
   };
