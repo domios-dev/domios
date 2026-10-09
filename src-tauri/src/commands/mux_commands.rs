@@ -485,6 +485,16 @@ pub fn mux_reorder_child(
     svc.reorder_child(&parent_tab_id, &ordered_tab_ids)
 }
 
+/// Rewrite a workspace's sidebar display order across every tab level.
+#[tauri::command]
+pub fn mux_reorder_display(
+    svc: State<'_, ServiceState>,
+    workspace_id: String,
+    ordered_tab_ids: Vec<String>,
+) -> Result<(), String> {
+    svc.reorder_display(&workspace_id, &ordered_tab_ids)
+}
+
 /// Reorder workspaces.
 #[tauri::command]
 pub fn mux_reorder_workspace(

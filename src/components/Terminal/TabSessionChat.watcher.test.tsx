@@ -82,6 +82,7 @@ function muxActions(
     renameWorkspace: noop,
     moveTab: noop,
     reorderTabs: noop,
+    reorderDisplay: noop,
     reorderWorkspaces: noop,
     createTab: noopAsync,
     closeTab: noop,

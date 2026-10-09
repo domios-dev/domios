@@ -146,7 +146,7 @@ export async function renderSidebar({
   const root = createRoot(host);
   const rerender = async (nextPlans: Plan[], nextPlanIndex = planIndex) => act(async () => {
     root.render(
-      <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
+      <SidebarDnd handlers={{ reorderTabs: () => {}, reorderDisplay: () => {}, reorderWorkspaces: () => {} }}>
         <SidebarWorkspaceTabs
           workspace={workspace}
           activeTabId={workspace.active_tab_id}

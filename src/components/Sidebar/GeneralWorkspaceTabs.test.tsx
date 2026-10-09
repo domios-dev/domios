@@ -51,7 +51,7 @@ async function run() {
     observed = state;
     const workspace = state.workspaces[0];
     if (!workspace) return null;
-    return <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
+    return <SidebarDnd handlers={{ reorderTabs: () => {}, reorderDisplay: () => {}, reorderWorkspaces: () => {} }}>
       <GeneralWorkspaceTabs
         workspace={workspace} providerId="configured-provider" generalCwd={workspace.cwd}
         activeTabId={workspace.active_tab_id} sortedTabs={workspace.tabs.map((id) => state.tabs[id])}

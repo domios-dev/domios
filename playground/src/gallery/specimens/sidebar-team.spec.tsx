@@ -29,7 +29,7 @@ function TeamSpecimen({ counts, working = false, menu = false, submenu }: TeamSp
   const statuses: Record<string, TabStatus> = working ? { "team-worker-a": "Working", "team-worker-b": "Working" } : {};
   const plans = counts ? [plan(tasks(counts))] : [];
   const sidebar = <div className="gallery-sidebar">
-    <SidebarDnd handlers={{ reorderTabs: noop, reorderWorkspaces: noop }}>
+    <SidebarDnd handlers={{ reorderTabs: noop, reorderDisplay: noop, reorderWorkspaces: noop }}>
       <SidebarWorkspaceTabs
         workspace={{ id: TEAM.workspace_id, name: "CodeTerm", tabs: members.map((member) => member.id), active_tab_id: "team-orch", cwd: "/workspace" }}
         activeTabId="team-orch"

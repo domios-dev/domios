@@ -68,11 +68,13 @@ function dragEvent({
 function recordingHandlers() {
   const workspaceCalls: string[][] = [];
   const tabCalls: Parameters<ReorderHandlers["reorderTabs"]>[] = [];
+  const displayCalls: Parameters<ReorderHandlers["reorderDisplay"]>[0][] = [];
   const handlers: ReorderHandlers = {
     reorderWorkspaces: (ordered) => workspaceCalls.push(ordered),
     reorderTabs: (args) => tabCalls.push([args]),
+    reorderDisplay: (args) => displayCalls.push(args),
   };
-  return { handlers, workspaceCalls, tabCalls };
+  return { handlers, workspaceCalls, tabCalls, displayCalls };
 }
 
 test("sidebar_drag_restored workspace cards reorder through the workspace handler", () => {
@@ -111,6 +113,25 @@ test("sidebar_drag_restored child rows reorder through the parent tab handler", 
     parentTabId: "parent",
     orderedTabIds: ["child-two", "child-one"],
   }]], "child order");
+});
+
+test("sidebar_drag_restored rows with a workspace expansion commit the display order", () => {
+  const recorded = recordingHandlers();
+  const event = dragEvent({
+    group: "team",
+    groupKey: "team-1:1",
+    items: ["tab:w1", "tab:w2"],
+  });
+  (event.active.data.current as SortableGroupData).toWorkspaceOrder = (ordered) => ({
+    workspaceId: "workspace",
+    orderedTabIds: ["lead", ...ordered],
+  });
+  commitSidebarDrag(event, recorded.handlers);
+  assertDeepEqual(recorded.displayCalls, [{
+    workspaceId: "workspace",
+    orderedTabIds: ["lead", "w2", "w1"],
+  }], "display order");
+  assert(recorded.tabCalls.length === 0, "the group-scoped reorder is not used");
 });
 
 test("sidebar_drag_restored cross-group drops remain refused", () => {

@@ -346,6 +346,10 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson("POST", `/api/tabs/${enc(s(a, "parentTabId"))}/children/reorder`, {
       ordered_tab_ids: a.orderedTabIds,
     }),
+  mux_reorder_display: (a) =>
+    webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/display-order`, {
+      ordered_tab_ids: a.orderedTabIds,
+    }),
   mux_reorder_workspace: (a) =>
     webJson("POST", `/api/workspaces/reorder`, {
       ordered_workspace_ids: a.orderedWorkspaceIds,
