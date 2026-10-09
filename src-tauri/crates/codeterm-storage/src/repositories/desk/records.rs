@@ -105,9 +105,12 @@ impl DeskLeafFields {
 
 fn valid_leaf_value(field: &str, value: &Value) -> bool {
     match field {
-        "purpose" => value
-            .as_str()
-            .is_some_and(|purpose| matches!(purpose, "build" | "dev" | "qa" | "shell")),
+        "purpose" => value.as_str().is_some_and(|purpose| {
+            matches!(
+                purpose,
+                "build" | "dev" | "qa" | "deploy" | "logs" | "db" | "shell"
+            )
+        }),
         "agent_type_locked" | "can_spawn" | "auto_approve" | "permission_auto_confirm" => {
             value.is_boolean()
         }

@@ -94,16 +94,11 @@ fn utility_icons_validate_before_creation() {
 #[test]
 fn utility_limits_config_defaults_and_per_purpose_values() {
     let default = crate::config::schema::AppConfig::default();
-    for purpose in [
-        ShellPurpose::Build,
-        ShellPurpose::Qa,
-        ShellPurpose::Dev,
-        ShellPurpose::Shell,
-    ] {
+    for purpose in ShellPurpose::ALL {
         assert_eq!(limit_for(&default.utility_tabs.max_per_team, purpose), None);
     }
     let config: crate::config::schema::AppConfig = serde_json::from_value(serde_json::json!({
-        "utility_tabs": {"max_per_team": {"build": 2, "qa": 1}}
+        "utility_tabs": {"max_per_team": {"build": 2, "qa": 1, "deploy": 1, "logs": 3, "db": 4}}
     }))
     .unwrap();
     assert_eq!(
@@ -118,4 +113,14 @@ fn utility_limits_config_defaults_and_per_purpose_values() {
         limit_for(&config.utility_tabs.max_per_team, ShellPurpose::Dev),
         None
     );
+    for (purpose, limit) in [
+        (ShellPurpose::Deploy, 1),
+        (ShellPurpose::Logs, 3),
+        (ShellPurpose::Db, 4),
+    ] {
+        assert_eq!(
+            limit_for(&config.utility_tabs.max_per_team, purpose),
+            Some(limit)
+        );
+    }
 }

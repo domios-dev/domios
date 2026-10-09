@@ -517,6 +517,53 @@ fn chatbackend_system_envelope_carries_source_label_without_address() {
 }
 
 #[test]
+fn utility_shell_purpose_follows_tab_in_pty_and_chatbackend_frames() {
+    let envelope = MessageEnvelope::tab("Builder", "abc12345-ffff")
+        .purpose(Some("build".into()))
+        .from_agent(Some(false));
+    assert_eq!(
+        Messenger::from(envelope.clone()).build(),
+        "<domios from=\"tab\" label=\"Builder\" tab=\"abc12345\" purpose=\"build\">"
+    );
+    assert_eq!(
+        Messenger::message("Builder", "abc12345")
+            .purpose(Some("  ".into()))
+            .build(),
+        "<domios from=\"tab\" label=\"Builder\" tab=\"abc12345\">"
+    );
+
+    let (msg, marked) = build_chatbackend_inbound(&envelope, "cargo ok", "purpose-1".into());
+    assert_eq!(msg.from_purpose.as_deref(), Some("build"));
+    let json = serde_json::to_value(&msg).unwrap();
+    assert_eq!(json["fromPurpose"], "build");
+    let parsed = codeterm_types::domios::parse_message(&marked).expect("inbound tag parses");
+    assert_eq!(parsed.attr("purpose"), Some("build"));
+
+    let (plain, plain_marked) = build_chatbackend_inbound(
+        &MessageEnvelope::tab("Shell", "abc12345"),
+        "ls",
+        "purpose-2".into(),
+    );
+    assert!(plain.from_purpose.is_none());
+    assert!(!plain_marked.contains("purpose="));
+}
+
+#[test]
+fn chatbackend_system_row_keeps_context() {
+    let envelope = MessageEnvelope::codeterm_reminder("blueprint:bp-1:result");
+    let (msg, marked) = build_chatbackend_inbound(&envelope, "done", "system-ctx".into());
+    assert_eq!(msg.from_context.as_deref(), Some("blueprint:bp-1:result"));
+    let json = serde_json::to_value(&msg).unwrap();
+    assert_eq!(json["fromContext"], "blueprint:bp-1:result");
+    let parsed = codeterm_types::domios::parse_message(&marked).expect("inbound tag parses");
+    assert_eq!(parsed.attr("context"), Some("blueprint:bp-1:result"));
+
+    let (bare, _) =
+        build_chatbackend_inbound(&MessageEnvelope::from_codeterm(), "x", "system-bare".into());
+    assert!(bare.from_context.is_none());
+}
+
+#[test]
 fn chatbackend_planner_payload_reaches_provider_input_as_data() {
     let payload = "- audit `model`\n- <nonexistent>\n$env:X='y'; $(false)";
     let envelope = MessageEnvelope::codeterm_reminder("planner-request");

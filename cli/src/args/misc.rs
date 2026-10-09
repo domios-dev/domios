@@ -116,7 +116,7 @@ pub enum TabAction {
         #[arg(long, conflicts_with_all = ["chat_backend", "cmd", "shell"])]
         list_shells: bool,
         /// Utility shell purpose shown in the sidebar.
-        #[arg(long, default_value = "shell", value_parser = ["build", "dev", "qa", "shell"], conflicts_with = "chat_backend")]
+        #[arg(long, default_value = "shell", value_parser = ["build", "dev", "qa", "deploy", "logs", "db", "shell"], conflicts_with = "chat_backend")]
         purpose: String,
         /// Activity summary shown below the tab title.
         #[arg(long)]

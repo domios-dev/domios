@@ -29,6 +29,7 @@ pub struct MessageEnvelope {
     pub relay_hops: u8,
     pub relay_notice: bool,
     pub from_model: Option<String>,
+    pub purpose: Option<String>,
     pub from_mesh: Option<String>,
     pub from_plugin: Option<String>,
     pub plugin_icon_svg: Option<String>,
@@ -211,6 +212,11 @@ impl MessageEnvelope {
         self
     }
 
+    pub fn purpose(mut self, purpose: Option<String>) -> Self {
+        self.purpose = purpose.filter(|p| !p.trim().is_empty());
+        self
+    }
+
     pub fn mesh(mut self, mesh: Option<String>) -> Self {
         self.from_mesh = mesh.filter(|m| !m.trim().is_empty());
         self
@@ -312,6 +318,11 @@ impl Messenger {
 
     pub fn model(mut self, model: Option<String>) -> Self {
         self.envelope.from_model = model.filter(|m| !m.trim().is_empty());
+        self
+    }
+
+    pub fn purpose(mut self, purpose: Option<String>) -> Self {
+        self.envelope.purpose = purpose.filter(|p| !p.trim().is_empty());
         self
     }
 
@@ -869,6 +880,15 @@ impl Messenger {
         };
         attrs.push(("label", label));
         attrs.push(("tab", tab.to_string()));
+        if let Some(purpose) = self
+            .envelope
+            .purpose
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
+            attrs.push(("purpose", purpose.to_string()));
+        }
         if self.envelope.relay_hops > 0 {
             attrs.push(("relay_hops", self.envelope.relay_hops.to_string()));
         }
@@ -1046,6 +1066,8 @@ fn build_chatbackend_inbound(
         from_label: Some(clean_name(&envelope.from_label)).filter(|s| !s.is_empty()),
         from_tab: Some(short_id(&envelope.from_tab).to_string()).filter(|s| !s.is_empty()),
         from_model: envelope.from_model.clone(),
+        from_purpose: envelope.purpose.clone(),
+        from_context: envelope.context.clone(),
         from_mesh: envelope.from_mesh.clone().or(envelope.peer.clone()),
         from_plugin: envelope.from_plugin.clone(),
         plugin_icon_svg: envelope.plugin_icon_svg.clone(),
@@ -1061,6 +1083,7 @@ fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
     for (key, value) in [
         ("label", Some(label)),
         ("tab", Some(short_id(&envelope.from_tab).to_string())),
+        ("purpose", envelope.purpose.clone()),
         (
             "model",
             envelope

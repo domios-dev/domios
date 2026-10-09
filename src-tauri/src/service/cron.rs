@@ -4,6 +4,8 @@ use crate::cron::store::{
     CronRunStatus, CronScope, CronStore, CronUpdateParams, RunSession,
 };
 use crate::multiplexer::types::TabCloseReason;
+use crate::service::message_gateway::DeliveryClass;
+use crate::service::messenger::MessageEnvelope;
 use crate::CronState;
 use crate::CronWake;
 use parking_lot::Mutex;
@@ -29,6 +31,20 @@ fn cron_report_delivery_label(result: Result<(), String>) -> String {
         }
         Err(error) => format!("failed: {error}"),
     }
+}
+
+fn cron_status_slug(status: &CronRunStatus) -> &'static str {
+    match status {
+        CronRunStatus::Running => "running",
+        CronRunStatus::AwaitingOwnerPrompt => "awaiting_owner_prompt",
+        CronRunStatus::Success => "success",
+        CronRunStatus::Failed => "failed",
+        CronRunStatus::Cancelled => "cancelled",
+    }
+}
+
+fn cron_end_context(job_name: &str, status: &CronRunStatus) -> String {
+    format!("cron:{job_name}:{}", cron_status_slug(status))
 }
 
 /// A cron run that has ended, by any path, and still owes its report and oneshot retirement.
@@ -470,7 +486,23 @@ impl ServiceContext {
         wake: Option<&CronWake>,
         end: CronRunEnd<'_>,
     ) {
-        self.cron_settle_run_end_with(cron, wake, end, |tab_id, text| self.send_text(tab_id, text));
+        self.cron_settle_run_end_with(cron, wake, end, |tab_id, envelope, text| {
+            self.deliver_cron_report(tab_id, envelope, text)
+        });
+    }
+
+    /// Agents get a framed system notice; plain shells keep the bare text.
+    pub(crate) fn deliver_cron_report(
+        &self,
+        target: &str,
+        envelope: MessageEnvelope,
+        body: &str,
+    ) -> Result<(), String> {
+        if !self.tab_has_agent_identity(target) {
+            return self.send_text(target, body);
+        }
+        self.gateway_deliver(target, envelope, body, DeliveryClass::SystemNotice)
+            .map(|_| ())
     }
 
     /// Delivers the ended run's status to its report tab, records the outcome in history,
@@ -480,7 +512,7 @@ impl ServiceContext {
         cron: &CronState,
         wake: Option<&CronWake>,
         end: CronRunEnd<'_>,
-        deliver: impl FnOnce(&str, &str) -> Result<(), String>,
+        deliver: impl FnOnce(&str, MessageEnvelope, &str) -> Result<(), String>,
     ) {
         let CronRunEnd {
             job_id,
@@ -488,12 +520,15 @@ impl ServiceContext {
             status,
             summary,
         } = end;
-        let (report_target, is_oneshot) = {
+        let (report_target, is_oneshot, job_name) = {
             let store = cron.lock();
             let job = store.get(job_id);
             (
                 job.and_then(|job| job.report_target_tab_id.clone()),
                 job.is_some_and(|job| job.oneshot),
+                job.map(|job| job.name.trim().to_string())
+                    .filter(|name| !name.is_empty())
+                    .unwrap_or_else(|| job_id.to_string()),
             )
         };
         let delivery = match report_target {
@@ -501,7 +536,9 @@ impl ServiceContext {
                 let report = format!(
                     "Cron run {run_id} completed with status {status:?}. Summary: {summary}"
                 );
-                cron_report_delivery_label(deliver(&report_target, &report))
+                let envelope =
+                    MessageEnvelope::codeterm_reminder(cron_end_context(&job_name, &status));
+                cron_report_delivery_label(deliver(&report_target, envelope, &report))
             }
             None => "no report target".to_string(),
         };

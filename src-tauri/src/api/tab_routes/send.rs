@@ -238,6 +238,13 @@ pub(crate) fn should_prepend_source(
     has_source && target_has_agent && transport == TabInputTransport::Pty
 }
 
+pub(crate) fn utility_shell_purpose(tab: &crate::multiplexer::types::Tab) -> Option<String> {
+    (tab.is_utility_shell()
+        && !tab.agent_booting
+        && tab.purpose != crate::multiplexer::types::ShellPurpose::Shell)
+        .then(|| tab.purpose.as_str().to_string())
+}
+
 /// A return address describes a message, and a keystroke-only send carries no
 /// message. Wrapping its empty body produced a marker with nothing to introduce,
 /// which the target then received as the payload of the keystroke itself.
@@ -527,9 +534,11 @@ pub async fn send_text(
                     let from_agent =
                         source_tab.is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting);
                     let model = source_tab.and_then(|tab| tab.agent_session_model.clone());
+                    let purpose = source_tab.and_then(utility_shell_purpose);
                     Some(
                         crate::service::messenger::MessageEnvelope::tab(from_label, resolved)
                             .model(model)
+                            .purpose(purpose)
                             .from_agent(Some(from_agent)),
                     )
                 }
@@ -959,6 +968,9 @@ mod delivery_classification_tests {
 
 #[cfg(test)]
 mod action_delivery_tests;
+
+#[cfg(test)]
+mod purpose_tests;
 
 #[cfg(test)]
 mod payload_preflight_tests {

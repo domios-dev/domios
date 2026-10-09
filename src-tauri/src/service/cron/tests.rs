@@ -600,12 +600,31 @@ fn settle(
             status: CronRunStatus::Success,
             summary: "settle-summary-token",
         },
-        |tab_id, text| {
-            delivered.push((tab_id.to_string(), text.to_string()));
+        |tab_id, envelope, text| {
+            delivered.push((
+                tab_id.to_string(),
+                crate::service::messenger::Messenger::from(envelope).wrap(text),
+            ));
             delivery
         },
     );
     delivered
+}
+
+#[test]
+fn cron_end_context_names_job_and_lowercase_status() {
+    assert_eq!(
+        super::cron_end_context("nightly-build", &CronRunStatus::Success),
+        "cron:nightly-build:success"
+    );
+    assert_eq!(
+        super::cron_end_context("nightly-build", &CronRunStatus::Failed),
+        "cron:nightly-build:failed"
+    );
+    assert_eq!(
+        super::cron_end_context("job-1", &CronRunStatus::Cancelled),
+        "cron:job-1:cancelled"
+    );
 }
 
 #[test]
@@ -632,7 +651,10 @@ fn completed_oneshot_reports_and_keeps_history() {
 
     assert_eq!(delivered.len(), 1);
     assert_eq!(delivered[0].0, "report-tab");
-    assert!(delivered[0].1.contains("settle-summary-token"));
+    assert_eq!(
+        delivered[0].1,
+        "<domios from=\"system\" context=\"cron:settle:success\">Cron run settle-run completed with status Success. Summary: settle-summary-token</domios>"
+    );
     let store = cron.lock();
     assert!(store.get(&job_id).is_none());
     let history = store.get_history(&job_id);
