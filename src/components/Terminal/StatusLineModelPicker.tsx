@@ -61,6 +61,11 @@ export function StatusLineModelPicker({
   const [open, setOpen] = useState(false);
   const [applied, setApplied] = useState<PickerSelection | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (descriptor && applied && selectionReached(descriptor, applied, currentModel, currentEffort)) {
+      setApplied(null);
+    }
+  }, [descriptor, applied, currentModel, currentEffort]);
   const close = useCallback(() => {
     setOpen(false);
     triggerRef.current?.focus({ preventScroll: true });
@@ -74,7 +79,9 @@ export function StatusLineModelPicker({
     );
   }
 
-  const appliedPending = applied !== null && !selectionReached(descriptor, applied, currentModel, currentEffort);
+  const displayedLabel = applied
+    ? [descriptor.display_name, applied.model, applied.effort].filter(Boolean).join(" · ")
+    : label;
   return (
     <span className="ct-status-identity-wrap">
       <button
@@ -83,29 +90,28 @@ export function StatusLineModelPicker({
         className="ct-status-identity"
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={`Change model, currently ${label}`}
+        aria-label={`Change model, currently ${displayedLabel}`}
         title="Change model"
         data-testid="status-model-trigger"
         onClick={() => setOpen((value) => !value)}
       >
-        <span className="ct-status-identity__text">{label}</span>
+        <span className="ct-status-identity__text">{displayedLabel}</span>
         <ChevronDown size={12} strokeWidth={2.25} aria-hidden className="ct-status-identity__chevron" />
       </button>
-      {appliedPending && gate.timing !== "live" && (
-        <span role="status" className="ct-status-identity__pending">{gate.note}</span>
-      )}
       {open && (
         <ModelPickerPopover
           tabId={tabId}
           descriptor={descriptor}
           gate={gate}
           triggerRef={triggerRef}
-          currentModel={currentModel}
-          currentEffort={currentEffort}
-          onApplied={(selection) => {
+          currentModel={applied?.model ?? currentModel}
+          currentEffort={applied ? applied.effort : currentEffort}
+          onApplying={(selection) => {
+            const previous = applied;
             setApplied(selection);
-            close();
+            return () => setApplied(previous);
           }}
+          onApplied={close}
           onClose={close}
         />
       )}
@@ -121,7 +127,7 @@ function selectionReached(
 ): boolean {
   const model = descriptor.available_models.find((entry) => entry.id === selection.model);
   const modelReached = model ? matchesModel(model, currentModel) : selection.model === currentModel;
-  return modelReached && (selection.effort === undefined || selection.effort === currentEffort);
+  return modelReached && selection.effort === currentEffort;
 }
 
 function ModelPickerPopover({
@@ -131,6 +137,7 @@ function ModelPickerPopover({
   triggerRef,
   currentModel,
   currentEffort,
+  onApplying,
   onApplied,
   onClose,
 }: {
@@ -140,6 +147,7 @@ function ModelPickerPopover({
   triggerRef: RefObject<HTMLButtonElement | null>;
   currentModel: string | undefined;
   currentEffort: string | undefined;
+  onApplying: (selection: PickerSelection) => () => void;
   onApplied: (selection: PickerSelection) => void;
   onClose: () => void;
 }) {
@@ -153,6 +161,7 @@ function ModelPickerPopover({
   const [confirming, setConfirming] = useState<PickerSelection | null>(null);
   const [restartFallback, setRestartFallback] = useState(false);
   const [busy, setBusy] = useState(false);
+  const applyingRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [anchor, setAnchor] = useState<{ left: number; bottom: number } | null>(null);
@@ -160,6 +169,7 @@ function ModelPickerPopover({
   const groups = pickerModelGroups(descriptor, staged?.model, query);
   const efforts = effortChoices(descriptor, staged?.model);
   const stagedEffort = staged ? effortAfterModelChange(descriptor, staged.model, staged.effort) : undefined;
+  const selectionPlan = staged ? planSelection(gate, { model: currentModel, effort: currentEffort }, staged) : { action: "none" };
 
   useLayoutEffect(() => {
     const place = () => {
@@ -192,8 +202,11 @@ function ModelPickerPopover({
   }, [onClose, triggerRef]);
 
   async function apply(selection: PickerSelection, restart = false) {
+    if (applyingRef.current) return;
+    applyingRef.current = true;
     setBusy(true);
     setError(null);
+    const rollback = onApplying(selection);
     try {
       const api = getTabModelApi();
       if (restart) {
@@ -204,8 +217,10 @@ function ModelPickerPopover({
       }
       onApplied(selection);
     } catch (failure) {
+      rollback();
       setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
+      applyingRef.current = false;
       setBusy(false);
     }
   }
@@ -213,8 +228,14 @@ function ModelPickerPopover({
   function choose(next: PickerSelection) {
     setRestartFallback(false);
     setStaged(next);
-    const plan = planSelection(gate, { model: currentModel, effort: currentEffort }, next);
-    setConfirming(plan.action === "confirm" ? plan.selection : null);
+    setConfirming(null);
+    setError(null);
+  }
+
+  function commit() {
+    if (busy || !staged) return;
+    const plan = planSelection(gate, { model: currentModel, effort: currentEffort }, staged);
+    if (plan.action === "confirm") setConfirming(plan.selection);
     if (plan.action === "apply") void apply(plan.selection);
   }
 
@@ -261,10 +282,12 @@ function ModelPickerPopover({
       className="ct-model-picker ct-float"
       style={{ width: PICKER_WIDTH, left: anchor?.left ?? 0, bottom: anchor?.bottom ?? 0, visibility: anchor ? undefined : "hidden" }}
       onKeyDown={(event) => {
-        if (event.key !== "Escape") return;
+        if (event.code !== "Escape" && event.code !== "Enter" && event.code !== "NumpadEnter") return;
         event.preventDefault();
         event.stopPropagation();
-        onClose();
+        if (event.code === "Escape") onClose();
+        else if (confirming) void apply(confirming, restartFallback);
+        else commit();
       }}
     >
       <div className="ct-model-picker__head">
@@ -315,14 +338,15 @@ function ModelPickerPopover({
                 title={row.unavailable ? "Not available on this account" : row.id}
                 onClick={() => { if (!row.unavailable && !busy) chooseModel(row.id); }}
                 onKeyDown={(event) => {
-                  if (event.key !== "Enter" && event.key !== " ") return;
+                  if (event.code !== "Space") return;
                   event.preventDefault();
                   if (!row.unavailable && !busy) chooseModel(row.id);
                 }}
               >
                 <span className="ct-model-picker__name">{row.label}</span>
                 {row.badge && <span className="ct-model-picker__badge">{row.badge}</span>}
-                {isCurrent && <Check size={13} strokeWidth={2.5} aria-label="Current model" className="ct-model-picker__check" />}
+                {isCurrent && <span className="ct-model-picker__current">current</span>}
+                {row.current && <Check size={13} strokeWidth={2.5} aria-label="Selected model" className="ct-model-picker__check" />}
               </div>
               );
             })}
@@ -353,7 +377,13 @@ function ModelPickerPopover({
           </div>
         </div>
       ) : (
-        <p className="ct-model-picker__note">{gate.note}</p>
+        <div className="ct-model-picker__footer">
+          <p className="ct-model-picker__note">{gate.note}</p>
+          <div className="ct-model-picker__actions">
+            <button type="button" className={UI_BUTTON.ghost} onClick={onClose}>Cancel</button>
+            <button type="button" className={UI_BUTTON.primary} disabled={busy || selectionPlan.action === "none"} onClick={commit}>Apply</button>
+          </div>
+        </div>
       )}
       {error && <p role="alert" className="ct-model-picker__error">{error}</p>}
       {error && gate.timing === "live_command" && !confirming && staged && (

@@ -54,6 +54,13 @@ async function mount(provider: ProviderDescriptor | undefined) {
   };
 }
 
+function button(name: string): HTMLButtonElement {
+  const found = Array.from(document.body.querySelectorAll<HTMLButtonElement>("button"))
+    .find((entry) => entry.textContent === name);
+  assert.ok(found);
+  return found;
+}
+
 function recordSwitches() {
   const calls: unknown[][] = [];
   __setTabModelApiForTest({
@@ -65,7 +72,7 @@ function recordSwitches() {
   return calls;
 }
 
-test("choosing a model switches the tab once and closes the picker", async () => {
+test("model rows stage a choice and Apply switches once and closes the picker", async () => {
   const calls = recordSwitches();
   const view = await mount(descriptor("next_turn"));
   try {
@@ -74,9 +81,12 @@ test("choosing a model switches the tab once and closes the picker", async () =>
     assert.equal(view.trigger()!.getAttribute("aria-expanded"), "true");
     assert.deepEqual(view.effortTabs(), ["low", "high"]);
     await act(async () => view.option("Fast").click());
+    assert.deepEqual(calls, []);
+    await act(async () => button("Apply").click());
     assert.deepEqual(calls, [["tab", "fast", undefined]]);
     assert.equal(view.picker(), null);
-    assert.ok(view.host.querySelector('[role="status"]'));
+    assert.equal(view.host.querySelector('[role="status"]'), null);
+    assert.equal(view.trigger()!.textContent, "Vendor · fast");
   } finally {
     await view.unmount();
     __setTabModelApiForTest(null);
@@ -89,6 +99,8 @@ test("live commands switch immediately without restart confirmation", async () =
   try {
     await act(async () => view.trigger()!.click());
     await act(async () => view.option("Fast").click());
+    assert.deepEqual(calls, []);
+    await act(async () => button("Apply").click());
     assert.deepEqual(calls, [["tab", "fast", undefined]]);
     assert.equal(document.body.querySelector('[aria-label="Confirm restart"]'), null);
     assert.equal(view.picker(), null);
@@ -108,11 +120,12 @@ test("a failed live command offers a separately confirmed restart fallback", asy
   try {
     await act(async () => view.trigger()!.click());
     await act(async () => view.option("Fast").click());
+    await act(async () => button("Apply").click());
     assert.ok(document.body.querySelector('[role="alert"]'));
     assert.deepEqual(fallback, []);
-    const button = Array.from(document.body.querySelectorAll<HTMLButtonElement>('button'))
+    const fallbackButton = Array.from(document.body.querySelectorAll<HTMLButtonElement>('button'))
       .find((entry) => entry.textContent === "Restart and resume instead")!;
-    await act(async () => button.click());
+    await act(async () => fallbackButton.click());
     assert.deepEqual(fallback, []);
     const confirm = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[aria-label="Confirm restart"] button'))
       .find((entry) => entry.textContent === "Restart and switch")!;
@@ -132,14 +145,16 @@ test("restarting providers confirm first and the effort list follows the staged 
     await act(async () => view.option("Fast").click());
     assert.deepEqual(calls, []);
     assert.deepEqual(view.effortTabs(), []);
-    assert.ok(document.body.querySelector('[aria-label="Confirm restart"]'));
+    assert.equal(document.body.querySelector('[aria-label="Confirm restart"]'), null);
     await act(async () => view.option("Deep").click());
     assert.deepEqual(view.effortTabs(), ["low", "high"]);
     const low = document.body.querySelector<HTMLElement>('[aria-label="Reasoning"] [data-value="low"]')!;
     await act(async () => low.click());
     assert.deepEqual(calls, []);
-    const confirm = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[aria-label="Confirm restart"] button'))
-      .find((button) => button.textContent === "Restart and switch")!;
+    assert.equal(document.body.querySelector('[aria-label="Confirm restart"]'), null);
+    await act(async () => button("Apply").click());
+    assert.ok(document.body.querySelector('[aria-label="Confirm restart"]'));
+    const confirm = button("Restart and switch");
     await act(async () => confirm.click());
     assert.deepEqual(calls, [["tab", "deep", "low"]]);
   } finally {
@@ -173,7 +188,7 @@ test("refresh asks the provider's catalogue once and escape returns focus", asyn
     await act(async () => document.body.querySelector<HTMLButtonElement>('button[aria-label="Refresh models"]')!.click());
     assert.deepEqual(refreshed, ["vendor"]);
     assert.equal(document.body.querySelector('[role="alert"]'), null);
-    await act(async () => view.picker()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await act(async () => view.picker()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })));
     assert.equal(view.picker(), null);
     assert.equal(document.activeElement, view.trigger());
   } finally {
@@ -209,3 +224,87 @@ test("an open picker follows a catalogue change without polling", async () => {
     setAgentDescriptors([]);
   }
 });
+
+for (const cancel of ["Escape", "Cancel"] as const) {
+  test(`${cancel} discards staged model and effort and reopening seeds the current values`, async () => {
+    const calls = recordSwitches();
+    const view = await mount(descriptor("next_turn"));
+    try {
+      await act(async () => view.trigger()!.click());
+      assert.equal(button("Apply").disabled, true);
+      await act(async () => view.option("Fast").click());
+      await act(async () => view.option("Deep").click());
+      assert.equal(button("Apply").disabled, true);
+      await act(async () => button("Low").click());
+      assert.equal(button("Apply").disabled, false);
+      assert.deepEqual(calls, []);
+      await act(async () => {
+        if (cancel === "Cancel") button("Cancel").click();
+        else view.picker()!.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true }));
+      });
+      assert.equal(view.picker(), null);
+      assert.deepEqual(calls, []);
+      await act(async () => view.trigger()!.click());
+      assert.equal(view.option("Deep").getAttribute("aria-selected"), "true");
+      assert.equal(button("High").getAttribute("aria-selected"), "true");
+      assert.equal(button("Apply").disabled, true);
+    } finally {
+      await view.unmount();
+      __setTabModelApiForTest(null);
+    }
+  });
+}
+
+test("Enter commits the staged effort once and shows it in the status line", async () => {
+  const calls = recordSwitches();
+  const view = await mount(descriptor("next_turn"));
+  try {
+    await act(async () => view.trigger()!.click());
+    await act(async () => button("Low").click());
+    assert.deepEqual(calls, []);
+    await act(async () => view.option("Deep").dispatchEvent(new KeyboardEvent("keydown", { code: "Enter", bubbles: true })));
+    assert.deepEqual(calls, [["tab", "deep", "low"]]);
+    assert.equal(view.picker(), null);
+    assert.equal(view.trigger()!.textContent, "Vendor · deep · low");
+    await act(async () => view.trigger()!.click());
+    assert.equal(button("Apply").disabled, true);
+    assert.equal(button("Low").getAttribute("aria-selected"), "true");
+  } finally {
+    await view.unmount();
+    __setTabModelApiForTest(null);
+  }
+});
+
+for (const fails of [false, true]) {
+  test(`Apply displays the draft before the response and ${fails ? "rolls back on failure" : "retains it on success"}`, async () => {
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    const response = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
+    const calls: unknown[][] = [];
+    __setTabModelApiForTest({ switchModel: async (...args) => { calls.push(args); await response; } });
+    const view = await mount(descriptor("next_turn"));
+    try {
+      await act(async () => view.trigger()!.click());
+      await act(async () => view.option("Fast").click());
+      await act(async () => view.option("Deep").click());
+      await act(async () => button("Low").click());
+      await act(async () => button("Apply").click());
+      assert.equal(view.trigger()!.textContent, "Vendor · deep · low");
+      assert.equal(view.host.querySelector('[role="status"]'), null);
+      await act(async () => view.picker()!.dispatchEvent(new KeyboardEvent("keydown", { code: "Enter", bubbles: true })));
+      assert.deepEqual(calls, [["tab", "deep", "low"]]);
+      await act(async () => { if (fails) reject(new Error("refused")); else resolve(); });
+      if (fails) {
+        assert.equal(view.trigger()!.textContent, "Vendor · deep · high");
+        assert.ok(document.body.querySelector('[role="alert"]'));
+        assert.ok(view.picker());
+      } else {
+        assert.equal(view.trigger()!.textContent, "Vendor · deep · low");
+        assert.equal(view.picker(), null);
+      }
+    } finally {
+      await view.unmount();
+      __setTabModelApiForTest(null);
+    }
+  });
+}
