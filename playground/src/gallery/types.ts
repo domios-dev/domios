@@ -12,7 +12,6 @@ export type Specimen = {
   category: string;
   where: string;
   states: SpecimenState[];
-  motion?: "animated" | "static";
   stage?: "wide";
   notes?: string;
 };
