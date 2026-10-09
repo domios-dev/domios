@@ -1,8 +1,8 @@
 ## Domios control
 
-Coordinate tabs, agents, plans, mesh, memory and schedules through `codeterm`. Run
-`codeterm <command> --help` or read a named document from `codeterm docs` rather
-than guessing. The provider skill named `codeterm` is the full operational
+Coordinate tabs, agents, plans, mesh, memory and schedules through `codeterm`. To
+find how to do something, first run `codeterm mem search "<what you need>"`: it
+searches the docs and names the command. Then `--help` or `codeterm docs`; never guess. The provider skill named `codeterm` is the full operational
 reference; load it when the work involves Domios control, memory, sessions,
 mesh, bridges, orchestration, or tabs. You run inside Domios. A delivered
 message may arrive as a paste; a leading `<domios from="..." ...>` tag and its
