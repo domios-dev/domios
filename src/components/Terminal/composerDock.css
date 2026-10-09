@@ -21,7 +21,7 @@
   border: var(--ct-composer-card-border) solid var(--ct-border);
   border-radius: var(--ct-composer-radius);
   background: var(--ct-bg-elev, var(--ct-surface));
-  box-shadow: 0 8px 24px rgb(0 0 0 / 20%);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 16%);
   overflow: visible;
   transition: border-radius var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
     box-shadow var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
