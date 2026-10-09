@@ -1,8 +1,8 @@
 import type { Box, Point } from "../Canvas/layout";
 import { computeFitTransform, type ViewportTransform } from "../Canvas/useCanvasViewport";
-import type { BlueprintModel, BlueprintNode, BlueprintNodeType, BlueprintPin, BlueprintWire } from "./blueprintModel";
+import type { BlueprintModel, BlueprintNode, BlueprintPin, BlueprintWire } from "./blueprintModel";
 
-export const NODE_WIDTH: Record<BlueprintNodeType, number> = { trigger: 196, source: 248, agent: 288, logic: 264, action: 232 };
+import { blueprintNodeKinds } from "./blueprintKinds";
 export const HEADER_HEIGHT = 42;
 export const ROW_HEIGHT = 24;
 export const BODY_LINE_HEIGHT = 16;
@@ -57,7 +57,7 @@ function wrapped(text: string, width: number) {
 
 export function bodyLines(node: BlueprintNode): number {
   if (!node.body) return 0;
-  const width = NODE_WIDTH[node.type];
+  const width = blueprintNodeKinds[node.type].width;
   const lines = node.body.kind === "code" ? node.body.text.split("\n").length : wrapped(node.body.text, width);
   return Math.min(BODY_LINES[node.body.kind], lines);
 }
@@ -75,7 +75,7 @@ export function measureNode(node: BlueprintNode) {
     rows.push({ top, height, left: left ?? null, right: right ?? null });
     top += height;
   }
-  return { width: NODE_WIDTH[node.type], height: top + NODE_PAD_BOTTOM, bodyHeight, bodyLines: lines, rows };
+  return { width: blueprintNodeKinds[node.type].width, height: top + NODE_PAD_BOTTOM, bodyHeight, bodyLines: lines, rows };
 }
 
 function curve(a: Point, b: Point) {

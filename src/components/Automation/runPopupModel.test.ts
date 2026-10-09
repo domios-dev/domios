@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { fixtureGraph } from "./fixtures.testdata";
 import { advanceRunPopups, emptyPopupState } from "./runPopupModel";
-import { graphRuns } from "./runLogModel";
+import { graphRuns } from "./blueprintRunModel";
 import { runPathSteps } from "./runPathModel";
 import type { AutomationRun } from "./types";
 

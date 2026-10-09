@@ -4,7 +4,7 @@ import { blueprintJobs, jobsAccessibleName, jobsIndicator, type JobsFilter, type
 import { jobsLayout, type JobsWorkspace } from "../Jobs/jobsLayout";
 import { useCronJobs } from "../Jobs/useCronJobs";
 import { useWorkspaceGraphs } from "../Jobs/useWorkspaceGraphs";
-import { sentinelJobs } from "../Automation/scenarios";
+import { blueprintScenarioJobs } from "../Automation/scenarios";
 import { hostAutomationAdapter } from "../Automation/hostAdapter";
 
 interface WorkspaceNavigationActionsProps {
@@ -51,7 +51,7 @@ export function LiveWorkspaceNavigationActions({ scope: scopeProp, workspaces = 
   const crons = useCronJobs(cronWorkspace);
   const jobs = useMemo(() => {
     if (crons.jobs === null || graphs.some((graph) => graph.graph === null)) return NO_JOBS;
-    const sentinels = graphs.flatMap((graph) => graph.graph ? sentinelJobs(graph.graph, graph.attachment) : []);
+    const sentinels = graphs.flatMap((graph) => graph.graph ? blueprintScenarioJobs(graph.graph, graph.attachment) : []);
     const blueprints = graphs.flatMap((graph) => graph.graph ? blueprintJobs(graph.graph) : []);
     return jobsIndicator({ crons: crons.jobs, sentinels, blueprints }, scope);
   }, [crons.jobs, graphs, scope]);
