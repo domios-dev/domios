@@ -12,6 +12,7 @@
 
 pub mod chatbackend_history;
 pub mod context_window;
+mod file_events;
 pub mod host_context;
 pub mod raw_text_sink;
 pub mod registry;

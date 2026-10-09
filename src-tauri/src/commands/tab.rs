@@ -635,7 +635,6 @@ pub fn chat_start_core(
                 cwd: cwd.clone(),
                 session_id: session_id.clone(),
                 start_offset: tailer_start_offset,
-                poll_interval: crate::service::tab_chat::live_chat_poll_interval(),
             },
             Some(svc.chat_registry.jsonl_source(&tab_id)),
             svc.agent_registry.clone(),

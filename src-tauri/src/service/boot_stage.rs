@@ -109,6 +109,10 @@ pub(crate) fn binding_disproves_latched_failure(tab: &Tab) -> bool {
     tab.boot_stage == Some(BootStage::SpawnFailed) && tab.launch_session_authenticated()
 }
 
+pub(crate) fn session_allows_user_readiness(tab: &Tab) -> bool {
+    tab.agent_session_id.is_none() || tab.launch_session_authenticated()
+}
+
 /// A provider started inside the tab's own shell, outside any owned launch,
 /// proved itself with this PTY's nonce. No launch pipeline will ever seal it.
 pub(crate) fn binding_observes_in_tab_launch(tab: &Tab) -> bool {
@@ -260,6 +264,42 @@ impl ServiceContext {
     /// snapshot) and fan the transition out on the event bridge. Fire-and-forget
     /// — never blocks the launch thread.
     pub(crate) fn emit_boot_stage(&self, tab_id: &str, stage: BootStage, reason: Option<&str>) {
+        if stage == BootStage::AgentReady {
+            let pending_binding = {
+                let mux = self.mux.read();
+                mux.get_tab(tab_id)
+                    .filter(|tab| !session_allows_user_readiness(tab))
+                    .and_then(|tab| {
+                        Some(crate::service::launch_readiness::LaunchAttempt {
+                            tab_id: tab_id.to_string(),
+                            pty_id: tab.pty_id.clone()?,
+                            binding_nonce: tab.session_binding_nonce.clone()?,
+                        })
+                    })
+            };
+            if let Some(attempt) = pending_binding {
+                self.record_provisional_launch(
+                    &attempt,
+                    BootStage::LaunchBindingUnconfirmed,
+                    "current launch session binding has not been authenticated",
+                );
+                let binding = {
+                    let mux = self.mux.read();
+                    mux.get_tab(tab_id)
+                        .filter(|tab| tab.launch_session_authenticated())
+                        .and_then(|tab| {
+                            Some(crate::service::ProviderSessionBinding {
+                                pty_id: tab.pty_id.clone()?,
+                                binding_nonce: tab.reported_session_binding_nonce.clone()?,
+                            })
+                        })
+                };
+                if let Some(binding) = binding {
+                    self.retire_provisional_launch(tab_id, &binding);
+                }
+                return;
+            }
+        }
         if stage.is_provisional() {
             log::warn!(
                 "[boot-stage] Tab {tab_id} {} ignored without launch-attempt evidence",

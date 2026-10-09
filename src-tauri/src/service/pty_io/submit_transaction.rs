@@ -140,6 +140,9 @@ trait SubmitTransport {
         self.wait_retry_deadline(deadline);
         self.exact_user_turn_present(text)
     }
+    fn wait_initial_key_deadline_for_turn(&self, deadline: Instant, text: &str) -> bool {
+        self.wait_retry_deadline_for_turn(deadline, text)
+    }
     fn wait_for_submit_event(&self, _deadline: Instant) -> bool {
         false
     }
@@ -458,6 +461,20 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             }
         }
         false
+    }
+
+    fn wait_initial_key_deadline_for_turn(&self, deadline: Instant, text: &str) -> bool {
+        loop {
+            if self.require_exact_session_turn && self.exact_user_turn_present(text) {
+                return true;
+            }
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            if self.wake_rx.recv_timeout(remaining).is_err() {
+                return false;
+            }
+        }
     }
 
     fn wait_for_submit_event(&self, deadline: Instant) -> bool {

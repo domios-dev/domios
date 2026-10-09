@@ -105,6 +105,13 @@ impl crate::service::ServiceContext {
         original: String,
         run_stages: bool,
     ) -> Result<super::super::agent_pad::ChatSendResult, String> {
+        if reservation.wait_existing()? {
+            let status = self
+                .chat_send_ledger
+                .status(&reservation.send_id)
+                .ok_or("admission_unknown: original token has no retained ledger result")?;
+            return Ok(super::super::agent_pad::ChatSendResult::new(status, None));
+        }
         if original.len() > MAX_PREPARED_BYTES {
             return Err("user original exceeds 4 MiB storage bound".into());
         }
@@ -187,6 +194,13 @@ impl crate::service::ServiceContext {
         prepared: &str,
         body: Option<PreparedUserBody>,
     ) -> Result<(ChatSendStatus, Option<std::path::PathBuf>), String> {
+        if reservation.wait_existing()? {
+            let status = self
+                .chat_send_ledger
+                .status(&reservation.send_id)
+                .ok_or("admission_unknown: original token has no retained ledger result")?;
+            return Ok((status, None));
+        }
         let store = &self.pending_delivery_payloads.user_sends;
         let final_transport = store.final_transport(&reservation, prepared, body.as_ref())?;
         let follow_up = self
