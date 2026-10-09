@@ -20,10 +20,8 @@ import { ProviderGlyph } from "../ProviderGlyph";
 import type { Tab, TabStatus } from "../../lib/types";
 import { anchorsTeam, isGeneralAgent as isGeneralAgentTab } from "../../lib/roleKind";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
-import { formatModelBadge } from "../../lib/formatModelBadge";
-import { agentModelBadgeLabel, agentModelForBadge, classifyAgentLiveness } from "../../lib/agentLabel";
+import { agentModelForBadge } from "../../lib/agentLabel";
 import { restoreFailurePresentation } from "../../lib/restoreFailurePresentation";
-import { SidebarModelBadge } from "./SidebarModelBadge";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
 import { managedByLabel, remoteIdentity } from "./remoteOwnership";
@@ -80,6 +78,13 @@ interface TabItemProps {
   ownerBadgeTab?: Tab | null;
   /** Owner row folding its surface attachments. */
   attachmentToggle?: AttachmentToggle | null;
+  startedBy?: TabStartedBy | null;
+}
+
+export interface TabStartedBy {
+  id: string | null;
+  label: string;
+  onOpen?: () => void;
 }
 
 export interface AttachmentToggle {
@@ -197,6 +202,36 @@ function TabDescriptionSubtitle({ description }: { description: string | null })
   );
 }
 
+function StartedByLine({ origin }: { origin: TabStartedBy }) {
+  const open = origin.onOpen;
+  return (
+    <span data-testid="tab-started-by" className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]/80">
+      started by{" "}
+      {open ? (
+        <span
+          role="link"
+          tabIndex={-1}
+          className="sidebar-tab-origin-link"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            open();
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.stopPropagation();
+            open();
+          }}
+        >
+          {origin.label}
+        </span>
+      ) : (
+        <span title={origin.id ? `Tab ${origin.id}` : undefined}>{origin.label}</span>
+      )}
+    </span>
+  );
+}
+
 function RemoteIdentityLine({ tab }: { tab: Tab }) {
   const identity = remoteIdentity(tab);
   if (!identity) return null;
@@ -252,6 +287,7 @@ function TabItemInner({
   insetPx,
   ownerBadgeTab = null,
   attachmentToggle = null,
+  startedBy = null,
 }: TabItemProps) {
   const attachment = variant === "attachment";
   // Unified identity for agent (agent_type) AND chatBackend shell (backing.plugin_id)
@@ -269,13 +305,6 @@ function TabItemInner({
     requestedModel: tab.agent_requested_model,
   };
   const tabModel = agentModelForBadge(modelEvidence) ?? shellSessionModel;
-  const agentLiveness = classifyAgentLiveness({
-    declaresAgent: tab.agent_type != null,
-    ptyLive: tab.pty_id && status != null ? status !== "Dead" : null,
-    chatSessionOpen: tab.backing?.kind === "chat_backend" ? tab.agent_session_id != null : null,
-    bootStage: tab.boot_stage ?? null,
-    bootInFlight: tab.agent_booting ?? false,
-  });
   const restoreFailure = restoreFailurePresentation(
     {
       bootStage: tab.boot_stage,
@@ -285,17 +314,6 @@ function TabItemInner({
     tab.boot_failure_reason,
     false,
   );
-  // Compose from current tab evidence so a cached provider-only label cannot
-  // mask a newer runtime model.
-  const tabAgentLabel = agentModelBadgeLabel(tab.agent_type, modelEvidence, agentLiveness);
-  // Only a chatBackend shell's own detected model stands alone; a PTY tab that
-  // lost its provider must not keep the model half of the identity.
-  const shellBadge = shellSessionModel ? formatModelBadge(shellSessionModel) : null;
-  const tabModelBadge = restoreFailure.showIdentityBadges
-    ? tabAgentLabel ?? shellBadge
-    : null;
-  // The visible badge is width-capped; the tooltip keeps the whole identity.
-  const tabModelTitle = tabModel ? `${providerName} · ${tabModel}` : undefined;
   // The first-run marker lives in the description field; it is an internal flag, not text to show.
   const description = isFirstRunGeneralTab(tab) ? "Choose your General Agent" : tab.description ?? null;
   const canonicalTitle = displayTitleForTab(tab);
@@ -306,6 +324,23 @@ function TabItemInner({
   const tabState = tabActivity(tab, status);
   const shellRunning = utilityShell && tabState.active;
   const accessibleTitle = isGeneralAgent ? "General Agent" : utilityShell ? `${shellPurposeLabel(tab.purpose)}, ${displayTitle}` : displayTitle;
+  const menuModel = restoreFailure.showIdentityBadges ? tabModel : null;
+  const menuSubtitle = utilityShell
+    ? shellPurposeLabel(tab.purpose)
+    : provider
+      ? [providerName, menuModel].filter(Boolean).join(" · ")
+      : menuModel ?? "Terminal";
+  const menuIcon = provider ? (
+    <ProviderGlyph iconSvg={provider.iconSvg} iconColor={provider.iconColor} iconHint={provider.iconHint} className="leading-none text-[16px]" />
+  ) : surfaceBacking(tab) ? (
+    <SurfaceIcon backing={surfaceBacking(tab)} size={16} />
+  ) : tab.tab_type === "Choice" ? (
+    <ChoiceIcon />
+  ) : utilityShell ? (
+    <ShellPurposeIcon purpose={tab.purpose} icon={tab.icon} running={false} />
+  ) : (
+    <TerminalIcon />
+  );
   const roleShield = restoreFailure.showIdentityBadges
     ? (isGeneralAgent ? "General Agent" : roleShieldLabel(tab))
     : null;
@@ -517,6 +552,7 @@ function TabItemInner({
         ) : attachment ? null : (
           <span className="sidebar-tab-body__sub">
             <TabDescriptionSubtitle description={description} />
+            {startedBy && <StartedByLine origin={startedBy} />}
             <TabSubline subtitle={localSubtitle} generalAgent={isGeneralAgent} />
             <RemoteIdentityLine tab={tab} />
           </span>
@@ -545,9 +581,6 @@ function TabItemInner({
       </span>}
       <div className={`shrink-0 relative z-[1] flex items-center justify-end ${touchMode ? "" : `sidebar-tab-end ${tabText}`} ${utilityShell ? "" : "min-w-5"}`}>
         {attachmentToggle && attachmentToggle.count > 0 && <AttachmentToggleButton toggle={attachmentToggle} />}
-        {tabModelBadge && !touchMode ? (
-          <SidebarModelBadge label={tabModelBadge} title={tabModelTitle} />
-        ) : null}
         {menuEntries.length > 0 && (
           <TabMenu
             entries={menuEntries}
@@ -561,6 +594,7 @@ function TabItemInner({
                 ? "flex h-11 w-11 items-center justify-center"
                 : "sidebar-tab-close absolute inset-y-0 right-0 flex items-center"
             }
+            identity={{ icon: menuIcon, title: isGeneralAgent ? "General Agent" : displayTitle, subtitle: menuSubtitle }}
             trigger={<RowMenuButton label="Tab actions" touchMode={touchMode} />}
           />
         )}
@@ -602,6 +636,8 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     prev.attachmentToggle?.count !== next.attachmentToggle?.count ||
     prev.attachmentToggle?.collapsed !== next.attachmentToggle?.collapsed ||
     prev.attachmentToggle?.onToggle !== next.attachmentToggle?.onToggle ||
+    prev.startedBy?.id !== next.startedBy?.id ||
+    prev.startedBy?.label !== next.startedBy?.label ||
     prev.onToggleCollapse !== next.onToggleCollapse ||
     prev.reportCount !== next.reportCount ||
     prev.activeWork !== next.activeWork

@@ -262,8 +262,7 @@ async function main() {
     await view.dispose();
   }
 
-  // Every provider shows its model in the sidebar badge — width-capped to the
-  // provider-label width, with the whole identity kept in the tooltip.
+  // The row carries no model capsule; the kebab menu head names the provider and the whole model.
   {
     const longModel = "deepseek-v4-flash";
     const view = await mount(
@@ -275,19 +274,11 @@ async function main() {
       }),
       "Idle",
     );
-    const badge = view.host.querySelector<HTMLElement>(".sidebar-tab-badge");
-    assert(badge, "the opencode row renders no model badge");
-    const text = (badge.textContent ?? "").toLowerCase();
-    assert(!text.includes("opencode"), `the badge fell back to the provider: ${text}`);
-    assert(text.startsWith("deeps"), `the badge does not show the model: ${text}`);
-    assert(text.endsWith("..."), `the long model is not ellipsized: ${text}`);
-    assert(
-      text.length <= "opencode".length,
-      `the badge is wider than the provider label: ${text}`,
-    );
-    const title = badge.getAttribute("title") ?? "";
-    assert(title.includes("deepseek-v4-flash"), `the tooltip lost the full model: ${title}`);
-    assert(title.includes("OpenCode"), `the tooltip lost the provider: ${title}`);
+    assert(!view.host.querySelector(".sidebar-tab-badge"), "the row still renders a model capsule");
+    await openMenu(view.host);
+    const subtitle = document.querySelector<HTMLElement>('[data-testid="tab-menu-identity-subtitle"]')?.textContent ?? "";
+    assert(subtitle.includes("deepseek-v4-flash"), `the menu head lost the full model: ${subtitle}`);
+    assert(subtitle.includes("OpenCode"), `the menu head lost the provider: ${subtitle}`);
     await view.dispose();
   }
 
