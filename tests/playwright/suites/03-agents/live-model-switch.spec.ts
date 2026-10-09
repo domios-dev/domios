@@ -9,6 +9,7 @@ import { expect, test } from "../../helpers/fixtures";
 import { dc, identity, records, turnEvidence, assertModel, restoreManifest, grokEffortEvidence, switchModels, deliveryLog, type Descriptor, type Model, type RestoreTab } from "../../helpers/live-model-switch";
 import { openAgent, readChat, type AgentUi } from "../16-chat-view/chat-send-matrix.live.helpers";
 import { detectChatPrefix } from "../../../../src/lib/chatPrefixes";
+import { completedTurn, waitForCompletedTurn } from "../../helpers/live-switch-completion";
 
 const providers = (process.env.PW_SWITCH_PROVIDERS ?? "claude,codex,grok").split(",");
 if (providers.some(id => !["claude", "codex", "opencode", "grok"].includes(id))) throw new Error("Unknown switch matrix provider");
@@ -24,7 +25,7 @@ type SwitchRow = { run: number; sha: string; provider: string; step: string; ver
   tabId?: string; model?: string; effort?: string; effortEvidence?: string; mode?: string; closeMs?: number; pendingMs?: number; confirmMs?: number; failureMs?: number; recordModel?: string;
   applyingMs?: number; applyingLowerBoundMs?: number };
 type SwitchProbe = { applying: boolean; closed: boolean; errorToast: boolean; applyingStarted?: number; applyingEnded?: number };
-type ProbeWindow = typeof window & { __switchProbe: SwitchProbe; __switchObserver: MutationObserver };
+type ProbeWindow = typeof window & { __switchProbe: SwitchProbe; __switchObserver: { disconnect(): void }; __switchObserverOwner: string };
 
 test.describe.configure({ mode: "default" });
 for (let run = startRun; run < startRun + repeats; run++) {
@@ -144,21 +145,34 @@ for (let run = startRun; run < startRun + repeats; run++) {
             if (await showAll.isVisible()) await showAll.click();
             await picker.locator(`[role="option"][title="${model.id}"]`).click();
             if (effort) await picker.locator(`[aria-label="Reasoning"] [role="tab"][data-value="${effort}"]`).click();
-            await ui.page.evaluate((tabId) => {
+            await capsule.evaluate((trigger, tabId) => {
               (window as ProbeWindow).__switchObserver?.disconnect();
+              const host = trigger.parentElement!;
+              const titlebar = document.querySelector('[data-testid="titlebar"]');
               const state: SwitchProbe = { applying: false, closed: false, errorToast: false };
               (window as ProbeWindow).__switchProbe = state;
               const observe = () => {
-                if (document.querySelector(`[data-notification-id="model-switch:${tabId}"]`)) state.errorToast = true;
-                if (document.querySelector('[data-testid="status-model-picker"]')) return;
+                if (trigger.getAttribute("aria-expanded") !== "false") return;
                 state.closed = true;
-                const applying = Array.from(document.querySelectorAll(`[data-tab-id="${tabId}"] [role="status"]`)).some(node => node.textContent === "Applying…");
+                const applying = Array.from(host.children).some(node => node.getAttribute("role") === "status" && node.textContent === "Applying…");
                 if (applying) { state.applying = true; state.applyingStarted ??= window.performance.now(); }
                 else if (state.applyingStarted !== undefined) state.applyingEnded ??= window.performance.now();
               };
               const observer = new MutationObserver(observe);
-              observer.observe(document.body, { childList: true, subtree: true, characterData: true });
-              (window as ProbeWindow).__switchObserver = observer;
+              observer.observe(host, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["aria-expanded"] });
+              const notificationId = `model-switch:${tabId}`;
+              const toastObserver = new MutationObserver(changes => {
+                for (const change of changes) for (const node of change.addedNodes) {
+                  if (node instanceof Element && (node.getAttribute("data-notification-id") === notificationId ||
+                    node.querySelector(`[data-notification-id="${notificationId}"]`))) state.errorToast = true;
+                }
+              });
+              if (titlebar) {
+                state.errorToast = titlebar.querySelector(`[data-notification-id="${notificationId}"]`) !== null;
+                toastObserver.observe(titlebar, { childList: true, subtree: true });
+              }
+              (window as ProbeWindow).__switchObserverOwner = tabId;
+              (window as ProbeWindow).__switchObserver = { disconnect: () => { observer.disconnect(); toastObserver.disconnect(); } };
             }, target.tabId);
             const started = performance.now();
             const switchedAtMs = Date.now();
@@ -277,12 +291,11 @@ for (let run = startRun; run < startRun + repeats; run++) {
           const change = await apply(busyModel, undefined, true);
           await expect(target.chat.locator('[data-agent-state="working"]'), "Apply happened before long turn completed").toHaveCount(1);
           expect((await identity(api, target.tabId)).agent_session_model).toBe(busyBefore.agent_session_model);
-          await target.events.waitFor(e => e.seq > floor && e.event_type === "tab-status-changed" && e.data.tab_id === target.tabId && e.data.status === "Idle", 240_000, "long turn completes");
-          await expect(target.chat.locator('[data-agent-state="idle"]')).toHaveCount(1, { timeout: 240_000 });
-          const rawBusy = await records(providerId, baseline.agent_session_id);
+          const rawBusy = await waitForCompletedTurn(providerId, startedRecords, marker, 240_000);
           writeFileSync(info.outputPath(`${providerId}-${step}-raw.json`), JSON.stringify(rawBusy, null, 2));
-          const busyRecords = turnEvidence(providerId, rawBusy, marker);
+          const busyRecords = completedTurn(providerId, rawBusy, marker);
           assertModel(providerId, busyRecords.model, activeModels[0].id);
+          await expect(target.chat.locator('[data-agent-state="idle"]')).toHaveCount(1, { timeout: 15_000 });
           if (descriptor.model_switch === "live_command") await expect(capsule).not.toHaveAttribute("aria-label", /after this turn/, { timeout: 3_000 });
           change.row.recordModel = await ack(busyModel);
           change.row.confirmMs = performance.now() - change.started;
@@ -312,6 +325,20 @@ for (let run = startRun; run < startRun + repeats; run++) {
           }
           await ui.page.keyboard.press("Escape");
         } finally {
+          if (agent) {
+            const signal = AbortSignal.timeout(15_000);
+            let expired!: () => void;
+            const deadline = new Promise<never>((_resolve, reject) => {
+              expired = () => reject(new Error("Own probe disconnect deadline"));
+              signal.addEventListener("abort", expired, { once: true });
+            });
+            try {
+              await Promise.race([ui.page.evaluate(tabId => {
+                if ((window as ProbeWindow).__switchObserverOwner === tabId) (window as ProbeWindow).__switchObserver?.disconnect();
+              }, agent.tabId), deadline]);
+            } catch (error) { console.log(`[switch-probe-cleanup] ${agent.tabId}: ${String(error)}`); }
+            finally { signal.removeEventListener("abort", expired); }
+          }
           if (agent) await info.attach(`${providerId}-stream-resyncs.json`, { body: JSON.stringify(agent.events.resyncs, null, 2), contentType: "application/json" });
           await agent?.events.close();
         }
