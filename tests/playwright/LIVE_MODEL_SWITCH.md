@@ -30,6 +30,9 @@ For a coordinated single run, set `PW_SWITCH_RUNS=1` and
 `PW_SWITCH_WORKSPACE` must name an empty provisioned `SwitchQA-*` workspace;
 the suite validates it before spawning tabs. Clear that variable for automatic
 workspace creation or when using a restored manifest.
+For an explicitly scheduled scenario rerun, `PW_SWITCH_STEPS=busy` runs baseline
+and busy only. Clear it before full acceptance; the result records requested
+steps so a focused scenario pass cannot be mistaken for a full matrix pass.
 Descriptors prefer a pair with two explicit effort options per model, retaining
 the provider default when it belongs to that pair. Otherwise they use the default
 and a different primary model, or another catalogue model. No model
@@ -65,6 +68,10 @@ Evidence comes from the bound session's provider storage:
 Every action has a 15-second failure cap. Turn and streaming waits use DOM
 or SSE events with bounded deadlines. No sleeps, injected responses, network
 intercepts or provider fakes are used. Retries are disabled.
+Scoped SSE `lagged` frames trigger exact own-tab status and delivery-ledger
+resync, adopt the supplied replay cursor and continue live frames. Resyncs are
+recorded; a current Idle snapshot cannot manufacture a past Working transition.
+Unexpected DEV boot changes remain failures outside the explicit restored leg.
 
 Artifacts live in `artifacts/model-switch-<timestamp>/`: matrix JSON, raw
 records, screenshots and traces. Each result includes DEV SHA, provider, step,

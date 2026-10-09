@@ -117,11 +117,13 @@ export class TabEvents {
   }> = [];
   private failure: Error | undefined;
   private reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  private sequence = 0;
+  readonly resyncs: Array<{ boot: string; nextSeq: number; status: string }> = [];
 
-  private constructor() {}
+  private constructor(private readonly api: ApiClient, private readonly tabId: string) {}
 
   static async open(api: ApiClient, tabId: string): Promise<TabEvents> {
-    const events = new TabEvents();
+    const events = new TabEvents(api, tabId);
     const response = await api.openEventStream(tabId, events.controller.signal);
     if (!response.ok || !response.body) {
       throw new Error(`tab event stream failed for ${tabId}: HTTP ${response.status}`);
@@ -171,7 +173,7 @@ export class TabEvents {
   }
 
   latestSequence(): number {
-    return this.frames.length === 0 ? 0 : this.frames[this.frames.length - 1].seq;
+    return this.sequence;
   }
 
   private async read(): Promise<void> {
@@ -185,7 +187,7 @@ export class TabEvents {
         buffer += decoder.decode(value, { stream: true });
         const frames = buffer.split(/\r?\n\r?\n/);
         buffer = frames.pop() ?? "";
-        for (const frame of frames) this.accept(frame);
+        for (const frame of frames) await this.accept(frame);
       }
     } catch (error) {
       if (!this.controller.signal.aborted) {
@@ -194,7 +196,7 @@ export class TabEvents {
     }
   }
 
-  private accept(frame: string): void {
+  private async accept(frame: string): Promise<void> {
     const data = frame
       .split(/\r?\n/)
       .filter((line) => line.startsWith("data:"))
@@ -203,19 +205,38 @@ export class TabEvents {
     if (!data) return;
     const parsed = JSON.parse(data) as Partial<ApiEvent>;
     if (parsed.event_type === "overflow") {
-      this.fail(new Error(`tab event stream overflow: ${JSON.stringify(parsed.data)}`));
+      const info = parsed.data;
+      if (info?.reason !== "lagged" || typeof info.boot !== "string" || !Number.isSafeInteger(info.next_seq) || Number(info.next_seq) < 1) {
+        this.fail(new Error(`tab event stream overflow: ${JSON.stringify(info)}`));
+        return;
+      }
+      const [state, ledger] = await Promise.all([
+        this.api.get<{ status: string }>(`/tabs/${encodeURIComponent(this.tabId)}/status`),
+        this.api.get<ChatSendStatus[]>(`/tabs/${encodeURIComponent(this.tabId)}/chat-send`),
+      ]);
+      this.sequence = Number(info.next_seq) - 1;
+      this.resyncs.push({ boot: info.boot, nextSeq: Number(info.next_seq), status: state.status });
+      console.log(`[tab-events-resync] tab=${this.tabId} boot=${info.boot} next_seq=${info.next_seq} status=${state.status}`);
+      this.publish({ seq: this.sequence, event_type: "tab-status-changed", data: { tab_id: this.tabId, status: state.status, resynced: true }, receivedAt: performance.now() });
+      for (const status of ledger) this.publish({ seq: this.sequence, event_type: "chat-send-status", data: { ...status, resynced: true }, receivedAt: performance.now() });
       return;
     }
     if (typeof parsed.seq !== "number" || typeof parsed.event_type !== "string") {
       this.fail(new Error(`malformed tab event frame: ${data.slice(0, 240)}`));
       return;
     }
+    if (parsed.seq <= this.sequence) return;
     const event = {
       seq: parsed.seq,
       event_type: parsed.event_type,
       data: (parsed.data ?? {}) as Record<string, unknown>,
       receivedAt: performance.now(),
     };
+    this.sequence = event.seq;
+    this.publish(event);
+  }
+
+  private publish(event: ApiEvent): void {
     this.frames.push(event);
     for (const waiter of [...this.waiters]) {
       if (waiter.predicate(event)) {

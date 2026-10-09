@@ -62,9 +62,11 @@ export async function dc<T>(...args: string[]): Promise<T> {
 }
 
 export async function identity(api: ApiClient, tabId: string): Promise<Identity> {
-  const state = await api.get<{ tabs: Record<string, Identity> }>("/mux/state");
-  const tab = state.tabs[tabId];
+  const tabs = await api.get<Array<Identity & { id: string }>>(`/tabs/inspect?tab_ids=${encodeURIComponent(tabId)}`);
+  expect(tabs, "identity inspection returns exactly the requested scratch tab").toHaveLength(1);
+  const tab = tabs[0];
   expect(tab, `scratch tab ${tabId} still exists`).toBeDefined();
+  expect(tab.id).toBe(tabId);
   return tab;
 }
 
