@@ -9,8 +9,8 @@ export function ComposerContextMeter({ tabId }: { tabId: string }) {
   }, [tabId]));
   const meter = contextMeter(context);
   if (!meter) return null;
-  return <span className="inline-flex items-center gap-2 text-xs" title={`${meter.used.toLocaleString()} / ${meter.window.toLocaleString()} tokens`}>
-    <meter aria-label="Context window" min={0} max={meter.window} value={meter.used}>{Math.round(meter.percent)}%</meter>
+  return <span className="ct-bar-pill ct-bar-pill--static" title={`${meter.used.toLocaleString()} / ${meter.window.toLocaleString()} tokens`}>
+    <meter className="ct-bar-meter" aria-label="Context window" min={0} max={meter.window} value={meter.used}>{Math.round(meter.percent)}%</meter>
     {Math.round(meter.percent)}%
   </span>;
 }

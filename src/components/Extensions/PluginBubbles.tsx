@@ -150,21 +150,8 @@ export function PluginBubbles({
             onClick={(e) => onClick(p, e)}
             onMouseDown={(e) => e.preventDefault()}
             title={tooltip}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-              height: "var(--ct-tab-pill-h, 24px)",
-              fontSize: 11,
-              fontWeight: 560,
-              padding: "0 10px",
-              borderRadius: 999,
-              color: c,
-              background: "color-mix(in srgb, var(--ct-bg-elev, #1e1e2e) 80%, transparent)",
-              border: `1px solid color-mix(in srgb, ${c} 32%, transparent)`,
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-            }}
+            className="ct-bar-pill ct-bar-pill--tinted"
+            style={{ "--ct-bar-pill-tone": c } as React.CSSProperties}
           >
             {b.label}
           </button>
