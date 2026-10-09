@@ -130,7 +130,6 @@ export function TabContent({
           usageVisible={usageVisible}
           usageModelId={usageModelId}
           usageModelGroups={descriptor?.model_groups}
-          api={api}
           isWatcherTab={tab.watcher != null}
           watcherLastStatus={tab.watcher?.last_status ?? null}
           tabMenu={headerTabMenu ?? undefined}

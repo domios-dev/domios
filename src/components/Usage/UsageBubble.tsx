@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
 import { useProviderModelUsageState } from "../../hooks/useProviderModelUsage";
 import { usageForModel } from "../../lib/modelGroups";
-import type { ApiConfig, ModelGroup } from "../../lib/types";
+import type { ModelGroup } from "../../lib/types";
 import { classify } from "../../types/usage";
 import { formatSpend } from "./format";
 import { groupSpendSnapshot, hasGroupSpend } from "./groupSpend";
@@ -12,7 +12,6 @@ import { unreportedBillingLabel, usageMetricsAriaLabel, visibleUsageMetrics, typ
 import { formatAge } from "../../lib/timeLabels";
 
 interface UsageBubbleProps {
-  api?: ApiConfig;
   /** Provider id — required, no default. The component is hosted by a
       tab that already knows its provider via `usageProvider`. */
   provider: string;
@@ -34,7 +33,6 @@ const STALE_MS = 20 * 60 * 1000;
 
 export function UsageBubble({
   provider,
-  api,
   accountId = null,
   trackingEnabled = false,
   modelId = null,
@@ -174,7 +172,6 @@ export function UsageBubble({
 
       {open && isSpend && (
         <UsageSpendDetail
-          api={api}
           snapshot={active}
           flipUp={flipUp}
           onRefresh={refreshUsage}
@@ -187,7 +184,6 @@ export function UsageBubble({
 
       {open && !isSpend && (
         <UsageDetail
-          api={api}
           snapshot={active}
           flipUp={flipUp}
           onRefresh={refreshUsage}

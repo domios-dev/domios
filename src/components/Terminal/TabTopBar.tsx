@@ -9,7 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import { TabModeSwitch } from "./TabModeSwitch";
 import { UsageBubble } from "../Usage/UsageBubble";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
-import type { ApiConfig, ModelGroup, Tab } from "../../lib/types";
+import type { ModelGroup, Tab } from "../../lib/types";
 import { TAB_BAR_CONTROL_H } from "./tabBarConstants";
 import { WatcherStatusBadge } from "./WatcherStatusBadge";
 import { TabActionsMenu } from "./TabActionsMenu";
@@ -48,7 +48,6 @@ interface TabTopBarProps {
    *  capsule shows for the upstream the tab is actually running. */
   usageModelId?: string | null;
   usageModelGroups?: ModelGroup[];
-  api?: ApiConfig;
   /** Watcher tabs surface health from `tab.watcher.last_status` in the header. */
   watcherLastStatus?: string | null;
   isWatcherTab?: boolean;
@@ -98,7 +97,6 @@ export function TabTopBar({
   usageVisible,
   usageModelId,
   usageModelGroups,
-  api,
   watcherLastStatus,
   isWatcherTab = false,
   isActive = false,
@@ -246,7 +244,6 @@ export function TabTopBar({
         <PluginBubbles cwd={cwd} tabId={tabId} isActive={isActive} />
         {usageProvider && (
           <UsageBubble
-            api={api}
             provider={usageProvider}
             trackingEnabled={!!usageVisible}
             modelId={usageModelId}
