@@ -3,7 +3,7 @@ import { ChevronRight, Network } from "lucide-react";
 import { focusEntry, focusLost } from "./focus";
 import { ScopedScenarioPanel } from "./ScopedScenarioPanel";
 import { ScenarioPanel } from "./ScenarioPanel";
-import { blueprintScenarioJobs, blueprintTitle } from "./scenarios";
+import { sentinelJobs, sentinelTitle } from "./scenarios";
 import { AUTOMATION_ROW, stateTone } from "./styles";
 import { ALL_JOBS_SCOPE, type AutomationAttachment, type AutomationGraphAdapter } from "./types";
 import { useAutomationGraph } from "./useAutomationGraph";
@@ -62,11 +62,11 @@ function AutomationGraphSurface({ adapter, attachment }: AutomationGraphViewProp
       {missing && <p ref={removed} tabIndex={-1} role="alert" className="px-4 py-3 outline-none">The selected Blueprint is unavailable. Select a recorded Blueprint to continue.</p>}
       {state.graph && <>
         {state.graph.scenarios.length === 0 && <p className="px-4 py-3 text-[var(--ct-muted-fg)]">No Blueprints recorded in this scope.</p>}
-        <ul ref={list} aria-label="Blueprint scenarios" className="space-y-2 p-3">{blueprintScenarioJobs(state.graph, attachment).map((job) => {
+        <ul ref={list} aria-label="Blueprint scenarios" className="space-y-2 p-3">{sentinelJobs(state.graph, attachment).map((job) => {
           const Icon = Network;
           return <li key={job.scenario.id}><button type="button" data-scenario-id={job.scenario.id} className={AUTOMATION_ROW} onClick={() => setScenarioId(job.scenario.id)}>
             <Icon size={15} className="shrink-0 text-[var(--ct-muted-fg)]" aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate font-medium">{blueprintTitle(job.scenario, job.root)}</span>
+            <span className="min-w-0 flex-1 truncate font-medium">{sentinelTitle(job.scenario, job.root)}</span>
             <span className="shrink-0 text-xs text-[var(--ct-muted-fg)]"> · {job.type} · </span>
             <span className="flex shrink-0 items-center gap-1.5 text-xs text-[var(--ct-muted-fg)]"><span className={`h-1.5 w-1.5 rounded-full ${stateTone(job.state)}`} aria-hidden="true" />{job.state}</span>
             <ChevronRight size={14} className="shrink-0 text-[var(--ct-muted)]" aria-hidden="true" />

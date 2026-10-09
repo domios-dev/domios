@@ -1,12 +1,12 @@
-import { nodeKind, bucketDefinitions, type ClassifierConfig } from "./nodeDecision";
+import { nodeKind, routeDefinitions, type ClassifierConfig } from "./nodeDecision";
 import { automationKey, type AutomationGraph, type AutomationHandler, type AutomationHandlerResult, type AutomationNode } from "./types";
-import { actionKind, actionTitle, type BlueprintNodeType, type TriggerKind, type SourceKind } from "./blueprintKinds";
 
 /** Actions drawn per stage before the rest fold into one counted overflow node. */
 export const MAX_ACTIONS_PER_STAGE = 24;
 
-export type { BlueprintNodeType, TriggerKind, SourceKind } from "./blueprintKinds";
-export { actionTitle } from "./blueprintKinds";
+export type BlueprintNodeType = "trigger" | "source" | "agent" | "logic" | "action";
+export type TriggerKind = "schedule" | "event" | "manual" | "activated";
+export type SourceKind = "probe" | "terminal" | "observe" | "input";
 export type PinKind = "exec" | "data";
 
 export interface BlueprintPin {
@@ -108,7 +108,7 @@ function sourceNode(graph: AutomationGraph, stage: AutomationNode) {
   const kind = sourceKind(stage);
   const source = stage.source;
   const probe = stage.detail?.definition?.probe ?? null;
-  if (kind === "probe") return { title: "Run probe", subtitle: "Shell command", body: probe ? { kind: "code" as const, text: probe, language: stage.detail?.definition?.command_language } : null, output: "output" };
+  if (kind === "probe") return { title: "Run probe", subtitle: "Shell command", body: probe ? { kind: "code" as const, text: probe, language: stage.detail?.definition?.language ?? "bash" } : null, output: "output" };
   if (kind === "terminal") {
     const rule = source?.pattern ? `When output matches /${source.pattern}/` : source?.idle_ms ? `When output settles for ${source.idle_ms} ms` : "On new output";
     return { title: `Terminal: ${observedName(graph, stage)}`, subtitle: "Watches a Team terminal", body: { kind: "text" as const, text: rule }, output: "new output" };
@@ -126,6 +126,21 @@ function triggerNode(stage: AutomationNode, activators: readonly AutomationNode[
   if (kind === "terminal" || kind === "observe") return { kind: "event", title: "On new activity", subtitle: kind === "terminal" ? "Terminal output event" : "Observed report event" };
   if (kind === "input") return { kind: "manual", title: "On input", subtitle: "codeterm blueprint input" };
   return { kind: "schedule", title: cadence ? `Every ${cadence.replace(/^every /, "")}` : "On schedule", subtitle: stage.expires_at ? "Until it expires" : "Schedule" };
+}
+
+const ACTION_TITLE: Record<string, (target: string | null, label: string | null) => string> = {
+  notify: () => "Notify owner",
+  send: (target) => `Send to ${target ?? "agent"}`,
+  cron: (target) => `Start ${target ?? "cron job"}`,
+  command: (_, label) => `Run ${label ?? "command"}`,
+  sentinel: (target) => `Run ${target ?? "next Blueprint"}`,
+  escalate: (target) => `Escalate to ${target ?? "creator"}`,
+  respond_prompt: () => "Answer prompt",
+  stop: () => "Stop Blueprint",
+};
+
+export function actionTitle(type: string, target: string | null, label: string | null) {
+  return (ACTION_TITLE[type] ?? (() => type))(target, label);
 }
 
 /** Visits stages from the scenario roots; a stage activated by a deeper or same-depth stage closes a loop. */
@@ -151,9 +166,9 @@ function stageDepths(stages: readonly AutomationNode[], roots: readonly string[]
 /** Explodes every stored stage into Trigger → Source → Agent|Logic → Action nodes with typed pins and wires. */
 export function blueprintModel(graph: AutomationGraph, classifier: ClassifierConfig = graph.configured_fallback): BlueprintModel {
   const pipelineIds = new Set(graph.blueprints?.map((blueprint) => blueprint.id));
-  const stages = graph.nodes.filter((node) => node.identity.kind === "blueprint" && !pipelineIds.has(node.identity.id) && node.availability !== "missing");
+  const stages = graph.nodes.filter((node) => node.identity.kind === "sentinel" && !pipelineIds.has(node.identity.id) && node.availability !== "missing");
   const stageKeys = new Set(stages.map((stage) => automationKey(stage.identity)));
-  const chained = (stage: AutomationNode) => stage.outcomes.flatMap((outcome) => outcome.handlers.filter((handler) => actionKind(handler.type)?.chain && handler.target && stageKeys.has(automationKey(handler.target))).map((handler) => ({ bucket: outcome.bucket, handler, target: automationKey(handler.target!) })));
+  const chained = (stage: AutomationNode) => stage.outcomes.flatMap((outcome) => outcome.handlers.filter((handler) => handler.type === "sentinel" && handler.target && stageKeys.has(automationKey(handler.target))).map((handler) => ({ bucket: outcome.bucket, handler, target: automationKey(handler.target!) })));
   const outgoing = new Map(stages.map((stage) => [automationKey(stage.identity), chained(stage)]));
   const roots = graph.scenarios.map((scenario) => automationKey(scenario.root)).filter((key) => stageKeys.has(key));
   const depth = stageDepths(stages, roots, (key) => (outgoing.get(key) ?? []).map((link) => link.target));
@@ -193,7 +208,7 @@ export function blueprintModel(graph: AutomationGraph, classifier: ClassifierCon
 
     const kind = nodeKind(stage, classifier);
     const definition = stage.detail?.definition;
-    const routes = bucketDefinitions(stage);
+    const routes = routeDefinitions(stage);
     const buckets = [...routes, ...stage.outcomes.filter((outcome) => !routes.some((route) => route.name === outcome.bucket)).map((outcome) => ({ name: outcome.bucket, description: "" }))];
     const declared = (bucket: string) => stage.outcomes.find((outcome) => outcome.bucket === bucket)?.handlers ?? [];
     const patterns = definition?.buckets?.filter((bucket) => bucket.pattern).map((bucket) => `${bucket.name}: /${bucket.pattern}/`) ?? [];
@@ -203,7 +218,7 @@ export function blueprintModel(graph: AutomationGraph, classifier: ClassifierCon
       subtitle: kind.ai ? (patterns.length ? "Decides after pattern rules" : "Agent decision") : "Deterministic rules",
       body: kind.ai ? (definition?.question ? { kind: "prompt", text: definition.question } : null) : patterns.length ? { kind: "text", text: patterns.join("\n") } : null,
       inputs: [{ id: "exec", kind: "exec", side: "in", label: "", connected: true }, { id: "receives", kind: "data", side: "in", label: `receives ${source.output}`, connected: true }],
-      outputs: buckets.map((bucket) => ({ id: `bucket:${bucket.name}`, kind: "exec", side: "out", label: bucket.name, detail: bucket.description || undefined, bucket: bucket.name, connected: declared(bucket.name).length > 0 })),
+      outputs: buckets.map((bucket) => ({ id: `bucket:${bucket.name}`, kind: "exec", side: "out", label: bucket.name, detail: bucket.description.startsWith("No separate route") ? undefined : bucket.description || undefined, bucket: bucket.name, connected: declared(bucket.name).length > 0 })),
     });
     connect("exec", keys.trigger, "then", keys.source, "exec", stageKey);
     connect("exec", keys.source, "then", keys.decision, "exec", stageKey);
@@ -219,12 +234,12 @@ export function blueprintModel(graph: AutomationGraph, classifier: ClassifierCon
       const target = nameOf(graph, handler);
       const accepted = stage.last_result?.bucket === bucket.name ? stage.last_result.handlers.find((entry) => entry.handler_id === handler.id) ?? null : null;
       const label = typeof handler.label === "string" && handler.label.trim() ? handler.label : null;
-      const command = actionKind(handler.type)?.code ? definition?.commands?.find((entry) => entry.bucket === bucket.name && entry.handler_id === handler.id) : undefined;
-      const chain = actionKind(handler.type)?.chain && handler.target && stageKeys.has(automationKey(handler.target));
+      const command = handler.type === "command" ? definition?.commands?.find((entry) => entry.bucket === bucket.name && entry.handler_id === handler.id) : undefined;
+      const chain = handler.type === "sentinel" && handler.target && stageKeys.has(automationKey(handler.target));
       nodes.push({
         key, type: "action", stageKey, stage, title: actionTitle(handler.type, target?.name ?? null, label),
         subtitle: target?.executor?.model ? `${target.executor.provider_id ?? "agent"} · ${target.executor.model}` : `on ${bucket.name}`,
-        body: typeof command?.command === "string" ? { kind: "code", text: command.command, language: definition?.command_language } : null,
+        body: typeof command?.command === "string" ? { kind: "code", text: command.command, language: "bash" } : null,
         inputs: [{ id: "exec", kind: "exec", side: "in", label: "", connected: true }, { id: "payload", kind: "data", side: "in", label: "payload", connected: false }],
         outputs: chain ? [{ id: "then", kind: "exec", side: "out", label: "", connected: true }] : [],
         action: { bucket: bucket.name, handler, result: accepted ?? handler.last_result ?? null, target, overflow: 0 },

@@ -1,7 +1,5 @@
-import { decisionKind } from "./nodeDecision";
-import { automationKey, type AutomationGraph, type AutomationTransition, type AutomationNode } from "./types";
 import type { GraphRun, RunEvent } from "../../lib/blueprintRun";
-import { blueprintModel, nodeKeys, wireId, type BlueprintModel, type BlueprintNode, type BlueprintWire } from "./blueprintModel";
+import { nodeKeys, wireId, type BlueprintModel, type BlueprintNode } from "./blueprintModel";
 
 /** One hop of a replay: what lights up together as execution reaches the next node. */
 export interface ReplayStep { nodes: string[]; wires: string[] }
@@ -68,7 +66,7 @@ export function replaySteps(model: BlueprintModel, run: GraphRun): ReplayStep[] 
     keep({ nodes: [keys.trigger], wires: chain });
     keep({ nodes: [keys.source], wires: [wireId(keys.trigger, "then", keys.source)] });
     keep({ nodes: [keys.decision], wires: [wireId(keys.source, "then", keys.decision), wireId(keys.source, "output", keys.decision)] });
-    const actions = transition.events.filter((event) => event.handler && event.edgeId !== null && !QUIET.has(event.status)).map((event) => keys.action(transition.bucket, event.handler!));
+    const actions = transition.events.filter((event) => event.handler && !QUIET.has(event.status)).map((event) => keys.action(transition.bucket, event.handler!));
     keep({ nodes: actions, wires: actions.map((action) => wireId(keys.decision, bucketPin, action)) });
     previousActions = actions;
   }
@@ -87,17 +85,17 @@ export interface ReplayFrame {
   done: boolean;
 }
 
-export function replayFrame(steps: readonly ReplayStep[], elapsedMs: number, reducedMotion: boolean, stepMs = REPLAY_STEP_MS): ReplayFrame {
-  const total = steps.length * stepMs;
+export function replayFrame(steps: readonly ReplayStep[], elapsedMs: number, reducedMotion: boolean): ReplayFrame {
+  const total = steps.length * REPLAY_STEP_MS;
   const elapsed = reducedMotion ? total : Math.max(0, elapsedMs);
-  const reached = Math.min(steps.length, Math.floor(elapsed / stepMs) + 1);
+  const reached = Math.min(steps.length, Math.floor(elapsed / REPLAY_STEP_MS) + 1);
   const shown = steps.slice(0, reached);
   const done = reducedMotion || elapsed >= total;
   return {
     nodes: new Set(done ? steps.flatMap((step) => step.nodes) : shown.slice(0, -1).flatMap((step) => step.nodes)),
     wires: new Set(shown.flatMap((step) => step.wires)),
     travelling: done ? [] : steps[reached - 1]?.wires ?? [],
-    progress: done ? 1 : (elapsed % stepMs) / stepMs,
+    progress: done ? 1 : (elapsed % REPLAY_STEP_MS) / REPLAY_STEP_MS,
     overall: total ? Math.min(1, elapsed / total) : 1,
     done,
   };
@@ -115,7 +113,6 @@ function node(model: BlueprintModel, key: string): BlueprintNode | undefined {
 }
 
 function decisionName(event: RunEvent | undefined) {
-  if (event?.decidedBy === "pattern") return "Pattern rules";
   return event?.classifier?.label ?? "Decision origin unknown";
 }
 
@@ -181,76 +178,4 @@ export function nextRunIndex(current: number, count: number, code: string): numb
   if (code === "Home") return 0;
   if (code === "End") return count - 1;
   return null;
-}
-
-const routeKey = (source: string, bucket: string, handler: string | null) => JSON.stringify([source, bucket, handler]);
-
-function transitionKey(node: AutomationNode, transition: AutomationTransition) {
-  return JSON.stringify([automationKey(node.identity), transition.id]);
-}
-
-export function graphRuns(graph: AutomationGraph): GraphRun[] {
-  const model = blueprintModel(graph);
-  const names = new Map(model.nodes.map((node) => [node.key, node.action?.target?.name ?? node.action?.handler?.label ?? node.title]));
-  const pieces = graph.nodes.flatMap((node) => [...(node.history ?? [])].reverse().map((transition) => ({ node, transition, key: transitionKey(node, transition) })));
-  const byTransition = new Map(pieces.map((piece) => [piece.key, piece]));
-  const roots = new Map(graph.nodes.filter((node) => node.identity.kind === "blueprint").map((node) => [node.identity.id, node]));
-  const routes = new Map<string, BlueprintWire>();
-  for (const edge of model.wires) {
-    if (!edge.handlerId || !edge.bucket || edge.back || edge.from.node !== nodeKeys(edge.stageKey).decision) continue;
-    const key = routeKey(edge.stageKey, edge.bucket, edge.handlerId);
-    if (!routes.has(key)) routes.set(key, edge);
-  }
-  const eventsFor = ({ node, transition }: typeof pieces[number]): RunEvent[] => {
-    const source = automationKey(node.identity);
-    const events: RunEvent[] = transition.handlers.map((handler) => {
-      const edge = transition.routes_current === false ? undefined : routes.get(routeKey(source, transition.bucket, handler.handler_id));
-      const command = handler.command_result;
-      const duration = command && Number.isSafeInteger(command.started_at) && Number.isSafeInteger(command.finished_at) && command.started_at >= 0 && command.finished_at >= command.started_at ? command.finished_at - command.started_at : null;
-      return {
-        decidedBy: transition.decided_by, classifier: decisionKind(transition), confidence: transition.confidence, reason: transition.reason,
-        at: handler.accepted_at ?? transition.accepted_at, node: node.name, outcome: transition.bucket,
-        target: edge ? names.get(edge.to.node) ?? null : handler.handler_id,
-        status: handler.status ?? "Unknown", duration, stage: source, transition: transition.id, handler: handler.handler_id,
-        edgeId: handler.status === "skipped" || handler.status === "noop" ? null : edge?.id ?? null,
-      };
-    });
-    if (!events.length) events.push({ decidedBy: transition.decided_by, classifier: decisionKind(transition), confidence: transition.confidence, reason: transition.reason, at: transition.accepted_at, node: node.name, outcome: transition.bucket, target: null, status: "No action", duration: null, edgeId: null, stage: source, transition: transition.id, handler: null });
-    return events;
-  };
-  const runs: GraphRun[] = (graph.runs ?? []).flatMap((run) => {
-    const root = roots.get(run.root_node);
-    if (!root) return [];
-    const entries = run.transitions.flatMap((entry) => {
-      const piece = byTransition.get(JSON.stringify([automationKey(entry.node), entry.transition_id]));
-      return piece ? [{ ...piece, parent: entry.parent }] : [];
-    });
-    const children = new Map<string, typeof entries>();
-    for (const entry of entries) {
-      if (!entry.parent) continue;
-      const key = routeKey(entry.parent.node, entry.parent.transition, entry.parent.handler);
-      const siblings = children.get(key) ?? [];
-      siblings.push(entry);
-      children.set(key, siblings);
-    }
-    const visited = new Set<string>();
-    const events: RunEvent[] = [];
-    const visit = (entry: typeof entries[number]) => {
-      if (visited.has(entry.key)) return;
-      visited.add(entry.key);
-      eventsFor(entry).forEach((event, index) => {
-        events.push(event);
-        const handler = entry.transition.handlers[index];
-        if (handler) children.get(routeKey(entry.node.identity.id, entry.transition.id, handler.handler_id))?.forEach(visit);
-      });
-    };
-    entries.filter((entry) => entry.parent === null).forEach(visit);
-    entries.forEach(visit);
-    return [{ key: run.id, at: run.started_at, name: root.name, events, state: run.state, conversation: root.conversation, incomplete: run.incomplete || entries.length < run.transitions.length }];
-  });
-  for (const piece of pieces) {
-    if (piece.transition.causal_run) continue;
-    runs.push({ key: piece.key, at: piece.transition.accepted_at, name: piece.node.name, events: eventsFor(piece), state: "unlinked", conversation: piece.node.conversation, incomplete: false });
-  }
-  return runs.sort((a, b) => b.at - a.at || a.key.localeCompare(b.key));
 }

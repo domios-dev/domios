@@ -44,7 +44,7 @@ export function BlueprintNodeDetails({ node, graph, onClose, panelRef, presence 
         {view.code.truncated && <p className="text-xs text-[var(--ct-muted-fg)]">Code preview truncated at the source.</p>}
       </section>}
       {view.command && <section aria-label="Last command result"><h4 className={SECTION}>Last result</h4><CommandResultFacts handlerId={view.command.handler.id} handler={view.command.handler} result={view.command.result} /></section>}
-      {view.files && <NodeFiles key={JSON.stringify([view.files, node.stage.blueprint_definition?.definition_version])} identity={view.files.identity} bucket={view.files.bucket} handler={view.files.handler} />}
+      {view.files && <NodeFiles key={JSON.stringify([view.files, node.stage.sentinel_definition?.definition_version])} identity={view.files.identity} bucket={view.files.bucket} handler={view.files.handler} />}
       <Disclosure title="Identifiers"><Facts><dt>Stage</dt><dd className="break-all font-mono text-xs">{node.stage.identity.id}</dd>{node.action?.handler && <><dt>Action</dt><dd className="break-all font-mono text-xs">{node.action.handler.id}</dd></>}</Facts></Disclosure>
     </div>
   </DetailsFrame>;

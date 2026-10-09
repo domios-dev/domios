@@ -1,7 +1,7 @@
 import { Network, Workflow } from "lucide-react";
 import { usePlanPeerContext } from "../Canvas/usePlanPeerContext";
 import { hostAutomationAdapter } from "../Automation/hostAdapter";
-import { blueprintScenarioJobs, blueprintTitle } from "../Automation/scenarios";
+import { sentinelJobs, sentinelTitle } from "../Automation/scenarios";
 import type { AutomationGraphAdapter, AutomationScope } from "../Automation/types";
 import { useAutomationGraph } from "../Automation/useAutomationGraph";
 import { TeamUnit, type TeamUnitProps } from "../Sidebar/TeamUnit";
@@ -16,13 +16,13 @@ interface SentinelSource {
 
 function TeamUnitWithSentinels({ scope, generation, onOpenSentinel, adapter, ...props }: TeamUnitProps & { scope: AutomationScope; generation: number; onOpenSentinel: (scenarioId: string) => void; adapter: AutomationGraphAdapter }) {
   const state = useAutomationGraph(adapter, { ...scope, connection_id: `host:${generation}` });
-  const jobs = state.graph ? blueprintScenarioJobs(state.graph, scope) : [];
+  const jobs = state.graph ? sentinelJobs(state.graph, scope) : [];
   const rows = jobs.map((job) => {
     const Icon = Network;
     return <div key={`scenario:${job.scenario.id}`} className="sidebar-team-cron-row">
-      <button type="button" className="sidebar-team-cron-main" data-testid="sidebar-sentinel-job" aria-label={`${blueprintTitle(job.scenario, job.root)}, ${job.type}, ${jobStateLabel(job.state)}`} title={job.root?.purpose ?? job.type} onClick={() => onOpenSentinel(job.scenario.id)}>
+      <button type="button" className="sidebar-team-cron-main" data-testid="sidebar-sentinel-job" aria-label={`${sentinelTitle(job.scenario, job.root)}, ${job.type}, ${jobStateLabel(job.state)}`} title={job.root?.purpose ?? job.type} onClick={() => onOpenSentinel(job.scenario.id)}>
         <Icon size={11} aria-hidden="true" />
-        <span className="sidebar-team-cron-name">{blueprintTitle(job.scenario, job.root)}</span>
+        <span className="sidebar-team-cron-name">{sentinelTitle(job.scenario, job.root)}</span>
         <span className="sidebar-team-cron-state">{jobStateLabel(job.state)}</span>
       </button>
       <span className="w-7 shrink-0" aria-hidden="true" />

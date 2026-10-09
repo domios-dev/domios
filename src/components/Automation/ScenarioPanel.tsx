@@ -9,10 +9,10 @@ import { replayFrame, replaySteps, runRow } from "./blueprintRunModel";
 import { clampLogHeight, readLogHeight, writeLogHeight } from "./dividerModel";
 import { RunDivider } from "./RunDivider";
 import { RunLog } from "./RunLog";
-import { graphRuns } from "./blueprintRunModel";
+import { graphRuns } from "./runLogModel";
 import { usePresence, type PresenceMotion } from "../Canvas/usePresence";
 import { automationState, scopedAutomationGraph } from "./model";
-import { blueprintTitle } from "./scenarios";
+import { sentinelTitle } from "./scenarios";
 import { AUTOMATION_TOOL, stateTone } from "./styles";
 import { ALL_JOBS_SCOPE, automationKey, type AutomationGraph, type AutomationIdentity, type AutomationScenario, type AutomationScope } from "./types";
 import { useBlueprintReplay } from "./useBlueprintReplay";
@@ -94,7 +94,7 @@ export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBac
   const canvasReplay: CanvasReplay | null = frame ? { frame, live: false, outcome } : live ? { frame: live, live: true } : null;
 
   const root = graph?.nodes.find((candidate) => automationKey(candidate.identity) === automationKey(scenario.root));
-  const title = blueprintTitle(scenario, root ?? null);
+  const title = sentinelTitle(scenario, root ?? null);
   const shown = drawer.item;
   const shownNode = shown && model ? model.nodes.find((node) => node.key === shown) ?? null : null;
   const select = (key: string) => {

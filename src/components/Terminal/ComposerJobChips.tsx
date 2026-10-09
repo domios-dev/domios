@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Clock3, Network, Square, Trash2, Workflow } from "lucide-react";
 import { hostAutomationAdapter } from "../Automation/hostAdapter";
-import { blueprintScenarioJobs } from "../Automation/scenarios";
+import { sentinelJobs } from "../Automation/scenarios";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { JobConfirmationDialog } from "../Jobs/JobConfirmationDialog";
 import { deleteJobConfirmation, deleteMergedJob, hostJobsActionAdapter, jobWorkspace, stopMergedJob, type JobActionContext, type JobsActionAdapter } from "../Jobs/jobActions";
@@ -45,7 +45,7 @@ export function ComposerJobChips({ tabId, workspaceId, adapter = hostAutomationA
   const sources = useMemo(() => workspaceId ? [workspaceId] : NO_SOURCES, [workspaceId]);
   const graphs = useWorkspaceGraphs(adapter, "composer", sources);
   const crons = useCronJobs(null);
-  const sentinels = useMemo(() => graphs.flatMap((graph) => graph.graph ? blueprintScenarioJobs(graph.graph, graph.attachment) : []), [graphs]);
+  const sentinels = useMemo(() => graphs.flatMap((graph) => graph.graph ? sentinelJobs(graph.graph, graph.attachment) : []), [graphs]);
   const blueprints = useMemo(() => graphs.flatMap((graph) => (graph.graph?.blueprints ?? [])
     .filter((blueprint) => blueprint.owner?.tab_id === tabId)
     .map((blueprint) => ({ workspaceId: graph.attachment.workspace_id, blueprint, pipeline: pipelineModel(blueprint) }))), [graphs, tabId]);
