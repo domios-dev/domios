@@ -141,6 +141,16 @@ fn clear_empty_session(tab: &mut Tab) {
     }
 }
 
+fn unresolved_user_turn(
+    states: impl IntoIterator<
+        Item = crate::service::pending_delivery_payloads::user_sends::UserSendState,
+    >,
+) -> bool {
+    states.into_iter().any(|state| {
+        state != crate::service::pending_delivery_payloads::user_sends::UserSendState::Queued
+    })
+}
+
 impl ServiceContext {
     pub(crate) fn record_provider_conversation(&self, tab_id: &str) {
         let identity = {
@@ -217,7 +227,9 @@ impl ServiceContext {
             .pending_delivery_payloads
             .user_sends
             .records(tab_id)
-            .map_or(true, |records| !records.is_empty())
+            .map_or(true, |records| {
+                unresolved_user_turn(records.iter().map(|record| record.state))
+            })
         {
             return false;
         }
