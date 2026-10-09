@@ -48,7 +48,10 @@ fn failed_restore_keeps_identity_session_and_exact_restore_data() {
         assert_eq!(tab.role, Some(AgentRole::Manager));
         assert_eq!(tab.role_profile.as_deref(), Some("general_agent"));
         assert_eq!(tab.boot_stage, Some(stage));
-        assert_eq!(tab.boot_failure_reason.as_deref(), Some("opaque-launch-failure"));
+        assert_eq!(
+            tab.boot_failure_reason.as_deref(),
+            Some("opaque-launch-failure")
+        );
         let restore = tab.close_restore.as_ref().unwrap();
         assert!(restore.exact_session);
         assert_eq!(restore.session_cwd.as_deref(), Some("saved-cwd"));

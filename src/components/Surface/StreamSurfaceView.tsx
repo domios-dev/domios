@@ -96,6 +96,8 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
   const [naming, setNaming] = useState<ToolbarItemSpec | null>(null);
   const [dismissedNeed, setDismissedNeed] = useState<NeedsHumanKind | null>(null);
   const hover = useRef<LatestWins<PagePoint> | null>(null);
+  const transportRef = useRef(transport);
+  transportRef.current = transport;
   const needKind = isNeedsHuman(state.needsHuman) ? state.needsHuman : null;
 
   useEffect(() => {
@@ -104,13 +106,13 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
 
   useEffect(() => {
     // Hover highlight is cosmetic; a failed hover must not raise a notice per mouse move.
-    const queue = createLatestWins<PagePoint>((point) => transport.invoke(SURFACE_METHOD.grabHover, { ...point }).then(() => undefined));
+    const queue = createLatestWins<PagePoint>((point) => transportRef.current.invoke(SURFACE_METHOD.grabHover, { ...point }).then(() => undefined));
     hover.current = queue;
     return () => {
       queue.dispose();
       hover.current = null;
     };
-  }, [transport]);
+  }, [transportRef]);
 
   const label = surfaceLabel(state.owner, surfaceTitle);
   const needText = needKind !== dismissedNeed ? needsHumanNotice(state) : null;
