@@ -85,6 +85,18 @@
         "Does NOT call codeterm mem delete on either item",
         "Logs the merged lesser and keeper ids with a short reason in the diary log (a MERGED line or equivalent)"
       ]
+    },
+    {
+      "id": 8,
+      "name": "maintenance-uses-preface-candidates",
+      "prompt": "Stage 7 maintenance. Your supervisor preface contains:\nUNCLASSIFIED (1):\n  fact_build_cache [fact] Build cache lives on the QA machine\n\nLEARNINGS >30d (1):\n  learning_gateway access=18 imp=0.8 created=2026-08-01 Serialize build gateway users\n\nDescribe the exact bounded commands you will run to inspect and classify fact_build_cache and evaluate learning_gateway for promotion. Both candidate sections are complete for this run.",
+      "expected_output": "Read supplied ids directly, classify only after inspection, evaluate promotion from age and access, no empty search query.",
+      "expectations": [
+        "Reads fact_build_cache with codeterm mem get before deciding whether to assign its area with mem update",
+        "Reads learning_gateway directly with codeterm mem get and evaluates its age and access for mem learn-promote",
+        "Does not issue a mem search command with an empty query or an empty area filter",
+        "Uses the supplied candidates and does not replace them with an unbounded memory scan"
+      ]
     }
   ]
 }

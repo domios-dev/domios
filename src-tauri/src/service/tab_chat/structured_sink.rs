@@ -101,6 +101,9 @@ impl StructuredSink for TauriStructuredSink {
             self.source_session_id.as_deref(),
             self.session_binding_nonce.as_deref(),
         );
+        if let Some(service) = self.app.try_state::<crate::service::ServiceState>() {
+            service.run_watcher.check_pending_cron(&service, tab_id);
+        }
     }
 }
 
