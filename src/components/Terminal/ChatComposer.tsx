@@ -1,3 +1,4 @@
+import { createDelayedMessageFeed } from "./delayedMessageFeed";
 import {ProviderCapabilityBadge} from "./ProviderCapabilityBadge";
 import {cachedSlashCommands} from "../../lib/providerCapabilities";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from "react";
@@ -127,11 +128,6 @@ function SlashPicker({
 }
 
 const SUGGESTION_MENU_STYLE = { zIndex: 10, "--ct-menu-origin": "bottom left", "--ct-menu-shift": "6px" } as CSSProperties;
-
-/** Poll cadence for delayed-message pills: only the active tab polls. */
-export function delayedPollIntervalMs(isActive: boolean): number | null {
-  return isActive ? 10_000 : null;
-}
 
 export function composerEnterIntent(
   key: string,
@@ -302,39 +298,26 @@ function ChatComposerImpl({
     return () => clearTimeout(id);
   }, []);
 
+  const delayedFeedRef = useRef<ReturnType<typeof createDelayedMessageFeed> | null>(null);
+  const delayedTabRef = useRef<string | null>(null);
   const refreshDelayedMessages = useCallback(async () => {
-    try {
-      setDelayedMessages(await listDelayedMessages(tabId));
-    } catch {
-      setDelayedMessages([]);
-    }
-  }, [tabId]);
+    await delayedFeedRef.current?.refresh();
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    const refresh = async () => {
-      try {
-        const messages = await listDelayedMessages(tabId);
-        if (!cancelled) setDelayedMessages(messages);
-      } catch {
-        if (!cancelled) setDelayedMessages([]);
-      }
-    };
-    void refresh();
-    // Change events drive updates; the interval is drift insurance for the
-    // countdown pills and runs only while this tab is the active tab.
-    const pollMs = delayedPollIntervalMs(isActive);
-    const interval = pollMs !== null ? window.setInterval(refresh, pollMs) : null;
-    let unlisten: (() => void) | null = null;
-    void listen<{ tabId?: string }>("delayed-send-changed", (e) => {
-      if (!e.payload?.tabId || e.payload.tabId === tabId) void refresh();
-    }).then((fn) => {
-      unlisten = fn;
-    }).catch(() => {});
+    if (delayedTabRef.current !== tabId) setDelayedMessages([]);
+    delayedTabRef.current = tabId;
+    const feed = createDelayedMessageFeed(tabId, {
+      load: listDelayedMessages,
+      publish: setDelayedMessages,
+      subscribe: (changed) => listen<{ tabId?: string }>("delayed-send-changed", (event) => {
+        changed(event.payload?.tabId);
+      }),
+    });
+    delayedFeedRef.current = feed;
     return () => {
-      cancelled = true;
-      if (interval !== null) window.clearInterval(interval);
-      unlisten?.();
+      feed.dispose();
+      if (delayedFeedRef.current === feed) delayedFeedRef.current = null;
     };
   }, [tabId, isActive]);
 
