@@ -63,7 +63,7 @@ export function SettingsCard({
     <section
       role="group"
       aria-labelledby={titleId}
-      className={`ct-card ct-settings-card ${className ?? ""}`}
+      className={`ct-card ct-card--static ct-settings-card ${className ?? ""}`}
       data-testid="settings-card"
     >
       <header className="ct-settings-card__head">

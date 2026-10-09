@@ -39,7 +39,7 @@ export function BlueprintImportForm({ creators, onCreated, onCancel, api = bluep
     } catch (error) { setError(String(error)); }
     finally { setBusy(false); }
   };
-  return <form aria-label="Import Blueprint" className="ct-card" style={{ "--ct-card-tone": AUTOMATION_TONE.blueprint } as CSSProperties} onSubmit={(event) => { event.preventDefault(); void create(); }}>
+  return <form aria-label="Import Blueprint" className="ct-card ct-card--static" style={{ "--ct-card-tone": AUTOMATION_TONE.blueprint } as CSSProperties} onSubmit={(event) => { event.preventDefault(); void create(); }}>
     <div className="ct-card__head">
       <span className="ct-card__icon" aria-hidden="true"><FileUp size={14} /></span>
       <h3 className="ct-detail__heading">Import Blueprint</h3>

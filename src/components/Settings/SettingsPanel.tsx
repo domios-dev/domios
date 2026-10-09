@@ -178,14 +178,18 @@ export function SettingsPanel({
       data-testid="settings-panel"
     >
       <div className="absolute inset-0 flex flex-col pt-[var(--ct-safe-top,0px)] pb-[var(--ct-safe-bottom,0px)]">
-        <div className={`ct-jobs-header ct-settings-head ${jobsPage ? "hidden" : ""}`}>
-          {parentSection
-            ? <BackPill label={sectionTitle(parentSection.id)} onBack={pop} testId="settings-back" />
-            : <BackPill ariaLabel="Close settings" onBack={onClose} testId="settings-close" />}
-          <h2 id={SETTINGS_TITLE_ID} className="ct-settings-head__title" data-testid="settings-header-title">
-            {headerTitle}
-          </h2>
-        </div>
+        {jobsPage ? (
+          <h2 id={SETTINGS_TITLE_ID} className="sr-only" data-testid="settings-header-title">{headerTitle}</h2>
+        ) : (
+          <div className="ct-jobs-header ct-settings-head">
+            {parentSection
+              ? <BackPill label={sectionTitle(parentSection.id)} onBack={pop} testId="settings-back" />
+              : <BackPill ariaLabel="Close settings" onBack={onClose} testId="settings-close" />}
+            <h2 id={SETTINGS_TITLE_ID} className="ct-settings-head__title" data-testid="settings-header-title">
+              {headerTitle}
+            </h2>
+          </div>
+        )}
 
         {/* Body */}
         <div className="flex flex-1 min-h-0 relative z-10">
