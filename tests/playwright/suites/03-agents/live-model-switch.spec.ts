@@ -1,6 +1,8 @@
-// WHAT: Status-line model and effort switching on real DEV provider tabs.
-// WHY: Optimistic capsules cannot prove which model handled a turn.
-// ORACLE: Exact own-session turn records, unique Chat bubbles, identity and measured transitions.
+/**
+ * WHAT: Status-line model and effort switching on real DEV provider tabs.
+ * WHY: Optimistic capsules cannot prove which model handled a turn.
+ * ORACLE: Exact own-session turn records, unique Chat bubbles, identity and measured transitions.
+ */
 import { performance } from "node:perf_hooks";
 import { writeFileSync } from "node:fs";
 import { expect, test } from "../../helpers/fixtures";
