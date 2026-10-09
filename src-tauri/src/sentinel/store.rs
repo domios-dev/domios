@@ -915,6 +915,7 @@ impl Sentinel {
     pub fn pipeline(&self) -> Option<&codeterm_types::blueprint_pipeline::BlueprintSpec> {
         self.source.pipeline()
     }
+    #[cfg(test)]
     pub fn set_probe(&mut self, probe: String) {
         self.source = super::stage_source::StageSource::Probe(probe);
     }
@@ -939,6 +940,7 @@ impl Sentinel {
             };
         }
     }
+    #[cfg(test)]
     pub fn set_terminal(&mut self, config: Option<codeterm_types::blueprint_terminal::Config>) {
         if let Some(binding) = self.observe().cloned() {
             self.source = match config {
