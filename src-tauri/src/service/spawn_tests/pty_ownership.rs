@@ -487,12 +487,25 @@ fn cron_pty_ownership_dead_launch_claim_yields_to_frontend_shell() {
     let mut race = OwnershipRace::new();
     race.start_hidden();
     let exited = race.await_hidden().expect("hidden launch links its PTY");
-    race.fixture
+    let reaper = race
+        .fixture
         .service
         .pty
         .lock()
-        .kill(&exited)
-        .expect("provider PTY exits");
+        .begin_kill(&exited)
+        .expect("provider PTY termination starts");
+    reaper
+        .wait_bounded(EVENT_DEADLINE)
+        .expect("provider PTY exits before frontend attaches");
+    assert!(!race.is_live(&exited));
+    assert_eq!(
+        race.fixture
+            .service
+            .pty_ownership
+            .launch_claim(&race.tab_id)
+            .as_deref(),
+        Some(exited.as_str())
+    );
 
     let shell = race.remount().expect("frontend attaches a fresh shell");
     let outcome = race.settle_and_cleanup();
