@@ -69,6 +69,11 @@ intercepts or provider fakes are used. Retries are disabled.
 Artifacts live in `artifacts/model-switch-<timestamp>/`: matrix JSON, raw
 records, screenshots and traces. Each result includes DEV SHA, provider, step,
 mode, picker-close time, settle/pending time and record confirmation time.
+The DOM observer records the actual visible Applying duration separately from
+runner timing, or its lower bound when the step fails while it remains visible.
+Before failure cleanup, own-tab PTY text, inspection, transcript and DEV log
+lines capture delivery events and `[agent-model/timing]` phases. Set
+`PW_SWITCH_DEV_LOG` if the DEV log differs from `~/.codeterm-dev/logs/codeterm.log`.
 Claude/Grok idle settling must finish under 3 seconds; next-turn pending must
 appear within 1 second and exact records confirm on the following ACK.
 

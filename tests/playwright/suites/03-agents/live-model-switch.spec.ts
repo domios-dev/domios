@@ -17,8 +17,9 @@ const startRun = Number(process.env.PW_SWITCH_RUN_NUMBER ?? 1);
 if (!Number.isInteger(startRun) || startRun < 1 || startRun + repeats > 4) throw new Error("Invalid matrix run range");
 if (process.env.PW_SWITCH_WORKSPACE && repeats !== 1) throw new Error("A prepared scratch workspace may serve exactly one matrix");
 type SwitchRow = { run: number; sha: string; provider: string; step: string; verdict: string; detail?: string;
-  tabId?: string; model?: string; effort?: string; effortEvidence?: string; mode?: string; closeMs?: number; pendingMs?: number; confirmMs?: number; failureMs?: number; recordModel?: string };
-type SwitchProbe = { applying: boolean; closed: boolean; errorToast: boolean };
+  tabId?: string; model?: string; effort?: string; effortEvidence?: string; mode?: string; closeMs?: number; pendingMs?: number; confirmMs?: number; failureMs?: number; recordModel?: string;
+  applyingMs?: number; applyingLowerBoundMs?: number };
+type SwitchProbe = { applying: boolean; closed: boolean; errorToast: boolean; applyingStarted?: number; applyingEnded?: number };
 type ProbeWindow = typeof window & { __switchProbe: SwitchProbe; __switchObserver: MutationObserver };
 
 test.describe.configure({ mode: "default" });
@@ -147,7 +148,9 @@ for (let run = startRun; run < startRun + repeats; run++) {
                 if (document.querySelector(`[data-notification-id="model-switch:${tabId}"]`)) state.errorToast = true;
                 if (document.querySelector('[data-testid="status-model-picker"]')) return;
                 state.closed = true;
-                if (Array.from(document.querySelectorAll('[role="status"]')).some(node => node.textContent === "Applying…")) state.applying = true;
+                const applying = Array.from(document.querySelectorAll(`[data-tab-id="${tabId}"] [role="status"]`)).some(node => node.textContent === "Applying…");
+                if (applying) { state.applying = true; state.applyingStarted ??= performance.now(); }
+                else if (state.applyingStarted !== undefined) state.applyingEnded ??= performance.now();
               };
               const observer = new MutationObserver(observe);
               observer.observe(document.body, { childList: true, subtree: true, characterData: true });
@@ -155,6 +158,16 @@ for (let run = startRun; run < startRun + repeats; run++) {
             }, target.tabId);
             const started = performance.now();
             const switchedAtMs = Date.now();
+            const captureApplyingDuration = async () => {
+              const timing = await ui.page.evaluate(() => {
+                const probe = (window as ProbeWindow).__switchProbe;
+                if (probe.applyingStarted === undefined) return {};
+                return probe.applyingEnded === undefined
+                  ? { applyingLowerBoundMs: performance.now() - probe.applyingStarted }
+                  : { applyingMs: probe.applyingEnded - probe.applyingStarted };
+              });
+              Object.assign(row, timing);
+            };
             try {
             await picker.getByRole("button", { name: "Apply", exact: true }).click();
             await expect(picker).toHaveCount(0, { timeout: 1_000 });
@@ -176,10 +189,12 @@ for (let run = startRun; run < startRun + repeats; run++) {
             const pendingMs = performance.now() - started;
             row.pendingMs = pendingMs;
             if (!busy && descriptor.model_switch === "live_command") expect(pendingMs).toBeLessThan(3_000);
+            await captureApplyingDuration();
             return { started, switchedAtMs, row };
             } catch (error) {
               row.failureMs = performance.now() - started;
               row.verdict = "fail";
+              await captureApplyingDuration().catch(() => {});
               throw error;
             }
           };
