@@ -78,6 +78,8 @@ async function main() {
     createdAtMs: 1, state: "queued", sessionChanged: false,
   };
 
+  const stashed: DelayedMessage = { ...delayed, id: "stash-1", text: "Keep this for later", state: "stashed", scheduledAtMs: 0 };
+
   const opened: unknown[] = [];
   const edited: string[] = [];
   window.addEventListener(OPEN_JOB_EVENT, (event) => opened.push((event as CustomEvent).detail));
@@ -96,7 +98,7 @@ async function main() {
       adapter={adapter}
     /></MuxStateStoreContext.Provider>,
   );
-  await act(async () => { render("tab-a", [delayed]); });
+  await act(async () => { render("tab-a", [stashed, delayed]); });
 
   const crons = await waitForSelector<HTMLButtonElement>('.ct-ctx-kind[data-kind="crons"]');
   assert.equal(crons.querySelector(".ct-ctx-kind__count")?.textContent, "5", "the cron button counts every cron bound to the tab");
@@ -119,6 +121,10 @@ async function main() {
   ], "bubbles open the exact job in Jobs");
 
   await act(async () => { host.querySelector<HTMLButtonElement>('.ct-ctx-kind[data-kind="delayed"]')!.click(); });
+  const delayedBubbles = Array.from(host.querySelectorAll(".ct-ctx__strip .ct-ctx-bubble:not(.ct-ctx-bubble--add)"));
+  assert.equal(delayedBubbles.at(-1)?.getAttribute("data-tone"), "stashed", "stashed messages sort after scheduled ones");
+  assert.ok(delayedBubbles.at(-1)?.querySelector(".ct-ctx-bubble__stash"), "a stashed message shows the stash mark instead of a time");
+  assert.equal(delayedBubbles.at(-1)?.querySelector(".ct-ctx-bubble__meta"), null, "a stashed message shows no send time");
   await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Edit delayed message"]')!.click(); });
   assert.deepEqual(edited, ["later-1"], "a delayed bubble opens its editor");
 
@@ -128,7 +134,7 @@ async function main() {
 
   await act(async () => { host.querySelector<HTMLButtonElement>('.ct-ctx-kind[data-kind="crons"]')!.click(); });
   assert.equal(host.querySelector(".ct-ctx__reveal")?.hasAttribute("data-open"), true);
-  await act(async () => { render("tab-a", [delayed], true); });
+  await act(async () => { render("tab-a", [stashed, delayed], true); });
   assert.equal(host.querySelector(".ct-ctx__reveal")?.hasAttribute("data-open"), false, "starting a draft folds the open strip away");
 
   await act(async () => { render("tab-b", []); });

@@ -257,6 +257,16 @@ button.ct-ctx__title:hover .ct-ctx__primary {
   white-space: nowrap;
 }
 
+.ct-ctx-bubble__stash {
+  flex: none;
+  color: var(--ct-magenta);
+}
+
+.ct-ctx-bubble[data-tone="stashed"] {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--ct-magenta) 30%, transparent);
+}
+
 .ct-ctx-bubble__dismiss {
   display: inline-flex;
   flex: none;
