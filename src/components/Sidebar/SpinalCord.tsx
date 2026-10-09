@@ -23,25 +23,31 @@ function Vertebrae({ className }: { className?: string }) {
 
 const AGENTS = ["General", "Team", "Workers"] as const;
 const SENSES = ["Memory", "Context", "Signals"] as const;
-const ROWS = [30, 66, 102] as const;
+const ROWS = [22, 70, 118] as const;
+const BONES = [10, 32, 54, 76, 98, 120] as const;
 
 function SpinalGraphic() {
   return (
-    <svg className="ct-spinal-graphic" viewBox="0 0 280 132" role="img" aria-label="Signals from your agents travel along the spinal cord to memory, context and signals">
-      {ROWS.map((y, index) => (
-        <g key={y}>
-          <path className="ct-spinal-graphic__line" d={`M58 ${y} C 96 ${y}, 104 ${32 + index * 34}, 132 ${32 + index * 34}`} />
-          <path className="ct-spinal-graphic__pulse" style={{ animationDelay: `${index * 0.35}s` }} d={`M58 ${y} C 96 ${y}, 104 ${32 + index * 34}, 132 ${32 + index * 34}`} />
-          <path className="ct-spinal-graphic__line" d={`M148 ${32 + index * 34} C 176 ${32 + index * 34}, 184 ${y}, 222 ${y}`} />
-          <path className="ct-spinal-graphic__pulse ct-spinal-graphic__pulse--out" style={{ animationDelay: `${0.8 + index * 0.35}s` }} d={`M148 ${32 + index * 34} C 176 ${32 + index * 34}, 184 ${y}, 222 ${y}`} />
-          <circle className="ct-spinal-graphic__node" cx="44" cy={y} r="13" />
-          <text className="ct-spinal-graphic__label" x="44" y={y + 26}>{AGENTS[index]}</text>
-          <circle className="ct-spinal-graphic__node ct-spinal-graphic__node--sense" cx="236" cy={y} r="13" />
-          <text className="ct-spinal-graphic__label" x="236" y={y + 26}>{SENSES[index]}</text>
-        </g>
-      ))}
-      <line className="ct-spinal-graphic__cord" x1="140" y1="10" x2="140" y2="122" />
-      {[14, 32, 50, 68, 86, 104].map((y, index) => (
+    <svg className="ct-spinal-graphic" viewBox="0 0 280 152" role="img" aria-label="Signals from your agents travel along the spinal cord to memory, context and signals">
+      {ROWS.map((y, index) => {
+        const spineY = BONES[index * 2 + 1] + 6;
+        const inbound = `M58 ${y} C 96 ${y}, 104 ${spineY}, 131 ${spineY}`;
+        const outbound = `M149 ${spineY} C 176 ${spineY}, 184 ${y}, 222 ${y}`;
+        return (
+          <g key={y}>
+            <path className="ct-spinal-graphic__line" d={inbound} />
+            <path className="ct-spinal-graphic__pulse" style={{ animationDelay: `${index * 0.35}s` }} d={inbound} />
+            <path className="ct-spinal-graphic__line" d={outbound} />
+            <path className="ct-spinal-graphic__pulse ct-spinal-graphic__pulse--out" style={{ animationDelay: `${0.8 + index * 0.35}s` }} d={outbound} />
+            <circle className="ct-spinal-graphic__node" cx="44" cy={y} r="13" />
+            <text className="ct-spinal-graphic__label" x="44" y={y + 25}>{AGENTS[index]}</text>
+            <circle className="ct-spinal-graphic__node ct-spinal-graphic__node--sense" cx="236" cy={y} r="13" />
+            <text className="ct-spinal-graphic__label" x="236" y={y + 25}>{SENSES[index]}</text>
+          </g>
+        );
+      })}
+      <line className="ct-spinal-graphic__cord" x1="140" y1="6" x2="140" y2="138" />
+      {BONES.map((y, index) => (
         <rect key={y} className="ct-spinal-graphic__bone" style={{ animationDelay: `${index * 0.14}s` }} x="131" y={y} width="18" height="12" rx="5" />
       ))}
     </svg>
