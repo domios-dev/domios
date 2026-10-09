@@ -26,7 +26,6 @@ import {
   aiTitleFromEntry,
   ClaudeToolUseResult,
   claudeSessionFilePath,
-  contentToText,
   detectSessionModelAfterBoundary,
   editedTextFilePath,
   extractSetModelFamily,
@@ -416,14 +415,16 @@ const plugin: PluginModule = {
     const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
     if (!contents) return null;
     const lines = contents.split("\n");
+    const declaration = manifest()?.commands?.modelSwitchCommands?.transcript;
+    const declarationJson = declaration ? JSON.stringify(declaration) : null;
     for (let i = lines.length - 1; i >= 0; i--) {
       const line = lines[i];
       if (!line) continue;
       let v: ClaudeEntry;
       try { v = JSON.parse(line); } catch (_) { continue; }
       if (!v || !v.message) continue;
-      const raw = contentToText(v.message.content);
-      const fam = v.type === "user" ? extractSetModelFamily(raw) : null;
+      const stdout = declarationJson ? host.commandTranscriptStdout(line, declarationJson) : null;
+      const fam = stdout ? extractSetModelFamily(stdout) : null;
       if (fam) return fam;
       const m = v.message.model;
       if (typeof m === "string" && m && m !== "<synthetic>") {

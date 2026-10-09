@@ -77,3 +77,49 @@ pub(crate) fn window_user_turns(
             .collect(),
     }
 }
+
+pub(crate) fn window_has_foreign_user_turn(
+    registry: &AgentRegistry,
+    anchor: &SendEvidenceAnchor,
+    source: &crate::agent::provider::ModelSwitchTranscript,
+) -> Result<bool, String> {
+    let EvidenceWindow::Jsonl { transcript_offset } = &anchor.window else {
+        return Ok(!window_user_turns(registry, anchor).is_empty());
+    };
+    if source.record_type.is_empty() || source.content_path.is_empty() {
+        return Ok(!window_user_turns(registry, anchor).is_empty());
+    }
+    let path = registry
+        .with_provider(&anchor.provider_id, |provider| {
+            provider.session_jsonl_path(&anchor.cwd, &anchor.session_id)
+        })
+        .flatten()
+        .ok_or("the own-session command transcript path is unavailable")?;
+    let mut file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && *transcript_offset == 0 => {
+            return Ok(false)
+        }
+        Err(error) => {
+            return Err(format!(
+                "cannot read the own-session command transcript: {error}"
+            ))
+        }
+    };
+    if file.metadata().map_err(|error| error.to_string())?.len() < *transcript_offset {
+        return Err(
+            "the own-session command transcript was truncated past its turn boundary".into(),
+        );
+    }
+    use std::io::{Read, Seek, SeekFrom};
+    file.seek(SeekFrom::Start(*transcript_offset))
+        .map_err(|error| error.to_string())?;
+    let mut bytes = String::new();
+    file.take(1024 * 1024 + 1)
+        .read_to_string(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    if bytes.len() > 1024 * 1024 {
+        return Err("the command transcript window exceeds its classification limit".into());
+    }
+    source.has_foreign_user_turn(&bytes)
+}

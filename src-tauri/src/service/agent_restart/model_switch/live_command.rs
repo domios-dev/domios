@@ -157,24 +157,10 @@ fn confirmation_pattern(
 }
 
 fn transcript_confirms(bytes: &str, source: &ModelSwitchTranscript, pattern: &Regex) -> bool {
-    bytes
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-        .filter(|record| record["type"].as_str() == Some(source.record_type.as_str()))
-        .filter_map(|record| {
-            source
-                .content_path
-                .iter()
-                .try_fold(&record, |value, key| value.get(key))
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_owned)
-        })
-        .filter_map(|content| {
-            content
-                .strip_prefix(source.prefix.as_str())
-                .and_then(|text| text.strip_suffix(source.suffix.as_str()))
-                .map(str::to_owned)
-        })
+    source
+        .records(bytes)
+        .filter_map(Result::ok)
+        .filter_map(|record| source.record_stdout(&record))
         .any(|stdout| pattern.is_match(crate::pty::ansi::strip_ansi(&stdout).trim()))
 }
 
@@ -361,7 +347,8 @@ impl ServiceContext {
             ));
         }
         let deadline = Instant::now() + Duration::from_secs(MODEL_OBSERVE_TIMEOUT_SECS);
-        let sequence = sequence::CommandSequence::new(self, &target, deadline);
+        let sequence =
+            sequence::CommandSequence::new(self, &target, deadline, &commands.transcript);
         for (index, (command, command_effort)) in
             planned_commands(&commands, model_changed, effort, current_effort.as_deref())
                 .into_iter()

@@ -374,6 +374,7 @@ export interface HostProgressOpts {
 }
 
 export interface Host {
+  commandTranscriptStdout(recordJson: string, declarationJson: string): string | null;
   platform(): string;
   homeDir(): string | null;
   expandHome(path: string): string | null;
