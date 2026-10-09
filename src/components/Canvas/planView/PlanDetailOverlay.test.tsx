@@ -272,7 +272,7 @@ test("open-tab action invokes callback", async () => {
     />,
   );
   const btn = host.querySelector('[data-testid="plan-detail-open-tab"]') as HTMLButtonElement;
-  assert(btn?.textContent?.includes("Open tab"), "open tab button visible");
+  assert(btn?.textContent?.includes("Open chat"), "open chat button visible");
   await act(async () => {
     btn.click();
   });

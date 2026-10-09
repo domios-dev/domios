@@ -6,7 +6,9 @@ import { DetailContent } from "../canvasRender/DetailContent";
 import type { PlanSidePanelTarget } from "../planSidePanelStore";
 import { findTaskByReference, taskDisplayKey } from "../taskDisplayKey";
 import type { PlanTarget } from "../teamViewNavigation";
-import type { Plan } from "../types";
+import type { Plan, Task } from "../types";
+import { SelectionAsk, type SelectionAskOwner } from "../../shared/SelectionAsk";
+import { resolvePlanAskOwner } from "./planAskModel";
 import type { PresenceState } from "../usePresence";
 import { competitionForTask } from "./competitionForTask";
 import { loopForTask } from "./loopForTask";
@@ -23,6 +25,16 @@ export interface PlanSidePanelProps {
   onClose: () => void;
   state: PresenceState;
   panelRef: RefObject<HTMLElement | null>;
+}
+
+export function askSubject(plan: Plan, task: Task | undefined, key: string | null): string {
+  const planRef = `plan "${plan.title}" (${plan.id})`;
+  return task ? `task ${key ?? task.id} "${task.name}" in ${planRef}` : planRef;
+}
+
+export function askOwner(plan: Plan, tabs: Record<string, Tab> | undefined): SelectionAskOwner | null {
+  const owner = resolvePlanAskOwner(plan, tabs);
+  return owner.status === "ready" ? { tabId: owner.tabId, name: owner.name } : null;
 }
 
 /** The task or plan preview that slides over whatever surface is showing. */
@@ -95,17 +107,19 @@ export function PlanSidePanel({
       </>}
     >
         {plan && (!key || task) ? (
-          <DetailContent
-            kind={task ? "task" : "plan"}
-            planId={plan.id}
-            api={api}
-            task={task}
-            plan={plan}
-            tabs={tabs}
-            onOpenTab={onOpenTab}
-            onOpenTask={openTask}
-            onSectionClick={openFullPlan}
-          />
+          <SelectionAsk subject={askSubject(plan, task, key)} owner={askOwner(plan, tabs)} onJump={(tabId) => onOpenTab?.(tabId)}>
+            <DetailContent
+              kind={task ? "task" : "plan"}
+              planId={plan.id}
+              api={api}
+              task={task}
+              plan={plan}
+              tabs={tabs}
+              onOpenTab={onOpenTab}
+              onOpenTask={openTask}
+              onSectionClick={openFullPlan}
+            />
+          </SelectionAsk>
         ) : (
           <p data-testid="plan-side-panel-missing" className="plan-task-segment__note">
             {missing}
