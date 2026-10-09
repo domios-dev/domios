@@ -476,8 +476,30 @@ fn scan_effort_tail(path: &Path, tail_bytes: u64) -> Option<String> {
     if start > 0 && !lines.is_empty() {
         lines.remove(0);
     }
+    let commands = super::schemas::model_switch_commands();
+    let confirmations: Vec<_> = commands
+        .effort
+        .iter()
+        .flat_map(|command| {
+            ["low", "medium", "high", "xhigh", "max"]
+                .into_iter()
+                .filter_map(move |effort| {
+                    regex::Regex::new(&command.confirmation.replace("{effort}", effort))
+                        .ok()
+                        .map(|pattern| (effort, pattern))
+                })
+        })
+        .collect();
     lines.iter().rev().find_map(|line| {
         let value = serde_json::from_str::<serde_json::Value>(line).ok()?;
+        if let Some(stdout) = commands.transcript.record_stdout(&value) {
+            if let Some((effort, _)) = confirmations
+                .iter()
+                .find(|(_, pattern)| pattern.is_match(&stdout))
+            {
+                return Some((*effort).to_owned());
+            }
+        }
         session_entry_reasoning_effort(&value)
     })
 }

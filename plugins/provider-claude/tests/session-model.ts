@@ -1,5 +1,6 @@
 interface ModelDetector {
-  detectSessionModel(cwd: string, sessionId: string): unknown;
+    detectSessionModel(cwd: string, sessionId: string): unknown;
+    detectSessionReasoningEffort(cwd: string, sessionId: string): unknown;
 }
 
 export function runSessionModelTests(
@@ -8,6 +9,20 @@ export function runSessionModelTests(
   eq: (actual: unknown, expected: unknown, name: string) => void,
 ) {
 console.log("\n--- session model detection ---\n");
+{
+  const command = { type: "user", message: { content: "<local-command-stdout>Set effort level to medium (saved as your default for new sessions): Balanced approach with standard implementation and testing</local-command-stdout>" } };
+  const prior = { type: "assistant", message: { metadata: { effort: "low" } } };
+  const cases: Array<[unknown[], string]> = [
+    [[prior, command], "medium"],
+    [[prior, command, { type: "assistant", message: { metadata: { effort: "high" } } }], "high"],
+    [[prior, { type: "user", message: { content: "Set effort level to medium (saved as your default for new sessions): ordinary user text" } }], "low"],
+    [[prior, { ...command, type: "assistant" }], "low"],
+  ];
+  for (const [records, expected] of cases) {
+    const p = loadClaudeWithHost(baseHost({ fs: { fileExists: () => true, readFileTail: () => records.map(record => JSON.stringify(record)).join("\n") } }));
+    eq(p.detectSessionReasoningEffort("/fixture/project", "owned-session"), expected, "effort uses newest authoritative record and excludes ordinary wrapper text");
+  }
+}
 {
   const transcript = [
     JSON.stringify({ type: "assistant", message: { model: "claude-opus-5-5" } }),

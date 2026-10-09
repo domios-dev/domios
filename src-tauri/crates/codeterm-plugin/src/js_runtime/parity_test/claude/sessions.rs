@@ -4,6 +4,48 @@
 use super::super::*;
 use super::*;
 
+#[test]
+fn session_effort_confirmed_command_and_later_turn_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    let project = tempfile::tempdir().unwrap();
+    let cwd = project.path().to_string_lossy().to_string();
+    let session = format!("effort-parity-{}", uuid::Uuid::new_v4());
+    let path = native.session_jsonl_path(&cwd, &session).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let prior = serde_json::json!({"type":"assistant","message":{"metadata":{"effort":"low"}}});
+    let command = serde_json::json!({"type":"user","message":{"content":"<local-command-stdout>Set effort level to medium (saved as your default for new sessions): Balanced approach with standard implementation and testing</local-command-stdout>"}});
+    let mut records = vec![prior, command];
+    for expected in ["medium", "high"] {
+        std::fs::write(
+            &path,
+            records
+                .iter()
+                .map(serde_json::Value::to_string)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+        .unwrap();
+        assert_eq!(
+            native
+                .detect_session_reasoning_effort(&cwd, &session)
+                .as_deref(),
+            Some(expected)
+        );
+        assert_eq!(
+            js.detect_session_reasoning_effort(&cwd, &session)
+                .as_deref(),
+            Some(expected)
+        );
+        records
+            .push(serde_json::json!({"type":"assistant","message":{"metadata":{"effort":"high"}}}));
+    }
+    std::fs::remove_file(&path).unwrap();
+    std::fs::remove_dir(path.parent().unwrap()).unwrap();
+}
+
 /// AS3 (Case B): the real claude plugin.js classifies a rate-limit menu as
 /// `RateLimited` through the QuickJS runtime, and its wire output round-trips
 /// into the native `TabStateClassification` types — confirm-wait keys + a
