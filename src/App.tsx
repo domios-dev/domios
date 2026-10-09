@@ -659,7 +659,7 @@ function AppInner() {
             {/* Fixed overlay escapes #root's safe-area padding — re-add it here. */}
             <div
               data-testid="sidebar-drawer"
-              className={`ct-sidebar-drawer ${sidebarShown ? "is-open" : ""} shell-narrow:fixed shell-narrow:inset-y-0 shell-narrow:left-0 shell-narrow:z-40 shell-narrow:shadow-2xl shell-narrow:pt-[var(--ct-safe-top,0px)] shell-narrow:pb-[var(--ct-safe-bottom,0px)] shell-narrow:bg-[var(--ct-bg)] flex min-h-0 overflow-visible`}
+              className={`ct-sidebar-drawer ${sidebarShown ? "is-open" : ""} shell-narrow:fixed shell-narrow:inset-y-0 shell-narrow:left-0 shell-narrow:z-40 shell-narrow:pt-[var(--ct-safe-top,0px)] shell-narrow:pb-[var(--ct-safe-bottom,0px)] flex min-h-0 overflow-visible`}
               aria-hidden={!sidebarShown}
               inert={!sidebarShown || undefined}
             >
