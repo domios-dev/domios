@@ -3,6 +3,7 @@ import { invoke } from "../../lib/bridge";
 import { open } from "@tauri-apps/plugin-dialog";
 import { IS_WEB } from "../../lib/webApi";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
+import { isPhoneViewport } from "../../hooks/useSidebarViewport";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer";
 import { getAgentProvider } from "../../lib/agentProviders";
@@ -78,9 +79,12 @@ export function toggleWorkspacesSectionExpanded(expanded: boolean): boolean {
 
 /** Stable target for the collapse handle's aria-controls — the sidebar is a singleton region. */
 export const SIDEBAR_REGION_ID = "codeterm-sidebar";
+const SIDEBAR_COLLAPSED_WIDTH = 16;
 const SIDEBAR_COMPACT_WIDTH = 64;
 const SIDEBAR_COMPACT_SNAP = 210;
-const SIDEBAR_COLLAPSE_BELOW = 40;
+const SIDEBAR_COLLAPSE_BELOW = 48;
+const SIDEBAR_MAX_WIDTH = 400;
+const SIDEBAR_PEEK_DWELL_MS = 280;
 
 interface SidebarProps {
   onCollapse?: () => void;
@@ -374,7 +378,6 @@ export function Sidebar({
   const lastExpandedWidth = useRef(220);
   const sidebarDragging = useRef(false);
   const sidebarMoved = useRef(false);
-  const collapseOnRelease = useRef(false);
   const [peeking, setPeeking] = useState(false);
   const peekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const holdPeek = useCallback(() => {
@@ -383,6 +386,19 @@ export function Sidebar({
     setPeeking(true);
   }, []);
   const releasePeek = useCallback(() => {
+    if (peekTimer.current) clearTimeout(peekTimer.current);
+    peekTimer.current = setTimeout(() => setPeeking(false), 220);
+  }, []);
+  const [dropY, setDropY] = useState<number | null>(null);
+  const edgeEnter = useCallback(() => {
+    if (peekTimer.current) clearTimeout(peekTimer.current);
+    peekTimer.current = setTimeout(() => {
+      setDropY(null);
+      setPeeking(true);
+    }, SIDEBAR_PEEK_DWELL_MS);
+  }, []);
+  const edgeLeave = useCallback(() => {
+    setDropY(null);
     if (peekTimer.current) clearTimeout(peekTimer.current);
     peekTimer.current = setTimeout(() => setPeeking(false), 220);
   }, []);
@@ -395,31 +411,17 @@ export function Sidebar({
     setPeeking(false);
     sidebarDragging.current = true;
     sidebarMoved.current = false;
-    collapseOnRelease.current = false;
     const startX = e.clientX;
-    const startWidth = sidebarWidth;
-    const startCollapsed = isSidebarCollapsed;
-    if (!startCollapsed) {
-      lastExpandedWidth.current = sidebarWidth;
-    }
+    const startWidth = isSidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth;
+    let width = startWidth;
     const onMove = (ev: MouseEvent) => {
       if (!sidebarDragging.current) return;
       const delta = ev.clientX - startX;
-      if (Math.abs(delta) > 3) {
-        sidebarMoved.current = true;
-      }
-      const baseWidth = startCollapsed ? lastExpandedWidth.current : startWidth;
-      const raw = baseWidth + delta;
-      const newWidth = raw < SIDEBAR_COMPACT_SNAP ? SIDEBAR_COMPACT_WIDTH : Math.min(400, raw);
-      if (raw <= SIDEBAR_COLLAPSE_BELOW) {
-        collapseOnRelease.current = true;
-        setIsSidebarCollapsed(true);
-        return;
-      }
-      collapseOnRelease.current = false;
+      if (Math.abs(delta) > 3) sidebarMoved.current = true;
+      if (!sidebarMoved.current) return;
+      width = Math.max(SIDEBAR_COLLAPSED_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, startWidth + delta));
       setIsSidebarCollapsed(false);
-      setSidebarWidth(newWidth);
-      lastExpandedWidth.current = newWidth;
+      setSidebarWidth(width);
     };
     const onUp = () => {
       sidebarDragging.current = false;
@@ -427,7 +429,15 @@ export function Sidebar({
       document.removeEventListener("mouseup", onUp);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
-      if (collapseOnRelease.current) onCollapse?.();
+      if (!sidebarMoved.current) return;
+      if (width < SIDEBAR_COLLAPSE_BELOW) {
+        setIsSidebarCollapsed(true);
+        if (isPhoneViewport()) onCollapse?.();
+        return;
+      }
+      const settled = width < SIDEBAR_COMPACT_SNAP ? SIDEBAR_COMPACT_WIDTH : width;
+      lastExpandedWidth.current = settled;
+      setSidebarWidth(settled);
     };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
@@ -440,7 +450,7 @@ export function Sidebar({
       sidebarMoved.current = false;
       return;
     }
-    if (onCollapse) {
+    if (onCollapse && isPhoneViewport()) {
       onCollapse();
       return;
     }
@@ -460,7 +470,7 @@ export function Sidebar({
   const sidebarNavTouchText = pickUiFontScaleValue(uiFontScale, ["text-[12px]", "text-[13px]", "text-[14px]", "text-[15px]"]);
   const scaledTouchSidebarWidth = Math.round(sidebarWidth * 1.3);
   const visibleSidebarWidth = isSidebarCollapsed
-    ? 16
+    ? SIDEBAR_COLLAPSED_WIDTH
     : touchMode
       ? `min(85vw, ${scaledTouchSidebarWidth}px)`
       : sidebarWidth;
@@ -716,7 +726,7 @@ export function Sidebar({
         className="relative overflow-visible shrink-0 h-full"
         style={{
           width: visibleSidebarWidth,
-          transition: sidebarDragging.current ? undefined : "width 180ms cubic-bezier(0.16, 1, 0.3, 1)",
+          transition: sidebarDragging.current ? undefined : "width var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle)",
         }}
         >
         <aside
@@ -1028,11 +1038,14 @@ export function Sidebar({
         aria-expanded={!isSidebarCollapsed}
         onMouseDown={handleSidebarDragStart}
         onClick={handleSidebarGrabClick}
-        onMouseEnter={isSidebarCollapsed ? holdPeek : undefined}
-        onMouseLeave={isSidebarCollapsed ? releasePeek : undefined}
+        onMouseEnter={isSidebarCollapsed ? edgeEnter : undefined}
+        onMouseMove={isSidebarCollapsed ? (event) => setDropY(event.clientY - event.currentTarget.getBoundingClientRect().top) : undefined}
+        onMouseLeave={isSidebarCollapsed ? edgeLeave : undefined}
         className={`ct-sidebar-grip shell-narrow:hidden ${isSidebarCollapsed ? "ct-sidebar-grip--collapsed" : ""}`}
         title={isSidebarCollapsed ? "Expand sidebar" : "Resize sidebar; click to collapse"}
-      />
+      >
+        {isSidebarCollapsed && dropY !== null && <span className="ct-sidebar-drop" style={{ top: dropY }} aria-hidden="true" />}
+      </button>
     </div>
 
       {folderPicker && (

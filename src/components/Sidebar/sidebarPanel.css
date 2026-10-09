@@ -138,6 +138,60 @@
   transform: scale(1);
 }
 
+.ct-compact-peek {
+  position: fixed;
+  z-index: 1100;
+  width: 15rem;
+  padding: 4px;
+  border: 1px solid color-mix(in srgb, var(--ct-fg) 9%, transparent);
+  border-radius: 14px;
+  background: var(--ct-glass-sheen), var(--ct-glass-bg);
+  box-shadow: var(--ct-glass-edge), var(--ct-shadow-capsule);
+  backdrop-filter: blur(var(--ct-glass-blur)) saturate(var(--ct-glass-saturate));
+  transform: translateY(-50%);
+  transform-origin: left center;
+  animation: ct-compact-peek-in var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
+}
+
+.ct-compact-peek .sidebar-tab {
+  border-radius: 10px;
+}
+
+.ct-compact-peek > * {
+  animation: ct-compact-peek-content var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) 60ms both;
+}
+
+@keyframes ct-compact-peek-in {
+  from {
+    opacity: 0;
+    clip-path: inset(0 85% 0 0 round 14px);
+    transform: translate(-10px, -50%) scale(0.92, 0.96);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0 round 14px);
+    transform: translate(0, -50%) scale(1);
+  }
+}
+
+@keyframes ct-compact-peek-content {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-compact-peek,
+  .ct-compact-peek > * {
+    animation: none;
+  }
+}
+
 @keyframes ct-compact-rail-pulse {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(0.7); }
@@ -174,6 +228,47 @@
   left: 0;
   width: 100%;
   margin-left: 0;
+}
+
+.ct-sidebar-grip--collapsed::after {
+  display: none;
+}
+
+.ct-sidebar-drop {
+  position: absolute;
+  left: 0;
+  width: 9px;
+  height: 46px;
+  border-radius: 0 999px 999px 0;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--ct-accent) 70%, transparent), color-mix(in srgb, var(--ct-accent) 40%, transparent));
+  box-shadow: 0 0 14px color-mix(in srgb, var(--ct-accent) 45%, transparent);
+  pointer-events: none;
+  transform: translateY(-50%);
+  transform-origin: left center;
+  transition: top 140ms var(--ct-ease-liquid-settle);
+  animation: ct-sidebar-drop-in var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
+}
+
+@keyframes ct-sidebar-drop-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-50%) scale(0.1, 0.4);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(-50%) scale(1.25, 0.85);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(-50%) scale(1, 1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-sidebar-drop {
+    transition: none;
+    animation: none;
+  }
 }
 
 .ct-sidebar-grip::after {
