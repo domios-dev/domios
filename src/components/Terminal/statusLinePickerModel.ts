@@ -40,10 +40,9 @@ export type PickerPlan =
 export const PICKER_SEARCH_THRESHOLD = 8;
 
 export function switchTimingNote(timing: SwitchTiming): string {
-  if (timing === "live_command") return "Switches in place";
-  if (timing === "live") return "Switches right away";
+  if (timing === "live_command" || timing === "live") return "Applies now";
   if (timing === "next_turn") return "Applies to the next turn";
-  return "Restarts the session on the new model and resumes it";
+  return "Restarts the session";
 }
 
 export function statusLineSwitchGate(
