@@ -1,8 +1,9 @@
 import { useSyncExternalStore } from "react";
+import type { ReturnToRoute } from "../../lib/returnTo";
 import { readTabPanel, writeTabPanel } from "../../lib/tabPanelPersistence";
 
 /** What the app-level side panel shows: a task when taskId is set, the plan otherwise. */
-export interface PlanSidePanelTarget {
+export interface PlanSidePanelTarget extends ReturnToRoute {
   planId: string;
   documentsTabId?: string;
   tabView?: "documents" | "changes";

@@ -435,6 +435,37 @@ async function main() {
     } finally { await view.close(); }
   });
 
+  for (const kind of ["cron", "blueprint", "scenario"] as const) {
+    test(`${kind} header Back returns to the origin once, then uses normal navigation`, async () => {
+      const transport = workspaceTransport();
+      transport.graph = { ...transport.graph, blueprints: [{ id: "return-pipeline", name: "Return pipeline", owner: { kind: "team", tab_id: null, team_id: attachment.team_id }, state: "stopped", run_id: null, current_step: null, last_event_at_ms: null }] };
+      const activated: unknown[] = [];
+      let exits = 0;
+      const view = await mount(<JobsView workspaces={workspaces} teams={teams} adapter={transport}
+        initialCronId={kind === "cron" ? teamCron.id : undefined}
+        initialBlueprintId={kind === "blueprint" ? "return-pipeline" : undefined}
+        initialScenarioId={kind === "scenario" ? transport.graph.scenarios[0].id : undefined}
+        returnTo={{ workspaceId: "origin-workspace", tabId: "origin-tab" }}
+        onReturnTo={(origin) => { activated.push(origin); return true; }}
+        onClose={() => exits++} cronActionAdapter={cronActions} jobActionAdapter={jobActions} />);
+      try {
+        const detailBack = () => kind === "scenario"
+          ? view.host.querySelector<HTMLButtonElement>('button[aria-label="Close Blueprint"]')!
+          : buttonWith(view.host, "All jobs");
+        await settle(() => kind === "scenario"
+          ? view.host.querySelector('button[aria-label="Close Blueprint"]') !== null
+          : Array.from(view.host.querySelectorAll("button")).some((button) => button.textContent?.includes("All jobs")));
+        await act(async () => detailBack().click());
+        assert.deepEqual(activated, [{ workspaceId: "origin-workspace", tabId: "origin-tab" }]);
+        assert.equal(exits, 1);
+        await act(async () => detailBack().click());
+        assert.equal(activated.length, 1);
+        if (kind === "scenario") assert.equal(exits, 2, "normal direct scenario Back closes Jobs");
+        else assert.ok(view.host.querySelector('ul[aria-label="Jobs"]'), "normal Back reaches Jobs list");
+      } finally { await view.close(); }
+    });
+  }
+
   test("an unreadable Cron list is unavailable, never an empty scope", async () => {
     const transport = workspaceTransport();
     transport.graph = { ...transport.graph, scenarios: [] };
