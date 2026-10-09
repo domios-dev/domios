@@ -25,7 +25,7 @@ impl JournalMarker {
         }
     }
 
-    pub fn name<'a>(self, step_name: &'a str) -> &'a str {
+    pub fn name(self, step_name: &str) -> &str {
         match self {
             Self::Step(_) => step_name,
             Self::Result => "$result",
