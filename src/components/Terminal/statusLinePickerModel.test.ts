@@ -8,6 +8,8 @@ import {
   pickerAnchor,
   pickerModelGroups,
   pickerNeedsSearch,
+  pickerHasPrimaryModels,
+  statusLineModelName,
   planSelection,
   statusLineSwitchGate,
 } from "./statusLinePickerModel";
@@ -110,6 +112,30 @@ test("search appears only for long catalogues", () => {
   const many = Array.from({ length: 9 }, (_, index) => ({ id: `m${index}`, display_name: `M${index}` }));
   assert.equal(pickerNeedsSearch(provider()), false);
   assert.equal(pickerNeedsSearch(provider({ available_models: many })), true);
+});
+
+test("primary models curate every provider while show-all and search reach the catalogue", () => {
+  const descriptor = provider({ available_models: [
+    { id: "primary", display_name: "Primary 5.5", primary: true },
+    { id: "older", display_name: "Older 4.5", group: "Older models" },
+  ] });
+  const ids = (query = "", showAll = false) => pickerModelGroups(descriptor, "older", query, showAll)
+    .flatMap((group) => group.rows.map((row) => row.id));
+  assert.equal(pickerHasPrimaryModels(descriptor), true);
+  assert.deepEqual(ids(), ["primary"]);
+  assert.deepEqual(ids("", true), ["primary", "older"]);
+  assert.deepEqual(ids("4.5"), ["older"]);
+  assert.deepEqual(ids("older models"), ["older"]);
+  assert.deepEqual(ids("missing"), []);
+  assert.equal(pickerModelGroups(descriptor, undefined)[0].rows[0].label, "Primary 5.5");
+});
+
+test("status identity always has a model, including a requested best alias", () => {
+  assert.equal(statusLineModelName({ agent_requested_model: "best" }), "best");
+  assert.equal(statusLineModelName({ agent_session_model: "actual", agent_provider_resolved_model: "resolved", agent_requested_model: "best" }), "actual");
+  assert.equal(statusLineModelName({ agent_provider_resolved_model: "resolved" }), "resolved");
+  assert.equal(statusLineModelName({}, "shell"), "shell");
+  assert.equal(statusLineModelName({}), "Unknown model");
 });
 
 test("effort list follows the selected model", () => {

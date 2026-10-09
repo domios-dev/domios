@@ -51,6 +51,8 @@ struct CatalogModel {
     #[serde(default)]
     available: Option<bool>,
     #[serde(default)]
+    primary: Option<bool>,
+    #[serde(default)]
     featured: Option<bool>,
     #[serde(default)]
     badge: Option<String>,
@@ -976,6 +978,7 @@ fn overlay_only(base: &[ModelInfo], overlay: &[ModelInfo]) -> Vec<ModelInfo> {
                 description: o.description.clone().or_else(|| model.description.clone()),
                 available: model.available,
                 availability: model.availability,
+                primary: o.primary.or(model.primary),
                 featured: o.featured.or(model.featured),
                 badge: o.badge.clone().or_else(|| model.badge.clone()),
                 group: o.group.clone().or_else(|| model.group.clone()),

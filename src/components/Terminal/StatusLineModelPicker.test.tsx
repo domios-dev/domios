@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import type { ProviderDescriptor } from "../../lib/types";
 import { __setModelCatalogueRefreshApiForTest } from "../../lib/modelCatalogueRefresh";
 import { __setTabModelApiForTest } from "../Sidebar/tabModelApi";
+import { readPickerShowAll, writePickerShowAll } from "./statusLinePickerPreference";
 import { StatusLineModelPicker } from "./StatusLineModelPicker";
 
 function descriptor(model_switch: ProviderDescriptor["model_switch"]): ProviderDescriptor {
@@ -72,6 +73,60 @@ function recordSwitches() {
   return calls;
 }
 
+test("only the model capsule is interactive and its accessible name identifies the model", async () => {
+  const view = await mount(descriptor("next_turn"));
+  try {
+    const trigger = view.trigger()!;
+    assert.equal(view.host.querySelectorAll("button").length, 1);
+    assert.equal(trigger.textContent, "Deep · high");
+    assert.equal(trigger.getAttribute("aria-label"), "Change model, currently Deep · high");
+    const harness = Array.from(view.host.querySelectorAll("span")).find((entry) => entry.textContent === "Vendor");
+    assert.ok(harness);
+    assert.equal(harness.closest("button"), null);
+    assert.equal(harness.getAttribute("role"), null);
+    assert.equal(harness.hasAttribute("tabindex"), false);
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("the curated picker toggle reveals all models and persists when reopened", async () => {
+  writePickerShowAll("vendor", false);
+  const base = descriptor("next_turn");
+  base.available_models[0].primary = true;
+  const view = await mount(base);
+  try {
+    await act(async () => view.trigger()!.click());
+    assert.equal(document.body.querySelectorAll('[role="option"]').length, 1);
+    await act(async () => button("Show all models").click());
+    assert.equal(document.body.querySelectorAll('[role="option"]').length, 2);
+    assert.equal(readPickerShowAll("vendor"), true);
+    assert.equal(readPickerShowAll("different-provider"), false);
+    await act(async () => button("Cancel").click());
+    await act(async () => view.trigger()!.click());
+    assert.equal(document.body.querySelectorAll('[role="option"]').length, 2);
+    assert.equal(button("Show primary models").getAttribute("aria-pressed"), "true");
+    await act(async () => button("Show primary models").click());
+    assert.equal(document.body.querySelectorAll('[role="option"]').length, 1);
+    assert.equal(readPickerShowAll("vendor"), false);
+  } finally {
+    await view.unmount();
+    writePickerShowAll("vendor", false);
+  }
+});
+
+test("picker preferences tolerate blocked browser storage", () => {
+  const original = Object.getOwnPropertyDescriptor(window, "localStorage");
+  Object.defineProperty(window, "localStorage", { configurable: true, get() { throw new Error("denied"); } });
+  try {
+    assert.equal(readPickerShowAll("vendor"), false);
+    assert.doesNotThrow(() => writePickerShowAll("vendor", true));
+  } finally {
+    if (original) Object.defineProperty(window, "localStorage", original);
+    else Reflect.deleteProperty(window, "localStorage");
+  }
+});
+
 test("model rows stage a choice and Apply switches once and closes the picker", async () => {
   const calls = recordSwitches();
   const view = await mount(descriptor("next_turn"));
@@ -86,7 +141,7 @@ test("model rows stage a choice and Apply switches once and closes the picker", 
     assert.deepEqual(calls, [["tab", "fast", undefined]]);
     assert.equal(view.picker(), null);
     assert.equal(view.host.querySelector('[role="status"]'), null);
-    assert.equal(view.trigger()!.textContent, "Vendor · fast");
+    assert.equal(view.trigger()!.textContent, "Fast");
   } finally {
     await view.unmount();
     __setTabModelApiForTest(null);
@@ -171,7 +226,7 @@ test("a provider without live switching renders plain text with a reason", async
     assert.equal(view.host.querySelector("button"), null);
     const plain = view.host.querySelector<HTMLElement>("[title]")!;
     assert.ok(plain.getAttribute("title"));
-    assert.equal(plain.textContent, "Vendor · deep · high");
+    assert.equal(plain.textContent, "Deep · high");
     assert.deepEqual(calls, []);
   } finally {
     await view.unmount();
@@ -265,7 +320,7 @@ test("Enter commits the staged effort once and shows it in the status line", asy
     await act(async () => view.option("Deep").dispatchEvent(new KeyboardEvent("keydown", { code: "Enter", bubbles: true })));
     assert.deepEqual(calls, [["tab", "deep", "low"]]);
     assert.equal(view.picker(), null);
-    assert.equal(view.trigger()!.textContent, "Vendor · deep · low");
+    assert.equal(view.trigger()!.textContent, "Deep · low");
     await act(async () => view.trigger()!.click());
     assert.equal(button("Apply").disabled, true);
     assert.equal(button("Low").getAttribute("aria-selected"), "true");
@@ -289,17 +344,17 @@ for (const fails of [false, true]) {
       await act(async () => view.option("Deep").click());
       await act(async () => button("Low").click());
       await act(async () => button("Apply").click());
-      assert.equal(view.trigger()!.textContent, "Vendor · deep · low");
+      assert.equal(view.trigger()!.textContent, "Deep · low");
       assert.equal(view.picker(), null);
       assert.equal(view.host.querySelector('[role="status"]')?.textContent, "Applying…");
       assert.deepEqual(calls, [["tab", "deep", "low"]]);
       await act(async () => { if (fails) reject(new Error("refused")); else resolve(); });
       if (fails) {
-        assert.equal(view.trigger()!.textContent, "Vendor · deep · high");
+        assert.equal(view.trigger()!.textContent, "Deep · high");
         assert.ok(document.body.querySelector('[role="alert"]'));
         assert.ok(view.picker());
       } else {
-        assert.equal(view.trigger()!.textContent, "Vendor · deep · low");
+        assert.equal(view.trigger()!.textContent, "Deep · low");
         assert.equal(view.picker(), null);
       }
       assert.equal(view.host.querySelector('[role="status"]'), null);

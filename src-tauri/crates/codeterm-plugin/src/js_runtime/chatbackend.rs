@@ -339,6 +339,7 @@ impl ChatBackendProvider for JsChatBackend {
                 description: m.description,
                 available: m.available,
                 availability: None,
+                primary: None,
                 featured: None,
                 badge: None,
                 group: m.group,

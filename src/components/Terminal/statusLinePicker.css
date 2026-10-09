@@ -1,5 +1,3 @@
-/* Status-line model picker: the provider · model · effort text is the control. */
-
 .ct-status-identity-wrap {
   display: inline-flex;
   align-items: baseline;
@@ -7,6 +5,11 @@
   min-width: 0;
   max-width: 100%;
   flex: 0 1 auto;
+}
+
+.ct-status-harness {
+  flex: 0 0 auto;
+  color: var(--ct-muted-fg);
 }
 
 .ct-status-identity {
@@ -27,8 +30,14 @@
 }
 
 button.ct-status-identity {
+  padding: 1px 8px;
+  border: 1px solid var(--ct-border-subtle);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-hover) 35%, transparent);
   cursor: pointer;
-  transition: background-color var(--ct-duration-fast) ease, color var(--ct-duration-fast) ease;
+  transition: background-color var(--ct-duration-smooth) var(--ct-ease-liquid-settle),
+    border-color var(--ct-duration-fast) ease, color var(--ct-duration-fast) ease,
+    transform var(--ct-duration-smooth) var(--ct-ease-liquid-settle);
 }
 
 .ct-status-identity--static {
@@ -67,6 +76,17 @@ button.ct-status-identity[aria-expanded="true"] {
   background: color-mix(in srgb, var(--ct-hover) 70%, transparent);
 }
 
+button.ct-status-identity:hover {
+  transform: translateY(-1px);
+}
+
+button.ct-status-identity:active,
+button.ct-status-identity[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--ct-hover) 90%, transparent);
+  border-color: var(--ct-border-default);
+  transform: translateY(0);
+}
+
 button.ct-status-identity:hover .ct-status-identity__text,
 button.ct-status-identity:focus-visible .ct-status-identity__text,
 button.ct-status-identity[aria-expanded="true"] .ct-status-identity__text {
@@ -87,6 +107,28 @@ button.ct-status-identity[aria-expanded="true"] .ct-status-identity__chevron {
 button.ct-status-identity:focus-visible {
   outline: 1px solid var(--ct-accent);
   outline-offset: 1px;
+}
+
+.ct-model-picker__toggle {
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background-color var(--ct-duration-smooth) var(--ct-ease-liquid-settle), color var(--ct-duration-fast) ease;
+}
+
+.ct-model-picker__toggle:hover,
+.ct-model-picker__toggle:focus-visible {
+  background: color-mix(in srgb, var(--ct-hover) 70%, transparent);
+  color: var(--ct-fg);
+}
+
+.ct-model-picker__toggle:focus-visible {
+  outline: 1px solid var(--ct-accent);
 }
 
 .ct-model-picker {
@@ -315,7 +357,12 @@ button.ct-status-identity:focus-visible {
     animation: none;
   }
   .ct-status-identity__text,
-  .ct-status-identity__chevron {
+  .ct-status-identity__chevron,
+  .ct-status-identity,
+  .ct-model-picker__toggle {
     transition: none;
+  }
+  button.ct-status-identity:hover {
+    transform: none;
   }
 }

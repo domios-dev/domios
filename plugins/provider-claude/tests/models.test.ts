@@ -114,8 +114,10 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
     }),
   }));
   const models = p.discoverModels() as ModelInfo[];
+  eq(models.filter((model) => model.primary).map((model) => model.id),
+    ["opus", "sonnet", "haiku", "fable"], "live discovery preserves primary aliases");
   eq(
-    models.map(({ reasoningEfforts, defaultReasoningEffort, ...model }) => model),
+    models.map(({ reasoningEfforts, defaultReasoningEffort, primary, group, ...model }) => model),
     [
       { id: "opus", displayName: "Claude Opus 5", description: "Best for everyday, complex tasks.", available: true },
       { id: "sonnet", displayName: "Claude Sonnet 5", description: "Efficient for routine tasks.", available: true },
@@ -164,9 +166,9 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
   eq(
     partial.map((m) => m.displayName),
     [
-      "Claude Opus",
-      "Claude Sonnet",
-      "Claude Haiku",
+      "Opus 5.5",
+      "Sonnet 5.5",
+      "Haiku 5.5",
       "Claude Fable 5.1",
       "Claude Best 5.1",
       "Claude Sonnet (1M context)",
