@@ -216,6 +216,10 @@ export interface NormalizedChatMessage extends Omit<Partial<ChatMsg>, "pluginIco
   fromModel?: string;
   fromMesh?: string;
   inboundKind?: "tab" | "report" | "reminder" | "system" | "mesh" | "telegram" | "pebble" | "plugin";
+  /** Utility-shell purpose of the sender (build, dev, qa, …). */
+  fromPurpose?: string;
+  /** System-notice context, e.g. `blueprint:<id>:result` or `cron:<job>:<status>`. */
+  fromContext?: string;
   fromPlugin?: string;
   pluginIconSvg?: string | null;
   /** Interactive prompts the provider extracted from this message (answerable widgets). */

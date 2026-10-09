@@ -401,6 +401,8 @@ console.log("automation origins");
   const build = detectChatPrefix('<domios from="tab" label="Builder" tab="a1b2c3d4" purpose="build">build failed</domios>');
   eq(build?.origin, { kind: "automation", source: "utility", name: "Builder", purpose: "build", tabIdShort: "a1b2c3d4" }, "utility shell message carries its purpose");
   eq(detectChatPrefix('<domios from="system" context="answer">x</domios>')?.origin, { kind: "system", context: "answer" }, "other system contexts stay system notices");
+  eq(detectChatPrefix('<domios from="system" context="cron:deploy:prod:failed">x</domios>')?.origin, { kind: "automation", source: "cron", name: "deploy:prod", detail: "failed" }, "a cron job name may contain colons; the status is the last segment");
+  eq(detectChatPrefix('<domios from="system" context="blueprint:bp_1:lifecycle:failed">x</domios>')?.origin, { kind: "automation", source: "blueprint", name: "bp_1", detail: "lifecycle:failed" }, "a blueprint keeps its multi-part detail");
 }
 
 console.log();
