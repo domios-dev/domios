@@ -919,6 +919,10 @@ impl AgentProvider for JsProvider {
         self.manifest.commands.stop_key.as_deref()
     }
 
+    fn uses_win32_control_keys(&self) -> bool {
+        self.manifest.commands.uses_win32_control_keys
+    }
+
     fn stop_keys(&self) -> Option<Vec<String>> {
         if let Some(keys) = self.manifest.commands.stop_keys.as_ref() {
             return (!keys.is_empty() && keys.iter().all(|key| !key.is_empty()))

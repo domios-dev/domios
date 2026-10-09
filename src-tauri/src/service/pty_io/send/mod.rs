@@ -952,6 +952,9 @@ impl ServiceContext {
     /// Write raw bytes (no bracket paste) — for keystrokes the TUI must interpret (vim j/k, arrows).
     pub fn write_raw(&self, tab_id: &str, data: &[u8]) -> Result<(), String> {
         let pty_id = self.resolve_pty_id(tab_id)?;
+        let data = self
+            .encode_provider_control_key(&pty_id, data)
+            .unwrap_or(data);
         self.pty
             .lock()
             .write(&pty_id, data)

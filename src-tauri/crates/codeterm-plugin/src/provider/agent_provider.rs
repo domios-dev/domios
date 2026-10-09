@@ -747,6 +747,10 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    fn uses_win32_control_keys(&self) -> bool {
+        false
+    }
+
     /// Ordered raw key values from a provider's stop declaration.
     fn stop_keys(&self) -> Option<Vec<String>> {
         self.stop_keystroke().map(|key| vec![key.to_string()])
