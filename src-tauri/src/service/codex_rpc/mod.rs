@@ -19,6 +19,7 @@ pub mod recovery;
 pub mod routing;
 pub mod schema;
 pub mod send;
+mod startup_retry;
 mod subscriber;
 mod thread_start;
 pub mod transcript;

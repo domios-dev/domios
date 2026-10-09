@@ -40,7 +40,38 @@ impl Process {
     pub fn stop(&self) {
         self.stop.send_replace(true);
     }
+
+    pub(super) fn cleanup(&self) -> Cleanup {
+        Cleanup {
+            stop: self.stop.clone(),
+            death: self.death.clone(),
+        }
+    }
 }
+
+pub(super) struct Cleanup {
+    stop: watch::Sender<bool>,
+    death: watch::Receiver<bool>,
+}
+
+impl Cleanup {
+    pub async fn finish(mut self) -> Result<(), String> {
+        self.stop.send_replace(true);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !*self.death.borrow_and_update() {
+                self.death
+                    .changed()
+                    .await
+                    .map_err(|_| "Sidecar cleanup channel closed")?;
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|_| "Sidecar cleanup deadline")?
+    }
+}
+
+const INHERITED_PROVIDER_IDENTITY: &[&str] = &["CODEX_THREAD_ID", "CODEX_SESSION_ID", "CODEX_CI"];
 
 fn effective_env(command: &std::process::Command) -> Vec<(String, String)> {
     let mut env: std::collections::BTreeMap<String, String> = std::env::vars_os()
@@ -106,7 +137,17 @@ pub async fn spawn(
     let effective = effective
         .iter()
         .map(|(key, value)| (key.as_str(), value.as_str()));
-    for (key, value) in codeterm_pty::pty::child_env::child_env_changes(effective) {
+    let changes = codeterm_pty::pty::child_env::child_env_changes_with_exclusions(
+        effective,
+        INHERITED_PROVIDER_IDENTITY,
+    );
+    let removed: Vec<_> = changes
+        .iter()
+        .filter(|(_, value)| value.is_none())
+        .map(|(key, _)| key)
+        .collect();
+    log::debug!("[codex-rpc-env] tab={tab} removed_keys={removed:?}");
+    for (key, value) in changes {
         match value {
             Some(value) => command.env(key, value),
             None => command.env_remove(key),
@@ -220,15 +261,19 @@ pub async fn spawn(
         }
         #[cfg(windows)]
         drop(job);
-        died.send_replace(true);
         let _ = std::fs::remove_file(token_file);
         let _ = std::fs::remove_file(marker_file);
+        died.send_replace(true);
     });
     let process = Process { stop, death };
-    tokio::time::timeout(Duration::from_secs(15), readiness)
+    let ready = tokio::time::timeout(Duration::from_secs(15), readiness)
         .await
-        .map_err(|_| "Sidecar listening deadline")?
-        .map_err(|_| "Sidecar exited before listening")?;
+        .map_err(|_| "Sidecar listening deadline")
+        .and_then(|result| result.map_err(|_| "Sidecar exited before listening"));
+    if let Err(error) = ready {
+        process.cleanup().finish().await?;
+        return Err(error.into());
+    }
     Ok(process)
 }
 
@@ -316,6 +361,57 @@ mod tests {
         assert!(path.exists());
         assert!(path.with_extension("token").exists());
         assert!(!identity_matches(&marker, "own"));
+    }
+
+    #[test]
+    fn codex_rpc_process_scrubs_provider_identity_through_shared_child_env() {
+        let mut command = std::process::Command::new("unused-binary");
+        crate::process_util::no_window_std(&mut command);
+        command.envs([
+            ("CODEX_THREAD_ID", "parent-thread"),
+            ("CODEX_SESSION_ID", "parent-session"),
+            ("CODEX_CI", "1"),
+            ("codex_thread_id", "case-variant"),
+            ("CODEX_HOME", "account-home"),
+            ("OPENAI_API_KEY", "opaque-credential"),
+            ("CODETERM_CODEX_RPC_TOKEN", "own-token"),
+            ("CODETERM_SESSION_BINDING_NONCE", "own-nonce"),
+        ]);
+        let effective = effective_env(&command);
+        for (key, value) in codeterm_pty::pty::child_env::child_env_changes_with_exclusions(
+            effective
+                .iter()
+                .map(|(key, value)| (key.as_str(), value.as_str())),
+            INHERITED_PROVIDER_IDENTITY,
+        ) {
+            match value {
+                Some(value) => command.env(key, value),
+                None => command.env_remove(key),
+            };
+        }
+        let effective: std::collections::HashMap<_, _> =
+            effective_env(&command).into_iter().collect();
+        assert!(!effective.keys().any(|key| INHERITED_PROVIDER_IDENTITY
+            .iter()
+            .any(|excluded| key.eq_ignore_ascii_case(excluded))));
+        assert_eq!(effective["CODEX_HOME"], "account-home");
+        assert_eq!(effective["OPENAI_API_KEY"], "opaque-credential");
+        assert_eq!(effective["CODETERM_CODEX_RPC_TOKEN"], "own-token");
+        assert_eq!(effective["CODETERM_SESSION_BINDING_NONCE"], "own-nonce");
+    }
+
+    #[tokio::test]
+    async fn codex_rpc_process_cleanup_waits_for_exit_evidence() {
+        use futures_util::FutureExt;
+        let (stop, mut stopping) = watch::channel(false);
+        let (died, death) = watch::channel(false);
+        let cleanup = Cleanup { stop, death }.finish();
+        tokio::pin!(cleanup);
+        assert!(cleanup.as_mut().now_or_never().is_none());
+        stopping.changed().await.unwrap();
+        assert!(*stopping.borrow());
+        died.send_replace(true);
+        assert!(cleanup.await.is_ok());
     }
     #[test]
     fn codex_rpc_process_sweep_removes_stale_owned_artifacts() {

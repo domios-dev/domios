@@ -7,6 +7,13 @@ const APPIMAGE_LAUNCHER_ENV: &[&str] = &["APPDIR", "APPIMAGE", "ARGV0", "OWD"];
 pub fn child_env_changes<'a>(
     vars: impl IntoIterator<Item = (&'a str, &'a str)>,
 ) -> Vec<(String, Option<String>)> {
+    child_env_changes_with_exclusions(vars, &[])
+}
+
+pub fn child_env_changes_with_exclusions<'a>(
+    vars: impl IntoIterator<Item = (&'a str, &'a str)>,
+    excluded: &[&str],
+) -> Vec<(String, Option<String>)> {
     let vars: Vec<(&str, &str)> = vars.into_iter().collect();
     let mut changes = Vec::new();
     // Windows Python otherwise writes the ANSI code page and crashes on Cyrillic or emoji output.
@@ -20,6 +27,15 @@ pub fn child_env_changes<'a>(
     if cfg!(target_os = "linux") {
         changes.extend(appimage_env_changes(&vars));
     }
+    changes.extend(
+        vars.iter()
+            .filter(|(key, _)| {
+                excluded
+                    .iter()
+                    .any(|excluded| key.eq_ignore_ascii_case(excluded))
+            })
+            .map(|(key, _)| (key.to_string(), None)),
+    );
     changes
 }
 
