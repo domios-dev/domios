@@ -3,31 +3,10 @@ import { Square, Terminal, X } from "lucide-react";
 import { ActivityDots } from "../shared/ActivityDots";
 import type { Tab } from "../../lib/types";
 
-export type AgentStateKind = "working" | "idle" | "quiet" | "question";
+import type { TabActivity } from "../../lib/tabActivity";
+export type { AgentState } from "../../lib/tabActivity";
 
-export type AgentQuestionSubtype =
-  | "model_choice"
-  | "model_picker"
-  | "permission"
-  | "auth"
-  | "rate_limit"
-  | "update"
-  | "error"
-  | "unknown";
-
-export interface AgentState {
-  state: AgentStateKind;
-  subtype?: AgentQuestionSubtype;
-  status_line?: string | null;
-  phase?: string | null;
-}
-
-type WorkPhase = "thinking" | "streaming" | "work";
 const STATUS_MESSAGE_MAX_CHARS = 80;
-
-function workPhaseOf(phase: string | null | undefined): WorkPhase {
-  return phase === "thinking" || phase === "streaming" ? phase : "work";
-}
 
 function compactStatusMessage(text: string): string {
   const chars = Array.from(text);
@@ -35,28 +14,8 @@ function compactStatusMessage(text: string): string {
   return `${chars.slice(0, STATUS_MESSAGE_MAX_CHARS - 1).join("").trimEnd()}…`;
 }
 
-function questionStatus(subtype: AgentQuestionSubtype | undefined): string {
-  switch (subtype) {
-    case "model_choice":
-    case "model_picker":
-      return "Choose a model";
-    case "permission":
-      return "Permission needed";
-    case "auth":
-      return "Sign in to continue";
-    case "rate_limit":
-      return "Rate limited";
-    case "update":
-      return "Update available";
-    case "error":
-      return "Needs attention";
-    default:
-      return "Waiting for input";
-  }
-}
-
 export function AgentStateIndicator({
-  state,
+  activity,
   providerName,
   model,
   reasoningEffort,
@@ -67,7 +26,7 @@ export function AgentStateIndicator({
   onRebind,
   renderIdentity,
 }: {
-  state: AgentState;
+  activity: TabActivity;
   providerName?: string | null;
   model?: string | null;
   reasoningEffort?: Tab["reasoning_effort_identity"] | null;
@@ -78,12 +37,11 @@ export function AgentStateIndicator({
   onRebind?: () => void;
   renderIdentity?: (label: string) => ReactNode;
 }) {
-  const isWorking = state.state === "working";
-  const isQuiet = state.state === "quiet";
-  const isQuestion = state.state === "question";
-  const phase = workPhaseOf(state.phase);
-  const status = state.status_line?.trim()
-    || (isWorking ? "Working" : isQuiet ? "Session quiet — rebind to continue" : isQuestion ? questionStatus(state.subtype) : "");
+  const isWorking = activity.canStop;
+  const isQuiet = activity.quiet;
+  const isQuestion = activity.kind === "waiting-on-user";
+  const phase = activity.phase;
+  const status = activity.label;
   const actualEffort = reasoningEffort?.actual_source === "session-owned"
     ? reasoningEffort.actual?.trim()
     : null;
@@ -94,8 +52,9 @@ export function AgentStateIndicator({
     <div
       className={`ct-agent-row ct-agent-row--chat flex items-center gap-2 ${className ?? ""}`}
       data-testid="agent-state"
-      data-agent-state={state.state}
-      data-agent-subtype={state.subtype ?? undefined}
+      data-agent-state={activity.state}
+      data-tab-activity={activity.kind}
+      data-agent-subtype={activity.subtype ?? undefined}
       data-agent-phase={phase}
       role="status"
       aria-live="polite"
@@ -105,7 +64,7 @@ export function AgentStateIndicator({
         size="small"
         tone={isWorking ? (phase === "thinking" ? "thinking" : "accent") : "muted"}
         rhythm={phase}
-        active={isWorking}
+        active={activity.active}
       />
       {renderIdentity && identity ? (
         <>
@@ -148,7 +107,7 @@ export function AgentStateIndicator({
           Stop
         </button>
       )}
-      {isQuiet && onRebind && (
+      {onRebind && !isQuestion && (
         <button
           type="button"
           data-testid="agent-rebind"
