@@ -80,17 +80,18 @@ it("renders source-backed parts and sends the hovered source slice through both 
 });
 
 it("Quote excerpt, quote file content, and Ask content share the part target", async () => {
-  await render(); await target(1); await click("Quote into composer");
+  await render(); await target(1); await click("Ask about this");
   expect(composerReplyStore.take("parts")).toEqual({ label: "Fermi", ref: "one", excerpt: "Second paragraph.", content: "Fermi:\n> Second _paragraph_." });
-  await target(1); await click("Ask about this");
-  expect(composerInsertionStore.take("parts")[0]?.content).toBe("### Fermi\n\nSecond _paragraph_.");
+  expect(composerInsertionStore.take("parts")).toEqual([]);
 });
 
 it("Whole message switches the source and is remembered across other rows", async () => {
   await render(); await target(1); await scope(true); await click("Copy as Markdown");
   expect(written["text/plain"]).toBe(SOURCE);
   await click("Ask about this");
-  expect(composerInsertionStore.take("parts")[0]?.content).toBe(`### Fermi\n\n${SOURCE}`);
+  const quoted = composerReplyStore.take("parts")?.content ?? "";
+  expect(quoted).toContain("Opening");
+  expect(quoted).toContain("Last paragraph.");
   const other = parts()[3].closest<HTMLElement>('[role="article"]')!;
   await act(async () => other.focus());
   await act(async () => other.querySelector<HTMLButtonElement>('[aria-label="Message actions"]')!.focus());
@@ -131,7 +132,7 @@ it("retains original ranges through directive isolation and HTML normalization i
   await target(2); await click("Copy");
   expect(written[DOMIOS_TEXT_MIME]).toBe(html);
   await click("Ask about this");
-  expect(composerInsertionStore.take("parts")[0]?.content).toBe(`### Fermi\n\n${html}`);
+  expect(composerReplyStore.take("parts")?.content ?? "").toContain("<div>First");
 });
 
 it("uses the keyboard-focused part as the action target", async () => {

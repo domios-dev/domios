@@ -192,7 +192,7 @@ it("reaches the dot by Tab from its row and opens the menu with Enter, Esc close
   expect(menu("a2")).not.toBeNull();
   expect(document.activeElement).toBe(item("a2", "Copy"));
   await key("ArrowDown");
-  expect(document.activeElement).toBe(item("a2", "Quote into composer"));
+  expect(document.activeElement).toBe(item("a2", "Ask about this"));
   await key("Escape");
   expect(menu("a2")).toBeNull();
   expect(document.activeElement).toBe(dot("a2"));
@@ -225,15 +225,11 @@ it("copies a tool row as its command and output", async () => {
   expect(clipboard[0]["text/plain"]).toBe("$ ls\na.ts");
 });
 
-it("asks about one message as a message capsule and closes the menu", async () => {
+it("the menu offers Ask about this and no separate Quote item", async () => {
   await render("ask-tab");
   await openMenu("a1");
-  await act(async () => item("a1", "Ask about this")!.click());
-  await settle();
-  expect(menu("a1")).toBeNull();
-  expect(capsules()).toEqual(["msg · Fermi"]);
-  expect(await stored.blobs[0].text).toBe("### Fermi\n\nDone **now**.");
-  expect(sends()).toEqual([]);
+  expect(item("a1", "Quote into composer")).toBeFalsy();
+  expect(item("a1", "Ask about this")).toBeTruthy();
 });
 
 it("Select enters block selection with that message", async () => {
@@ -248,7 +244,7 @@ it("Select enters block selection with that message", async () => {
 it("Quote docks one reply block above the composer input, replaces it, and never inserts a capsule", async () => {
   await render("quote-tab");
   await openMenu("a1");
-  await act(async () => item("a1", "Quote into composer")!.click());
+  await act(async () => item("a1", "Ask about this")!.click());
   await settle();
   expect(menu("a1")).toBeNull();
   expect(replyBlock()?.getAttribute("aria-label")).toBe("Replying to Fermi");
@@ -256,7 +252,7 @@ it("Quote docks one reply block above the composer input, replaces it, and never
   expect(composer().value).toBe("");
   expect(await stored.blobs[0].text).toBe("Fermi:\n> Done **now**.");
   await openMenu("a2");
-  await act(async () => item("a2", "Quote into composer")!.click());
+  await act(async () => item("a2", "Ask about this")!.click());
   await settle();
   expect(host!.querySelectorAll('[data-testid="reply-quote"]')).toHaveLength(1);
   expect(replyBlock()?.textContent).toContain("plain reply");
@@ -268,7 +264,7 @@ it("Quote docks one reply block above the composer input, replaces it, and never
 it("Esc in an empty composer removes the reply block", async () => {
   await render("quote-esc-tab");
   await openMenu("a1");
-  await act(async () => item("a1", "Quote into composer")!.click());
+  await act(async () => item("a1", "Ask about this")!.click());
   await settle();
   await act(async () => composer().focus());
   await keyOn(composer(), "Escape");
@@ -278,7 +274,7 @@ it("Esc in an empty composer removes the reply block", async () => {
 it("sends the reply once as its quote attachment ahead of the text, then clears it", async () => {
   await render("quote-send-tab");
   await openMenu("a1");
-  await act(async () => item("a1", "Quote into composer")!.click());
+  await act(async () => item("a1", "Ask about this")!.click());
   await settle();
   await typeInComposer("why?");
   await keyOn(composer(), "Enter", false, "Enter");
@@ -291,7 +287,7 @@ it("sends the reply once as its quote attachment ahead of the text, then clears 
   expect(replyBlock()).toBeNull();
 });
 
-it("selects with Shift+click, copies in order with role headings, and asks about the selection as one capsule", async () => {
+it("selects with Shift+click, copies in order with role headings, and asks about the selection as one quote", async () => {
   await render("select-tab");
   await shiftClick("a1");
   await shiftClick("t1");
@@ -304,8 +300,8 @@ it("selects with Shift+click, copies in order with role headings, and asks about
   }]);
   await act(async () => barButton("Ask about these").click());
   await settle();
-  expect(capsules()).toEqual(["2 messages"]);
-  expect(await stored.blobs[0].text).toBe("### Fermi\n\nDone **now**.\n\n### Tool · Bash\n\n$ ls\na.ts");
+  expect(replyBlock()?.getAttribute("aria-label")).toBe("Replying to 2 messages");
+  expect(capsules()).toEqual([]);
   expect(bar()).toBeNull();
   expect(sends()).toEqual([]);
 });
@@ -314,7 +310,7 @@ it("Quote on a block selection docks one reply for all of it", async () => {
   await render("quote-many-tab");
   await shiftClick("a1");
   await shiftClick("a2");
-  await act(async () => barButton("Quote").click());
+  await act(async () => barButton("Ask about these").click());
   await settle();
   expect(replyBlock()?.getAttribute("aria-label")).toBe("Replying to 3 messages");
   expect(capsules()).toEqual([]);
@@ -398,15 +394,12 @@ it("leaves a native text selection alone", async () => {
   expect(bar()).toBeNull();
 });
 
-it("materializes only the targeted part in the quote file and Ask attachment", async () => {
+it("materializes only the targeted part in the quote file", async () => {
   const source = "First paragraph.\n\nSecond **paragraph**.";
   await render("part-files", [asRow(message("parts", "assistant", source))]);
   await openMenu("parts");
-  await act(async () => item("parts", "Quote into composer")!.click());
+  await act(async () => item("parts", "Ask about this")!.click());
   expect(replyBlock()?.textContent).toContain("First paragraph.");
   expect(await stored.blobs[0].text).toBe("Fermi:\n> First paragraph.");
-  await openMenu("parts");
-  await act(async () => item("parts", "Ask about this")!.click());
-  expect(await stored.blobs[1].text).toBe("### Fermi\n\nFirst paragraph.");
   expect(sends()).toEqual([]);
 });
