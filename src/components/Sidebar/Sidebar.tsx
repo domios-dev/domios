@@ -81,7 +81,7 @@ export function toggleWorkspacesSectionExpanded(expanded: boolean): boolean {
 export const SIDEBAR_REGION_ID = "codeterm-sidebar";
 const SIDEBAR_COLLAPSED_WIDTH = 16;
 const SIDEBAR_COMPACT_WIDTH = 64;
-const SIDEBAR_COMPACT_SNAP = 210;
+const SIDEBAR_COMPACT_SNAP = 150;
 const SIDEBAR_COLLAPSE_BELOW = 48;
 const SIDEBAR_MAX_WIDTH = 400;
 const SIDEBAR_PEEK_DWELL_MS = 280;
