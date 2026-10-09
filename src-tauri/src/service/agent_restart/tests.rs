@@ -134,6 +134,7 @@ fn surviving_shell_stale_metadata_is_cleared_before_restart_acceptance() {
         tab.agent_session_id = Some("stale-session".into());
         tab.agent_session_model = Some("stale-model".into());
         tab.session_binding_nonce = Some("stale-provider-nonce".into());
+        tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
         tab.boot_stage = Some(codeterm_types::pty::BootStage::ShellReady);
         tab.exit_suspected_at = Some(std::time::Instant::now());
     }
