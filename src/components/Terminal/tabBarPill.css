@@ -9,7 +9,7 @@
   padding: 0 10px;
   border: 1px solid color-mix(in srgb, var(--ct-bar-pill-tone) 14%, transparent);
   border-radius: 999px;
-  background: var(--ct-glass-sheen), color-mix(in srgb, var(--ct-fg) 3%, var(--ct-bg));
+  background: color-mix(in srgb, var(--ct-fg) 3%, var(--ct-bg));
   color: var(--ct-muted-fg);
   font-size: 11px;
   font-weight: 500;
@@ -27,7 +27,7 @@
 .ct-bar-pill:hover,
 .ct-bar-pill:focus-visible {
   border-color: color-mix(in srgb, var(--ct-bar-pill-tone) 26%, transparent);
-  background: var(--ct-glass-sheen), color-mix(in srgb, var(--ct-fg) 7%, var(--ct-bg));
+  background: color-mix(in srgb, var(--ct-fg) 7%, var(--ct-bg));
   color: var(--ct-fg);
   outline: none;
   transform: translateY(-1px);
@@ -42,7 +42,7 @@
 .ct-bar-pill.is-open {
   border-color: color-mix(in srgb, var(--ct-accent) 40%, transparent);
   color: var(--ct-fg);
-  box-shadow: var(--ct-glass-edge), 0 4px 14px rgb(0 0 0 / 28%);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 28%);
 }
 
 .ct-bar-pill:focus-visible {
@@ -93,7 +93,7 @@
   align-items: stretch;
   border: 1px solid color-mix(in srgb, var(--ct-fg) 14%, transparent);
   border-radius: 999px;
-  background: var(--ct-glass-sheen), color-mix(in srgb, var(--ct-fg) 3%, var(--ct-bg));
+  background: color-mix(in srgb, var(--ct-fg) 3%, var(--ct-bg));
   overflow: hidden;
 }
 

@@ -1,6 +1,6 @@
 import type { ToolEvent } from "@codeterm/chat-core";
 import { Check, CircleX, LoaderCircle, ChevronRight, Minus } from "lucide-react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { RawCommandDisclosure } from "../codeterm/RawCommandDisclosure";
 import { toolKindVisual, type ToolKindVisual } from "./toolKindVisual";
 import { ToolOutcomeFacts } from "./ToolOutcomeFacts";
@@ -28,12 +28,8 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   const statusColor = event.status === "error"
     ? "var(--ct-red)"
     : event.status === "pending" ? "var(--ct-accent)" : event.status === "unresolved" || event.status === "interrupted" ? "var(--ct-muted-fg)" : "var(--ct-green)";
-  const borderColor = event.status === "error"
-    ? "color-mix(in srgb, var(--ct-red) 38%, var(--ct-border))"
-    : expanded || variant === "codeterm" ? "var(--ct-border)" : "transparent";
-  const background = event.status === "error"
-    ? "color-mix(in srgb, var(--ct-red) 6%, var(--ct-surface))"
-    : expanded || variant === "codeterm" ? "var(--ct-surface)" : "color-mix(in srgb, var(--ct-surface) 60%, transparent)";
+  const error = event.status === "error";
+  const quiet = !error && !expanded && variant !== "codeterm";
   const label = title === undefined ? visual.label : title;
   const detailsId = `chat-details-${event.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 
@@ -41,8 +37,8 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
     <div
       data-testid={testId}
       data-tool-status={event.status}
-      className="group/toolcard mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-lg border transition-colors hover:border-[var(--ct-border)] hover:bg-[var(--ct-surface)]"
-      style={{ borderStyle: event.status === "error" ? "dashed" : "solid", borderColor, background }}
+      className={`ct-card group/toolcard mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden${quiet ? " ct-card--quiet" : ""}${error ? " ct-card--error" : ""}`}
+      style={{ "--ct-card-tone": error ? "var(--ct-muted-fg)" : visual.color } as CSSProperties}
     >
       <div className="flex min-w-0 items-center gap-2.5 px-3 py-2 text-left text-xs">
         <button
@@ -53,15 +49,8 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
           onClick={onToggle}
           className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
         >
-          <span
-            className={`flex ${variant === "codeterm" ? "h-[26px] w-[26px] rounded-[7px] border" : "h-6 w-6 rounded-md"} shrink-0 items-center justify-center`}
-            style={{
-              color: visual.color,
-              background: `color-mix(in srgb, ${visual.color} 15%, transparent)`,
-              borderColor: variant === "codeterm" ? `color-mix(in srgb, ${visual.color} 34%, transparent)` : undefined,
-            }}
-          >
-            <Glyph aria-hidden="true" size={variant === "codeterm" ? 15 : 14} strokeWidth={2} />
+          <span className="ct-card__icon" style={{ color: visual.color }}>
+            <Glyph aria-hidden="true" size={14} strokeWidth={2} />
           </span>
           <span className="flex min-w-0 flex-1 items-baseline gap-2 font-mono text-[12.5px]">
             {label && <span className="shrink-0 font-semibold" style={{ color: visual.color }}>{label}</span>}
@@ -87,8 +76,8 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         role="region"
         aria-label={disclosureLabel ?? "Tool details"}
         hidden={!expanded}
-        className={`${variant === "codeterm" ? "border-t" : ""} pb-2 pl-[46px] pr-3 pt-0.5`}
-        style={{ borderColor: "var(--ct-border)", boxSizing: "border-box", maxHeight: "600px", overflowY: "auto" }}
+        className="pb-2 pl-12 pr-3 pt-0.5"
+        style={{ boxSizing: "border-box", maxHeight: "600px", overflowY: "auto" }}
       >
         {expanded ? (
           <RawCommandDisclosure raw={event.detail || event.summary || ""}>
@@ -107,8 +96,8 @@ export function ToolCardActionButton({ label, onClick, testId }: { label: string
       data-testid={testId}
       title={label}
       onClick={onClick}
-      className="shrink-0 rounded border px-2 py-0.5 font-mono text-[10.5px] transition-colors hover:brightness-125"
-      style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)", background: "transparent" }}
+      className="ct-bar-pill font-mono"
+      style={{ height: 22 }}
     >
       {label}
     </button>

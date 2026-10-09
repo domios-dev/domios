@@ -38,7 +38,7 @@ const { host: errorHost } = await render(
     <span>details</span>
   </ToolCardFrame>,
 );
-if (!errorHost.querySelector<HTMLElement>("[style*='dashed']")) throw new Error("error border regression");
+if (!errorHost.querySelector<HTMLElement>(".ct-card--error")) throw new Error("error border regression");
 if (!errorHost.querySelector('[data-testid="toolcard-status"] svg')) throw new Error("error status regression");
 const detailsToggle = errorHost.querySelector('button[aria-expanded="true"]');
 const detailsId = detailsToggle?.getAttribute("aria-controls");
