@@ -49,7 +49,7 @@ pub(super) fn start(
                 requested_model: None,
                 model: resolution.model.clone(),
                 reasoning_effort: None,
-                args: (!model_args.is_empty()).then(|| model_args.clone()),
+                args: None,
                 agent_name: None,
                 task: fresh_prompt.as_deref(),
                 role: Some("Manager"),

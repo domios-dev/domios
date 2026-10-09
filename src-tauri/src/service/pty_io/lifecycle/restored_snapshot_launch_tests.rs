@@ -57,6 +57,11 @@ fn restored_structured_prompt_server_is_registered_by_the_shared_launch_builder(
         endpoint,
         Some((format!("http://127.0.0.1:{}", server.port), cwd))
     );
+    assert_eq!(
+        crate::service::launch_session_detection::registered_launch_marker(&tab_id).as_deref(),
+        Some("owned-restored-session")
+    );
+    crate::service::launch_session_detection::clear_launch_marker(&tab_id);
 }
 
 fn restored_worker(
