@@ -731,10 +731,11 @@ function isValidClaudeSessionDelta(v) {
   return true;
 }
 function extractSetModelFamily(raw) {
-  const idx = raw.indexOf("Set model to ");
-  if (idx === -1) return null;
-  const after = raw.substring(idx + "Set model to ".length);
-  const cleaned = stripAnsi(after).replace(/^\s+/, "");
+  const prefix = "<local-command-stdout>Set model to ";
+  const suffix = "</local-command-stdout>";
+  if (!raw.startsWith(prefix) || !raw.endsWith(suffix)) return null;
+  const after = raw.slice(prefix.length, -suffix.length);
+  const cleaned = stripAnsi(after).replace(/^[\s`]+/, "");
   let fam = "";
   for (let i = 0; i < cleaned.length; i++) {
     const c = cleaned.charAt(i);
@@ -2355,7 +2356,7 @@ var plugin = {
       }
       if (!v || !v.message) continue;
       const raw = contentToText(v.message.content);
-      const fam = extractSetModelFamily(raw);
+      const fam = v.type === "user" ? extractSetModelFamily(raw) : null;
       if (fam) return fam;
       const m = v.message.model;
       if (typeof m === "string" && m && m !== "<synthetic>") {

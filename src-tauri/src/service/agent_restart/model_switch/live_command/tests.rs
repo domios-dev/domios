@@ -240,11 +240,13 @@ fn effort_only_plan_sends_only_effort_and_preserves_model_identity() {
             command: "/choose {model}".into(),
             confirmation: "model".into(),
             prompt: None,
+            picker: None,
         },
         effort: Some(ModelSwitchCommand {
             command: "/reason {effort}".into(),
             confirmation: "^accepted {effort}$".into(),
             prompt: None,
+            picker: None,
         }),
         transcript: source(),
     };
@@ -362,6 +364,45 @@ fn confirmation_requires_the_declared_record_and_exact_wrapped_output() {
         &source(),
         &pattern
     ));
+}
+
+#[test]
+fn formatted_command_stdout_confirms_without_waiting_for_an_assistant_turn() {
+    let declaration = codeterm_plugin::agent_claude::ClaudeProvider::new();
+    let commands =
+        crate::agent::provider::AgentProvider::model_switch_commands(&declaration).unwrap();
+    let pattern = confirmation_pattern(
+        &commands.model.confirmation,
+        "sonnet",
+        "Claude Sonnet",
+        None,
+    )
+    .unwrap();
+    let record = |text: &str| {
+        serde_json::json!({"type":"user", "message":{"content":
+        format!("<local-command-stdout>{text}</local-command-stdout>")}})
+        .to_string()
+    };
+    for text in [
+        "Set model to `Sonnet 5.5` for this session only",
+        "Set model to \u{1b}[1mSonnet 5.5\u{1b}[22m for this session only",
+    ] {
+        assert!(transcript_confirms(
+            &record(text),
+            &commands.transcript,
+            &pattern
+        ));
+    }
+    for text in [
+        "Set model to `Haiku 5.5` for this session only",
+        "Set model to `Sonnet 5.5` and saved as your default for new sessions",
+    ] {
+        assert!(!transcript_confirms(
+            &record(text),
+            &commands.transcript,
+            &pattern
+        ));
+    }
 }
 
 #[test]

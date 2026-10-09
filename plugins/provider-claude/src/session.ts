@@ -240,10 +240,11 @@ function isValidClaudeSessionDelta(v: ClaudeEntry): boolean {
 }
 
 export function extractSetModelFamily(raw: string): string | null {
-  const idx = raw.indexOf("Set model to ");
-  if (idx === -1) return null;
-  const after = raw.substring(idx + "Set model to ".length);
-  const cleaned = stripAnsi(after).replace(/^\s+/, "");
+  const prefix = "<local-command-stdout>Set model to ";
+  const suffix = "</local-command-stdout>";
+  if (!raw.startsWith(prefix) || !raw.endsWith(suffix)) return null;
+  const after = raw.slice(prefix.length, -suffix.length);
+  const cleaned = stripAnsi(after).replace(/^[\s`]+/, "");
   let fam = "";
   for (let i = 0; i < cleaned.length; i++) {
     const c = cleaned.charAt(i);
