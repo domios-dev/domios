@@ -14,6 +14,10 @@ pub(in crate::service::agent_restart) struct StagedSwitch {
 #[derive(Default)]
 pub(in crate::service::agent_restart) struct PendingSwitches(
     std::collections::HashMap<String, StagedSwitch>,
+    std::collections::HashMap<
+        String,
+        std::sync::Weak<crate::pty::screen_state::ScreenChangeSignal>,
+    >,
 );
 
 impl PendingSwitches {
@@ -22,14 +26,35 @@ impl PendingSwitches {
             .insert(request.tab_id.clone(), StagedSwitch { request, idle });
     }
 
+    fn replace_at_idle(&mut self, request: SwitchRequest, idle: Sender<()>, already_idle: bool) {
+        let tab_id = request.tab_id.clone();
+        self.replace(request, idle);
+        if already_idle {
+            self.signal_idle(&tab_id);
+        }
+    }
+
     fn cancel(&mut self, tab_id: &str) {
         self.0.remove(tab_id);
     }
 
     fn signal_idle(&self, tab_id: &str) {
+        if let Some(signal) = self.1.get(tab_id).and_then(std::sync::Weak::upgrade) {
+            signal.mark_changed();
+        }
         if let Some(staged) = self.0.get(tab_id) {
             let _ = staged.idle.send(());
         }
+    }
+
+    pub(super) fn observe_command_idle(
+        &mut self,
+        tab_id: &str,
+        signal: &std::sync::Arc<crate::pty::screen_state::ScreenChangeSignal>,
+    ) {
+        self.1.retain(|_, signal| signal.strong_count() > 0);
+        self.1
+            .insert(tab_id.into(), std::sync::Arc::downgrade(signal));
     }
 
     fn claim(&mut self, request: &SwitchRequest) -> bool {
@@ -189,10 +214,13 @@ impl ServiceContext {
                 model: model.into(),
                 effort: effort.map(str::to_owned),
             });
-            self.restart_tracker
-                .lock()
-                .staged_models
-                .replace(request.clone(), tx);
+            let already_idle =
+                self.resolved_tab_status(tab) == Some(codeterm_types::pty::TabStatus::Idle);
+            self.restart_tracker.lock().staged_models.replace_at_idle(
+                request.clone(),
+                tx,
+                already_idle,
+            );
             request
         };
         let svc = self.clone();
@@ -209,7 +237,7 @@ impl ServiceContext {
                     .is_ok();
                 if idle
                     && worker_request.require_current(&svc).is_ok()
-                    && !svc.tab_is_idle(&worker_request.tab_id)
+                    && !staged_tab_idle(&svc, &worker_request.tab_id, worker_request.deadline)
                 {
                     continue;
                 }
@@ -224,7 +252,11 @@ impl ServiceContext {
         }
         self.emit_state_changed();
         // Recheck after subscribing so an idle edge during staging cannot be lost.
-        if self.tab_is_idle(&snap.tab_id) {
+        if staged_tab_idle(
+            self,
+            &snap.tab_id,
+            Instant::now() + Duration::from_secs(MODEL_OBSERVE_TIMEOUT_SECS),
+        ) {
             self.apply_staged_model_switch_on_idle(&snap.tab_id);
         }
         Ok(ModelSwitchOutcome {
@@ -283,6 +315,18 @@ impl ServiceContext {
         }
         self.emit_state_changed();
     }
+}
+
+fn staged_tab_idle(svc: &ServiceContext, tab_id: &str, deadline: Instant) -> bool {
+    crate::service::status_reconciliation::snapshot_with_reconciled_status_until(
+        &svc.mux,
+        &svc.agent_tracker,
+        &svc.agent_registry,
+        deadline,
+    )
+    .is_some_and(|snapshot| {
+        snapshot.tab_statuses.get(tab_id) == Some(&codeterm_types::pty::TabStatus::Idle)
+    })
 }
 
 #[cfg(test)]

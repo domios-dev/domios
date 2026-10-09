@@ -566,13 +566,7 @@ impl ServiceContext {
             self.cancel_staged_model_switch(&snap.tab_id);
         }
         if declared_mode == ModelSwitchMode::LiveCommand {
-            return self.switch_model_by_command(
-                &snap,
-                &session_id,
-                requested,
-                effort.as_deref(),
-                previous_model,
-            );
+            return self.switch_model_by_command(&snap, &session_id, requested, effort.as_deref());
         }
         let live_result = if declared_mode == ModelSwitchMode::Live {
             Some(
