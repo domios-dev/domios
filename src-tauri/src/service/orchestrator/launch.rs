@@ -1047,6 +1047,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             )
         });
         let mut bootstrap_consumed = fallback_spec.is_none();
+        let bootstrap_draft = fallback_spec.as_ref().map(|spec| spec.payload.clone());
         if let Some(spec) = fallback_spec {
             set_booting(false);
             let delivery_error = match bootstrap::consume(
@@ -1115,6 +1116,18 @@ pub(crate) fn launch_agent_in_background_with_env(
                 ));
             }
             return;
+        }
+        if let Some(draft) = bootstrap_draft.as_deref() {
+            if bootstrap::unconfirmed_draft_nudge_due(
+                bootstrap_consumed,
+                session_starts_on_first_turn,
+                &readiness,
+                launch.await_provider_ack(std::time::Duration::ZERO),
+            ) {
+                bootstrap::nudge_unconfirmed_draft(&svc, &readiness_attempt, draft, |wait| {
+                    launch.await_provider_ack(wait)
+                });
+            }
         }
         if !session_starts_on_first_turn {
             let session_authenticated = launch.await_provider_ack(std::time::Duration::ZERO);

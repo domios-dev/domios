@@ -2,6 +2,8 @@ use super::startup_readiness::reused_provider_tui_owns_launch;
 use super::startup_readiness::{
     first_turn_binding_required, launch_waits_for_first_turn_binding, provider_ready_stage,
 };
+#[path = "tests/draft_nudge.rs"]
+mod draft_nudge;
 #[path = "tests/readiness_evidence.rs"]
 mod readiness_evidence;
 #[path = "tests/relaunch_supervision.rs"]
