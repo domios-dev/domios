@@ -52,7 +52,9 @@ impl RecordBoundary {
             .map_err(|error| error.to_string())?;
         notify::Watcher::watch(
             &mut watcher,
-            &self.path,
+            self.path
+                .parent()
+                .ok_or_else(|| "the completion transcript has no parent".to_owned())?,
             notify::RecursiveMode::NonRecursive,
         )
         .map_err(|error| error.to_string())?;
