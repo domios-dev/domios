@@ -322,7 +322,7 @@ fn sentinel_observe_unchanged_tab_observation_makes_no_second_classify_call() {
 
 #[test]
 fn sentinel_observe_source_scan_has_no_pty_writer() {
-    fn read_sources(root: &std::path::Path, output: &mut Vec<String>) {
+    fn read_sources(root: &std::path::Path, output: &mut Vec<(std::path::PathBuf, String)>) {
         for entry in std::fs::read_dir(root).unwrap().flatten() {
             let path = entry.path();
             if path.is_dir() {
@@ -332,7 +332,8 @@ fn sentinel_observe_source_scan_has_no_pty_writer() {
                 .and_then(|extension| extension.to_str())
                 .is_some_and(|extension| extension == "rs")
             {
-                output.push(std::fs::read_to_string(path).unwrap());
+                let source = std::fs::read_to_string(&path).unwrap();
+                output.push((path, source));
             }
         }
     }
@@ -345,10 +346,23 @@ fn sentinel_observe_source_scan_has_no_pty_writer() {
     let writers = [
         ["write_bound_prompt", "_steps"].concat(),
         ["pty", ".lock().", "write"].concat(),
-        ["send", "_text"].concat(),
         ["service::pty", "_io"].concat(),
     ];
-    assert!(sources
-        .iter()
-        .all(|source| writers.iter().all(|writer| !source.contains(writer))));
+    let shell_send = ["send", "_text"].concat();
+    for (path, source) in sources {
+        for writer in &writers {
+            assert!(
+                !source.contains(writer),
+                "{} contains {writer}",
+                path.display()
+            );
+        }
+        let allowed_shell_sends = usize::from(path == root.join("src/sentinel/routes.rs"));
+        assert_eq!(
+            source.matches(&shell_send).count(),
+            allowed_shell_sends,
+            "{} contains an unexpected shell writer",
+            path.display()
+        );
+    }
 }
