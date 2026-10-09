@@ -1,6 +1,6 @@
 import {ProviderCapabilityBadge} from "./ProviderCapabilityBadge";
 import {cachedSlashCommands} from "../../lib/providerCapabilities";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from "react";
 import { ComposerBubbleRow } from "./ComposerBubbles";
 import { ComposerDock } from "./ComposerDock";
 import { useComposerLayout } from "./useComposerLayout";
@@ -88,46 +88,45 @@ function cliFallbackCommandPayload(text: string): string | null {
 function SlashPicker({
   suggestions,
   highlighted,
+  onHighlight,
   onPick,
 }: {
   suggestions: SlashCommandSuggestion[];
   highlighted: number;
+  onHighlight: (index: number) => void;
   onPick: (cmd: SlashCommandSuggestion) => void;
 }) {
   if (suggestions.length === 0) return null;
   return (
     <div
-      className="absolute bottom-full left-0 right-0 mb-1 max-h-48 overflow-y-auto rounded"
-      style={{
-        background: "color-mix(in srgb, var(--ct-bg, #0d1117) 90%, black 10%)",
-        border: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
-        zIndex: 10,
-      }}
+      role="listbox"
+      aria-label="Command suggestions"
+      className="ct-menu absolute bottom-full left-0 right-0 mb-1 max-h-56 overflow-y-auto"
+      style={SUGGESTION_MENU_STYLE}
     >
       {suggestions.map((c, i) => (
         <button
           key={c.name}
           type="button"
+          role="option"
+          aria-selected={i === highlighted}
           data-testid="slash-command-option"
           data-slash-command={c.name}
+          onMouseDown={(e) => e.preventDefault()}
+          onMouseEnter={() => onHighlight(i)}
           onClick={() => onPick(c)}
-          className="w-full flex items-center justify-between gap-2 px-2 py-1 text-xs font-mono text-left"
-          style={{
-            background: i === highlighted
-              ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 20%, transparent)"
-              : "transparent",
-            color: "var(--ct-fg, #c9d1d9)",
-            border: "none",
-            cursor: "pointer",
-          }}
+          className="ct-menu-row"
         >
-          <span style={{ color: "var(--ct-accent, #58a6ff)" }}>{c.name}{c.argumentHint ? ` ${c.argumentHint}` : ""}</span>
-          <span className="opacity-60 truncate">{c.description}</span>
+          <span className="shrink-0 font-mono font-medium text-[var(--ct-accent)]">{c.name}</span>
+          {c.argumentHint && <span className="shrink-0 font-mono text-[var(--ct-muted-fg)]">{c.argumentHint}</span>}
+          <span className="ml-auto min-w-0 truncate text-[var(--ct-muted-fg)]">{c.description}</span>
         </button>
       ))}
     </div>
   );
 }
+
+const SUGGESTION_MENU_STYLE = { zIndex: 10, "--ct-menu-origin": "bottom left", "--ct-menu-shift": "6px" } as CSSProperties;
 
 /** Poll cadence for delayed-message pills: only the active tab polls. */
 export function delayedPollIntervalMs(isActive: boolean): number | null {
@@ -556,6 +555,7 @@ function ChatComposerImpl({
           <SlashPicker
             suggestions={pickerOpen ? suggestions : []}
             highlighted={pickerHighlight}
+            onHighlight={setPickerHighlight}
             onPick={pickSuggestion}
           />
           <ComposerMentionPicker

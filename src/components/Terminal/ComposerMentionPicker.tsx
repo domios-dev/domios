@@ -42,7 +42,6 @@ export function ComposerMentionPicker({
             onMouseEnter={() => onHighlight(i)}
             onClick={() => onPick(mention)}
             className="ct-menu-row"
-            style={selected ? { background: "color-mix(in srgb, var(--ct-accent) 13%, transparent)" } : undefined}
           >
             <span className="shrink-0 font-medium text-[var(--ct-accent)]">{mention.token}</span>
             <span className="ml-auto min-w-0 truncate text-[var(--ct-muted-fg)]">{mention.description}</span>
