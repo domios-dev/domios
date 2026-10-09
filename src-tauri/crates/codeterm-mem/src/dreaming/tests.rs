@@ -540,13 +540,33 @@ mod cron_task {
         let mut store = MockScheduler::default();
         assert!(ensure(&mut store).unwrap(), "first call creates");
         let task = &store.created[0].task;
-        assert!(
-            task.contains("codeterm mem dream run"),
-            "task must invoke the `run` subcommand, got: {task:?}"
+        assert_eq!(
+            task.split_whitespace().collect::<Vec<_>>(),
+            ["codeterm", "mem", "dream", "run"]
         );
-        assert!(
-            !task.contains("mem dream &&"),
-            "task must not use the bare (help-only) `mem dream` form: {task:?}"
+    }
+
+    #[test]
+    fn self_heals_report_without_recipient_and_preserves_disabled_schedule() {
+        let mut store = MockScheduler::default();
+        ensure(&mut store).unwrap();
+        let id = store.jobs[0].id.clone();
+        store.jobs[0].task =
+            "codeterm mem dream run && codeterm agent report \"dreaming complete\"\n".into();
+        store.jobs[0].enabled = false;
+        store.jobs[0].schedule = "30 12 * * *".into();
+
+        assert!(!ensure(&mut store).unwrap());
+
+        assert_eq!(store.jobs.len(), 1);
+        assert_eq!(store.created.len(), 1);
+        let job = &store.jobs[0];
+        assert_eq!(job.id, id);
+        assert!(!job.enabled);
+        assert_eq!(job.schedule, "30 12 * * *");
+        assert_eq!(
+            job.task.split_whitespace().collect::<Vec<_>>(),
+            ["codeterm", "mem", "dream", "run"]
         );
     }
 
