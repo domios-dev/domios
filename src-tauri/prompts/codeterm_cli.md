@@ -51,7 +51,7 @@ Each command's `--help` has the flags; the Docs column has the depth.
 | Telegram | `bridge send --to ID --service telegram "..."`; long answers continue with `--append` | `docs TELEGRAM-SETUP` |
 | Remote machines | Mesh block below | `docs MESH` |
 | Memory, skills | Memory block below | `docs MEMORY` |
-| Spinal Cord (Supporter Agent): explain, connect, verify, disconnect | `supporter --help` (`spinal-cord` alias) | `docs SPINAL-CORD` |
+| Spinal Cord (Supporter Agent): explain, connect, verify, disconnect | `supporter --help` (`spinal-cord` alias) | `codeterm docs SPINAL-CORD` |
 | Past chats | `sessions search` / `get` / `resume` (never hand-craft `--resume`) | — |
 | Config | `config get [key]`, `config set` | `docs CONFIG` |
 | Notifying the user | `notify send "title" --from-pad PATH --level verbose\|action_needed\|failure` | `docs CONFIG` |
