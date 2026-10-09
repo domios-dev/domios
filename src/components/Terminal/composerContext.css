@@ -459,6 +459,36 @@ button.ct-ctx__title:hover .ct-ctx__primary {
 
 input.ct-delayed-modal__field { color: var(--ct-fg); }
 
+.ct-delayed-modal__presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-left: 64px;
+}
+
+.ct-delayed-modal__presets button {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--ct-border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  font: 500 12px var(--ct-font-ui);
+  cursor: pointer;
+  transition: background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    color var(--ct-duration-fast) ease,
+    transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
+}
+
+.ct-delayed-modal__presets button:hover {
+  background: var(--ct-hover);
+  color: var(--ct-fg);
+}
+
+.ct-delayed-modal__presets button:active {
+  transform: scale(0.95);
+}
+
 .ct-delayed-modal__hint {
   color: var(--ct-muted-fg);
   font-size: 12px;
@@ -492,6 +522,17 @@ input.ct-delayed-modal__field { color: var(--ct-fg); }
   color: var(--ct-on-accent);
 }
 
+.ct-delayed-modal__btn--quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ct-muted-fg);
+}
+
+.ct-delayed-modal__btn--quiet:not(:disabled):hover {
+  background: var(--ct-hover);
+  color: var(--ct-fg);
+}
+
 .ct-delayed-modal__btn--danger {
   padding: 0 10px;
   border-color: transparent;
@@ -505,7 +546,12 @@ input.ct-delayed-modal__field { color: var(--ct-fg); }
   to { opacity: 1; transform: none; }
 }
 
+@media (max-width: 640px) {
+  .ct-delayed-modal__presets { padding-left: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ct-delayed-modal__scrim,
   .ct-delayed-modal { animation: none; }
+  .ct-delayed-modal__presets button { transition: none; }
 }

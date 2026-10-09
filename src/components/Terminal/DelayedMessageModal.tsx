@@ -1,36 +1,58 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Timer, X } from "lucide-react";
-import { formatClock, parseLocalInputValue, toLocalInputValue, type DelayedMessage } from "./delayedSend";
+import {
+  formatClock,
+  parseLocalInputValue,
+  QUICK_PRESETS,
+  toLocalInputValue,
+  type DelayedMessage,
+  type RecurrenceRule,
+} from "./delayedSend";
 
 type SendMode = "in" | "at" | "every";
+
+export type DelayedModalTarget =
+  | { kind: "create"; text: string }
+  | { kind: "edit"; message: DelayedMessage };
 
 export interface DelayedMessagePatch {
   text: string;
   scheduledAtMs: number;
-  recurrence?: { everyMs: number };
+  recurrence?: RecurrenceRule;
 }
+
+const STASH_DEFAULT_MS = 15 * 60_000;
+const MODE_LABEL: Record<SendMode, string> = { in: "In", at: "At", every: "Every" };
 
 function minutesUntil(ms: number): number {
   return Math.max(1, Math.round((ms - Date.now()) / 60_000));
 }
 
-export function DelayedMessageModal({ message, busy, onSave, onDelete, onClose }: {
-  message: DelayedMessage;
+function initialTime(target: DelayedModalTarget): number {
+  if (target.kind === "create" || target.message.state === "stashed") return Date.now() + STASH_DEFAULT_MS;
+  return target.message.scheduledAtMs;
+}
+
+export function DelayedMessageModal({ target, busy, onSubmit, onStash, onDelete, onSendNow, onClose }: {
+  target: DelayedModalTarget;
   busy: boolean;
-  onSave: (patch: DelayedMessagePatch) => void;
-  onDelete: () => void;
+  onSubmit: (patch: DelayedMessagePatch) => void;
+  onStash?: (text: string) => void;
+  onDelete?: () => void;
+  onSendNow?: () => void;
   onClose: () => void;
 }) {
   const titleId = useId();
   const textId = useId();
   const textRef = useRef<HTMLTextAreaElement>(null);
-  const recurring = Boolean(message.recurrence);
-  const [text, setText] = useState(message.text);
-  const [mode, setMode] = useState<SendMode>(recurring ? "every" : "in");
-  const [inMinutes, setInMinutes] = useState(String(minutesUntil(message.scheduledAtMs)));
-  const [at, setAt] = useState(toLocalInputValue(message.scheduledAtMs));
-  const [everyMinutes, setEveryMinutes] = useState(String((message.recurrence?.everyMs ?? 600_000) / 60_000));
+  const editing = target.kind === "edit" ? target.message : null;
+  const recurrence = editing?.recurrence ?? null;
+  const [text, setText] = useState(editing ? editing.text : target.kind === "create" ? target.text : "");
+  const [mode, setMode] = useState<SendMode>(recurrence ? "every" : "in");
+  const [inMinutes, setInMinutes] = useState(String(minutesUntil(initialTime(target))));
+  const [at, setAt] = useState(toLocalInputValue(initialTime(target)));
+  const [everyMinutes, setEveryMinutes] = useState(String((recurrence?.everyMs ?? 600_000) / 60_000));
 
   useEffect(() => {
     textRef.current?.focus();
@@ -41,15 +63,30 @@ export function DelayedMessageModal({ message, busy, onSave, onDelete, onClose }
     return () => window.removeEventListener("keydown", onKey);
   }, [busy, onClose]);
 
+  const modes: SendMode[] = recurrence ? ["every"] : editing ? ["in", "at"] : ["in", "at", "every"];
   const minutes = Number(mode === "every" ? everyMinutes : inMinutes);
-  const scheduledAtMs = mode === "at" ? parseLocalInputValue(at) : Number.isFinite(minutes) && minutes >= 1 ? Date.now() + minutes * 60_000 : null;
+  const minutesValid = Number.isInteger(minutes) && minutes >= 1;
+  const scheduledAtMs = mode === "at" ? parseLocalInputValue(at) : minutesValid ? Date.now() + minutes * 60_000 : null;
   const valid = text.trim().length > 0 && scheduledAtMs != null && scheduledAtMs > Date.now();
-  const modes: SendMode[] = recurring ? ["every"] : ["in", "at"];
-  const modeLabel: Record<SendMode, string> = { in: "In", at: "At", every: "Every" };
 
-  const save = () => {
+  const submit = () => {
     if (!valid || scheduledAtMs == null) return;
-    onSave({ text, scheduledAtMs, ...(mode === "every" ? { recurrence: { everyMs: minutes * 60_000 } } : {}) });
+    onSubmit({
+      text,
+      scheduledAtMs,
+      ...(mode === "every" ? { recurrence: { ...recurrence, everyMs: minutes * 60_000 } } : {}),
+    });
+  };
+
+  const applyPreset = (resolve: (nowMs: number) => number, label: string) => {
+    const ms = resolve(Date.now());
+    if (/^\d+[mh]$/.test(label)) {
+      setMode("in");
+      setInMinutes(String(minutesUntil(ms)));
+    } else {
+      setMode("at");
+      setAt(toLocalInputValue(ms));
+    }
   };
 
   return createPortal(
@@ -59,7 +96,7 @@ export function DelayedMessageModal({ message, busy, onSave, onDelete, onClose }
         if (event.target === event.currentTarget && !busy) onClose();
       }}
     >
-      <div className="ct-delayed-modal" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      <div className="ct-delayed-modal" role="dialog" aria-modal="true" aria-labelledby={titleId} data-testid="delayed-message-modal">
         <div className="ct-delayed-modal__head">
           <Timer size={14} aria-hidden="true" className="ct-delayed-modal__icon" />
           <h2 id={titleId}>Delayed message</h2>
@@ -77,7 +114,7 @@ export function DelayedMessageModal({ message, busy, onSave, onDelete, onClose }
             onKeyDown={(event) => {
               if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                 event.preventDefault();
-                save();
+                submit();
               }
             }}
           />
@@ -86,7 +123,7 @@ export function DelayedMessageModal({ message, busy, onSave, onDelete, onClose }
             <span className="ct-delayed-modal__seg" role="group" aria-label="When to send">
               {modes.map((option) => (
                 <button key={option} type="button" aria-pressed={mode === option} data-on={mode === option || undefined} onClick={() => setMode(option)}>
-                  {modeLabel[option]}
+                  {MODE_LABEL[option]}
                 </button>
               ))}
             </span>
@@ -95,6 +132,7 @@ export function DelayedMessageModal({ message, busy, onSave, onDelete, onClose }
             ) : (
               <span className="ct-delayed-modal__field">
                 <input
+                  data-testid="delayed-minutes"
                   aria-label={mode === "every" ? "Repeat every, minutes" : "Send in, minutes"}
                   type="number"
                   min={1}
@@ -106,12 +144,23 @@ export function DelayedMessageModal({ message, busy, onSave, onDelete, onClose }
             )}
             {scheduledAtMs != null && <span className="ct-delayed-modal__hint">{mode === "every" ? "next at" : "goes out at"} {formatClock(scheduledAtMs)}</span>}
           </div>
+          {mode !== "every" && (
+            <div className="ct-delayed-modal__presets" role="group" aria-label="Quick times">
+              {QUICK_PRESETS.map((preset) => (
+                <button key={preset.label} type="button" onClick={() => applyPreset(preset.resolve, preset.label)}>{preset.label}</button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="ct-delayed-modal__foot">
-          <button type="button" className="ct-delayed-modal__btn ct-delayed-modal__btn--danger" disabled={busy} onClick={onDelete}>Delete</button>
+          {onDelete && <button type="button" className="ct-delayed-modal__btn ct-delayed-modal__btn--danger" disabled={busy} onClick={onDelete}>Delete</button>}
+          {onSendNow && <button type="button" className="ct-delayed-modal__btn ct-delayed-modal__btn--quiet" disabled={busy} onClick={onSendNow}>Send now</button>}
+          {onStash && <button type="button" className="ct-delayed-modal__btn ct-delayed-modal__btn--quiet" disabled={busy || !text.trim()} onClick={() => onStash(text)}>Stash</button>}
           <span className="ct-delayed-modal__spacer" />
           <button type="button" className="ct-delayed-modal__btn" disabled={busy} onClick={onClose}>Cancel</button>
-          <button type="button" className="ct-delayed-modal__btn ct-delayed-modal__btn--primary" disabled={busy || !valid} onClick={save}>Save</button>
+          <button type="button" className="ct-delayed-modal__btn ct-delayed-modal__btn--primary" disabled={busy || !valid} onClick={submit}>
+            {editing ? "Save" : "Schedule"}
+          </button>
         </div>
       </div>
     </div>,
