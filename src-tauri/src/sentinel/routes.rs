@@ -142,7 +142,7 @@ fn notify_lifecycle(svc: &ServiceContext, notice: &StopNotice, title: String) {
 pub fn resolve(svc: &ServiceContext, job: &Sentinel, route: &Route) -> Result<Route, String> {
     match route {
         Route::Notify | Route::Stop => Ok(route.clone()),
-        Route::RespondPrompt(_) if job.observe.is_some() => Ok(route.clone()),
+        Route::RespondPrompt(_) if job.observe().is_some() => Ok(route.clone()),
         Route::RespondPrompt(_) => Err("respond_prompt requires a tab observation source".into()),
         Route::Command(parameters) => {
             parameters.validate()?;
@@ -478,7 +478,7 @@ pub(super) fn write_pipeline_result_body(
 }
 
 fn spec_is_input(job: &Sentinel) -> bool {
-    job.pipeline.as_ref().is_some_and(|pipeline| {
+    job.pipeline().is_some_and(|pipeline| {
         matches!(
             &pipeline.trigger,
             codeterm_types::blueprint_pipeline::Trigger::Input { .. }

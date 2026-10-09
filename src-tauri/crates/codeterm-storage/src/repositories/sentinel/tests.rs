@@ -90,11 +90,9 @@ fn runtime() -> StageRuntime {
 
 fn definition(source: StageSource) -> StageDefinition {
     StageDefinition {
-        terminal: None,
         session: false,
         name: Some("source-round-trip".into()),
         source,
-        pipeline: None,
         question: "did it finish?".into(),
         interval_ms: 20_000,
         until: Some("done".into()),
@@ -213,7 +211,7 @@ fn blueprint_pipeline_definition_round_trips_through_versioned_storage() {
         },
     };
     let mut definition = definition(StageSource::Probe("blueprint-pipeline".into()));
-    definition.pipeline = Some(pipeline.clone());
+    definition.source = StageSource::Pipeline(pipeline.clone());
     repo.create(SentinelCreate {
         identity: identity("blueprint_pipeline_round_trip"),
         scenario_id: None,
@@ -230,7 +228,7 @@ fn blueprint_pipeline_definition_round_trips_through_versioned_storage() {
         .unwrap()
         .value;
     assert_eq!(stored.len(), 1);
-    assert_eq!(stored[0].definition.pipeline, Some(pipeline));
+    assert_eq!(stored[0].definition.pipeline().cloned(), Some(pipeline));
 }
 
 #[test]
@@ -421,4 +419,64 @@ fn sentinel_source_schema_migration_preserves_probe_and_observe_rows() {
         .collect::<Result<_, _>>()
         .unwrap();
     assert_eq!(kinds, ["observe", "probe"]);
+}
+
+#[test]
+fn blueprint_stage_source_storage_codec_round_trips_all_variants() {
+    let (_root, storage) = storage();
+    let pipeline = BlueprintSpec {
+        name: "codec pipeline".into(),
+        owner: BlueprintOwner::Tab,
+        trigger: Trigger::Schedule {
+            every: "20s".into(),
+        },
+        steps: vec![],
+        result: BlueprintResult::default(),
+    };
+    let sources = [
+        StageSource::Probe("status".into()),
+        StageSource::Observe(ObserveSource {
+            kind: ObserveKind::Tab,
+            reference: "tab".into(),
+        }),
+        StageSource::Input(InputSpec {
+            kind: MediaKind::Text,
+            data: DataRef::Text("text".into()),
+            convert_to: None,
+            convert_timeout_ms: None,
+        }),
+        StageSource::Terminal {
+            binding: ObserveSource {
+                kind: ObserveKind::Tab,
+                reference: "tab".into(),
+            },
+            config: codeterm_types::blueprint_terminal::Config {
+                pattern: Some("ready".into()),
+                idle_ms: None,
+            },
+        },
+        StageSource::Pipeline(pipeline),
+    ];
+    for (index, source) in sources.into_iter().enumerate() {
+        let key = format!("blueprint_codec_{index}");
+        storage
+            .sentinels()
+            .create(SentinelCreate {
+                identity: identity(&key),
+                scenario_id: None,
+                definition: definition(source.clone()),
+                runtime: runtime(),
+                associate: vec![],
+            })
+            .wait(Duration::from_secs(5))
+            .unwrap();
+        let stored = storage
+            .sentinels()
+            .get(id(&key))
+            .wait(Duration::from_secs(5))
+            .unwrap()
+            .value
+            .unwrap();
+        assert_eq!(stored.record.definition.definition.source, source);
+    }
 }

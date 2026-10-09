@@ -17,7 +17,7 @@ pub(super) fn respond_prompt(
     let Route::RespondPrompt(kind) = route else {
         return Err("blueprint respond_prompt route mismatch".into());
     };
-    let tab_id = match job.observe.as_ref() {
+    let tab_id = match job.observe() {
         Some(TabBinding::Tab(tab_id)) => tab_id.as_str(),
         Some(TabBinding::CronRun(_)) => job
             .run

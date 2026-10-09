@@ -689,8 +689,7 @@ pub(super) fn update_definition(
     let next = definitions::latest_version(cx.conn, id)? + 1;
     let input_due_at = update
         .definition
-        .pipeline
-        .as_ref()
+        .pipeline()
         .is_some_and(|pipeline| {
             matches!(
                 &pipeline.trigger,

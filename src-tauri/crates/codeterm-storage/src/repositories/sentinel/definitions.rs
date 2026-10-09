@@ -79,6 +79,20 @@ fn source_columns(source: &StageSource) -> Result<SourceColumns, StorageError> {
             observe_kind: Some(observe_kind_text(observe.kind)),
             observe_ref: Some(observe.reference.clone()),
         },
+        StageSource::Terminal { binding, .. } => SourceColumns {
+            kind: SourceKind::Terminal,
+            spec: None,
+            probe: String::new(),
+            observe_kind: Some(observe_kind_text(binding.kind)),
+            observe_ref: Some(binding.reference.clone()),
+        },
+        StageSource::Pipeline(_) => SourceColumns {
+            kind: SourceKind::Pipeline,
+            spec: None,
+            probe: String::new(),
+            observe_kind: None,
+            observe_ref: None,
+        },
         StageSource::Input(input) => SourceColumns {
             kind: SourceKind::Input,
             spec: Some(serde_json::to_string(input).map_err(|_| {
@@ -96,6 +110,8 @@ fn source_from(
     spec: Option<String>,
     probe: String,
     observe: Option<ObserveSource>,
+    terminal: Option<codeterm_types::blueprint_terminal::Config>,
+    pipeline: Option<codeterm_types::blueprint_pipeline::BlueprintSpec>,
 ) -> Result<StageSource, StorageError> {
     match SourceKind::parse(kind) {
         Some(SourceKind::Probe) if !probe.is_empty() && observe.is_none() && spec.is_none() => {
@@ -109,6 +125,16 @@ fn source_from(
             let input: InputSpec = serde_json::from_str(&spec)
                 .map_err(|_| corrupt("input source spec does not decode"))?;
             Ok(StageSource::Input(input))
+        }
+        Some(SourceKind::Terminal) if probe.is_empty() && spec.is_none() => {
+            let binding = observe.ok_or_else(|| corrupt("terminal source lacks its binding"))?;
+            let config = terminal.ok_or_else(|| corrupt("terminal source lacks its config"))?;
+            Ok(StageSource::Terminal { binding, config })
+        }
+        Some(SourceKind::Pipeline) if probe.is_empty() && observe.is_none() && spec.is_none() => {
+            pipeline
+                .map(StageSource::Pipeline)
+                .ok_or_else(|| corrupt("pipeline source lacks its spec"))
         }
         Some(_) => Err(corrupt("stage source columns disagree")),
         None if kind == "event" => Err(corrupt("event source is not readable in this build")),
@@ -299,8 +325,7 @@ pub(super) fn insert_version(
     let created = to_sql_u64("revision", cx.revision.0)?;
     let source = source_columns(&definition.source)?;
     let pipeline_spec = definition
-        .pipeline
-        .as_ref()
+        .pipeline()
         .map(serde_json::to_string)
         .transpose()
         .map_err(|_| StorageError::invalid("pipeline", "cannot be encoded for storage"))?;
@@ -343,7 +368,7 @@ pub(super) fn insert_version(
             amendment.and_then(|amendment| amendment.cause_transition_id.as_deref()),
             authored_at,
             created,
-            definition.terminal.as_ref().map(serde_json::to_string).transpose().map_err(|_| StorageError::invalid("terminal", "cannot be encoded"))?,
+            definition.terminal().map(serde_json::to_string).transpose().map_err(|_| StorageError::invalid("terminal", "cannot be encoded"))?,
             definition.session
         ],
     )?;
@@ -595,6 +620,12 @@ pub(super) fn load_version(
             serde_json::from_str(&spec).map_err(|_| corrupt("pipeline spec does not decode"))
         })
         .transpose()?;
+    let terminal = header
+        .terminal_spec
+        .map(|spec| {
+            serde_json::from_str(&spec).map_err(|_| corrupt("terminal spec does not decode"))
+        })
+        .transpose()?;
     Ok(StoredDefinition {
         version,
         provenance: provenance_from(&header.provenance)?,
@@ -607,13 +638,6 @@ pub(super) fn load_version(
             header.authored_at,
         )?,
         definition: StageDefinition {
-            terminal: header
-                .terminal_spec
-                .map(|spec| {
-                    serde_json::from_str(&spec)
-                        .map_err(|_| corrupt("terminal spec does not decode"))
-                })
-                .transpose()?,
             session: header.session,
             name: header.name,
             source: source_from(
@@ -621,8 +645,9 @@ pub(super) fn load_version(
                 header.source_spec,
                 header.probe,
                 observe,
+                terminal,
+                pipeline,
             )?,
-            pipeline,
             question: header.question,
             interval_ms: from_sql_u64("sentinel interval", header.interval_ms)?,
             until: header.until,
