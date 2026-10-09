@@ -81,15 +81,6 @@ export function parseLocalInputValue(value: string): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-export function formatScheduledTime(ms: number): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(ms));
-}
-
 export function formatClock(ms: number): string {
   return new Intl.DateTimeFormat(undefined, {
     hour: "2-digit",

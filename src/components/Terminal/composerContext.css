@@ -354,6 +354,7 @@ button.ct-ctx__title:hover .ct-ctx__primary {
 }
 
 .ct-delayed-modal {
+  --ct-delayed-field-bg: color-mix(in srgb, var(--ct-surface) 55%, var(--ct-bg));
   display: flex;
   flex-direction: column;
   width: min(35rem, 100%);
@@ -413,7 +414,7 @@ button.ct-ctx__title:hover .ct-ctx__primary {
   padding: 14px 16px;
   border: 1px solid var(--ct-border-default);
   border-radius: 14px;
-  background: color-mix(in srgb, var(--ct-surface) 55%, var(--ct-bg));
+  background: var(--ct-delayed-field-bg);
   color: var(--ct-fg);
   font: 14px/1.6 var(--ct-font-ui);
   outline: none;
@@ -446,7 +447,7 @@ button.ct-ctx__title:hover .ct-ctx__primary {
   padding: 3px;
   border: 1px solid var(--ct-border-default);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--ct-surface) 55%, var(--ct-bg));
+  background: var(--ct-delayed-field-bg);
 }
 
 .ct-delayed-modal__seg button {
@@ -475,7 +476,7 @@ button.ct-ctx__title:hover .ct-ctx__primary {
   padding: 0 12px;
   border: 1px solid var(--ct-border-default);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--ct-surface) 55%, var(--ct-bg));
+  background: var(--ct-delayed-field-bg);
   color: var(--ct-muted-fg);
   font: 500 12px var(--ct-font-mono);
 }
