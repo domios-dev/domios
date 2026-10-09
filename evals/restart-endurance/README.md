@@ -64,6 +64,15 @@ is bounded at 30 seconds by the runner and must not ask an interactive question.
    and requires an exact answer in that tab's own appended transcript window.
    A fresh fixture that already contains turns is a recorded setup failure,
    not quietly treated as empty.
+   Sessionless fresh tabs are valid when their installed provider manifest
+   declares `spawn.sessionStartsOnFirstUserTurn` and structural composer
+   readiness. The eval discovers that manifest through the DEV plugin inventory;
+   it uses no provider-name exception. `agent_ready`, an owned PTY/binding nonce,
+   and no pending prompt authorize the first probe. After sending, the eval
+   requires a bound session before starting transcript streaming and accepting
+   the exact answer. It saves that session and requires it unchanged before
+   every subsequent probe. Phase and send-response fields distinguish a probe
+   that never reached send from a sent turn awaiting binding or an answer.
 4. Announces and performs three provenance-checked DEV restarts. After each,
    probes all created fixtures concurrently with the corresponding round
    marker. Waits use an SSE subscription established before sending, a single
