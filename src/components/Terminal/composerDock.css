@@ -47,3 +47,16 @@
 }
 
 .ct-composer-readonly, .ct-composer-status { padding-inline: var(--ct-composer-gutter-x); }
+
+.ct-chat-shell { timeline-scope: --ct-chat-scroll; }
+.ct-chat-scroller { scroll-timeline: --ct-chat-scroll block; }
+.ct-chat-bottom-bar {
+  border-top: 1px solid transparent;
+  animation: ct-chat-bottom-divider linear both;
+  animation-timeline: --ct-chat-scroll;
+  animation-range: calc(100% - 24px) 100%;
+}
+@keyframes ct-chat-bottom-divider {
+  from { border-top-color: var(--ct-border-default); }
+  to { border-top-color: transparent; }
+}
