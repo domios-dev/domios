@@ -1,12 +1,14 @@
 .ct-tab-top-bar,
-.ct-jobs-header {
+.ct-jobs-header,
+.plan-side-panel__header {
   position: relative;
   z-index: 3;
   background: var(--ct-bg);
 }
 
 .ct-tab-top-bar::after,
-.ct-jobs-header::after {
+.ct-jobs-header::after,
+.plan-side-panel__header::after {
   position: absolute;
   top: 100%;
   right: 0;

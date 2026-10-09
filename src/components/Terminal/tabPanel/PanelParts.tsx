@@ -1,5 +1,6 @@
 import { useState, type KeyboardEvent, type ReactNode } from "react";
-import { Check, ChevronLeft, MessageSquarePlus, type LucideIcon } from "lucide-react";
+import { Check, MessageSquarePlus, type LucideIcon } from "lucide-react";
+import { BackPill } from "../../shared/BackPill";
 import { formatCompact, formatExact } from "../../../lib/formatCompact";
 import { CHANGE_STATUS, changeBar } from "../changesViewModel";
 import type { RecordedFileChange } from "@codeterm/chat-core";
@@ -29,9 +30,7 @@ export function BackBar({ path, onBack, actions }: { path: string; onBack: () =>
   const name = segments[segments.length - 1] ?? path;
   return <>
     <div className="tab-panel__bar-main">
-      <button type="button" className="tab-panel__back" aria-label="Back to list" title="Back (Esc)" onClick={onBack}>
-        <ChevronLeft size={15} aria-hidden />Back
-      </button>
+      <BackPill label="list" onBack={onBack} />
       <nav aria-label="Path" className="tab-panel__crumbs" title={path}>
         <span className="tab-panel__crumb" aria-current="page">{name}</span>
       </nav>

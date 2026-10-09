@@ -1312,7 +1312,7 @@ button,
   display: flex;
   align-items: stretch;
   justify-content: flex-end;
-  padding-left: 12px;
+  padding: 0.5rem 0.5rem 0.5rem 12px;
   overflow: hidden;
   pointer-events: none;
 }
@@ -1325,11 +1325,9 @@ button,
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  border: 1px solid var(--ct-border-default);
-  border-right: none;
-  border-radius: var(--ct-radius-lg) 0 0 var(--ct-radius-lg);
+  border-radius: 1.25rem;
   background: var(--ct-bg);
-  box-shadow: 0 24px 80px -20px rgba(0, 0, 0, 0.65);
+  box-shadow: var(--ct-shadow-capsule);
   outline: none;
   pointer-events: auto;
 }
@@ -1340,7 +1338,6 @@ button,
   gap: 10px;
   min-width: 0;
   padding: 10px 12px 10px 16px;
-  border-bottom: 1px solid var(--ct-border-subtle);
 }
 .plan-side-panel__title {
   flex: 1 1 auto;
@@ -1361,11 +1358,18 @@ button,
   justify-content: center;
   width: 28px;
   height: 28px;
-  border: 1px solid var(--ct-border-subtle);
-  border-radius: var(--ct-radius-sm);
-  background: var(--ct-bg);
-  color: var(--ct-fg);
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ct-muted-fg);
   cursor: pointer;
+  transition: background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+.plan-side-panel__action:hover {
+  background: color-mix(in srgb, var(--ct-fg) 8%, transparent);
+  color: var(--ct-fg);
+  animation: ct-bar-pill-sway var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
 }
 .plan-side-panel__action:focus-visible {
   outline: none;
@@ -1380,7 +1384,7 @@ button,
 }
 /* Wide dock and narrow sheet share one calm motion: a short non-overshooting ease-out from the right edge. */
 .plan-side-panel[data-state="entering"] {
-  animation: ct-plan-side-panel-in var(--ct-duration-normal) var(--ct-ease-decel) both;
+  animation: ct-plan-side-panel-in var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
 }
 .plan-side-panel[data-state="closing"] {
   pointer-events: none;
@@ -1416,8 +1420,8 @@ button,
   .plan-side-panel {
     width: 100%;
     max-width: 100%;
-    border-left: none;
     border-radius: 0;
+    box-shadow: none;
   }
   .plan-side-panel__header {
     padding-inline: 16px 12px;
