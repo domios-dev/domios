@@ -29,6 +29,7 @@ pub struct TurnControls {
     pub model: Option<String>,
     pub effort: Option<String>,
     pub mode: RuntimeMode,
+    pub pending_settings: Option<Value>,
 }
 
 impl TurnControls {
@@ -55,6 +56,7 @@ pub fn request_model(tab: &str, model: &str, effort: Option<&str>) -> Result<(),
     let mut controls = sidecar.controls.lock();
     controls.model = Some(model.into());
     controls.effort = effort.map(str::to_owned);
+    controls.pending_settings = None;
     Ok(())
 }
 
@@ -72,6 +74,29 @@ pub(super) fn session_effort(settings: &Value) -> Option<Option<String>> {
     }
 }
 
+fn new_turn_settings(
+    boundary: &codeterm_types::agent::SessionModelTranscriptBoundary,
+    turn: Option<&str>,
+    requested_effort: Option<&str>,
+    settings: &Value,
+) -> bool {
+    turn.is_some_and(|turn| boundary.last_entry_uuid.as_deref() != Some(turn))
+        && requested_effort
+            .is_none_or(|effort| session_effort(settings).flatten().as_deref() == Some(effort))
+}
+
+fn cache_requested_settings(model_matches: bool, effort: Option<&str>, settings: &Value) -> bool {
+    model_matches
+        && effort.is_none_or(|effort| session_effort(settings).flatten().as_deref() == Some(effort))
+}
+
+pub(super) fn on_turn_started(svc: &crate::service::ServiceContext, tab: &str, thread: &str) {
+    let settings = for_tab(tab).and_then(|sidecar| sidecar.controls.lock().pending_settings.take());
+    if let Some(settings) = settings {
+        observe(svc, tab, thread, &settings);
+    }
+}
+
 pub fn observe(svc: &crate::service::ServiceContext, tab: &str, thread: &str, params: &Value) {
     let settings = params.get("threadSettings").unwrap_or(params);
     let Some(model) = settings.get("model").and_then(Value::as_str) else {
@@ -82,6 +107,38 @@ pub fn observe(svc: &crate::service::ServiceContext, tab: &str, thread: &str, pa
             .then(|| (tab.agent_type.clone(), tab.session_binding_nonce.clone()))
     });
     if let Some((Some(provider), Some(nonce))) = identity {
+        let pending = svc.mux.read().get_tab(tab).and_then(|tab| {
+            tab.pending_model_switch_observation
+                .clone()
+                .map(|pending| (pending, tab.reasoning_effort_identity.requested.clone()))
+        });
+        if let Some((pending, effort)) = pending.as_ref() {
+            let active = super::control::active_turn(tab);
+            if pending.session_id != thread
+                || !new_turn_settings(
+                    &pending.transcript_boundary,
+                    active.as_deref(),
+                    effort.as_deref(),
+                    settings,
+                )
+            {
+                if let Some(sidecar) = for_tab(tab).filter(|_| {
+                    cache_requested_settings(
+                        crate::service::session_model::session_model_matches(
+                            &svc.agent_registry,
+                            &provider,
+                            &pending.launched_model,
+                            model,
+                        ),
+                        effort.as_deref(),
+                        settings,
+                    )
+                }) {
+                    sidecar.controls.lock().pending_settings = Some(params.clone());
+                }
+                return;
+            }
+        }
         svc.apply_session_model(
             tab,
             &provider,
@@ -89,10 +146,15 @@ pub fn observe(svc: &crate::service::ServiceContext, tab: &str, thread: &str, pa
             model.into(),
             None,
             Some(&nonce),
-            false,
+            pending.is_some(),
         );
         if let Some(actual) = session_effort(settings) {
             svc.record_session_reasoning_effort(tab, &provider, thread, Some(&nonce), actual);
+        }
+        if let Some((pending, _)) = pending {
+            if svc.clear_pending_model_switch(tab, &pending, &nonce) {
+                svc.emit_state_changed();
+            }
         }
     }
 }
@@ -132,7 +194,19 @@ pub(crate) fn switch_next_turn(
         effort.as_deref(),
     )
     .map_err(ModelSwitchError::NotSwitchable)?;
-    svc.record_live_model_request(tab_id, provider, &session_id, requested, effort.as_deref())?;
+    let boundary = codeterm_types::agent::SessionModelTranscriptBoundary {
+        last_entry_uuid: super::control::active_turn(tab_id),
+        last_entry_type: Some("rpc_turn".into()),
+        ..Default::default()
+    };
+    svc.record_model_request(
+        tab_id,
+        provider,
+        &session_id,
+        requested,
+        effort.as_deref(),
+        Some(boundary),
+    )?;
     request_model(tab_id, requested, effort.as_deref())
         .map_err(ModelSwitchError::LiveSwitchFailed)?;
     Ok(ModelSwitchOutcome {

@@ -194,7 +194,8 @@
         "suffix": "</local-command-stdout>",
         "ignoredContentRegexes": [
           "\\A<local-command-caveat>[^<>]*</local-command-caveat>\\z",
-          "\\A<command-name>/model</command-name>\\s*<command-message>model</command-message>\\s*<command-args>\\s*</command-args>\\z"
+          "\\A<command-name>/model</command-name>\\s*<command-message>model</command-message>\\s*<command-args>\\s*</command-args>\\z",
+          "\\A<command-name>/effort</command-name>\\s*<command-message>effort</command-message>\\s*<command-args>[^<>]*</command-args>\\z"
         ]
       },
       "model": {
@@ -212,7 +213,7 @@
         "picker": {
           "screenRegex": "(?m)^\\s*Select model\\s*$[\\s\\S]*^\\s*Enter to set as default · s to use this session only · Esc to cancel\\s*\\z",
           "selectedRegex": "(?m)^\\s*❯\\s*(?P<position>\\d+)\\.\\s+[^\\r\\n]+\\r?$",
-          "targetRegex": "(?im)^\\s*(?:❯\\s*)?(?P<position>\\d+)\\.\\s+(?:{model}|{display_name})(?:\\s+[^\\r\\n]+)?\\r?$",
+          "targetRegex": "(?im)^\\s*(?:❯\\s*)?(?P<position>\\d+)\\.\\s+(?P<label>{display_name}|{model})(?:\\s*[✓✔])?(?:\\s+[^\\r\\n]+)?\\r?$",
           "position": "number",
           "previousKey": "\u001b[A",
           "nextKey": "\u001b[B",

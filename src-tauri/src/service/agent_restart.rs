@@ -32,6 +32,7 @@ pub struct RestartTrackerState {
     staged_models: model_switch::staging::PendingSwitches,
     last_restart: HashMap<String, Instant>,
     in_progress: HashSet<String>,
+    command_ptys: HashMap<String, (String, String)>,
 }
 
 pub type RestartTracker = Arc<Mutex<RestartTrackerState>>;
@@ -43,12 +44,40 @@ pub(super) struct RestartClaim {
 
 impl Drop for RestartClaim {
     fn drop(&mut self) {
-        self.tracker.lock().in_progress.remove(&self.tab_id);
+        let mut tracker = self.tracker.lock();
+        tracker.command_ptys.remove(&self.tab_id);
+        tracker.in_progress.remove(&self.tab_id);
     }
 }
 
 pub fn new_restart_tracker() -> RestartTracker {
     Arc::new(Mutex::new(RestartTrackerState::default()))
+}
+
+impl ServiceContext {
+    pub(crate) fn model_command_owns_prompt(&self, tab_id: &str) -> bool {
+        let owner = self
+            .restart_tracker
+            .lock()
+            .command_ptys
+            .get(tab_id)
+            .cloned();
+        self.mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(|tab| command_prompt_owner_matches(owner.as_ref(), tab))
+    }
+}
+
+fn command_prompt_owner_matches(
+    owner: Option<&(String, String)>,
+    tab: &crate::multiplexer::types::Tab,
+) -> bool {
+    owner.is_some_and(|(pty_id, nonce)| {
+        tab.pty_id.as_deref() == Some(pty_id)
+            && tab.session_binding_nonce.as_deref() == Some(nonce)
+            && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
+    })
 }
 
 pub(super) fn claim_restart_attempt(

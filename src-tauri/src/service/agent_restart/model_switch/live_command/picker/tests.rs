@@ -46,6 +46,56 @@ const EFFORT_SCREEN: &str = include_str!(concat!(
 ));
 
 #[test]
+fn combined_switch_selects_current_sonnet_label_across_reordered_and_stale_frames() {
+    let declaration = commands().model.picker.unwrap();
+    let mut selection = target();
+    selection.model = "sonnet".into();
+    selection.display_name = "Sonnet 5.5".into();
+    let mut picker = CommandPicker::new(&declaration, &selection, None).unwrap();
+    picker.injected();
+    let initial = MODEL_SCREEN
+        .replace("❯ 4.", "  4.")
+        .replace("    2.", "  ❯ 2.");
+    let mut keys = Vec::new();
+    picker
+        .respond(&initial, |key| {
+            keys.push(key.to_vec());
+            Ok(())
+        })
+        .unwrap();
+    let middle = MODEL_SCREEN
+        .replace("❯ 4.", "  4.")
+        .replace("    3.", "  ❯ 3.");
+    picker
+        .respond(&format!("{initial}\n{middle}"), |key| {
+            keys.push(key.to_vec());
+            Ok(())
+        })
+        .unwrap();
+    picker
+        .respond(&format!("{initial}\n{middle}\n{MODEL_SCREEN}"), |key| {
+            keys.push(key.to_vec());
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(
+        keys,
+        [b"\x1b[B".to_vec(), b"\x1b[B".to_vec(), b"s".to_vec()]
+    );
+    let mut reordered = CommandPicker::new(&declaration, &selection, None).unwrap();
+    reordered.injected();
+    let screen = MODEL_SCREEN
+        .replace("❯ 4.", "❯ 8.")
+        .replace("    7.", "    4.");
+    reordered
+        .respond(&screen, |key| {
+            assert_eq!(key, b"s");
+            Ok(())
+        })
+        .unwrap();
+}
+
+#[test]
 fn picker_reobserves_each_cursor_before_session_only_submit() {
     let mut picker =
         CommandPicker::new(&commands().model.picker.unwrap(), &target(), None).unwrap();

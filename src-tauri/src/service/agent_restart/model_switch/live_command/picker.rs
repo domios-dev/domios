@@ -10,6 +10,9 @@ pub(super) struct CommandPicker {
     submitted: bool,
     steps: usize,
     injected: bool,
+    started: Instant,
+    target_label: String,
+    tab_id: String,
 }
 
 impl CommandPicker {
@@ -53,11 +56,24 @@ impl CommandPicker {
             submitted: false,
             steps: 0,
             injected: false,
+            started: Instant::now(),
+            target_label: effort.unwrap_or(&target.display_name).to_owned(),
+            tab_id: target.tab_id.clone(),
         })
     }
 
     pub(super) fn present(&self, screen: &str) -> bool {
         self.screen.is_match(screen)
+    }
+
+    fn frame<'a>(&self, screen: &'a str) -> Option<&'a str> {
+        let mut offset = 0;
+        let mut latest = None;
+        while let Some(frame) = self.screen.find_at(screen, offset) {
+            latest = Some(frame.as_str());
+            offset = frame.start() + screen[frame.start()..].chars().next()?.len_utf8();
+        }
+        latest
     }
 
     pub(super) fn injected(&mut self) {
@@ -80,14 +96,22 @@ impl CommandPicker {
         if !self.injected || self.submitted {
             return Ok(());
         }
-        let Some(frame) = self.screen.find_iter(screen).last() else {
+        let Some(screen) = self.frame(screen) else {
             return Ok(());
         };
-        let screen = frame.as_str();
-        let Some(selected) = self.selected.captures(screen) else {
+        let Some(selected) = self.selected.captures_iter(screen).last() else {
             return Ok(());
         };
-        let Some(target) = self.target.captures(screen) else {
+        let target = self
+            .target
+            .captures_iter(screen)
+            .find(|capture| {
+                capture
+                    .name("label")
+                    .is_some_and(|label| label.as_str().eq_ignore_ascii_case(&self.target_label))
+            })
+            .or_else(|| self.target.captures(screen));
+        let Some(target) = target else {
             return Err("the requested selection is absent from the live picker; restart and resume is available as an explicit fallback".into());
         };
         let current = self
@@ -125,6 +149,14 @@ impl CommandPicker {
             self.submitted = true;
             &self.declaration.response_key
         };
+        log::info!(
+            "[agent-model/timing] tab={} phase=picker_step current={} desired={} submit={} elapsed_ms={}",
+            self.tab_id,
+            current,
+            desired,
+            self.submitted,
+            self.started.elapsed().as_millis()
+        );
         write(key.as_bytes())
     }
 

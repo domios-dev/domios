@@ -101,16 +101,7 @@ impl ServiceContext {
                     .get_tab(&target.tab_id)
                     .is_some_and(|tab| tab.pending_prompt.is_none())
                 && self.pty.lock().get_session(&target.pty_id).is_some()
-                && crate::service::status_reconciliation::snapshot_with_reconciled_status_until(
-                    &self.mux,
-                    &self.agent_tracker,
-                    &self.agent_registry,
-                    deadline,
-                )
-                .is_some_and(|snapshot| {
-                    snapshot.tab_statuses.get(&target.tab_id)
-                        == Some(&codeterm_types::pty::TabStatus::Idle)
-                })
+                && self.command_tab_idle(target)
         };
         if !idle() {
             return Err(fail("the agent is busy or waiting on a prompt".into()));

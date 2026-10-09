@@ -189,6 +189,7 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
                     continue;
                 }
                 sidecar.busy.store(true, Ordering::Release);
+                super::model::on_turn_started(&svc, &tab, &current);
                 svc.mark_agent_turn_started(&tab);
                 crate::agent::state_verdict::observe_declared_event(&svc, &tab, &current, method);
             }

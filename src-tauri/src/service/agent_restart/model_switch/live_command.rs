@@ -120,6 +120,21 @@ fn command_prompt_absent(
         .is_some_and(|screen| !pattern.is_match(&screen))
 }
 
+fn command_dialogs_absent(
+    svc: &ServiceContext,
+    target: &CommandTarget,
+    prompt: Option<&Regex>,
+    picker: Option<&CommandPicker>,
+) -> bool {
+    command_prompt_absent(svc, target, prompt)
+        && picker.is_none_or(|picker| {
+            svc.screen_state
+                .lock()
+                .get_screen_text(&target.pty_id)
+                .is_some_and(|screen| !picker.present(&screen))
+        })
+}
+
 fn render_command(template: &str, model: &str, effort: Option<&str>) -> Result<String, String> {
     let placeholder = if effort.is_some() {
         "{effort}"
@@ -205,6 +220,15 @@ fn execute_command(
 }
 
 impl ServiceContext {
+    fn command_tab_idle(&self, target: &CommandTarget) -> bool {
+        let mux = self.mux.read();
+        mux.get_tab(&target.tab_id).is_some_and(|tab| {
+            target.matches(tab)
+                && tab.pending_prompt.is_none()
+                && self.resolved_tab_status(tab) == Some(codeterm_types::pty::TabStatus::Idle)
+        })
+    }
+
     pub(super) fn switch_model_by_command(
         &self,
         snap: &TabRestartSnapshot,
@@ -288,6 +312,10 @@ impl ServiceContext {
                 "the session changed before reading its current model".into(),
             ));
         }
+        self.restart_tracker.lock().command_ptys.insert(
+            target.tab_id.clone(),
+            (target.pty_id.clone(), target.binding_nonce.clone()),
+        );
         let recorded_model = self.mux.read().get_tab(&target.tab_id).and_then(|tab| {
             tab.agent_session_model_identity
                 .as_ref()
@@ -537,16 +565,7 @@ impl ServiceContext {
         let result = execute_command(
             || {
                 binding_current()
-                    && crate::service::status_reconciliation::snapshot_with_reconciled_status_until(
-                        &self.mux,
-                        &self.agent_tracker,
-                        &self.agent_registry,
-                        deadline,
-                    )
-                    .is_some_and(|snapshot| {
-                        snapshot.tab_statuses.get(&target.tab_id)
-                            == Some(&codeterm_types::pty::TabStatus::Idle)
-                    })
+                    && self.command_tab_idle(target)
                     && command_prompt_absent(self, target, prompt_pattern.as_ref())
                     && picker_absent
             },
@@ -608,6 +627,12 @@ impl ServiceContext {
                     "pty.write",
                     &input,
                 );
+                log::info!(
+                    "[agent-model/timing] tab={} command={} phase=injected elapsed_ms={}",
+                    target.tab_id,
+                    command,
+                    started.elapsed().as_millis()
+                );
                 Ok(())
             },
             || {
@@ -622,7 +647,15 @@ impl ServiceContext {
                     if !binding_current() {
                         break false;
                     }
-                    if read_confirmation(&path, boundary.get(), source, &pattern) {
+                    if read_confirmation(&path, boundary.get(), source, &pattern)
+                        && command_dialogs_absent(
+                            self,
+                            target,
+                            prompt_pattern.as_ref(),
+                            picker.as_ref(),
+                        )
+                    {
+                        log::info!("[agent-model/timing] tab={} command={} phase=transcript_confirmed elapsed_ms={}", target.tab_id, command, started.elapsed().as_millis());
                         break true;
                     }
                     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
@@ -650,7 +683,13 @@ impl ServiceContext {
                     }
                     if !signal.wait_after(generation, remaining) {
                         break binding_current()
-                            && read_confirmation(&path, boundary.get(), source, &pattern);
+                            && read_confirmation(&path, boundary.get(), source, &pattern)
+                            && command_dialogs_absent(
+                                self,
+                                target,
+                                prompt_pattern.as_ref(),
+                                picker.as_ref(),
+                            );
                     }
                 }
             },
