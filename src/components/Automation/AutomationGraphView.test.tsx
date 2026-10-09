@@ -97,7 +97,7 @@ test("the header close button returns to the list and a reopened Blueprint keeps
   const view = await mount();
   try {
     await click(named(view.host, 'button[aria-label^="Action node: Notify owner"]'));
-    await click(named(view.host, 'button[aria-label="Close Blueprint"]'));
+    await click(named(view.host, 'button[aria-label^="Back to"]'));
     assert.ok(view.host.querySelector('ul[aria-label="Blueprint scenarios"]'));
     await view.open();
     assert.equal(named(view.host, 'button[aria-label^="Action node: Notify owner"]').getAttribute("aria-pressed"), "true", "selection is remembered");

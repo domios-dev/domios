@@ -60,7 +60,7 @@ export function ReminderCard({
     .join("\n");
   return (
     <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto" data-testid="chat-reminder-card">
-      <div className="ct-card">
+      <div className="ct-card" style={{ "--ct-card-tone": "var(--ct-tone-delayed)" } as React.CSSProperties}>
         <div className="ct-card__head">
           <span className="ct-card__icon"><AlarmClock size={14} strokeWidth={2} aria-hidden="true" /></span>
           <span className="min-w-0 flex-1">

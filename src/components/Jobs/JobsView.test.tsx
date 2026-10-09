@@ -311,7 +311,7 @@ async function main() {
       await settle(() => cronCalls.includes("get") && cronCalls.includes("history"));
       assert.equal(buttonWith(view.host, "Trigger now").disabled, false);
       assert.equal(view.host.querySelector('[aria-label="Close cron details"]'), null, "embedded Cron never clears the global cron selection");
-      await act(async () => buttonWith(view.host, "All jobs").click());
+      await act(async () => view.host.querySelector<HTMLButtonElement>('button[aria-label="Back to All jobs"]')!.click());
       await settle(() => entry(view.host, `cron:${teamCron.id}`) !== null);
       assert.equal(document.activeElement, entry(view.host, `cron:${teamCron.id}`));
     } finally { await view.close(); }
@@ -326,7 +326,7 @@ async function main() {
       await act(async () => { entry(view.host, `scenario:${scenario.id}`)!.focus(); entry(view.host, `scenario:${scenario.id}`)!.click(); });
       assert.ok(view.host.querySelector("h3")?.textContent?.startsWith(scenario.name));
       assert.ok(view.host.querySelectorAll('[aria-label="Automation graph"] .bp-node').length > 0, "scenario graph rendered");
-      await act(async () => view.host.querySelector<HTMLButtonElement>('button[aria-label="Close Blueprint"]')!.click());
+      await act(async () => view.host.querySelector<HTMLButtonElement>('button[aria-label^="Back to"]')!.click());
       assert.equal(document.activeElement, entry(view.host, `scenario:${scenario.id}`));
       assert.equal(transport.unsubscribeCount, 1, "closing the graph releases its exact-scope definition subscription");
     } finally { await view.close(); }
@@ -354,8 +354,8 @@ async function main() {
     let exits = 0;
     const view = await mount(<JobsView workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: attachment.workspace_id, teamId: attachment.team_id }} adapter={transport} initialScenarioId={scenario.id} cronActionAdapter={cronActions} jobActionAdapter={jobActions} onClose={() => exits++} />);
     try {
-      await settle(() => view.host.querySelector('button[aria-label="Close Blueprint"]') !== null);
-      await act(async () => view.host.querySelector<HTMLButtonElement>('button[aria-label="Close Blueprint"]')!.click());
+      await settle(() => view.host.querySelector('button[aria-label^="Back to"]') !== null);
+      await act(async () => view.host.querySelector<HTMLButtonElement>('button[aria-label^="Back to"]')!.click());
       assert.equal(exits, 1, "a directly opened Blueprint closes the Jobs surface");
     } finally { await view.close(); }
   });
@@ -419,7 +419,7 @@ async function main() {
       assert.ok(view.host.querySelector('[aria-label="Blueprint view"]'), "opening a pipeline enters its Blueprint view");
       assert.ok(view.host.querySelector('[aria-label="Echo pipeline pipeline"]'), "the Blueprint view keeps the trigger-step-result chain");
       assert.ok(view.host.querySelector('[aria-current="step"]'));
-      await act(async () => buttonWith(view.host, "All jobs").click());
+      await act(async () => view.host.querySelector<HTMLButtonElement>('button[aria-label="Back to All jobs"]')!.click());
       assert.equal(document.activeElement, entry(view.host, "blueprint:blueprint-echo"));
     } finally { await view.close(); }
   });
@@ -430,7 +430,7 @@ async function main() {
     const view = await mount(<JobsView workspaces={workspaces} teams={teams} adapter={transport} initialBlueprintId="deep-pipeline" />);
     try {
       await settle(() => view.host.querySelector('[aria-label="Deep pipeline pipeline"]') !== null);
-      await act(async () => buttonWith(view.host, "All jobs").click());
+      await act(async () => view.host.querySelector<HTMLButtonElement>('button[aria-label="Back to All jobs"]')!.click());
       assert.equal(document.activeElement, entry(view.host, "blueprint:deep-pipeline"));
     } finally { await view.close(); }
   });
@@ -450,11 +450,11 @@ async function main() {
         onClose={() => exits++} cronActionAdapter={cronActions} jobActionAdapter={jobActions} />);
       try {
         const detailBack = () => kind === "scenario"
-          ? view.host.querySelector<HTMLButtonElement>('button[aria-label="Close Blueprint"]')!
-          : buttonWith(view.host, "All jobs");
+          ? view.host.querySelector<HTMLButtonElement>('button[aria-label^="Back to"]')!
+          : view.host.querySelector<HTMLButtonElement>('button[aria-label="Back to All jobs"]')!;
         await settle(() => kind === "scenario"
-          ? view.host.querySelector('button[aria-label="Close Blueprint"]') !== null
-          : Array.from(view.host.querySelectorAll("button")).some((button) => button.textContent?.includes("All jobs")));
+          ? view.host.querySelector('button[aria-label^="Back to"]') !== null
+          : view.host.querySelector('button[aria-label="Back to All jobs"]') !== null);
         await act(async () => detailBack().click());
         assert.deepEqual(activated, [{ workspaceId: "origin-workspace", tabId: "origin-tab" }]);
         assert.equal(exits, 1);
