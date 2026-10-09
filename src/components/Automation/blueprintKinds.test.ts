@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
-import fixture from "./blueprintKinds.rust.testdata.json";
-import { actionKind, actionTitle, blueprintActions, blueprintLegend, blueprintNodeKinds, blueprintSteps, blueprintTriggers, nodeIcon } from "./blueprintKinds";
+import { readFileSync } from "node:fs";
+import { actionKind, actionTitle, blueprintActions, blueprintLegend, blueprintNodeKinds, blueprintSources, blueprintSteps, blueprintTriggers, nodeIcon } from "./blueprintKinds";
 import { blueprintModel } from "./blueprintModel";
 import { typedGraph } from "./blueprintModel.testdata";
 
-assert.deepEqual(Object.keys(blueprintSteps).sort(), [...fixture.steps].sort());
-assert.deepEqual(Object.keys(blueprintActions).sort(), fixture.routes.map((kind) => kind === "sentinel" ? "blueprint" : kind).sort());
-for (const kind of fixture.triggers) assert.ok(kind === "input" ? blueprintTriggers.manual : blueprintTriggers[kind as keyof typeof blueprintTriggers]);
+const fixture = JSON.parse(readFileSync(new URL("../../../../tests/fixtures/blueprint-nodes.golden.json", import.meta.url), "utf8")) as { nodes: { kind: string; type: string }[] };
+const catalogTypes = (kind: string) => fixture.nodes.filter((node) => node.kind === kind).map((node) => node.type).sort();
+assert.deepEqual(Object.keys(blueprintSteps).sort(), catalogTypes("step"));
+assert.deepEqual(Object.keys(blueprintActions).sort(), catalogTypes("handler"));
+assert.deepEqual(Object.values(blueprintTriggers).map((kind) => kind.catalogType).sort(), catalogTypes("trigger"));
+assert.deepEqual(Object.values(blueprintSources).map((kind) => kind.catalogType).sort(), catalogTypes("source"));
 assert.equal(new Set(blueprintLegend).size, Object.keys(blueprintNodeKinds).length);
 for (const node of blueprintModel(typedGraph()).nodes) {
   assert.ok(nodeIcon(node));
@@ -17,4 +20,4 @@ for (const node of blueprintModel(typedGraph()).nodes) {
 assert.equal(actionKind("unknown"), undefined);
 assert.equal(actionKind("toString"), undefined);
 assert.equal(actionTitle("unknown", null, null), "unknown");
-console.log("Blueprint kind registry covers the Rust StepKind, Route and Trigger fixture");
+console.log("Blueprint kind registry covers the canonical Rust node catalog");
