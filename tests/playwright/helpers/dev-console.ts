@@ -50,6 +50,11 @@ let cachedHeadSha: string | undefined;
 /** The commit under test. Memoised: a run is about exactly one HEAD. */
 export function testedHeadSha(): string {
   if (cachedHeadSha) return cachedHeadSha;
+  const pinned = process.env.PW_SWITCH_DEV_SHA;
+  if (pinned && process.env.PW_TARGET === "dev" && process.env.PW_SWITCH_PROJECT_SELECTED === "1") {
+    if (!/^[0-9a-f]{40}$/.test(pinned)) throw new Error("PW_SWITCH_DEV_SHA must pin a full DEV commit SHA");
+    return (cachedHeadSha = pinned);
+  }
   let output: string;
   try {
     output = execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT, encoding: "utf8" }).trim();
