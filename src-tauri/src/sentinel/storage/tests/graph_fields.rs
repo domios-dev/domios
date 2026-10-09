@@ -149,7 +149,7 @@ fn sentinel_schema_v4_migration_refuses_a_previous_schema_root_holding_stages() 
     rusqlite::Connection::open(Storage::database_path(root.path()))
         .and_then(|conn| {
             conn.execute(
-                "INSERT INTO blueprints (id, ordinal, creator_tab_id, workspace_id, team_id, cwd, \
+                "INSERT INTO sentinels (id, ordinal, creator_tab_id, workspace_id, team_id, cwd, \
                  agent_authored, scenario_id, revision) \
                  VALUES ('sentinel_kept', 0, 'creator', 'workspace', NULL, '/tmp', 0, NULL, 1)",
                 [],
@@ -173,7 +173,7 @@ fn sentinel_schema_v4_migration_refuses_a_previous_schema_root_holding_stages() 
     let conn = read_only(root.path());
     assert_eq!(user_version(&conn), 4, "nothing was migrated");
     let kept: i64 = conn
-        .query_row("SELECT COUNT(*) FROM blueprints", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM sentinels", [], |row| row.get(0))
         .expect("stored stages");
     assert_eq!(kept, 1, "the stored stage survives the refusal");
 }
