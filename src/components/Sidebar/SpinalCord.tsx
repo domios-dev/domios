@@ -1,29 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Activity, Bot, Brain, Check, Loader2, Radar } from "lucide-react";
+import { Activity, Bot, Brain, Check, Loader2, Radar, Settings } from "lucide-react";
 import type { ApiConfig } from "../../lib/types";
 import { useAskGeneral } from "../../help/useAskGeneral";
 import { BusySpinner } from "../shared/BusyState";
 import { useSupporterResource } from "../Supporter/useSupporterResource";
 import { ActivityFeed } from "../Supporter/ActivityFeed";
+import { SupporterAllowanceRow } from "../Usage/SupporterAllowanceRow";
 import { clampFloatingPosition } from "../shared/floatingPosition";
 
 const ASK_PROMPT = "Tell me about Domios's Spinal Cord (the Supporter Agent): what it does for me day to day (memory recall that answers first, noticing a stuck tab, quiet team heartbeats that wake the Orchestrator only when something changed), why it is worth turning on, and what connecting it takes. Keep it short and convincing, then offer to set it up for me yourself. If I say yes, connect it. Answer in my native language, the one I usually write to you in.";
-
-const RECAP_PROMPT = "Tell me what my Spinal Cord (the Supporter Agent) has been doing lately: read its recent activity, and explain in plain words what it decided, for which requests and in what context, and whether anything needs my attention. Keep it short. Answer in my native language, the one I usually write to you in.";
 
 const POPOVER_WIDTH = 340;
 
 interface SpinalStatus {
   connected?: boolean;
-  calls_last_hour?: number;
   calls_last_day?: number;
-}
-
-function reflexLine(status: SpinalStatus | null): string {
-  const hour = status?.calls_last_hour ?? 0;
-  const day = status?.calls_last_day ?? 0;
-  return `${hour} reflex${hour === 1 ? "" : "es"} this hour · ${day} today`;
 }
 
 function Vertebrae({ className }: { className?: string }) {
@@ -98,6 +90,11 @@ export function SpinalCordButton({ api }: { api: ApiConfig | undefined }) {
     };
   }, [anchor]);
 
+  const openSettings = () => {
+    setAnchor(null);
+    window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:supporter-agent" } }));
+  };
+
   const toggle = () => {
     if (anchor) {
       setAnchor(null);
@@ -136,7 +133,14 @@ export function SpinalCordButton({ api }: { api: ApiConfig | undefined }) {
           style={{ top: anchor.top, left: anchor.left, width: POPOVER_WIDTH }}
         >
           <div className="ct-spinal-pop__head">
-            <span className="ct-spinal-pop__badge"><Vertebrae /></span>
+            {connected ? (
+              <button type="button" className="ct-spinal-pop__badge ct-spinal-pop__settings" data-testid="spinal-cord-settings" aria-label="Spinal Cord settings" title="Settings" onClick={openSettings}>
+                <Vertebrae />
+                <Settings size={15} aria-hidden="true" />
+              </button>
+            ) : (
+              <span className="ct-spinal-pop__badge"><Vertebrae /></span>
+            )}
             <span className="min-w-0">
               <span className="ct-spinal-pop__title">Spinal Cord</span>
               <span className="ct-spinal-pop__subtitle">{connected ? "Connected · your agents have reflexes" : "The reflexes between your agents"}</span>
@@ -144,7 +148,8 @@ export function SpinalCordButton({ api }: { api: ApiConfig | undefined }) {
           </div>
           {connected && api ? (
             <>
-              <p className="ct-spinal-pop__pulse"><span className="ct-spinal-pop__beat" aria-hidden="true" />{reflexLine(data)}</p>
+              <SupporterAllowanceRow api={api} />
+              <p className="ct-spinal-pop__pulse"><span className="ct-spinal-pop__beat" aria-hidden="true" />Live · {data?.calls_last_day ?? 0} reflexes today</p>
               <div className="ct-spinal-pop__feed">
                 <h3>Recent reflexes</h3>
                 <ActivityFeed api={api} embedded />
@@ -158,13 +163,13 @@ export function SpinalCordButton({ api }: { api: ApiConfig | undefined }) {
                 <li><Radar size={14} aria-hidden="true" />Notices a tab that got stuck</li>
                 <li><Activity size={14} aria-hidden="true" />Keeps team heartbeats quiet until something changes</li>
               </ul>
+              <p className="ct-spinal-pop__nudge">Want it? Ask your General — he explains it and can connect it all for you.</p>
+              <button type="button" className="ct-spinal-pop__ask" data-ask-state={state} disabled={state === "sending"} onClick={() => void ask(ASK_PROMPT)}>
+                {state === "sending" ? <BusySpinner icon={Loader2} size={14} /> : state === "sent" ? <Check size={14} aria-hidden="true" /> : <Bot size={14} aria-hidden="true" />}
+                {state === "sent" ? "Sent — the General is on it" : state === "error" ? "The General is not reachable" : "Ask the General"}
+              </button>
             </>
           )}
-          <p className="ct-spinal-pop__nudge">{connected ? "Want the story behind these decisions? Ask your General." : "Want it? Ask your General — he explains it and can connect it all for you."}</p>
-          <button type="button" className="ct-spinal-pop__ask" data-ask-state={state} disabled={state === "sending"} onClick={() => void ask(connected ? RECAP_PROMPT : ASK_PROMPT)}>
-            {state === "sending" ? <BusySpinner icon={Loader2} size={14} /> : state === "sent" ? <Check size={14} aria-hidden="true" /> : <Bot size={14} aria-hidden="true" />}
-            {state === "sent" ? "Sent — the General is on it" : state === "error" ? "The General is not reachable" : "Ask the General"}
-          </button>
         </div>,
         document.body,
       )}
