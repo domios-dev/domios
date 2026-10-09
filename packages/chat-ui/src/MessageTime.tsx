@@ -3,8 +3,23 @@ import { timestampMs } from "@codeterm/chat-core";
 
 export type MessageTimeSide = "left" | "right";
 
+// Constructing an Intl.DateTimeFormat costs far more than formatting; a long transcript formats every row.
+const shortTimeFormats = new Map<string, Intl.DateTimeFormat>();
+let fullTimeFormat: Intl.DateTimeFormat | null = null;
+
 export function formatMessageTime(timestamp: number, locale?: string): string {
-  return new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" }).format(timestamp);
+  const key = locale ?? "";
+  let format = shortTimeFormats.get(key);
+  if (!format) {
+    format = new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" });
+    shortTimeFormats.set(key, format);
+  }
+  return format.format(timestamp);
+}
+
+function formatFullMessageTime(date: Date): string {
+  fullTimeFormat ??= new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeStyle: "short" });
+  return fullTimeFormat.format(date);
 }
 
 export function MessageTime({ timestamp, side }: { timestamp?: NormalizedChatMessage["timestamp"]; side: MessageTimeSide }) {
@@ -19,7 +34,7 @@ export function MessageTime({ timestamp, side }: { timestamp?: NormalizedChatMes
       className={`ct-chat-message-time ct-chat-message-time--${side} ct-chat-message-time--hidden-when-narrow`}
       data-testid="chat-message-time"
       dateTime={date.toISOString()}
-      title={new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeStyle: "short" }).format(date)}
+      title={formatFullMessageTime(date)}
     >
       {formatMessageTime(timeMs)}
     </time>
