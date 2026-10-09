@@ -159,6 +159,28 @@ pub struct ModelSwitchCommand {
     pub confirmation: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<ModelSwitchPrompt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picker: Option<ModelSwitchPicker>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModelSwitchPicker {
+    pub screen_regex: String,
+    pub selected_regex: String,
+    pub target_regex: String,
+    pub position: ModelSwitchPickerPosition,
+    pub previous_key: String,
+    pub next_key: String,
+    pub response_key: String,
+    pub cancel_key: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelSwitchPickerPosition {
+    Number,
+    Column,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

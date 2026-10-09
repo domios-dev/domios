@@ -22,6 +22,33 @@ fn extract_set_model_strips_ansi_bold() {
 }
 
 #[test]
+fn backtick_command_stdout_wins_over_the_previous_assistant_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("own-session.jsonl");
+    let records = concat!(
+        "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-opus-5-5\"}}\n",
+        "{\"type\":\"user\",\"message\":{\"content\":\"<local-command-stdout>Set model to `Sonnet 5.5` for this session only</local-command-stdout>\"}}\n",
+    );
+    std::fs::write(&path, records).unwrap();
+    assert_eq!(scan_tail(&path, 64 * 1024).as_deref(), Some("Sonnet"));
+}
+
+#[test]
+fn ordinary_content_cannot_override_the_session_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("owned.jsonl");
+    for (kind, content) in [
+        ("user", "Set model to `Haiku 5.5` for this session only"),
+        ("assistant", "<local-command-stdout>Set model to `Haiku 5.5` for this session only</local-command-stdout>"),
+    ] {
+        let old = serde_json::json!({"type":"assistant","message":{"model":"claude-opus-5-5"}});
+        let quoted = serde_json::json!({"type":kind,"message":{"content":content}});
+        std::fs::write(&path, format!("{old}\n{quoted}\n")).unwrap();
+        assert_eq!(scan_tail(&path, 64 * 1024).as_deref(), Some("Opus"));
+    }
+}
+
+#[test]
 fn tail_scan_finds_latest_model() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("s.jsonl");

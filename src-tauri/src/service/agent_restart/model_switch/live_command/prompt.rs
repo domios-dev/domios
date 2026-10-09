@@ -51,6 +51,10 @@ impl CommandPrompt {
         self.injected = true;
     }
 
+    pub(super) fn answered(&self) -> bool {
+        self.answered
+    }
+
     pub(super) fn cancel(
         &mut self,
         screen: &str,

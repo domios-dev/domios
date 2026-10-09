@@ -238,6 +238,19 @@ declared transcript output must still arrive before the failure deadline.
 On failure, optional literal `cancelKeys` dismiss only the matching dialog caused
 by this command; the host waits for that dialog to clear before returning.
 An effort-only selection sends only its effort command and preserves model identity.
+
+A live command may declare a session-only `picker` with `screenRegex`,
+`selectedRegex`, `targetRegex`, `position` (`number` or `column`), `previousKey`,
+`nextKey`, `responseKey`, and `cancelKey`. Both selection regexes capture
+`position`; numeric pickers capture the displayed option number, while column
+pickers capture the text before the cursor or target label. Column targets also
+capture `label`. Core writes one navigation key per changed cursor position,
+re-observes the exact owned picker, and writes `responseKey` only on the target.
+Missing targets refuse with the explicit restart-and-resume fallback. Bare slash
+commands can open pickers without a selection argument. No new host API or
+sandbox access is granted; native and manifest declarations owe parity.
+Transcript appends wake confirmation alongside screen changes. Picker responses
+never establish success; fresh declared stdout in the owned session does.
 | `autoApproveFlags` | string[] | Launch flags for permission-bypass mode (e.g. `--yolo`, `--force`). Empty ⇒ the UI hides the bypass choice (`supports_permission_bypass` is derived). |
 | `modelLaunchArgsFormat` | string[] | Launch-arg template, each element may contain `{model}`. Empty ⇒ default `--model <id>`. |
 | `reasoningEffortLaunchArgsFormat` | string[] | Launch-arg template with `{effort}`, checked against the installed CLI's own `--help`. Absent ⇒ no scriptable effort flag, and spawn refuses any `--reasoning-effort` for this provider; declare no `reasoningEfforts` then. |

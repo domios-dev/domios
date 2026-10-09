@@ -104,6 +104,32 @@ const baseHost = (over: Record<string, unknown>) => ({
 
 console.log("\n--- session model detection ---\n");
 {
+  const transcript = [
+    JSON.stringify({ type: "assistant", message: { model: "claude-opus-5-5" } }),
+    JSON.stringify({ type: "user", message: {
+      content: "<local-command-stdout>Set model to `Sonnet 5.5` for this session only</local-command-stdout>",
+    } }),
+  ].join("\n");
+  const p = loadClaudeWithHost(baseHost({ fs: {
+    fileExists: () => true,
+    readFileTail: () => transcript,
+  } }));
+  eq(p.detectSessionModel("/fixture/project", "owned-session"), "Sonnet",
+    "backtick command stdout wins over the previous assistant model");
+}
+{
+  for (const record of [
+    { type: "user", message: { content: "Set model to `Haiku 5.5` for this session only" } },
+    { type: "assistant", message: { content: "<local-command-stdout>Set model to `Haiku 5.5` for this session only</local-command-stdout>" } },
+  ]) {
+    const transcript = [JSON.stringify({ type: "assistant", message: { model: "claude-opus-5-5" } }),
+      JSON.stringify(record)].join("\n");
+    const p = loadClaudeWithHost(baseHost({ fs: { fileExists: () => true, readFileTail: () => transcript } }));
+    eq(p.detectSessionModel("/fixture/project", "owned-session"), "Opus",
+      "ordinary message text cannot override the actual model");
+  }
+}
+{
   const transcript = '{"type":"assistant","message":{"model":"claude-opus-5","content":[]}}';
   let fullReads = 0;
   let tailBytes = 0;
