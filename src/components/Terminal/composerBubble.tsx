@@ -48,10 +48,10 @@ export function ComposerSendIcon({ size = 20 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
-        d="M4.5 4 20.5 12 4.5 20 7.5 12Z"
-        fill="currentColor"
+        d="M4.5 12H19M13 5.5 19.5 12 13 18.5"
         stroke="currentColor"
-        strokeWidth="2"
+        strokeWidth="2.6"
+        strokeLinecap="round"
         strokeLinejoin="round"
       />
     </svg>
