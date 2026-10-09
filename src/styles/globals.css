@@ -18,6 +18,7 @@
 @import "../components/shared/rowKebab.css";
 @import "../components/Terminal/tabBarPill.css";
 @import "../components/shared/card.css";
+@import "../components/shared/livePulse.css";
 @import "../components/shared/row.css";
 @import "../components/shared/field.css";
 @import "../components/Sidebar/spinalCord.css";
@@ -4241,7 +4242,6 @@ button,
 .sidebar-workspace-plan-icon {
   position: relative;
 }
-
 
 .ct-presence-stale {
   opacity: 0.55;
