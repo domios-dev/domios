@@ -15110,8 +15110,10 @@
     },
     {
       "name": "supporter",
-      "about": "Configure and inspect the Supporter Agent",
-      "aliases": [],
+      "about": "Configure and inspect Spinal Cord (Supporter Agent)",
+      "aliases": [
+        "spinal-cord"
+      ],
       "args": [],
       "subcommands": [
         {
