@@ -147,7 +147,7 @@ test("New Session pair renders the same descriptor in both roles", async () => {
   const { host, root } = await render(
     <OrchestrationPairForm
       providers={[descriptor]}
-      layout="card"
+      layout="team"
       values={{
         orchestratorProviderId: "provider-x",
         orchestratorModelId: "m-beta",
