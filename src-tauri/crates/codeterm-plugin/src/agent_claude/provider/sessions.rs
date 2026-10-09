@@ -531,7 +531,11 @@ fn scan_tail(path: &Path, tail_bytes: u64) -> Option<String> {
             continue;
         };
         // /model X writes "Set model to X" before the next assistant turn.
-        if let Some(content) = v.get("message").and_then(|m| m.get("content")) {
+        if let Some(content) = v
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .filter(|_| v["type"].as_str() == Some("user"))
+        {
             let raw = content_to_text(content);
             if let Some(fam) = extract_set_model_family(&raw) {
                 return Some(fam);
@@ -564,11 +568,13 @@ fn content_to_text(c: &serde_json::Value) -> String {
 }
 
 fn extract_set_model_family(raw: &str) -> Option<String> {
-    let idx = raw.find("Set model to ")?;
-    let after = &raw[idx + "Set model to ".len()..];
+    let after = raw
+        .strip_prefix("<local-command-stdout>Set model to ")?
+        .strip_suffix("</local-command-stdout>")?;
     let cleaned = strip_ansi(after);
     let family: String = cleaned
         .trim_start()
+        .trim_start_matches('`')
         .chars()
         .take_while(|c| c.is_ascii_alphabetic())
         .collect();
