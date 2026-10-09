@@ -55,6 +55,7 @@ pub struct MockProvider {
     launch_artifact_sweep_log: Option<Arc<Mutex<Vec<LaunchArtifactSweepRequest>>>>,
     launch_artifact_release_log: Option<Arc<Mutex<Vec<(String, String)>>>>,
     resume_context_log: Option<Arc<Mutex<Vec<AgentResumeParams>>>>,
+    structured_prompt_launch_log: Option<Arc<Mutex<Vec<AgentLaunchParams>>>>,
     paste_limit_bytes: Option<usize>,
     additional_writable_dir_flag: Option<String>,
     sandboxed_linux_launch: Option<codeterm_plugin::provider::SandboxedLinuxLaunchCapability>,
@@ -106,6 +107,7 @@ impl MockProvider {
             launch_artifact_sweep_log: None,
             launch_artifact_release_log: None,
             resume_context_log: None,
+            structured_prompt_launch_log: None,
             paste_limit_bytes: None,
             additional_writable_dir_flag: None,
             sandboxed_linux_launch: None,
@@ -116,6 +118,14 @@ impl MockProvider {
 
     pub fn with_model_switch(mut self, mode: codeterm_plugin::provider::ModelSwitchMode) -> Self {
         self.model_switch = mode;
+        self
+    }
+
+    pub fn with_structured_prompt_launch_log(
+        mut self,
+        log: Arc<Mutex<Vec<AgentLaunchParams>>>,
+    ) -> Self {
+        self.structured_prompt_launch_log = Some(log);
         self
     }
 
@@ -449,6 +459,9 @@ impl AgentProvider for MockProvider {
         self.launch_binary.as_deref().unwrap_or(&self.id)
     }
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
+        if let Some(log) = &self.structured_prompt_launch_log {
+            log.lock().push(params.clone());
+        }
         if self.empty_launch_command
             || (self.empty_launch_command_when_task_present && params.task.is_some())
         {
@@ -466,6 +479,9 @@ impl AgentProvider for MockProvider {
             cmd.push_str(marker);
         }
         cmd
+    }
+    fn needs_structured_prompt_server(&self) -> bool {
+        self.structured_prompt_launch_log.is_some()
     }
     fn release_tab_launch_artifacts(
         &self,
