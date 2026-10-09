@@ -95,7 +95,7 @@ export function AgentRunLogPopup({ worker, api, onClose }: Props) {
         className="flex flex-col bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded-lg shadow-2xl"
         style={{ width: "min(820px, 90vw)", height: "min(640px, 85vh)" }}
       >
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--ct-border)]">
+        <div className="ct-jobs-header rounded-t-[inherit] flex items-center justify-between px-4 py-2.5">
           <div className="flex items-center gap-2 min-w-0">
             <span
               className="text-xs shrink-0"
@@ -152,7 +152,7 @@ export function AgentRunLogPopup({ worker, api, onClose }: Props) {
           )}
 
           {rawLines.length > 0 && events.length === 0 && (
-            <div className="mt-3 border-t border-[var(--ct-border)] pt-2">
+            <div className="mt-3 pt-2">
               <button
                 type="button"
                 onClick={() => setShowRaw((v) => !v)}
@@ -170,7 +170,7 @@ export function AgentRunLogPopup({ worker, api, onClose }: Props) {
         </div>
 
         {worker.report && (
-          <div className="px-4 py-2 border-t border-[var(--ct-border)] text-[10px] text-[var(--ct-muted-fg)]">
+          <div className="px-4 py-2 text-[10px] text-[var(--ct-muted-fg)]">
             <strong>Report:</strong> {worker.report}
           </div>
         )}

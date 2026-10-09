@@ -162,7 +162,7 @@ function WebUiModal({
         aria-label="Web UI access"
         className="w-full max-w-[360px] overflow-hidden rounded-2xl border border-[var(--ct-border)] bg-[var(--ct-bg)] shadow-2xl"
       >
-        <div className="flex items-center justify-between border-b border-[var(--ct-border)] px-4 py-3">
+        <div className="ct-jobs-header flex items-center justify-between px-4 py-3">
           <div className="min-w-0">
             <div className="text-sm font-semibold text-[var(--ct-fg)]">Web UI</div>
             <div className={`${UI_TEXT.metaMuted} truncate`}>{hostLabel}</div>
@@ -546,7 +546,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
               />
             ) : (
               <div ref={mapRef} className="absolute inset-0">
-                <div className="absolute left-3 top-3 z-20 rounded-lg border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] px-2 py-1.5 shadow-sm">
+                <div className="absolute left-3 top-3 z-20 rounded-xl bg-[var(--ct-bg)] px-2 py-1.5 shadow-[var(--ct-shadow-capsule)]">
                   <MeshWebUiControl
                     snapshot={serve?.snapshot ?? null}
                     loading={serveLoading}

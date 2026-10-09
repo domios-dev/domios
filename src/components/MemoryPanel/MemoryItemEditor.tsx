@@ -119,7 +119,7 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
         aria-label="Edit memory item"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--ct-border)]">
+        <div className="ct-jobs-header rounded-t-[inherit] flex items-center justify-between px-4 py-2.5">
           <div className="flex items-center gap-2 min-w-0">
             <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: color }} />
             {item && (
@@ -213,7 +213,7 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
             </div>
 
             {/* Metadata (read-only) */}
-            <div className="flex items-center gap-4 text-[10px] text-[var(--ct-muted-fg)] pt-1 border-t border-[var(--ct-border)]">
+            <div className="flex items-center gap-4 text-[10px] text-[var(--ct-muted-fg)] pt-1">
               {item.created_at && <span>Created: {new Date(item.created_at).toLocaleString()}</span>}
               {item.updated_at && <span>Updated: {new Date(item.updated_at).toLocaleString()}</span>}
               {item.importance != null && <span>Importance: {item.importance}</span>}
@@ -230,7 +230,7 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
 
         {/* Footer hint */}
         {dirty && (
-          <div className="px-4 py-1.5 border-t border-[var(--ct-border)] text-[10px] text-[var(--ct-muted-fg)]">
+          <div className="px-4 py-1.5 text-[10px] text-[var(--ct-muted-fg)]">
             Cmd+S to save · Esc to close · body changes re-index vectors
           </div>
         )}

@@ -25,7 +25,7 @@ export function LogsListRow({
   }, [row.context_json]);
 
   return (
-    <div className="ct-logs-row" data-expanded={expanded || undefined} data-testid="settings-log-row" data-log-id={row.id} data-log-level={lvl} style={{ "--ct-bar-pill-tone": color } as CSSProperties}>
+    <div className="ct-row ct-logs-row" data-expanded={expanded || undefined} data-testid="settings-log-row" data-log-id={row.id} data-log-level={lvl} style={{ "--ct-bar-pill-tone": color } as CSSProperties}>
       <button type="button" data-testid="settings-log-row-toggle" onClick={onToggle} aria-expanded={expanded} className="ct-logs-row__head">
         <ChevronRight size={12} aria-hidden="true" className="ct-logs-row__chevron" />
         <span className="ct-logs-row__time" title={new Date(row.ts).toISOString()}>{timeAgo(row.ts)}</span>

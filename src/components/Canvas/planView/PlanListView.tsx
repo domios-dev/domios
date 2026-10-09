@@ -330,7 +330,7 @@ export function PlanListView({
       )}
       {showsData && selectedPlan && boardModel && (
         <>
-          <div className="plan-list-chrome">
+          <div className="plan-list-chrome ct-jobs-header">
             {!teamId && (
               <PlanSwitcher
                 plans={switcherWithInflight}

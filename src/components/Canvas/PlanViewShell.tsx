@@ -163,13 +163,7 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
       className="flex h-full w-full flex-col overflow-hidden"
       onKeyDown={onKeyDown}
     >
-      <header
-        className="flex shrink-0 items-center justify-between gap-3 border-b px-3 py-2"
-        style={{
-          borderColor: "var(--ct-border)",
-          background: "var(--ct-titlebar-bg)",
-        }}
-      >
+      <header className="ct-jobs-header flex shrink-0 items-center justify-between gap-3 px-3 py-2">
         <PlanViewModeSwitch
           value={selected}
           onChange={selectMode}

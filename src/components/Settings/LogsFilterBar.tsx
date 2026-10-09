@@ -47,7 +47,7 @@ export function LogsFilterBar({
         onChange={(e) => onSourceChange(e.target.value)}
         placeholder="All sources"
         aria-label="Filter by source"
-        className="ct-logs-source"
+        className="ct-field ct-logs-source"
       />
       <datalist id="logs-source-list">
         {sources.map((s) => (

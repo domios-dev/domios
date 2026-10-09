@@ -14,8 +14,6 @@
   align-items: center;
   gap: 4px;
   padding: 6px 10px;
-  border-bottom: 1px solid var(--ct-border);
-  background: var(--ct-titlebar-bg);
 }
 
 .ct-surface-icon-btn {

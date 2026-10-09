@@ -57,7 +57,7 @@ function AutomationGraphSurface({ adapter, attachment }: AutomationGraphViewProp
     {scenario && attachment.team_id === ALL_JOBS_SCOPE ? <ScopedScenarioPanel adapter={adapter} attachment={attachment} scenario={scenario} camera={cameraFor(scenario.id)} backLabel="All Blueprints" onBack={() => { returnTo.current = scenario.id; setScenarioId(null); }} /> : scenario ? <ScenarioPanel state={state} scope={attachment} scenario={scenario} camera={cameraFor(scenario.id)} backLabel="All Blueprints" onBack={() => { returnTo.current = scenario.id; setScenarioId(null); }}>
       <AutomationNotices state={state} noun="automations" />
     </ScenarioPanel> : <>
-      <div className="border-b border-[var(--ct-border)] px-4 py-3"><h2 className="text-[length:var(--ct-font-size-md)] font-semibold">Blueprints</h2></div>
+      <div className="ct-jobs-header px-4 py-3"><h2 className="text-[length:var(--ct-font-size-md)] font-semibold">Blueprints</h2></div>
       <AutomationNotices state={state} noun="automations" />
       {missing && <p ref={removed} tabIndex={-1} role="alert" className="px-4 py-3 outline-none">The selected Blueprint is unavailable. Select a recorded Blueprint to continue.</p>}
       {state.graph && <>

@@ -99,12 +99,12 @@ export function RemoteFolderPicker({
       <div
         className="fixed z-50 left-1/2 top-1/2 flex w-[min(92vw,520px)] max-h-[82vh] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border shadow-2xl"
         style={{
-          background: "var(--ct-surface, #161b22)",
+          background: "var(--ct-bg, #0d1117)",
           borderColor: "var(--ct-border, #30363d)",
           color: "var(--ct-fg, #c9d1d9)",
         }}
       >
-        <div className="flex items-center gap-2 border-b border-[var(--ct-border)] px-3 py-2">
+        <div className="flex items-center gap-2 px-3 py-2">
           <Folder size={16} className="shrink-0 text-[var(--ct-accent,#58a6ff)]" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium">{title}</div>
@@ -122,7 +122,7 @@ export function RemoteFolderPicker({
           </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1 border-b border-[var(--ct-border)] px-3 py-2">
+        <div className="flex flex-wrap items-center gap-1 px-3 py-2">
           <button
             type="button"
             disabled={!listing?.parent || loading}
@@ -175,7 +175,7 @@ export function RemoteFolderPicker({
 
         {newFolderName !== null && (
           <form
-            className="flex gap-2 border-b border-[var(--ct-border)] px-3 py-2"
+            className="flex gap-2 px-3 py-2"
             onSubmit={(e) => {
               e.preventDefault();
               void createFolder();
@@ -201,7 +201,7 @@ export function RemoteFolderPicker({
         )}
 
         <form
-          className="flex gap-2 border-b border-[var(--ct-border)] px-3 py-2"
+          className="ct-jobs-header flex gap-2 px-3 py-2"
           onSubmit={(e) => {
             e.preventDefault();
             void load(manualPath);
@@ -223,7 +223,7 @@ export function RemoteFolderPicker({
         </form>
 
         {rootItems.length > 0 && (
-          <div className="flex gap-1 overflow-x-auto border-b border-[var(--ct-border)] px-3 py-2">
+          <div className="ct-jobs-header flex gap-1 overflow-x-auto px-3 py-2">
             {rootItems.map((root) => (
               <button
                 key={root.path}
@@ -265,7 +265,7 @@ export function RemoteFolderPicker({
           ))}
         </div>
 
-        <div className="flex items-center justify-between gap-2 border-t border-[var(--ct-border)] px-3 py-2">
+        <div className="flex items-center justify-between gap-2 px-3 py-2">
           <div className="min-w-0 truncate text-[11px] text-[var(--ct-muted-fg)]" title={path}>
             {path}
           </div>

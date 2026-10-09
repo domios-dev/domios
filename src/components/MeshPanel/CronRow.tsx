@@ -27,7 +27,7 @@ export function CronRow({ service, host, onClick }: Props) {
       data-source-peer-id={service.source_peer_id ?? "local"}
       data-stale={String(!!service.stale)}
       onClick={onClick}
-      className={`grid items-center px-4 py-1.5 border-b border-[var(--ct-border)] cursor-pointer hover:bg-[var(--ct-titlebar-bg)]${service.stale ? " opacity-60" : ""}`}
+      className={`ct-row grid items-center px-2 py-1.5 cursor-pointer${service.stale ? " opacity-60" : ""}`}
       style={{ gridTemplateColumns: GRID_COLS }}
     >
       <span style={{ color }}>{service.stale ? "◌" : "●"}</span>

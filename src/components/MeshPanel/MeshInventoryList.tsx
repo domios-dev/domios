@@ -132,7 +132,7 @@ export function MeshInventoryList({
 
   return (
     <section className="absolute inset-0 flex min-h-0 flex-col bg-[var(--ct-bg)]" aria-labelledby="mesh-inventory-heading" data-testid="mesh-inventory-list">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] px-4 py-3">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 py-3">
         <div className="mr-auto flex items-center gap-2">
           <h1 id="mesh-inventory-heading" className="m-0 text-sm font-semibold text-[var(--ct-fg)]">Inventory</h1>
           <span className={UI_TEXT.metaMuted} data-testid="mesh-inventory-count">{model.visible} of {model.total}</span>
@@ -160,7 +160,7 @@ export function MeshInventoryList({
         )}
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--ct-border)] px-4 py-2" aria-label="Inventory filters">
+      <div className="ct-jobs-header flex shrink-0 flex-wrap items-center gap-2 px-4 py-2" aria-label="Inventory filters">
         <SlidersHorizontal size={13} className="text-[var(--ct-muted-fg)]" aria-hidden="true" />
         <FilterSelect label="Machine" value={filters.machine} onChange={(value) => updateFilter("machine", value)} data-testid="mesh-inventory-machine-filter">
           <option value="all">All machines</option>
@@ -192,13 +192,13 @@ export function MeshInventoryList({
       <div className="min-h-0 flex-1 overflow-auto pb-24" ref={listRef} data-testid="mesh-inventory-scroll-region" style={{ scrollPaddingBottom: "6rem" }}>
         <InventoryStatus model={model} error={error} onClearFilters={clearFilters} />
         {model.peerIssues.map((issue) => (
-          <div key={issue.machineId} role="alert" className="border-b border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)]/60 px-4 py-2 text-xs text-[var(--ct-yellow)]">
+          <div key={issue.machineId} role="alert" className="px-4 py-2 text-xs text-[var(--ct-yellow)]">
             {issue.machineName}: inventory {issue.freshness === "offline" ? "offline" : "partially unavailable"}{issue.partialError ? ` — ${issue.partialError}` : ""}. Cached resources remain visible when available.
           </div>
         ))}
         {model.rows.length > 0 && (
           <>
-            <div className="sticky top-0 z-[1] grid min-w-[920px] grid-cols-[100px_minmax(150px,1.4fr)_minmax(130px,1fr)_120px_minmax(180px,1.4fr)_130px_100px_minmax(170px,1.5fr)] items-center gap-3 border-b border-[var(--ct-border)] bg-[var(--ct-bg)] px-4 py-2 text-[9px] uppercase tracking-wide text-[var(--ct-muted)]">
+            <div className="sticky top-0 z-[1] grid min-w-[920px] grid-cols-[100px_minmax(150px,1.4fr)_minmax(130px,1fr)_120px_minmax(180px,1.4fr)_130px_100px_minmax(170px,1.5fr)] items-center gap-3 bg-[var(--ct-bg)] px-4 pt-3 pb-2 text-[9px] uppercase tracking-wide text-[var(--ct-muted)]">
               <SortButton label="Kind" sortKey="kind" sort={sort} onSort={toggleSort} />
               <SortButton label="Name" sortKey="name" sort={sort} onSort={toggleSort} />
               <SortButton label="Machine" sortKey="machine" sort={sort} onSort={toggleSort} />
@@ -208,16 +208,18 @@ export function MeshInventoryList({
               <span>Freshness</span>
               <span>Available operations</span>
             </div>
-            {model.rows.map((row) => (
-              <InventoryRowButton
-                key={row.resourceKey}
-                row={row}
-                selected={row.resourceKey === selectedResourceKey}
-                onFocus={() => { focusedResourceKeyRef.current = row.resourceKey; }}
-                onKeyDown={(event) => onRowKeyDown(event, row)}
-                onClick={() => onSelectResource(row.resource, row.resourceKey)}
-              />
-            ))}
+            <div className="ct-rows min-w-[920px]">
+              {model.rows.map((row) => (
+                <InventoryRowButton
+                  key={row.resourceKey}
+                  row={row}
+                  selected={row.resourceKey === selectedResourceKey}
+                  onFocus={() => { focusedResourceKeyRef.current = row.resourceKey; }}
+                  onKeyDown={(event) => onRowKeyDown(event, row)}
+                  onClick={() => onSelectResource(row.resource, row.resourceKey)}
+                />
+              ))}
+            </div>
           </>
         )}
       </div>
@@ -276,7 +278,7 @@ function InventoryRowButton({ row, selected, onFocus, onKeyDown, onClick }: { ro
       onFocus={onFocus}
       onKeyDown={onKeyDown}
       onClick={onClick}
-      className={`grid min-w-[920px] w-full grid-cols-[100px_minmax(150px,1.4fr)_minmax(130px,1fr)_120px_minmax(180px,1.4fr)_130px_100px_minmax(170px,1.5fr)] items-center gap-3 border-b border-[var(--ct-border)] px-4 py-3 text-left text-xs transition-colors hover:bg-[var(--ct-titlebar-bg)] focus:outline-none focus-visible:z-[1] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ct-accent)] ${selected ? "bg-[var(--ct-accent)]/10" : ""} ${row.freshness !== "fresh" ? "opacity-75" : ""}`}
+      className={`ct-row grid min-w-[904px] w-full grid-cols-[100px_minmax(150px,1.4fr)_minmax(130px,1fr)_120px_minmax(180px,1.4fr)_130px_100px_minmax(170px,1.5fr)] items-center gap-3 px-2 py-3 text-left text-xs focus:outline-none focus-visible:z-[1] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ct-accent)] ${selected ? "ct-row--selected" : ""} ${row.freshness !== "fresh" ? "opacity-75" : ""}`}
     >
       <span className="font-medium text-[var(--ct-fg)]">{row.kindLabel}</span>
       <span className="min-w-0 truncate font-medium text-[var(--ct-fg)]" title={row.resource.name}>{row.resource.name}</span>
@@ -314,7 +316,7 @@ function InventoryBanner({ model, error }: { model: InventoryModel; error?: stri
       : model.state === "offline"
         ? "Some inventory is offline. Operations are disabled by the target projection."
         : "Some inventory is stale. Operations are disabled until it is fresh.";
-  return <div role="status" className="border-b border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] px-4 py-2 text-xs text-[var(--ct-yellow)]" data-testid="mesh-inventory-status">{text}</div>;
+  return <div role="status" className="px-4 py-2 text-xs text-[var(--ct-yellow)]" data-testid="mesh-inventory-status">{text}</div>;
 }
 
 function formatEpoch(epoch: number): string {
