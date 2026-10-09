@@ -1,10 +1,21 @@
 use super::*;
 
 impl UserSendStore {
+    #[cfg(test)]
     pub(crate) fn reserve(
         &self,
         authority: UserSendAuthority,
         client_token: Option<String>,
+        allocate_identity: impl FnOnce() -> (String, u64),
+    ) -> Result<UserReservation, String> {
+        self.reserve_with_replay_only(authority, client_token, false, allocate_identity)
+    }
+
+    pub(crate) fn reserve_with_replay_only(
+        &self,
+        authority: UserSendAuthority,
+        client_token: Option<String>,
+        replay_only: bool,
         allocate_identity: impl FnOnce() -> (String, u64),
     ) -> Result<UserReservation, String> {
         if client_token
@@ -31,17 +42,11 @@ impl UserSendStore {
                 token_entry: Some(entry),
             });
         }
+        if replay_only {
+            return Err("admission_unknown: replay token has no retained admission".into());
+        }
         if tab.revoked.load(Ordering::Acquire) || tab.failed.load(Ordering::Acquire) {
             return Err("user send owner is held or revoked".into());
-        }
-        if client_token
-            .as_ref()
-            .is_some_and(|token| admissions.tokens.retired(token))
-        {
-            return Err(
-                "admission_unknown: token is outside retained status window; refusing replay"
-                    .into(),
-            );
         }
         if admissions.pending.len() + tab.unsettled.load(Ordering::Acquire) >= MAX_UNSETTLED {
             return Err("user send capacity: 32 unsettled admissions".into());
@@ -168,6 +173,42 @@ mod tests {
         let fresh = store
             .reserve(authority("other-tab"), Some("token".into()), || {
                 (uuid::Uuid::new_v4().to_string(), 2)
+            })
+            .unwrap();
+        assert!(!fresh.wait_existing().unwrap());
+    }
+
+    #[test]
+    fn evicted_or_absent_replay_token_refuses_without_allocating_but_fresh_sends_continue() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = UserSendStore::open(temp.path()).unwrap();
+        for index in 0..=256 {
+            drop(
+                store
+                    .reserve(authority("tab"), Some(format!("token-{index}")), || {
+                        (uuid::Uuid::new_v4().to_string(), index)
+                    })
+                    .unwrap(),
+            );
+        }
+        for token in [Some("token-0".into()), Some("unknown".into()), None] {
+            let error = store
+                .reserve_with_replay_only(authority("tab"), token, true, || {
+                    panic!("unknown replay allocated identity")
+                })
+                .err()
+                .unwrap();
+            assert!(error.starts_with("admission_unknown:"));
+        }
+        let known = store
+            .reserve_with_replay_only(authority("tab"), Some("token-256".into()), true, || {
+                panic!("known replay allocated identity")
+            })
+            .unwrap();
+        assert!(known.wait_existing().unwrap());
+        let fresh = store
+            .reserve(authority("tab"), Some("fresh".into()), || {
+                (uuid::Uuid::new_v4().to_string(), 258)
             })
             .unwrap();
         assert!(!fresh.wait_existing().unwrap());
