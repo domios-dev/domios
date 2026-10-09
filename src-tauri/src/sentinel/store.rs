@@ -248,7 +248,7 @@ impl Store {
             return Err(failure.message());
         }
         if self.backend.held() {
-            return Err("sentinel_store_load_failed: persistence is held for repair".into());
+            return Err("blueprint_store_load_failed: persistence is held for repair".into());
         }
         Ok(())
     }
@@ -269,7 +269,7 @@ impl Store {
         }
         if let Some(capability) = job.pending_capability() {
             return Staged::ready(Err(format!(
-                "sentinel_capability_unavailable: {capability} is not executable yet"
+                "blueprint_capability_unavailable: {capability} is not executable yet"
             )));
         }
         if self.jobs.len() >= MAX_SENTINELS
@@ -478,7 +478,7 @@ impl Store {
     /// The typed backend plans on a copy, so the cache changes only on publication.
     pub(super) fn stage_due(&mut self) -> Staged<Vec<Lease>> {
         if self.admission_closed {
-            return Staged::ready(Err("sentinel_shutdown_admission_closed".into()));
+            return Staged::ready(Err("blueprint_shutdown_admission_closed".into()));
         }
         if let Err(error) = self.ensure_available() {
             return Staged::ready(Err(error));

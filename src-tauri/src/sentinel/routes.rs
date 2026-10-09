@@ -115,7 +115,7 @@ fn notify_lifecycle(svc: &ServiceContext, notice: &StopNotice, title: String) {
         if let Err(error) = svc.gateway_deliver(
             &notice.creator_tab_id,
             MessageEnvelope::codeterm_reminder(format!(
-                "sentinel:{}:lifecycle:{}",
+                "blueprint:{}:lifecycle:{}",
                 notice.sentinel_id, notice.reason
             )),
             &lifecycle_packet(notice),
@@ -208,7 +208,7 @@ pub(super) fn resolve_cron_target(
 
 fn unavailable(route: &Route) -> String {
     format!(
-        "sentinel_capability_unavailable: {} is not executable yet",
+        "blueprint_capability_unavailable: {} is not executable yet",
         action_name(route)
     )
 }
@@ -289,7 +289,7 @@ fn send_file(
     let path = svc
         .ensure_agent_pad(target)?
         .write_inbox_body(body.as_bytes())?;
-    let mut envelope = MessageEnvelope::codeterm_reminder(format!("sentinel:{}", job.id));
+    let mut envelope = MessageEnvelope::codeterm_reminder(format!("blueprint:{}", job.id));
     if crate::paths::is_dev_instance() {
         envelope.id = Some(transition_id.into());
     }
@@ -309,7 +309,7 @@ fn send_file(
 
 fn escalation_packet(job: &Sentinel, transition_id: &str) -> String {
     serde_json::json!({
-        "sentinel_id": job.id,
+        "blueprint_id": job.id,
         "transition_id": transition_id,
         "next_steps": [
             format!("inspect: codeterm blueprint history {}", job.id),
@@ -330,7 +330,7 @@ fn deliver_escalation(
 ) -> Result<Option<String>, String> {
     svc.gateway_deliver(
         target,
-        MessageEnvelope::codeterm_reminder(format!("sentinel:{}:{transition_id}", job.id)),
+        MessageEnvelope::codeterm_reminder(format!("blueprint:{}:{transition_id}", job.id)),
         &escalation_packet(job, transition_id),
         DeliveryClass::SystemNotice,
     )
@@ -585,7 +585,7 @@ pub fn action_name(route: &Route) -> &'static str {
         Route::Cron(_) => "cron",
         Route::Stop => "stop",
         Route::Command(_) => "command",
-        Route::Sentinel(_) => "sentinel",
+        Route::Sentinel(_) => "blueprint",
         Route::RespondPrompt(_) => "respond_prompt",
         Route::Escalate(_) => "escalate",
     }
@@ -640,7 +640,7 @@ mod tests {
         let packet: serde_json::Value =
             serde_json::from_str(&escalation_packet(&job, "transition_one")).unwrap();
 
-        assert_eq!(packet["sentinel_id"], job.id);
+        assert_eq!(packet["blueprint_id"], job.id);
         assert_eq!(packet["transition_id"], "transition_one");
         assert_eq!(
             packet["next_steps"],

@@ -11,13 +11,15 @@ use rusqlite::{params, Connection, OptionalExtension};
 type ScopeRow = (String, String, Option<String>);
 
 fn scope_row(conn: &Connection, id: &str) -> Result<Option<ScopeRow>, StorageError> {
-    conn.prepare_cached("SELECT creator_tab_id, workspace_id, team_id FROM sentinels WHERE id = ?1")
-        .and_then(|mut statement| {
-            statement
-                .query_row([id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-                .optional()
-        })
-        .map_err(|e| sqlite_error("read sentinel scope", e))
+    conn.prepare_cached(
+        "SELECT creator_tab_id, workspace_id, team_id FROM blueprints WHERE id = ?1",
+    )
+    .and_then(|mut statement| {
+        statement
+            .query_row([id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .optional()
+    })
+    .map_err(|e| sqlite_error("read sentinel scope", e))
 }
 
 pub(super) fn activate_target(
@@ -35,14 +37,14 @@ pub(super) fn activate_target(
     let claimed: i64 = cx
         .conn
         .prepare_cached(
-            "SELECT COUNT(*) FROM sentinel_handler_results r \
-             JOIN sentinel_transitions t \
-               ON t.sentinel_id = r.sentinel_id AND t.transition_id = r.transition_id \
-             JOIN sentinel_heads h ON h.sentinel_id = r.sentinel_id \
-             JOIN sentinel_handlers hd ON hd.sentinel_id = h.sentinel_id \
+            "SELECT COUNT(*) FROM blueprint_handler_results r \
+             JOIN blueprint_transitions t \
+               ON t.blueprint_id = r.blueprint_id AND t.transition_id = r.transition_id \
+             JOIN blueprint_heads h ON h.blueprint_id = r.blueprint_id \
+             JOIN blueprint_handlers hd ON hd.blueprint_id = h.blueprint_id \
                AND hd.version = h.version AND hd.handler_id = r.handler_id \
                AND hd.bucket = t.bucket \
-             WHERE r.sentinel_id = ?1 AND r.transition_id = ?2 AND hd.kind = 'sentinel' \
+             WHERE r.blueprint_id = ?1 AND r.transition_id = ?2 AND hd.kind = 'blueprint' \
                AND hd.target_ref = ?3 AND r.claim_id IS NOT NULL AND r.status = 'unconfirmed'",
         )
         .and_then(|mut statement| {
@@ -55,11 +57,11 @@ pub(super) fn activate_target(
         return fenced(cx.conn, Fence::NotClaimed, source);
     }
     let (context, handler): (Option<String>, String) = cx.conn.query_row(
-        "SELECT t.causal_run_json, r.handler_id FROM sentinel_transitions t \
-         JOIN sentinel_handler_results r ON r.sentinel_id = t.sentinel_id AND r.transition_id = t.transition_id \
-         JOIN sentinel_heads h ON h.sentinel_id = t.sentinel_id \
-         JOIN sentinel_handlers hd ON hd.sentinel_id = h.sentinel_id AND hd.version = h.version AND hd.handler_id = r.handler_id AND hd.bucket = t.bucket \
-         WHERE t.sentinel_id = ?1 AND t.transition_id = ?2 AND hd.kind = 'sentinel' AND hd.target_ref = ?3 \
+        "SELECT t.causal_run_json, r.handler_id FROM blueprint_transitions t \
+         JOIN blueprint_handler_results r ON r.blueprint_id = t.blueprint_id AND r.transition_id = t.transition_id \
+         JOIN blueprint_heads h ON h.blueprint_id = t.blueprint_id \
+         JOIN blueprint_handlers hd ON hd.blueprint_id = h.blueprint_id AND hd.version = h.version AND hd.handler_id = r.handler_id AND hd.bucket = t.bucket \
+         WHERE t.blueprint_id = ?1 AND t.transition_id = ?2 AND hd.kind = 'blueprint' AND hd.target_ref = ?3 \
          AND r.claim_id IS NOT NULL AND r.status = 'unconfirmed' ORDER BY r.ordinal LIMIT 1",
         params![source, fence.transition_id, target],
         |row| Ok((row.get(0)?, row.get(1)?)),
@@ -90,22 +92,22 @@ pub(super) fn activate_target(
     let active: i64 = cx
         .conn
         .query_row(
-            "SELECT COUNT(*) FROM sentinel_runtime WHERE stopped = 0 AND paused = 0",
+            "SELECT COUNT(*) FROM blueprint_runtime WHERE stopped = 0 AND paused = 0",
             [],
             |row| row.get(0),
         )
-        .map_err(|e| sqlite_error("count active sentinels", e))?;
+        .map_err(|e| sqlite_error("count active blueprints", e))?;
     if usize::try_from(active).map_err(|_| corrupt("negative active count"))? >= active_limit {
         return fenced(cx.conn, Fence::Capacity, target);
     }
     if let Some(next_run) = input_due_at {
         cx.write(
-            "UPDATE sentinel_runtime SET paused = 0, generation = generation + 1, next_run = ?2, causal_run_json = ?3 WHERE sentinel_id = ?1",
+            "UPDATE blueprint_runtime SET paused = 0, generation = generation + 1, next_run = ?2, causal_run_json = ?3 WHERE blueprint_id = ?1",
             params![target, to_sql_u64("input activation due time", next_run)?, context],
         )?;
     } else {
         cx.write(
-            "UPDATE sentinel_runtime SET paused = 0, generation = generation + 1, causal_run_json = ?2 WHERE sentinel_id = ?1",
+            "UPDATE blueprint_runtime SET paused = 0, generation = generation + 1, causal_run_json = ?2 WHERE blueprint_id = ?1",
             params![target, context],
         )?;
     }

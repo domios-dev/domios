@@ -196,14 +196,14 @@ pub(super) fn replacement_event(
 ) -> serde_json::Value {
     json!({
         "time": chrono::Utc::now().timestamp(),
-        "kind": "sentinel",
+        "kind": "blueprint",
         "tab": job.creator_tab_id,
         "workspace_id": job.workspace_id,
         "team_id": job.team_id,
         "action": "run_replaced",
         "reason": "run_replaced",
         "label": "other",
-        "sentinel_id": job.id,
+        "blueprint_id": job.id,
         "cron_id": binding.cron_id,
         "old_run_id": previous.run_id,
         "new_run_id": binding.run_id,

@@ -521,7 +521,7 @@ pub fn record(
         _ => None,
     };
     runtime.sentinel_event(json!({
-        "time": chrono::Utc::now().timestamp(), "kind": "sentinel", "sentinel_id": job.id,
+        "time": chrono::Utc::now().timestamp(), "kind": "blueprint", "blueprint_id": job.id,
         "tab": job.creator_tab_id, "team_id": job.team_id, "workspace_id": job.workspace_id,
         "state_hash": outcome.evidence.state_hash,
         "evaluation_id": outcome.evidence.evaluation_id,
@@ -565,7 +565,7 @@ fn record_failure(
     stored_reason: Option<String>,
 ) {
     let mut job = lease.job.clone();
-    let removed_tab = failure.reason() == "sentinel_observation_tab_removed";
+    let removed_tab = failure.reason() == "blueprint_observation_tab_removed";
     job.last_reason = Some(if removed_tab {
         "observed_tab_removed".into()
     } else {

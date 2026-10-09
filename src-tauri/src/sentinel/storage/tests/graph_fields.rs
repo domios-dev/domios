@@ -116,7 +116,7 @@ fn sentinel_schema_v4_migration_upgrades_an_empty_previous_schema_root_in_place(
     assert_eq!(user_version(&upgraded), user_version(&initialized));
     let expected: [(&str, &[&str]); 3] = [
         (
-            "sentinel_definitions",
+            "blueprint_definitions",
             &[
                 "observe_kind",
                 "observe_ref",
@@ -126,9 +126,9 @@ fn sentinel_schema_v4_migration_upgrades_an_empty_previous_schema_root_in_place(
                 "replaced_version",
             ],
         ),
-        ("sentinel_handlers", &["safe_kind", "escalate_to"]),
+        ("blueprint_handlers", &["safe_kind", "escalate_to"]),
         (
-            "sentinel_runtime",
+            "blueprint_runtime",
             &["run_id", "run_tab_id", "run_bound_at", "held"],
         ),
     ];
@@ -139,7 +139,7 @@ fn sentinel_schema_v4_migration_upgrades_an_empty_previous_schema_root_in_place(
             assert!(present.contains(*column), "{table}.{column}");
         }
     }
-    assert!(columns(&upgraded, "sentinel_buckets").contains("rearm_on_change"));
+    assert!(columns(&upgraded, "blueprint_buckets").contains("rearm_on_change"));
 }
 
 #[test]
@@ -149,7 +149,7 @@ fn sentinel_schema_v4_migration_refuses_a_previous_schema_root_holding_stages() 
     rusqlite::Connection::open(Storage::database_path(root.path()))
         .and_then(|conn| {
             conn.execute(
-                "INSERT INTO sentinels (id, ordinal, creator_tab_id, workspace_id, team_id, cwd, \
+                "INSERT INTO blueprints (id, ordinal, creator_tab_id, workspace_id, team_id, cwd, \
                  agent_authored, scenario_id, revision) \
                  VALUES ('sentinel_kept', 0, 'creator', 'workspace', NULL, '/tmp', 0, NULL, 1)",
                 [],
@@ -173,7 +173,7 @@ fn sentinel_schema_v4_migration_refuses_a_previous_schema_root_holding_stages() 
     let conn = read_only(root.path());
     assert_eq!(user_version(&conn), 4, "nothing was migrated");
     let kept: i64 = conn
-        .query_row("SELECT COUNT(*) FROM sentinels", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM blueprints", [], |row| row.get(0))
         .expect("stored stages");
     assert_eq!(kept, 1, "the stored stage survives the refusal");
 }
@@ -414,7 +414,7 @@ fn sentinel_schema_v4_prompt_response_requires_observed_tab_on_both_backends() {
         let error =
             commit(store, |current| current.stage_insert(shell_answer.clone())).unwrap_err();
         assert!(
-            error.starts_with("sentinel_capability_unavailable"),
+            error.starts_with("blueprint_capability_unavailable"),
             "{error}"
         );
         assert!(store.lock().get(&shell_answer.id).is_none());

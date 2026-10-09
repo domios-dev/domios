@@ -239,7 +239,7 @@ fn sentinel_source_columns_refuse_zero_or_two_sources_and_admit_event() {
     drop(Storage::open(root.path(), StorageConfig::default()).unwrap());
     let conn = raw(root.path());
     conn.execute(
-        "INSERT INTO sentinels (id, ordinal, creator_tab_id, workspace_id, team_id, cwd, \
+        "INSERT INTO blueprints (id, ordinal, creator_tab_id, workspace_id, team_id, cwd, \
          agent_authored, scenario_id, revision) \
          VALUES ('sentinel_cols', 0, 'tab-author', 'ws-alpha', NULL, 'C:/work', 0, NULL, 1)",
         [],
@@ -256,7 +256,7 @@ fn sentinel_source_columns_refuse_zero_or_two_sources_and_admit_event() {
             None => (None, None),
         };
         conn.execute(
-            "INSERT INTO sentinel_definitions (sentinel_id, version, provenance, name, \
+            "INSERT INTO blueprint_definitions (blueprint_id, version, provenance, name, \
              source_kind, source_spec, probe, observe_kind, observe_ref, question, interval_ms, \
              until_bucket, escalation_timeout_ms, max_transitions, max_actions, replaced_version, \
              author_tab_id, cause_transition_id, authored_at, created_revision) \
@@ -288,7 +288,7 @@ fn sentinel_source_columns_refuse_zero_or_two_sources_and_admit_event() {
     version += 1;
     insert(version, "event", Some("{}"), "", None).unwrap();
     let kinds: Vec<String> = conn
-        .prepare("SELECT source_kind FROM sentinel_definitions ORDER BY source_kind")
+        .prepare("SELECT source_kind FROM blueprint_definitions ORDER BY source_kind")
         .unwrap()
         .query_map([], |row| row.get(0))
         .unwrap()
@@ -414,7 +414,7 @@ fn sentinel_source_schema_migration_preserves_probe_and_observe_rows() {
     assert_eq!(observe.record.runtime.generation, 5);
 
     let kinds: Vec<String> = raw(root.path())
-        .prepare("SELECT source_kind FROM sentinel_definitions ORDER BY sentinel_id")
+        .prepare("SELECT source_kind FROM blueprint_definitions ORDER BY blueprint_id")
         .unwrap()
         .query_map([], |row| row.get(0))
         .unwrap()

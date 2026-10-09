@@ -142,7 +142,7 @@ pub(super) fn cross_relations(domains: &[DomainImport], facts: &mut Facts) {
 }
 
 pub(super) fn occupied(conn: &Connection) -> Result<bool, StorageError> {
-    conn.query_row("SELECT EXISTS (SELECT 1 FROM sentinels)", [], |row| {
+    conn.query_row("SELECT EXISTS (SELECT 1 FROM blueprints)", [], |row| {
         row.get(0)
     })
     .map_err(|e| sqlite_error("inspect sentinel domain", e))

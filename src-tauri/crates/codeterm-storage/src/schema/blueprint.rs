@@ -1,0 +1,138 @@
+pub(super) const SCHEMA: &str = r#"
+ALTER TABLE sentinel_buckets RENAME TO blueprint_buckets;
+ALTER TABLE blueprint_buckets RENAME COLUMN sentinel_id TO blueprint_id;
+ALTER TABLE sentinel_command_cleanup RENAME TO blueprint_command_cleanup;
+ALTER TABLE blueprint_command_cleanup RENAME COLUMN sentinel_id TO blueprint_id;
+ALTER TABLE sentinel_command_results RENAME TO blueprint_command_results;
+ALTER TABLE blueprint_command_results RENAME COLUMN sentinel_id TO blueprint_id;
+ALTER TABLE sentinel_definitions RENAME TO blueprint_definitions;
+ALTER TABLE blueprint_definitions RENAME COLUMN sentinel_id TO blueprint_id;
+ALTER TABLE sentinel_handler_results RENAME TO blueprint_handler_results;
+ALTER TABLE blueprint_handler_results RENAME COLUMN sentinel_id TO blueprint_id;
+ALTER TABLE sentinel_handler_targets RENAME TO blueprint_handler_targets;
+ALTER TABLE blueprint_handler_targets RENAME COLUMN sentinel_id TO blueprint_id;
+ALTER TABLE sentinel_handlers RENAME TO blueprint_handlers;
+ALTER TABLE blueprint_handlers RENAME COLUMN sentinel_id TO blueprint_id;
+ALTER TABLE sentinel_heads RENAME TO blueprint_heads;
+ALTER TABLE blueprint_heads RENAME COLUMN sentinel_id TO blueprint_id;
+ALTER TABLE sentinel_runtime RENAME TO blueprint_runtime;
+ALTER TABLE blueprint_runtime RENAME COLUMN sentinel_id TO blueprint_id;
+ALTER TABLE sentinel_transitions RENAME TO blueprint_transitions;
+ALTER TABLE blueprint_transitions RENAME COLUMN sentinel_id TO blueprint_id;
+ALTER TABLE sentinels RENAME TO blueprints;
+ALTER TABLE blueprint_step_journal RENAME COLUMN sentinel_id TO blueprint_id;
+CREATE TEMP TABLE blueprint_handlers_hold AS SELECT * FROM blueprint_handlers;
+DROP TABLE blueprint_handlers;
+CREATE TABLE blueprint_handlers (
+    blueprint_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    bucket TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    handler_id TEXT NOT NULL CHECK (length(handler_id) > 0),
+    kind TEXT NOT NULL CHECK (kind IN ('notify', 'send', 'cron', 'blueprint', 'stop', 'command',
+        'respond_prompt', 'escalate')),
+    target_ref TEXT,
+    command TEXT,
+    label TEXT,
+    timeout_ms INTEGER,
+    safe_kind TEXT CHECK (safe_kind IS NULL OR length(safe_kind) > 0),
+    escalate_to TEXT CHECK (escalate_to IN ('creator', 'agent')),
+    PRIMARY KEY (blueprint_id, version, bucket, ordinal),
+    UNIQUE (blueprint_id, version, handler_id),
+    FOREIGN KEY (blueprint_id, version, bucket)
+        REFERENCES blueprint_buckets(blueprint_id, version, bucket),
+    CHECK ((kind IN ('send', 'cron', 'blueprint') OR escalate_to IS 'agent')
+        = (target_ref IS NOT NULL)),
+    CHECK ((kind = 'command') = (command IS NOT NULL)),
+    CHECK ((command IS NULL) = (label IS NULL) AND (command IS NULL) = (timeout_ms IS NULL)),
+    CHECK ((kind = 'respond_prompt') = (safe_kind IS NOT NULL)),
+    CHECK ((kind = 'escalate') = (escalate_to IS NOT NULL))
+) STRICT;
+INSERT INTO blueprint_handlers SELECT blueprint_id, version, bucket, ordinal, handler_id, CASE kind WHEN 'sentinel' THEN 'blueprint' ELSE kind END, target_ref, command, label, timeout_ms, safe_kind, escalate_to FROM blueprint_handlers_hold;
+DROP TABLE blueprint_handlers_hold;
+UPDATE blueprint_handler_targets SET kind = 'blueprint' WHERE kind = 'sentinel';
+DROP INDEX sentinels_by_scope;
+CREATE INDEX blueprints_by_scope ON blueprints(workspace_id, team_id);
+DROP INDEX sentinels_by_team;
+CREATE INDEX blueprints_by_team ON blueprints(team_id);
+DROP INDEX sentinels_by_scenario;
+CREATE INDEX blueprints_by_scenario ON blueprints(scenario_id);
+"#;
+
+#[cfg(test)]
+mod tests {
+    use rusqlite::Connection;
+
+    #[test]
+    fn blueprint_rename_preserves_pre_release_rows_and_foreign_keys() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        for step in super::super::MIGRATIONS.iter().take(12) {
+            conn.execute_batch(step).unwrap();
+        }
+        conn.execute_batch(r#"
+            INSERT INTO sentinels VALUES ('sentinel_old', 0, 'tab', 'workspace', NULL, '/work', 1, 'sentinel_old', 1);
+            INSERT INTO sentinel_definitions (sentinel_id, version, provenance, source_kind, probe, question, interval_ms, max_transitions, max_actions, created_revision)
+                VALUES ('sentinel_old', 1, 'authored', 'probe', 'status', 'state?', 20000, 64, 256, 1);
+            INSERT INTO sentinel_heads VALUES ('sentinel_old', 1);
+            INSERT INTO sentinel_buckets VALUES ('sentinel_old', 1, 0, 'done', '^done$', 0);
+            INSERT INTO sentinel_handlers (sentinel_id, version, bucket, ordinal, handler_id, kind, target_ref)
+                VALUES ('sentinel_old', 1, 'done', 0, 'next', 'sentinel', 'sentinel_old');
+            INSERT INTO sentinel_handler_targets VALUES ('sentinel_old', 1, 'next', 'sentinel', 'sentinel_old', 'workspace', NULL, 'tab');
+            INSERT INTO blueprint_step_journal (sentinel_id, run_id, step_index, step_name, state, started_at_ms, ended_at_ms)
+                VALUES ('sentinel_old', 'run', -1, '$run', 'done', 1000, 1001);
+        "#).unwrap();
+        super::super::migrate(&mut conn, 12).unwrap();
+        assert_eq!(
+            conn.query_row(
+                "SELECT probe FROM blueprint_definitions WHERE blueprint_id = 'sentinel_old'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "status"
+        );
+        assert_eq!(
+            conn.query_row("SELECT kind FROM blueprint_handlers", [], |row| row
+                .get::<_, String>(0))
+                .unwrap(),
+            "blueprint"
+        );
+        assert_eq!(
+            conn.query_row("SELECT kind FROM blueprint_handler_targets", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap(),
+            "blueprint"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT run_id FROM blueprint_step_journal WHERE blueprint_id = 'sentinel_old'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "run"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name LIKE 'sentinel%'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            conn.query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+    }
+}

@@ -31,7 +31,7 @@ fn append(
 ) -> Result<(), StorageError> {
     cx.write(
         "INSERT INTO blueprint_step_journal \
-         (sentinel_id, run_id, step_index, step_name, state, outcome, started_at_ms, ended_at_ms, result_summary, reason) \
+         (blueprint_id, run_id, step_index, step_name, state, outcome, started_at_ms, ended_at_ms, result_summary, reason) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             id,
@@ -49,8 +49,8 @@ fn append(
         ],
     )?;
     cx.write(
-        "DELETE FROM blueprint_step_journal WHERE sentinel_id = ?1 AND entry_id NOT IN \
-         (SELECT entry_id FROM blueprint_step_journal WHERE sentinel_id = ?1 \
+        "DELETE FROM blueprint_step_journal WHERE blueprint_id = ?1 AND entry_id NOT IN \
+         (SELECT entry_id FROM blueprint_step_journal WHERE blueprint_id = ?1 \
           ORDER BY entry_id DESC LIMIT ?2)",
         params![id, RETAIN],
     )?;
@@ -104,7 +104,7 @@ pub(super) fn write(
             let eligible: bool = cx
                 .conn
                 .query_row(
-                    "SELECT EXISTS (SELECT 1 FROM sentinel_runtime WHERE sentinel_id = ?1 \
+                    "SELECT EXISTS (SELECT 1 FROM blueprint_runtime WHERE blueprint_id = ?1 \
                      AND generation = ?2 AND paused = 0 AND stopped = 0)",
                     params![id, to_sql_u64("journal generation", generation)?],
                     |row| row.get(0),
@@ -125,9 +125,9 @@ pub(super) fn write(
                 .conn
                 .query_row(
                     "SELECT claim.run_id FROM blueprint_step_journal AS claim \
-                     WHERE claim.sentinel_id = ?1 AND claim.state = 'running' \
+                     WHERE claim.blueprint_id = ?1 AND claim.state = 'running' \
                      AND NOT EXISTS (SELECT 1 FROM blueprint_step_journal AS resolved \
-                       WHERE resolved.sentinel_id = claim.sentinel_id \
+                       WHERE resolved.blueprint_id = claim.blueprint_id \
                        AND resolved.run_id = claim.run_id \
                        AND resolved.step_index = claim.step_index \
                        AND resolved.entry_id > claim.entry_id \
@@ -152,7 +152,7 @@ pub(super) fn write(
             let latest: Option<String> = cx
                 .conn
                 .query_row(
-                    "SELECT run_id FROM blueprint_step_journal WHERE sentinel_id = ?1 \
+                    "SELECT run_id FROM blueprint_step_journal WHERE blueprint_id = ?1 \
                      ORDER BY entry_id DESC LIMIT 1",
                     [id],
                     |row| row.get(0),
@@ -164,7 +164,7 @@ pub(super) fn write(
                     .conn
                     .query_row(
                         "SELECT EXISTS (SELECT 1 FROM blueprint_step_journal \
-                     WHERE sentinel_id = ?1 AND run_id = ?2 AND step_name = '$run' \
+                     WHERE blueprint_id = ?1 AND run_id = ?2 AND step_name = '$run' \
                      AND outcome IN ('done', 'failed', 'skipped'))",
                         params![id, latest],
                         |row| row.get(0),
@@ -211,10 +211,10 @@ pub(super) fn write(
                 .query_row(
                     "SELECT claim.step_name, claim.started_at_ms \
                      FROM blueprint_step_journal AS claim \
-                     WHERE claim.sentinel_id = ?1 AND claim.run_id = ?2 \
+                     WHERE claim.blueprint_id = ?1 AND claim.run_id = ?2 \
                      AND claim.step_index = ?3 AND claim.state = 'running' \
                      AND NOT EXISTS (SELECT 1 FROM blueprint_step_journal AS resolved \
-                       WHERE resolved.sentinel_id = claim.sentinel_id \
+                       WHERE resolved.blueprint_id = claim.blueprint_id \
                        AND resolved.run_id = claim.run_id \
                        AND resolved.step_index = claim.step_index \
                        AND resolved.entry_id > claim.entry_id \
@@ -307,7 +307,7 @@ pub(super) fn log(
         .prepare_cached(
             "SELECT entry_id, run_id, step_index, step_name, state, outcome, started_at_ms, \
              ended_at_ms, result_summary, reason FROM blueprint_step_journal \
-             WHERE sentinel_id = ?1 ORDER BY entry_id DESC LIMIT ?2",
+             WHERE blueprint_id = ?1 ORDER BY entry_id DESC LIMIT ?2",
         )
         .map_err(|error| sqlite_error("read blueprint journal", error))?;
     let rows = statement
