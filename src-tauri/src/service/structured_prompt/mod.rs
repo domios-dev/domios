@@ -355,6 +355,7 @@ fn handle_event(
         }
         ParsedEvent::MessageUpdated { message } => {
             if chat_binding(svc, tab_id, &message.session_id).is_some() {
+                observe_message_model(svc, tab_id, &message);
                 chat_state.record_message(message);
             }
         }
@@ -417,6 +418,32 @@ fn handle_event(
                 );
             }
         }
+    }
+}
+
+fn observe_message_model(svc: &ServiceContext, tab_id: &str, message: &MessageMeta) {
+    let Some(model) = message.model.as_ref() else {
+        return;
+    };
+    let identity = {
+        let mux = svc.mux.read();
+        mux.get_tab(tab_id).and_then(|tab| {
+            if tab.agent_session_id.as_deref() != Some(&message.session_id) {
+                return None;
+            }
+            Some((tab.agent_type.clone()?, tab.session_binding_nonce.clone()?))
+        })
+    };
+    if let Some((provider, nonce)) = identity {
+        svc.apply_session_model(
+            tab_id,
+            &provider,
+            &message.session_id,
+            model.clone(),
+            None,
+            Some(&nonce),
+            false,
+        );
     }
 }
 

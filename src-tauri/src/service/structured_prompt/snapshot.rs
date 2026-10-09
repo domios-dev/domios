@@ -27,6 +27,7 @@ fn normalize_with(
             continue;
         };
         let meta = MessageMeta {
+            model: super::opencode_sse::assistant_model(info),
             session_id: session_id.into(),
             message_id: message_id.into(),
             role: info["role"].as_str().unwrap_or("assistant").into(),

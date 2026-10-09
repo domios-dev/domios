@@ -2,6 +2,27 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn turn_model_requires_assistant_metadata_without_losing_the_message() {
+    let captured: Value =
+        serde_json::from_str(include_str!("../fixtures/captured_message_updated.json")).unwrap();
+    for (field, value) in [
+        ("role", json!("user")),
+        ("providerID", Value::Null),
+        ("modelID", Value::Null),
+        ("providerID", json!(" ")),
+        ("modelID", json!("")),
+    ] {
+        let mut event = captured.clone();
+        event["properties"]["info"][field] = value;
+        let ParsedEvent::MessageUpdated { message } = parse_event(&event) else {
+            panic!("model metadata must not gate transcript ingestion");
+        };
+        assert_eq!(message.message_id, "msg_1");
+        assert_eq!(message.model, None);
+    }
+}
+
+#[test]
 fn completed_tool_diffs_match_plugin_fixtures_and_reject_unfinished_edits() {
     let fixtures: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -22,6 +43,7 @@ fn completed_tool_diffs_match_plugin_fixtures_and_reject_unfinished_edits() {
                 }}),
             };
             let message = MessageMeta {
+                model: None,
                 session_id: "own".into(),
                 message_id: "message".into(),
                 role: "assistant".into(),
@@ -200,6 +222,7 @@ fn text_delta_frames_omit_kind_and_full_part_frames_normalize() {
     assert_eq!(message.session_id, "ses_1");
     assert_eq!(message.role, "assistant");
     assert_eq!(message.timestamp.as_deref(), Some("1789814516718"));
+    assert_eq!(message.model.as_deref(), Some("deepseek/deepseek-v4-pro"));
 
     let first_frame: Value = serde_json::from_str(include_str!(
         "../fixtures/captured_message_part_delta_first.json"
@@ -242,6 +265,7 @@ fn text_delta_frames_omit_kind_and_full_part_frames_normalize() {
 #[test]
 fn live_reasoning_and_tool_lifecycle_keep_their_part_identity() {
     let message = MessageMeta {
+        model: None,
         session_id: "ses_2".into(),
         message_id: "msg_2".into(),
         role: "assistant".into(),
@@ -301,6 +325,7 @@ fn parse_tool_fixture(frame: &str, message: &MessageMeta) -> ChatMsg {
 #[test]
 fn part_update_requires_matching_message_and_session() {
     let message = MessageMeta {
+        model: None,
         session_id: "ses_owner".into(),
         message_id: "msg_owner".into(),
         role: "assistant".into(),
@@ -521,6 +546,7 @@ fn stored_opencode_tool_parts_map_to_chat_file_diffs_through_the_plugin() {
             event: ChatPartEvent::Updated,
         };
         let meta = MessageMeta {
+            model: None,
             session_id: "own".into(),
             message_id: "message".into(),
             role: "assistant".into(),

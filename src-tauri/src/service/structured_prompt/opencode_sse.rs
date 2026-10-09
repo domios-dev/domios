@@ -51,6 +51,7 @@ pub struct MessageMeta {
     pub message_id: String,
     pub role: String,
     pub timestamp: Option<String>,
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -165,8 +166,18 @@ fn parse_message_updated(props: &Value) -> ParsedEvent {
             message_id: message_id.to_string(),
             role: role.to_string(),
             timestamp,
+            model: assistant_model(info),
         },
     }
+}
+
+pub(super) fn assistant_model(info: &Value) -> Option<String> {
+    if info.get("role").and_then(Value::as_str) != Some("assistant") {
+        return None;
+    }
+    let provider = info.get("providerID")?.as_str()?.trim();
+    let model = info.get("modelID")?.as_str()?.trim();
+    (!provider.is_empty() && !model.is_empty()).then(|| format!("{provider}/{model}"))
 }
 
 fn parse_part_delta(props: &Value) -> ParsedEvent {
