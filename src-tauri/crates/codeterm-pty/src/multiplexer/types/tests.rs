@@ -317,3 +317,55 @@ fn backing_matches_frontend_ts_contract_shape() {
         serde_json::json!({ "kind": "pty" })
     );
 }
+
+fn surface_backing(owner_label: bool) -> TabBacking {
+    TabBacking::Surface(SurfaceBacking {
+        plugin_id: "dash".into(),
+        surface_id: "board".into(),
+        instance_id: "inst-1".into(),
+        owner_label,
+        resume_url: None,
+        resume_profile: None,
+    })
+}
+
+#[test]
+fn surface_backing_round_trips_through_serde_with_surface_tag() {
+    for owner_label in [false, true] {
+        let backing = surface_backing(owner_label);
+        let value = serde_json::to_value(&backing).unwrap();
+        assert_eq!(value["kind"], "surface");
+        assert_eq!(value["plugin_id"], "dash");
+        assert_eq!(value["surface_id"], "board");
+        assert_eq!(value["instance_id"], "inst-1");
+        assert_eq!(value.get("owner_label").is_some(), owner_label);
+        let back: TabBacking = serde_json::from_value(value).unwrap();
+        assert_eq!(back, backing);
+    }
+}
+
+#[test]
+fn surface_tab_round_trips_and_is_neither_pty_nor_chat() {
+    let tab = tab_with("s", surface_backing(true));
+    let back: Tab = serde_json::from_value(serde_json::to_value(&tab).unwrap()).unwrap();
+    assert_eq!(back.backing, surface_backing(true));
+    assert_eq!(back.surface().map(|s| s.surface_id.as_str()), Some("board"));
+    assert!(!back.is_chat_backend());
+    assert!(!back.is_utility_shell());
+    assert_eq!(back.backing.kind(), "surface");
+    assert_eq!(TabBacking::Pty.kind(), "pty");
+}
+
+#[test]
+fn only_surface_children_close_with_their_owner() {
+    assert!(tab_with("s", surface_backing(false)).closes_with_owner());
+    assert!(!tab_with("p", TabBacking::Pty).closes_with_owner());
+    assert!(!tab_with(
+        "c",
+        TabBacking::ChatBackend {
+            plugin_id: "chat".into(),
+            session_id: "s".into(),
+        },
+    )
+    .closes_with_owner());
+}

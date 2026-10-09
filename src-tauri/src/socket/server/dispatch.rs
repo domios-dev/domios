@@ -39,6 +39,11 @@ pub(super) fn dispatch(
             )?;
             return Ok(serde_json::json!({"registered": ids}));
         }
+        "plugin.core_guides" => {
+            return Ok(crate::service::plugin_prompt::core_plugin_guides(
+                &svc.agent_command_registry,
+            ))
+        }
         "api.request" => return local_api::dispatch(&params, app),
         "system.identify" => {
             return Ok(serde_json::json!({

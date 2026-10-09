@@ -353,6 +353,7 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
 
     fn contributions_changed(&self, kind: &str) {
         if kind == codeterm_plugin::agent_verbs::AGENT_COMMANDS_CONTRIBUTION_KIND {
+            super::plugin_prompt::refresh(&self.agent_command_registry);
             super::plugin_skills::spawn_sync(self.mem.clone(), self.agent_command_registry.clone());
         }
         self.events
@@ -507,6 +508,18 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
 
     fn secret_delete(&self, plugin_id: &str, name: &str) -> bool {
         secret_bucket(plugin_id).delete(name).is_ok()
+    }
+
+    // ── Surfaces ─────────────────────────────────────────────────────────
+
+    fn surface_call_json(
+        &self,
+        plugin_id: &str,
+        caller: &str,
+        verb: &str,
+        args_json: &str,
+    ) -> String {
+        self.surface_agent_call_json(plugin_id, Some(caller), verb, args_json)
     }
 
     // ── Receiver target ──────────────────────────────────────────────────

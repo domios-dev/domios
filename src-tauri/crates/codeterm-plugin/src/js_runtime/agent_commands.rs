@@ -35,7 +35,7 @@ impl JsAgentCommandHandler {
     }
 }
 
-pub fn catalog_from_manifest(manifest: &super::PluginManifest) -> AgentVerbCatalog {
+pub fn catalog_from_manifest(manifest: &super::PluginManifest, core: bool) -> AgentVerbCatalog {
     AgentVerbCatalog::compose(
         &manifest.id,
         &manifest.display_name,
@@ -45,6 +45,7 @@ pub fn catalog_from_manifest(manifest: &super::PluginManifest) -> AgentVerbCatal
         &manifest.agent_keywords,
     )
     .with_guide(agent_guide_from_manifest(manifest))
+    .with_prompt_line(core, manifest.agent_prompt_line.clone())
 }
 
 fn agent_guide_from_manifest(manifest: &super::PluginManifest) -> Option<String> {
@@ -89,6 +90,7 @@ impl AgentCommandProvider for JsAgentCommandHandler {
         args: &[String],
     ) -> Result<crate::agent_commands::AgentCommandResult, String> {
         let ctx = json!({ "sessionId": session_id, "verb": verb, "args": args });
+        let _caller = super::host_surface::AgentCallerScope::enter(session_id);
         match call_json::<AgentCommandOut>(&self.vm, "onAgentCommand", &[ctx]) {
             Ok(out) => {
                 if let Some(e) = out.error {

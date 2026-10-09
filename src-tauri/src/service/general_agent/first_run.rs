@@ -400,6 +400,7 @@ mod tests {
                         model_identity_mismatch: None,
                         chatbackend_plugin_id: None,
                         chatbackend_session_id: None,
+                        surface: None,
                         watcher: None,
                     },
                     sort_order: 0,

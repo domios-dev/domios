@@ -28,6 +28,7 @@ pub(crate) mod boot_owner_prompt;
 pub mod boot_stage;
 pub(crate) mod boot_wait;
 pub(crate) mod bridge_threads;
+pub mod browser;
 pub(crate) mod capability_probe;
 pub(crate) mod cartographer;
 pub(crate) mod chat_send_evidence;
@@ -80,8 +81,7 @@ pub(crate) mod task_files;
 pub(crate) use orchestrator::role_onboarding_task;
 pub(crate) use orchestrator::tab_relink_signal::await_relink;
 pub(crate) use orchestrator::{
-    build_agent_command_for_service, launch_agent_in_background, mark_tab_agent_launch_started,
-    provider_launch_task,
+    build_agent_command_for_service, mark_tab_agent_launch_started, provider_launch_task,
 };
 pub(crate) mod directory_trust;
 mod folder_trust_carryover;
@@ -104,6 +104,7 @@ mod provider_handoff;
 pub(crate) use plan_reconcile::tab_has_live_agent;
 pub mod managed_tabs;
 pub mod plugin_host;
+pub mod plugin_prompt;
 pub mod plugin_skills;
 pub(crate) mod provider_identity;
 pub(crate) mod pty_activation;
@@ -163,6 +164,7 @@ pub mod structured_prompt;
 pub(crate) mod supporter;
 pub(crate) mod supporter_notify;
 pub(crate) mod supporter_tab_state;
+pub(crate) mod surface;
 pub mod sync_watcher;
 pub(crate) mod tab;
 pub(crate) mod tab_adopt;
@@ -201,6 +203,8 @@ pub mod tokens;
 pub mod transport;
 pub mod watcher;
 pub mod web_access;
+#[cfg(windows)]
+pub(crate) mod windows_job;
 pub(crate) mod worker_ack;
 mod worker_identity;
 pub(crate) mod worker_interruption;
@@ -386,6 +390,10 @@ pub struct ServiceContext {
     pub webhook_registry: codeterm_plugin::WebhookRegistryHandle,
     /// Manifest-declared tab menu items, keyed by plugin id.
     pub tab_menu_registry: codeterm_plugin::tab_menu::TabMenuRegistryHandle,
+    /// Surface declarations of enabled view plugins, keyed by plugin id.
+    pub surface_registry: codeterm_plugin::surfaces::SurfaceRegistryHandle,
+    pub(crate) surface_runtimes: Arc<surface::SurfaceRuntimeRegistry>,
+    pub(crate) surface_activity: Arc<surface::SurfaceActivityGate>,
     /// Sole owner of the webhook-receiver → tab bindings.
     pub receiver_targets: Arc<receiver_target::ReceiverTargetStore>,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.

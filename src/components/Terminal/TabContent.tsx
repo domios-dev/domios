@@ -18,6 +18,8 @@ import type {
 import { usageTrackingEnabled } from "./usageTracking";
 import { configureRemoteTabTransport } from "../../lib/remoteTabTransport";
 import { useHeaderTabMenu } from "./useHeaderTabMenu";
+import { SurfaceTabHost } from "./SurfaceTabHost";
+import { surfaceBacking } from "../../lib/surfaceTab";
 
 interface TabContentProps {
   tab: Tab | undefined;
@@ -68,6 +70,15 @@ export function TabContent({
     return (
       <TabWrapper tabId={tab.id}>
         <FirstRunGeneralPicker providers={providers} />
+      </TabWrapper>
+    );
+  }
+
+  const surface = surfaceBacking(tab);
+  if (surface) {
+    return (
+      <TabWrapper tabId={tab.id}>
+        <SurfaceTabHost tab={tab} backing={surface} api={api} isVisible={isVisible} />
       </TabWrapper>
     );
   }

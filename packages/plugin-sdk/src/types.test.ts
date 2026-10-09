@@ -16,6 +16,7 @@ import type {
   ModelInfo,
   NormalizedChatMessage,
   PluginModule,
+  SurfaceContribution,
   TabMenuContribution,
   WebhookDelivery,
   WebhookReceiveContext,
@@ -332,3 +333,32 @@ const unknownAction: TabMenuContribution = {
   action: "closeTab",
 };
 void unknownAction;
+
+const boardSurface: SurfaceContribution = {
+  id: "board",
+  title: "Board",
+  renderer: "view",
+  agentBound: true,
+  restore: "none",
+};
+void boardSurface;
+const streamSurface: SurfaceContribution = {
+  id: "browser",
+  title: "Browser",
+  renderer: "stream",
+  runtime: "browser",
+  chrome: { items: [] },
+};
+void streamSurface;
+const unknownRenderer: SurfaceContribution = {
+  id: "screen",
+  title: "Screen",
+  // @ts-expect-error renderers are a closed set
+  renderer: "canvas",
+};
+void unknownRenderer;
+function callSurface(): string {
+  // host.surface.call answers with JSON text; the plugin parses it.
+  return host.surface.call("status", "[]");
+}
+void callSurface;

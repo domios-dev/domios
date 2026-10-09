@@ -97,7 +97,7 @@ fn embed_macos_info_plist() {
 }
 
 /// Core plugins that ship with the app but are not agent providers.
-const CORE_PLUGIN_DIRS: &[&str] = &["analytics"];
+const CORE_PLUGIN_DIRS: &[&str] = &["analytics", "browser"];
 
 /// Walk `<repo>/plugins/provider-*/` and the core plugin dirs, hash each bundle canonically, and
 /// emit `$OUT_DIR/system_plugin_hashes.rs` with `SYSTEM_PLUGIN_HASHES`.

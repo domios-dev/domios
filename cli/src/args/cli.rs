@@ -32,6 +32,7 @@ use super::service::ServiceAction;
 use super::sessions::SessionsAction;
 use super::spec::SpecAction;
 use super::supporter::SupporterAction;
+use super::surface::SurfaceAction;
 use super::system::SystemAction;
 use super::task::{CanvasAction, TaskAction};
 use super::team::TeamAction;
@@ -268,6 +269,12 @@ pub enum Commands {
     Theme {
         #[command(subcommand)]
         action: ThemeAction,
+    },
+
+    /// Plugin surface tabs: app tabs whose content a plugin view renders
+    Surface {
+        #[command(subcommand)]
+        action: SurfaceAction,
     },
 
     /// Agent hierarchy management

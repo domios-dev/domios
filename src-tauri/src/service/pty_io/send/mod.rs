@@ -222,7 +222,8 @@ pub(super) fn optimistic_agent_pty_target(
                 .ok_or_else(|| "agent_unavailable: recipient PTY missing".to_string())?,
             tab.agent_type.clone().unwrap_or_default(),
         )),
-        crate::multiplexer::types::TabBacking::ChatBackend { .. } => {
+        crate::multiplexer::types::TabBacking::ChatBackend { .. }
+        | crate::multiplexer::types::TabBacking::Surface(_) => {
             Err("agent_unavailable: recipient is not PTY-backed".into())
         }
     }
@@ -546,6 +547,12 @@ impl ServiceContext {
             return self
                 .chatbackend_tab_send(tab_id, text)
                 .map_err(|error| DeliveryError::from_opaque(tab_id, error));
+        }
+        if let Some(detail) = self.tab_surface_input_refusal(tab_id) {
+            return Err(DeliveryError::TabBusyRefused {
+                tab: tab_id.to_string(),
+                detail,
+            });
         }
         self.await_public_agent_input_ready_blocking(tab_id, std::time::Duration::from_secs(5))
             .map_err(|detail| DeliveryError::TabBusyRefused {

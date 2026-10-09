@@ -19,6 +19,7 @@ interface Props {
   children: ReactNode;
   cardHeader?: ReactNode;
   cardFooter?: ReactNode;
+  canAttach?: boolean;
 }
 
 export function ComposerActions({
@@ -32,6 +33,7 @@ export function ComposerActions({
   children,
   cardHeader,
   cardFooter,
+  canAttach = true,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -45,7 +47,7 @@ export function ComposerActions({
 
   return (
     <>
-      <input
+      {canAttach && <input
         ref={fileRef}
         type="file"
         multiple
@@ -60,9 +62,9 @@ export function ComposerActions({
             if (fileRef.current) fileRef.current.value = "";
           });
         }}
-      />
+      />}
       <div className="relative flex w-full items-end gap-1.5">
-        {!voiceUi.isPreview && (
+        {canAttach && !voiceUi.isPreview && (
           <ComposerAttachButton uploading={uploading} onClick={() => fileRef.current?.click()} />
         )}
         <ComposerInputShell voiceUi={voiceUi} header={cardHeader} footer={cardFooter}

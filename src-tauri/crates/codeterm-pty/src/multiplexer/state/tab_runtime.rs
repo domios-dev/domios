@@ -352,7 +352,11 @@ impl MultiplexerState {
         let workspace_id = self.find_workspace_for_tab(tab_id);
         self.remove_tab_from_tree(tab_id)?;
 
-        for child_id in self.get_children_ids(tab_id) {
+        let (owned_surfaces, children): (Vec<String>, Vec<String>) = self
+            .get_children_ids(tab_id)
+            .into_iter()
+            .partition(|child_id| self.tabs.get(child_id).is_some_and(Tab::closes_with_owner));
+        for child_id in children {
             if let Some(child) = self.tabs.get_mut(&child_id) {
                 child.parent_tab_id = None;
                 child.depth = 0;
@@ -372,6 +376,12 @@ impl MultiplexerState {
                 .map(str::to_string);
             if self.focused_tab_id.is_none() {
                 self.fallback_focus_to_general();
+            }
+        }
+
+        for surface_id in owned_surfaces {
+            if self.tabs.contains_key(&surface_id) {
+                pty_ids.extend(self.close_tab_inner(&surface_id)?);
             }
         }
 

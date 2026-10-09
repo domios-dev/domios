@@ -490,6 +490,8 @@ pub fn run() {
                 Arc::new(codeterm_plugin::WebhookRegistry::new());
             let tab_menu_registry: codeterm_plugin::tab_menu::TabMenuRegistryHandle =
                 Arc::new(codeterm_plugin::tab_menu::TabMenuRegistry::new());
+            let surface_registry: codeterm_plugin::surfaces::SurfaceRegistryHandle =
+                Arc::new(codeterm_plugin::surfaces::SurfaceRegistry::new());
             // One bundle of registry handles, shared by the startup loop and the hot-reload watcher (same register_plugin path, no drift).
             let cap_registries = plugin::js_runtime::CapabilityRegistries {
                 decision_model: decision_model_registry.clone(),
@@ -508,6 +510,7 @@ pub fn run() {
                 agent_command: agent_command_registry.clone(),
                 webhook_receiver: webhook_registry.clone(),
                 tab_menu: tab_menu_registry.clone(),
+                surfaces: surface_registry.clone(),
             };
             // VMs collected as they load, so the `ServiceContext` can be late-bound into each sandbox once it's built below.
             let mut plugin_vms: Vec<Arc<plugin::js_runtime::PluginVm>> = Vec::new();
@@ -666,7 +669,8 @@ pub fn run() {
                     );
 
                     // Same register_plugin seam as the hot-reload watcher; a capability-only plugin is NOT registered as an agent.
-                    cap_registries.register_plugin(p.manifest(), p.vm());
+                    let core = plugin::js_runtime::loader::is_core_plugin(p.manifest(), trust);
+                    cap_registries.register_plugin_with_core(p.manifest(), p.vm(), core);
                     if !caps.agent_provider {
                         plugin::audit::append_daemon_reloaded(&id, &version);
                         continue;
@@ -898,6 +902,9 @@ pub fn run() {
                 agent_command_registry: agent_command_registry.clone(),
                 webhook_registry: webhook_registry.clone(),
                 tab_menu_registry: tab_menu_registry.clone(),
+                surface_registry,
+                surface_runtimes: crate::service::surface::builtin_runtimes(),
+                surface_activity: Default::default(),
                 receiver_targets: Arc::new(crate::service::receiver_target::ReceiverTargetStore::open(
                     crate::service::receiver_target::ReceiverTargetStore::default_path(),
                 )),
@@ -962,6 +969,7 @@ pub fn run() {
                     vm.set_service(Arc::downgrade(&host));
                 }
                 plugin::js_runtime::set_watcher_service(Arc::downgrade(&host));
+                crate::service::plugin_prompt::refresh(&service_state.agent_command_registry);
                 crate::service::plugin_skills::spawn_sync(service_state.mem.clone(), service_state.agent_command_registry.clone());
                 for provider in chatbackend_registry.active() {
                     crate::agent::model_binary_watch::install_chatbackend(

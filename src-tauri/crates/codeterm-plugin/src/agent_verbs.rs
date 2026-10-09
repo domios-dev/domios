@@ -31,6 +31,12 @@ pub struct AgentVerbCatalog {
     /// the `codeterm capabilities` listing; the mem item and `plugin get` carry it.
     #[serde(skip)]
     pub guide: Option<String>,
+    /// Core status decided by the loader; only core catalogs reach every agent.
+    #[serde(skip)]
+    pub core: bool,
+    /// The validated `agentPromptLine`; it reaches prompts only when `core`.
+    #[serde(skip)]
+    pub prompt_line: Option<String>,
 }
 
 impl AgentVerbCatalog {
@@ -74,6 +80,8 @@ impl AgentVerbCatalog {
             verbs,
             keywords,
             guide: None,
+            core: false,
+            prompt_line: None,
         }
     }
 
@@ -82,6 +90,16 @@ impl AgentVerbCatalog {
             .map(|g| g.trim().to_string())
             .filter(|g| !g.is_empty());
         self
+    }
+
+    pub fn with_prompt_line(mut self, core: bool, prompt_line: Option<String>) -> Self {
+        self.core = core;
+        self.prompt_line = prompt_line;
+        self
+    }
+
+    pub fn is_core(&self) -> bool {
+        self.core
     }
 
     pub fn invocation(&self) -> String {

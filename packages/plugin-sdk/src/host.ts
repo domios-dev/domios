@@ -358,6 +358,12 @@ export interface HostReceiverTarget {
   clear(): ReceiverTargetView | ReceiverTargetRefusal | null;
 }
 
+// Acts on the calling agent's own stream surface; only inside onAgentCommand, with the `surfaces` grant.
+export interface HostSurface {
+  // Returns the JSON text `{ "result": string }` or `{ "error": string }`.
+  call(verb: string, argsJson: string): string;
+}
+
 export interface HostProgressOpts {
   label: string;
   percent?: number;
@@ -438,6 +444,8 @@ export interface Host {
   receiverTargetGet(): string;
   receiverTargetClear(): string;
   receiverTarget: HostReceiverTarget;
+  surfaceCall(verb: string, argsJson: string): string;
+  surface: HostSurface;
 }
 
 declare global {

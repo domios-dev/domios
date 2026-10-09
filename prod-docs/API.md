@@ -142,6 +142,8 @@ The desktop `chat_start` command and web-mirror `POST /api/tabs/{id}/chat-raw/st
 
 Configure-with-AI, provider install, auto-confirm, the Pebble webhook and plugin receiver targets: `codeterm docs API-INTEGRATIONS`.
 
+Plugin surface tabs (`GET /api/surfaces`, `POST /api/surfaces/open`, `POST /api/surfaces/close`, and a stream surface's `GET /api/surfaces/{tab_id}/stream` and `POST /api/surfaces/{tab_id}/call`): `codeterm docs SURFACES`.
+
 #### Interactive chat prompts
 
 Chat messages may carry an `interactive` array of answerable prompt widgets parsed from the provider's session stream by providers that declare the capability. It rides both chat wire shapes: the `GET /chat` and `chat/start` snapshot (`RichMessage[]`) and live `tab-chat-msg-{tabId}` events (`ChatMsg[]`, on the tool-call message). First element type:

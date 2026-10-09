@@ -8,6 +8,7 @@ import {
 } from "react";
 import { invoke, reopenClosedTab, reopenClosedGroup, restoreOrphanedTab } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
+import { recordSurfaceActivity, SURFACE_ACTIVITY_EVENT } from "../../lib/surfaceActivity";
 import { IS_WEB, webJson, WebApiError } from "../../lib/webApi";
 import {
   loadCachedStateSync,
@@ -527,6 +528,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         }, 100);
       }
     }).then((unlisten) => unlisteners.push(unlisten));
+
+    listen<unknown>(SURFACE_ACTIVITY_EVENT, (event) => recordSurfaceActivity(event.payload))
+      .then((unlisten) => unlisteners.push(unlisten));
 
     const beforeUnload = () => { invoke("save_session").catch(() => {}); };
     window.addEventListener("beforeunload", beforeUnload);

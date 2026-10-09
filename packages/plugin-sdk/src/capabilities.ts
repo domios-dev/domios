@@ -925,6 +925,27 @@ export interface TabMenuContribution {
   icon?: string;
 }
 
+// ── surfaces (plugin.json `capabilities.surfaces`; core owns the tab frame) ──
+
+// `view` renders the plugin's `ui/index.html` and requires `capabilities.view`.
+export type SurfaceRenderer = "view" | "stream";
+export type SurfaceRestore = "relaunch" | "placeholder" | "none";
+
+export interface SurfaceContribution {
+  // 1-32 lowercase letters, digits or '-', unique within the plugin.
+  id: string;
+  // One word, no whitespace: the tab title.
+  title: string;
+  renderer: SurfaceRenderer;
+  // Opened under an owner agent; the UI labels it "{owner}'s {title}".
+  agentBound?: boolean;
+  restore?: SurfaceRestore;
+  // Required for `stream`: the core surface runtime that renders it (e.g. "browser").
+  runtime?: string;
+  // Toolbar spec passed through untouched to the frontend; `stream` only.
+  chrome?: Record<string, unknown>;
+}
+
 // ── onAgentCommand (the inverse seam) ──
 
 export interface AgentCommandCtx {

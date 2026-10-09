@@ -492,6 +492,7 @@ impl ServiceContext {
             self.remote_workers.forget_orchestrator(tab_id);
         }
         self.kill_ptys(&cleanup.pty_ids);
+        self.dispose_closed_surface_runtimes();
         let registry = std::sync::Arc::clone(&self.agent_registry);
         let closed_tabs = cleanup.agent_providers;
         if let Err(error) = tokio::task::spawn_blocking(move || {
@@ -1129,8 +1130,9 @@ fn authorize_team_mutation(
 
 mod membership;
 pub(crate) use membership::{
-    adopt_agent_into_team, apply_team_attachment, resolve_inherited_team_attachment,
-    resolve_spawn_attachment,
+    adopt_agent_into_team, apply_team_attachment, apply_team_attachment_under,
+    authorize_team_attachment, resolve_inherited_team_attachment, resolve_spawn_attachment,
+    AttachmentParent,
 };
 
 mod staffing;

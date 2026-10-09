@@ -27,9 +27,30 @@ export function pluginLabel(pluginId: string, resolve?: PluginNameResolver): str
   return resolve?.(pluginId) ?? pluginId;
 }
 
+const VERB_ROW_MAX = 90;
+
+function verbArg(value: string): string {
+  const short = value.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  return /\s/.test(short) ? `"${short}"` : short;
+}
+
+/** `codeterm plugin <id> <verb> …` (an agent verb) reads as the plugin name plus what it was asked to do. */
+function describeAgentVerb(inv: CodetermInvocation, resolve?: PluginNameResolver): { lead: string; object: string } | null {
+  const [pluginId, verb, ...args] = inv.positionals;
+  if (!pluginId || !verb) return null;
+  const flags = Object.entries(inv.flags).map(([key, value]) => (value === true ? `--${key}` : `--${key} ${verbArg(value)}`));
+  const name = pluginLabel(pluginId, resolve);
+  const call = [verb, ...args.map(verbArg), ...flags].join(" ");
+  return { lead: name, object: call.length > VERB_ROW_MAX ? `${call.slice(0, VERB_ROW_MAX - 1)}…` : call };
+}
+
 /** A `codeterm plugin …` row reads as a verb and the plugin's display name, never its id or a folder path. */
 export function describePluginAction(inv: CodetermInvocation, resolve?: PluginNameResolver): { lead: string; object?: string } {
   const action = inv.path[1];
+  if (!action) {
+    const verbRow = describeAgentVerb(inv, resolve);
+    if (verbRow) return verbRow;
+  }
   if (action === "channel") {
     return { lead: inv.path.slice(1).join(" "), object: inv.positionals.find((value) => value.trim()) };
   }

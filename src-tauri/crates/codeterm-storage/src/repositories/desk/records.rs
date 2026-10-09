@@ -48,6 +48,7 @@ const LEAF_FIELDS: &[&str] = &[
     "model_identity_mismatch",
     "chatbackend_plugin_id",
     "chatbackend_session_id",
+    "surface",
     "watcher",
     "pending_delivery",
     "cwd",
@@ -142,6 +143,7 @@ fn valid_leaf_value(field: &str, value: &Value) -> bool {
         | "model_fallback"
         | "model_identity_mismatch"
         | "watcher"
+        | "surface"
         | "pending_delivery" => value.is_object() || value.is_null(),
         _ => false,
     }

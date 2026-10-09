@@ -23,6 +23,13 @@ export type PluginInstallSource =
 
 /** A plugin physically installed on disk, workspace-loaded, or a bundled system
  * provider — the daemon's `snapshot.plugins`. */
+export interface PluginLoadError {
+  message: string;
+  path: string;
+  at_ms: number;
+  kept_previous: boolean;
+}
+
 export interface InstalledPlugin {
   id: string;
   update?: { available: boolean; reason: string; channel?: string | null; remote_version?: string | null };
@@ -43,6 +50,8 @@ export interface InstalledPlugin {
   requires_reload?: boolean | null;
   /** Live signal: installed after daemon start, waiting on a reload to activate. */
   pending_reload?: boolean | null;
+  /** Last failed live load; a previously registered plugin keeps running meanwhile. */
+  load_error?: PluginLoadError | null;
   icon_svg?: string | null;
   icon_color?: string | null;
   description?: string | null;

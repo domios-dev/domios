@@ -111,6 +111,7 @@ pub use args::service::ServiceAction;
 pub use args::sessions::SessionsAction;
 pub use args::spec::SpecAction;
 pub use args::supporter::{SupporterAction, SupporterMode, SupporterTokenAction};
+pub use args::surface::SurfaceAction;
 pub use args::system::SystemAction;
 pub use args::task::{CanvasAction, TaskAction};
 pub use args::team::TeamAction;
@@ -495,6 +496,11 @@ fn main_impl() {
 
         Commands::Theme { action } => {
             cmd::theme::handle_theme(cli.json, action);
+            return;
+        }
+
+        Commands::Surface { action } => {
+            cmd::surface::handle_surface(cli.json, action);
             return;
         }
 

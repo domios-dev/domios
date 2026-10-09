@@ -880,3 +880,23 @@ fn storage_desk_held_writer_keeps_committed_reads_available_until_commit() {
         .unwrap();
     assert_eq!(after.value.snapshot.workspaces[0].record.name, "Later");
 }
+
+#[test]
+fn desk_leaf_fields_accept_a_surface_backing_object_only() {
+    let surface = serde_json::json!({
+        "surface": { "plugin_id": "dash", "surface_id": "board", "instance_id": "inst-1" }
+    });
+    assert!(DeskLeafFields { values: surface }.validate().is_ok());
+    let resumable = serde_json::json!({
+        "surface": {
+            "plugin_id": "browser",
+            "surface_id": "browser",
+            "instance_id": "inst-2",
+            "resume_url": "https://a.dev/",
+            "resume_profile": "work"
+        }
+    });
+    assert!(DeskLeafFields { values: resumable }.validate().is_ok());
+    let malformed = serde_json::json!({ "surface": "dash:board" });
+    assert!(DeskLeafFields { values: malformed }.validate().is_err());
+}

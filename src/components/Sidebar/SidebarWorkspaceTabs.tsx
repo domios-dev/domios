@@ -28,7 +28,10 @@ import { RowMenuButton } from "../shared/RowMenuButton";
 import { TeamJobsUnit } from "../Jobs/TeamJobsUnit";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { DeclaredAttentionLevel } from "./declaredAttention";
+import { surfaceOwnerTitle } from "../../lib/surfaceTab";
 import { cronReportTitle, terminalOrigin } from "./teamRowLabels";
+import { SurfaceOwnerBlock } from "./SurfaceAttachments";
+import { attachmentInset, ownerRowInset, surfaceAttachmentsByOwner, type OwnerRowContext } from "./surfaceAttachmentModel";
 
 import {
   effectiveTeamId,
@@ -186,7 +189,7 @@ export function SidebarWorkspaceTabs({
   workspaceCanvasActive,
   touchMode,
   uiFontScale,
-  compact: _compact,
+  compact,
   sidebarActionText,
   orchestrators,
   onBeforeOpenPlan,
@@ -207,6 +210,12 @@ export function SidebarWorkspaceTabs({
     [allSortedTabs, tabs],
   );
   const membersByTeam = useMemo(() => groupWorkspaceTeamMembers(sortedTabs), [sortedTabs]);
+  // Workspace-wide so a surface follows its owner into a Team card even when the surface carries no team.
+  const attachmentsByOwner = useMemo(() => surfaceAttachmentsByOwner(sortedTabs), [sortedTabs]);
+  const attachedIds = useMemo(
+    () => new Set([...attachmentsByOwner.values()].flat().map((tab) => tab.id)),
+    [attachmentsByOwner],
+  );
 
   const remoteTeams = useMemo(() => {
     const map = new Map<string, Team>();
@@ -253,22 +262,64 @@ export function SidebarWorkspaceTabs({
     },
   };
 
-  const renderMemberRow = (
-    member: TeamTabMember,
-  ): ReactNode => (
-    <div key={member.tab.id} className="sidebar-team-member">
-      <SidebarSingleTabRow
-        tab={member.tab}
-        index={member.index}
-        activity={resolveTabTabActivity(planIndex, member.tab.id, tabs)}
-        activeWork={activeWork}
-        isClosing={closingTabIds.has(member.tab.id)}
-        isAppearing={appearingTabIds.has(member.tab.id)}
-        group="tab"
-        groupKey={ws.id}
-        pinnedIds={[]}
-        {...sharedRow}
+  const renderOwnerWithAttachments = (
+    owner: Tab,
+    attachments: readonly Tab[],
+    context: OwnerRowContext,
+    renderOwner: Parameters<typeof SurfaceOwnerBlock>[0]["renderOwner"],
+  ): ReactNode => {
+    const inset = attachmentInset(ownerRowInset(context, touchMode));
+    return (
+      <SurfaceOwnerBlock
+        ownerId={owner.id}
+        attachments={attachments}
+        compact={compact}
+        renderOwner={renderOwner}
+        wrapAttachments={(rows) => (
+          <SortableContext items={attachments.map((surface) => `${TAB_PREFIX}${surface.id}`)} strategy={verticalListSortingStrategy}>
+            {rows}
+          </SortableContext>
+        )}
+        renderAttachment={(surface, surfaceIndex) => (
+          <SidebarSingleTabRow
+            tab={surface}
+            ownerTitle={surfaceOwnerTitle(surface, tabs)}
+            index={surfaceIndex}
+            activity={resolveTabTabActivity(planIndex, surface.id, tabs)}
+            activeWork={activeWork}
+            isClosing={closingTabIds.has(surface.id)}
+            isAppearing={appearingTabIds.has(surface.id)}
+            group="child"
+            groupKey={owner.id}
+            pinnedIds={[]}
+            variant="attachment"
+            insetPx={inset}
+            ownerBadgeTab={compact ? owner : null}
+            {...sharedRow}
+          />
+        )}
       />
+    );
+  };
+
+  const renderMemberRow = (member: TeamTabMember): ReactNode => (
+    <div key={member.tab.id} className="sidebar-team-member">
+      {renderOwnerWithAttachments(member.tab, attachmentsByOwner.get(member.tab.id) ?? [], "team", (toggle) => (
+        <SidebarSingleTabRow
+          tab={member.tab}
+          ownerTitle={surfaceOwnerTitle(member.tab, tabs)}
+          index={member.index}
+          activity={resolveTabTabActivity(planIndex, member.tab.id, tabs)}
+          activeWork={activeWork}
+          isClosing={closingTabIds.has(member.tab.id)}
+          isAppearing={appearingTabIds.has(member.tab.id)}
+          group="tab"
+          groupKey={ws.id}
+          pinnedIds={[]}
+          attachmentToggle={toggle}
+          {...sharedRow}
+        />
+      ))}
     </div>
   );
 
@@ -278,18 +329,22 @@ export function SidebarWorkspaceTabs({
     const origin = terminalOrigin(creatorId, creator?.title, Boolean(creator));
     return (
       <div key={member.tab.id} className="sidebar-team-member sidebar-team-terminal-member">
-        <SidebarSingleTabRow
-          tab={member.tab}
-          index={member.index}
-          activity={resolveTabTabActivity(planIndex, member.tab.id, tabs)}
-          activeWork={activeWork}
-          isClosing={closingTabIds.has(member.tab.id)}
-          isAppearing={appearingTabIds.has(member.tab.id)}
-          group="tab"
-          groupKey={ws.id}
-          pinnedIds={[]}
-          {...sharedRow}
-        />
+        {renderOwnerWithAttachments(member.tab, attachmentsByOwner.get(member.tab.id) ?? [], "team", (toggle) => (
+          <SidebarSingleTabRow
+            tab={member.tab}
+            ownerTitle={surfaceOwnerTitle(member.tab, tabs)}
+            index={member.index}
+            activity={resolveTabTabActivity(planIndex, member.tab.id, tabs)}
+            activeWork={activeWork}
+            isClosing={closingTabIds.has(member.tab.id)}
+            isAppearing={appearingTabIds.has(member.tab.id)}
+            group="tab"
+            groupKey={ws.id}
+            pinnedIds={[]}
+            attachmentToggle={toggle}
+            {...sharedRow}
+          />
+        ))}
         <div className="sidebar-team-terminal-origin">
           started by{" "}
           {origin.kind === "tab" ? (
@@ -308,7 +363,7 @@ export function SidebarWorkspaceTabs({
 
   const renderedTeamIds = new Set<string>();
   const rows: ReactNode[] = [];
-  const looseTabs = sortedTabs.filter((tab) => !effectiveTeamId(tab));
+  const looseTabs = sortedTabs.filter((tab) => !effectiveTeamId(tab) && !attachedIds.has(tab.id));
   const looseIds = new Set(looseTabs.map((tab) => tab.id));
   const looseChildIds = new Set(
     looseTabs
@@ -336,18 +391,22 @@ export function SidebarWorkspaceTabs({
     const childItems = children.map((child) => `${TAB_PREFIX}${child.id}`);
     return (
       <div key={tab.id} className="sidebar-tab-tree-row">
-        <SidebarSingleTabRow
-          tab={tab}
-          index={index}
-          activity={resolveTabTabActivity(planIndex, tab.id, tabs)}
-          activeWork={activeWork}
-          isClosing={closingTabIds.has(tab.id)}
-          isAppearing={appearingTabIds.has(tab.id)}
-          group={group}
-          groupKey={groupKey}
-          pinnedIds={pinnedIds}
-          {...sharedRow}
-        />
+        {renderOwnerWithAttachments(tab, attachmentsByOwner.get(tab.id) ?? [], "loose", (toggle) => (
+          <SidebarSingleTabRow
+            tab={tab}
+            ownerTitle={surfaceOwnerTitle(tab, tabs)}
+            index={index}
+            activity={resolveTabTabActivity(planIndex, tab.id, tabs)}
+            activeWork={activeWork}
+            isClosing={closingTabIds.has(tab.id)}
+            isAppearing={appearingTabIds.has(tab.id)}
+            group={group}
+            groupKey={groupKey}
+            pinnedIds={pinnedIds}
+            attachmentToggle={toggle}
+            {...sharedRow}
+          />
+        ))}
         {children.length > 0 && (
           <SortableContext items={childItems} strategy={verticalListSortingStrategy}>
             {children.map((child, childIndex) =>
@@ -360,6 +419,7 @@ export function SidebarWorkspaceTabs({
   };
 
   for (const [index, tab] of sortedTabs.entries()) {
+    if (attachedIds.has(tab.id)) continue;
     const teamId = effectiveTeamId(tab);
     if (!teamId) {
       if (!looseChildIds.has(tab.id)) {
@@ -370,7 +430,7 @@ export function SidebarWorkspaceTabs({
     if (renderedTeamIds.has(teamId)) continue;
     renderedTeamIds.add(teamId);
 
-    const members = membersByTeam.get(teamId) ?? [];
+    const members = (membersByTeam.get(teamId) ?? []).filter((member) => !attachedIds.has(member.tab.id));
     const { managers, terminals, workers } = partitionTeamMembers(members);
     const managerItems = managers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const workerItems = workers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
@@ -544,6 +604,7 @@ export function SidebarCollapsedActiveTab({
   return (
     <TabItem
       tab={activeTab}
+      ownerTitle={surfaceOwnerTitle(activeTab, tabs)}
       index={0}
       isActive={isWorkspaceTabActive(
         isActiveVisual,

@@ -82,6 +82,9 @@ impl crate::service::ServiceContext {
                 crate::multiplexer::types::TabBacking::ChatBackend { .. } => {
                     crate::plan::PlannerDeliveryTransport::ChatBackend
                 }
+                crate::multiplexer::types::TabBacking::Surface(_) => {
+                    return Err("agent_unavailable: planner Tab is a surface".into());
+                }
             };
             PlannerDeliveryBinding {
                 session_id,
