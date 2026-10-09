@@ -282,15 +282,13 @@ export interface JobsViewProps {
   returnTo?: ReturnTo;
   onReturnTo?: (origin: ReturnTo) => boolean;
   onClose?: () => void;
-  /** Hosted under a page header that already names the view. */
-  embedded?: boolean;
   adapter?: AutomationGraphAdapter;
   cronActionAdapter?: MeshResourceActionAdapter;
   jobActionAdapter?: JobsActionAdapter;
 }
 
 /** The one Jobs view: crons and Blueprint graphs narrowed by optional workspace and Team capsules. Hosts differ only by initial filter. */
-export function JobsView({ workspaces, teams, tabs = {}, initialFilter = NO_JOBS_FILTER, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, returnTo, onReturnTo, onClose, embedded = false, adapter = hostAutomationAdapter, cronActionAdapter, jobActionAdapter = hostJobsActionAdapter }: JobsViewProps) {
+export function JobsView({ workspaces, teams, tabs = {}, initialFilter = NO_JOBS_FILTER, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, returnTo, onReturnTo, onClose, adapter = hostAutomationAdapter, cronActionAdapter, jobActionAdapter = hostJobsActionAdapter }: JobsViewProps) {
   const origin = useRef<ReturnToRoute>({ returnTo });
   const onReturn = () => {
     if (!returnToOrigin(origin.current, onReturnTo ?? (() => false))) return false;
@@ -316,7 +314,7 @@ export function JobsView({ workspaces, teams, tabs = {}, initialFilter = NO_JOBS
   return <section aria-label="Jobs" tabIndex={-1} className="flex h-full min-h-0 flex-col bg-[var(--ct-bg)] text-[var(--ct-fg)]">
     <header className="ct-jobs-header flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
       {onClose && <button type="button" className={AUTOMATION_TOOL} aria-label="Close jobs" title="Back" onClick={close}><ChevronLeft size={14} aria-hidden="true" />Back</button>}
-      {!embedded && <h2 className="flex items-center gap-2 text-[length:var(--ct-font-size-md)] font-semibold"><Workflow size={16} className="shrink-0 text-[var(--ct-tone-blueprint)]" aria-hidden="true" />Jobs</h2>}
+      <h2 className="flex items-center gap-2 text-[length:var(--ct-font-size-md)] font-semibold"><Workflow size={16} className="shrink-0 text-[var(--ct-tone-blueprint)]" aria-hidden="true" />Jobs</h2>
       <JobsFilterBar filter={filter} layout={layout} teams={teams} onChange={changeFilter} />
       <div className="ml-auto flex shrink-0 items-center gap-2">
         <button type="button" className={AUTOMATION_TOOL} onClick={() => setImportOpen(true)}><Plus size={12} aria-hidden="true" />Import Blueprint</button>

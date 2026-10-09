@@ -168,6 +168,9 @@ export function SettingsPanel({
       : "Provider";
 
   // to the root grid is handled by closing — the titlebar menu is the entry point.
+  const jobsPage = top.kind === "section" && top.id === "jobs";
+  // Jobs owns its header; opened straight onto it, Back leaves Settings instead of landing on the grid.
+  const leaveJobs = stack.length <= 2 && resolveSettingsLink(initialSection)?.section === "jobs" ? onClose : pop;
   const parent = stack.length >= 2 ? stack[stack.length - 2] : undefined;
   const parentSection = parent?.kind === "section" ? parent : undefined;
 
@@ -191,7 +194,7 @@ export function SettingsPanel({
         />
         {/* Header — back only for deep nav (provider → section); the section grid
             is reached from the titlebar menu, so its "back" is a close instead. */}
-        <div className={`${UI_PANEL.toolbar} z-10 relative`}>
+        <div className={`${UI_PANEL.toolbar} z-10 relative ${jobsPage ? "hidden" : ""}`}>
           <div className="flex min-w-0 flex-1 items-center">
             {parentSection && (
               <button
@@ -487,7 +490,7 @@ export function SettingsPanel({
 
             {top.kind === "section" && top.id === "jobs" && (
               <div className="-mx-5 -my-5 h-[calc(100%+2.5rem)] min-h-[420px]" data-settings-page="jobs">
-                <JobsView workspaces={workspaces} teams={teams} tabs={tabs} initialFilter={jobsEntryFilter({ kind: "machine" })} onClose={pop} embedded />
+                <JobsView workspaces={workspaces} teams={teams} tabs={tabs} initialFilter={jobsEntryFilter({ kind: "machine" })} onClose={leaveJobs} />
               </div>
             )}
 
