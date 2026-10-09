@@ -59,9 +59,9 @@ export function VoiceRecordingBar({
 
       <div
         data-testid="composer-voice-live-waveform"
-        className="mx-1 grid h-8 min-w-0 flex-1 items-center gap-[1.5px] overflow-hidden rounded-full px-2 py-1"
+        className="mx-1 grid h-8 min-w-0 flex-1 items-center gap-[2px] overflow-hidden rounded-full px-2 py-1"
         style={{
-          gridTemplateColumns: `repeat(${visiblePeaks.length}, minmax(1.5px, 1fr))`,
+          gridTemplateColumns: `repeat(${visiblePeaks.length}, minmax(2px, 1fr))`,
           background: "color-mix(in srgb, var(--ct-bg,#0d1117) 32%, transparent)",
         }}
         aria-hidden
@@ -69,9 +69,9 @@ export function VoiceRecordingBar({
         {visiblePeaks.map((peak, index) => (
           <span
             key={index}
-            className="w-full rounded-[1px]"
+            className="w-full rounded-[2px]"
             style={{
-              height: `${Math.max(12, Math.round(peak * 100))}%`,
+              height: `${Math.max(14, Math.round(peak * 100))}%`,
               background: armed
                 ? "color-mix(in srgb, var(--ct-red,#f85149) 82%, white 8%)"
                 : "color-mix(in srgb, var(--ct-accent,#58a6ff) 72%, var(--ct-muted-fg,#8b949e) 28%)",
