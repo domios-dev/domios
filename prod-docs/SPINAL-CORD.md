@@ -6,7 +6,9 @@ Spinal Cord is Domios's small decision assistant: it helps your agents find usef
 
 - **Recall that puts answers first.** It reranks memory by how directly it answers your question, rather than mere topic similarity. Recall can include linked knowledge and embedded help, so an agent can find the context it needs without making you repeat it. It ranks evidence; your agent writes the answer.
 - **Noticing stuck tabs.** It checks tab events and recent screen context for waiting prompts, apparent lack of progress and errors. Domios can surface blockers and answer eligible provider-declared trust, tool-permission and update choices. Login, authentication and quota problems need your attention. Model-assisted recovery requires qualified judgments and independent process evidence; it does not restart a live agent just because its screen looks stuck.
-- **Coordination support.** Supporter judgments can approve useful plan reminders. Context routing between agents by Spinal Cord is not available yet; incoming-work triage is a future direction. Domios's existing routing delivers messages and reports independently.
+- **Quiet Team heartbeats.** It judges whether a changed Team observation needs action before Domios wakes the Orchestrator with a next step. Unchanged observations are not sent twice; elapsed silence alone never wakes the Orchestrator. Without a connected adapter that supports choices, or on denial, uncertainty, failure or an exhausted cap, no automatic reminder is sent. Reports and owner messages continue through their own channels.
+
+Context routing between agents by Spinal Cord is not available yet; incoming-work triage is a future direction. Domios's existing routing delivers messages and reports independently.
 
 It is worth connecting when you have several agents or unattended tasks: better recall and visible blockers reduce the context you must repeat and the tabs you must watch. If the model fails or runs out of credits, ordinary recall and deterministic tab handling remain available.
 
@@ -51,4 +53,4 @@ codeterm supporter status
 
 Disconnecting the active adapter stops Spinal Cord and removes that saved connection and its token. Usage history remains. There is no separate `disable` command; reconnect with the setup above when needed. Switching adapters with `use` preserves the other saved connections.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
