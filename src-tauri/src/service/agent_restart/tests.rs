@@ -186,7 +186,7 @@ fn surviving_shell_stale_metadata_is_cleared_before_restart_acceptance() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn absent_restart_target_retires_spawn_failed_identity_with_live_shell() {
+fn absent_restart_target_preserves_spawn_failed_identity_with_live_shell() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let pty_id = "spawn-failed-live-shell";
     {
@@ -220,13 +220,11 @@ fn absent_restart_target_retires_spawn_failed_identity_with_live_shell() {
         .get_tab(&tab_id)
         .cloned()
         .expect("tab remains present");
-    assert_eq!(tab.agent_type, None);
-    assert_eq!(tab.agent_session_id, None);
+    assert_eq!(tab.agent_type.as_deref(), Some("codex"));
+    assert_eq!(tab.agent_session_id.as_deref(), Some("retired-session"));
     assert_eq!(
-        tab.prior_session_binding_nonces
-            .last()
-            .and_then(|entry| entry.session_id.as_deref()),
-        Some("retired-session")
+        tab.boot_stage,
+        Some(codeterm_types::pty::BootStage::SpawnFailed)
     );
 
     fixture

@@ -154,6 +154,7 @@ impl CheckpointReducer {
                     LifecycleTransition::AgentTypeWrite { .. }
                     | LifecycleTransition::PermissionAutoConfirm { .. }
                     | LifecycleTransition::RemoteOwnershipReleased { .. }
+                    | LifecycleTransition::ResumeTargetRecorded { .. }
                     | LifecycleTransition::RestoreAwaitingAgentRestart { .. } => {}
                     _ => {
                         if let Some(checkpoint) = self
@@ -324,6 +325,7 @@ fn apply(
         }
         LifecycleTransition::EpochOpened
         | LifecycleTransition::RestartRequested
+        | LifecycleTransition::ResumeTargetRecorded { .. }
         | LifecycleTransition::RestoreAwaitingAgentRestart { .. }
         | LifecycleTransition::PermissionAutoConfirm { .. }
         | LifecycleTransition::RemoteOwnershipReleased { .. } => {}

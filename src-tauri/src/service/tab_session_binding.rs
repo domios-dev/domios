@@ -155,6 +155,14 @@ impl ServiceContext {
                 tab.remember_resume_binding_nonce(session_id);
             }
         }
+        if let Some(session_id) = resume_target {
+            self.record_lifecycle(
+                tab_id,
+                crate::session::lifecycle::LifecycleTransition::ResumeTargetRecorded {
+                    session_id: session_id.to_string(),
+                },
+            );
+        }
         crate::service::provider_signals::refresh_auth(self, tab_id);
         nonce
     }

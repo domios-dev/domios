@@ -158,6 +158,10 @@ pub enum LifecycleTransition {
     /// Seals the operation. Only a sealed operation yields a checkpoint.
     LaunchReady,
     RestartRequested,
+    /// Launch target provenance only; recovery must verify existence and bind a new nonce.
+    ResumeTargetRecorded {
+        session_id: String,
+    },
     /// Diagnostic: restore relaunched nothing because the provider had exited
     /// before shutdown; `agent restart` recovers `session_id`. Never authority.
     RestoreAwaitingAgentRestart {
@@ -224,6 +228,7 @@ impl LifecycleTransition {
             Self::TeamBinding { .. } => "team_binding",
             Self::LaunchReady => "launch_ready",
             Self::RestartRequested => "restart_requested",
+            Self::ResumeTargetRecorded { .. } => "resume_target_recorded",
             Self::RestoreAwaitingAgentRestart { .. } => "restore_awaiting_agent_restart",
             Self::RolledBack { .. } => "rolled_back",
             Self::Closed { .. } => "closed",
