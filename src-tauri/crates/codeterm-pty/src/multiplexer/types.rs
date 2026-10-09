@@ -610,7 +610,7 @@ pub struct Tab {
     pub agent_session_model: Option<String>,
     #[serde(skip, default)]
     pub agent_session_model_identity: Option<SessionModelIdentity>,
-    #[serde(skip, default)]
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
     pub pending_model_switch_observation: Option<PendingModelSwitchObservation>,
     #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
     pub pending_model_selection: Option<PendingModelSelection>,

@@ -13,6 +13,7 @@ use crate::multiplexer::types::RestorableLaunchParameters;
 use crate::service::{ServiceContext, SpawnAgentParams};
 
 mod live_command;
+mod next_turn;
 pub(super) mod staging;
 
 /// Deadline for the relaunched session to report its model before returning pending.
@@ -503,9 +504,7 @@ impl ServiceContext {
                 requested_effort,
             );
         }
-        let declared_mode = if declared_mode == ModelSwitchMode::NextTurn
-            || (declared_mode == ModelSwitchMode::LiveCommand && restart_fallback)
-        {
+        let declared_mode = if declared_mode == ModelSwitchMode::LiveCommand && restart_fallback {
             ModelSwitchMode::RestartResume
         } else {
             declared_mode
@@ -567,6 +566,15 @@ impl ServiceContext {
         }
         if declared_mode == ModelSwitchMode::LiveCommand {
             return self.switch_model_by_command(&snap, &session_id, requested, effort.as_deref());
+        }
+        if declared_mode == ModelSwitchMode::NextTurn {
+            return self.switch_model_on_next_turn(
+                &snap,
+                &session_id,
+                requested,
+                effort.as_deref(),
+                previous_model,
+            );
         }
         let live_result = if declared_mode == ModelSwitchMode::Live {
             Some(
@@ -717,6 +725,18 @@ impl ServiceContext {
         requested_model: &str,
         effort: Option<&str>,
     ) -> Result<(), ModelSwitchError> {
+        self.record_model_request(tab_id, provider, session_id, requested_model, effort, None)
+    }
+
+    fn record_model_request(
+        &self,
+        tab_id: &str,
+        provider: &str,
+        session_id: &str,
+        requested_model: &str,
+        effort: Option<&str>,
+        boundary: Option<codeterm_types::agent::SessionModelTranscriptBoundary>,
+    ) -> Result<(), ModelSwitchError> {
         let updated = {
             let mut mux = self.mux.write();
             let Some(tab) = mux.get_tab_mut(tab_id) else {
@@ -735,6 +755,9 @@ impl ServiceContext {
                 ));
             }
             record_live_request_identity(tab, requested_model, effort);
+            if let Some(boundary) = boundary {
+                next_turn::record_pending_turn(tab, session_id, requested_model, boundary);
+            }
             true
         };
         if updated {

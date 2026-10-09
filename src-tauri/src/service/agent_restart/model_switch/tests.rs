@@ -20,6 +20,7 @@ fn busy_switch_stages_for_every_host_owned_mode_without_provider_operation() {
         ModelSwitchMode::Live,
         ModelSwitchMode::LiveCommand,
         ModelSwitchMode::RestartResume,
+        ModelSwitchMode::NextTurn,
     ] {
         let (mux, tab_id) = seeded_tab("staging-provider");
         let fixture = ServiceFixture::new(mux);
