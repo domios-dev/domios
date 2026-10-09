@@ -179,6 +179,28 @@ button.ct-ctx__title:hover .ct-ctx__primary {
 .ct-ctx__strip[data-kind="crons"] { --ct-ctx-kind: var(--ct-ctx-crons); }
 .ct-ctx__strip[data-kind="delayed"] { --ct-ctx-kind: var(--ct-ctx-delayed); }
 
+.ct-ctx__strip[data-kind="blueprints"] {
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--ct-ctx-kind) 7%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--ct-ctx-kind) 7%, transparent) 1px, transparent 1px),
+    linear-gradient(color-mix(in srgb, var(--ct-ctx-kind) 3.5%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--ct-ctx-kind) 3.5%, transparent) 1px, transparent 1px);
+  background-size: 48px 48px, 48px 48px, 12px 12px, 12px 12px;
+}
+
+.ct-ctx__strip[data-kind="crons"] {
+  background-image: radial-gradient(color-mix(in srgb, var(--ct-ctx-kind) 14%, transparent) 0.8px, transparent 1.2px);
+  background-size: 10px 10px;
+}
+
+.ct-ctx__strip[data-kind="delayed"] {
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--ct-ctx-kind) 5%, transparent) 0 1px,
+    transparent 1px 9px
+  );
+}
+
 .ct-ctx__reveal[data-open] .ct-ctx__strip {
   transform: none;
 }
