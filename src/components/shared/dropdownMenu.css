@@ -4,10 +4,10 @@
   padding: 5px;
   border: 1px solid color-mix(in srgb, var(--ct-fg) 9%, transparent);
   border-radius: 14px;
-  background: color-mix(in srgb, var(--ct-surface) 94%, transparent);
-  box-shadow: var(--ct-shadow-capsule);
-  backdrop-filter: blur(var(--ct-blur-overlay)) saturate(1.2);
-  -webkit-backdrop-filter: blur(var(--ct-blur-overlay)) saturate(1.2);
+  background: var(--ct-glass-sheen), var(--ct-glass-bg);
+  box-shadow: var(--ct-glass-edge), var(--ct-shadow-capsule);
+  backdrop-filter: blur(var(--ct-glass-blur)) saturate(var(--ct-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--ct-glass-blur)) saturate(var(--ct-glass-saturate));
   transform-origin: var(--ct-menu-origin, top left);
   animation: ct-menu-in var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
   scrollbar-width: thin;
@@ -303,15 +303,10 @@
   from {
     opacity: 0;
     transform: translateY(var(--ct-menu-shift, -6px)) scale(0.94);
-    filter: blur(3px);
-  }
-  60% {
-    filter: blur(0);
   }
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
-    filter: blur(0);
   }
 }
 
