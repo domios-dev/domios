@@ -113,10 +113,7 @@ impl ServiceContext {
         target: &CommandTarget,
         prompt: &mut CommandPrompt,
     ) -> Result<(), String> {
-        let signal = self
-            .screen_state
-            .lock()
-            .arm_screen_change_signal(&target.pty_id);
+        let signal = command_signal(&mut self.screen_state.lock(), &target.pty_id);
         let deadline = Instant::now() + Duration::from_secs(3);
         let result = (|| loop {
             let generation = signal.generation();

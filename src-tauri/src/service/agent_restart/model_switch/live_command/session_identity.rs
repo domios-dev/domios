@@ -10,13 +10,26 @@ fn changed_target(
 }
 
 fn own_file_event(path: &Path, expected: &Path) -> bool {
-    path.canonicalize().is_ok_and(|path| path == expected)
+    path == expected
+        || path
+            .canonicalize()
+            .ok()
+            .zip(expected.canonicalize().ok())
+            .is_some_and(|(path, expected)| path == expected)
         || (path.file_name() == expected.file_name()
             && path
                 .parent()
                 .and_then(|parent| parent.canonicalize().ok())
-                .as_deref()
-                == expected.parent())
+                .zip(
+                    expected
+                        .parent()
+                        .and_then(|parent| parent.canonicalize().ok()),
+                )
+                .is_some_and(|(parent, expected)| parent == expected))
+}
+
+fn identity_path_retained(current: Option<&Path>, expected: &Path) -> bool {
+    current.is_none_or(|current| own_file_event(current, expected))
 }
 
 fn identity_bytes(path: &Path) -> Result<Vec<u8>, String> {
@@ -110,10 +123,7 @@ impl ServiceContext {
         if observed().as_deref() == Some(requested) {
             return Ok(());
         }
-        let signal = self
-            .screen_state
-            .lock()
-            .arm_screen_change_signal(&target.pty_id);
+        let signal = command_signal(&mut self.screen_state.lock(), &target.pty_id);
         crate::service::boot_wait::observe_boot_changes(&signal);
         let result = (|| -> Result<(), String> {
             let wake = signal.clone();
@@ -137,6 +147,7 @@ impl ServiceContext {
                 .map_err(|error| error.to_string())?;
             let baseline = identity_bytes(&path)?;
             let injected = std::cell::Cell::new(false);
+            let failure = std::cell::RefCell::new(None::<String>);
             let result = execute_command(
                 idle,
                 || {
@@ -182,6 +193,11 @@ impl ServiceContext {
                     if !target.current(self)
                         || self.pty.lock().get_session(&target.pty_id).is_none()
                     {
+                        log::warn!(
+                            "[agent-model] identity wait lost session authority: tab={}",
+                            target.tab_id
+                        );
+                        *failure.borrow_mut() = Some("the command was sent but its session authority changed before confirmation".into());
                         break false;
                     }
                     let same_path = self
@@ -190,8 +206,15 @@ impl ServiceContext {
                             provider.session_model_identity_path(cwd, &target.session_id)
                         })
                         .flatten()
-                        .is_some_and(|current| current == path);
+                        .map_or(true, |current| {
+                            identity_path_retained(Some(&current), &path)
+                        });
                     if !same_path {
+                        log::warn!(
+                            "[agent-model] identity wait changed file: tab={}",
+                            target.tab_id
+                        );
+                        *failure.borrow_mut() = Some("the command was sent but its own-session identity file changed before confirmation".into());
                         break false;
                     }
                     if identity_bytes(&path).is_ok_and(|bytes| {
@@ -204,10 +227,21 @@ impl ServiceContext {
                         break false;
                     };
                     if !signal.wait_after(generation, remaining) {
+                        log::warn!(
+                            "[agent-model] identity wait ended: tab={} remaining_ms={}",
+                            target.tab_id,
+                            deadline
+                                .saturating_duration_since(Instant::now())
+                                .as_millis()
+                        );
+                        if Instant::now() < deadline {
+                            *failure.borrow_mut() = Some("the command was sent but its confirmation event stream closed before the deadline".into());
+                        }
                         break false;
                     }
                 },
             );
+            let result = result.map_err(|error| failure.into_inner().unwrap_or(error));
             transport::finish_command(
                 result,
                 injected.get(),
@@ -251,9 +285,49 @@ mod tests {
         std::fs::write(&foreign, "{}").unwrap();
         let expected = own.canonicalize().unwrap();
         assert!(own_file_event(&own, &expected));
+        assert!(own_file_event(&expected, &own));
         assert!(!own_file_event(&foreign, &expected));
         std::fs::remove_file(&own).unwrap();
         assert!(own_file_event(&own, &expected));
+        assert!(own_file_event(&own, &own));
+        assert!(own_file_event(&expected, &own));
+    }
+
+    #[test]
+    fn transient_identity_absence_keeps_waiting_but_foreign_path_refuses() {
+        let own = Path::new("owned-session/summary.json");
+        assert!(identity_path_retained(None, own));
+        assert!(identity_path_retained(Some(own), own));
+        assert!(!identity_path_retained(
+            Some(Path::new("foreign-session/summary.json")),
+            own
+        ));
+        assert!(!changed_target(b"old", b"partial", "chosen", None));
+        assert!(changed_target(
+            b"old",
+            b"complete",
+            "chosen",
+            Some("chosen")
+        ));
+    }
+
+    #[test]
+    fn picker_model_then_effort_and_next_apply_have_independent_waits() {
+        let mut screens = crate::pty::screen_state::ScreenState::new();
+        let shared = screens.arm_screen_change_signal("owned-pty");
+        for _ in 0..3 {
+            let signal = command_signal(&mut screens, "owned-pty");
+            let generation = signal.generation();
+            signal.mark_changed();
+            assert!(signal.wait_after(generation, Duration::ZERO));
+            assert!(signal.wait_until_changed(generation));
+            screens.unsubscribe_screen_changes("owned-pty", &signal);
+            let generation = shared.generation();
+            shared.mark_changed();
+            assert!(shared.wait_after(generation, Duration::ZERO));
+            assert!(shared.wait_until_changed(generation));
+        }
+        assert_eq!(screens.screen_change_subscriber_count(), 0);
     }
 
     #[test]

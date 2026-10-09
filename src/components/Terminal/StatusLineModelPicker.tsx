@@ -40,6 +40,7 @@ export function TabStatusLineModelPicker({ tab, label }: { tab: Tab; label: stri
       label={label}
       modelCandidates={[tab.agent_provider_resolved_model, tab.agent_session_model, tab.agent_requested_model]}
       currentEffort={effort?.actual ?? effort?.resolved ?? effort?.requested ?? undefined}
+      pendingSelection={tab.pending_model_selection ?? undefined}
     />
   );
 }
@@ -51,6 +52,7 @@ export function StatusLineModelPicker({
   label,
   modelCandidates,
   currentEffort,
+  pendingSelection,
 }: {
   tabId: string;
   descriptor: ProviderDescriptor | undefined;
@@ -58,6 +60,7 @@ export function StatusLineModelPicker({
   label: string;
   modelCandidates: Array<string | null | undefined>;
   currentEffort: string | undefined;
+  pendingSelection?: { model: string; effort: string | null };
 }) {
   const gate = statusLineSwitchGate(descriptor, facts);
   const currentModel = currentModelId(descriptor, modelCandidates);
@@ -87,9 +90,11 @@ export function StatusLineModelPicker({
       const api = getTabModelApi();
       if (restart) {
         if (!api.restartAndSwitchModel) throw new Error("Restart fallback is unavailable");
-        await api.restartAndSwitchModel(tabId, selection.model, selection.effort);
+        const result = await api.restartAndSwitchModel(tabId, selection.model, selection.effort);
+        if (result?.staged) setApplied(null);
       } else {
-        await api.switchModel(tabId, selection.model, selection.effort);
+        const result = await api.switchModel(tabId, selection.model, selection.effort);
+        if (result?.staged) setApplied(null);
       }
     } catch (error) {
       setApplied(previous);
@@ -100,10 +105,12 @@ export function StatusLineModelPicker({
     }
   }, [close, tabId]);
 
-  const selection = applied ?? { model: currentModel ?? "Unknown model", effort: currentEffort };
+  const selection = pendingSelection ? { model: pendingSelection.model, effort: pendingSelection.effort ?? undefined }
+    : applied ?? { model: currentModel ?? "Unknown model", effort: currentEffort };
   const modelName = descriptor?.available_models.find((model) => matchesModel(model, selection.model))?.display_name
     || selection.model;
-  const displayedLabel = [modelName, selection.effort].filter(Boolean).join(" · ");
+  const afterTurn = Boolean(pendingSelection);
+  const displayedLabel = [modelName, selection.effort, afterTurn ? "after this turn" : undefined].filter(Boolean).join(" · ");
   const harnessName = descriptor?.display_name ?? label.split(" · ")[0];
 
   if (!gate.interactive || !descriptor) {
@@ -141,12 +148,17 @@ export function StatusLineModelPicker({
           descriptor={descriptor}
           gate={gate}
           triggerRef={triggerRef}
-          currentModel={applied?.model ?? currentModel}
-          currentEffort={applied ? applied.effort : currentEffort}
+          currentModel={selection.model}
+          currentEffort={selection.effort}
           busy={applying}
           failure={failure}
           onCommit={(selection, restart) => void commit(selection, restart)}
-          onClose={() => { setFailure(null); close(); }}
+          onClose={() => {
+            void getTabModelApi().cancelStagedModel?.(tabId).then(() => { setApplied(null); }).catch((error: unknown) => {
+              setFailure({ message: String(error), selection });
+            });
+            setFailure(null); close();
+          }}
         />
       )}
     </span>

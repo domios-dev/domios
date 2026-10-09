@@ -710,6 +710,8 @@ const HTTP_MAP: Record<string, Mapper> = {
       model: s(a, "model"),
       reasoning_effort: a.reasoningEffort,
       runtime_mode: a.runtimeMode,
+      ...(a.cancel === true ? { cancel: true } : {}),
+      ...(a.restartResume === true ? { restart_resume: true } : {}),
     }),
   complete_general_agent_first_run: (a) =>
     webJson("POST", "/api/agents/general/complete-first-run", {

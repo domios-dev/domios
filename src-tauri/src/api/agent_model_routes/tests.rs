@@ -1,6 +1,28 @@
 use super::*;
 
 #[test]
+fn staged_switch_exposes_pending_selection_without_restart_or_observation() {
+    let body = model_switch_success_body(&ModelSwitchOutcome {
+        tab_id: "tab".into(),
+        provider: "provider".into(),
+        session_id: "session".into(),
+        restart: None,
+        mechanism: crate::agent::provider::ModelSwitchMode::LiveCommand,
+        fallback_reason: None,
+        previous_model: None,
+        requested_model: "selected".into(),
+        launched_model: "selected".into(),
+        confirmation_detail: None,
+        confirmation: ModelSwitchConfirmation::AfterTurn,
+    });
+    assert_eq!(body["staged"], true);
+    assert_eq!(body["requested_model"], "selected");
+    assert_eq!(body["model_confirmation"], "pending");
+    assert!(body.get("restart").is_none());
+    assert!(body.get("observed_model").is_none());
+}
+
+#[test]
 fn live_command_failure_offers_fallback_without_claiming_a_restart() {
     let error = ModelSwitchError::LiveCommandFailed("opaque failure".into());
     let body = model_switch_error_body(&error);
