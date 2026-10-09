@@ -27,6 +27,7 @@ pub(crate) const VERBS: &[&str] = &[
     "wait",
     "screenshot",
     "inbox",
+    "annotate",
     "endpoint",
     "close",
 ];
@@ -124,12 +125,25 @@ impl BrowserRuntime {
         }
         let quiet = is_quiet_verb(verb);
         if !quiet {
-            self.shared.set_activity(&activity_label(verb, args));
+            self.shared
+                .set_activity(&activity_label(verb, args), ctx.actor.as_deref());
         }
         let outcome = self.verb(ctx, verb, args).await;
         if !quiet {
-            self.shared.set_activity(IDLE);
+            self.shared.set_activity(IDLE, None);
         }
+        outcome
+    }
+
+    pub(super) async fn run_annotate(
+        &self,
+        ctx: &SurfaceCallCtx,
+        args: &[String],
+    ) -> Result<crate::service::surface::runtime::SurfaceCallOutcome, String> {
+        self.shared
+            .set_activity(&activity_label("annotate", args), ctx.actor.as_deref());
+        let outcome = self.annotate_verb(ctx, args).await;
+        self.shared.set_activity(IDLE, None);
         outcome
     }
 
@@ -158,7 +172,9 @@ impl BrowserRuntime {
                 .take(args.first().is_some_and(|a| a == "all"))),
             "endpoint" => Ok(self.host.endpoint().unwrap_or_default()),
             "open" => self.open_verb(args).await,
-            "help" | "close" => Err(format!("{verb} is answered by the surface host")),
+            "help" | "close" | "annotate" => {
+                Err(format!("{verb} is answered by the surface host"))
+            }
             _ => {
                 let page = self.ensure_page().await?;
                 self.page_verb(ctx, &page, verb, args).await
@@ -299,7 +315,7 @@ impl BrowserRuntime {
         }
     }
 
-    fn resolve(
+    pub(super) fn resolve(
         &self,
         locator: &[String],
     ) -> Result<crate::service::browser::snapshot::ResolvedTarget, String> {

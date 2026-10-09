@@ -32,6 +32,9 @@ pub enum SystemEvent {
     SurfaceActivity {
         tab_id: String,
         verb: String,
+        /// The acting agent when it is not the surface owner.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        actor: Option<String>,
     },
     AgentStarted {
         tab_id: String,

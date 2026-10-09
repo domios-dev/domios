@@ -198,11 +198,47 @@ pub(crate) fn parse_intent(raw: Option<&str>) -> Result<&'static str, String> {
         .ok_or_else(|| format!("intent must be one of {}", INTENTS.join(", ")))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AnnotateRequest {
+    pub locator: Vec<String>,
+    pub comment: String,
+    pub intent: &'static str,
+}
+
+pub(crate) const ANNOTATE_USAGE: &str =
+    "usage: annotate @eN|<role> <name> <comment> [--intent question|change|bug] [--of <agent>]";
+
+/// `annotate <@eN | role name> <comment> [--intent I]`: the locator follows `click`'s rules.
+pub(crate) fn parse_annotate(args: &[String]) -> Result<AnnotateRequest, String> {
+    let mut words = Vec::new();
+    let mut intent = None;
+    let mut rest = args.iter();
+    while let Some(arg) = rest.next() {
+        if arg == "--intent" {
+            intent = Some(rest.next().ok_or(ANNOTATE_USAGE)?.as_str());
+        } else {
+            words.push(arg.clone());
+        }
+    }
+    let intent = parse_intent(intent)?;
+    let (comment, locator) = words.split_last().ok_or(ANNOTATE_USAGE)?;
+    if locator.is_empty() || comment.trim().is_empty() {
+        return Err(ANNOTATE_USAGE.into());
+    }
+    Ok(AnnotateRequest {
+        locator: locator.to_vec(),
+        comment: comment.clone(),
+        intent,
+    })
+}
+
 pub(crate) struct Annotation<'a> {
     pub target: &'a GrabTarget,
     pub intent: &'a str,
     pub comment: &'a str,
     pub screenshot_path: Option<&'a str>,
+    /// The annotating agent; `None` is the user.
+    pub sender: Option<&'a str>,
 }
 
 /// The markdown the owner agent receives, in the shape of the POC's `annotationMarkdown`.
@@ -213,8 +249,12 @@ pub(crate) fn annotation_markdown(annotation: &Annotation<'_>) -> String {
     } else {
         annotation.comment
     };
+    let (from, speaker) = match annotation.sender {
+        Some(agent) => (agent, agent),
+        None => ("the user", "User"),
+    };
     let mut lines = vec![
-        "## Browser annotation from the user".to_string(),
+        format!("## Browser annotation from {from}"),
         format!(
             "**Page:** {} — `{}` (viewport {})",
             t.page.title, t.page.url, t.page.viewport
@@ -222,7 +262,7 @@ pub(crate) fn annotation_markdown(annotation: &Annotation<'_>) -> String {
         String::new(),
         format!("### {}", element_label(t)),
         format!("**Intent:** {}", annotation.intent),
-        format!("**User says:** {comment}"),
+        format!("**{speaker} says:** {comment}"),
         format!("**Selector:** `{}`", t.selector),
     ];
     if let Some(role) = t

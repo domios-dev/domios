@@ -24,7 +24,7 @@
     "surfaces": true
   },
   "agentVerbs": [
-    "help",
+    "help (any verb + --of <agent>: act in that agent's browser)",
     "open [url] [--profile NAME]",
     "status",
     "profiles",
@@ -39,6 +39,7 @@
     "wait --text T | --url U | --selector S",
     "screenshot [file] [--full]",
     "inbox [all]",
+    "annotate @eN | <role> <name> <comment> --of <agent> [--intent question|change|bug]",
     "endpoint",
     "close"
   ],

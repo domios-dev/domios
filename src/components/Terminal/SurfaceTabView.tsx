@@ -8,6 +8,7 @@ import { downloadScreenshot, StreamSurfaceView } from "../Surface/StreamSurfaceV
 import type { SurfaceChromeSpec } from "../Surface/surfaceChromeModel";
 import { screenshotSaveMode, surfaceRenderPlan, type SurfaceDeclLookup } from "../Surface/surfaceRenderPlan";
 import type { SurfaceStreamTransport } from "../Surface/surfaceStreamTransport";
+import { useSurfaceActor } from "../../lib/surfaceActivity";
 import { pluginViewSurface, surfaceDisplayLabel } from "../../lib/surfaceTab";
 import type { ApiConfig, SurfaceTabBacking, Tab } from "../../lib/types";
 import { useTabProvider } from "../../lib/useTabProvider";
@@ -53,6 +54,17 @@ function StreamSurfaceBody({ tab, api, ownerName, chrome, createTransport }: Str
       surfaceTabId={tab.id}
       saveScreenshot={screenshotSaveMode(IS_WEB) === "download" ? downloadScreenshot : keepSavedPath}
     />
+  );
+}
+
+/** "· QA" while another agent drives the owner's surface. */
+function SurfaceActorTag({ surfaceTabId }: { surfaceTabId: string }) {
+  const actor = useSurfaceActor(surfaceTabId);
+  if (!actor) return null;
+  return (
+    <span data-testid="surface-actor" title={`${actor} is using this surface`} className="min-w-0 shrink truncate text-[var(--ct-muted-fg)]">
+      · {actor}
+    </span>
   );
 }
 
@@ -115,6 +127,7 @@ export function SurfaceTabView({
           <span data-testid="surface-crumb" className="flex min-w-0 items-center gap-1.5">
             <SurfaceGlyph data-testid="surface-crumb-icon" size={13} aria-hidden="true" className="shrink-0 text-[var(--ct-muted-fg)]" />
             <span className="min-w-0 truncate font-medium">{ownerName ? tab.title : label}</span>
+            <SurfaceActorTag surfaceTabId={tab.id} />
           </span>
         </nav>
       </header>

@@ -11,7 +11,7 @@ pub(crate) mod runtime;
 mod stream_ops;
 mod transport;
 
-pub(crate) use activity::{is_agent_method, SurfaceActivityGate};
+pub(crate) use activity::{is_agent_method, sanitize_actor, SurfaceActivityGate};
 pub(crate) use exit::{begin_surface_shutdown, SurfaceShutdown};
 pub(crate) use model::{SurfaceError, SurfaceOpenRequest};
 pub(crate) use runtime::SurfaceRuntimeRegistry;

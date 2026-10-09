@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createSurfaceActivityStore, parseSurfaceActivity, SURFACE_PULSE_MS } from "./surfaceActivity";
+import { createSurfaceActivityStore, parseSurfaceActivity, SURFACE_ACTOR_LINGER_MS, SURFACE_PULSE_MS } from "./surfaceActivity";
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
@@ -50,5 +50,21 @@ describe("surface activity pulses", () => {
     for (const payload of [null, "s1", {}, { tab_id: "" }, { tab_id: 3, verb: "x" }]) store.record(payload);
     expect(changes).not.toHaveBeenCalled();
     expect(parseSurfaceActivity({ tab_id: "s1" })).toEqual({ tab_id: "s1", verb: "" });
+  });
+
+  it("names a visiting agent while it acts and drops it when the owner acts or it goes quiet", () => {
+    const store = createSurfaceActivityStore();
+    store.record({ tab_id: "s1", verb: "click", actor: " QA " });
+    expect(store.pulse("s1")).toEqual({ nonce: 1, verb: "click" });
+    expect(store.actor("s1")).toBe("QA");
+    vi.advanceTimersByTime(SURFACE_ACTOR_LINGER_MS - 1);
+    expect(store.actor("s1")).toBe("QA");
+    vi.advanceTimersByTime(1);
+    expect(store.actor("s1")).toBeNull();
+    store.record({ tab_id: "s1", verb: "type", actor: "QA" });
+    store.record({ tab_id: "s1", verb: "goto" });
+    expect(store.actor("s1")).toBeNull();
+    expect(parseSurfaceActivity({ tab_id: "s1", verb: "x", actor: "" })).toEqual({ tab_id: "s1", verb: "x" });
+    expect(parseSurfaceActivity({ tab_id: "s1", verb: "x", actor: "y".repeat(80) })?.actor).toHaveLength(48);
   });
 });

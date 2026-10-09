@@ -128,7 +128,11 @@ A plugin reaches its stream surface only through `host.surface.call(verb,
 argsJson)`, which returns the JSON text `{ result }` or `{ error }`. It works
 only inside `onAgentCommand`, acts on the calling agent's own surface of the
 plugin's first stream declaration, and needs the `surfaces` permission, which
-the user can revoke like `agentCommands`.
+the user can revoke like `agentCommands`. `argsJson` may instead be
+`{ args, of }`: the core resolves `of` (a tab id or exact agent title) inside
+the caller's workspace, refuses mesh-controlled callers, and runs the verb on
+that owner's open surface with the caller named as the activity's `actor`.
+`annotate` delivers an element card to the surface owner, signed by the caller.
 
 ## REST
 

@@ -171,6 +171,16 @@ describe("surface tab view", () => {
     expect(line().querySelector("[data-testid='surface-flow-pass']")).toBeNull();
   });
 
+  it("names a visiting agent in the breadcrumb while it drives the owner's surface", async () => {
+    vi.useFakeTimers();
+    await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" isVisible decl={viewDecl} />);
+    const crumbs = () => host!.querySelector("[data-testid='surface-breadcrumb']")!.textContent;
+    await act(async () => recordSurfaceActivity({ tab_id: "surface-tab", verb: "click", actor: "QA" }));
+    expect(crumbs()).toBe("Jev›Board· QA");
+    await act(async () => recordSurfaceActivity({ tab_id: "surface-tab", verb: "goto" }));
+    expect(crumbs()).toBe("Jev›Board");
+  });
+
   it("shares Take control with the sidebar and stills the flow line", async () => {
     const { factory } = fakeTransports();
     await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" isVisible decl={streamDecl} createTransport={factory} />);

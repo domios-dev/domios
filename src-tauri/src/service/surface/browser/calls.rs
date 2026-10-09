@@ -166,15 +166,48 @@ impl BrowserRuntime {
             intent,
             comment: &args.comment,
             screenshot_path: screenshot_path.as_deref(),
+            sender: None,
         });
-        self.inbox.lock().push(&args.id, &markdown);
-        Ok(SurfaceCallOutcome {
+        Ok(self.annotation_outcome(args.id, markdown))
+    }
+
+    /// Kept for `inbox` first, so an undelivered annotation is never lost.
+    pub(super) fn annotation_outcome(&self, id: String, markdown: String) -> SurfaceCallOutcome {
+        self.inbox.lock().push(&id, &markdown);
+        SurfaceCallOutcome {
             result: json!({ "markdown": markdown }),
-            effects: vec![SurfaceEffect::DeliverAnnotation {
-                id: args.id,
-                markdown,
-            }],
-        })
+            effects: vec![SurfaceEffect::DeliverAnnotation { id, markdown }],
+        }
+    }
+
+    /// `annotate`: the same card the user's point-and-ask builds, for the element an agent names.
+    pub(super) async fn annotate_verb(
+        &self,
+        ctx: &SurfaceCallCtx,
+        args: &[String],
+    ) -> Result<SurfaceCallOutcome, String> {
+        let request = grab::parse_annotate(args)?;
+        let page = self.ensure_page().await?;
+        let target = self.resolve(&request.locator)?;
+        let (target, png) = self.collect_node(&page, target.backend_node_id).await?;
+        let id = self.next_grab_id();
+        let screenshot_path = match png {
+            Some(png) => Some(
+                self.save_evidence(ctx, format!("{id}-{}.png", now_ms()), png)
+                    .await?
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            None => None,
+        };
+        let markdown = grab::annotation_markdown(&Annotation {
+            target: &target,
+            intent: request.intent,
+            comment: &request.comment,
+            screenshot_path: screenshot_path.as_deref(),
+            sender: Some(ctx.actor.as_deref().unwrap_or("an agent")),
+        });
+        Ok(self.annotation_outcome(id, markdown))
     }
 
     async fn grab_setup(&self, page: &PageChannel) -> Result<(), String> {
@@ -238,6 +271,16 @@ impl BrowserRuntime {
         y: f64,
     ) -> Result<(GrabTarget, Option<String>), String> {
         let backend_node_id = self.node_at(page, x, y).await?;
+        let collected = self.collect_node(page, backend_node_id).await;
+        self.grab_clear(page).await;
+        collected
+    }
+
+    async fn collect_node(
+        &self,
+        page: &PageChannel,
+        backend_node_id: i64,
+    ) -> Result<(GrabTarget, Option<String>), String> {
         let resolved = self
             .send(
                 page,
@@ -284,7 +327,6 @@ impl BrowserRuntime {
                 .and_then(|shot| shot.get("data").and_then(Value::as_str).map(str::to_string)),
             None => None,
         };
-        self.grab_clear(page).await;
         Ok((target, png))
     }
 }

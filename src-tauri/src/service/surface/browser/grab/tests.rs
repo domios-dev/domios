@@ -48,6 +48,7 @@ fn browser_annotation_markdown_carries_every_collected_fact() {
         intent: "bug",
         comment: "it does nothing",
         screenshot_path: Some("/pad/screenshots/g1.png"),
+        sender: None,
     });
     let lines: Vec<&str> = markdown.lines().collect();
     assert_eq!(lines[0], "## Browser annotation from the user");
@@ -90,6 +91,7 @@ fn browser_annotation_markdown_omits_absent_facts() {
         intent: "question",
         comment: " ",
         screenshot_path: None,
+        sender: None,
     });
     assert!(markdown.contains("**User says:** (no comment)"));
     for absent in [
@@ -135,4 +137,46 @@ fn browser_grab_intent_and_clip_are_bounded() {
     let card = collected().to_json();
     assert_eq!(card["attributes"]["type"], "submit");
     assert_eq!(card["accessibility"]["role"], "button");
+}
+
+#[test]
+fn browser_annotation_markdown_names_the_annotating_agent() {
+    let target = collected();
+    let markdown = annotation_markdown(&Annotation {
+        target: &target,
+        intent: "bug",
+        comment: "the button is clipped",
+        screenshot_path: None,
+        sender: Some("QA"),
+    });
+    let lines: Vec<&str> = markdown.lines().collect();
+    assert_eq!(lines[0], "## Browser annotation from QA");
+    assert!(markdown.contains("**QA says:** the button is clipped"));
+    assert!(!markdown.contains("the user"));
+    assert!(markdown.contains("**Selector:** `#login > button.primary`"));
+}
+
+#[test]
+fn browser_annotate_args_take_a_click_locator_a_comment_and_an_optional_intent() {
+    let words = |items: &[&str]| items.iter().map(|item| item.to_string()).collect::<Vec<_>>();
+    assert_eq!(
+        parse_annotate(&words(&["@e3", "too small"])),
+        Ok(AnnotateRequest {
+            locator: words(&["@e3"]),
+            comment: "too small".into(),
+            intent: "question",
+        })
+    );
+    assert_eq!(
+        parse_annotate(&words(&["button", "Sign in", "clipped", "--intent", "bug"])),
+        Ok(AnnotateRequest {
+            locator: words(&["button", "Sign in"]),
+            comment: "clipped".into(),
+            intent: "bug",
+        })
+    );
+    for bad in [&[][..], &["@e3"][..], &["@e3", " "][..], &["@e3", "x", "--intent"][..]] {
+        assert!(parse_annotate(&words(bad)).is_err(), "{bad:?}");
+    }
+    assert!(parse_annotate(&words(&["@e3", "x", "--intent", "rant"])).is_err());
 }

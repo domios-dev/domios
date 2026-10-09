@@ -11,6 +11,7 @@ use crate::service::ServiceContext;
 pub(crate) const SURFACE_ACTIVITY_EVENT: &str = "surface-activity";
 const WINDOW: Duration = Duration::from_millis(250);
 const MAX_VERB: usize = 32;
+const MAX_ACTOR: usize = 48;
 const PRUNE_ABOVE: usize = 256;
 const STALE_AFTER: Duration = Duration::from_secs(10);
 /// View plumbing, not agent work: these never pulse the owner.
@@ -31,6 +32,29 @@ pub(crate) fn sanitize_verb(raw: &str) -> String {
     }
 }
 
+/// A display name on one line, capped; `None` when nothing printable remains.
+pub(crate) fn sanitize_actor(raw: &str) -> Option<String> {
+    let line: String = raw
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    let name: String = line
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(MAX_ACTOR)
+        .collect();
+    (!name.is_empty()).then_some(name)
+}
+
+/// One agent verb and, when it is not the owner, who ran it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Activity {
+    pub verb: String,
+    pub actor: Option<String>,
+}
+
 /// Whether a `/call` method is agent work worth showing; only agent callers reach here.
 pub(crate) fn is_agent_method(method: &str) -> bool {
     !UI_METHODS.contains(&method) && !method.starts_with("grab.")
@@ -47,7 +71,7 @@ pub(crate) enum Gate {
 #[derive(Debug)]
 struct Slot {
     last: Instant,
-    pending: Option<String>,
+    pending: Option<Activity>,
     flush_armed: bool,
 }
 
@@ -58,7 +82,7 @@ pub(crate) struct SurfaceActivityGate {
 }
 
 impl SurfaceActivityGate {
-    pub(crate) fn offer(&self, tab_id: &str, verb: &str, now: Instant) -> Gate {
+    pub(crate) fn offer(&self, tab_id: &str, activity: &Activity, now: Instant) -> Gate {
         let mut slots = self.slots.lock();
         if slots.len() > PRUNE_ABOVE {
             slots.retain(|_, slot| slot.flush_armed || now.duration_since(slot.last) < STALE_AFTER);
@@ -79,7 +103,7 @@ impl SurfaceActivityGate {
             slot.last = now;
             return Gate::EmitNow;
         }
-        slot.pending = Some(verb.to_string());
+        slot.pending = Some(activity.clone());
         if slot.flush_armed {
             return Gate::Coalesced;
         }
@@ -87,34 +111,43 @@ impl SurfaceActivityGate {
         Gate::FlushAfter(WINDOW.saturating_sub(since))
     }
 
-    /// The latest verb held back during the window, if any.
-    pub(crate) fn flush(&self, tab_id: &str, now: Instant) -> Option<String> {
+    /// The latest activity held back during the window, if any.
+    pub(crate) fn flush(&self, tab_id: &str, now: Instant) -> Option<Activity> {
         let mut slots = self.slots.lock();
         let slot = slots.get_mut(tab_id)?;
         slot.flush_armed = false;
-        let verb = slot.pending.take()?;
+        let activity = slot.pending.take()?;
         slot.last = now;
-        Some(verb)
+        Some(activity)
     }
 }
 
-fn emit(events: &EventBroadcaster, app: &tauri::AppHandle, tab_id: &str, verb: &str) {
+pub(crate) fn activity_payload(tab_id: &str, activity: &Activity) -> serde_json::Value {
+    let mut payload = serde_json::json!({ "tab_id": tab_id, "verb": activity.verb });
+    if let Some(actor) = &activity.actor {
+        payload["actor"] = serde_json::Value::String(actor.clone());
+    }
+    payload
+}
+
+fn emit(events: &EventBroadcaster, app: &tauri::AppHandle, tab_id: &str, activity: &Activity) {
     events.publish(SystemEvent::SurfaceActivity {
         tab_id: tab_id.to_string(),
-        verb: verb.to_string(),
+        verb: activity.verb.clone(),
+        actor: activity.actor.clone(),
     });
-    let _ = app.emit(
-        SURFACE_ACTIVITY_EVENT,
-        serde_json::json!({ "tab_id": tab_id, "verb": verb }),
-    );
+    let _ = app.emit(SURFACE_ACTIVITY_EVENT, activity_payload(tab_id, activity));
 }
 
 impl ServiceContext {
     /// One agent verb against a surface tab; bounded to ~4 events per second per tab.
-    pub(crate) fn note_surface_activity(&self, tab_id: &str, verb: &str) {
-        let verb = sanitize_verb(verb);
-        match self.surface_activity.offer(tab_id, &verb, Instant::now()) {
-            Gate::EmitNow => emit(&self.events, &self.app_handle, tab_id, &verb),
+    pub(crate) fn note_surface_activity(&self, tab_id: &str, verb: &str, actor: Option<&str>) {
+        let activity = Activity {
+            verb: sanitize_verb(verb),
+            actor: actor.and_then(sanitize_actor),
+        };
+        match self.surface_activity.offer(tab_id, &activity, Instant::now()) {
+            Gate::EmitNow => emit(&self.events, &self.app_handle, tab_id, &activity),
             Gate::Coalesced => {}
             Gate::FlushAfter(delay) => {
                 let gate = Arc::clone(&self.surface_activity);
@@ -123,8 +156,8 @@ impl ServiceContext {
                 let tab_id = tab_id.to_string();
                 std::thread::spawn(move || {
                     std::thread::sleep(delay);
-                    if let Some(verb) = gate.flush(&tab_id, Instant::now()) {
-                        emit(&events, &app, &tab_id, &verb);
+                    if let Some(activity) = gate.flush(&tab_id, Instant::now()) {
+                        emit(&events, &app, &tab_id, &activity);
                     }
                 });
             }
@@ -135,6 +168,60 @@ impl ServiceContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn verb(verb: &str) -> Activity {
+        Activity {
+            verb: verb.into(),
+            actor: None,
+        }
+    }
+
+    #[test]
+    fn surface_activity_actor_is_one_bounded_line() {
+        assert_eq!(sanitize_actor(" QA "), Some("QA".into()));
+        assert_eq!(sanitize_actor("Q\nA\u{7}"), Some("Q A".into()));
+        assert_eq!(sanitize_actor(&"x".repeat(80)).unwrap().len(), MAX_ACTOR);
+        assert_eq!(sanitize_actor(" \t "), None);
+    }
+
+    #[test]
+    fn surface_activity_payload_names_a_foreign_actor_only() {
+        assert_eq!(
+            activity_payload("t", &verb("click")),
+            serde_json::json!({ "tab_id": "t", "verb": "click" })
+        );
+        let foreign = Activity {
+            verb: "click".into(),
+            actor: Some("QA".into()),
+        };
+        assert_eq!(
+            activity_payload("t", &foreign),
+            serde_json::json!({ "tab_id": "t", "verb": "click", "actor": "QA" })
+        );
+        let event = serde_json::to_value(SystemEvent::SurfaceActivity {
+            tab_id: "t".into(),
+            verb: "click".into(),
+            actor: Some("QA".into()),
+        })
+        .unwrap();
+        assert_eq!(event["actor"], "QA");
+    }
+
+    #[test]
+    fn surface_activity_trailing_flush_keeps_the_actor_of_the_latest_verb() {
+        let gate = SurfaceActivityGate::default();
+        let start = Instant::now();
+        let foreign = Activity {
+            verb: "type".into(),
+            actor: Some("QA".into()),
+        };
+        assert_eq!(gate.offer("t", &verb("goto"), start), Gate::EmitNow);
+        let _ = gate.offer("t", &foreign, start + Duration::from_millis(50));
+        assert_eq!(
+            gate.flush("t", start + Duration::from_millis(250)),
+            Some(foreign)
+        );
+    }
 
     #[test]
     fn surface_activity_verb_is_a_bare_capped_token() {
@@ -171,20 +258,20 @@ mod tests {
         let gate = SurfaceActivityGate::default();
         let start = Instant::now();
         let at = |ms: u64| start + Duration::from_millis(ms);
-        assert_eq!(gate.offer("t", "goto", at(0)), Gate::EmitNow);
+        assert_eq!(gate.offer("t", &verb("goto"), at(0)), Gate::EmitNow);
         assert_eq!(
-            gate.offer("t", "click", at(100)),
+            gate.offer("t", &verb("click"), at(100)),
             Gate::FlushAfter(Duration::from_millis(150))
         );
-        assert_eq!(gate.offer("t", "type", at(200)), Gate::Coalesced);
-        assert_eq!(gate.offer("other", "snapshot", at(200)), Gate::EmitNow);
-        assert_eq!(gate.flush("t", at(250)).as_deref(), Some("type"));
+        assert_eq!(gate.offer("t", &verb("type"), at(200)), Gate::Coalesced);
+        assert_eq!(gate.offer("other", &verb("snapshot"), at(200)), Gate::EmitNow);
+        assert_eq!(gate.flush("t", at(250)), Some(verb("type")));
         assert_eq!(
-            gate.offer("t", "click", at(300)),
+            gate.offer("t", &verb("click"), at(300)),
             Gate::FlushAfter(Duration::from_millis(200))
         );
-        assert_eq!(gate.flush("t", at(500)).as_deref(), Some("click"));
-        assert_eq!(gate.offer("t", "goto", at(900)), Gate::EmitNow);
+        assert_eq!(gate.flush("t", at(500)), Some(verb("click")));
+        assert_eq!(gate.offer("t", &verb("goto"), at(900)), Gate::EmitNow);
         assert_eq!(gate.flush("t", at(950)), None);
     }
 
@@ -200,7 +287,7 @@ mod tests {
                 emitted += usize::from(gate.flush("t", now).is_some());
                 flush_at = None;
             }
-            match gate.offer("t", "click", now) {
+            match gate.offer("t", &verb("click"), now) {
                 Gate::EmitNow => emitted += 1,
                 Gate::FlushAfter(delay) => flush_at = Some(now + delay),
                 Gate::Coalesced => {}
