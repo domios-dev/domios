@@ -4,8 +4,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 if [ "${1:-}" = --help ]; then
   echo 'Usage: bash evals/restart-endurance/run.sh --out DIR --notice-hook FILE'
+  echo 'Offline: bash evals/restart-endurance/run.sh --dry-run --out DIR --from-results FILE --log-dir DIR'
   echo 'Canonical QA only. Real LLM turns; three DEV 7686 restarts. See README.md.'
   exit 0
+fi
+if [ "${1:-}" = --dry-run ]; then
+  shift
+  node "$ROOT/evals/restart-endurance/dry-run.mjs" "$@"
+  exit
 fi
 unset CODETERM_INSTANCE CODETERM_CLI_PATH
 source "$ROOT/evals/_lib/lib.sh"
