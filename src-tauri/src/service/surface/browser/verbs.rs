@@ -172,9 +172,7 @@ impl BrowserRuntime {
                 .take(args.first().is_some_and(|a| a == "all"))),
             "endpoint" => Ok(self.host.endpoint().unwrap_or_default()),
             "open" => self.open_verb(args).await,
-            "help" | "close" | "annotate" => {
-                Err(format!("{verb} is answered by the surface host"))
-            }
+            "help" | "close" | "annotate" => Err(format!("{verb} is answered by the surface host")),
             _ => {
                 let page = self.ensure_page().await?;
                 self.page_verb(ctx, &page, verb, args).await

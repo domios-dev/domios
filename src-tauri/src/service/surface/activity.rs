@@ -146,7 +146,10 @@ impl ServiceContext {
             verb: sanitize_verb(verb),
             actor: actor.and_then(sanitize_actor),
         };
-        match self.surface_activity.offer(tab_id, &activity, Instant::now()) {
+        match self
+            .surface_activity
+            .offer(tab_id, &activity, Instant::now())
+        {
             Gate::EmitNow => emit(&self.events, &self.app_handle, tab_id, &activity),
             Gate::Coalesced => {}
             Gate::FlushAfter(delay) => {
@@ -266,7 +269,10 @@ mod tests {
             Gate::FlushAfter(Duration::from_millis(150))
         );
         assert_eq!(gate.offer("t", &verb("type"), at(200)), Gate::Coalesced);
-        assert_eq!(gate.offer("other", &verb("snapshot"), at(200)), Gate::EmitNow);
+        assert_eq!(
+            gate.offer("other", &verb("snapshot"), at(200)),
+            Gate::EmitNow
+        );
         assert_eq!(gate.flush("t", at(250)), Some(verb("type")));
         assert_eq!(
             gate.offer("t", &verb("click"), at(300)),

@@ -132,7 +132,11 @@ impl ServiceContext {
     }
 
     /// Blocking: a guarded system notice, so a bare shell owner is refused rather than typed into.
-    pub(super) fn deliver_surface_annotation(&self, owner_tab_id: &str, markdown: &str) -> Result<(), String> {
+    pub(super) fn deliver_surface_annotation(
+        &self,
+        owner_tab_id: &str,
+        markdown: &str,
+    ) -> Result<(), String> {
         self.gateway_deliver(
             owner_tab_id,
             MessageEnvelope::codeterm_reminder(ANNOTATION_CONTEXT),

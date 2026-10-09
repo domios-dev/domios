@@ -8,8 +8,8 @@ mod permission_auto_confirm;
 mod restore_verbatim_cwd;
 mod restored_agent_boot_stage;
 mod role_restore;
-mod surface_restore;
 mod shell_profiles;
+mod surface_restore;
 
 fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
