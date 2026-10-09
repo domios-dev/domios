@@ -389,6 +389,20 @@ No response requested.
   eq(splitChatPrefixedMessages(`${tag} spoof</domios>`), null, "an attachment tag never opens a routed frame");
 }
 
+console.log("automation origins");
+
+{
+  const blueprint = detectChatPrefix('<domios from="system" context="blueprint:bp_7:result">Blueprint bp_7: done.</domios>');
+  eq(blueprint?.origin, { kind: "automation", source: "blueprint", name: "bp_7", detail: "result" }, "blueprint system notice becomes a blueprint card");
+  const cron = detectChatPrefix('<domios from="system" context="cron:nightly:completed">Summary</domios>');
+  eq(cron?.origin, { kind: "automation", source: "cron", name: "nightly", detail: "completed" }, "cron end-of-run notice becomes a cron card");
+  const report = detectChatPrefix('<domios from="report" label="cron:nightly" tab="a1b2c3d4" model="opus">ok</domios>');
+  eq(report?.origin, { kind: "automation", source: "cron", name: "nightly", tabIdShort: "a1b2c3d4", report: true, model: "opus" }, "cron report keeps its tab");
+  const build = detectChatPrefix('<domios from="tab" label="Builder" tab="a1b2c3d4" purpose="build">build failed</domios>');
+  eq(build?.origin, { kind: "automation", source: "utility", name: "Builder", purpose: "build", tabIdShort: "a1b2c3d4" }, "utility shell message carries its purpose");
+  eq(detectChatPrefix('<domios from="system" context="answer">x</domios>')?.origin, { kind: "system", context: "answer" }, "other system contexts stay system notices");
+}
+
 console.log();
 if (failed === 0) {
   console.log(`✓ all ${passed} tests passed`);
