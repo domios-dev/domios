@@ -18,7 +18,7 @@ if (!Number.isInteger(startRun) || startRun < 1 || startRun + repeats > 4) throw
 if (process.env.PW_SWITCH_WORKSPACE && repeats !== 1) throw new Error("A prepared scratch workspace may serve exactly one matrix");
 type SwitchRow = { run: number; sha: string; provider: string; step: string; verdict: string; detail?: string;
   tabId?: string; model?: string; effort?: string; effortEvidence?: string; mode?: string; closeMs?: number; pendingMs?: number; confirmMs?: number; failureMs?: number; recordModel?: string };
-type SwitchProbe = { applying: boolean; closed: boolean };
+type SwitchProbe = { applying: boolean; closed: boolean; errorToast: boolean };
 type ProbeWindow = typeof window & { __switchProbe: SwitchProbe; __switchObserver: MutationObserver };
 
 test.describe.configure({ mode: "default" });
@@ -122,6 +122,7 @@ for (let run = startRun; run < startRun + repeats; run++) {
             expect(newMessages.filter(m => m.type === "assistant").map(m => m.content.trim())).toEqual([marker]);
             await expect(target.chat.getByRole("article", { name: "user message" }).filter({ hasText: marker })).toHaveCount(1);
             await expect(target.chat.getByRole("article", { name: "user message" }).filter({ hasText: /<command-name>|<local-command-stdout>|^\/(?:model|effort)\b/ })).toHaveCount(0);
+            expect(await ui.page.evaluate(() => (window as ProbeWindow).__switchProbe?.errorToast ?? false), "no own-tab model-switch failure toast during Apply or ACK").toBe(false);
             expect(current.agent_session_id).toBe(baseline.agent_session_id);
             expect(current.pty_id).toBe(baseline.pty_id);
             expect(current.session_binding_nonce).toBe(baseline.session_binding_nonce);
@@ -138,10 +139,12 @@ for (let run = startRun; run < startRun + repeats; run++) {
             if (await showAll.isVisible()) await showAll.click();
             await picker.locator(`[role="option"][title="${model.id}"]`).click();
             if (effort) await picker.locator(`[aria-label="Reasoning"] [role="tab"][data-value="${effort}"]`).click();
-            await ui.page.evaluate(() => {
-              const state: SwitchProbe = { applying: false, closed: false };
+            await ui.page.evaluate((tabId) => {
+              (window as ProbeWindow).__switchObserver?.disconnect();
+              const state: SwitchProbe = { applying: false, closed: false, errorToast: false };
               (window as ProbeWindow).__switchProbe = state;
               const observe = () => {
+                if (document.querySelector(`[data-notification-id="model-switch:${tabId}"]`)) state.errorToast = true;
                 if (document.querySelector('[data-testid="status-model-picker"]')) return;
                 state.closed = true;
                 if (Array.from(document.querySelectorAll('[role="status"]')).some(node => node.textContent === "Applying…")) state.applying = true;
@@ -149,7 +152,7 @@ for (let run = startRun; run < startRun + repeats; run++) {
               const observer = new MutationObserver(observe);
               observer.observe(document.body, { childList: true, subtree: true, characterData: true });
               (window as ProbeWindow).__switchObserver = observer;
-            });
+            }, target.tabId);
             const started = performance.now();
             const switchedAtMs = Date.now();
             try {
@@ -158,7 +161,6 @@ for (let run = startRun; run < startRun + repeats; run++) {
             const closeMs = performance.now() - started;
             row.closeMs = closeMs;
             const probe = await ui.page.evaluate(() => {
-              (window as ProbeWindow).__switchObserver.disconnect();
               return (window as ProbeWindow).__switchProbe;
             });
             expect(probe.closed).toBe(true);
@@ -242,7 +244,11 @@ for (let run = startRun; run < startRun + repeats; run++) {
           await send(`Write 600 numbered sentences about trees, one per line, starting with ${marker}. Do not use tools.`);
           await expect(target.chat.getByRole("article", { name: "user message" }).filter({ hasText: marker })).toHaveCount(1);
           await target.events.waitFor(e => e.seq > floor && e.event_type === "tab-status-changed" && e.data.tab_id === target.tabId && e.data.status === "Working", 60_000, "long turn starts");
-          await expect(target.chat.getByRole("article", { name: "assistant message" }).filter({ hasText: marker })).toHaveCount(1, { timeout: 60_000 });
+          const startedRecords = await records(providerId, baseline.agent_session_id);
+          writeFileSync(info.outputPath(`${providerId}-${step}-start-raw.json`), JSON.stringify(startedRecords, null, 2));
+          const markedUsers = startedRecords.records.filter(row => JSON.stringify(row).includes(marker) &&
+            (row.type === "user" || row.role === "user" || row.payload?.role === "user" || row.params?.update?.sessionUpdate === "user_message_chunk"));
+          expect(markedUsers, "Working belongs to the exact persisted long user turn").toHaveLength(1);
           await expect(target.chat.locator('[data-agent-state="working"]')).toHaveCount(1);
           const busyBefore = await identity(api, target.tabId);
           const activeModels = choices.filter(m => m.id === busyBefore.agent_session_model || m.id.endsWith(`/${busyBefore.agent_session_model}`));
