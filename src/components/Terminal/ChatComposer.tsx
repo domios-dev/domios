@@ -21,7 +21,6 @@ import {
   type DelayedMessage,
   type RecurrenceRule,
 } from "./delayedSend";
-import { DelayedSendQueuePanel, DelayedSendSchedulePanel } from "./DelayedSendPanel";
 import {
   filterSlashCommands,
   type SlashCommandSuggestion,
@@ -29,7 +28,7 @@ import {
 import type { PendingPrompt } from "../../lib/types";
 import { createPortal } from "react-dom";
 import { ComposerContextHeader } from "./ComposerContextHeader";
-import { DelayedMessageModal } from "./DelayedMessageModal";
+import { DelayedMessageModal, type DelayedModalTarget } from "./DelayedMessageModal";
 import { useMuxSelector } from "../../store/multiplexer";
 import { COMPOSER_MIN_HEIGHT } from "./composerAutosize";
 import {
@@ -247,10 +246,8 @@ function ChatComposerImpl({
   const lastSendRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
   const pendingDraftsRef = useRef(new Set<string>());
   const [delayedMessages, setDelayedMessages] = useState<DelayedMessage[]>([]);
-  const [delayedQueueOpen, setDelayedQueueOpen] = useState(false);
-  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [delayedBusyId, setDelayedBusyId] = useState<string | null>(null);
-  const [editingDelayed, setEditingDelayed] = useState<DelayedMessage | null>(null);
+  const [delayedModal, setDelayedModal] = useState<DelayedModalTarget | null>(null);
   const [scheduleBusy, setScheduleBusy] = useState(false);
   // Screen-reader-visible mirror of showComposerError: the field's current
   // content was rejected, until the user edits it again.
@@ -437,13 +434,14 @@ function ChatComposerImpl({
     }
   }
 
-  async function scheduleDraft(scheduledAtMs: number | null, recurrence?: RecurrenceRule) {
-    const draft = buildDraft();
-    if (!draft) return;
+  async function scheduleDraft(text: string, scheduledAtMs: number | null, recurrence?: RecurrenceRule) {
+    const draft = buildDraft() ?? { allAttachments: [], recordedVoiceAttachments: [], quoted: null };
+    const body = text.trim();
+    if (!body && draft.allAttachments.length === 0 && !draft.quoted) return;
     setScheduleBusy(true);
     try {
       const { composed, transcribeFailed } = await composeDraft(
-        draft.text,
+        body,
         draft.allAttachments,
         draft.recordedVoiceAttachments,
         draft.quoted,
@@ -458,8 +456,7 @@ function ChatComposerImpl({
       clearAttachments();
       capsules.clear();
       reply.clearIfSent(draft.quoted);
-      setScheduleOpen(false);
-      setDelayedQueueOpen(true);
+      setDelayedModal(null);
       await refreshDelayedMessages();
     } catch (e) {
       flagComposerError(e instanceof Error ? e.message : String(e));
@@ -483,95 +480,58 @@ function ChatComposerImpl({
     }
   }
 
-  useEffect(() => {
-    if (delayedQueueOpen && delayedMessages.length === 0) {
-      setDelayedQueueOpen(false);
-    }
-  }, [delayedQueueOpen, delayedMessages.length]);
-
-  function openDelayedQueue() {
-    setDelayedQueueOpen((value) => !value);
-    setScheduleOpen(false);
+  function closeDelayedModal() {
+    setDelayedModal(null);
+    refocusComposer();
   }
+
+  function runOnDelayed(id: string, op: () => Promise<unknown>) {
+    setDelayedModal(null);
+    void withDelayedBusy(id, async () => {
+      await op();
+    });
+  }
+
+  const openScheduleModal = () => setDelayedModal({ kind: "create", text: input.trim() });
 
   return (
     <ComposerDock mode={composerLayout.mode} ref={shellRef}>
-      {(scheduleOpen || delayedQueueOpen) && (
-        <div className="absolute bottom-full left-0 z-30">
-          {scheduleOpen && (
-            <DelayedSendSchedulePanel
-              busy={scheduleBusy}
-              touchMode={touchMode}
-              onClose={() => {
-                setScheduleOpen(false);
-                refocusComposer();
-              }}
-              onConfirm={(scheduledAtMs, recurrence) => void scheduleDraft(scheduledAtMs, recurrence)}
-              onStash={() => void scheduleDraft(null)}
-            />
-          )}
-          {delayedQueueOpen && (
-            <DelayedSendQueuePanel
-              messages={delayedMessages}
-              busyId={delayedBusyId}
-              touchMode={touchMode}
-              onClose={() => {
-                setDelayedQueueOpen(false);
-                refocusComposer();
-              }}
-              onDelete={(id) => void withDelayedBusy(id, async () => {
-                await deleteDelayedMessage(id);
-              })}
-              onSendNow={(id) => void withDelayedBusy(id, async () => {
-                await sendDelayedMessageNow(id);
-              })}
-              onUpdate={(id, patch) => void withDelayedBusy(id, async () => {
-                await updateDelayedMessage(id, patch);
-              })}
-            />
-          )}
-        </div>
-      )}
       {contextSlot && createPortal(
         <ComposerContextHeader
           tabId={tabId}
           workspaceId={workspaceId}
           delayed={delayedMessages}
-          onEditDelayed={setEditingDelayed}
+          onEditDelayed={(message) => setDelayedModal({ kind: "edit", message })}
           onDeleteDelayed={(id) => void withDelayedBusy(id, async () => {
             await deleteDelayedMessage(id);
           })}
-          onScheduleDelayed={() => {
-            setScheduleOpen(true);
-            setDelayedQueueOpen(false);
-          }}
+          onScheduleDelayed={openScheduleModal}
         />,
         contextSlot,
       )}
-      {editingDelayed && (
+      {delayedModal?.kind === "create" && (
         <DelayedMessageModal
-          message={editingDelayed}
-          busy={delayedBusyId === editingDelayed.id}
-          onClose={() => {
-            setEditingDelayed(null);
-            refocusComposer();
-          }}
-          onDelete={() => {
-            const id = editingDelayed.id;
-            setEditingDelayed(null);
-            void withDelayedBusy(id, async () => {
-              await deleteDelayedMessage(id);
-            });
-          }}
-          onSave={(patch) => {
-            const id = editingDelayed.id;
-            setEditingDelayed(null);
-            void withDelayedBusy(id, async () => {
-              await updateDelayedMessage(id, patch);
-            });
-          }}
+          target={delayedModal}
+          busy={scheduleBusy}
+          onClose={closeDelayedModal}
+          onStash={(text) => void scheduleDraft(text, null)}
+          onSubmit={(patch) => void scheduleDraft(patch.text, patch.scheduledAtMs, patch.recurrence)}
         />
       )}
+      {delayedModal?.kind === "edit" && (() => {
+        const id = delayedModal.message.id;
+        return (
+          <DelayedMessageModal
+            key={id}
+            target={delayedModal}
+            busy={delayedBusyId === id}
+            onClose={closeDelayedModal}
+            onDelete={() => runOnDelayed(id, () => deleteDelayedMessage(id))}
+            onSendNow={() => runOnDelayed(id, () => sendDelayedMessageNow(id))}
+            onSubmit={(patch) => runOnDelayed(id, () => updateDelayedMessage(id, patch))}
+          />
+        );
+      })()}
       <ReceiverTargetMarks menu={pluginTabMenu} tabId={tabId} surface="composer" />
       <div className="mb-2 flex flex-wrap items-center gap-1 empty:hidden">
       <ComposerContextMeter tabId={tabId} />
@@ -582,23 +542,14 @@ function ChatComposerImpl({
         <ComposerActions
           onAttach={addAttachments}
           onSend={() => void send()}
-          onSchedule={() => {
-            setScheduleOpen((v) => !v);
-            setDelayedQueueOpen(false);
-          }}
+          onSchedule={openScheduleModal}
           onSendWithAttachments={(paths) => void send(paths)}
           onError={flagComposerError}
           sendDisabled={!input.trim() && attachments.length === 0 && !reply.reply}
           hasText={input.trim().length > 0 || attachments.length > 0 || reply.reply !== null}
           cardHeader={(reply.reply || attachments.length > 0) && <>
             {reply.reply && <ReplyQuote label={reply.reply.label} excerpt={reply.reply.excerpt} onRemove={() => { reply.clear(); refocusComposer(); }} />}
-            {attachments.length > 0 && <ComposerBubbleRow
-              attachments={attachments}
-              onRemove={removeAttachment}
-              queuedCount={0}
-              failedCount={0}
-              onOpenDelayedQueue={openDelayedQueue}
-            />}
+            {attachments.length > 0 && <ComposerBubbleRow attachments={attachments} onRemove={removeAttachment} />}
           </>}
         >
           <SlashPicker

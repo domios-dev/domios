@@ -1,4 +1,4 @@
-import { Clock3, Image as ImageIcon, Paperclip, X } from "lucide-react";
+import { Image as ImageIcon, Paperclip, X } from "lucide-react";
 
 export function AttachmentChip({ path, label, thumbnail, onRemove }: { path: string; label?: string; thumbnail?: string | null; onRemove: () => void }) {
   const name = label || path.split(/[\\/]/).pop() || path;
@@ -34,17 +34,11 @@ export function AttachmentChip({ path, label, thumbnail, onRemove }: { path: str
 export function ComposerBubbleRow({
   attachments,
   onRemove,
-  queuedCount,
-  failedCount,
-  onOpenDelayedQueue,
 }: {
   attachments: string[];
   onRemove: (path: string) => void;
-  queuedCount: number;
-  failedCount: number;
-  onOpenDelayedQueue: () => void;
 }) {
-  if (attachments.length === 0 && queuedCount === 0 && failedCount === 0) return null;
+  if (attachments.length === 0) return null;
   const visible = attachments.slice(0, 4);
   const overflow = attachments.length - visible.length;
   return (
@@ -67,28 +61,6 @@ export function ComposerBubbleRow({
         >
           and {overflow} more
         </span>
-      )}
-      {(queuedCount > 0 || failedCount > 0) && (
-        <button
-          type="button"
-          data-testid="delayed-send-bubble"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={onOpenDelayedQueue}
-          className="inline-flex h-7 items-center gap-1 rounded-full border px-2 text-xs font-mono hover:brightness-110"
-          style={{
-            background: failedCount > 0
-              ? "color-mix(in srgb, var(--ct-red, #f85149) 12%, transparent)"
-              : "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, transparent)",
-            borderColor: failedCount > 0
-              ? "color-mix(in srgb, var(--ct-red, #f85149) 34%, transparent)"
-              : "color-mix(in srgb, var(--ct-accent, #58a6ff) 30%, transparent)",
-            color: failedCount > 0 ? "var(--ct-red, #f85149)" : "var(--ct-muted-fg)",
-          }}
-          title="Queued messages"
-        >
-          <Clock3 size={12} />
-          <span>{queuedCount > 0 ? `${queuedCount} queued` : `${failedCount} failed`}</span>
-        </button>
       )}
     </div>
   );
