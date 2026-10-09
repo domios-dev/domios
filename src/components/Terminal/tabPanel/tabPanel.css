@@ -71,26 +71,6 @@
   padding: 14px 18px 28px;
 }
 
-.tab-panel__back {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 2px;
-  height: 26px;
-  padding: 0 10px 0 5px;
-  border: 1px solid var(--ct-border-subtle);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--ct-surface) 80%, transparent);
-  color: var(--ct-fg);
-  font-size: 0.75rem;
-  cursor: pointer;
-  transition: background-color var(--ct-duration-fast) var(--ct-ease-liquid-settle), border-color var(--ct-duration-fast) var(--ct-ease-liquid-settle);
-}
-.tab-panel__back:hover {
-  border-color: var(--ct-border-default);
-  background: var(--ct-hover);
-}
-
 .tab-panel__crumbs {
   display: flex;
   min-width: 0;
@@ -175,7 +155,6 @@
   font-size: 0.6875rem;
 }
 
-.tab-panel__back:focus-visible,
 .tab-panel__icon-action:focus-visible,
 .tab-panel__chat-action:focus-visible,
 .tab-panel__turn:focus-visible,

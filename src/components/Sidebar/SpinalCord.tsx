@@ -7,7 +7,7 @@ import { BusySpinner } from "../shared/BusyState";
 import { useSupporterResource } from "../Supporter/useSupporterResource";
 import { clampFloatingPosition } from "../shared/floatingPosition";
 
-const ASK_PROMPT = "Tell me about Domios's Spinal Cord: what it does for me day to day (memory recall that answers first, noticing stuck tabs, routing context between my agents), why it is worth turning on, and what connecting it takes. Keep it short and convincing, then offer to set it up for me yourself. If I say yes, connect it.";
+const ASK_PROMPT = "Tell me about Domios's Spinal Cord: what it does for me day to day (memory recall that answers first, noticing stuck tabs, routing context between my agents), why it is worth turning on, and what connecting it takes. Keep it short and convincing, then offer to set it up for me yourself. If I say yes, connect it. Answer in my native language, the one I usually write to you in.";
 
 const POPOVER_WIDTH = 304;
 
