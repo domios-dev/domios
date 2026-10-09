@@ -393,38 +393,43 @@ export function NewSessionPicker({
                   onInstallProvider={handleInstallProvider}
                 />
               ) : (
-                <OrchestrationPairForm
-                  providers={visibleProviders}
-                  values={{
-                    orchestratorProviderId: choice.orchestratorProviderId,
-                    orchestratorModelId: choice.orchestratorModelId ?? "",
-                    orchestratorEffortId: choice.orchestratorEffortId,
-                    plannerProviderId: choice.plannerProviderId,
-                    plannerModelId: choice.plannerModelId ?? "",
-                    plannerEffortId: choice.plannerEffortId,
-                  }}
-                  disabledProviderIds={disabledProviderIds}
-                  onChange={(values) => setChoice({
-                    mode: "pair",
-                    orchestratorProviderId: values.orchestratorProviderId,
-                    orchestratorModelId: values.orchestratorModelId || undefined,
-                    orchestratorEffortId: values.orchestratorEffortId,
-                    plannerProviderId: values.plannerProviderId,
-                    plannerModelId: values.plannerModelId || undefined,
-                    plannerEffortId: values.plannerEffortId,
-                  })}
-                  layout="team"
-                  pairAffordanceTestId="pair-affordance"
-                  roleTestIds={{
-                    orchestratorProvider: "picker-provider-orchestrator",
-                    orchestratorModel: "picker-model-orchestrator",
-                    orchestratorEffort: "picker-effort-orchestrator",
-                    plannerProvider: "picker-provider-planner",
-                    plannerModel: "picker-model-planner",
-                    plannerEffort: "picker-effort-planner",
-                  }}
-                  onInstallProvider={handleInstallProvider}
-                />
+                <>
+                  <p data-testid="picker-team-hint" className="mb-2.5 text-[12px] leading-snug text-[var(--ct-muted-fg)]">
+                    Tell the Orchestrator what you need. It plans and brings in the agents.
+                  </p>
+                  <OrchestrationPairForm
+                    providers={visibleProviders}
+                    values={{
+                      orchestratorProviderId: choice.orchestratorProviderId,
+                      orchestratorModelId: choice.orchestratorModelId ?? "",
+                      orchestratorEffortId: choice.orchestratorEffortId,
+                      plannerProviderId: choice.plannerProviderId,
+                      plannerModelId: choice.plannerModelId ?? "",
+                      plannerEffortId: choice.plannerEffortId,
+                    }}
+                    disabledProviderIds={disabledProviderIds}
+                    onChange={(values) => setChoice({
+                      mode: "pair",
+                      orchestratorProviderId: values.orchestratorProviderId,
+                      orchestratorModelId: values.orchestratorModelId || undefined,
+                      orchestratorEffortId: values.orchestratorEffortId,
+                      plannerProviderId: values.plannerProviderId,
+                      plannerModelId: values.plannerModelId || undefined,
+                      plannerEffortId: values.plannerEffortId,
+                    })}
+                    layout="team"
+                    pairAffordanceTestId="pair-affordance"
+                    roleTestIds={{
+                      orchestratorProvider: "picker-provider-orchestrator",
+                      orchestratorModel: "picker-model-orchestrator",
+                      orchestratorEffort: "picker-effort-orchestrator",
+                      plannerProvider: "picker-provider-planner",
+                      plannerModel: "picker-model-planner",
+                      plannerEffort: "picker-effort-planner",
+                    }}
+                    onInstallProvider={handleInstallProvider}
+                  />
+                </>
               )}
             </div>
           </div>
