@@ -137,6 +137,6 @@
   bottom: -3px;
   font-size: 7px;
   border-radius: 50%;
-  background: var(--ct-sidebar-bg, var(--ct-bg));
-  box-shadow: 0 0 0 1px var(--ct-sidebar-bg, var(--ct-bg));
+  background: var(--ct-bg);
+  box-shadow: 0 0 0 1px var(--ct-bg);
 }
