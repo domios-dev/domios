@@ -40,6 +40,13 @@ async function fetchTabHistory(tabId: string): Promise<string> {
   return "";
 }
 
+// A pending fetch keeps its call stack's closures alive; starting it from a microtask keeps the reader's terminal out of that stack.
+function readPtyChunk(ptyId: string): Promise<number[]> {
+  return new Promise((resolve, reject) => {
+    queueMicrotask(() => { invoke<number[]>("read_pty", { ptyId }).then(resolve, reject); });
+  });
+}
+
 export function shouldFetchInitialTerminalHistory(
   ptyId: string | null | undefined,
   isWeb: boolean,
@@ -344,7 +351,7 @@ export function usePtyConnection({
             if (readPaused) await Promise.race([waitForDrain(), readingStopped]);
             if (!reading || disposed) break;
 
-            const data = await Promise.race([invoke<number[]>("read_pty", { ptyId: predictedId }), readingStopped]);
+            const data = await Promise.race([readPtyChunk(predictedId), readingStopped]);
             if (!reading || disposed) break;
             transientRetryMs = TRANSIENT_RETRY_BASE_MS;
 
