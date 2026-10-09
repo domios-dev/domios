@@ -242,7 +242,7 @@ async function probe(fixture, n, observeOnly = false) {
 
 async function checkHealth() {
   const health = await api("/api/health");
-  if (health.instance?.api_port !== 7686 || health.instance?.name) throw new Error("Health does not identify default DEV 7686");
+  if (Number(health.instance?.api_port) !== 7686 || health.instance?.name) throw new Error("Health does not identify default DEV 7686");
   const head = await command(["-c", "git rev-parse HEAD"]);
   const build = health.build_sha ?? health.build;
   if (!build || !head.startsWith(build)) throw new Error(`DEV build ${build} does not match canonical HEAD ${head}; build once before the eval`);
