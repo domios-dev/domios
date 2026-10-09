@@ -96,11 +96,7 @@ impl ServiceContext {
         text: String,
     ) -> Result<serde_json::Value, String> {
         let job = self.sentinel_show(caller, id)?;
-        let input = job
-            .input()
-            .cloned()
-            .as_ref()
-            .ok_or("blueprint is not a text input stage")?;
+        let input = job.input().ok_or("blueprint is not a text input stage")?;
         if input.kind != codeterm_types::sentinel_input::MediaKind::Text
             || input.convert_to.is_some()
         {

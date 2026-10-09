@@ -1,4 +1,6 @@
-use codeterm_types::blueprint_journal::{JournalMarker, JournalReason, JournalState};
+use codeterm_types::blueprint_journal::{
+    JournalMarker, JournalOutcome, JournalReason, JournalState,
+};
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -507,7 +509,7 @@ fn run_pipeline(
                 body_ref.clone(),
             ),
             _ => super::routes::PipelineResultDelivery {
-                state: JournalState::Failed,
+                state: "failed",
                 reason: "unsupported_result_target",
                 body_ref: Some(body_ref.clone()),
             },

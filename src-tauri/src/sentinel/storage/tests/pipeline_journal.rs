@@ -1,8 +1,6 @@
 use super::*;
 use crate::storage::{BlueprintJournalWrite, SentinelId};
-use codeterm_types::blueprint_journal::{
-    JournalMarker, JournalOutcome, JournalReason, JournalState,
-};
+use codeterm_types::blueprint_journal::{JournalMarker, JournalState};
 use codeterm_types::blueprint_pipeline::{
     BlueprintOwner, BlueprintResult, BlueprintSpec, IoType, ResultTarget, Step, StepKind, Trigger,
 };

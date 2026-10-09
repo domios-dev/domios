@@ -294,7 +294,6 @@ fn add_pipeline_show(
     spec: &codeterm_types::blueprint_pipeline::BlueprintSpec,
     entries: &[crate::storage::BlueprintJournalEntry],
 ) {
-    use codeterm_types::blueprint_pipeline::StepKind;
     let latest_run = entries.first().map(|entry| entry.run_id.as_str());
     let run_entries = latest_run
         .map(|run_id| {
@@ -341,7 +340,7 @@ fn add_pipeline_show(
             let accepted = step.kind.outcomes().unwrap_or_default().into_iter().collect::<Vec<_>>();
             let outcome = run_entries.iter().find(|entry| {
                 entry.step_index == index as i64
-                    && entry.outcome.as_ref().is_some_and(|outcome| accepted.contains(outcome))
+                    && entry.outcome.as_ref().is_some_and(|outcome| accepted.iter().any(|value| value == outcome.as_str()))
             }).or_else(|| {
                 run_entries.iter().find(|entry| {
                     entry.step_index == index as i64

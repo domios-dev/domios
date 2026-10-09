@@ -652,7 +652,6 @@ pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
             .map(domain_handler)
             .collect(),
         escalation_timeout_ms: definition.escalation_timeout_ms,
-        pipeline,
         definition_version,
         amendments: record
             .amendments

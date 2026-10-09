@@ -47,7 +47,7 @@ fn definition(job: &Sentinel) -> Value {
             "name": job.name,
             "terminal": job.terminal().cloned(),
             "session": job.session,
-            "probe": if job.probe().is_empty() { None } else { Some(&job.probe()) },
+            "probe": if job.probe().is_empty() { None } else { Some(job.probe()) },
             "observe": job.observe().cloned(),
             "input": job.input().cloned(),
             "question": job.question,

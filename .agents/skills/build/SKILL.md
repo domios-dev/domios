@@ -410,6 +410,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| Blueprint integration reports E0412, E0308, E0560, E0716 or private journal validation | Journal imports, string transport outcomes, StageSource constructors and borrowed accessors drifted during the merge; validation was scoped only to its child module. | Import `JournalOutcome`, compare wire outcomes as strings, construct only `source`, borrow accessors directly and expose validation within `repositories::sentinel`; rerun `worktree-check` and the focused Blueprint selectors. |
 | Blueprint `check-tests` reports E0282 and a static reason lifetime error | Cleanup strings had an ambiguous inferred vector type; a dynamic detail string was passed as a static outcome code. | Type the vector as `Vec<String>` and pass `ProbeFailure`, retaining detailed `last_reason` and its static primary outcome code; rerun `check-tests`. |
 | Restoration integration fails with E0432/E0603 | Cross-crate request/result reexports were removed and the socket imported a private service module. | Export the two store types from task_attempts and route socket imports through the existing service facade; rerun `check-tests` before focused gates. |
 | `check-tests` reports E0505 in same-attempt binding restoration | The transaction borrowed `request.plan_id` while its closure consumed the request receipt. | Clone the transaction lookup ID before the closure; rerun `check-tests` and the focused plan/app restoration selectors. |
