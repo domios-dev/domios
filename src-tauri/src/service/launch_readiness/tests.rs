@@ -821,6 +821,16 @@ fn exit_after_readiness_is_never_auto_restarted() {
 /// also tears the tab's agent identity down, and the teardown clears the launch
 /// nonce. A settlement attempted afterwards can only be Superseded, so the
 /// settle must come first at every call site.
+fn lifecycle_identity_clear_source() -> &'static str {
+    include_str!("../tab/lifecycle_exit.rs")
+        .split("fn clear_tab_agent_identity_for_lifecycle_exit_during(")
+        .nth(1)
+        .unwrap()
+        .split("fn lifecycle_clear_has_inflight_launch(")
+        .next()
+        .unwrap()
+}
+
 #[test]
 fn launch_readiness_exit_settles_before_identity_teardown() {
     let tab = launching_tab("pty-teardown", "nonce-teardown");
@@ -848,7 +858,7 @@ fn launch_readiness_exit_settles_before_identity_teardown() {
             "clear_tab_agent_identity_after_exit_with_proof",
         ),
         (
-            include_str!("../tab/lifecycle_exit.rs"),
+            lifecycle_identity_clear_source(),
             "let finished = self.finish_agent_identity_clear",
         ),
     ] {
@@ -881,7 +891,7 @@ fn launch_readiness_failed_launch_is_published_after_identity_teardown() {
     assert!(crate::service::tab::clear_agent_identity_for_lifecycle_exit(&mut torn_down));
     assert_eq!(torn_down.boot_stage, Some(BootStage::ShellReady));
 
-    let tab_source = include_str!("../tab/lifecycle_exit.rs");
+    let tab_source = lifecycle_identity_clear_source();
     let clear = tab_source
         .find("let finished = self.finish_agent_identity_clear")
         .expect("the funnel clears identity");
