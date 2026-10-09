@@ -157,6 +157,12 @@ pub enum LifecycleTransition {
     },
     /// Seals the operation. Only a sealed operation yields a checkpoint.
     LaunchReady,
+    ConversationStarted {
+        session_id: String,
+    },
+    EmptySessionReplaced {
+        session_id: String,
+    },
     RestartRequested,
     /// Launch target provenance only; recovery must verify existence and bind a new nonce.
     ResumeTargetRecorded {
@@ -227,6 +233,8 @@ impl LifecycleTransition {
             Self::RoleBinding { .. } => "role_binding",
             Self::TeamBinding { .. } => "team_binding",
             Self::LaunchReady => "launch_ready",
+            Self::ConversationStarted { .. } => "conversation_started",
+            Self::EmptySessionReplaced { .. } => "empty_session_replaced",
             Self::RestartRequested => "restart_requested",
             Self::ResumeTargetRecorded { .. } => "resume_target_recorded",
             Self::RestoreAwaitingAgentRestart { .. } => "restore_awaiting_agent_restart",

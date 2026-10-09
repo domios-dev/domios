@@ -163,6 +163,12 @@ pub(crate) fn restored_fresh_launch_input(
     mut launch_parameters: crate::multiplexer::types::RestorableLaunchParameters,
 ) -> RestoredFreshLaunchInput {
     let legacy_snapshot = !launch_parameters.captured;
+    if launch_parameters.captured {
+        params.skip_permissions = Some(
+            launch_parameters.permission_bypass_requested
+                && params.permission_bypass_authorization.is_some(),
+        );
+    }
     params.context_files = launch_parameters.context_files.clone();
     params.context_skills = launch_parameters.context_skills.clone();
     params.task = None;

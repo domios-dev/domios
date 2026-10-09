@@ -19,8 +19,8 @@ use std::sync::Arc;
 mod deferred_first_turn;
 mod turn_window;
 
-pub(crate) use turn_window::{window_has_foreign_user_turn, window_user_turns};
 use turn_window::{structured_user_turns, StructuredUserTurn};
+pub(crate) use turn_window::{window_has_foreign_user_turn, window_user_turns};
 
 #[cfg(test)]
 #[path = "chat_send_evidence/deferred_first_turn_tests.rs"]
@@ -410,6 +410,12 @@ impl ServiceContext {
             &self.chat_send_ledger,
             tab_id,
             |status| {
+                let session_id = self
+                    .chat_send_ledger
+                    .evidence_session_for_send(&status.send_id);
+                if let Some(session_id) = session_id {
+                    self.note_session_conversation(tab_id, &session_id);
+                }
                 log::info!(
                     "[chat-send] send_id={} tab={} confirmed by persisted session turn evidence",
                     status.send_id,
@@ -419,6 +425,7 @@ impl ServiceContext {
             },
         );
         for (status, session_id) in deferred_first_turn::reconcile(self, tab_id) {
+            self.note_session_conversation(tab_id, &session_id);
             log::info!(
                 "[chat-send] send_id={} tab={} session={} confirmed by persisted session turn evidence",
                 status.send_id,
@@ -434,6 +441,7 @@ impl ServiceContext {
         let tab_id = tab_id.to_string();
         if let Err(error) = tokio::task::spawn_blocking(move || {
             service.reconcile_chat_send_evidence(&tab_id);
+            service.record_provider_conversation(&tab_id);
         })
         .await
         {
