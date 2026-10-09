@@ -5,13 +5,11 @@ import { IS_WEB } from "../../lib/webApi";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer";
-import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
-import type { AppConfig, CronJob } from "../../lib/types";
+import type { AppConfig, CronJob, Tab } from "../../lib/types";
 import { anchorsTeam } from "../../lib/roleKind";
-import { TerminalIcon, FolderIcon, FolderPlusIcon, ExtensionsIcon } from "../Icons";
-import { AgentIcon } from "../AgentIcon";
+import { ExtensionsIcon } from "../Icons";
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { SidebarDisclosure } from "./SidebarDisclosure";
@@ -36,6 +34,7 @@ import { GeneralWorkspaceTabs } from "./GeneralWorkspaceTabs";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { JobsOpenScope } from "../Jobs/jobsLayout";
 import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
+import { SidebarCompactRail, type CompactRailGroup } from "./SidebarCompactRail";
 import { loadSelectedWorkspaceId, persistSelectedWorkspaceId } from "./workspaceCardMetadata";
 import type { SidebarTeamActions } from "./TeamUnit";
 import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
@@ -79,6 +78,9 @@ export function toggleWorkspacesSectionExpanded(expanded: boolean): boolean {
 
 /** Stable target for the collapse handle's aria-controls — the sidebar is a singleton region. */
 export const SIDEBAR_REGION_ID = "codeterm-sidebar";
+const SIDEBAR_COMPACT_WIDTH = 64;
+const SIDEBAR_COMPACT_SNAP = 210;
+const SIDEBAR_COLLAPSE_BELOW = 40;
 
 interface SidebarProps {
   onCollapse?: () => void;
@@ -373,9 +375,24 @@ export function Sidebar({
   const sidebarDragging = useRef(false);
   const sidebarMoved = useRef(false);
   const collapseOnRelease = useRef(false);
+  const [peeking, setPeeking] = useState(false);
+  const peekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdPeek = useCallback(() => {
+    if (peekTimer.current) clearTimeout(peekTimer.current);
+    peekTimer.current = null;
+    setPeeking(true);
+  }, []);
+  const releasePeek = useCallback(() => {
+    if (peekTimer.current) clearTimeout(peekTimer.current);
+    peekTimer.current = setTimeout(() => setPeeking(false), 220);
+  }, []);
+  useEffect(() => () => {
+    if (peekTimer.current) clearTimeout(peekTimer.current);
+  }, []);
 
   const handleSidebarDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
+    setPeeking(false);
     sidebarDragging.current = true;
     sidebarMoved.current = false;
     collapseOnRelease.current = false;
@@ -392,8 +409,9 @@ export function Sidebar({
         sidebarMoved.current = true;
       }
       const baseWidth = startCollapsed ? lastExpandedWidth.current : startWidth;
-      const newWidth = Math.max(48, Math.min(400, baseWidth + delta));
-      if (newWidth <= 56) {
+      const raw = baseWidth + delta;
+      const newWidth = raw < SIDEBAR_COMPACT_SNAP ? SIDEBAR_COMPACT_WIDTH : Math.min(400, raw);
+      if (raw <= SIDEBAR_COLLAPSE_BELOW) {
         collapseOnRelease.current = true;
         setIsSidebarCollapsed(true);
         return;
@@ -447,6 +465,8 @@ export function Sidebar({
       ? `min(85vw, ${scaledTouchSidebarWidth}px)`
       : sidebarWidth;
   const isCompact = !touchMode && !isSidebarCollapsed && sidebarWidth < 100;
+  const isPeeking = isSidebarCollapsed && peeking && !touchMode;
+  const peekWidth = sidebarWidth >= SIDEBAR_COMPACT_SNAP ? sidebarWidth : 240;
   const prevTabIdsRef = useRef<Set<string>>(new Set());
   const [appearingTabs, setAppearingTabs] = useState<Set<string>>(new Set());
   const [closingTabs, setClosingTabs] = useState<Map<string, { wsId: string }>>(new Map());
@@ -675,6 +695,20 @@ export function Sidebar({
     () => ({ reorderTabs, reorderWorkspaces }),
     [reorderTabs, reorderWorkspaces],
   );
+  const compactGroups = useMemo<CompactRailGroup[]>(() => {
+    if (!isCompact) return [];
+    const railGroup = (workspaceId: string, label: string, tabIds: readonly string[], keep: (tab: Tab) => boolean): CompactRailGroup => {
+      const workspaceActive = workspaceId === state.active_workspace_id && isWorkspaceMode;
+      const tabs = tabsInWorkspace(tabIds, state.tabs).filter((tab) => isSidebarTabVisible(tab) && !tab.parent_tab_id && keep(tab));
+      const active = tabs.find((tab) => isWorkspaceTabActive(workspaceActive, workspaceCanvasActive, tab.id, state.activeTabIds[workspaceId]));
+      return { workspaceId, label, tabs, activeTabId: active?.id ?? null };
+    };
+    const groups: CompactRailGroup[] = [];
+    if (generalWorkspace) groups.push(railGroup(generalWorkspace.id, generalWorkspace.name, generalWorkspace.tabs, (tab) => Boolean(tab.agent_type)));
+    const selected = ordinaryWorkspaces.find((workspace) => workspace.id === selectedWorkspaceId);
+    if (selected) groups.push(railGroup(selected.id, selected.name, selected.tabs, (tab) => anchorsTeam(tab)));
+    return groups;
+  }, [generalWorkspace, isCompact, isWorkspaceMode, ordinaryWorkspaces, selectedWorkspaceId, state.activeTabIds, state.active_workspace_id, state.tabs, workspaceCanvasActive]);
 
   return (
     <>
@@ -691,13 +725,26 @@ export function Sidebar({
           aria-label="Sidebar"
           data-testid="sidebar"
           data-touch-mode={touchMode ? "true" : "false"}
-          data-collapsed={isSidebarCollapsed ? "true" : "false"}
+          data-collapsed={isSidebarCollapsed && !isPeeking ? "true" : "false"}
+          data-peek={isPeeking || undefined}
           className="ct-sidebar-panel shrink-0 h-full min-h-0 flex flex-col select-none overflow-x-hidden overflow-y-hidden relative"
-          style={{ width: "100%" }}
+          style={isPeeking ? { width: "100%", "--ct-sidebar-peek-width": `${peekWidth}px` } as React.CSSProperties : { width: "100%" }}
+          onMouseEnter={isPeeking ? holdPeek : undefined}
+          onMouseLeave={isPeeking ? releasePeek : undefined}
         >
-          {!isSidebarCollapsed && (
+          {(!isSidebarCollapsed || isPeeking) && (
             <>
             <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
+              {isCompact && (
+                <SidebarCompactRail
+                  groups={compactGroups}
+                  tabStatuses={state.tabStatuses}
+                  onActivate={(workspaceId, tabId) => {
+                    setActiveTab(workspaceId, tabId);
+                    onNavigateToTab?.();
+                  }}
+                />
+              )}
               {!isCompact && generalWorkspace && (() => {
                 const generalExpanded = expandedWorkspaces.has(generalWorkspace.id);
                 const generalActive = generalWorkspace.id === state.active_workspace_id && isWorkspaceMode;
@@ -760,80 +807,19 @@ export function Sidebar({
                   </section>
                 );
               })()}
-              <div className="sidebar-structural-section">
-                <div className={`sidebar-structural-header ${isCompact ? "justify-center" : ""}`}>
-                  {!isCompact && <SidebarDisclosure
+              {!isCompact && <div className="sidebar-structural-section">
+                <div className="sidebar-structural-header">
+                  <SidebarDisclosure
                     data-testid="workspaces-section-toggle"
                     className="sidebar-structural-toggle"
                     expanded={workspacesSectionExpanded}
                     onClick={toggleWorkspacesSection}
                   >
                     <span className="sidebar-structural-label">WORKSPACES</span>
-                  </SidebarDisclosure>}
-                  <div className="sidebar-structural-action">
-                    {isCompact && (
-                      <button onClick={handleNewWorkspace} className="sidebar-new-workspace" title="New workspace" aria-label="Create workspace">
-                        <FolderPlusIcon size={12} />
-                      </button>
-                    )}
-                  </div>
+                  </SidebarDisclosure>
+                  <div className="sidebar-structural-action" />
                 </div>
-                {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (isCompact ? (
-                  <div className="flex flex-col items-center py-1">
-                    {ordinaryWorkspaces.map((ws) => {
-                      const isActive = ws.id === state.active_workspace_id;
-                      const isActiveVisual = isActive && isWorkspaceMode;
-                      const isExpanded = expandedWorkspaces.has(ws.id);
-                      return (
-                        <div key={ws.id} className="w-full flex flex-col items-center">
-                          <button
-                            onClick={() => { setActiveWorkspace(ws.id); toggleExpanded(ws.id); onNavigateToTab?.(); }}
-                            className={`w-full py-1.5 flex items-center justify-center transition-colors ${
-                              isActiveVisual ? "text-[var(--ct-fg)]" : "text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)]"
-                            }`}
-                            aria-label={`Workspace ${ws.name}`}
-                            aria-expanded={isExpanded}
-                            title={ws.name}
-                          >
-                            <FolderIcon size={12} open={isExpanded} className={isExpanded ? "opacity-70" : "opacity-40"} />
-                          </button>
-                          {isExpanded && (
-                            <>
-                              {flattenSidebarTabs(ws.tabs, state.tabs).map((tab) => {
-                            const isTabActive = isWorkspaceTabActive(
-                              isActiveVisual,
-                              workspaceCanvasActive,
-                              tab.id,
-                              state.activeTabIds[ws.id],
-                            );
-                            return (
-                              <button
-                                key={tab.id}
-                                onClick={() => { setActiveTab(ws.id, tab.id); onNavigateToTab?.(); }}
-                                className={`w-8 h-7 flex items-center justify-center rounded transition-colors ${
-                                  isTabActive
-                                    ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                                    : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)]"
-                                }`}
-                                aria-label={`Open tab ${displayTitleForTab(tab)}`}
-                                title={displayTitleForTab(tab)}
-                              >
-                                {tab?.agent_type ? (
-                                  <AgentIcon providerId={tab.agent_type} className="text-[12px]" />
-                                ) : (
-                                  <TerminalIcon size={11} />
-                                )}
-                              </button>
-                            );
-                              })}
-                            </>
-                          )}
-                          <div className="w-5 h-px bg-[var(--ct-border)] my-0.5" />
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
+                {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (
                   <SidebarDnd handlers={dndHandlers}>
                     <WorkspaceCardGrid
                       workspaces={ordinaryWorkspaces}
@@ -929,8 +915,8 @@ export function Sidebar({
                       );
                     })}
                   </SidebarDnd>
-                ))}
-              </div>
+                )}
+              </div>}
             </div>
             {remotePickerWorkspaceId && (
               <RemoteTabPicker
@@ -1042,6 +1028,8 @@ export function Sidebar({
         aria-expanded={!isSidebarCollapsed}
         onMouseDown={handleSidebarDragStart}
         onClick={handleSidebarGrabClick}
+        onMouseEnter={isSidebarCollapsed ? holdPeek : undefined}
+        onMouseLeave={isSidebarCollapsed ? releasePeek : undefined}
         className={`ct-sidebar-grip shell-narrow:hidden ${isSidebarCollapsed ? "ct-sidebar-grip--collapsed" : ""}`}
         title={isSidebarCollapsed ? "Expand sidebar" : "Resize sidebar; click to collapse"}
       />
