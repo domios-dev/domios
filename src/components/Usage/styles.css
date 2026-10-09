@@ -93,7 +93,6 @@
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
-
 .ct-usage-bubble.is-open {
   background: color-mix(in srgb, var(--u-bg-elev) 92%, transparent);
 }
@@ -418,14 +417,25 @@
   font-weight: 600;
   letter-spacing: 0.02em;
   box-shadow: 0 0 12px color-mix(in srgb, var(--u-danger) 35%, transparent);
-  animation: ct-usage-overshoot-pulse 1.8s ease-in-out infinite;
+
   pointer-events: none;
   white-space: nowrap;
 }
 .ct-usage-gauge .overshoot svg { width: 9px; height: 9px; flex: 0 0 auto; }
+.ct-usage-gauge .overshoot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--u-danger) 55%, transparent);
+  animation: ct-usage-overshoot-pulse 1.8s ease-in-out infinite;
+}
 @keyframes ct-usage-overshoot-pulse {
-  0%, 100% { box-shadow: 0 0 8px color-mix(in srgb, var(--u-danger) 25%, transparent); }
-  50% { box-shadow: 0 0 14px color-mix(in srgb, var(--u-danger) 55%, transparent); }
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ct-usage-gauge .overshoot::after { animation: none; opacity: 0.45; }
 }
 
 /* ---------- Mark tooltip (portal-rendered) ---------- */
@@ -535,13 +545,9 @@
   height: 6px;
   border-radius: 99px;
   background: var(--ct-green, #34d399);
-  animation: ct-usage-pulse 1.8s ease-out infinite;
+
 }
-@keyframes ct-usage-pulse {
-  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ct-green, #34d399) 60%, transparent); }
-  70% { box-shadow: 0 0 0 6px transparent; }
-  100% { box-shadow: 0 0 0 0 transparent; }
-}
+
 .ct-usage-foot .link {
   display: inline-flex;
   align-items: center;

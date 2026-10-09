@@ -293,8 +293,8 @@
   height: 7px;
   border-radius: 50%;
   background: var(--ct-green);
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--ct-green) 50%, transparent);
-  animation: ct-spinal-beat 1.8s var(--ct-ease-liquid-settle) infinite;
+
+  --ct-live-pulse-easing: var(--ct-ease-liquid-settle);
 }
 
 .ct-spinal-pop__feed {
@@ -315,11 +315,6 @@
   text-transform: uppercase;
 }
 
-@keyframes ct-spinal-beat {
-  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ct-green) 50%, transparent); }
-  70% { box-shadow: 0 0 0 7px transparent; }
-  100% { box-shadow: 0 0 0 0 transparent; }
-}
 
 .ct-spinal-pop__nudge {
   margin: 0 2px 10px;

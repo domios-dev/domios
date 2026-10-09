@@ -154,7 +154,7 @@ export function SpinalCordButton({ api }: { api: ApiConfig | undefined }) {
           {connected && api ? (
             <>
               <SupporterAllowanceRow api={api} />
-              <p className="ct-spinal-pop__pulse"><span className="ct-spinal-pop__beat" aria-hidden="true" />Live · {data?.calls_last_day ?? 0} reflexes today</p>
+              <p className="ct-spinal-pop__pulse"><span className="ct-spinal-pop__beat ct-live-pulse" aria-hidden="true" />Live · {data?.calls_last_day ?? 0} reflexes today</p>
               <div className="ct-spinal-pop__feed">
                 <h3>Recent reflexes</h3>
                 <ActivityFeed api={api} embedded />
