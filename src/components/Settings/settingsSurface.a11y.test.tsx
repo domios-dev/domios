@@ -17,12 +17,12 @@ const PAGE_REGION = /<div role="region" aria-labelledby="([^"]*)"/;
 const CARD_GROUP = /aria-labelledby="([^"]*)"/;
 
 function openingTag(html: string): string {
-  return html.match(/<div[^>]*>/)?.[0] ?? "";
+  return html.match(/<[a-z]+\b[^>]*>/)?.[0] ?? "";
 }
 
 function page(title: string): string {
   return renderToStaticMarkup(
-    <SettingsPage title={title} subtitle="subtitle">
+    <SettingsPage title={title}>
       <span>body</span>
     </SettingsPage>,
   );

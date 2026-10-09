@@ -260,7 +260,7 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
   );
 
   return (
-    <SettingsPage title="Memory" subtitle="Extraction, dreaming, and file sync.">
+    <SettingsPage title="Memory">
       <SettingsCard
         icon={<Cog size={16} />}
         title="Extraction"

@@ -3,7 +3,6 @@ import { ExternalLink } from "lucide-react";
 import { KebabGlyph } from "../shared/RowMenuButton";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { Button } from "../shared/Button";
-import { UI_INPUT } from "../shared/design";
 import { AboutLink, SettingsPill } from "./shared";
 import { SupporterTokenField } from "./SupporterTokenField";
 import type { SupporterControls, SupporterConnection } from "./useDecisionToken";
@@ -172,7 +171,7 @@ export function SupporterConnectionRow({ row, controls, stale, unavailableReason
             id={`supporter-model-${row.adapter}`}
             aria-label={`Model for ${name}`}
             value={row.model ?? ""}
-            className={`${UI_INPUT.compact} h-7 max-w-52 min-w-28`}
+            className="ct-field max-w-52 min-w-28"
             disabled={disabled || controls.catalogFailed || !options.length}
             onChange={(event) => void controls.selectModel(row.adapter, event.target.value)}
           >

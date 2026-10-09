@@ -2,19 +2,15 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "../../lib/bridge";
 import type { AppConfig, Tab, Team } from "../../lib/types";
 import {
-  ChevronLeft,
   ChevronRight,
   ExternalLink,
   Palette,
-  Type,
   MousePointer,
-  ScrollText,
-  Mouse,
   Power,
   Keyboard,
   Info,
-  X,
 } from "lucide-react";
+import { BackPill } from "../shared/BackPill";
 
 import logoUrl from "../../assets/logo.png";
 import { Toggle, InfoRow, AboutLink, SettingsPage, SettingsCard } from "./shared";
@@ -44,7 +40,6 @@ import {
   type SettingsCardAnchorId,
   type SettingsLinkId,
 } from "./sections";
-import { UI_PANEL } from "../shared/design";
 
 interface SettingsPanelProps {
   config: AppConfig;
@@ -183,101 +178,54 @@ export function SettingsPanel({
       data-testid="settings-panel"
     >
       <div className="absolute inset-0 flex flex-col pt-[var(--ct-safe-top,0px)] pb-[var(--ct-safe-bottom,0px)]">
-        {/* Subtle dot grid background */}
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            backgroundImage: "radial-gradient(var(--ct-border) 1px, transparent 1px)",
-            backgroundSize: "20px 20px",
-            opacity: 0.3,
-          }}
-        />
-        {/* Header — back only for deep nav (provider → section); the section grid
-            is reached from the titlebar menu, so its "back" is a close instead. */}
-        <div className={`${UI_PANEL.toolbar} z-10 relative ${jobsPage ? "hidden" : ""}`}>
-          <div className="flex min-w-0 flex-1 items-center">
-            {parentSection && (
-              <button
-                data-testid="settings-back"
-                onClick={pop}
-                className="-ml-1 flex items-center gap-0.5 pr-2 text-[var(--ct-accent)] transition-opacity active:opacity-60"
-                title="Back"
-              >
-                <ChevronLeft size={19} strokeWidth={2.4} className="shrink-0" />
-                <span className="truncate text-sm">{sectionTitle(parentSection.id)}</span>
-              </button>
-            )}
-          </div>
-          <h2 id={SETTINGS_TITLE_ID} className="pointer-events-none absolute left-1/2 max-w-[55%] -translate-x-1/2 truncate text-center text-sm font-semibold text-[var(--ct-fg)]" data-testid="settings-header-title">
+        <div className={`ct-jobs-header ct-settings-head ${jobsPage ? "hidden" : ""}`}>
+          {parentSection
+            ? <BackPill label={sectionTitle(parentSection.id)} onBack={pop} testId="settings-back" />
+            : <BackPill ariaLabel="Close settings" onBack={onClose} testId="settings-close" />}
+          <h2 id={SETTINGS_TITLE_ID} className="ct-settings-head__title" data-testid="settings-header-title">
             {headerTitle}
           </h2>
-          <button
-            data-testid="settings-close"
-            onClick={onClose}
-            title="Close settings (Esc)"
-            aria-label="Close settings"
-            className="-mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--ct-muted)] transition-colors hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-          >
-            <X size={18} strokeWidth={2.2} />
-          </button>
         </div>
 
         {/* Body */}
         <div className="flex flex-1 min-h-0 relative z-10">
           <div className="flex-1 overflow-y-auto px-5 py-5" data-testid="settings-body">
             {top.kind === "root" && (
-              <div className="min-h-full flex items-center justify-center">
-                <div
-                  role="navigation"
-                  aria-label="Settings sections"
-                  className="w-full max-w-3xl grid grid-cols-1 sm:grid-cols-2 gap-3"
-                >
-                  {SETTINGS_SECTIONS.map((s) => {
-                    const Icon = SECTION_ICONS[s.id];
-                    return (
-                      <button
-                        key={s.id}
-                        data-testid={`settings-section-${s.id}`}
-                        onClick={() => push({ kind: "section", id: s.id })}
-                        className="flex items-start gap-3 p-4 rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 hover:bg-[var(--ct-hover)] hover:border-[var(--ct-accent)]/50 transition-colors text-left"
-                      >
-                        <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[var(--ct-accent)]/15 text-[var(--ct-accent)] shrink-0">
-                          <Icon size={18} strokeWidth={2} />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-[13px] font-medium text-[var(--ct-fg)]">{s.label}</div>
-                          <div className="text-[11px] text-[var(--ct-muted-fg)] mt-0.5 line-clamp-2">{s.desc}</div>
-                        </div>
-                        <ChevronRight size={14} className="shrink-0 text-[var(--ct-muted)] mt-1" />
-                      </button>
-                    );
-                  })}
-                </div>
+              <div role="navigation" aria-label="Settings sections" className="ct-settings-nav">
+                {SETTINGS_SECTIONS.map((s) => {
+                  const Icon = SECTION_ICONS[s.id];
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      data-testid={`settings-section-${s.id}`}
+                      onClick={() => push({ kind: "section", id: s.id })}
+                      className="ct-card ct-settings-nav__item"
+                    >
+                      <span className="ct-settings-card__icon" aria-hidden="true"><Icon size={16} strokeWidth={2} /></span>
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <span className="ct-settings-nav__label">{s.label}</span>
+                        <span className="ct-settings-nav__desc">{s.desc}</span>
+                      </span>
+                      <ChevronRight size={14} aria-hidden="true" className="ct-settings-nav__chevron" />
+                    </button>
+                  );
+                })}
               </div>
             )}
 
             {top.kind === "section" && top.id === "general" && (
-              <SettingsPage
-                title="General"
-                subtitle="General Agent, messengers, theme, fonts, cursor, behavior, and keybindings."
-              >
+              <SettingsPage title="General">
                 <ShellDiagnosticsBanner onDismissSettings={onClose} />
 
-                <ShellProfilesCard config={localConfig} onUpdate={update} />
-                <GeneralAgentCard config={localConfig} onUpdate={update} />
-
-                <SettingsCardAnchor id="telegram-bridge" focused={top.card === "telegram-bridge"}>
-                  <MessengersCard config={localConfig} onUpdate={update} />
-                </SettingsCardAnchor>
-
-                <SettingsCard icon={<Palette size={16} />} title="Color Theme">
-                  <label className="block">
-                    <span className="block text-xs text-[var(--ct-muted-fg)] mb-1">Theme</span>
+                <SettingsCard icon={<Palette size={16} />} title="Appearance">
+                  <label className="ct-settings-toggle">
+                    <span>Theme</span>
                     <select
                       data-testid="settings-theme-select"
                       value={localConfig.theme.name}
                       onChange={(e) => update("theme", { name: e.target.value })}
-                      className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+                      className="ct-field w-56"
                     >
                       <optgroup label="Built-in">
                         {themes.filter(t => builtinThemes.includes(t)).map((t) => (
@@ -316,46 +264,42 @@ export function SettingsPanel({
                     </div>
                     {themesDir && (
                       <button
+                        type="button"
                         data-testid="settings-open-themes-folder"
                         onClick={() => invoke("open_folder", { path: themesDir })}
-                        className="text-[10px] text-[var(--ct-accent)] hover:underline shrink-0"
+                        className="ct-bar-pill ct-settings-link"
                         title={`Open ${themesDir}`}
                       >
-                        Open themes folder
+                        Themes folder
                       </button>
                     )}
-                  </div>
-                  {!builtinThemes.includes(localConfig.theme.name) && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-[var(--ct-muted-fg)]">Custom theme</span>
+                    {!builtinThemes.includes(localConfig.theme.name) && (
                       <button
+                        type="button"
                         data-testid="settings-delete-custom-theme"
                         onClick={async () => {
                           await invoke("delete_custom_theme", { themeId: localConfig.theme.name });
                           update("theme", { name: "github-dark" });
                           refreshThemes();
                         }}
-                        className="text-[10px] text-[var(--ct-red)] hover:underline"
+                        className="ct-bar-pill ct-settings-link text-[var(--ct-red)]"
                       >
-                        Delete
+                        Delete custom theme
                       </button>
-                    </div>
-                  )}
-                </SettingsCard>
-
-                <SettingsCard icon={<Type size={16} />} title="Font">
-                  <label className="block">
-                    <span className="block text-xs text-[var(--ct-muted-fg)] mb-1">Font family</span>
+                    )}
+                  </div>
+                  <label className="ct-settings-toggle">
+                    <span>Font</span>
                     <input
                       type="text"
                       data-testid="settings-font-family-input"
                       value={localConfig.font.family}
                       onChange={(e) => update("font", { family: e.target.value })}
-                      className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+                      className="ct-field w-56"
                     />
                   </label>
-                  <label className="block">
-                    <span className="block text-xs text-[var(--ct-muted-fg)] mb-1">{`Size: ${localConfig.font.size}px`}</span>
+                  <label className="ct-settings-toggle">
+                    <span>{`Size ${localConfig.font.size}px`}</span>
                     <input
                       type="range"
                       data-testid="settings-font-size-input"
@@ -363,7 +307,7 @@ export function SettingsPanel({
                       max={28}
                       value={localConfig.font.size}
                       onChange={(e) => update("font", { size: parseInt(e.target.value, 10) })}
-                      className="w-full accent-[var(--ct-accent)]"
+                      className="w-56 accent-[var(--ct-accent)]"
                     />
                   </label>
                   <Toggle
@@ -373,14 +317,22 @@ export function SettingsPanel({
                   />
                 </SettingsCard>
 
-                <SettingsCard icon={<MousePointer size={16} />} title="Cursor">
-                  <label className="block">
-                    <span className="block text-xs text-[var(--ct-muted-fg)] mb-1">Style</span>
+                <GeneralAgentCard config={localConfig} onUpdate={update} />
+
+                <SettingsCardAnchor id="telegram-bridge" focused={top.card === "telegram-bridge"}>
+                  <MessengersCard config={localConfig} onUpdate={update} />
+                </SettingsCardAnchor>
+
+                <ShellProfilesCard config={localConfig} onUpdate={update} />
+
+                <SettingsCard icon={<MousePointer size={16} />} title="Terminal">
+                  <label className="ct-settings-toggle">
+                    <span>Cursor</span>
                     <select
                       data-testid="settings-cursor-style-select"
                       value={localConfig.terminal.cursor_style}
                       onChange={(e) => update("terminal", { cursor_style: e.target.value })}
-                      className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+                      className="ct-field w-56"
                     >
                       <option value="block">Block</option>
                       <option value="underline">Underline</option>
@@ -388,15 +340,12 @@ export function SettingsPanel({
                     </select>
                   </label>
                   <Toggle
-                    label="Blink"
+                    label="Blinking cursor"
                     checked={localConfig.terminal.cursor_blink}
                     onChange={(v) => update("terminal", { cursor_blink: v })}
                   />
-                </SettingsCard>
-
-                <SettingsCard icon={<ScrollText size={16} />} title="Scrollback">
-                  <label className="block">
-                    <span className="block text-xs text-[var(--ct-muted-fg)] mb-1">{`Buffer: ${localConfig.terminal.scrollback.toLocaleString()} lines`}</span>
+                  <label className="ct-settings-toggle">
+                    <span>{`Scrollback ${localConfig.terminal.scrollback.toLocaleString()} lines`}</span>
                     <input
                       type="range"
                       data-testid="settings-scrollback-input"
@@ -405,12 +354,9 @@ export function SettingsPanel({
                       step={1000}
                       value={localConfig.terminal.scrollback}
                       onChange={(e) => update("terminal", { scrollback: parseInt(e.target.value, 10) })}
-                      className="w-full accent-[var(--ct-accent)]"
+                      className="w-56 accent-[var(--ct-accent)]"
                     />
                   </label>
-                </SettingsCard>
-
-                <SettingsCard icon={<Mouse size={16} />} title="Behavior">
                   <Toggle
                     label="Copy on select"
                     checked={localConfig.terminal.copy_on_select}
@@ -421,7 +367,7 @@ export function SettingsPanel({
                 <SettingsCard
                   icon={<Power size={16} />}
                   title="Startup"
-                  description="Adds Domios to the OS login items so the daemon, mesh, and crons resume without you opening the app manually."
+                  description="Resume the daemon, mesh and crons without opening the app."
                 >
                   <Toggle
                     label="Launch Domios on system start"
@@ -446,7 +392,7 @@ export function SettingsPanel({
             )}
 
             {top.kind === "section" && top.id === "notifications" && (
-              <SettingsPage title="Notifications" subtitle="The bell, desktop alerts, sound, and where each level may go.">
+              <SettingsPage title="Notifications">
                 <NotificationsOverview
                   config={localConfig}
                   onUpdate={(section, patch) => update(section, patch)}
@@ -456,7 +402,7 @@ export function SettingsPanel({
             )}
 
             {top.kind === "section" && top.id === "agents" && (
-              <SettingsPage title="Agents" subtitle="General Agent, agent access, and per-provider configuration.">
+              <SettingsPage title="Agents">
                 <AgentsOverview
                   config={localConfig}
                   onUpdate={(section, patch) => update(section, patch)}
@@ -479,7 +425,7 @@ export function SettingsPanel({
             )}
 
             {top.kind === "section" && top.id === "secrets" && (
-              <SettingsPage title="Secrets" subtitle="Pluggable secret store for the codeterm mem secret commands.">
+              <SettingsPage title="Secrets">
                 <SecretsTab
                   config={localConfig}
                   onUpdate={(section, patch) => update(section, patch)}

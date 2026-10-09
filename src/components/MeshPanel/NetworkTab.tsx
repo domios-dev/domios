@@ -38,10 +38,7 @@ export function NetworkTab({ data, triggerRefresh }: Props) {
   return (
     <div className="h-full overflow-y-auto">
       <div className="p-6">
-        <SettingsPage
-          title="Connect your machines"
-          subtitle="Discover, pair, and share workspaces across devices on your network or Tailscale."
-        >
+        <SettingsPage title="Connect your machines">
           <SettingsCard
             icon={<Radio size={16} />}
             title="Broadcast presence"
