@@ -331,13 +331,13 @@ function SectionRelations({ section, ctx }: { section: Section; ctx?: RelationCo
   const sectionLinks = ctx.variant === "plan"
     ? specLinks.filter((link) => link.plan_section_id === section.id).map((link) => ({
       id: link.spec_section_id,
-      label: specTitles.get(link.spec_section_id) ?? link.spec_section_id,
+      label: specTitles.get(link.spec_section_id) ?? "linked section",
       variant: "spec" as const,
       testId: "canvas-detail-spec-section-chip",
     }))
     : specLinks.filter((link) => link.spec_section_id === section.id).map((link) => ({
       id: link.plan_section_id,
-      label: planTitles.get(link.plan_section_id) ?? link.plan_section_id,
+      label: planTitles.get(link.plan_section_id) ?? "linked section",
       variant: "plan" as const,
       testId: "canvas-detail-plan-section-chip",
     }));
@@ -407,13 +407,13 @@ function SectionTree({ sections, depth = 0, ctx }: { sections: Section[]; depth?
               )}
             </div>
             <div className="ct-detail__section-body">
+              {s.body?.trim() ? <Markdown text={s.body} /> : null}
               <SectionRelations section={s} ctx={ctx} />
               {s.tags?.length ? (
                 <div className="ct-detail__tags">
                   {s.tags.map((t) => <span key={t}>{t.includes(":") ? t.slice(t.indexOf(":") + 1).replace(/-/g, " ") : t}</span>)}
                 </div>
               ) : null}
-              {s.body?.trim() ? <Markdown text={s.body} /> : null}
               {s.subsections?.length ? <SectionTree sections={s.subsections} depth={depth + 1} ctx={ctx} /> : null}
             </div>
           </div>
@@ -468,9 +468,12 @@ function PlanDetail({ plan, variant, planSections, specSections = [], tabs = {},
   const activeTasks = plan.tasks.filter((task) => task.status !== "cancelled");
   const total = activeTasks.length;
   const done = activeTasks.filter((task) => task.status === "done").length;
+  const ownerTab = plan.owner.tab_id ? tabs[plan.owner.tab_id] : undefined;
+  const ownerLabel = ownerTab?.title?.trim() || plan.owner.title?.trim() || null;
+  const goal = plan.goal?.vector?.trim();
   const metaBits = [
     plan.mode === "paused" ? "Parked" : plan.status === "active" ? "Active" : plan.status,
-    plan.owner.title || plan.owner.tab_id ? `owner ${plan.owner.title ?? plan.owner.tab_id}` : null,
+    ownerLabel ? `led by ${ownerLabel}` : null,
     plan.primary_spec_id ? "linked spec" : null,
     plan.loops?.length ? `${plan.loops.length} loop${plan.loops.length > 1 ? "s" : ""}` : null,
   ].filter(Boolean) as string[];
@@ -489,7 +492,7 @@ function PlanDetail({ plan, variant, planSections, specSections = [], tabs = {},
     <div className="ct-detail" data-testid="canvas-detail-content">
       {variant === "plan" && (
         <div className="ct-detail__block">
-          {plan.goal?.vector && <p className="ct-detail__goal">{plan.goal.vector}</p>}
+          {goal && goal !== plan.title.trim() && <p className="ct-detail__goal">{goal}</p>}
           {total > 0 && (
             <Progress done={done} total={total} testId="canvas-detail-progress">
               <div className="ct-detail__progress-line">
@@ -511,7 +514,7 @@ function PlanDetail({ plan, variant, planSections, specSections = [], tabs = {},
         </div>
       </Block>
       {variant === "plan" && <PlanRecentActivityRail plan={plan} tabs={tabs} onOpenTask={onOpenTask} />}
-      {variant === "plan" && planId && api && <PlanSkillsSection planId={planId} plan={plan} api={api} />}
+      {variant === "plan" && planId && api && <PlanSkillsSection planId={planId} plan={plan} api={api} compact />}
     </div>
   );
 }

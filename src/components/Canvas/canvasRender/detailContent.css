@@ -414,7 +414,21 @@ button.ct-detail__agent-head:hover .ct-detail__open {
 .ct-detail__sections {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 8px;
+}
+
+.ct-detail__sections > .ct-detail__section {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--ct-fg) 2.5%, transparent);
+}
+
+.ct-detail__section .ct-detail__count {
+  margin-left: auto;
+}
+
+.ct-detail__section-body > .ct-detail__relations {
+  margin-top: 2px;
 }
 
 .ct-detail__section {
