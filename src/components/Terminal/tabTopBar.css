@@ -1,10 +1,12 @@
-.ct-tab-top-bar {
+.ct-tab-top-bar,
+.ct-jobs-header {
   position: relative;
   z-index: 3;
   background: var(--ct-bg);
 }
 
-.ct-tab-top-bar::after {
+.ct-tab-top-bar::after,
+.ct-jobs-header::after {
   position: absolute;
   top: 100%;
   right: 0;

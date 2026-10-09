@@ -1,5 +1,5 @@
-.ct-chat-card {
-  --ct-chat-card-tone: var(--ct-accent);
+.ct-card {
+  --ct-card-tone: var(--ct-accent);
   max-width: 100%;
   min-width: 0;
   border: 1px solid color-mix(in srgb, var(--ct-fg) 8%, transparent);
@@ -10,13 +10,13 @@
     background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
 
-.ct-chat-card:hover,
-.ct-chat-card:focus-within {
-  border-color: color-mix(in srgb, var(--ct-chat-card-tone) 24%, transparent);
-  background: color-mix(in srgb, var(--ct-chat-card-tone) 3%, color-mix(in srgb, var(--ct-fg) 2.5%, var(--ct-bg)));
+.ct-card:hover,
+.ct-card:focus-within {
+  border-color: color-mix(in srgb, var(--ct-card-tone) 24%, transparent);
+  background: color-mix(in srgb, var(--ct-card-tone) 3%, color-mix(in srgb, var(--ct-fg) 2.5%, var(--ct-bg)));
 }
 
-.ct-chat-card__head {
+.ct-card__head {
   display: flex;
   width: 100%;
   min-width: 0;
@@ -30,11 +30,11 @@
   text-align: left;
 }
 
-button.ct-chat-card__head {
+button.ct-card__head {
   cursor: pointer;
 }
 
-.ct-chat-card__icon {
+.ct-card__icon {
   display: inline-flex;
   width: 26px;
   height: 26px;
@@ -42,16 +42,16 @@ button.ct-chat-card__head {
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--ct-chat-card-tone) 12%, transparent);
-  color: var(--ct-chat-card-tone);
+  background: color-mix(in srgb, var(--ct-card-tone) 12%, transparent);
+  color: var(--ct-card-tone);
   transition: transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
 }
 
-.ct-chat-card:hover .ct-chat-card__icon {
+.ct-card:hover .ct-card__icon {
   transform: scale(1.06);
 }
 
-.ct-chat-card__title {
+.ct-card__title {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -60,13 +60,13 @@ button.ct-chat-card__head {
   font-weight: 600;
 }
 
-.ct-chat-card__meta {
+.ct-card__meta {
   color: var(--ct-muted-fg);
   font-size: 11px;
   font-weight: 400;
 }
 
-.ct-chat-card__body {
+.ct-card__body {
   min-width: 0;
   padding: 0 14px 11px 48px;
   color: color-mix(in srgb, var(--ct-fg) 88%, var(--ct-muted-fg));
@@ -74,11 +74,11 @@ button.ct-chat-card__head {
   line-height: 1.55;
 }
 
-.ct-chat-card__body--reveal {
-  animation: ct-chat-card-reveal var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
+.ct-card__body--reveal {
+  animation: ct-card-reveal var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
 }
 
-@keyframes ct-chat-card-reveal {
+@keyframes ct-card-reveal {
   from {
     opacity: 0;
     transform: translateY(-4px);
@@ -90,16 +90,16 @@ button.ct-chat-card__head {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ct-chat-card__body--reveal {
+  .ct-card__body--reveal {
     animation: none;
   }
 
-  .ct-chat-card,
-  .ct-chat-card__icon {
+  .ct-card,
+  .ct-card__icon {
     transition: none;
   }
 
-  .ct-chat-card:hover .ct-chat-card__icon {
+  .ct-card:hover .ct-card__icon {
     transform: none;
   }
 }

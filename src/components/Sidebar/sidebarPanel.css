@@ -2,6 +2,13 @@
   background: var(--ct-bg);
 }
 
+@media not all and (max-width: 640px) {
+  .ct-sidebar-drawer {
+    position: relative;
+    z-index: 31;
+  }
+}
+
 .ct-sidebar-panel[data-collapsed="false"] {
   z-index: 2;
   width: calc(100% - 0.5rem) !important;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Clock3, Network, Square, Trash2, Workflow, X } from "lucide-react";
+import { ChevronLeft, Clock3, Network, Plus, Square, Trash2, Workflow } from "lucide-react";
 import { returnToOrigin, type ReturnTo, type ReturnToRoute } from "../../lib/returnTo";
 import type { Tab, Team } from "../../lib/types";
 import { usePlanPeerContext } from "../Canvas/usePlanPeerContext";
@@ -250,10 +250,10 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
           { label: "Delete", icon: <Trash2 size={12} aria-hidden="true" />, danger: true, onClick: () => beginDelete(job) },
         ];
         const onTriggerRef = (element: HTMLButtonElement | null) => { if (element) menuTriggers.current.set(key, element); else menuTriggers.current.delete(key); };
-        if (job.kind === "blueprint") return <JobRow key={key} jobKey={key} icon={<Network size={15} aria-hidden="true" />} name={job.title} meta={job.blueprint.pipeline.nodes[0]?.summary ?? ""} type="Blueprint" state={jobStateLabel(job.state)} actionItems={actionItems} onOpen={() => setSelection({ kind: "blueprint", id: job.blueprint.pipeline.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />;
+        if (job.kind === "blueprint") return <JobRow key={key} jobKey={key} icon={<Network size={15} aria-hidden="true" />} name={job.title} meta={job.blueprint.pipeline.nodes[0]?.summary ?? ""} type="Blueprint" tone="blueprint" state={jobStateLabel(job.state)} actionItems={actionItems} onOpen={() => setSelection({ kind: "blueprint", id: job.blueprint.pipeline.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />;
         return job.kind === "cron"
-          ? <JobRow key={key} jobKey={key} icon={<Clock3 size={15} aria-hidden="true" />} name={job.title} meta={cronMeta(job.cron)} type="Cron" state={jobStateLabel(job.state)} actionItems={actionItems} onOpen={() => setSelection({ kind: "cron", id: job.cron.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />
-          : <JobRow key={key} jobKey={key} icon={<Network size={15} aria-hidden="true" />} name={job.title} {...sentinelRowText(job.sentinel, job.title)} type={job.sentinel.type} state={jobStateLabel(job.state)} actionItems={actionItems} onOpen={() => setSelection({ kind: "scenario", id: job.sentinel.scenario.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />;
+          ? <JobRow key={key} jobKey={key} icon={<Clock3 size={15} aria-hidden="true" />} name={job.title} meta={cronMeta(job.cron)} type="Cron" tone="cron" state={jobStateLabel(job.state)} actionItems={actionItems} onOpen={() => setSelection({ kind: "cron", id: job.cron.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />
+          : <JobRow key={key} jobKey={key} icon={<Network size={15} aria-hidden="true" />} name={job.title} {...sentinelRowText(job.sentinel, job.title)} type={job.sentinel.type} tone="blueprint" state={jobStateLabel(job.state)} actionItems={actionItems} onOpen={() => setSelection({ kind: "scenario", id: job.sentinel.scenario.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />;
       })}
     </ul>}
     {confirmation && <JobConfirmationDialog
@@ -282,13 +282,15 @@ export interface JobsViewProps {
   returnTo?: ReturnTo;
   onReturnTo?: (origin: ReturnTo) => boolean;
   onClose?: () => void;
+  /** Hosted under a page header that already names the view. */
+  embedded?: boolean;
   adapter?: AutomationGraphAdapter;
   cronActionAdapter?: MeshResourceActionAdapter;
   jobActionAdapter?: JobsActionAdapter;
 }
 
 /** The one Jobs view: crons and Blueprint graphs narrowed by optional workspace and Team capsules. Hosts differ only by initial filter. */
-export function JobsView({ workspaces, teams, tabs = {}, initialFilter = NO_JOBS_FILTER, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, returnTo, onReturnTo, onClose, adapter = hostAutomationAdapter, cronActionAdapter, jobActionAdapter = hostJobsActionAdapter }: JobsViewProps) {
+export function JobsView({ workspaces, teams, tabs = {}, initialFilter = NO_JOBS_FILTER, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, returnTo, onReturnTo, onClose, embedded = false, adapter = hostAutomationAdapter, cronActionAdapter, jobActionAdapter = hostJobsActionAdapter }: JobsViewProps) {
   const origin = useRef<ReturnToRoute>({ returnTo });
   const onReturn = () => {
     if (!returnToOrigin(origin.current, onReturnTo ?? (() => false))) return false;
@@ -312,16 +314,15 @@ export function JobsView({ workspaces, teams, tabs = {}, initialFilter = NO_JOBS
   const sources = useMemo<string[]>(() => JSON.parse(sourcesKey), [sourcesKey]);
   const connectionId = `host:${context.ready ? context.generation : "detached"}`;
   return <section aria-label="Jobs" tabIndex={-1} className="flex h-full min-h-0 flex-col bg-[var(--ct-bg)] text-[var(--ct-fg)]">
-    <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--ct-border)] bg-[color-mix(in_srgb,var(--ct-titlebar-bg)_82%,transparent)] px-4 py-3 backdrop-blur-md sm:px-6">
-      <Workflow size={18} className="shrink-0 text-[var(--ct-accent)]" aria-hidden="true" />
-      <h2 className="text-[length:var(--ct-font-size-md)] font-semibold">Jobs</h2>
+    <header className="ct-jobs-header flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
+      {onClose && <button type="button" className={AUTOMATION_TOOL} aria-label="Close jobs" title="Back" onClick={close}><ChevronLeft size={14} aria-hidden="true" />Back</button>}
+      {!embedded && <h2 className="flex items-center gap-2 text-[length:var(--ct-font-size-md)] font-semibold"><Workflow size={16} className="shrink-0 text-[var(--ct-tone-blueprint)]" aria-hidden="true" />Jobs</h2>}
       <JobsFilterBar filter={filter} layout={layout} teams={teams} onChange={changeFilter} />
       <div className="ml-auto flex shrink-0 items-center gap-2">
-        <button type="button" className={AUTOMATION_TOOL} onClick={() => setImportOpen(true)}>+ Import Blueprint</button>
-        <button ref={clearStoppedButton} type="button" className={`${AUTOMATION_TOOL} ct-liquid-interactive`} aria-label={`Clear stopped${clearState.count ? `, ${clearState.count} jobs` : ""}`} title="Clear stopped" disabled={!clearState.run} onClick={() => clearState.run?.()}>
-          Clear stopped{clearState.count > 0 && <span className="rounded-full border border-[var(--ct-border)] px-1.5 py-px text-[0.6875rem]">{clearState.count}</span>}
+        <button type="button" className={AUTOMATION_TOOL} onClick={() => setImportOpen(true)}><Plus size={12} aria-hidden="true" />Import Blueprint</button>
+        <button ref={clearStoppedButton} type="button" className={AUTOMATION_TOOL} aria-label={`Clear stopped${clearState.count ? `, ${clearState.count} jobs` : ""}`} title="Clear stopped" disabled={!clearState.run} onClick={() => clearState.run?.()}>
+          Clear stopped{clearState.count > 0 && <span className="text-[var(--ct-fg)]">{clearState.count}</span>}
         </button>
-        {onClose && <button type="button" className={`${AUTOMATION_TOOL} ct-liquid-interactive`} aria-label="Close jobs" title="Close jobs" onClick={close}><X size={15} aria-hidden="true" /></button>}
       </div>
     </header>
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">

@@ -15,20 +15,20 @@ interface Props {
   children: ReactNode;
 }
 
-/** Collapsible inline notice in the transcript, on the shared ct-chat-card surface. */
+/** Collapsible inline notice in the transcript, on the shared ct-card surface. */
 export function ChatNoticeCard({ testId, icon, title, subtitle, tone, expanded, onToggle, bodyClassName = "", role, children }: Props) {
   return (
     <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto" role={role}>
-      <div data-testid={testId} className="ct-chat-card" style={tone ? ({ "--ct-chat-card-tone": tone } as CSSProperties) : undefined}>
-        <button type="button" aria-expanded={expanded} onClick={onToggle} className="ct-chat-card__head">
-          <span className="ct-chat-card__icon">{icon}</span>
+      <div data-testid={testId} className="ct-card" style={tone ? ({ "--ct-card-tone": tone } as CSSProperties) : undefined}>
+        <button type="button" aria-expanded={expanded} onClick={onToggle} className="ct-card__head">
+          <span className="ct-card__icon">{icon}</span>
           <span className="min-w-0 flex-1">
-            <span className="ct-chat-card__title truncate">{title}</span>
-            {subtitle && <span className="ct-chat-card__meta block truncate">{subtitle}</span>}
+            <span className="ct-card__title truncate">{title}</span>
+            {subtitle && <span className="ct-card__meta block truncate">{subtitle}</span>}
           </span>
           <ChevronIcon expanded={expanded} className="opacity-60" />
         </button>
-        {expanded && <div className={`ct-chat-card__body ct-chat-card__body--reveal ${bodyClassName}`}>{children}</div>}
+        {expanded && <div className={`ct-card__body ct-card__body--reveal ${bodyClassName}`}>{children}</div>}
       </div>
     </div>
   );
