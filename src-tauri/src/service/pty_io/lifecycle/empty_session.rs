@@ -43,6 +43,37 @@ fn journal_conversation(load: &JournalLoad, tab_id: &str, session_id: &str) -> O
     (load.tail.is_intact() && load.duplicate_seqs == 0).then_some(false)
 }
 
+fn quarantined_conversation(
+    path: &std::path::Path,
+    tab_id: &str,
+    session_id: &str,
+) -> Option<bool> {
+    let metadata = match std::fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Some(false),
+        Err(_) => return None,
+    };
+    if !metadata.is_file() || metadata.len() > crate::agent::registry::DEFAULT_SESSION_FILE_BYTE_CAP
+    {
+        return None;
+    }
+    let body = std::fs::read_to_string(path).ok()?;
+    let mut load = JournalLoad::empty();
+    let mut malformed = false;
+    for line in body.lines().filter(|line| !line.trim().is_empty()) {
+        match serde_json::from_str::<JournalRecord>(line) {
+            Ok(record) => load.records.push(record),
+            Err(_) => malformed = true,
+        }
+    }
+    let evidence = journal_conversation(&load, tab_id, session_id);
+    if evidence == Some(true) {
+        evidence
+    } else {
+        (!malformed).then_some(false)
+    }
+}
+
 fn provider_conversation(
     service: &ServiceContext,
     provider_id: &str,
@@ -217,10 +248,15 @@ impl ServiceContext {
         };
         let journal = journal_store.load();
         let journal_evidence = journal_conversation(&journal, tab_id, session_id);
-        let journal_evidence = if journal_evidence != Some(true)
-            && crate::session::lifecycle::refused_tail_path(journal_store.path()).exists()
-        {
-            None
+        let journal_evidence = if journal_evidence != Some(true) {
+            match quarantined_conversation(
+                &crate::session::lifecycle::refused_tail_path(journal_store.path()),
+                tab_id,
+                session_id,
+            ) {
+                Some(false) => journal_evidence,
+                evidence => evidence,
+            }
         } else {
             journal_evidence
         };
