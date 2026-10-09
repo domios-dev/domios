@@ -71,3 +71,23 @@ pub async fn automation_node_files(
     .await
     .map_err(|error| error.to_string())?
 }
+
+#[tauri::command]
+pub async fn automation_graph_stop_blueprint(
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    workspace_id: String,
+    team_id: serde_json::Value,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    automation_graph_stop_sentinel(svc, workspace_id, team_id, id).await
+}
+
+#[tauri::command]
+pub async fn automation_graph_delete_blueprint(
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    workspace_id: String,
+    team_id: serde_json::Value,
+    id: String,
+) -> Result<(), String> {
+    automation_graph_delete_sentinel(svc, workspace_id, team_id, id).await
+}

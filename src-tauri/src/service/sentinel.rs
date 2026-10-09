@@ -22,7 +22,7 @@ pub(crate) struct SentinelCaller {
 
 impl SentinelCaller {
     pub(super) fn owns(&self, job: &Sentinel) -> bool {
-        if let Some(pipeline) = &job.pipeline {
+        if let Some(pipeline) = &job.pipeline().cloned() {
             return match pipeline.owner {
                 codeterm_types::blueprint_pipeline::BlueprintOwner::Tab => {
                     job.creator_tab_id == self.tab
@@ -43,7 +43,7 @@ impl SentinelCaller {
     }
 
     pub(super) fn can_amend(&self, job: &Sentinel) -> bool {
-        if job.pipeline.is_some() {
+        if job.pipeline().is_some() {
             return self.owns(job);
         }
         (job.team_id == self.team
@@ -97,7 +97,8 @@ impl ServiceContext {
     ) -> Result<serde_json::Value, String> {
         let job = self.sentinel_show(caller, id)?;
         let input = job
-            .input
+            .input()
+            .cloned()
             .as_ref()
             .ok_or("blueprint is not a text input stage")?;
         if input.kind != codeterm_types::sentinel_input::MediaKind::Text
@@ -243,10 +244,14 @@ impl ServiceContext {
             &caller.tab,
             classify::connected_model(self).is_some(),
         )?;
-        prepared.job.terminal = snapshot.terminal;
+        prepared.job.source = crate::sentinel::stage_source::StageSource::from_parts(
+            snapshot.probe,
+            snapshot.observe,
+            snapshot.input,
+            snapshot.terminal,
+            snapshot.pipeline,
+        )?;
         prepared.job.session = snapshot.session;
-        prepared.job.probe = snapshot.probe;
-        prepared.job.observe = snapshot.observe;
         prepared.job.routes = snapshot.routes;
         prepared.job.on_other = snapshot.on_other;
         if caller.tab != current.creator_tab_id && amend::has_new_command(&current, &prepared.job) {
@@ -318,7 +323,8 @@ impl ServiceContext {
             if !caller_is_live(&mux, caller) {
                 return Err("blueprint creator or Team is gone".into());
             }
-            if let Some(crate::sentinel::source::TabBinding::Tab(tab_id)) = &job.observe {
+            if let Some(crate::sentinel::source::TabBinding::Tab(tab_id)) = &job.observe().cloned()
+            {
                 source::validate_tab_scope(&mux, &job, tab_id)?;
             }
             validate_send_scope(&mux, &job)?;
@@ -360,8 +366,8 @@ impl ServiceContext {
             },
             connected,
         )?;
-        if let Some(binding) = job.observe.clone() {
-            job.observe = Some(source::resolve_binding(self, &job, &binding)?);
+        if let Some(binding) = job.observe().cloned() {
+            job.set_observe(Some(source::resolve_binding(self, &job, &binding)?));
         }
         let mut resolved = std::collections::BTreeMap::new();
         for (bucket, handlers) in &job.routes {
@@ -393,7 +399,8 @@ impl ServiceContext {
             if !caller_is_live(&mux, caller) {
                 return Err("blueprint creator or Team is gone".into());
             }
-            if let Some(crate::sentinel::source::TabBinding::Tab(tab_id)) = &job.observe {
+            if let Some(crate::sentinel::source::TabBinding::Tab(tab_id)) = &job.observe().cloned()
+            {
                 source::validate_tab_scope(&mux, &job, tab_id)?;
             }
             validate_send_scope(&mux, &job)?;
@@ -435,8 +442,8 @@ impl ServiceContext {
         if let Err(error) = crate::service::supporter::runtime_with_notifications(self)
             .sentinel_event(serde_json::json!({
                 "time": chrono::Utc::now().timestamp(),
-                "kind": "sentinel",
-                "sentinel_id": &updated.id,
+                "kind": "blueprint",
+                "blueprint_id": &updated.id,
                 "tab": &caller.tab,
                 "team_id": &caller.team,
                 "workspace_id": &caller.workspace,
@@ -484,7 +491,7 @@ impl ServiceContext {
                 .cloned()
                 .ok_or_else(|| format!("blueprint not found in this workspace and Team: {id}"))?
         };
-        if current.pipeline.is_some() {
+        if current.pipeline().is_some() {
             return Err("pipeline updates require a pipeline spec".into());
         }
         if current.definition_version != expect_version {
@@ -504,15 +511,19 @@ impl ServiceContext {
             handler.target = graph::target_identity(self, &resolution_source, &action)?;
             handler.action = action;
         }
-        if let Some(binding) = update.job.observe.clone() {
-            update.job.observe = Some(source::resolve_binding(self, &update.job, &binding)?);
+        if let Some(binding) = update.job.observe().cloned() {
+            update
+                .job
+                .set_observe(Some(source::resolve_binding(self, &update.job, &binding)?));
         }
         {
             let mux = self.mux.read();
             if !caller_is_live(&mux, caller) {
                 return Err("blueprint caller scope changed".into());
             }
-            if let Some(crate::sentinel::source::TabBinding::Tab(tab_id)) = &update.job.observe {
+            if let Some(crate::sentinel::source::TabBinding::Tab(tab_id)) =
+                &update.job.observe().cloned()
+            {
                 source::validate_tab_scope(&mux, &update.job, tab_id)?;
             }
             validate_send_scope(&mux, &update.job)?;
@@ -597,8 +608,8 @@ impl ServiceContext {
         if let Err(error) = crate::service::supporter::runtime_with_notifications(self)
             .sentinel_event(serde_json::json!({
                 "time": chrono::Utc::now().timestamp(),
-                "kind": "sentinel",
-                "sentinel_id": id,
+                "kind": "blueprint",
+                "blueprint_id": id,
                 "transition_id": transition_id,
                 "tab": caller.tab,
                 "team_id": caller.team,
@@ -701,11 +712,12 @@ fn history_definition(
     expect_version: u64,
 ) -> Result<serde_json::Value, String> {
     if history
-        .get("sentinel_id")
+        .get("blueprint_id")
+        .or_else(|| history.get("sentinel_id"))
         .and_then(serde_json::Value::as_str)
         != Some(id)
     {
-        return Err("history sentinel_id does not match update id".into());
+        return Err("history blueprint_id does not match update id".into());
     }
     let current_version = history
         .get("current_version")
@@ -900,7 +912,7 @@ mod tests {
             )
             .unwrap();
         let mut pipeline = legacy;
-        pipeline.pipeline = Some(codeterm_types::blueprint_pipeline::BlueprintSpec {
+        pipeline.set_pipeline(Some(codeterm_types::blueprint_pipeline::BlueprintSpec {
             name: "owned-pipeline".into(),
             owner: codeterm_types::blueprint_pipeline::BlueprintOwner::Team,
             trigger: codeterm_types::blueprint_pipeline::Trigger::Schedule {
@@ -915,7 +927,7 @@ mod tests {
                 on: Default::default(),
             }],
             result: Default::default(),
-        });
+        }));
         let teammate = SentinelCaller {
             tab: "teammate".into(),
             team: Some("team".into()),
