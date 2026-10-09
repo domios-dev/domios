@@ -11,7 +11,8 @@ export function completedTurn(provider: string, evidence: Evidence, marker: stri
   return turn;
 }
 
-export function waitForCompletedTurn(provider: string, initial: Evidence, marker: string, timeoutMs: number): Promise<Evidence> {
+export function waitForCompletedTurn(provider: string, initial: Evidence, marker: string, timeoutMs: number,
+  onSnapshot?: (evidence: Evidence) => Promise<void>): Promise<Evidence> {
   return new Promise((resolve, reject) => {
     const signal = AbortSignal.timeout(timeoutMs);
     let loading = false;
@@ -37,6 +38,7 @@ export function waitForCompletedTurn(provider: string, initial: Evidence, marker
           dirty = false;
           try {
             const evidence = await records(provider, initial.session, initial.path);
+            await onSnapshot?.(evidence);
             completedTurn(provider, evidence, marker);
             finish(undefined, evidence);
           } catch (error) { lastError = error; }
