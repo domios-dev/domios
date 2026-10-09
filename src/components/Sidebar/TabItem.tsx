@@ -555,11 +555,11 @@ function TabItemInner({
             }}
             contextMenuTargetRef={tabRef}
             className={
-              utilityShell ? undefined : touchMode
+              touchMode
                 ? "flex h-11 w-11 items-center justify-center"
                 : "sidebar-tab-close absolute inset-y-0 right-0 flex items-center"
             }
-            trigger={utilityShell ? null : <RowMenuButton label="Tab actions" touchMode={touchMode} />}
+            trigger={<RowMenuButton label="Tab actions" touchMode={touchMode} />}
           />
         )}
       </div>
