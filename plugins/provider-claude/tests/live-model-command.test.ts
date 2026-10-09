@@ -13,7 +13,7 @@ function pattern(template: string, model: string, effort = "", displayName?: str
   return new RegExp(template.replace(/^\(\?[im]+\)/, "")
     .replaceAll("{model}", model).replaceAll("{display_name}", displayName ?? manifest.models.find((entry: { id: string }) => entry.id === model)?.displayName ?? model)
     .replaceAll("{effort}", effort).replaceAll("(?P<", "(?<")
-    .replaceAll("\\z", "$(?![\\s\\S])"), flags);
+    .replaceAll("\\A", "^").replaceAll("\\z", "$(?![\\s\\S])"), flags);
 }
 
 const modelScreen = fixture("model-picker.txt");
@@ -35,18 +35,15 @@ for (const screen of [modelScreen.replaceAll("\r\n", "\n"), modelScreen.replaceA
   }
 }
 
-const effortScreen = fixture("effort-picker.txt");
-const effortPicker = commands.effort.picker;
-assert.equal(commands.effort.command, "/effort");
-assert.equal(effortPicker.responseKey, "s");
-const frame = pattern(effortPicker.screenRegex, "opus").exec(effortScreen)?.[0];
-assert.ok(frame);
-const cursor = pattern(effortPicker.selectedRegex, "opus").exec(frame)?.groups?.position.length;
-const high = pattern(effortPicker.targetRegex, "opus", "high").exec(frame)?.groups;
-assert.ok(cursor !== undefined && high);
-assert.ok(cursor >= high.position.length && cursor < high.position.length + high.label.length);
-const xhigh = pattern(effortPicker.targetRegex, "opus", "xhigh").exec(frame)?.groups;
-assert.ok(xhigh && cursor < xhigh.position.length);
-assert.ok(pattern(commands.effort.confirmation, "opus", "high")
-  .test("Set effort level to high (this session only): details"));
-console.log("Live command declarations match captured model, confirmation, and effort screens.");
+assert.equal(commands.effort.command.replace("{effort}", "high"), "/effort high");
+assert.equal(commands.effort.picker, undefined);
+assert.equal(commands.effort.prompt, undefined);
+for (const output of [
+  fixture("effort-direct-confirmation.txt").split("\n").find(line => line.startsWith("Set effort level to high"))!,
+  "Set effort level to high (this session only): details",
+]) {
+  assert.ok(pattern(commands.effort.confirmation, "opus", "high").test(output));
+}
+assert.equal(pattern(commands.effort.confirmation, "opus", "high")
+  .test(fixture("effort-direct-confirmation.txt").split("\n").find(line => line.startsWith("Set effort level to medium"))!), false);
+console.log("Live declarations preserve session-only model selection and direct target effort.");

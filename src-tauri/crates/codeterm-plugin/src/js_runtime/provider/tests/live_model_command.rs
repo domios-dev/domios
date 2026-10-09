@@ -31,7 +31,7 @@ fn live_command_mode_and_templates_round_trip_through_manifest() {
                 "previousKey":"up", "nextKey":"down", "responseKey":"s", "cancelKey":"escape"},
             "prompt": {"screenRegex": "^confirm {model}$", "responseKeys": ["y", "\r"], "cancelKeys": ["\u{1b}"]}},
         "effort": {"command": "/reason {effort}", "confirmation": "^accepted {effort}$"},
-        "transcript": {"recordType": "opaque", "contentPath": ["payload"], "prefix": "<ok>", "suffix": "</ok>"}
+        "transcript": {"recordType": "opaque", "contentPath": ["payload"], "prefix": "<ok>", "suffix": "</ok>", "ignoredContentRegexes": ["^opaque-command-caveat$"]}
     });
     let provider = load(&manifest.to_string(), "module.exports.default = {};");
     assert_eq!(
