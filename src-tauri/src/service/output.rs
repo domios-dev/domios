@@ -91,11 +91,21 @@ impl ServiceContext {
             pty_id.to_string(),
             Instant::now() + Duration::from_millis(AGENT_STOP_SUPPRESS_MS),
         );
+        crate::agent::live_state::schedule(self, pty_id);
     }
 
     pub(crate) fn mark_agent_interrupted(&self, pty_id: &str) {
         self.arm_agent_stop_suppression(pty_id);
         self.force_agent_idle_for_pty(pty_id);
+    }
+
+    pub(crate) fn agent_stop_suppression_deadline(pty_id: &str) -> Option<Instant> {
+        AGENT_STOP_SUPPRESS_UNTIL
+            .lock()
+            .unwrap()
+            .get(pty_id)
+            .copied()
+            .filter(|deadline| *deadline > Instant::now())
     }
 
     pub(crate) fn is_agent_stop_suppressed_for_tab(&self, tab_id: &str) -> bool {
@@ -511,12 +521,6 @@ impl ServiceContext {
         crate::service::structured_prompt::pending_for_tab(tab_id)
     }
 
-    /// Recompute and store the tab's live 3-state classification, then emit if
-    /// it changed. Output-driven (here) and timer-driven (the live-state poller)
-    /// both call this. Reuses the per-tab `ScreenState` parser (no second vt100)
-    /// and the already-surfaced `pending_prompt` for the picker question, so the
-    /// live path never re-parses the picker. Locks in CLAUDE.md order, each
-    /// scoped and dropped before the next; nothing held across the emit.
     pub(crate) fn recompute_agent_state(&self, pty_id: &str) {
         let tab = self.mux.read().tab_id_for_pty(pty_id);
         if tab
@@ -561,6 +565,7 @@ impl ServiceContext {
                 previous,
             )
         };
+        crate::agent::live_state::schedule(self, pty_id);
         if Self::is_agent_stop_suppressed(pty_id) {
             self.force_agent_idle_for_tab(&tab_id);
             return;
