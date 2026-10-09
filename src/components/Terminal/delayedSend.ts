@@ -88,6 +88,12 @@ export function formatClock(ms: number): string {
   }).format(new Date(ms));
 }
 
+export function formatScheduledTime(ms: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+  }).format(new Date(ms));
+}
+
 export function formatRelative(ms: number, nowMs: number = Date.now()): string {
   return formatUntil(ms, nowMs);
 }
