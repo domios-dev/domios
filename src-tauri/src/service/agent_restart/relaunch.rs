@@ -97,7 +97,7 @@ fn recorded_launch_relaunch(
             return None;
         }
     };
-    let mut input = restored_fresh_launch_input(
+    let input = restored_fresh_launch_input(
         &svc.agent_registry,
         crate::service::SpawnAgentParams {
             agent: Some(snap.provider.clone()),
@@ -112,31 +112,7 @@ fn recorded_launch_relaunch(
         },
         launch_parameters,
     );
-    let command = if structured_prompt_server {
-        input.params.structured_prompt_server = crate::service::structured_prompt::ensure_for_spawn(
-            svc,
-            &snap.provider,
-            &snap.tab_id,
-            snap.cwd.as_deref().unwrap_or_default(),
-        );
-        if let Some(session_id) = input.params.resume_session_id.as_deref() {
-            let mut params = input.params.clone();
-            params.resume_session_id = None;
-            crate::service::build_agent_command_for_service(
-                svc,
-                &snap.tab_id,
-                &snap.provider,
-                &params,
-                input.launch_task.as_deref(),
-                Some(session_id),
-                &svc.agent_registry,
-            )
-        } else {
-            input.command(svc, &snap.tab_id)?
-        }
-    } else {
-        input.command(svc, &snap.tab_id)?
-    };
+    let command = input.command(svc, &snap.tab_id)?;
     // The fresh builder already wrapped its command in the dev stub.
     let command = if input.params.resume_session_id.is_some() {
         crate::agent::stub_launch::apply(&snap.provider, command)

@@ -134,6 +134,16 @@ fn build_agent_command_inner(
             return command;
         }
     }
+    let structured_prompt_server = params.structured_prompt_server.clone().or_else(|| {
+        notice_context.and_then(|(service, tab_id)| {
+            crate::service::structured_prompt::ensure_for_spawn(
+                service,
+                agent_cmd,
+                tab_id,
+                params.cwd.as_deref().unwrap_or_default(),
+            )
+        })
+    });
     if let Some(model) = resolved_model.as_deref() {
         let model_args = registry
             .with_provider(agent_cmd, |provider| provider.model_launch_args(model))
@@ -233,16 +243,20 @@ fn build_agent_command_inner(
         }
     }
 
-    if let Some(session_id) = &params.resume_session_id {
-        if params.fork_session {
-            let Some(fork_args) = registry
-                .with_provider(agent_cmd, |provider| provider.fork_session_args())
-                .flatten()
-            else {
-                return String::new();
-            };
-            args.extend(fork_args);
-        }
+    if params.resume_session_id.is_some() && params.fork_session {
+        let Some(fork_args) = registry
+            .with_provider(agent_cmd, |provider| provider.fork_session_args())
+            .flatten()
+        else {
+            return String::new();
+        };
+        args.extend(fork_args);
+    }
+    if let Some(session_id) = params
+        .resume_session_id
+        .as_ref()
+        .filter(|_| structured_prompt_server.is_none())
+    {
         let resume = crate::agent::provider::AgentResumeParams {
             cwd: params.cwd.clone(),
             context_files: params.context_files.clone(),
@@ -295,8 +309,11 @@ fn build_agent_command_inner(
             Some(args.clone())
         },
         skip_permissions,
-        session_id: injected_session_id.map(str::to_string),
-        structured_prompt_server: params.structured_prompt_server.clone(),
+        session_id: params
+            .resume_session_id
+            .clone()
+            .or_else(|| injected_session_id.map(str::to_string)),
+        structured_prompt_server,
         launch_marker: launch_marker.map(str::to_string),
         instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
     };
@@ -329,3 +346,6 @@ fn build_agent_command_inner(
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
