@@ -9,7 +9,7 @@ import { repoRoot } from "./dev-instance";
 const execute = promisify(execFile);
 export type Model = { id: string; display_name: string; primary?: boolean; reasoning_efforts?: { id: string }[] };
 export type Descriptor = { id: string; default_model: string; model_switch: string; available_models: Model[]; reasoning_efforts: { id: string }[]; supports_permission_bypass?: boolean };
-export type Identity = { agent_session_id: string; session_binding_nonce: string; pty_id: string; agent_session_model: string; agent_reasoning_effort?: string };
+export type Identity = { agent_session_id: string; session_binding_nonce: string; pty_id: string; agent_session_model: string; reasoning_effort_identity?: { actual?: string } };
 export type RawRecord = {
   id?: string; type?: string; role?: string; parentID?: string; modelID?: string; providerID?: string; variant?: string;
   message?: { content?: unknown; model?: string; effort?: string }; effort?: string;
