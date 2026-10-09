@@ -20,11 +20,13 @@ import { CSS } from "@dnd-kit/utilities";
  *  only when active + over share the same group, so an item can never cross
  *  its hierarchy level. dnd-kit owns each group's current prefixed-id order. */
 export interface SortableGroupData {
-  group: "workspace" | "tab" | "child";
+  group: "workspace" | "tab" | "team" | "child";
   groupKey: string;
   /** Prefixed ids pinned to the front of the group (the General workspace /
    *  General tab). A drop that would not keep them leading is rejected. */
   pinnedIds?: string[];
+  /** Expands the group's new order into the full top-level order of its workspace. */
+  toWorkspaceOrder?: (orderedRawIds: string[]) => { workspaceId: string; orderedTabIds: string[] };
 }
 
 interface SortableEventData extends SortableGroupData {
@@ -35,6 +37,7 @@ export const POINTER_DRAG_ACTIVATION_DISTANCE = 4;
 
 export const WS_PREFIX = "ws:";
 export const TAB_PREFIX = "tab:";
+export const TEAM_PREFIX = "team:";
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -152,6 +155,10 @@ export function commitSidebarDrag(event: DragEndEvent, handlers: ReorderHandlers
   const pinned = activeData.pinnedIds ?? [];
   if (pinned.some((pinnedId, index) => reordered[index] !== pinnedId)) return;
   const ordered = reordered.map(rawId);
+  if (activeData.toWorkspaceOrder) {
+    handlers.reorderTabs(activeData.toWorkspaceOrder(ordered));
+    return;
+  }
   if (activeData.group === "workspace") {
     handlers.reorderWorkspaces(ordered);
   } else if (activeData.group === "child") {

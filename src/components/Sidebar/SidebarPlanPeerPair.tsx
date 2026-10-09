@@ -4,7 +4,7 @@ import type { Plan } from "../Canvas/types";
 import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
 import type { TabTabActivity } from "../Canvas/tabTabActivity";
 import { resolvePlanPeerPair } from "../shared/PairAffordance";
-import { SortableRow, TAB_PREFIX } from "./sortable";
+import { SortableRow, TAB_PREFIX, type SortableGroupData } from "./sortable";
 import { TabItem, type AttachmentToggle, type TabStartedBy } from "./TabItem";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import type { DeclaredAttentionLevel } from "./declaredAttention";
@@ -135,9 +135,10 @@ function SidebarTabItemRow({
 }
 
 export interface SidebarSingleTabRowProps extends SidebarTabItemRowProps {
-  group: "tab" | "child";
+  group: "tab" | "team" | "child";
   groupKey: string;
   pinnedIds: string[];
+  toWorkspaceOrder?: SortableGroupData["toWorkspaceOrder"];
 }
 
 export function isTabDragDisabled(tab: Pick<Tab, "protected">): boolean {
@@ -148,13 +149,14 @@ export function SidebarSingleTabRow({
   group,
   groupKey,
   pinnedIds,
+  toWorkspaceOrder,
   ...rowProps
 }: SidebarSingleTabRowProps) {
   return (
     <SortableRow
       id={`${TAB_PREFIX}${rowProps.tab.id}`}
       disabled={isTabDragDisabled(rowProps.tab)}
-      data={{ group, groupKey, pinnedIds }}
+      data={{ group, groupKey, pinnedIds, toWorkspaceOrder }}
     >
       <SidebarTabItemRow {...rowProps} />
     </SortableRow>
