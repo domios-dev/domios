@@ -27,6 +27,7 @@ fn source() -> ModelSwitchTranscript {
         content_path: vec!["payload".into()],
         prefix: "<opaque>".into(),
         suffix: "</opaque>".into(),
+        ignored_content_regexes: Vec::new(),
     }
 }
 

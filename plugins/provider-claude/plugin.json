@@ -191,7 +191,11 @@
           "content"
         ],
         "prefix": "<local-command-stdout>",
-        "suffix": "</local-command-stdout>"
+        "suffix": "</local-command-stdout>",
+        "ignoredContentRegexes": [
+          "\\A<local-command-caveat>[^<>]*</local-command-caveat>\\z",
+          "\\A<command-name>/model</command-name>\\s*<command-message>model</command-message>\\s*<command-args>\\s*</command-args>\\z"
+        ]
       },
       "model": {
         "command": "/model",
@@ -217,27 +221,8 @@
         }
       },
       "effort": {
-        "command": "/effort",
-        "confirmation": "(?i)^Set effort level to {effort} \\(this session only\\)(?:$|:)",
-        "prompt": {
-          "screenRegex": "(?im)^\\s*Change effort level\\?\\s*$[\\s\\S]*^\\s*❯\\s*1\\. Yes, switch to {effort}\\s*$[\\s\\S]*^\\s*2\\. No, go back\\s*(?:\\r?\\n\\s*(?:Enter to confirm|Esc to cancel)[^\\r\\n]*)?\\s*\\z",
-          "responseKeys": [
-            "\r"
-          ],
-          "cancelKeys": [
-            "\u001b"
-          ]
-        },
-        "picker": {
-          "screenRegex": "(?m)^\\s*Effort\\s*$[\\s\\S]*^\\s*←/→ to adjust · Enter to confirm · s for this session only · Esc to cancel\\s*\\z",
-          "selectedRegex": "(?m)^(?P<position>[^\\r\\n▲]*)▲[^\\r\\n]*\\r?$",
-          "targetRegex": "(?im)^(?P<position>[^\\r\\n]*?)(?P<label>\\b{effort}\\b)[^\\r\\n]*\\s+Tab to toggle\\s*\\r?$",
-          "position": "column",
-          "previousKey": "\u001b[D",
-          "nextKey": "\u001b[C",
-          "responseKey": "s",
-          "cancelKey": "\u001b"
-        }
+        "command": "/effort {effort}",
+        "confirmation": "(?i)^Set effort level to {effort} \\("
       }
     },
     "autoApproveFlags": [

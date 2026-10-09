@@ -691,16 +691,6 @@ function detectSessionModelAfterBoundary(cwd, sessionId, boundary) {
 function encodeCwdDashed(cwd) {
   return String(cwd || "").replace(/[^a-zA-Z0-9]/g, "-");
 }
-function contentToText(c) {
-  if (typeof c === "string") return c;
-  if (!Array.isArray(c)) return "";
-  const chunks = [];
-  for (let i = 0; i < c.length; i++) {
-    const b = c[i];
-    if (b && typeof b.text === "string") chunks.push(b.text);
-  }
-  return chunks.join(" ");
-}
 function isValidClaudeSessionMessage(v) {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
   if (v.type !== "user" && v.type !== "assistant") return false;
@@ -732,10 +722,9 @@ function isValidClaudeSessionDelta(v) {
   return true;
 }
 function extractSetModelFamily(raw) {
-  const prefix = "<local-command-stdout>Set model to ";
-  const suffix = "</local-command-stdout>";
-  if (!raw.startsWith(prefix) || !raw.endsWith(suffix)) return null;
-  const after = raw.slice(prefix.length, -suffix.length);
+  const prefix = "Set model to ";
+  if (!raw.startsWith(prefix)) return null;
+  const after = raw.slice(prefix.length);
   const cleaned = stripAnsi(after).replace(/^[\s`]+/, "");
   let fam = "";
   for (let i = 0; i < cleaned.length; i++) {
@@ -2346,6 +2335,8 @@ var plugin = {
     const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
     if (!contents) return null;
     const lines = contents.split("\n");
+    const declaration = manifest()?.commands?.modelSwitchCommands?.transcript;
+    const declarationJson = declaration ? JSON.stringify(declaration) : null;
     for (let i = lines.length - 1; i >= 0; i--) {
       const line = lines[i];
       if (!line) continue;
@@ -2356,8 +2347,8 @@ var plugin = {
         continue;
       }
       if (!v || !v.message) continue;
-      const raw = contentToText(v.message.content);
-      const fam = v.type === "user" ? extractSetModelFamily(raw) : null;
+      const stdout = declarationJson ? host.commandTranscriptStdout(line, declarationJson) : null;
+      const fam = stdout ? extractSetModelFamily(stdout) : null;
       if (fam) return fam;
       const m = v.message.model;
       if (typeof m === "string" && m && m !== "<synthetic>") {
