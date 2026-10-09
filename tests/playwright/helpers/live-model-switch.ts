@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import type { ApiClient } from "./api-client";
 import { expect } from "./fixtures";
 import { repoRoot } from "./dev-instance";
@@ -22,6 +22,19 @@ export type RawRecord = {
 export type Evidence = { path: string; session: string; records: RawRecord[] };
 export type RestoreTab = { provider: string; tabId: string; session: string; nonce: string; pty: string; a: string; b: string };
 export type RestoreManifest = { workspace: string; tabs: RestoreTab[] };
+
+export async function grokEffortEvidence(session: string, switchedAtMs: number, effort: string) {
+  const meta = await dc<{ file_path: string }>("sessions", "get", session);
+  const summaryPath = path.join(path.dirname(meta.file_path), "summary.json");
+  const summary = JSON.parse(readFileSync(summaryPath, "utf8")) as { info?: { id?: string }; reasoning_effort?: string };
+  const updatedAtMs = statSync(summaryPath).mtimeMs;
+  const observedAtMs = Date.now();
+  expect(summary.info?.id, "Grok effort belongs to the exact bound session").toBe(session);
+  expect(summary.reasoning_effort, "provider-authored session effort").toBe(effort);
+  expect(updatedAtMs, "summary must be updated after Apply").toBeGreaterThan(switchedAtMs);
+  expect(updatedAtMs).toBeLessThanOrEqual(observedAtMs);
+  return { kind: "session-level evidence", summaryPath, updatedAtMs, observedAtMs, switchedAtMs, summary };
+}
 
 export async function dc<T>(...args: string[]): Promise<T> {
   const shell = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "bash";
