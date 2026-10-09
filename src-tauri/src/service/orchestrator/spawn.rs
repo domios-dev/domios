@@ -1032,36 +1032,14 @@ impl ServiceContext {
         if let Some(id) = crate::flow_trace::tab_flow(self, target_tab) {
             crate::flow_trace::record(&id, "spawn.task", target_tab, "", "prepared", None);
         }
-        let (src, label, model, from_agent) = {
-            let mux = self.mux.read();
-            let target = mux.get_tab(target_tab)?;
-            let src = target
-                .spawned_by_tab_id
-                .clone()
-                .or_else(|| target.parent_tab_id.clone())?;
-            if src.is_empty() {
-                return None;
-            }
-            let source = mux.get_tab(&src);
-            (
-                src.clone(),
-                mux.display_label_for_tab(&src),
-                source.and_then(|tab| tab.agent_session_model.clone()),
-                source.is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting),
-            )
-        };
-        let text = crate::service::messenger::delivery_message(
-            true,
-            &src,
+        let (text, pending) = self.reply_relays.spawn_task_message(
+            &self.mux.read(),
+            &self.agent_registry,
             target_tab,
-            &label,
-            model.as_deref(),
-            None,
-            from_agent,
             body,
         )?;
-        if from_agent {
-            self.stage_spawn_reply_relay(target_tab, &src, &text);
+        if let Some(pending) = pending {
+            self.trace_spawn_reply_relay(target_tab, &pending);
         }
         Some(text)
     }

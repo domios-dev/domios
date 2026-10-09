@@ -448,9 +448,9 @@ fn storage_migration_manifests_are_versioned_deterministic_and_parseable() {
     );
     for expected in [
         line(&["provenance", "cron", "current", "crons.json"]),
-        line(&["provenance", "sentinel", "current", "sentinels.json"]),
+        line(&["provenance", "blueprint", "current", "sentinels.json"]),
         line(&["status", "cron", "crons.json", "valid"]),
-        line(&["status", "sentinel", "sentinels.json", "valid"]),
+        line(&["status", "blueprint", "sentinels.json", "valid"]),
         line(&["bound", "cron", "jobs", &jobs, "4"]),
         line(&["bound", "cron", "history-per-job", &history, "2"]),
         line(&["bound", "cron", "max-history", &history, "100"]),
@@ -462,17 +462,17 @@ fn storage_migration_manifests_are_versioned_deterministic_and_parseable() {
             "write-batch",
             "typed-cronwrite-batches-only",
         ]),
-        line(&["bound", "sentinel", "stages", &stages, "3"]),
-        line(&["bound", "sentinel", "import-batch", &import_batch, "3"]),
-        line(&["rule", "sentinel", "fields", "repository-validated"]),
+        line(&["bound", "blueprint", "stages", &stages, "3"]),
+        line(&["bound", "blueprint", "import-batch", &import_batch, "3"]),
+        line(&["rule", "blueprint", "fields", "repository-validated"]),
         line(&["count", "cron", "retired-identities", "1"]),
         line(&["count", "cron", "empty-live-histories", "1"]),
         line(&["count", "cron", "unlisted-last-runs", "1"]),
         line(&["count", "cron", "divergent-last-runs", "2"]),
-        line(&["count", "sentinel", "transitions", "3"]),
-        line(&["count", "sentinel", "handler-results", "5"]),
-        line(&["count", "sentinel", "unconfirmed-claims", "2"]),
-        line(&["count", "sentinel", "cron-targets-absent", "1"]),
+        line(&["count", "blueprint", "transitions", "3"]),
+        line(&["count", "blueprint", "handler-results", "5"]),
+        line(&["count", "blueprint", "unconfirmed-claims", "2"]),
+        line(&["count", "blueprint", "cron-targets-absent", "1"]),
     ] {
         assert!(manifest.contains(&expected), "missing {expected:?}");
     }
@@ -507,7 +507,7 @@ fn storage_migration_manifests_are_versioned_deterministic_and_parseable() {
         ]),
         line(&[
             "compare",
-            "sentinel",
+            "blueprint",
             "entities",
             "3",
             "3",
