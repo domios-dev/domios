@@ -11,6 +11,7 @@ import {
   installInboundReportCardHarness,
 } from "@codeterm/chat-ui";
 import { configureLocalPreviews } from "./lib/configureLocalPreviews";
+import { installScrollActivity } from "./lib/scrollActivity";
 import { installCodeTermTestChatHandle, isCodeTermFrontendTestMode } from "./components/Terminal/useChatSession";
 // Stylesheets load here, never from a component: the plain-Node unit runner
 // has no bundler, so a CSS import anywhere in a tested graph is a syntax error.
@@ -32,6 +33,7 @@ installAgentStateIndicatorHarness();
 installInboundReportCardHarness(isCodeTermFrontendTestMode());
 installCodeTermTestChatHandle();
 configureLocalPreviews();
+installScrollActivity();
 
 if (!missionControlPrototype && !isGalleryRoute && !snakePrototype) {
   loadBundledPlugins();

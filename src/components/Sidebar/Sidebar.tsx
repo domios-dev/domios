@@ -697,7 +697,7 @@ export function Sidebar({
         >
           {!isSidebarCollapsed && (
             <>
-            <div className="ct-hover-reveal-scrollbar flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
+            <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
               {!isCompact && generalWorkspace && (() => {
                 const generalExpanded = expandedWorkspaces.has(generalWorkspace.id);
                 const generalActive = generalWorkspace.id === state.active_workspace_id && isWorkspaceMode;
