@@ -103,7 +103,12 @@ export function RecoveryStatusBanner() {
     ? `${crash.previous.epoch}:${crash.previous.pid}:${crash.new_epoch}`
     : null;
 
+  const payloadKey = payload ? `${payload.dir ?? ""}|${payload.files.join("|")}` : null;
+  const latest = useRef({ crash, payload });
+  latest.current = { crash, payload };
+
   useEffect(() => {
+    const { crash, payload } = latest.current;
     if (!crash || !crashKey || previouslyPresented.current === crashKey) return;
     if (recovery?.crash_presentation !== "active") { dismissToast(`crash:${crashKey}`); return; }
     persistPresentedCrashKey(crashKey);
@@ -119,7 +124,7 @@ export function RecoveryStatusBanner() {
       severity: "Error", level: "failure", lifetime_ms: 15_000, update_only: true,
       local_actions: payload?.dir ? [{ label: "Open folder", run: () => invoke<void>("open_folder", { path: payload.dir }) }] : undefined,
     });
-  }, [crash, crashKey, payload, recovery?.crash_presentation, upsertToast, dismissToast]);
+  }, [crashKey, payloadKey, recovery?.crash_presentation, upsertToast, dismissToast]);
 
   return null;
 }
