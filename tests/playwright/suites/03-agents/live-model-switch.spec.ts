@@ -111,6 +111,8 @@ for (let run = startRun; run < startRun + repeats; run++) {
             writeFileSync(info.outputPath(`${providerId}-${step}-raw.json`), JSON.stringify(evidence, null, 2));
             const exact = turnEvidence(providerId, evidence, marker);
             await info.attach(`${providerId}-${step}-records.json`, { body: JSON.stringify({ path: evidence.path, ...exact }, null, 2), contentType: "application/json" });
+            assertModel(providerId, exact.model, model.id);
+            if (effort && !effortProof) expect(exact.effort, "effort must come from the exact provider turn record").toBe(effort);
             const realUser = (m: { type: string; content: string }) => {
               const prefix = detectChatPrefix(m.content);
               return m.type === "user" && !(prefix?.origin.kind === "command" && prefix.body === "");
@@ -124,8 +126,6 @@ for (let run = startRun; run < startRun + repeats; run++) {
             expect(current.agent_session_id).toBe(baseline.agent_session_id);
             expect(current.pty_id).toBe(baseline.pty_id);
             expect(current.session_binding_nonce).toBe(baseline.session_binding_nonce);
-            assertModel(providerId, exact.model, model.id);
-            if (effort && !effortProof) expect(exact.effort, "effort must come from the exact provider turn record").toBe(effort);
             console.log(`[switch-step] ${providerId}/${step} ACK verified`);
             return exact.model;
           };
@@ -190,7 +190,9 @@ for (let run = startRun; run < startRun + repeats; run++) {
               const detail = error instanceof Error ? error.stack : String(error);
               console.log(`[switch-failure] ${providerId}/${step}: ${detail}`);
               failures.push(`${providerId}/${step}: ${detail}`);
-              rows.push({ run, sha, provider: providerId, step, verdict: "fail", detail });
+              const row = [...rows].reverse().find(row => row.provider === providerId && row.step === step);
+              if (row) Object.assign(row, { verdict: "fail", detail });
+              else rows.push({ run, sha, provider: providerId, step, verdict: "fail", detail });
               const screenshot = info.outputPath(`${providerId}-${step}.png`);
               await ui.page.screenshot({ path: screenshot });
               await info.attach(`${providerId}-${step}.png`, { path: screenshot, contentType: "image/png" });
@@ -207,15 +209,17 @@ for (let run = startRun; run < startRun + repeats; run++) {
           });
           const efforts = b!.reasoning_efforts ?? descriptor.reasoning_efforts;
           if (efforts.length >= 2) {
+            const currentEffort = (await identity(api, target.tabId)).reasoning_effort_identity?.actual;
+            const effortB = efforts.find(e => e.id !== currentEffort)!.id;
             await scenario("effort", async () => {
-            const change = await apply(b!, efforts[0].id);
-            change.row.recordModel = await ack(b!, efforts[0].id, change.switchedAtMs);
+            const change = await apply(b!, effortB);
+            change.row.recordModel = await ack(b!, effortB, change.switchedAtMs);
             change.row.effortEvidence = providerId === "grok" ? "session-level evidence" : "turn record";
             change.row.confirmMs = performance.now() - change.started;
             change.row.verdict = "pass";
             });
             await scenario("combined", async () => {
-            const common = (a.reasoning_efforts ?? descriptor.reasoning_efforts).find(e => e.id !== efforts[0].id);
+            const common = (a.reasoning_efforts ?? descriptor.reasoning_efforts).find(e => e.id !== effortB);
             expect(common, "second effort supported by model A").toBeDefined();
             const change = await apply(a, common!.id);
             change.row.recordModel = await ack(a, common!.id, change.switchedAtMs);
@@ -225,10 +229,13 @@ for (let run = startRun; run < startRun + repeats; run++) {
             });
           } else rows.push({ run, sha, provider: providerId, step: "effort+combined", verdict: "unsupported capability" });
           await scenario("busy", async () => {
+          await expect(target.chat.locator('[data-agent-state="idle"]')).toHaveCount(1, { timeout: 60_000 });
+          await expect(capsule).not.toHaveAttribute("aria-label", /after this turn/, { timeout: 15_000 });
           const floor = target.events.latestSequence();
           const marker = `SWITCH_BUSY_${run}_${providerId}_${Date.now()}`;
           await send(`Write 600 numbered sentences about trees, one per line, starting with ${marker}. Do not use tools.`);
           await target.events.waitFor(e => e.seq > floor && e.event_type === "tab-status-changed" && e.data.tab_id === target.tabId && e.data.status === "Working", 60_000, "long turn starts");
+          await expect(target.chat.getByRole("article", { name: "assistant message" }).filter({ hasText: marker })).toHaveCount(1, { timeout: 60_000 });
           await expect(target.chat.locator('[data-agent-state="working"]')).toHaveCount(1);
           const busyBefore = await identity(api, target.tabId);
           const busyModel = choices.find(m => m.id !== (efforts.length >= 2 ? a.id : b!.id))!;
@@ -236,7 +243,10 @@ for (let run = startRun; run < startRun + repeats; run++) {
           await expect(target.chat.locator('[data-agent-state="working"]'), "Apply happened before long turn completed").toHaveCount(1);
           expect((await identity(api, target.tabId)).agent_session_model).toBe(busyBefore.agent_session_model);
           await target.events.waitFor(e => e.seq > floor && e.event_type === "tab-status-changed" && e.data.tab_id === target.tabId && e.data.status === "Idle", 240_000, "long turn completes");
-          const busyRecords = turnEvidence(providerId, await records(providerId, baseline.agent_session_id), marker);
+          await expect(target.chat.locator('[data-agent-state="idle"]')).toHaveCount(1, { timeout: 240_000 });
+          const rawBusy = await records(providerId, baseline.agent_session_id);
+          writeFileSync(info.outputPath(`${providerId}-${step}-raw.json`), JSON.stringify(rawBusy, null, 2));
+          const busyRecords = turnEvidence(providerId, rawBusy, marker);
           assertModel(providerId, busyRecords.model, busyBefore.agent_session_model);
           if (descriptor.model_switch === "live_command") await expect(capsule).not.toHaveAttribute("aria-label", /after this turn/, { timeout: 3_000 });
           change.row.recordModel = await ack(busyModel);
