@@ -1,6 +1,8 @@
-import type { ToolEvent } from "@codeterm/chat-core";
-import { Check, CircleX, LoaderCircle, ChevronRight, Minus } from "lucide-react";
+import { toolCommandLabel, type ToolEvent } from "@codeterm/chat-core";
+import { Check, CircleX, Copy, LoaderCircle, ChevronRight, MessageSquarePlus, Minus, SquareTerminal } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
+import { useChatBlockHost, type ChatBlockHost, type ChatCardMenuItem } from "../blocks/ChatBlockHost";
+import { askExcerpt, ChatCardMenu, copyPlainText } from "../ChatCardMenu";
 import { RawCommandDisclosure } from "../codeterm/RawCommandDisclosure";
 import { toolKindVisual, type ToolKindVisual } from "./toolKindVisual";
 import { ToolOutcomeFacts } from "./ToolOutcomeFacts";
@@ -20,6 +22,34 @@ interface ToolCardFrameProps {
   variant?: "smart" | "codeterm";
   visualOverride?: ToolKindVisual;
   disclosureLabel?: string;
+  /** Overflow items in place of the tool defaults (copy command, copy output, ask). */
+  menu?: readonly ChatCardMenuItem[];
+}
+
+const MENU_ICON = 14;
+
+function plainSummary(event: ToolEvent): string {
+  return (event.description ?? event.summary ?? "").trim();
+}
+
+function toolMenuItems(event: ToolEvent, label: string, host: ChatBlockHost): ChatCardMenuItem[] {
+  const command = event.kind === "command" || event.kind === "codeterm" ? toolCommandLabel(event).trim() : "";
+  const output = event.result?.trim() ?? "";
+  const items: ChatCardMenuItem[] = [];
+  if (command) items.push({ label: "Copy command", icon: <SquareTerminal size={MENU_ICON} aria-hidden />, onSelect: () => copyPlainText(command) });
+  if (output) items.push({ label: "Copy output", icon: <Copy size={MENU_ICON} aria-hidden />, onSelect: () => copyPlainText(output) });
+  if (host.askAbout) {
+    const askAbout = host.askAbout;
+    const summary = plainSummary(event);
+    const title = [label, summary].filter(Boolean).join(" ") || "Tool call";
+    const text = [
+      `About this ${label || "tool"} call: ${summary}`,
+      command && command !== summary ? `Command:\n${askExcerpt(command)}` : "",
+      output ? `Output:\n${askExcerpt(output)}` : "",
+    ].filter(Boolean).join("\n\n");
+    items.push({ label: "Ask about this", icon: <MessageSquarePlus size={MENU_ICON} aria-hidden />, onSelect: () => askAbout({ title, text }) });
+  }
+  return items;
 }
 
 export function ToolCardChips({ chips, wrap = false }: { chips: readonly string[]; wrap?: boolean }) {
@@ -31,7 +61,8 @@ export function ToolCardChips({ chips, wrap = false }: { chips: readonly string[
   );
 }
 
-export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, title, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel }: ToolCardFrameProps) {
+export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, title, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, menu }: ToolCardFrameProps) {
+  const host = useChatBlockHost();
   const visual = visualOverride ?? toolKindVisual[event.kind];
   const Glyph = visual.glyph;
   const statusColor = event.status === "error"
@@ -41,6 +72,8 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   const quiet = !error && !expanded && variant !== "codeterm";
   const label = title === undefined ? visual.label : title;
   const detailsId = `chat-details-${event.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+  const labelText = typeof label === "string" && label ? label : visual.label;
+  const menuItems = menu ?? toolMenuItems(event, labelText, host);
 
   return (
     <div
@@ -78,6 +111,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
             : event.status === "error" ? <CircleX size={14} /> : event.status === "unresolved" || event.status === "interrupted" ? <Minus size={14} /> : <Check size={14} />}
         </span>
         {action}
+        <ChatCardMenu label={`Actions for ${labelText || "tool call"}`} items={menuItems} />
         <ChevronRight aria-hidden="true" size={14} className={expanded ? "rotate-90" : ""} style={{ color: "var(--ct-muted-fg)" }} />
       </div>
       <div

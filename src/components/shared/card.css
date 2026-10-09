@@ -104,6 +104,26 @@ button.ct-card__head {
   white-space: nowrap;
 }
 
+.ct-card__menu {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  opacity: 0;
+  transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.ct-card:hover .ct-card__menu,
+.ct-card:focus-within .ct-card__menu,
+.ct-card__menu.is-shown {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .ct-card__menu {
+    opacity: 1;
+  }
+}
+
 .ct-card__body {
   min-width: 0;
   padding: 0 14px 11px 48px;
@@ -133,7 +153,8 @@ button.ct-card__head {
   }
 
   .ct-card,
-  .ct-card__icon {
+  .ct-card__icon,
+  .ct-card__menu {
     transition: none;
   }
 

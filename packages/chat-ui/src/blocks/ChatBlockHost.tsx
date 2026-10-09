@@ -70,8 +70,24 @@ export interface TasksBlockHost {
   openTask(planId: string, taskId: string): void;
 }
 
+export interface ChatCardMenuItem {
+  label: string;
+  icon?: React.ReactNode;
+  /** Present for an on/off item such as Pin. */
+  checked?: boolean;
+  testId?: string;
+  onSelect(): void;
+}
+
+export interface ChatCardMenuSpec {
+  label: string;
+  items: readonly ChatCardMenuItem[];
+}
+
 /** Scope-wide services for chat blocks. Absent fields hide the matching control instead of faking it. */
 export interface ChatBlockHost {
+  /** Draws a card's overflow trigger and menu with the host's shared dropdown. */
+  renderMenu?(menu: ChatCardMenuSpec): React.ReactNode;
   /** Adds the block to the tab composer as context; `text` is what the agent reads. */
   askAbout?(request: { title: string; text: string }): void;
   pin?(source: string): void;
