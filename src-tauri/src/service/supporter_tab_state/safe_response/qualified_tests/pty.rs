@@ -1,6 +1,6 @@
 use super::{
     BoundedText, CLOSED_MARKER, COMPLETION_TIMEOUT, FOCUS_MARKER, INITIAL_MARKER,
-    MAX_STAGE_SCREEN_BYTES, STAGE_TIMEOUT,
+    MAX_FIXTURE_DIAGNOSTIC_BYTES, MAX_STAGE_SCREEN_BYTES, STAGE_TIMEOUT,
 };
 use parking_lot::Mutex;
 use std::io::Read;
@@ -410,16 +410,32 @@ impl PtyChild {
                     evidence: evidence.clone(),
                     wake: wake.clone(),
                 };
+                let mut frame = Vec::new();
+                let mut stages =
+                    [ModalStage::Initial, ModalStage::Focus, ModalStage::Closed].into_iter();
+                let mut expected = stages.next();
                 let end = loop {
                     let mut bytes = [0u8; 8192];
                     match reader.read(&mut bytes) {
                         Ok(0) => break ReaderEnd::Eof,
                         Ok(count) => {
-                            service.feed_pty_output_for_generation(
-                                &pty,
-                                generation,
-                                &bytes[..count],
-                            );
+                            let Some(stage) = expected else { continue };
+                            frame.extend_from_slice(&bytes[..count]);
+                            if !frame
+                                .windows(stage.marker().len())
+                                .any(|bytes| bytes == stage.marker().as_bytes())
+                            {
+                                if frame.len() > MAX_FIXTURE_DIAGNOSTIC_BYTES {
+                                    break ReaderEnd::ReadError {
+                                        kind: "frame_bound".into(),
+                                        raw_os_error: None,
+                                    };
+                                }
+                                continue;
+                            }
+                            expected = stages.next();
+                            service.feed_pty_output_for_generation(&pty, generation, &frame);
+                            frame.clear();
                             let screen = service
                                 .screen_state
                                 .lock()
