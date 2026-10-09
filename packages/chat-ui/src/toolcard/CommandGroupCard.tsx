@@ -1,7 +1,7 @@
 import type { ShellScript, ToolEvent } from "@codeterm/chat-core";
 import { ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { SyntaxHighlighter } from "../syntaxHighlighter";
 import { commandGroupSummary, type CommandRow } from "../codeterm/commandShape";
 import { DIFF_HIGHLIGHT_MAX_LINES } from "../MarkdownBody";
 import { SYNTAX_HIGHLIGHT_ROOT_CLASS, themeAwarePrismStyle } from "../syntaxTheme";

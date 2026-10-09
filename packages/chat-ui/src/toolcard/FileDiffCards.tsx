@@ -1,7 +1,7 @@
 import { hunkHeader, type FileDiff, type FileDiffHunk, type ToolEvent } from "@codeterm/chat-core";
 import { ChevronRight } from "lucide-react";
 import { useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import { Prism as SyntaxHighlighter, createElement } from "react-syntax-highlighter";
+import { SyntaxHighlighter, createElement } from "../syntaxHighlighter";
 import { RawCommandDisclosure } from "../codeterm/RawCommandDisclosure";
 import { knownLanguageFromPath } from "../codeLanguage";
 import { DIFF_HIGHLIGHT_MAX_LINES } from "../MarkdownBody";

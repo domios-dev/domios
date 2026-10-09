@@ -14,7 +14,7 @@ import { messageParts, normalizedMarkdown } from "./messageParts";
 import { MessagePartView, MessagePartsContext } from "./MessagePartsContext";
 import { rehypeMessageParts, rehypeSourceOffsets } from "./sourceOffsets";
 import { rehypeMarkdownLineBreaks } from "./markdownLineBreaks";
-import { Prism as SyntaxHighlighter, createElement } from "react-syntax-highlighter";
+import { SyntaxHighlighter, createElement } from "./syntaxHighlighter";
 import { CodeBlock, ChevronIcon, CODE_BLOCK_DEFAULT_MAX_HEIGHT, LONG_CODE_PREVIEW_LINES, MERMAID_BLOCK_MAX_HEIGHT, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
 import { looksLikeMermaidSource } from "./MermaidBlock";
 import { themeAwarePrismStyle, SYNTAX_HIGHLIGHT_ROOT_CLASS } from "./syntaxTheme";
