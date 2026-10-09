@@ -16,7 +16,7 @@ function GridSpecimen({ count, selected = null, working = [] }: GridProps) {
   const list = workspaces(count);
   const statuses: Record<string, TabStatus | null> = Object.fromEntries(list.map((workspace) => [workspace.id, working.includes(workspace.id) ? "Working" : null]));
   return <div className="gallery-sidebar" style={{ padding: 8 }}>
-    <SidebarDnd handlers={{ reorderTabs: noop, reorderWorkspaces: noop }}>
+    <SidebarDnd handlers={{ reorderTabs: noop, reorderDisplay: noop, reorderWorkspaces: noop }}>
       <WorkspaceCardGrid workspaces={list} selectedWorkspaceId={selected} statuses={statuses} sortIds={list.map((workspace) => `${WS_PREFIX}${workspace.id}`)} onSelect={noop} onCreate={noop} />
     </SidebarDnd>
   </div>;

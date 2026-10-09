@@ -726,6 +726,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     [guardedInvoke],
   );
 
+  const reorderDisplay = useCallback((args: { workspaceId: string; orderedTabIds: string[] }) => {
+    dispatch({ type: "REORDER_DISPLAY", orderedTabIds: args.orderedTabIds });
+    guardedInvoke("mux_reorder_display", args).catch(() => {});
+  }, [guardedInvoke]);
+
   const reorderWorkspaces = useCallback((orderedWorkspaceIds: string[]) => {
     dispatch({ type: "REORDER_WORKSPACES", orderedWorkspaceIds });
     guardedInvoke("mux_reorder_workspace", { orderedWorkspaceIds }).catch(() => {});
@@ -1048,6 +1053,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       renameWorkspace,
       moveTab,
       reorderTabs,
+      reorderDisplay,
       reorderWorkspaces,
       createTab,
       attachRemoteTab,
@@ -1081,6 +1087,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       renameWorkspace,
       moveTab,
       reorderTabs,
+      reorderDisplay,
       reorderWorkspaces,
       createTab,
       attachRemoteTab,

@@ -127,6 +127,7 @@ export function Sidebar({
     closeWorkspace,
     renameWorkspace,
     reorderTabs,
+    reorderDisplay,
     reorderWorkspaces,
     createTab,
     attachRemoteTab,
@@ -719,8 +720,8 @@ export function Sidebar({
     [ordinaryWorkspaces],
   );
   const dndHandlers = useMemo(
-    () => ({ reorderTabs, reorderWorkspaces }),
-    [reorderTabs, reorderWorkspaces],
+    () => ({ reorderTabs, reorderDisplay, reorderWorkspaces }),
+    [reorderTabs, reorderDisplay, reorderWorkspaces],
   );
   const compactGroups = useMemo<CompactRailGroup[]>(() => {
     if (!isCompact) return [];

@@ -24,6 +24,7 @@ export type Action =
   | { type: "RENAME_WORKSPACE"; id: string; name: string }
   | { type: "MOVE_TAB"; tabId: string; fromWorkspaceId: string; toWorkspaceId: string }
   | { type: "REORDER_TABS"; orderedTabIds: string[] }
+  | { type: "REORDER_DISPLAY"; orderedTabIds: string[] }
   | { type: "REORDER_WORKSPACES"; orderedWorkspaceIds: string[] }
   | { type: "ADD_TAB"; workspaceId: string; tab: Tab }
   | { type: "CLOSE_TAB"; workspaceId: string; tabId: string; removedTabIds: string[] }
@@ -371,6 +372,15 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           };
         }),
       };
+    }
+
+    case "REORDER_DISPLAY": {
+      const tabs = { ...state.tabs };
+      action.orderedTabIds.forEach((id, index) => {
+        const tab = tabs[id];
+        if (tab) tabs[id] = { ...tab, sort_order: index };
+      });
+      return { ...state, tabs };
     }
 
     case "REORDER_WORKSPACES": {

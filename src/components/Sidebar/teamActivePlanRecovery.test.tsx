@@ -229,7 +229,7 @@ function Projection() {
   const tabs = workspace.tabs.map((tabId) => mux.tabs[tabId]).filter(Boolean);
   const teams = (mux.teams ?? []) as Team[];
   return (
-    <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
+    <SidebarDnd handlers={{ reorderTabs: () => {}, reorderDisplay: () => {}, reorderWorkspaces: () => {} }}>
       <SidebarWorkspaceTabs
         workspace={workspace}
         activeTabId={workspace.active_tab_id}

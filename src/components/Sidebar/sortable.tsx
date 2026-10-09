@@ -28,7 +28,7 @@ export interface SortableGroupData {
   pinnedIds?: string[];
   /** Expands a reordered visible subset into the full order the backend expects. */
   fullOrder?: (orderedRawIds: string[]) => string[];
-  /** Expands the group's new order into the full top-level order of its workspace. */
+  /** Expands the group's new order into the full display order of its workspace. */
   toWorkspaceOrder?: (orderedRawIds: string[]) => { workspaceId: string; orderedTabIds: string[] };
 }
 
@@ -66,6 +66,7 @@ export interface ReorderHandlers {
     parentTabId?: string;
     orderedTabIds: string[];
   }) => void;
+  reorderDisplay: (args: { workspaceId: string; orderedTabIds: string[] }) => void;
 }
 
 /** A single draggable/sortable row. Drag listeners ride the wrapper, so the
@@ -173,7 +174,7 @@ export function commitSidebarDrag(event: DragEndEvent, handlers: ReorderHandlers
   if (pinned.some((pinnedId, index) => reordered[index] !== pinnedId)) return;
   const ordered = reordered.map(rawId);
   if (activeData.toWorkspaceOrder) {
-    handlers.reorderTabs(activeData.toWorkspaceOrder(ordered));
+    handlers.reorderDisplay(activeData.toWorkspaceOrder(ordered));
     return;
   }
   if (activeData.group === "workspace") {

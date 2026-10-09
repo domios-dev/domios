@@ -25,6 +25,8 @@ export interface MultiplexerActionsContextType {
    *  reorder children of that parent; otherwise reorder a workspace's top-level
    *  tabs. Within-group only — the order list never crosses groups. */
   reorderTabs: (args: { workspaceId?: string; parentTabId?: string; orderedTabIds: string[] }) => void;
+  /** Rewrite a workspace's display order across every tab level; `sort_order` follows list position. */
+  reorderDisplay: (args: { workspaceId: string; orderedTabIds: string[] }) => void;
   /** Reorder the workspace list to the given order. */
   reorderWorkspaces: (orderedWorkspaceIds: string[]) => void;
   createTab: (workspaceId: string, cwd?: string, shell?: string) => Promise<{ id: string } | void>;

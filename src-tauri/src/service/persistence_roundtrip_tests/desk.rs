@@ -319,6 +319,44 @@ fn tab_move_and_reorder_round_trip_expected_pass() {
     not(windows),
     ignore = "the real Tauri service fixture requires Windows"
 )]
+fn display_order_across_tab_levels_round_trips_expected_pass() {
+    let root = tempfile::tempdir().unwrap();
+    let instance = started(root.path());
+    let (lead, worker, loose) = {
+        let service = &instance.fixture.service;
+        let workspace_id = service.mux.read().list_workspaces()[0].id.clone();
+        let lead = service.create_named_tab(&workspace_id, "lead").unwrap();
+        let worker = service.create_named_tab(&workspace_id, "worker").unwrap();
+        let loose = service.create_named_tab(&workspace_id, "loose").unwrap();
+        service
+            .mux
+            .write()
+            .get_tab_mut(&worker)
+            .unwrap()
+            .parent_tab_id = Some(lead.clone());
+        service
+            .reorder_display(
+                &workspace_id,
+                &[loose.clone(), lead.clone(), worker.clone()],
+            )
+            .unwrap();
+        (lead, worker, loose)
+    };
+
+    let restarted = instance.restart(root.path());
+    let mux = restarted.fixture.service.mux.read();
+    let order_of = |id: &str| mux.get_tab(id).unwrap().sort_order;
+    assert!(order_of(&loose) < order_of(&lead));
+    assert!(order_of(&lead) < order_of(&worker));
+    drop(mux);
+    close(restarted);
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri service fixture requires Windows"
+)]
 fn workspace_rename_and_close_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());

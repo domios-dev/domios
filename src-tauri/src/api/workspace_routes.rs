@@ -300,6 +300,20 @@ pub async fn reorder_children(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+pub async fn reorder_display(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(workspace_id): Path<String>,
+    Json(body): Json<ReorderTabsBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    state
+        .svc
+        .reorder_display(&workspace_id, &body.ordered_tab_ids)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to reorder display"))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
 #[derive(Deserialize)]
 pub(crate) struct ReorderWorkspacesBody {
     ordered_workspace_ids: Vec<String>,
