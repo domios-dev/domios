@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { CircleCheck, Clock3, Map, Plus, Timer, Workflow, X } from "lucide-react";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { JobConfirmationDialog } from "../Jobs/JobConfirmationDialog";
@@ -18,6 +18,8 @@ interface ComposerContextHeaderProps {
   onEditDelayed: (message: DelayedMessage) => void;
   onDeleteDelayed: (id: string) => void;
   onScheduleDelayed: () => void;
+  /** True once the composer holds a draft; typing folds any open strip away. */
+  draftActive?: boolean;
   adapter?: AutomationGraphAdapter;
   jobActionAdapter?: JobsActionAdapter;
 }
@@ -39,7 +41,7 @@ function delayedWhen(message: DelayedMessage): string {
   return message.state === "failed" ? "failed" : formatRelative(message.scheduledAtMs);
 }
 
-export function ComposerContextHeader({ tabId, workspaceId, delayed, onEditDelayed, onDeleteDelayed, onScheduleDelayed, adapter, jobActionAdapter }: ComposerContextHeaderProps) {
+export function ComposerContextHeader({ tabId, workspaceId, delayed, onEditDelayed, onDeleteDelayed, onScheduleDelayed, draftActive = false, adapter, jobActionAdapter }: ComposerContextHeaderProps) {
   const { chips, byKey, blueprints, context, refresh } = useTabJobs(tabId, workspaceId, adapter, jobActionAdapter);
   const hasPlan = useTabHasPlan(tabId);
   const [requested, setRequested] = useState<ContextKind | null>(null);
@@ -47,6 +49,10 @@ export function ComposerContextHeader({ tabId, workspaceId, delayed, onEditDelay
   const [confirming, setConfirming] = useState<MergedJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (draftActive) setRequested(null);
+  }, [draftActive]);
 
   const blueprintChips = chips.filter((chip) => chip.kind !== "cron");
   const cronChips = chips.filter((chip) => chip.kind === "cron");

@@ -93,7 +93,7 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
           ref={mirrorRef}
           aria-hidden
           data-testid="composer-capsule-mirror"
-          className="pointer-events-none absolute left-0 overflow-hidden pr-1 text-[15px]"
+          className="pointer-events-none absolute left-0 overflow-hidden pr-1 text-[14px]"
           style={{ top: marginPx, bottom: marginPx, lineHeight: "20px", whiteSpace: "pre-wrap", overflowWrap: "break-word", color: "var(--ct-fg, #c9d1d9)" }}
         >
           {segments.map((segment) => ("text" in segment

@@ -222,7 +222,7 @@ body {
   }
 
   button.ct-composer-round-button,
-  .ct-composer-round-button.h-10 {
+  .ct-composer-action-shell {
     width: 2.5rem !important;
     height: 2.5rem !important;
     min-width: 2.5rem !important;

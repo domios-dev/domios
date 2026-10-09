@@ -84,7 +84,7 @@ async function main() {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  const render = (tabId: string, messages: DelayedMessage[]) => root.render(
+  const render = (tabId: string, messages: DelayedMessage[], draftActive = false) => root.render(
     <MuxStateStoreContext.Provider value={store}><ComposerContextHeader
       tabId={tabId}
       workspaceId="workspace-a"
@@ -92,6 +92,7 @@ async function main() {
       onEditDelayed={(message) => edited.push(message.id)}
       onDeleteDelayed={() => undefined}
       onScheduleDelayed={() => undefined}
+      draftActive={draftActive}
       adapter={adapter}
     /></MuxStateStoreContext.Provider>,
   );
@@ -124,6 +125,11 @@ async function main() {
   await act(async () => { crons.click(); });
   await act(async () => { host.querySelector<HTMLButtonElement>('.ct-ctx-kind[data-kind="crons"]')!.click(); });
   assert.equal(host.querySelector(".ct-ctx__reveal")?.hasAttribute("data-open"), false, "pressing the open kind again folds the strip");
+
+  await act(async () => { host.querySelector<HTMLButtonElement>('.ct-ctx-kind[data-kind="crons"]')!.click(); });
+  assert.equal(host.querySelector(".ct-ctx__reveal")?.hasAttribute("data-open"), true);
+  await act(async () => { render("tab-a", [delayed], true); });
+  assert.equal(host.querySelector(".ct-ctx__reveal")?.hasAttribute("data-open"), false, "starting a draft folds the open strip away");
 
   await act(async () => { render("tab-b", []); });
   assert.equal(host.querySelector('[data-testid="composer-context-header"]'), null, "a tab with nothing linked shows no header");

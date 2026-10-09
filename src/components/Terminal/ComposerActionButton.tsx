@@ -41,7 +41,7 @@ export function ComposerActionButton({
   } = voiceUi;
 
   return (
-    <div className="ct-composer-action-shell relative shrink-0 h-10 w-10">
+    <div className="ct-composer-action-shell ct-composer-control relative shrink-0">
       {isHold && <VoiceLockPill />}
       <button
         ref={buttonRef}
@@ -85,7 +85,7 @@ export function ComposerActionButton({
           onSchedule();
         }}
         className={`${btnBase} ct-composer-voice-bubble absolute left-1/2 top-1/2 rounded-full border ${
-          voiceActive ? "z-30 is-active" : "ct-composer-round-button h-10 w-10"
+          voiceActive ? "z-30 is-active" : "ct-composer-round-button ct-composer-control"
         } ${isLocked ? "ring-4 ring-[var(--ct-accent,#58a6ff)]/25" : ""} shadow-none disabled:opacity-40`}
         style={actionButtonStyle(voiceActive, mainIsSend, isLocked, bubblePose)}
         disabled={voiceBusy || (mainIsSend && sendDisabled)}
@@ -132,8 +132,8 @@ function ActionButtonIcon({
   return (
     <>
       <span className="ct-send-bloom" aria-hidden />
-      <span className="ct-send-glyph ct-send-glyph--mic" aria-hidden><Mic size={20} strokeWidth={2.2} /></span>
-      <span className="ct-send-glyph ct-send-glyph--send" aria-hidden><SendIcon size={20} /></span>
+      <span className="ct-send-glyph ct-send-glyph--mic" aria-hidden><Mic size={17} strokeWidth={2.2} /></span>
+      <span className="ct-send-glyph ct-send-glyph--send" aria-hidden><SendIcon size={17} /></span>
     </>
   );
 }
