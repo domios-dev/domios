@@ -27,8 +27,9 @@ import {
   type SlashCommandSuggestion,
 } from "../../lib/slashCommands";
 import type { PendingPrompt } from "../../lib/types";
-import { TabTaskStrip } from "./TabTaskStrip";
-import { ComposerJobChips } from "./ComposerJobChips";
+import { createPortal } from "react-dom";
+import { ComposerContextHeader } from "./ComposerContextHeader";
+import { DelayedMessageModal } from "./DelayedMessageModal";
 import { useMuxSelector } from "../../store/multiplexer";
 import { COMPOSER_MIN_HEIGHT } from "./composerAutosize";
 import {
@@ -196,6 +197,7 @@ function ChatComposerImpl({
   onOpenTerminalFallback,
   promptDock,
   inlineAttachmentSink,
+  contextSlot = null,
   chatBackend = false,
   isActive = true,
 }: {
@@ -224,6 +226,8 @@ function ChatComposerImpl({
   promptDock?: ReactNode;
   /** Where pasted and dropped files land as capsules at the caret. */
   inlineAttachmentSink?: MutableRefObject<InlineAttachmentSink | null>;
+  /** Element above the status line that hosts the context header. */
+  contextSlot?: HTMLElement | null;
 }) {
   recordComposerRender(tabId);
   const isActiveRef = useRef(isActive);
@@ -246,6 +250,7 @@ function ChatComposerImpl({
   const [delayedQueueOpen, setDelayedQueueOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [delayedBusyId, setDelayedBusyId] = useState<string | null>(null);
+  const [editingDelayed, setEditingDelayed] = useState<DelayedMessage | null>(null);
   const [scheduleBusy, setScheduleBusy] = useState(false);
   // Screen-reader-visible mirror of showComposerError: the field's current
   // content was rejected, until the user edits it again.
@@ -478,9 +483,6 @@ function ChatComposerImpl({
     }
   }
 
-  const queuedCount = delayedMessages.filter((msg) => msg.state !== "failed").length;
-  const failedCount = delayedMessages.filter((msg) => msg.state === "failed").length;
-
   useEffect(() => {
     if (delayedQueueOpen && delayedMessages.length === 0) {
       setDelayedQueueOpen(false);
@@ -530,12 +532,50 @@ function ChatComposerImpl({
           )}
         </div>
       )}
+      {contextSlot && createPortal(
+        <ComposerContextHeader
+          tabId={tabId}
+          workspaceId={workspaceId}
+          delayed={delayedMessages}
+          onEditDelayed={setEditingDelayed}
+          onDeleteDelayed={(id) => void withDelayedBusy(id, async () => {
+            await deleteDelayedMessage(id);
+          })}
+          onScheduleDelayed={() => {
+            setScheduleOpen(true);
+            setDelayedQueueOpen(false);
+          }}
+        />,
+        contextSlot,
+      )}
+      {editingDelayed && (
+        <DelayedMessageModal
+          message={editingDelayed}
+          busy={delayedBusyId === editingDelayed.id}
+          onClose={() => {
+            setEditingDelayed(null);
+            refocusComposer();
+          }}
+          onDelete={() => {
+            const id = editingDelayed.id;
+            setEditingDelayed(null);
+            void withDelayedBusy(id, async () => {
+              await deleteDelayedMessage(id);
+            });
+          }}
+          onSave={(patch) => {
+            const id = editingDelayed.id;
+            setEditingDelayed(null);
+            void withDelayedBusy(id, async () => {
+              await updateDelayedMessage(id, patch);
+            });
+          }}
+        />
+      )}
       <ReceiverTargetMarks menu={pluginTabMenu} tabId={tabId} surface="composer" />
       <div className="mb-2 flex flex-wrap items-center gap-1 empty:hidden">
       <ComposerContextMeter tabId={tabId} />
       <ProviderCapabilityBadge tabId={tabId} />
-      <TabTaskStrip tabId={tabId} presentation="inline" />
-      <ComposerJobChips tabId={tabId} workspaceId={workspaceId} />
       </div>
       {promptDock}
       <div data-testid="composer-row" className="relative">
@@ -560,13 +600,6 @@ function ChatComposerImpl({
               onOpenDelayedQueue={openDelayedQueue}
             />}
           </>}
-          cardFooter={(queuedCount > 0 || failedCount > 0) && <ComposerBubbleRow
-            attachments={[]}
-            onRemove={removeAttachment}
-            queuedCount={queuedCount}
-            failedCount={failedCount}
-            onOpenDelayedQueue={openDelayedQueue}
-          />}
         >
           <SlashPicker
             suggestions={pickerOpen ? suggestions : []}
@@ -730,6 +763,7 @@ export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
   && a.onOpenTerminalFallback === b.onOpenTerminalFallback
   && a.promptDock === b.promptDock
   && a.inlineAttachmentSink === b.inlineAttachmentSink
+  && a.contextSlot === b.contextSlot
   && a.chatBackend === b.chatBackend
   && a.isActive === b.isActive
 );
