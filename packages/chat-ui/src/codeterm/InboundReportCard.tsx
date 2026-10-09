@@ -9,6 +9,7 @@ import { pickUiFontScaleValue } from "../uiFontScale";
 import { CoordinationReportCard } from "./CoordinationReportCard";
 import { parseCoordinationReport } from "./coordinationReport";
 import { formatCommunicationEndpoint } from "./templates";
+import { CompactMessageContent } from "./CompactMessageContent";
 import {
   parseDeliveredTaskOutcome,
   reportContentBody,
@@ -147,10 +148,10 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
             {body && (
               <div
                 data-testid="chat-inbound-report-body"
-                className="min-w-0 whitespace-pre-wrap break-words"
+                className="min-w-0 break-words"
                 style={{ color: "var(--ct-fg)" }}
               >
-                {hasPlanRefs(body) ? <LinkedText text={body} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /> : body}
+                <CompactMessageContent text={body} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
               </div>
             )}
             {diagnostics && (

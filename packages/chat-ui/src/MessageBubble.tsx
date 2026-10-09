@@ -23,6 +23,7 @@ import { ShellCommandItem } from "./ShellCommandItem";
 import { ReminderCard } from "./codeterm/ReminderCard";
 import { InboundReportCard, parseInboundReport } from "./codeterm/InboundReportCard";
 import { InboundMessageCard } from "./codeterm/InboundMessageCard";
+import { CompactMessageContent } from "./codeterm/CompactMessageContent";
 import { MessageTime } from "./MessageTime";
 import type { PeerNameResolver, TabNameResolver } from "./codeterm/templates";
 import { ChevronIcon, PRE_WRAP_CLASS } from "./CodeBlock";
@@ -248,7 +249,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
                 className={`border-t px-3 py-2 ${userText} ${TEXT_WRAP_CLASS}`}
                 style={{ borderColor: "color-mix(in srgb, var(--ct-green, #3fb950) 22%, transparent)" }}
               >
-                <RichMarkdown text={message.content} fontScale={fontScale} />
+                <CompactMessageContent text={message.content} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
               </div>
             )}
           </div>
@@ -284,7 +285,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
                 className={`border-t px-3 py-2 ${userText} ${TEXT_WRAP_CLASS}`}
                 style={{ borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 20%, transparent)" }}
               >
-                <RichMarkdown text={message.content} fontScale={fontScale} />
+                <CompactMessageContent text={message.content} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
               </div>
             )}
           </div>
