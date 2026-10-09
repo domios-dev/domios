@@ -71,27 +71,42 @@ impl ModelSwitchTranscript {
             {
                 continue;
             }
-            let content = self.content_at_path(&record);
-            let excluded = match content {
-                Some(serde_json::Value::String(content)) => {
-                    command_content(content, source, &ignored)
-                }
-                Some(serde_json::Value::Array(blocks)) if !blocks.is_empty() => {
-                    blocks.iter().all(|block| {
-                        block["type"] == "tool_result"
-                            || (block["type"] == "text"
-                                && block["text"]
-                                    .as_str()
-                                    .is_some_and(|text| command_content(text, source, &ignored)))
-                    })
-                }
-                _ => false,
-            };
-            if !excluded {
+            if !self.command_record(&record, &ignored) {
                 return Ok(true);
             }
         }
         Ok(false)
+    }
+
+    pub fn is_command_record(&self, record: &serde_json::Value) -> bool {
+        if self.record_content(record).is_none() {
+            return false;
+        }
+        let Ok(ignored) = self
+            .ignored_content_regexes
+            .iter()
+            .map(|pattern| regex::Regex::new(pattern))
+            .collect::<Result<Vec<_>, _>>()
+        else {
+            return false;
+        };
+        self.command_record(record, &ignored)
+    }
+
+    fn command_record(&self, record: &serde_json::Value, ignored: &[regex::Regex]) -> bool {
+        match self.content_at_path(record) {
+            Some(serde_json::Value::String(content)) => command_content(content, self, ignored),
+            Some(serde_json::Value::Array(blocks)) if !blocks.is_empty() => {
+                blocks.iter().all(|block| {
+                    block["type"] == "tool_result"
+                        || (block["type"] == "text"
+                            && block["text"]
+                                .as_str()
+                                .is_some_and(|text| command_content(text, self, ignored)))
+                })
+            }
+            _ => false,
+        }
     }
 }
 

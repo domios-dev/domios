@@ -728,7 +728,7 @@ impl ServiceContext {
         self.record_model_request(tab_id, provider, session_id, requested_model, effort, None)
     }
 
-    fn record_model_request(
+    pub(crate) fn record_model_request(
         &self,
         tab_id: &str,
         provider: &str,

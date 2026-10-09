@@ -437,7 +437,7 @@ impl ServiceContext {
         }
     }
 
-    fn clear_pending_model_switch(
+    pub(crate) fn clear_pending_model_switch(
         &self,
         tab_id: &str,
         observation: &crate::multiplexer::types::PendingModelSwitchObservation,

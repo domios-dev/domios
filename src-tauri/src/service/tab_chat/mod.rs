@@ -32,6 +32,8 @@ pub use tailer::{
 };
 
 #[cfg(test)]
+mod command_tests;
+#[cfg(test)]
 mod identity_tests;
 #[cfg(test)]
 mod tailer_tests;
@@ -53,6 +55,31 @@ pub fn enrich_interactive(
     msg: &mut RichMessage,
     provider: &dyn crate::agent::provider::AgentProvider,
 ) {
+    if msg.role == "user"
+        && !msg.blocks.is_empty()
+        && msg.blocks.iter().all(|block| block.kind == "text")
+    {
+        if let Some(commands) = provider.model_switch_commands() {
+            let mut record = serde_json::json!({"type": commands.transcript.record_type});
+            let mut content = &mut record;
+            for key in &commands.transcript.content_path {
+                content = &mut content[key];
+            }
+            *content = serde_json::Value::Array(
+                msg.blocks
+                    .iter()
+                    .map(|block| {
+                        let mut data = block.data.clone();
+                        data["type"] = serde_json::Value::String(block.kind.clone());
+                        data
+                    })
+                    .collect(),
+            );
+            if commands.transcript.is_command_record(&record) {
+                msg.blocks.clear();
+            }
+        }
+    }
     msg.interactive = provider.parse_interactive_events(msg);
 }
 

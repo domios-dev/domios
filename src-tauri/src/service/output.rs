@@ -290,6 +290,7 @@ impl ServiceContext {
             }
         }
         if let (Some(ref pid), Some(ref at)) = (&tab_id, &agent_type) {
+            let command_owned = self.model_command_owns_prompt(pid);
             let trust_candidate = if model_owned {
                 self.maybe_detect_agent_session(pid, at);
                 false
@@ -359,7 +360,7 @@ impl ServiceContext {
                 } else {
                     None
                 };
-                if model_owned && structured.is_none() && screen_changed {
+                if model_owned && !command_owned && structured.is_none() && screen_changed {
                     if let Some(screen) = changed_screen
                         .as_deref()
                         .filter(|screen| has_active_prompt || self.is_scrape_candidate(at, screen))
@@ -393,30 +394,33 @@ impl ServiceContext {
                 } else {
                     codeterm_types::pty::PromptKind::Provider
                 };
-                let (provider_prompt, directory_trust_prompt, prompt_kind) =
-                    if structured.is_none() && !manual_update_candidate && !model_owned {
-                        clean_text
-                            .as_deref()
-                            .and_then(|screen| {
-                                crate::agent::prompt::parse_prompt_safely(|| {
-                                    self.agent_registry.parse_interactive_prompt(at, screen)
-                                })
-                                .filter(|(prompt, kind)| {
-                                    *kind == codeterm_types::pty::PromptKind::DirectoryTrust
-                                        || !crate::agent::state_reactor::prompt_is_composer_text(
-                                            screen, prompt,
-                                        )
-                                })
+                let (provider_prompt, directory_trust_prompt, prompt_kind) = if structured.is_none()
+                    && !manual_update_candidate
+                    && !model_owned
+                    && !command_owned
+                {
+                    clean_text
+                        .as_deref()
+                        .and_then(|screen| {
+                            crate::agent::prompt::parse_prompt_safely(|| {
+                                self.agent_registry.parse_interactive_prompt(at, screen)
                             })
-                            .map(|(prompt, kind)| {
-                                let is_directory_trust =
-                                    kind == codeterm_types::pty::PromptKind::DirectoryTrust;
-                                (Some(prompt), is_directory_trust, kind)
+                            .filter(|(prompt, kind)| {
+                                *kind == codeterm_types::pty::PromptKind::DirectoryTrust
+                                    || !crate::agent::state_reactor::prompt_is_composer_text(
+                                        screen, prompt,
+                                    )
                             })
-                            .unwrap_or((None, false, default_prompt_kind))
-                    } else {
-                        (None, false, default_prompt_kind)
-                    };
+                        })
+                        .map(|(prompt, kind)| {
+                            let is_directory_trust =
+                                kind == codeterm_types::pty::PromptKind::DirectoryTrust;
+                            (Some(prompt), is_directory_trust, kind)
+                        })
+                        .unwrap_or((None, false, default_prompt_kind))
+                } else {
+                    (None, false, default_prompt_kind)
+                };
                 let parsed = crate::agent::prompt::parse_prompt_safely(|| {
                     if let Some(prompt) = structured {
                         crate::agent::native_prompt::resolve_pending_prompt(
@@ -434,7 +438,10 @@ impl ServiceContext {
                 if prompt_signal && clean_text.is_none() {
                     clean_text = self.screen_state.lock().get_screen_text(pty_id);
                 }
-                let decision = if manual_update_candidate || (model_owned && parsed.is_none()) {
+                let decision = if command_owned
+                    || manual_update_candidate
+                    || (model_owned && parsed.is_none())
+                {
                     PromptDecision::None
                 } else {
                     self.prompt_detector.lock().evaluate_pty_output_parsed(
@@ -801,6 +808,14 @@ impl ServiceContext {
         require_user_confirmation: bool,
         route_owner_prompt: bool,
     ) {
+        if let PromptDecision::NewPrompt { tab_id, .. }
+        | PromptDecision::PromptUpdated { tab_id, .. } = decision
+        {
+            if self.model_command_owns_prompt(tab_id) {
+                self.prompt_detector.lock().mark_responded(tab_id);
+                return;
+            }
+        }
         if self.defer_launch_onboarding_prompt(
             decision,
             screen_text,

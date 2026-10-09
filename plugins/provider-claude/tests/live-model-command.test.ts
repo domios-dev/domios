@@ -24,6 +24,8 @@ assert.ok(pattern(modelPicker.screenRegex, "opus").test(modelScreen));
 assert.equal(pattern(modelPicker.selectedRegex, "opus").exec(modelScreen)?.groups?.position, "4");
 assert.equal(pattern(modelPicker.targetRegex, "opus").exec(modelScreen)?.groups?.position, "2");
 assert.equal(pattern(modelPicker.targetRegex, "haiku").exec(modelScreen)?.groups?.position, "5");
+assert.equal(pattern(modelPicker.targetRegex, "sonnet").exec(modelScreen)?.groups?.position, "4");
+assert.equal(pattern(modelPicker.targetRegex, "sonnet").exec(modelScreen)?.groups?.label, "Sonnet 5.5");
 assert.equal(pattern(modelPicker.targetRegex, "absent").exec(modelScreen), null);
 assert.ok(pattern(commands.model.prompt.screenRegex, "opus").test(fixture("opus-confirmation.txt")));
 assert.ok(pattern(commands.model.confirmation, "sonnet").test("Set model to `Sonnet 5.5` for this session only"));

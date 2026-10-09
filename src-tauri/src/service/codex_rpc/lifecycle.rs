@@ -393,6 +393,7 @@ async fn start(
                     .as_str()
                     .map(str::to_owned),
                 mode: runtime_mode,
+                ..Default::default()
             }),
             control: Mutex::new(control),
             compaction: Mutex::new(super::compaction::CompactionState::default()),
