@@ -36,8 +36,31 @@ export function normalizedMarkdown(source: string) {
 }
 
 const parser = unified().use(remarkParse).use(remarkGfm);
+const cache = new Map<string, { source: string; parts: MessagePart[] }>();
+let cachedChars = 0;
 
 export function messageParts(id: string, source: string): MessagePart[] {
+  const previous = cache.get(id);
+  if (previous?.source === source) return previous.parts;
+  if (previous) {
+    cachedChars -= previous.source.length;
+    cache.delete(id);
+  }
+  const parts = parseMessageParts(id, source);
+  if (source.length <= 50_000) {
+    cache.set(id, { source, parts });
+    cachedChars += source.length;
+    while (cache.size > 256 || cachedChars > 500_000) {
+      const oldest = cache.keys().next().value;
+      if (oldest === undefined) break;
+      cachedChars -= cache.get(oldest)!.source.length;
+      cache.delete(oldest);
+    }
+  }
+  return parts;
+}
+
+function parseMessageParts(id: string, source: string): MessagePart[] {
   const normalized = normalizedMarkdown(source);
   const blocks = parser.parse(normalized.text).children;
   const ranges: Array<{ start: number; end: number }> = [];
