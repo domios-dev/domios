@@ -744,6 +744,8 @@ mod tests {
             .and_utc()
             .timestamp_millis();
         UsageSnapshotRow {
+            billing_mode: Default::default(),
+            limits_reported: false,
             id: 1,
             provider: provider.into(),
             account_id: account_id.map(str::to_string),

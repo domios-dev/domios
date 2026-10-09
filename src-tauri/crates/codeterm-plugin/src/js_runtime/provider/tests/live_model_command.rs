@@ -1,10 +1,30 @@
 use super::*;
 
 #[test]
+fn session_identity_manifest_needs_no_transcript_confirmation_regex() {
+    let mut manifest: serde_json::Value = serde_json::from_str(MIN_MANIFEST).unwrap();
+    manifest["commands"]["modelSwitch"] = json!("live_command");
+    manifest["commands"]["modelSwitchCommands"] = json!({
+        "confirmationSource": {"kind": "session_identity"},
+        "model": {"command": "/model {model}"},
+        "effort": {"command": "/effort {effort}"}
+    });
+    let provider = load(&manifest.to_string(), "module.exports.default = {};");
+    let commands = provider.model_switch_commands().unwrap();
+    assert_eq!(
+        commands.confirmation_source,
+        crate::provider::ModelSwitchConfirmationSource::SessionIdentity
+    );
+    manifest["commands"]["modelSwitchCommands"]["confirmationSource"]["kind"] = json!("guess");
+    assert!(serde_json::from_value::<PluginManifest>(manifest).is_err());
+}
+
+#[test]
 fn live_command_mode_and_templates_round_trip_through_manifest() {
     let mut manifest: serde_json::Value = serde_json::from_str(MIN_MANIFEST).unwrap();
     manifest["commands"]["modelSwitch"] = json!("live_command");
     manifest["commands"]["modelSwitchCommands"] = json!({
+        "confirmationSource": {"kind": "transcript"},
         "model": {"command": "/choose", "confirmation": "^accepted {model}$",
             "picker": {"screenRegex":"^picker", "selectedRegex":"selected (?P<position>\\d+)",
                 "targetRegex":"(?P<position>\\d+) {model}", "position":"number",

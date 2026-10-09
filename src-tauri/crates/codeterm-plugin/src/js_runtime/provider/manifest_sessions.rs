@@ -225,6 +225,25 @@ impl JsProvider {
         Some(root.join(leaf))
     }
 
+    pub(super) fn owned_session_model_identity_path(
+        &self,
+        cwd: &str,
+        session_id: &str,
+    ) -> Option<PathBuf> {
+        if !self.has_js("sessionModelIdentityPath") {
+            return self
+                .native()
+                .and_then(|provider| provider.session_model_identity_path(cwd, session_id));
+        }
+        let path = self.try_call::<Option<String>>(
+            "sessionModelIdentityPath",
+            &[json!(cwd), json!(session_id)],
+        )??;
+        let root = self.manifest_read_session_root()?.canonicalize().ok()?;
+        let path = PathBuf::from(path).canonicalize().ok()?;
+        (path.starts_with(root) && self.vm.can_read_path(&path) && path.is_file()).then_some(path)
+    }
+
     pub(super) fn owned_session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
         if let Some(path) =
             self.try_call::<Option<String>>("sessionFilePath", &[json!(cwd), json!(session_id)])

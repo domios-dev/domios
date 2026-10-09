@@ -14,6 +14,8 @@ function row(over: Partial<UsageSnapshot>): UsageSnapshot {
     account_id: null,
     captured_at: 1_000,
     parsed_ok: false,
+    billing_mode: "unknown",
+    limits_reported: false,
     session_pct: null,
     session_resets_at: null,
     weekly_pct: null,

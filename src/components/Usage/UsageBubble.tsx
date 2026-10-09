@@ -8,7 +8,7 @@ import { formatSpend } from "./format";
 import { groupSpendSnapshot, hasGroupSpend } from "./groupSpend";
 import { UsageDetail, UsageSpendDetail } from "./UsageDetail";
 import { UsageHistoryModal } from "./UsageHistoryModal";
-import { usageMetricsAriaLabel, visibleUsageMetrics, type VisibleUsageMetric } from "./metrics";
+import { unreportedBillingLabel, usageMetricsAriaLabel, visibleUsageMetrics, type VisibleUsageMetric } from "./metrics";
 import { formatAge } from "../../lib/timeLabels";
 
 interface UsageBubbleProps {
@@ -104,6 +104,7 @@ export function UsageBubble({
   const sessionState = classify(active.session_pct);
   const weeklyState = classify(active.weekly_pct);
   const metrics = visibleUsageMetrics(active);
+  const billingLabel = unreportedBillingLabel(active);
   const worst: "neutral" | "warn" | "danger" = isSpend
     ? "neutral"
     : sessionState === "danger" || weeklyState === "danger"
@@ -142,16 +143,16 @@ export function UsageBubble({
         type="button"
         className={bubbleClass}
         aria-label={
-          isSpend
+          billingLabel ?? (isSpend
             ? `usage ${spendLabel}`
-            : usageMetricsAriaLabel(metrics)
+            : usageMetricsAriaLabel(metrics))
         }
         onClick={(e) => {
           e.stopPropagation();
           setOpen((v) => !v);
         }}
       >
-        {isSpend ? (
+        {billingLabel ? <span>{billingLabel}</span> : isSpend ? (
           <span className="glyph neutral">
             <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M6 1.6v8.8M8 3.2H4.9a1.4 1.4 0 0 0 0 2.8h2.2a1.4 1.4 0 0 1 0 2.8H3.8" />
