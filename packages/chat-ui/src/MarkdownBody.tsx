@@ -1,4 +1,4 @@
-import React, { useMemo, useContext } from "react";
+import React, { useMemo, useContext, useRef } from "react";
 import type { SlashCommand, EditPair } from "@codeterm/chat-core";
 import { parseMarker } from "@codeterm/chat-core";
 import { File, Image, Info, Mic, Settings } from "lucide-react";
@@ -337,15 +337,54 @@ export function RichMarkdown({
     }),
     [fontScale, h1Text, h2Text, h3Text, localArtifacts, renderedText],
   );
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      rehypePlugins={parts && parts.length > 1 ? [...(rehypePlugins ?? []), rehypeMessageParts(parts)] : rehypePlugins}
-      components={components}
-    >
-      {renderedText}
-    </ReactMarkdown>
-  );
+  const splitParts = parts && parts.length > 1 ? parts : null;
+  const cacheKey = JSON.stringify([renderedText, fontScale ?? null, localArtifacts, sourcePositions, splitParts ? partContext?.id ?? null : null]);
+  const cachedKeyRef = useRef<string | null>(null);
+  const rendered = useMemo(() => {
+    const previousKey = cachedKeyRef.current;
+    cachedKeyRef.current = cacheKey;
+    if (previousKey !== null && previousKey !== cacheKey) forgetMarkdownRender(previousKey);
+    return cachedMarkdownRender(cacheKey, renderedText.length, () => ReactMarkdown({
+      remarkPlugins: REMARK_PLUGINS,
+      rehypePlugins: splitParts ? [...(rehypePlugins ?? []), rehypeMessageParts(splitParts)] : rehypePlugins,
+      components,
+      children: renderedText,
+    }));
+  }, [cacheKey, renderedText, rehypePlugins, splitParts, components]);
+  return rendered;
+}
+
+const REMARK_PLUGINS = [remarkGfm];
+const MARKDOWN_RENDER_CACHE_ENTRIES = 600;
+const MARKDOWN_RENDER_CACHE_CHARS = 1_500_000;
+const markdownRenderCache = new Map<string, { element: React.ReactElement; chars: number }>();
+let markdownRenderCacheChars = 0;
+
+// Remounting a transcript (tab switch, reopened panel) would otherwise re-parse every message; elements are immutable and safe to reuse.
+function cachedMarkdownRender(key: string, chars: number, render: () => React.ReactElement): React.ReactElement {
+  const hit = markdownRenderCache.get(key);
+  if (hit) {
+    markdownRenderCache.delete(key);
+    markdownRenderCache.set(key, hit);
+    return hit.element;
+  }
+  const element = render();
+  if (chars > MARKDOWN_RENDER_CACHE_CHARS / 10) return element;
+  markdownRenderCache.set(key, { element, chars });
+  markdownRenderCacheChars += chars;
+  while (markdownRenderCache.size > MARKDOWN_RENDER_CACHE_ENTRIES || markdownRenderCacheChars > MARKDOWN_RENDER_CACHE_CHARS) {
+    const oldest = markdownRenderCache.keys().next().value;
+    if (oldest === undefined) break;
+    forgetMarkdownRender(oldest);
+  }
+  return element;
+}
+
+function forgetMarkdownRender(key: string): void {
+  const entry = markdownRenderCache.get(key);
+  if (!entry) return;
+  markdownRenderCacheChars -= entry.chars;
+  markdownRenderCache.delete(key);
 }
 
 type DiffLineKind = "del" | "add";
