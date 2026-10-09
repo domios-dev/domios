@@ -27,7 +27,7 @@ export function supporterActivity(callsLastHour: number, callsLastDay: number): 
 
 export function SupporterSpendLine({ spend }: { spend: SupporterSpend }) {
   return (
-    <div role="status" aria-label="Supporter spend" className="flex flex-col gap-0.5">
+    <div role="status" aria-label="Spinal Cord spend" className="flex flex-col gap-0.5">
       <span>
         <span className="text-[var(--ct-fg)]">{usd(spend.today)}</span> today ·{" "}
         <span className="text-[var(--ct-fg)]">{usd(spend.month)}</span> this month
@@ -41,14 +41,14 @@ export function SupporterSpendLine({ spend }: { spend: SupporterSpend }) {
           .
         </span>
       )}
-      {!spend.storage_ready && <span role="alert">Supporter spend storage needs attention.</span>}
+      {!spend.storage_ready && <span role="alert">Spinal Cord spend storage needs attention.</span>}
     </div>
   );
 }
 
 export function SupporterSpendSummary({ spend }: { spend: SupporterSpend }) {
   return (
-    <span aria-label="Supporter cost">
+    <span aria-label="Spinal Cord cost">
       {usd(spend.today)} today · {usd(spend.month)} month
     </span>
   );

@@ -307,18 +307,18 @@ describe("Supporter saved connections", () => {
   it("malformed_status_keeps_authoritative_rows_stale", async () => {
     await mount();
     invalidStatus = true;
-    await click("Refresh Supporter status and models");
+    await click("Refresh Spinal Cord status and models");
     expect(section("required")).toBeDefined();
     expect(host.textContent).toContain("Status stale");
     expect((await menuItem("optional", "Make active")).disabled).toBe(true);
     invalidStatus = false;
-    await click("Refresh Supporter status and models");
+    await click("Refresh Spinal Cord status and models");
     expect((await menuItem("optional", "Make active")).disabled).toBe(false);
   });
   it("malformed_catalogue_keeps_rows_and_disables_model_selection", async () => {
     await mount();
     invalidCatalog = true;
-    await click("Refresh Supporter status and models");
+    await click("Refresh Spinal Cord status and models");
     expect(section("required")).toBeDefined();
     expect(host.textContent).toContain("catalogue is unavailable");
     expect(host.querySelector<HTMLSelectElement>("#supporter-model-required")?.disabled).toBe(true);
@@ -328,9 +328,9 @@ describe("Supporter saved connections", () => {
     await mount();
     const rows = host.querySelectorAll("[data-adapter]");
     expect((rows[0] as HTMLElement).dataset.adapter).toBe("required");
-    expect(host.querySelector("[aria-label='Current Supporter']")).toBeNull();
+    expect(host.querySelector("[aria-label='Current Spinal Cord']")).toBeNull();
     expect(host.querySelector("[aria-label='Saved inactive connections']")).toBeNull();
-    expect(host.querySelector("section[aria-label='Supporter connections']")).not.toBeNull();
+    expect(host.querySelector("section[aria-label='Spinal Cord connections']")).not.toBeNull();
     expect(rows).toHaveLength(2);
     expect(host.textContent).toContain("Ready");
     expect(section("required").textContent).toContain("required One");
@@ -393,7 +393,7 @@ describe("Supporter saved connections", () => {
   it("incoherent_selection_flags_are_stale_and_do_not_choose_a_winner", async () => {
     await mount();
     state.connections.find((entry) => entry.adapter === "optional")!.active = true;
-    await click("Refresh Supporter status and models");
+    await click("Refresh Spinal Cord status and models");
     expect(host.textContent).toContain("Status stale");
     expect(section("required").textContent).toContain("Last-known status; refresh to verify.");
     expect((await menuItem("optional", "Make active")).disabled).toBe(true);
@@ -559,7 +559,7 @@ describe("Supporter saved connections", () => {
     ).toHaveLength(1);
     expect(state.adapter).toBe("required");
     expect(state.model).toBe("required-one");
-    await click("Refresh Supporter status and models");
+    await click("Refresh Spinal Cord status and models");
     expect(host.querySelector("[data-adapter='optional']")).toBeNull();
     expect(host.querySelector("[aria-live='polite']")?.textContent).toContain("optional provider removed");
     expect(state.adapter).toBe("required");
@@ -579,7 +579,7 @@ describe("Supporter saved connections", () => {
     expect(state.adapter).toBe("required");
     expect(state.model).toBe("required-one");
     expect(document.activeElement).toBe(section("required"));
-    expect(host.querySelector("[aria-live='polite']")?.textContent).toContain("current Supporter is unchanged");
+    expect(host.querySelector("[aria-live='polite']")?.textContent).toContain("current Spinal Cord is unchanged");
   });
   it("failed_delete_keeps_the_row_and_selection_for_retry", async () => {
     await mount();
@@ -648,7 +648,7 @@ describe("Supporter saved connections", () => {
     expect(section("optional").textContent).toContain("Inactive");
     expect(host.querySelector("[data-adapter='required']")).toBeNull();
     expect(document.activeElement).toBe(section("optional"));
-    expect(host.querySelector("[aria-live='polite']")?.textContent).toContain("Supporter stopped");
+    expect(host.querySelector("[aria-live='polite']")?.textContent).toContain("Spinal Cord stopped");
   });
   it("unknown_outcome_refreshes_before_retry", async () => {
     await mount();
@@ -686,7 +686,7 @@ describe("Supporter saved connections", () => {
     await mount();
     await confirm("optional");
     stale = true;
-    await click("Refresh Supporter status and models");
+    await click("Refresh Spinal Cord status and models");
     expect(host.textContent).toContain("stale");
     expect(section("required")).toBeDefined();
     const dialog = section("optional").querySelector("[role='alertdialog']")!;
@@ -766,10 +766,10 @@ describe("Supporter saved connections", () => {
   });
   it("money_only_for_priced_adapter", async () => {
     await mount();
-    expect(section("required").querySelector("[aria-label='Supporter cost']")).not.toBeNull();
-    expect(section("optional").querySelector("[aria-label='Supporter cost']")).toBeNull();
+    expect(section("required").querySelector("[aria-label='Spinal Cord cost']")).not.toBeNull();
+    expect(section("optional").querySelector("[aria-label='Spinal Cord cost']")).toBeNull();
     await click("Make active", section("optional"));
-    expect(host.querySelector("[aria-label='Supporter cost']")).toBeNull();
+    expect(host.querySelector("[aria-label='Spinal Cord cost']")).toBeNull();
   });
   it("unknown_price_not_zero", async () => {
     state.spend.today.estimated_usd = null;
@@ -785,7 +785,7 @@ describe("Supporter saved connections", () => {
     state.pricing = null;
     await mount();
     expect(host.textContent).toContain("req/hr");
-    expect(host.querySelector("[aria-label='Supporter cost']")).toBeNull();
+    expect(host.querySelector("[aria-label='Spinal Cord cost']")).toBeNull();
   });
   it("zero_price_local_adapter_shows_counts_without_money", async () => {
     state.connections = [
@@ -801,7 +801,7 @@ describe("Supporter saved connections", () => {
     state.adapter = "none";
     state.model = "none-one";
     await mount();
-    expect(host.querySelector("[aria-label='Supporter spend']")).toBeNull();
+    expect(host.querySelector("[aria-label='Spinal Cord spend']")).toBeNull();
   });
   it("write_surfaces_plain_text_errors", async () => {
     await mount();
@@ -811,7 +811,7 @@ describe("Supporter saved connections", () => {
   });
   it("priced_adapter_shows_estimated_spend", async () => {
     await mount();
-    expect(section("required").querySelector('[aria-label="Supporter cost"]')).not.toBeNull();
+    expect(section("required").querySelector('[aria-label="Spinal Cord cost"]')).not.toBeNull();
   });
   it("clear_token_is_adapter_scoped_and_returns_an_honest_success_flag", async () => {
     let controls: SupporterControls;

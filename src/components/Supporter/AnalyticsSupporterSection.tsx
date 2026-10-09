@@ -14,7 +14,7 @@ export function AnalyticsSupporterSection({ api }: { api: ApiConfig }) {
       className="shrink-0 border-t border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)]"
     >
       <summary className="cursor-pointer px-4 py-2">
-        <span className={UI_TEXT.sectionLabel}>Supporter · spinal-cord activity</span>
+        <span className={UI_TEXT.sectionLabel}>Spinal Cord activity</span>
       </summary>
       <div className="flex max-h-[40vh] flex-col gap-2 overflow-y-auto px-4 pb-3">
         <SupporterAllowanceRow api={api} />

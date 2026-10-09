@@ -10,11 +10,11 @@ export function DecisionRerankCard({ onOpenAgentsSettings }: Props) {
     <SettingsCard
       icon={<Sparkles size={16} />}
       title="Re-rank"
-      description="The Supporter Agent re-orders memory recall so the results that answer come first."
+      description="The Spinal Cord re-orders memory recall so the results that answer come first."
     >
-      <p className="text-xs text-[var(--ct-muted-fg)]">Memory recall uses the Supporter whenever its adapter is connected.</p>
+      <p className="text-xs text-[var(--ct-muted-fg)]">Memory recall uses the Spinal Cord whenever its adapter is connected.</p>
       <InlineLinkButton
-        label="Set up the Supporter Agent in Settings > Agents"
+        label="Set up the Spinal Cord in Settings > Agents"
         onClick={onOpenAgentsSettings}
         testId="memory-rerank-agents-link"
       />

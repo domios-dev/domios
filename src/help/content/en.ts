@@ -193,17 +193,17 @@ export const enHelpContent: HelpLocaleContent = {
     },
     {
       id: "supporter-agent",
-      title: "Supporter Agent",
+      title: "Spinal Cord",
       subtitle: "Useful memories, watched tabs and bounded recovery",
       blocks: [
         {
           type: "paragraph",
-          text: "The Supporter Agent helps Domios put useful memories first, notice stuck tabs and recover the General Agent within limits. Once an adapter is connected, it works automatically. There are no feature switches. Without a connected adapter, memory search and tabs work as before.",
+          text: "The Spinal Cord helps Domios put useful memories first, notice stuck tabs and recover the General Agent within limits. Once an adapter is connected, it works automatically. There are no feature switches. Without a connected adapter, memory search and tabs work as before.",
         },
         { type: "heading", text: "What it does for you" },
         {
           type: "paragraph",
-          text: "Better memory answers. When an agent searches memory, the Supporter puts the most useful results first. If nothing fits well, it raises a flag, so the agent knows not to lean on a weak match.",
+          text: "Better memory answers. When an agent searches memory, the Spinal Cord puts the most useful results first. If nothing fits well, it raises a flag, so the agent knows not to lean on a weak match.",
         },
         { type: "figure", figureId: "supporter-recall" },
         {
@@ -217,7 +217,7 @@ export const enHelpContent: HelpLocaleContent = {
         },
         {
           type: "paragraph",
-          text: "Quiet team heartbeats. On existing scheduler ticks, Domios checks reports, task changes and each Worker's own session, ACK, provider process, turns, lane commits and classified prompt. A connected Supporter makes one shared-budget decision. Healthy, unchanged work stays quiet without model calls; coarse health hashes ignore changing turn counters and timestamps. Repeated soft decisions share the existing nudge interval. Undelivered reports, failed gates, owner messages and answers, worker incidents and mode changes always wake the Orchestrator with a next step. Uncertain answers wake too. Without a model or when its budget is exhausted, changed plan evidence or unhealthy workers wake deterministically. After two hours of silence a short status confirms the scheduler is active. Review hold notes excuse deliberate review inactivity until the state or verdict changes. Relevant learnings are capped at three; fallback uses recent learnings. Settings shows wakes and suppressions in the activity feed. This is automatic, with no feature switch.",
+          text: "Quiet team heartbeats. On existing scheduler ticks, Domios checks reports, task changes and each Worker's own session, ACK, provider process, turns, lane commits and classified prompt. A connected Spinal Cord makes one shared-budget decision. Healthy, unchanged work stays quiet without model calls; coarse health hashes ignore changing turn counters and timestamps. Repeated soft decisions share the existing nudge interval. Undelivered reports, failed gates, owner messages and answers, worker incidents and mode changes always wake the Orchestrator with a next step. Uncertain answers wake too. Without a model or when its budget is exhausted, changed plan evidence or unhealthy workers wake deterministically. After two hours of silence a short status confirms the scheduler is active. Review hold notes excuse deliberate review inactivity until the state or verdict changes. Relevant learnings are capped at three; fallback uses recent learnings. Settings shows wakes and suppressions in the activity feed. This is automatic, with no feature switch.",
         },
         { type: "heading", text: "Budget and fallback" },
         {
@@ -229,12 +229,12 @@ export const enHelpContent: HelpLocaleContent = {
           type: "list",
           ordered: true,
           items: [
-            "Open Connect another adapter in Settings > Agents > Supporter Agent and choose an adapter and model. Saved connections keep their own models and tokens when you switch.",
+            "Open Connect another adapter in Settings > Agents > Spinal Cord and choose an adapter and model. Saved connections keep their own models and tokens when you switch.",
             "Supply an API token if required, leave it empty if optional, or use no token field for a token-free adapter. Press Connect & make active.",
             "Check its status and activity there, or run codeterm supporter status. A connected adapter starts working automatically.",
           ],
         },
-        { type: "settings-link", label: "Open Supporter Agent settings", target: "supporter-agent" },
+        { type: "settings-link", label: "Open Spinal Cord settings", target: "supporter-agent" },
         {
           type: "tip",
           text: "If an adapter is unavailable, a required token is missing or a request times out, Domios keeps normal memory search and skips the model observation. The status and activity tell you why.",
@@ -255,7 +255,7 @@ export const enHelpContent: HelpLocaleContent = {
           blocks: [
             {
               type: "paragraph",
-              text: "A saved connection means configured, not proven reachable. Only the active adapter runs Supporter requests. Removing the active connection stops the Supporter without selecting another. A stale status keeps the last rows and disables changes until refresh.",
+              text: "A saved connection means configured, not proven reachable. Only the active adapter runs Spinal Cord requests. Removing the active connection stops the Spinal Cord without selecting another. A stale status keeps the last rows and disables changes until refresh.",
             },
             {
               type: "paragraph",
@@ -319,7 +319,7 @@ export const enHelpContent: HelpLocaleContent = {
           blocks: [
             {
               type: "paragraph",
-              text: "The Supporter Agent is designed for deterministic decision models such as TypeSafe Jev. Asked a pick-one (choice) or yes/no (noul) question, Jev returns a calibrated probability for each answer, and the same question always gets the same answer.",
+              text: "The Spinal Cord is designed for deterministic decision models such as TypeSafe Jev. Asked a pick-one (choice) or yes/no (noul) question, Jev returns a calibrated probability for each answer, and the same question always gets the same answer.",
             },
             {
               type: "list",
@@ -346,9 +346,9 @@ export const enHelpContent: HelpLocaleContent = {
         },
         {
           type: "ask",
-          label: "Ask the General Agent: should I set up the Supporter Agent?",
+          label: "Ask the General Agent: should I set up the Spinal Cord?",
           question:
-            "A user is reading the Domios guide (Supporter Agent section) and pressed 'Ask the agent'. Check codeterm supporter status for the selected adapter, connection, token requirement, activity and shared budget. Explain how to connect it, what text it receives, Jev versus LM Studio, fallback and the two-restart recovery bound. Inspect graph, docs and session sources only if relevant. Keep it short and practical.",
+            "A user is reading the Domios guide (Spinal Cord section) and pressed 'Ask the agent'. Check codeterm supporter status for the selected adapter, connection, token requirement, activity and shared budget. Explain how to connect it, what text it receives, Jev versus LM Studio, fallback and the two-restart recovery bound. Inspect graph, docs and session sources only if relevant. Keep it short and practical.",
         },
       ],
     },
