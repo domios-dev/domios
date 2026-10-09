@@ -138,6 +138,18 @@ fn adopt_agent_attaches_a_running_roleless_tab() {
 }
 
 #[test]
+fn adopt_agent_moves_a_running_plain_shell_into_utility_shells() {
+    let (mut mux, team_id, orchestrator, workspace_id) = anchored_team();
+    let shell = mux.create_tab(&workspace_id).unwrap();
+    mux.link_pty(&shell, "running-server".into());
+    adopt_agent_into_team(&mut mux, &team_id, &shell, &orchestrator).unwrap();
+    let tab = mux.get_tab(&shell).unwrap();
+    assert_eq!(tab.team_id.as_deref(), Some(team_id.as_str()));
+    assert_eq!(tab.pty_id.as_deref(), Some("running-server"));
+    assert!(tab.is_utility_shell());
+}
+
+#[test]
 fn adopt_agent_refuses_a_non_member_caller() {
     let (mut mux, team_id, _orchestrator, workspace_id) = anchored_team();
     let outsider = mux.create_tab(&workspace_id).unwrap();
