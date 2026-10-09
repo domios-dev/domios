@@ -1,4 +1,16 @@
 .ct-tab-top-bar {
-  background: transparent;
-  border-bottom: 1px solid var(--ct-border-default);
+  position: relative;
+  z-index: 3;
+  background: var(--ct-bg);
+}
+
+.ct-tab-top-bar::after {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  height: 12px;
+  background: linear-gradient(var(--ct-bg), transparent);
+  content: "";
+  pointer-events: none;
 }
