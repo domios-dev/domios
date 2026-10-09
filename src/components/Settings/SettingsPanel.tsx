@@ -495,9 +495,9 @@ export function SettingsPanel({
             )}
 
             {top.kind === "section" && top.id === "logs" && (
-              <SettingsPage title="Logs" subtitle="App diagnostics from the daemon, mesh, agents, and integrations.">
+              <div className="-mx-5 -my-5 h-[calc(100%+2.5rem)] min-h-[420px]" data-settings-page="logs">
                 <LogsTab config={localConfig} />
-              </SettingsPage>
+              </div>
             )}
 
             {top.kind === "section" && top.id === "guide" && (
