@@ -11,6 +11,8 @@ import { detectChatPrefix } from "../../../../src/lib/chatPrefixes";
 const providers = (process.env.PW_SWITCH_PROVIDERS ?? "claude,codex,grok").split(",");
 if (providers.some(id => !["claude", "codex", "opencode", "grok"].includes(id))) throw new Error("Unknown switch matrix provider");
 const restored = restoreManifest();
+const selectedSteps = process.env.PW_SWITCH_STEPS?.split(",");
+if (selectedSteps?.some(step => !["idle", "effort", "combined", "busy", "back"].includes(step))) throw new Error("Unknown switch scenario");
 const repeats = restored ? 1 : Number(process.env.PW_SWITCH_RUNS ?? 3);
 if (!Number.isInteger(repeats) || repeats < 1 || repeats > 3) throw new Error("PW_SWITCH_RUNS must be 1..3");
 const startRun = Number(process.env.PW_SWITCH_RUN_NUMBER ?? 1);
@@ -201,6 +203,7 @@ for (let run = startRun; run < startRun + repeats; run++) {
           step = "baseline";
           await ack(a);
           const scenario = async (name: string, action: () => Promise<void>) => {
+            if (selectedSteps && !selectedSteps.includes(name)) return;
             step = name;
             try { await action(); } catch (error) {
               const detail = error instanceof Error ? error.stack : String(error);
@@ -312,7 +315,7 @@ for (let run = startRun; run < startRun + repeats; run++) {
         }
       }
     } finally {
-      const summary = { run, sha, workspace, rows, failures, tabs: retained };
+      const summary = { run, sha, workspace, requestedSteps: selectedSteps ?? ["idle", "effort", "combined", "busy", "back"], rows, failures, tabs: retained };
       writeFileSync(info.outputPath("matrix.json"), JSON.stringify(summary, null, 2));
       await info.attach("matrix.json", { path: info.outputPath("matrix.json"), contentType: "application/json" });
       console.log(JSON.stringify(summary));
