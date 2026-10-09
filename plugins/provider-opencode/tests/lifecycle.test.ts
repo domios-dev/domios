@@ -3,13 +3,41 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import vm from "node:vm";
+import fs from "node:fs";
 import { opencodeBindingPluginSource } from "../src/helpers";
 
 type Event = { type: string; properties?: Record<string, unknown> };
 type Hooks = { event: (input: { event: Event }) => Promise<void> };
 
+test("every_launch_shape_scopes_the_resume_session_to_the_worker_environment", () => {
+  const source = fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8");
+  for (const platform of ["windows", "linux"]) {
+    const quoteFor = (value: string) => `'${value}'`;
+    const context = {
+      host: {
+        platform: () => platform,
+        envGet: () => null,
+        expandHome: (value: string) => value,
+        shell: { quoteFor },
+        fs: { writeTempFile: () => "/opaque-instructions.md", fileExists: () => false },
+      },
+      module: { exports: {} as { default?: any } }, exports: {},
+    };
+    new vm.Script(source).runInNewContext(context);
+    const plugin = context.module.exports.default;
+    const assignment = platform === "windows" ? "$env:CODETERM_RESUME_SESSION_ID = " : "CODETERM_RESUME_SESSION_ID=";
+    for (const command of [
+      plugin.buildLaunchCommand({ sessionId: "ses_owned" }),
+      plugin.buildResumeCommand("ses_owned"),
+      plugin.buildResumeCommandWithContext({ sessionId: "ses_owned", systemPrompt: "opaque" }),
+    ]) assert.ok(command.includes(assignment + "'ses_owned'"));
+    assert.ok(plugin.buildLaunchCommand({}).includes(assignment + "''"));
+  }
+});
+
 async function loadBinding(input: {
   argv?: string[];
+  resumeSession?: string;
   sessionGet?: (args: unknown) => Promise<unknown>;
 } = {}) {
   const posts: Array<{ url: string; body: Record<string, unknown> }> = [];
@@ -25,6 +53,7 @@ async function loadBinding(input: {
         CODETERM_API_TOKEN: "token",
         CODETERM_SESSION_BINDING_NONCE: "nonce",
         CODETERM_API_URL: "http://dev",
+        CODETERM_RESUME_SESSION_ID: input.resumeSession,
       },
       cwd: () => "/work",
     },
@@ -66,6 +95,31 @@ test("opencode_resume_rebinds_session", async () => {
     sessionGet: async () => ({ data: { id: "ses_other" } }),
   });
   assert.deepEqual(unknown.posts, []);
+});
+
+test("resumed_server_worker_binds_the_launch_session_without_parent_argv", async () => {
+  const requests: unknown[] = [];
+  const binding = await loadBinding({
+    argv: ["opencode", "worker.js"],
+    resumeSession: "ses_owned",
+    sessionGet: async (args) => {
+      requests.push(args);
+      return { data: { id: "ses_owned", directory: "/work" } };
+    },
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(requests)), [{ path: { id: "ses_owned" } }]);
+  assert.deepEqual(binding.posts.map(({ body }) => [body.session_id, body.source]),
+    [["ses_owned", "session.get"]]);
+  const mismatch = await loadBinding({
+    resumeSession: "ses_owned",
+    sessionGet: async () => ({ data: { id: "ses_other" } }),
+  });
+  assert.deepEqual(mismatch.posts, []);
+  const fresh = await loadBinding({
+    resumeSession: "",
+    sessionGet: async () => { throw new Error("fresh launch must not read a historical session"); },
+  });
+  assert.deepEqual(fresh.posts, []);
 });
 
 test("provider_lifecycle_events_report_the_bound_session", async () => {

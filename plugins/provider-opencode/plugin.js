@@ -265,7 +265,7 @@ function opencodeFileDiffs(path, edits, metadata) {
 }
 
 // plugins/provider-opencode/src/helpers.ts
-var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v4";
+var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v5";
 var CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-session-binding-v";
 var QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 var QUESTION_MENU_SELECTORS = [">", "\u276F", "\u25B6", "\u27A4", "\u2192", "\u25CF"];
@@ -905,7 +905,7 @@ function opencodeBindingPluginSource() {
     "}",
     "",
     "export default async function CodeTermSessionBindingPlugin({ directory, client }) {",
-    "  const resumed = resumedSessionID(process.argv || []);",
+    "  const resumed = normalizeSessionID(process.env.CODETERM_RESUME_SESSION_ID) || resumedSessionID(process.argv || []);",
     "  if (resumed && client?.session?.get) {",
     "    const result = await client.session.get({ path: { id: resumed } }).catch(() => null);",
     "    const session = result?.data || result;",
@@ -1292,7 +1292,7 @@ function starterPrompt(params) {
   if (params.starterPrompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
   return ASSIGNED_TASK_START_PROMPT;
 }
-function withPadPermissionConfig(command, instructions, cleanup, launchConfig = {}) {
+function withPadPermissionConfig(command, instructions, cleanup, launchConfig = {}, resumeSession) {
   const platform = host.platform();
   const config = {
     ...launchConfig,
@@ -1301,15 +1301,15 @@ function withPadPermissionConfig(command, instructions, cleanup, launchConfig = 
   };
   if (platform === "windows") {
     const encoded = host.shell.quoteFor(JSON.stringify(config), platform);
-    return `$ct_config = ${encoded} | ConvertFrom-Json; $ct_pad_native = ([string]$env:CODETERM_PAD_DIR).TrimEnd([char[]]@([char]92, [char]47)); $ct_pad = $ct_pad_native -replace '\\\\', '/'; if ($ct_pad_native) { $ct_config.permission.external_directory | Add-Member -NotePropertyName ($ct_pad_native + '\\*') -NotePropertyValue 'allow' -Force; $ct_config.permission.external_directory | Add-Member -NotePropertyName ($ct_pad + '/*') -NotePropertyValue 'allow' -Force }; $env:OPENCODE_CONFIG_CONTENT = $ct_config | ConvertTo-Json -Depth 10 -Compress; try { ${command} } finally { Remove-Item Env:OPENCODE_CONFIG_CONTENT -ErrorAction SilentlyContinue; ${cleanup || ""} }`;
+    return `$ct_config = ${encoded} | ConvertFrom-Json; $ct_pad_native = ([string]$env:CODETERM_PAD_DIR).TrimEnd([char[]]@([char]92, [char]47)); $ct_pad = $ct_pad_native -replace '\\\\', '/'; if ($ct_pad_native) { $ct_config.permission.external_directory | Add-Member -NotePropertyName ($ct_pad_native + '\\*') -NotePropertyValue 'allow' -Force; $ct_config.permission.external_directory | Add-Member -NotePropertyName ($ct_pad + '/*') -NotePropertyValue 'allow' -Force }; $env:OPENCODE_CONFIG_CONTENT = $ct_config | ConvertTo-Json -Depth 10 -Compress; $env:CODETERM_RESUME_SESSION_ID = ${host.shell.quoteFor(resumeSession || "", platform)}; try { ${command} } finally { Remove-Item Env:OPENCODE_CONFIG_CONTENT, Env:CODETERM_RESUME_SESSION_ID -ErrorAction SilentlyContinue; ${cleanup || ""} }`;
   }
   const permissionJson = JSON.stringify({ permission: config.permission });
   const prefix = permissionJson.slice(0, -3);
   const extra = JSON.stringify({ ...launchConfig, ...instructions ? { instructions } : {} });
   const suffix = `}}${extra === "{}" ? "" : `,${extra.slice(1, -1)}`}}`;
   const q = (value) => host.shell.quoteFor(value, platform);
-  const finish = cleanup ? `; ct_status=$?; unset OPENCODE_CONFIG_CONTENT; ${cleanup}; exit $ct_status` : `; unset OPENCODE_CONFIG_CONTENT`;
-  return `ct_pad_dir=$(printf '%s' "${"${CODETERM_PAD_DIR:-}"}" | tr '\\\\' '/' | sed 's/"/\\\\\\"/g'); OPENCODE_CONFIG_CONTENT=${q(prefix)}; if [ -n "$ct_pad_dir" ]; then OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT,\\"$ct_pad_dir/*\\":\\"allow\\""; fi; OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT"$(printf '%s' ${q(suffix)}); export OPENCODE_CONFIG_CONTENT; ${command}${finish}`;
+  const finish = cleanup ? `; ct_status=$?; unset OPENCODE_CONFIG_CONTENT CODETERM_RESUME_SESSION_ID; ${cleanup}; exit $ct_status` : `; unset OPENCODE_CONFIG_CONTENT CODETERM_RESUME_SESSION_ID`;
+  return `ct_pad_dir=$(printf '%s' "${"${CODETERM_PAD_DIR:-}"}" | tr '\\\\' '/' | sed 's/"/\\\\\\"/g'); OPENCODE_CONFIG_CONTENT=${q(prefix)}; if [ -n "$ct_pad_dir" ]; then OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT,\\"$ct_pad_dir/*\\":\\"allow\\""; fi; OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT"$(printf '%s' ${q(suffix)}); export OPENCODE_CONFIG_CONTENT; CODETERM_RESUME_SESSION_ID=${q(resumeSession || "")}; export CODETERM_RESUME_SESSION_ID; ${command}${finish}`;
 }
 var plugin = {
   ...decisionModel,
@@ -1438,10 +1438,10 @@ var plugin = {
     if (p.task && prompt) {
       parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
     }
-    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : void 0, void 0, launch.config);
+    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : void 0, void 0, launch.config, p.sessionId);
   },
   buildResumeCommand(sessionId, skipPermissions) {
-    return withPadPermissionConfig(resumeLaunch(sessionId, skipPermissions).parts.join(" "));
+    return withPadPermissionConfig(resumeLaunch(sessionId, skipPermissions).parts.join(" "), void 0, void 0, {}, sessionId);
   },
   // A resumed session re-reads `instructions`, so the composed prompt is
   // re-applied through the same session-config channel buildLaunchCommand uses.
@@ -1462,12 +1462,12 @@ var plugin = {
       }
     }
     const systemPrompt = p.systemPrompt;
-    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config);
+    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config, p.sessionId);
     const taskPath = host.fs.writeTempFile(systemPrompt, ".ct-task.md");
-    if (!taskPath) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config);
+    if (!taskPath) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config, p.sessionId);
     const project = launch.directory ? host.shell.quoteFor(launch.directory, platform) : null;
     const prologue = project ? platform === "windows" ? `Set-Location -LiteralPath ${project} -ErrorAction Stop;` : `cd -- ${project} &&` : "";
-    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath], void 0, variant.config);
+    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath], void 0, variant.config, p.sessionId);
   },
   // absent from opencode's env, or event field structure changed in a new release).
   // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
