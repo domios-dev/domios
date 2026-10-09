@@ -110,7 +110,7 @@ impl CommandPicker {
                     .name("label")
                     .is_some_and(|label| label.as_str().eq_ignore_ascii_case(&self.target_label))
             })
-            .or_else(|| self.target.captures_iter(screen).last());
+            .or_else(|| self.target.captures(screen));
         let Some(target) = target else {
             return Err("the requested selection is absent from the live picker; restart and resume is available as an explicit fallback".into());
         };
