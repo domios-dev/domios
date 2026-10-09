@@ -156,6 +156,12 @@ fn general_agent_comparison_ordinary_restore_defers_fresh_and_resumed_structured
 fn restored_general_sibling_and_main_share_typed_model_rpc_admission() {
     let (fixture, main, provider) = fixture();
     let svc = &fixture.service;
+    let model_args = svc
+        .agent_registry
+        .with_provider(&provider, |provider| {
+            provider.model_launch_args("gpt-6.1-sol")
+        })
+        .unwrap();
     let sibling = {
         let mut mux = svc.mux.write();
         let workspace = mux.find_workspace_for_tab(&main).unwrap();
@@ -179,7 +185,7 @@ fn restored_general_sibling_and_main_share_typed_model_rpc_admission() {
             crate::multiplexer::types::RestorableLaunchParameters {
                 captured: true,
                 model: Some("gpt-6.1-sol".into()),
-                args: Some(vec!["--model".into(), "gpt-6.1-sol".into()]),
+                args: Some(model_args.clone()),
                 identity_instructions: Some("opaque-general-contract".into()),
                 ..Default::default()
             },

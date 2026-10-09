@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::sync::{mpsc::SyncSender, Arc};
 
 mod observe;
+mod spawn;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct RelayBinding {
@@ -232,91 +233,23 @@ impl ServiceContext {
         Some(id)
     }
 
-    pub(crate) fn stage_spawn_reply_relay(&self, target: &str, sender: &str, text: &str) {
-        let provider = self
-            .mux
-            .read()
-            .get_tab(target)
-            .and_then(|tab| tab.agent_type.clone());
-        let Some(provider) = provider else { return };
-        let sender_is_agent = self
-            .mux
-            .read()
-            .get_tab(sender)
-            .is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting);
-        if super::model::reply_relay_target(super::model::ReplyRelayRoute {
-            sender,
-            target,
-            tool_less: true,
-            supported: true,
-            sender_is_agent,
-            has_reply_hint: false,
-            remote: false,
-            notice: false,
-            spawn_brief: true,
-        })
-        .is_none()
-        {
-            return;
-        }
-        let normalization = self
-            .agent_registry
-            .with_provider(&provider, |provider| {
-                (provider.is_tool_less()
-                    && provider.supports_reply_relay()
-                    && provider.session_starts_on_first_user_turn())
-                .then(|| provider.turn_evidence_normalization())
-            })
-            .flatten();
-        let Some(normalization) = normalization else {
-            return;
-        };
+    pub(crate) fn trace_spawn_reply_relay(&self, target_tab: &str, pending: &PendingReplyRelay) {
         let task = crate::paths::is_dev_instance()
-            .then(|| self.reply_relay_task_binding(target))
+            .then(|| self.reply_relay_task_binding(target_tab))
             .flatten();
-        let delivery_id = uuid::Uuid::new_v4().to_string();
         crate::flow_trace::record_flow(
-            &delivery_id,
+            &pending.delivery_id,
             "relay.expected",
-            target,
-            &provider,
+            target_tab,
+            &pending.provider_id,
             "spawn_brief",
             task.as_ref().map(|task| task.attempt_id.as_str()),
-        );
-        self.reply_relays.staged.lock().insert(
-            target.into(),
-            vec![PendingReplyRelay {
-                sender_tab: sender.into(),
-                delivery_id,
-                provider_id: provider,
-                session_id: String::new(),
-                binding_nonce: String::new(),
-                after_offset: 0,
-                user_text: text.into(),
-                turn_normalization: normalization,
-                hops: 0,
-                task: None,
-            }],
         );
     }
 
     pub(crate) fn arm_spawn_reply_relay(&self, target: &str, nonce: &str) {
         self.stage_worker_restart(target);
-        self.reply_relays.entries.lock().remove(target);
-        if let Some(staged) = self.reply_relays.staged.lock().get_mut(target) {
-            for pending in staged {
-                if pending.binding_nonce.is_empty() {
-                    pending.binding_nonce = nonce.into();
-                }
-            }
-        }
-        let first = self
-            .reply_relays
-            .staged
-            .lock()
-            .get(target)
-            .and_then(|turns| turns.first().cloned());
-        if let Some(first) = first {
+        if let Some(first) = self.reply_relays.arm_spawn(target, nonce) {
             self.retain_spawn_worker_brief(target, &first.sender_tab, &first.user_text);
         }
     }

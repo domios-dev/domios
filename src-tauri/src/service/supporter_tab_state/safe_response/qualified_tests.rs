@@ -477,11 +477,13 @@ fn supporter_first_opinion_safe_response_qualified_static_onboarding_planner_com
     std::fs::write(fixture.temp.path().join("initial.txt"), initial).unwrap();
     std::fs::write(fixture.temp.path().join("focused.txt"), focused).unwrap();
     let script = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n\
-[Console]::WriteLine('SAFE_TEST_INITIAL_MODAL')\n\
+[Console]::Write([char]27 + '[2J' + [char]27 + '[H')\n\
 [Console]::Write([System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'initial.txt'), [System.Text.Encoding]::UTF8))\n\
+[Console]::WriteLine('SAFE_TEST_INITIAL_MODAL')\n\
 $first = [Console]::ReadKey($true)\n\
-[Console]::WriteLine('SAFE_TEST_FOCUS_EVENT')\n\
+[Console]::Write([char]27 + '[2J' + [char]27 + '[H')\n\
 [Console]::Write([System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'focused.txt'), [System.Text.Encoding]::UTF8))\n\
+[Console]::WriteLine('SAFE_TEST_FOCUS_EVENT')\n\
 $second = [Console]::ReadKey($true)\n\
 if (($first.KeyChar -eq 'j') -and ($second.Key -eq [System.ConsoleKey]::Enter)) { [Console]::WriteLine('SAFE_TEST_OPTION_SELECTED'); [Console]::WriteLine('SAFE_TEST_MODAL_CLOSED'); exit 0 }\n\
 [Console]::WriteLine('SAFE_TEST_WRONG_RESPONSE'); exit 9\n";

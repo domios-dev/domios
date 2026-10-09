@@ -1,11 +1,14 @@
 // Run: npx tsx src/components/Canvas/PlansProvider.test.tsx
 
-import { act, useEffect, type ReactElement } from "react";
+import { act, useEffect, type ComponentProps, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { ApiConfig, Workspace } from "../../lib/types";
 import { FIXTURE_PLAN } from "./cards/fixtures.testdata";
-import { PlanButton } from "./PlanButton";
+import { PlanButton as ActivityPlanButton } from "./PlanButton";
+import { MuxStateStoreContext } from "../../store/multiplexer/context";
+import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
+import type { ExtendedState } from "../../store/multiplexer/tree";
 import {
   PlansProvider,
   useCanvasPlans,
@@ -36,6 +39,21 @@ let fullFixturePlans = [FIXTURE_PLAN];
 let lastFullProject: string | null = null;
 type ListenHandler = (ev: { payload: unknown }) => void;
 const listenHandlers = new Map<string, Set<ListenHandler>>();
+
+const muxState: ExtendedState = {
+  workspaces: [], tabs: {}, teams: [], active_workspace_id: null, focused_tab_id: null,
+  notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 0,
+  pendingCloses: [],
+};
+const muxStore = createMuxStateStore(() => muxState);
+
+function PlanButton(props: ComponentProps<typeof ActivityPlanButton>) {
+  return (
+    <MuxStateStoreContext.Provider value={muxStore}>
+      <ActivityPlanButton {...props} />
+    </MuxStateStoreContext.Provider>
+  );
+}
 
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
