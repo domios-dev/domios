@@ -84,6 +84,7 @@ pub(crate) fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::B
         commands::mux_commands::mux_move_tab,
         commands::mux_commands::mux_reorder_tab,
         commands::mux_commands::mux_reorder_child,
+        commands::mux_commands::mux_reorder_display,
         commands::mux_commands::mux_reorder_workspace,
         commands::mux_commands::mux_create_tab,
         commands::mux_commands::shell_profiles,

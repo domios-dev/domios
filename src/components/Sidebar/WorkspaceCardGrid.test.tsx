@@ -49,7 +49,7 @@ async function run() {
   assert.deepEqual(visibleWorkspaceIds(ids, null, 3, true), { visible: ids, hidden: 0 }, "expanded shows every workspace");
   assert.deepEqual(mergeVisibleOrder(ids, ["b", "a", "c", "d", "h"]), ["b", "a", "c", "d", "e", "f", "g", "h"], "a reorder of the visible cards keeps hidden ones in place");
   await act(async () => root.render(
-    <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
+    <SidebarDnd handlers={{ reorderTabs: () => {}, reorderDisplay: () => {}, reorderWorkspaces: () => {} }}>
       <WorkspaceCardGrid
         workspaces={workspaces}
         selectedWorkspaceId="one"

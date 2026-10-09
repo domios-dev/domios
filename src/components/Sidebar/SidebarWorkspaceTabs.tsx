@@ -17,7 +17,7 @@ import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
 import { resolveTabTabActivity } from "../Canvas/tabTabActivity";
 import { openTeamPlanCanvas } from "../Canvas/workspacePlanEntry";
 import { SortableContext, SortableRow, verticalListSortingStrategy, TAB_PREFIX, TEAM_PREFIX } from "./sortable";
-import { type DragUnit, unitsInOrder, withTeamSection, workspaceTabOrder } from "./sidebarDragModel";
+import { buildSidebarDragModel, unitsInOrder, withSiblingOrder, workspaceTabOrder } from "./sidebarDragModel";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { persistTabRename, SidebarSingleTabRow } from "./SidebarPlanPeerPair";
 import { CursorTooltip } from "../shared/CursorTooltip";
@@ -214,10 +214,11 @@ export function SidebarWorkspaceTabs({
   const membersByTeam = useMemo(() => groupWorkspaceTeamMembers(sortedTabs), [sortedTabs]);
   // Workspace-wide so a surface follows its owner into a Team card even when the surface carries no team.
   const attachmentsByOwner = useMemo(() => surfaceAttachmentsByOwner(sortedTabs), [sortedTabs]);
-  const attachedIds = useMemo(
-    () => new Set([...attachmentsByOwner.values()].flat().map((tab) => tab.id)),
-    [attachmentsByOwner],
+  const dragModel = useMemo(
+    () => buildSidebarDragModel(sortedTabs, attachmentsByOwner),
+    [sortedTabs, attachmentsByOwner],
   );
+  const { attachedIds, looseTabs, looseChildIds } = dragModel;
 
   const remoteTeams = useMemo(() => {
     const map = new Map<string, Team>();
@@ -294,6 +295,7 @@ export function SidebarWorkspaceTabs({
             group="child"
             groupKey={owner.id}
             pinnedIds={[]}
+            toWorkspaceOrder={reorderSiblings}
             variant="attachment"
             insetPx={inset}
             ownerBadgeTab={compact ? owner : null}
@@ -327,7 +329,7 @@ export function SidebarWorkspaceTabs({
           group="team"
           groupKey={`${section.teamId}:${section.index}`}
           pinnedIds={[]}
-          toWorkspaceOrder={reorderTeamSection(section)}
+          toWorkspaceOrder={reorderSiblings}
           attachmentToggle={toggle}
           startedBy={startedBy}
           {...sharedRow}
@@ -340,44 +342,17 @@ export function SidebarWorkspaceTabs({
 
   const renderedTeamIds = new Set<string>();
   const rows: ReactNode[] = [];
-  const looseTabs = sortedTabs.filter((tab) => !effectiveTeamId(tab) && !attachedIds.has(tab.id));
-  const looseIds = new Set(looseTabs.map((tab) => tab.id));
-  const looseChildIds = new Set(
-    looseTabs
-      .filter((tab) => tab.parent_tab_id && looseIds.has(tab.parent_tab_id))
-      .map((tab) => tab.id),
-  );
-
-  const topLevelIds = allSortedTabs.filter((tab) => !tab.parent_tab_id).map((tab) => tab.id);
-  const units: DragUnit[] = [];
-  const unitItems: string[] = [];
-  const teamSections = new Map<string, string[][]>();
-  for (const tab of sortedTabs) {
-    if (attachedIds.has(tab.id)) continue;
-    const teamId = effectiveTeamId(tab);
-    if (!teamId) {
-      if (looseChildIds.has(tab.id)) continue;
-      units.push({ key: tab.id, tabIds: [tab.id] });
-      unitItems.push(`${TAB_PREFIX}${tab.id}`);
-      continue;
-    }
-    if (teamSections.has(teamId)) continue;
-    const members = (membersByTeam.get(teamId) ?? []).filter((member) => !attachedIds.has(member.tab.id));
-    const { managers, terminals, workers } = partitionTeamMembers(members);
-    const sections = [managers, workers, terminals].map((section) => section.map((member) => member.tab.id));
-    teamSections.set(teamId, sections);
-    units.push({ key: teamId, tabIds: sections.flat() });
-    unitItems.push(`${TEAM_PREFIX}${teamId}`);
-  }
+  const workspaceTabIds = allSortedTabs.map((tab) => tab.id);
+  const unitItems = dragModel.units.map((unit) => `${unit.kind === "team" ? TEAM_PREFIX : TAB_PREFIX}${unit.key}`);
   const reorderUnits = (orderedKeys: string[]) => ({
     workspaceId: ws.id,
-    orderedTabIds: workspaceTabOrder(topLevelIds, unitsInOrder(units, orderedKeys)),
+    orderedTabIds: workspaceTabOrder(workspaceTabIds, unitsInOrder(dragModel.units, orderedKeys)),
   });
-  function reorderTeamSection(section: TeamSection) {
-    return (ordered: string[]) => ({
+  function reorderSiblings(ordered: string[]) {
+    return {
       workspaceId: ws.id,
-      orderedTabIds: workspaceTabOrder(topLevelIds, withTeamSection(units, section.teamId, teamSections.get(section.teamId) ?? [], section.index, ordered)),
-    });
+      orderedTabIds: workspaceTabOrder(workspaceTabIds, withSiblingOrder(dragModel.units, ordered, dragModel.blockOf)),
+    };
   }
 
   const pinnedLooseItems = looseTabs
@@ -410,7 +385,7 @@ export function SidebarWorkspaceTabs({
             group={group}
             groupKey={groupKey}
             pinnedIds={pinnedIds}
-            toWorkspaceOrder={group === "tab" ? reorderUnits : undefined}
+            toWorkspaceOrder={group === "tab" ? reorderUnits : reorderSiblings}
             attachmentToggle={toggle}
             {...sharedRow}
           />

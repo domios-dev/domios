@@ -1119,5 +1119,20 @@ test("provider update summary changes one existing row and preserves read state"
   assert(missing.notifications.length === 1, "missing ids never create a notice");
 });
 
+test("REORDER_DISPLAY assigns sort_order by list position across tab levels", () => {
+  const tab = (id: string, sort_order: number, parent_tab_id: string | null = null) =>
+    ({ id, title: id, sort_order, parent_tab_id }) as unknown as Tab;
+  const state = {
+    ...base(),
+    tabs: { lead: tab("lead", 5), worker: tab("worker", 0, "lead"), loose: tab("loose", 1), other: tab("other", 7) },
+  };
+  const next = reducer(state, { type: "REORDER_DISPLAY", orderedTabIds: ["loose", "lead", "worker", "gone"] });
+  assert(next.tabs.loose.sort_order === 0, "loose first");
+  assert(next.tabs.lead.sort_order === 1, "lead second");
+  assert(next.tabs.worker.sort_order === 2, "child follows its parent in the same sequence");
+  assert(next.tabs.other.sort_order === 7, "unlisted tabs are untouched");
+  assert(!("gone" in next.tabs), "unknown ids never create tabs");
+});
+
 console.log(failures === 0 ? "✓ reducer tests green" : `✗ ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

@@ -474,7 +474,7 @@ test("clicking a team worker activates it", async () => {
     const [managerStatus, setManagerStatus] = useState<TabStatus>("Working");
     updateManagerStatus = setManagerStatus;
     return (
-      <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
+      <SidebarDnd handlers={{ reorderTabs: () => {}, reorderDisplay: () => {}, reorderWorkspaces: () => {} }}>
         <SidebarWorkspaceTabs
           workspace={workspace}
           activeTabId={activeTabId}

@@ -605,6 +605,21 @@ impl ServiceContext {
         Ok(())
     }
 
+    /// Rewrite the workspace-wide sidebar display order across every tab level.
+    pub fn reorder_display(
+        &self,
+        workspace_id: &str,
+        ordered_tab_ids: &[String],
+    ) -> Result<(), String> {
+        self.mux
+            .write()
+            .reorder_display(workspace_id, ordered_tab_ids)?;
+        self.emit_state_changed();
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
+        Ok(())
+    }
+
     /// Reorder workspaces to match `ordered_workspace_ids`.
     pub fn reorder_workspace(&self, ordered_workspace_ids: &[String]) -> Result<(), String> {
         self.mux.write().reorder_workspaces(ordered_workspace_ids)?;
