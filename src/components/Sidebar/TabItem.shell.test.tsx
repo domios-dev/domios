@@ -17,7 +17,7 @@ function row(tab: Tab, onClose = () => {}) {
     onClose={onClose} canClose workspaceId="workspace" />;
 }
 
-test("shell purposes retain title and description without status or menu button", () => {
+test("shell purposes retain title and description, no status, and an actions button for close", () => {
   for (const purpose of ["build", "dev", "qa", "shell"] as ShellPurpose[]) {
     for (const activity of ["unknown", "running", "idle"] as const) {
       const host = document.createElement("div");
@@ -30,7 +30,7 @@ test("shell purposes retain title and description without status or menu button"
       assert.equal(host.querySelector('[data-testid="tab-title"]')?.textContent, shell.title);
       assert.equal(host.querySelector('[data-testid="tab-description-subtitle"]')?.textContent, shell.description);
       assert.equal(host.querySelector('[role="status"]'), null);
-      assert.equal(host.querySelector('button[aria-label="Tab actions"]'), null);
+      assert.ok(host.querySelector('button[aria-label="Tab actions"]'));
       assert.equal(Boolean(host.querySelector('[role="img"][aria-label="Utility working"]')), activity === "running");
     }
   }
