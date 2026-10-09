@@ -16,7 +16,8 @@ import type { Plan } from "../Canvas/types";
 import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
 import { resolveTabTabActivity } from "../Canvas/tabTabActivity";
 import { openTeamPlanCanvas } from "../Canvas/workspacePlanEntry";
-import { SortableContext, verticalListSortingStrategy, TAB_PREFIX } from "./sortable";
+import { SortableContext, SortableRow, verticalListSortingStrategy, TAB_PREFIX, TEAM_PREFIX } from "./sortable";
+import { type DragUnit, unitsInOrder, withTeamSection, workspaceTabOrder } from "./sidebarDragModel";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { persistTabRename, SidebarSingleTabRow } from "./SidebarPlanPeerPair";
 import { CursorTooltip } from "../shared/CursorTooltip";
@@ -44,6 +45,7 @@ import {
 export type { TeamTabMember } from "./workspaceTeamModel";
 
 type TeamPlan = Plan & { team_id?: string | null };
+type TeamSection = { teamId: string; index: number };
 
 function indexedPlan(entry: PlanIndexEntry): Plan {
   return {
@@ -311,7 +313,7 @@ export function SidebarWorkspaceTabs({
     return { id: null, label: "an unknown tab" };
   };
 
-  const renderMemberRow = (member: TeamTabMember, startedBy?: TabStartedBy): ReactNode => (
+  const renderMemberRow = (member: TeamTabMember, section: TeamSection, startedBy?: TabStartedBy): ReactNode => (
     <div key={member.tab.id} className="sidebar-team-member">
       {renderOwnerWithAttachments(member.tab, attachmentsByOwner.get(member.tab.id) ?? [], "team", (toggle) => (
         <SidebarSingleTabRow
@@ -322,9 +324,10 @@ export function SidebarWorkspaceTabs({
           activeWork={activeWork}
           isClosing={closingTabIds.has(member.tab.id)}
           isAppearing={appearingTabIds.has(member.tab.id)}
-          group="tab"
-          groupKey={ws.id}
+          group="team"
+          groupKey={`${section.teamId}:${section.index}`}
           pinnedIds={[]}
+          toWorkspaceOrder={reorderTeamSection(section)}
           attachmentToggle={toggle}
           startedBy={startedBy}
           {...sharedRow}
@@ -333,7 +336,7 @@ export function SidebarWorkspaceTabs({
     </div>
   );
 
-  const renderTerminalRow = (member: TeamTabMember): ReactNode => renderMemberRow(member, startedByOf(member.tab));
+  const renderTerminalRow = (member: TeamTabMember, section: TeamSection): ReactNode => renderMemberRow(member, section, startedByOf(member.tab));
 
   const renderedTeamIds = new Set<string>();
   const rows: ReactNode[] = [];
@@ -344,9 +347,39 @@ export function SidebarWorkspaceTabs({
       .filter((tab) => tab.parent_tab_id && looseIds.has(tab.parent_tab_id))
       .map((tab) => tab.id),
   );
-  const looseItems = looseTabs
-    .filter((tab) => !looseChildIds.has(tab.id))
-    .map((tab) => `${TAB_PREFIX}${tab.id}`);
+
+  const topLevelIds = allSortedTabs.filter((tab) => !tab.parent_tab_id).map((tab) => tab.id);
+  const units: DragUnit[] = [];
+  const unitItems: string[] = [];
+  const teamSections = new Map<string, string[][]>();
+  for (const tab of sortedTabs) {
+    if (attachedIds.has(tab.id)) continue;
+    const teamId = effectiveTeamId(tab);
+    if (!teamId) {
+      if (looseChildIds.has(tab.id)) continue;
+      units.push({ key: tab.id, tabIds: [tab.id] });
+      unitItems.push(`${TAB_PREFIX}${tab.id}`);
+      continue;
+    }
+    if (teamSections.has(teamId)) continue;
+    const members = (membersByTeam.get(teamId) ?? []).filter((member) => !attachedIds.has(member.tab.id));
+    const { managers, terminals, workers } = partitionTeamMembers(members);
+    const sections = [managers, workers, terminals].map((section) => section.map((member) => member.tab.id));
+    teamSections.set(teamId, sections);
+    units.push({ key: teamId, tabIds: sections.flat() });
+    unitItems.push(`${TEAM_PREFIX}${teamId}`);
+  }
+  const reorderUnits = (orderedKeys: string[]) => ({
+    workspaceId: ws.id,
+    orderedTabIds: workspaceTabOrder(topLevelIds, unitsInOrder(units, orderedKeys)),
+  });
+  function reorderTeamSection(section: TeamSection) {
+    return (ordered: string[]) => ({
+      workspaceId: ws.id,
+      orderedTabIds: workspaceTabOrder(topLevelIds, withTeamSection(units, section.teamId, teamSections.get(section.teamId) ?? [], section.index, ordered)),
+    });
+  }
+
   const pinnedLooseItems = looseTabs
     .filter(
       (tab) =>
@@ -377,6 +410,7 @@ export function SidebarWorkspaceTabs({
             group={group}
             groupKey={groupKey}
             pinnedIds={pinnedIds}
+            toWorkspaceOrder={group === "tab" ? reorderUnits : undefined}
             attachmentToggle={toggle}
             {...sharedRow}
           />
@@ -421,8 +455,12 @@ export function SidebarWorkspaceTabs({
     const teamCrons = workspaceCrons.filter((job) => job.team_id === teamId);
 
     rows.push(
-      <TeamJobsUnit
+      <SortableRow
         key={teamId}
+        id={`${TEAM_PREFIX}${teamId}`}
+        data={{ group: "tab", groupKey: ws.id, pinnedIds: pinnedLooseItems, toWorkspaceOrder: reorderUnits }}
+      >
+      <TeamJobsUnit
         sentinelScope={onOpenSentinelJob && teamById.has(teamId) ? { workspace_id: ws.id, team_id: teamId } : undefined}
         onOpenSentinel={onOpenSentinelJob ? (scenarioId) => onOpenSentinelJob({ teamId, scenarioId }) : undefined}
         team={team}
@@ -431,7 +469,7 @@ export function SidebarWorkspaceTabs({
         managerCount={managers.length}
         managers={
           <SortableContext items={managerItems} strategy={verticalListSortingStrategy}>
-            {managers.map((member) => renderMemberRow(member))}
+            {managers.map((member) => renderMemberRow(member, { teamId, index: 0 }))}
           </SortableContext>
         }
         workerCount={workers.length}
@@ -439,14 +477,14 @@ export function SidebarWorkspaceTabs({
         workers={
           <>
             <SortableContext items={workerItems} strategy={verticalListSortingStrategy}>
-              {workers.map((member) => renderMemberRow(member))}
+              {workers.map((member) => renderMemberRow(member, { teamId, index: 1 }))}
             </SortableContext>
           </>
         }
         terminalCount={terminals.length}
         terminals={
           <SortableContext items={terminalItems} strategy={verticalListSortingStrategy}>
-            {terminals.map((member) => renderTerminalRow(member))}
+            {terminals.map((member) => renderTerminalRow(member, { teamId, index: 2 }))}
           </SortableContext>
         }
         cronCount={teamCrons.length}
@@ -492,13 +530,14 @@ export function SidebarWorkspaceTabs({
           ? (role, providerId, model) => onAddTeamMember(teamId, role, providerId, managerTabId, model)
           : undefined}
         onCloseTeam={onCloseTeam}
-      />,
+      />
+      </SortableRow>,
     );
   }
 
   return (
     <>
-      <SortableContext items={looseItems} strategy={verticalListSortingStrategy}>
+      <SortableContext items={unitItems} strategy={verticalListSortingStrategy}>
         {rows}
       </SortableContext>
       <div className="mx-2 mt-1 mb-0.5 flex min-w-0 items-center gap-1">
