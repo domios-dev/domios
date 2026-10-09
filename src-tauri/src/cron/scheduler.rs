@@ -24,7 +24,7 @@ const FAILURE_DEADLINE_MS: u64 = 60_000;
 pub fn start(cron_state: CronState, cron_wake: CronWake, service: ServiceState) {
     let wake_mutex = Arc::new(std::sync::Mutex::new(()));
 
-    std::thread::spawn(move || {
+    codeterm_util::named_thread::spawn("cron-scheduler", move || {
         log::info!("Cron scheduler started");
         loop {
             let wait = tick(&cron_state, &service);

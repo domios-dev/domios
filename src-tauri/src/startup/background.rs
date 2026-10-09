@@ -18,7 +18,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
         let mesh = states.mesh.clone();
         let cfg = states.config.clone();
         let app_h = app_handle.clone();
-        std::thread::spawn(move || {
+        codeterm_util::named_thread::spawn("mesh-health", move || {
             std::thread::sleep(std::time::Duration::from_secs(10));
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -158,7 +158,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
     {
         let mesh = states.mesh.clone();
         let cfg = states.config.clone();
-        std::thread::spawn(move || {
+        codeterm_util::named_thread::spawn("mesh-announce", move || {
             std::thread::sleep(std::time::Duration::from_secs(10));
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -230,7 +230,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
     {
         let update_st = states.update.clone();
         let app_h = app_handle.clone();
-        std::thread::spawn(move || {
+        codeterm_util::named_thread::spawn("update-check", move || {
             std::thread::sleep(std::time::Duration::from_secs(5));
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -270,7 +270,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
             std::time::Duration::from_millis(cfg.agent.poll_interval_ms as u64)
         };
         let app_handle = app_handle.clone();
-        std::thread::spawn(move || {
+        codeterm_util::named_thread::spawn("agent-idle-poll", move || {
             loop {
                 std::thread::sleep(poll_interval);
                 let structured_ptys: std::collections::HashSet<_> = mux
@@ -330,7 +330,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
     // Runaway test-binary sweeper — kills orphan */target/*/deps/* processes.
     {
         let cfg = states.config.clone();
-        std::thread::spawn(move || {
+        codeterm_util::named_thread::spawn("runaway-sweeper", move || {
             // Initial delay: give the daemon a moment to settle before first sweep.
             std::thread::sleep(std::time::Duration::from_secs(60));
             loop {
