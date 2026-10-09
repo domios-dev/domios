@@ -1,10 +1,11 @@
+import { tabActivity, type TabActivity } from "../../lib/tabActivity";
 import type { Tab } from "../../lib/types";
 import { restoreFailurePresentation } from "../../lib/restoreFailurePresentation";
 import { BusyState } from "../shared/BusyState";
 
 export type TabBootOverlayView =
   | { kind: "none" }
-  | { kind: "starting"; label: string }
+  | { kind: "starting"; label: string; activity: TabActivity }
   | {
       kind: "failed";
       reason: string | null;
@@ -37,26 +38,10 @@ export function tabBootOverlayView(
       canKeepShell: failure.actions.keepShell,
     };
   }
-  switch (tab?.boot_stage) {
-    case "pty_starting":
-    case "pty_spawned":
-    case "reader_ready":
-    case "shell_ready":
-    case "agent_launching":
-    case "launch_written":
-    case "provider_ready":
-      return { kind: "starting", label: "Starting" };
-    case "awaiting_owner_prompt":
-      return { kind: "starting", label: "Waiting for you" };
-    // A provisional stage is not a verdict: the launch may still prove
-    // itself, so the overlay waits instead of offering a retry over a live agent.
-    case "launch_deadline_elapsed":
-    case "launch_binding_unconfirmed":
-      return { kind: "starting", label: "Starting" };
-    case "agent_ready":
-    default:
-      return { kind: "none" };
-  }
+  const activity = tabActivity(tab);
+  return activity.launching
+    ? { kind: "starting", label: activity.label, activity }
+    : { kind: "none" };
 }
 
 interface TabBootOverlayProps {
@@ -165,6 +150,7 @@ export function TabBootOverlay({
         view.kind === "starting" && (
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2">
             <BusyState
+              activity={view.activity}
               labelKey="tabBoot"
               label={view.label}
               phase="work"

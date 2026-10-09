@@ -1,3 +1,4 @@
+import { tabActivity } from "../../lib/tabActivity";
 import { useRef, useEffect, useCallback, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { listen } from "../../lib/bridge";
@@ -5,7 +6,7 @@ import { useMuxState } from "../../store/multiplexer";
 import { useSwarmCanvas } from "./useSwarmCanvas";
 import { computeTreeLayout } from "./layout";
 import type { SwarmState, SwarmNode, SwarmEdge, ReportParticle } from "./types";
-import type { Tab, TabStatus } from "../../lib/types";
+import type { Tab } from "../../lib/types";
 import { ORCHESTRATOR_KIND, roleKind } from "../../lib/roleKind";
 
 let particleCounter = 0;
@@ -13,15 +14,6 @@ let particleCounter = 0;
 function mapRoleToSwarm(tab: Pick<Tab, "role" | "role_profile">): SwarmNode["role"] {
   if (tab.role === "Worker") return "Worker";
   return roleKind(tab) === ORCHESTRATOR_KIND ? "Orchestrator" : null;
-}
-
-function mapTabStatus(
-  tabId: string,
-  tabStatuses: Record<string, TabStatus>,
-): SwarmNode["status"] {
-  const status = tabStatuses[tabId];
-  if (!status) return "Idle";
-  return status;
 }
 
 interface SwarmOverlayProps {
@@ -56,7 +48,7 @@ export function SwarmOverlay({ visible, onClose }: SwarmOverlayProps) {
       if (!tab.role) continue;
 
       const mappedRole = mapRoleToSwarm(tab);
-      const mappedStatus = mapTabStatus(tab.id, (state as any).tabStatuses || {});
+      const mappedStatus = tabActivity(tab, state.tabStatuses[tab.id]).status;
 
       nodes.set(tab.id, {
         id: tab.id,
@@ -87,7 +79,7 @@ export function SwarmOverlay({ visible, onClose }: SwarmOverlayProps) {
     }
 
     return { nodes, edges, viewport: { x: 0, y: 0, zoom: 1 } };
-  }, [state.tabs, (state as any).tabStatuses]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state.tabs, state.tabStatuses]);
 
   const swarmRef = useRef(swarmState);
   swarmRef.current = swarmState;

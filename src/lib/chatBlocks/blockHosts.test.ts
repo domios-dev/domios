@@ -96,6 +96,25 @@ test("agent_host_reads_stably_opens_and_stops_through_commands", async () => {
   assert(host.binding.read("nope-nope").kind === "missing", "unknown tab is missing");
 });
 
+test("agent_host_invalidates_activity_when_only_tab_status_changes", () => {
+  let tabStatuses = { "e3ec9ee9-1111": "Idle" as const } as Record<string, import("../types").TabStatus>;
+  const host = createAgentBlockHost({
+    mux: { getState: () => ({ tabs: TABS, workspaces: [], tabStatuses }), subscribe: () => () => {} },
+    plans: createValueFeed<readonly Plan[]>([]),
+    providerName: () => "Fixture",
+    selectTab: () => {},
+    interrupt: async () => {},
+  });
+  for (const [status, expected, canStop] of [
+    ["Idle", "idle", false], ["Working", "working", true], ["Waiting", "waiting", false],
+  ] as const) {
+    tabStatuses = { "e3ec9ee9-1111": status };
+    const result = host.binding.read("e3ec9ee9");
+    assert(result.kind === "ready", "the same tab stays available");
+    assert(result.agent.state === expected && result.agent.canStop === canStop, "status-only events update activity and Stop");
+  }
+});
+
 const JOBS: JobsSnapshot = {
   crons: [cron("cron_a", { name: "Digest", next_run: Date.now() + 3_600_000 }), cron("cron_b", { name: "Twin" }), cron("cron_c", { name: "Twin", enabled: false })],
   cronsError: null,

@@ -1,3 +1,4 @@
+import { tabActivity, type TabActivity } from "../../lib/tabActivity";
 import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { ShellPurposeIcon } from "../shared/ShellStatus";
 import { isUtilityShell, shellPurposeLabel } from "../../lib/shellCommandState";
@@ -153,7 +154,7 @@ function GroupCollapseChevron({
   );
 }
 
-function TabWorkingActivity({ active, label }: { active: boolean; label?: string }) {
+function TabWorkingActivity({ activity, label }: { activity: TabActivity; label?: string }) {
   return (
     <span
       data-testid="tab-working-activity"
@@ -161,7 +162,7 @@ function TabWorkingActivity({ active, label }: { active: boolean; label?: string
       aria-label={label}
       className="inline-flex items-center shrink-0"
     >
-      <ActivityDots size="small" tone="muted" active={active} />
+      <ActivityDots size="small" tone="muted" rhythm={activity.phase} active={activity.active} />
     </span>
   );
 }
@@ -302,7 +303,8 @@ function TabItemInner({
   const displayTitle = hasAgent ? rowTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : rowTitle;
   const isGeneralAgent = isGeneralAgentTab(tab);
   const utilityShell = isUtilityShell(tab);
-  const shellRunning = utilityShell && tab.shell_command_state?.activity === "running";
+  const tabState = tabActivity(tab, status);
+  const shellRunning = utilityShell && tabState.active;
   const accessibleTitle = isGeneralAgent ? "General Agent" : utilityShell ? `${shellPurposeLabel(tab.purpose)}, ${displayTitle}` : displayTitle;
   const roleShield = restoreFailure.showIdentityBadges
     ? (isGeneralAgent ? "General Agent" : roleShieldLabel(tab))
@@ -333,7 +335,7 @@ function TabItemInner({
   const menuEntries = useMemo(() => buildTabMenu({
     tab,
     surface: "sidebar",
-    status: status ?? null,
+    status: tabState.status,
     descriptor,
     descriptors: listAgentDescriptors(),
     activity: activity ?? null,
@@ -342,7 +344,7 @@ function TabItemInner({
     canClose,
     pluginTabMenu,
     telegramThread: telegramThread.state,
-  }), [activity, canClose, descriptor, orchestrators, pluginTabMenu, status, tab, telegramThread.state]);
+  }), [activity, canClose, descriptor, orchestrators, pluginTabMenu, tabState.status, tab, telegramThread.state]);
 
   const runMenuAction = (action: TabMenuAction) => {
     performTabMenuAction(tab.id, action, {
@@ -366,6 +368,7 @@ function TabItemInner({
       aria-label={accessibleTitle}
       data-testid="tab-item"
       data-tab-id={tab.id}
+      data-tab-activity={tabState.kind}
       data-tab-no-task-bubble="true"
       title={description ? `${displayTitle}\n${description}` : displayTitle}
       data-variant={variant}
@@ -427,7 +430,7 @@ function TabItemInner({
               iconColor={provider.iconColor}
               iconHint={provider.iconHint}
               className={`leading-none ${touchMode ? "text-[15px]" : isSubTab ? "text-[10px]" : "text-[12px]"}`}
-              title={status === "Working" ? `${providerName} working...` : status === "Waiting" ? `${providerName} — waiting for input` : providerName}
+              title={tabState.label ? `${providerName} · ${tabState.label}` : providerName}
             />
           ) : surfaceBacking(tab) ? (
             ownerBadgeTab ? (
@@ -455,10 +458,10 @@ function TabItemInner({
               >
                 {displayTitle}
               </span>
-              {hasAgent && (status === "Working" || status === "Idle") && (
-                <TabWorkingActivity active={status === "Working"} />
+              {hasAgent && (
+                <TabWorkingActivity activity={tabState} />
               )}
-              {shellRunning && <TabWorkingActivity active label={`${displayTitle} working`} />}
+              {shellRunning && <TabWorkingActivity activity={tabState} label={`${displayTitle} working`} />}
             </span>
             {collapsed && groupCollapsible && collapsedSummary ? (
               <span
@@ -499,13 +502,13 @@ function TabItemInner({
           </span>
         )}
         {/* Prompt/status indicator dot */}
-        {tab?.pending_prompt && (
+        {tabState.kind === "waiting-on-user" && (
           <span
             role="img"
             aria-label={tab.boot_stage === "awaiting_owner_prompt" ? `${accessibleTitle} is waiting for you` : `${accessibleTitle} needs a response`}
             className="shrink-0 w-2 h-2 rounded-full"
             style={{ background: "var(--ct-yellow)" }}
-            title={tab.boot_stage === "awaiting_owner_prompt" ? `Waiting for you: ${tab.pending_prompt.question}` : tab.pending_prompt.question}
+            title={tabState.label}
           />
         )}
         {declaredAttention && (
@@ -537,9 +540,9 @@ function TabItemInner({
         role="status"
         aria-live="polite"
         aria-atomic="true"
-        aria-label={`${accessibleTitle} tab status ${status ?? "Unknown"}`}
+        aria-label={`${accessibleTitle} tab status ${tabState.status}`}
       >
-        {accessibleTitle} tab status {status ?? "Unknown"}
+        {accessibleTitle} tab status {tabState.status}
       </span>}
       <div className={`shrink-0 relative z-[1] flex items-center justify-end ${utilityShell ? "" : "min-w-5"}`}>
         {attachmentToggle && attachmentToggle.count > 0 && <AttachmentToggleButton toggle={attachmentToggle} />}
@@ -661,6 +664,8 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     pp.pty_id === np.pty_id &&
     pp.agent_state?.status_line === np.agent_state?.status_line &&
     pp.agent_state?.state === np.agent_state?.state &&
+    pp.agent_state?.phase === np.agent_state?.phase &&
+    pp.agent_state?.subtype === np.agent_state?.subtype &&
     pp.parent_tab_id === np.parent_tab_id &&
     pp.depth === np.depth &&
     JSON.stringify(pp.connected_services) === JSON.stringify(np.connected_services)

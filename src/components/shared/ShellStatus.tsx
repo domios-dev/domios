@@ -1,10 +1,11 @@
+import { tabActivity } from "../../lib/tabActivity";
 import { Bug, Check, Circle, Server, Terminal, X } from "lucide-react";
 import { DynamicIcon, type IconName } from "lucide-react/dynamic";
 import { type RefObject, useEffect, useRef } from "react";
 import { BuildShellIcon } from "./BuildShellIcon";
 import { BusyState } from "./BusyState";
 import type { Tab } from "../../lib/types";
-import { shellPurposeLabel, shellStateLabel, type ShellPurpose } from "../../lib/shellCommandState";
+import { shellPurposeLabel, type ShellPurpose } from "../../lib/shellCommandState";
 
 const purposeIcons = { dev: Server, qa: Bug, shell: Terminal };
 const defaultNames = { build: "hammer", dev: "server", qa: "bug", shell: "terminal" };
@@ -41,15 +42,14 @@ export function ShellPurposeIcon({ purpose = "shell", running = false, icon }: {
 }
 
 export function ShellStatus({ tab }: { tab: Tab }) {
-  const state = tab.shell_command_state;
-  const label = shellStateLabel(state);
-  const running = state?.activity === "running";
-  const Icon = state?.activity === "idle" && state.last_exit_code != null
-    ? state.last_exit_code === 0 ? Check : X : Circle;
+  const activity = tabActivity(tab);
+  const label = activity.label;
+  const running = activity.active;
+  const Icon = activity.shellSucceeded === null ? Circle : activity.shellSucceeded ? Check : X;
   return (
     <span role="status" aria-label={`${shellPurposeLabel(tab.purpose)}, ${tab.title}: ${label}`}
       className="inline-flex max-w-full items-center gap-1 text-[10px] text-[var(--ct-muted)]">
-      {running ? <BusyState inline hideLabel label={label} /> : <Icon aria-hidden="true" size={12} className="shrink-0" />}
+      {running ? <BusyState activity={activity} inline hideLabel /> : <Icon aria-hidden="true" size={12} className="shrink-0" />}
       <span className="truncate">{shellPurposeLabel(tab.purpose)} · {label}</span>
     </span>
   );

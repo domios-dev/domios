@@ -44,8 +44,7 @@ import { PendingPromptCard } from "./PendingPromptCard";
 import { AutoConfirmedPromptRows, autoConfirmationsForSession } from "./PermissionAutoConfirm";
 import { AgentStateIndicator } from "./AgentStateIndicator";
 import { TabStatusLineModelPicker } from "./StatusLineModelPicker";
-import type { AgentState } from "./AgentStateIndicator";
-import { useSteadyAgentState } from "./useSteadyAgentState";
+import { useTabActivity } from "../../lib/useTabActivity";
 import { useAttachments } from "./useAttachments";
 import { useChatSession, isCodeTermFrontendTestMode, paintTailSignature } from "./useChatSession";
 import { chatProjectionMonitor, scheduleAfterPaint } from "./chatProjectionDiagnostics";
@@ -57,7 +56,7 @@ import { usePluginDisplayNameResolver } from "../../hooks/usePluginProviderMeta"
 import type { ChatOrigin } from "../../lib/chatPrefixes";
 import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
 import { ScrollToLatestButton } from "./ScrollToLatestButton";
-import { ChatSetupState, chatSetupStageLabel, chatSetupSubject, chatSetupView } from "./ChatSetupState";
+import { ChatSetupState, chatSetupView } from "./ChatSetupState";
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { chatPlanRefView } from "./chatPlanRef";
 import { useChatScroll } from "./useChatScroll";
@@ -200,7 +199,7 @@ export function TabSessionChat({
   const workingModelBadge = formatModelBadge(tab ? statusLineModelName(tab, shellSessionModel) : tabModel ?? "Unknown model");
   const agentSessionId = tab?.agent_session_id ?? null;
   const currentPtyId = tab?.pty_id ?? null;
-  const backendState = tab?.agent_state ?? null;
+  const agentActivity = useTabActivity(tabId);
   const sessionBindingSurface = useSessionBindingSurface(tabId, agentSessionId);
   const chatBacking = tab?.backing?.kind === "chat_backend" ? tab.backing : null;
   const effectiveChatBackend = chatBackend || chatBacking !== null;
@@ -683,22 +682,6 @@ export function TabSessionChat({
     return next;
   }, [pluginMetaVersion, renderedEnrichedMessages, resolvePluginName, tabAgentTypes, setFocusedTab]);
 
-  // subtype); it arrives via the mux snapshot and events, no local polling needed.
-  const liveAgentState: AgentState = useMemo(() => {
-    const kind = backendState?.state ?? "idle";
-    return {
-      state: kind,
-      subtype: backendState?.subtype,
-      status_line: backendState?.status_line,
-      phase: backendState?.phase,
-    };
-  }, [
-    backendState?.state,
-    backendState?.status_line,
-    backendState?.phase,
-    backendState?.subtype,
-  ]);
-
   const watcherModelBubble = useMemo(() => {
     if (!effectiveChatBackend || !chatBacking) return undefined;
     return (
@@ -709,25 +692,6 @@ export function TabSessionChat({
     );
   }, [chatBacking, effectiveChatBackend]);
 
-  const statusRowState: AgentState = useMemo(() => {
-    if (transcriptUnavailable) return { state: "idle", status_line: "Chat transcript unavailable" };
-    if (error) return { state: "idle", status_line: "Chat unavailable" };
-    if (chatChannelLoading) return { state: "working", status_line: "Loading chat…" };
-    if (!hasTranscript && bootSetupView.kind === "starting") {
-      return {
-        state: "working",
-        status_line: chatSetupStageLabel(
-          tab?.boot_stage,
-          chatSetupSubject(tab, provider?.displayName ?? "the agent"),
-        ),
-      };
-    }
-    if (sessionBindingSurface.agentState && liveAgentState.state !== "question") {
-      return sessionBindingSurface.agentState;
-    }
-    return liveAgentState;
-  }, [bootSetupView.kind, chatChannelLoading, error, hasTranscript, liveAgentState, provider?.displayName, sessionBindingSurface.agentState, tab, transcriptUnavailable]);
-  const steadyStatusRowState = useSteadyAgentState(statusRowState);
   const helperAnswer = useMemo(
     () => (generalAgent ? latestAnswerText(renderedEnrichedMessages.map(({ msg }) => msg)) : null),
     [generalAgent, renderedEnrichedMessages],
@@ -874,7 +838,7 @@ export function TabSessionChat({
         })}
         {reportPlacement.trailing.map(renderOutboundReport)}
         {askPlacement.trailing.map(renderAsk)}
-        {generalAgent && <HelperMomentCard idle={steadyStatusRowState.state === "idle"} latestAnswer={helperAnswer} />}
+        {generalAgent && <HelperMomentCard idle={agentActivity.kind === "idle"} latestAnswer={helperAnswer} />}
         <ChatSetupState
           tab={tab}
           view={setupView}
@@ -915,9 +879,10 @@ export function TabSessionChat({
         />
       ) : (
       <>
+      {chatChannelLoading && <span role="status" className="ct-composer-lane mx-auto block text-xs text-[var(--ct-muted-fg)]">Loading chat…</span>}
       <div className="ct-composer-status w-full">
         <AgentStateIndicator
-          state={steadyStatusRowState}
+          activity={agentActivity}
           providerName={provider?.displayName ?? tabProvider}
           model={workingModelBadge}
           reasoningEffort={tab?.reasoning_effort_identity}
@@ -937,7 +902,7 @@ export function TabSessionChat({
           />
         )}
       </div>
-      {tab?.managed && <ManagedTabBar managed={tab.managed} onStop={handleStopAgent} />}
+      {tab?.managed && <ManagedTabBar managed={tab.managed} activity={agentActivity} onStop={handleStopAgent} />}
       {!managedTabPresentation(tab?.managed).locked && <ChatComposer
         tabId={tabId}
         tabProvider={tabProvider}
@@ -957,7 +922,7 @@ export function TabSessionChat({
         observeChatSendStatus={observeChatSendStatus}
         showComposerError={showComposerError}
         onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
-        promptDock={inlinePrompt && (tab?.agent_state?.subtype === "permission" && !inlinePrompt.multi_select && !inlinePrompt.sections?.length
+        promptDock={inlinePrompt && (agentActivity.subtype === "permission" && !inlinePrompt.multi_select && !inlinePrompt.sections?.length
           ? <ComposerApprovalDock key={JSON.stringify(inlinePrompt)} prompt={inlinePrompt} tabId={tabId} active={isActive} onRespond={handleRespondPrompt} />
           : <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={(value) => { void handleRespondPrompt(value).catch(() => {}); }} />)}
       />}
