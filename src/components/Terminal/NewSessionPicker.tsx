@@ -18,6 +18,7 @@ import {
 import { probeProviderInstallMap } from "../../lib/providerInstallStatus";
 import { OrchestrationPairForm, OrchestrationRoleRow } from "../Sidebar/OrchestrationPairForm";
 import { ModeCards } from "./NewSessionPickerParts";
+import { useAnimatedHeight } from "../shared/useAnimatedHeight";
 import { Button } from "../shared/Button";
 import { X } from "lucide-react";
 import { createPortal } from "react-dom";
@@ -50,6 +51,7 @@ export function NewSessionPicker({
   const [busy, setBusy] = useState(false);
   const [firstAccessFull, setFirstAccessFull] = useState(true);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const { frameRef: modeFrameRef, contentRef: modeContentRef } = useAnimatedHeight();
   const disabledProviderIds = useMemo(
     () => new Set(visibleProviders.filter((p) => installMap[p.id] === false).map((p) => p.id)),
     [visibleProviders, installMap],
@@ -345,83 +347,87 @@ export function NewSessionPicker({
           <ModeCards mode={choice.mode} onSelect={handleModeSelect} />
         </div>
 
-        <div className="relative">
-          {choice.mode === "single" && presets.some((preset) => preset.provider === choice.providerId) && <label>
-            Preset<select aria-label="Preset" disabled={presetsLoading} value={choice.preset ?? ""} onChange={(event) => {
-              const preset = presets.find((preset) => preset.provider === choice.providerId && preset.name === event.target.value);
-              setChoice({ ...choice, preset: preset?.name, modelId: preset?.model ?? choice.modelId,
-                effortId: resolveEffort(visibleProviders.find((provider) => provider.id === choice.providerId), preset?.model ?? choice.modelId, choice.effortId) });
-            }}>
-              <option value="">No preset</option>
-              {presets.filter((preset) => preset.provider === choice.providerId).map((preset) => <option key={preset.name} value={preset.name}>{preset.name}</option>)}
-            </select>
-          </label>}
-          {presetsError && <p role="alert">Presets unavailable</p>}
-          {choice.mode === "single" ? (
-            <OrchestrationRoleRow
-              label="Agent"
-              providers={visibleProviders}
-              providerId={choice.providerId}
-              modelId={choice.modelId ?? ""}
-              effortId={choice.effortId}
-              disabledProviderIds={disabledProviderIds}
-              onProviderChange={(providerId) => {
-                const provider = visibleProviders.find((p) => p.id === providerId);
-                setChoice({
-                  mode: "single",
-                  providerId,
-                  modelId: provider?.default_model,
-                  effortId: resolveEffort(provider, provider?.default_model),
-                });
-              }}
-              onModelChange={(modelId) => setChoice({
-                ...choice,
-                preset: undefined,
-                modelId,
-                effortId: resolveEffort(
-                  visibleProviders.find((provider) => provider.id === choice.providerId),
-                  modelId,
-                  choice.effortId,
-                ),
-              })}
-              onEffortChange={(effortId) => setChoice({ ...choice, effortId })}
-              effortTestId="picker-effort-single"
-              onInstallProvider={handleInstallProvider}
-            />
-          ) : (
-            <OrchestrationPairForm
-              providers={visibleProviders}
-              values={{
-                orchestratorProviderId: choice.orchestratorProviderId,
-                orchestratorModelId: choice.orchestratorModelId ?? "",
-                orchestratorEffortId: choice.orchestratorEffortId,
-                plannerProviderId: choice.plannerProviderId,
-                plannerModelId: choice.plannerModelId ?? "",
-                plannerEffortId: choice.plannerEffortId,
-              }}
-              disabledProviderIds={disabledProviderIds}
-              onChange={(values) => setChoice({
-                mode: "pair",
-                orchestratorProviderId: values.orchestratorProviderId,
-                orchestratorModelId: values.orchestratorModelId || undefined,
-                orchestratorEffortId: values.orchestratorEffortId,
-                plannerProviderId: values.plannerProviderId,
-                plannerModelId: values.plannerModelId || undefined,
-                plannerEffortId: values.plannerEffortId,
-              })}
-              layout="team"
-              pairAffordanceTestId="pair-affordance"
-              roleTestIds={{
-                orchestratorProvider: "picker-provider-orchestrator",
-                orchestratorModel: "picker-model-orchestrator",
-                orchestratorEffort: "picker-effort-orchestrator",
-                plannerProvider: "picker-provider-planner",
-                plannerModel: "picker-model-planner",
-                plannerEffort: "picker-effort-planner",
-              }}
-              onInstallProvider={handleInstallProvider}
-            />
-          )}
+        <div ref={modeFrameRef} className="picker-mode-frame relative">
+          <div ref={modeContentRef}>
+            <div key={choice.mode} className="picker-mode-panel">
+              {choice.mode === "single" && presets.some((preset) => preset.provider === choice.providerId) && <label>
+                Preset<select aria-label="Preset" disabled={presetsLoading} value={choice.preset ?? ""} onChange={(event) => {
+                  const preset = presets.find((preset) => preset.provider === choice.providerId && preset.name === event.target.value);
+                  setChoice({ ...choice, preset: preset?.name, modelId: preset?.model ?? choice.modelId,
+                    effortId: resolveEffort(visibleProviders.find((provider) => provider.id === choice.providerId), preset?.model ?? choice.modelId, choice.effortId) });
+                }}>
+                  <option value="">No preset</option>
+                  {presets.filter((preset) => preset.provider === choice.providerId).map((preset) => <option key={preset.name} value={preset.name}>{preset.name}</option>)}
+                </select>
+              </label>}
+              {presetsError && <p role="alert">Presets unavailable</p>}
+              {choice.mode === "single" ? (
+                <OrchestrationRoleRow
+                  label="Agent"
+                  providers={visibleProviders}
+                  providerId={choice.providerId}
+                  modelId={choice.modelId ?? ""}
+                  effortId={choice.effortId}
+                  disabledProviderIds={disabledProviderIds}
+                  onProviderChange={(providerId) => {
+                    const provider = visibleProviders.find((p) => p.id === providerId);
+                    setChoice({
+                      mode: "single",
+                      providerId,
+                      modelId: provider?.default_model,
+                      effortId: resolveEffort(provider, provider?.default_model),
+                    });
+                  }}
+                  onModelChange={(modelId) => setChoice({
+                    ...choice,
+                    preset: undefined,
+                    modelId,
+                    effortId: resolveEffort(
+                      visibleProviders.find((provider) => provider.id === choice.providerId),
+                      modelId,
+                      choice.effortId,
+                    ),
+                  })}
+                  onEffortChange={(effortId) => setChoice({ ...choice, effortId })}
+                  effortTestId="picker-effort-single"
+                  onInstallProvider={handleInstallProvider}
+                />
+              ) : (
+                <OrchestrationPairForm
+                  providers={visibleProviders}
+                  values={{
+                    orchestratorProviderId: choice.orchestratorProviderId,
+                    orchestratorModelId: choice.orchestratorModelId ?? "",
+                    orchestratorEffortId: choice.orchestratorEffortId,
+                    plannerProviderId: choice.plannerProviderId,
+                    plannerModelId: choice.plannerModelId ?? "",
+                    plannerEffortId: choice.plannerEffortId,
+                  }}
+                  disabledProviderIds={disabledProviderIds}
+                  onChange={(values) => setChoice({
+                    mode: "pair",
+                    orchestratorProviderId: values.orchestratorProviderId,
+                    orchestratorModelId: values.orchestratorModelId || undefined,
+                    orchestratorEffortId: values.orchestratorEffortId,
+                    plannerProviderId: values.plannerProviderId,
+                    plannerModelId: values.plannerModelId || undefined,
+                    plannerEffortId: values.plannerEffortId,
+                  })}
+                  layout="team"
+                  pairAffordanceTestId="pair-affordance"
+                  roleTestIds={{
+                    orchestratorProvider: "picker-provider-orchestrator",
+                    orchestratorModel: "picker-model-orchestrator",
+                    orchestratorEffort: "picker-effort-orchestrator",
+                    plannerProvider: "picker-provider-planner",
+                    plannerModel: "picker-model-planner",
+                    plannerEffort: "picker-effort-planner",
+                  }}
+                  onInstallProvider={handleInstallProvider}
+                />
+              )}
+            </div>
+          </div>
         </div>
 
         {agentConfig?.full_access === undefined && (
