@@ -1138,8 +1138,7 @@ button,
   bottom: 0;
   z-index: 2;
   display: flex;
-  align-items: flex-start;
-  padding-top: 5px;
+  align-items: center;
   opacity: 0;
   transform: translateX(3px);
   transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
