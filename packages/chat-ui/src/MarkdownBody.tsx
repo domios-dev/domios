@@ -355,8 +355,8 @@ export function RichMarkdown({
 }
 
 const REMARK_PLUGINS = [remarkGfm];
-const MARKDOWN_RENDER_CACHE_ENTRIES = 600;
-const MARKDOWN_RENDER_CACHE_CHARS = 1_500_000;
+const MARKDOWN_RENDER_CACHE_ENTRIES = 3000;
+const MARKDOWN_RENDER_CACHE_CHARS = 500_000;
 const markdownRenderCache = new Map<string, { element: React.ReactElement; chars: number }>();
 let markdownRenderCacheChars = 0;
 
