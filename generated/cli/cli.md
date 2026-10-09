@@ -3180,7 +3180,9 @@ Show a hydrated spec
 
 #### `codeterm supporter`
 
-Configure and inspect the Supporter Agent
+Configure and inspect Spinal Cord (Supporter Agent)
+
+Aliases: spinal-cord
 
 #### `codeterm supporter disconnect`
 
