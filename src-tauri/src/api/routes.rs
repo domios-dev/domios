@@ -1056,6 +1056,10 @@ pub fn create_router(state: AppState) -> Router {
             post(agent_routes::restart_general_agent),
         )
         .route(
+            "/api/agents/general/sessions",
+            post(super::general_session_routes::spawn),
+        )
+        .route(
             "/api/agents/general/{tab_id}/restart",
             post(agent_routes::restart_general_agent_tab),
         )

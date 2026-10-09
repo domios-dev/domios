@@ -76,7 +76,7 @@ pub(crate) fn recover(
     if current.pty_id != observed.pty_id {
         return true;
     }
-    let general = super::super::is_general_agent(observed);
+    let general = super::super::session_contract::owns_main(&service.mux.read(), observed);
     let connected = count >= 2;
     if !connected {
         return false;

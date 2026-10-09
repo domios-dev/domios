@@ -94,6 +94,19 @@ pub fn complete_general_agent_first_run(
 }
 
 #[tauri::command]
+pub async fn spawn_general_agent_session(
+    svc: State<'_, ServiceState>,
+    config: State<'_, crate::config::ConfigState>,
+    params: crate::service::general_agent::FreshGeneralSessionRequest,
+) -> Result<crate::service::transport::AtomicSpawn, String> {
+    let svc = (*svc).clone();
+    let config = (*config).clone();
+    tokio::task::spawn_blocking(move || svc.spawn_fresh_general_session(&config, params))
+        .await
+        .map_err(|error| format!("General session launch worker failed: {error}"))?
+}
+
+#[tauri::command]
 pub fn restart_general_agent(
     svc: State<'_, ServiceState>,
     config: State<'_, crate::config::ConfigState>,

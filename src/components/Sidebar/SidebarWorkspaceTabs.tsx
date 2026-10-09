@@ -151,7 +151,6 @@ export interface SidebarWorkspaceTabsProps {
   onActivateTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
   onRenameTab: (tabId: string, title: string) => void;
-  /** Omitted where no correct fresh-session path exists yet (General). */
   onNewSession?: () => void;
   onOpenRemoteTab?: () => void;
   newSessionDisabled?: boolean;

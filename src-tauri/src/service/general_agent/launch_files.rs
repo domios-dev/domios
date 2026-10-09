@@ -3,6 +3,7 @@ use crate::service::ServiceContext;
 use crate::agent::provider::{AgentLaunchParams, StarterPrompt};
 use crate::service::codex_rpc;
 
+#[cfg(test)]
 pub(super) fn plan(
     svc: &ServiceContext,
     tab: &str,
@@ -33,12 +34,30 @@ pub(super) fn command(
     params: &mut AgentLaunchParams,
     resume: Option<&str>,
 ) -> Option<String> {
-    if let Some(command) = plan(svc, tab, provider, cwd, params, resume)
-        .and_then(|plan| codex_rpc::launch::prepare_selection(svc, tab, plan))
+    let selection = codex_rpc::launch::Selection {
+        resume: resume.map(str::to_owned),
+        extra_args: params.args.as_ref().is_some_and(|args| !args.is_empty()),
+        ..Default::default()
+    };
+    command_with_selection(svc, tab, provider, cwd, params, selection)
+}
+
+pub(super) fn command_with_selection(
+    svc: &ServiceContext,
+    tab: &str,
+    provider: &str,
+    cwd: &str,
+    params: &mut AgentLaunchParams,
+    selection: codex_rpc::launch::Selection,
+) -> Option<String> {
+    let resume = selection.resume.clone();
+    if let Some(command) =
+        codex_rpc::launch::selection_plan(svc, tab, provider, cwd, params, selection)
+            .and_then(|plan| codex_rpc::launch::prepare_selection(svc, tab, plan))
     {
         return Some(command);
     }
-    let command = if let Some(session) = resume {
+    let command = if let Some(session) = resume.as_deref() {
         crate::service::task_files::capture(svc, tab, || {
             build_resume(
                 &svc.agent_registry,

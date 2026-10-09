@@ -32,6 +32,7 @@ import { isWorkspaceTabActive } from "./sidebarSelection";
 import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
 import { matchesBinding } from "../../lib/keybindings";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
+import { GeneralWorkspaceTabs } from "./GeneralWorkspaceTabs";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { JobsOpenScope } from "../Jobs/jobsLayout";
 import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
@@ -717,8 +718,10 @@ export function Sidebar({
                         <span className="sidebar-structural-label">GENERAL</span>
                       </SidebarDisclosure>
                     </div>
-                    {generalExpanded && <SidebarWorkspaceTabs
+                    {generalExpanded && <GeneralWorkspaceTabs
                       workspace={generalWorkspace}
+                      providerId={config?.general_agent.agent_provider}
+                      generalCwd={generalWorkspace.cwd ?? generalTabs.find((tab) => tab.protected)?.cwd ?? null}
                       activeTabId={state.activeTabIds[generalWorkspace.id] ?? null}
                       sortedTabs={generalTabs}
                       tabs={state.tabs}
