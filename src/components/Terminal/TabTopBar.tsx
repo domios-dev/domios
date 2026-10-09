@@ -203,13 +203,11 @@ export function TabTopBar({
   return (
     <div
       data-testid="tab-top-bar"
-      className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-1.5 px-2 sm:flex-nowrap sm:gap-2"
+      className="ct-tab-top-bar flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-1.5 px-2 sm:flex-nowrap sm:gap-2"
       style={{
         ["--ct-tab-pill-h" as string]: `${TAB_BAR_CONTROL_H}px`,
         paddingTop: 6,
         paddingBottom: 6,
-        background: "color-mix(in srgb, var(--ct-fg, #c9d1d9) 3%, transparent)",
-        borderBottom: "1px solid var(--ct-border, #30363d)",
       }}
     >
       <div className="flex min-w-0 shrink items-center gap-1.5 sm:gap-2">
