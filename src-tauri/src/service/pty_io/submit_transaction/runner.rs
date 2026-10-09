@@ -193,7 +193,7 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
     let mut dialog_blocked = false;
     let mut force_key_schedule_after_deadline = false;
     while submit_key_writes < transport.max_submit_keys() {
-        if !transport.retry_active() {
+        if submit_key_writes > 0 && !transport.retry_active() {
             break;
         }
         if (submit_key_writes > 0 && submit_observed)
@@ -204,16 +204,11 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
         }
         if submit_key_writes == 0 && !initial_key_delay.is_zero() {
             let first_key_deadline = submit_started + initial_key_delay;
-            if transport.wait_retry_deadline_for_turn(
+            if transport.wait_initial_key_deadline_for_turn(
                 first_key_deadline.min(turn_deadline),
                 &expected_user_turn,
             ) {
                 submit_observed = true;
-                break;
-            }
-            if !transport.retry_active()
-                || (submit_key_writes > 0 && Instant::now() >= turn_deadline)
-            {
                 break;
             }
         } else if submit_key_writes > 0 {

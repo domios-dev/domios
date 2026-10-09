@@ -8,6 +8,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
+mod admission_tokens;
+mod reservations;
+use admission_tokens::{AdmissionTokens, TokenEntry};
+
 pub(crate) const MAX_UNSETTLED: usize = 32;
 pub(crate) const MAX_PREPARED_BYTES: usize = 4 * 1024 * 1024;
 const MAX_BODY_LEASES: usize = 32;
@@ -97,6 +101,7 @@ struct LoadedIndex {
 struct Reservations {
     next: u64,
     pending: BTreeSet<u64>,
+    tokens: AdmissionTokens,
 }
 
 pub(crate) struct UserTab {
@@ -123,11 +128,31 @@ pub(crate) struct UserReservation {
     pub(crate) client_token: Option<String>,
     ordinal: u64,
     tab: Arc<UserTab>,
+    reused: bool,
+    token_entry: Option<Arc<TokenEntry>>,
+}
+
+impl UserReservation {
+    pub(crate) fn wait_existing(&self) -> Result<bool, String> {
+        if self.reused {
+            self.token_entry
+                .as_ref()
+                .ok_or("reused token is absent")?
+                .wait()?;
+        }
+        Ok(self.reused)
+    }
 }
 
 impl Drop for UserReservation {
     fn drop(&mut self) {
+        if self.reused {
+            return;
+        }
         self.tab.admissions.lock().pending.remove(&self.ordinal);
+        if let Some(entry) = &self.token_entry {
+            entry.finish();
+        }
         let wake = self.tab.admission_wake.lock().clone();
         if let Some(wake) = wake {
             wake();
@@ -225,43 +250,6 @@ impl UserSendStore {
         latched
     }
 
-    pub(crate) fn reserve(
-        &self,
-        authority: UserSendAuthority,
-        client_token: Option<String>,
-        allocate_identity: impl FnOnce() -> (String, u64),
-    ) -> Result<UserReservation, String> {
-        if client_token
-            .as_ref()
-            .is_some_and(|token| token.len() as u64 > MAX_INDEX_BYTES)
-        {
-            return Err("user correlation token exceeds metadata bound".into());
-        }
-        let tab = self.tab(&authority.tab_id);
-        let mut admissions = tab.admissions.lock();
-        if tab.revoked.load(Ordering::Acquire) || tab.failed.load(Ordering::Acquire) {
-            return Err("user send owner is held or revoked".into());
-        }
-        if admissions.pending.len() + tab.unsettled.load(Ordering::Acquire) >= MAX_UNSETTLED {
-            return Err("user send capacity: 32 unsettled admissions".into());
-        }
-        let ordinal = admissions.next;
-        admissions.next = ordinal
-            .checked_add(1)
-            .ok_or("user admission sequence exhausted")?;
-        let (send_id, ledger_sequence) = allocate_identity();
-        admissions.pending.insert(ordinal);
-        drop(admissions);
-        Ok(UserReservation {
-            send_id,
-            ledger_sequence,
-            authority,
-            client_token,
-            ordinal,
-            tab,
-        })
-    }
-
     pub(crate) fn set_admission_wake(&self, tab_id: &str, wake: Arc<dyn Fn() + Send + Sync>) {
         *self.tab(tab_id).admission_wake.lock() = Some(wake);
     }
@@ -305,6 +293,9 @@ impl UserSendStore {
         typed_follow_up: Option<String>,
         held_before_readiness: bool,
     ) -> Result<UserSendRecord, String> {
+        if reservation.reused {
+            return Err("duplicate reservation must resolve the existing ledger status".into());
+        }
         if original.len() > MAX_PREPARED_BYTES
             || prepared.len() > MAX_PREPARED_BYTES
             || body

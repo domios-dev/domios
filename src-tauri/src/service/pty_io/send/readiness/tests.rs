@@ -48,11 +48,8 @@ fn prompt_line_questions_and_non_prompt_cursor_do_not_supply_composer_evidence()
 }
 
 #[test]
-fn other_composer_positions_preserve_existing_readiness() {
-    for position in [
-        ComposerCursorPosition::BottomRegion,
-        ComposerCursorPosition::VisibleAnywhere,
-    ] {
+fn bottom_region_preserves_existing_readiness() {
+    for position in [ComposerCursorPosition::BottomRegion] {
         assert!(!composer_input_ready_for_position(input(), position, false));
         let mut bottom = input();
         bottom.cursor_row = 39;
@@ -62,4 +59,26 @@ fn other_composer_positions_preserve_existing_readiness() {
         );
         assert!(composer_input_ready_for_position(bottom, position, false));
     }
+}
+
+#[test]
+fn visible_anywhere_accepts_a_busy_provider_cursor_above_the_bottom_region() {
+    let mut above = input();
+    above.cursor_row = 4;
+    assert!(composer_input_ready_for_position(
+        above,
+        ComposerCursorPosition::VisibleAnywhere,
+        false
+    ));
+    assert!(!composer_input_ready_for_position(
+        above,
+        ComposerCursorPosition::BottomRegion,
+        false
+    ));
+    above.cursor_visible = false;
+    assert!(!composer_input_ready_for_position(
+        above,
+        ComposerCursorPosition::VisibleAnywhere,
+        false
+    ));
 }

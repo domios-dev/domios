@@ -1,15 +1,3 @@
-//! Per-tab tailer handle registry. One tailer per tab, refcounted by
-//! attached clients. A phone and a desktop can both enter chat mode without
-//! one client's `stop` killing the other's stream.
-//!
-//! An entry is only reusable when it is BOTH alive (its polling thread is
-//! still running) AND bound to the caller's current `session_id`. A tailer
-//! that died on its own (session file vanished, provider path went None) or
-//! that points at a session the tab has since rolled past is treated as
-//! absent: it is shut down and the caller spawns a fresh one. Without this a
-//! dead-but-registered corpse makes `acquire` return `true` forever, so the
-//! live delta stream stays dead and reopening chat never recovers.
-
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -357,7 +345,7 @@ impl ChatRegistry {
             if !entry.subscribers.remove(subscriber_id) {
                 return;
             }
-            if !entry.subscribers.is_empty() {
+            if !entry.subscribers.is_empty() || entry.handle.session_owned() {
                 return;
             }
             g.remove(tab_id).map(|entry| entry.handle)
@@ -631,6 +619,36 @@ mod tests {
         registry.stop("tab", "never-acquired");
         assert!(registry.is_running("tab"));
         registry.stop("tab", "desktop");
+        assert!(!registry.is_running("tab"));
+    }
+
+    #[test]
+    fn event_tailer_survives_subscriber_churn_until_session_rotation() {
+        let registry = ChatRegistry::default();
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread_stop = stop.clone();
+        let (wake, events) = std::sync::mpsc::sync_channel(1);
+        let handle = TailerHandle::event_driven(
+            stop.clone(),
+            Arc::new(AtomicU64::new(42)),
+            thread::spawn(move || {
+                while events.recv().is_ok() {
+                    if thread_stop.load(Ordering::Acquire) {
+                        return;
+                    }
+                }
+            }),
+            wake,
+        );
+        assert!(registry.insert("tab".into(), SID.into(), "desktop".into(), handle));
+        for _ in 0..50 {
+            registry.stop("tab", "desktop");
+            assert!(registry.acquire("tab", SID, "desktop"));
+            assert_eq!(registry.current_offset("tab"), Some(42));
+            assert!(!stop.load(Ordering::Acquire));
+        }
+        assert!(!registry.acquire("tab", "new-session", "desktop"));
+        assert!(stop.load(Ordering::Acquire));
         assert!(!registry.is_running("tab"));
     }
 

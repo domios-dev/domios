@@ -135,20 +135,11 @@ pub(super) fn submit_key_guard(
         let (cursor_ready, alternate_screen) = input
             .as_ref()
             .map(|state| {
-                let cursor_ready = crate::agent::offline_state_classifier::composer_cursor_ready(
-                    state.cursor_visible,
-                    state.cursor_row,
-                    state.rows,
-                ) || state
-                    .inverse_caret_row
-                    .zip(state.last_nonblank_row)
-                    .is_some_and(|(row, bottom)| {
-                        crate::agent::offline_state_classifier::composer_cursor_ready(
-                            true,
-                            row,
-                            bottom.saturating_add(1),
-                        )
-                    });
+                let cursor_ready = super::super::send::readiness::composer_input_ready_for_position(
+                    *state,
+                    provider.composer_cursor_position(),
+                    false,
+                );
                 (cursor_ready, state.alternate_screen)
             })
             .unwrap_or((false, false));
