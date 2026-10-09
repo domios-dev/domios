@@ -81,6 +81,7 @@
   "src/components/Titlebar/SupporterActivityTray.test.tsx",
   "src/components/Terminal/NewSessionPicker.modal.test.tsx",
   "src/components/Terminal/SurfaceTabView.test.tsx",
+  "src/components/Surface/useSurfaceDecl.test.tsx",
   "src/lib/localPreviews.web.test.tsx",
   "src/components/Terminal/DocumentsPanel.test.tsx",
   "src/components/Terminal/ChangesPanel.test.tsx",
