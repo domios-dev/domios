@@ -2,8 +2,7 @@ use axum::extract::State as AxumState;
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 
-use super::auth::check_auth;
-use super::AppState;
+use crate::api::routes::{check_auth, AppState};
 use crate::service::general_agent::FreshGeneralSessionRequest;
 use crate::service::transport::AtomicSpawn;
 
