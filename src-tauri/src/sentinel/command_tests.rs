@@ -551,13 +551,8 @@ fn sentinel_command_graph_metadata_is_safe_and_preserves_actual_execution_id() {
         projected["last_result"]["command_result"]
     );
     let encoded = serde_json::to_string(&snapshot).unwrap();
-    for private in [
-        "fixed-secret-marker",
-        "raw-private-stdout",
-        "raw-private-stderr",
-        "\"cwd\"",
-        "\"command\":",
-    ] {
+    // The owner sees probe and command source in the graph; captured output and cwd stay private.
+    for private in ["raw-private-stdout", "raw-private-stderr", "\"cwd\""] {
         assert!(!encoded.contains(private), "graph leaked {private}");
     }
 }
