@@ -94,3 +94,60 @@ pub(super) fn consume(
         }
     }
 }
+
+const DRAFT_NUDGE_ACK_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+pub(super) fn unconfirmed_draft_nudge_due(
+    bootstrap_consumed: bool,
+    first_turn_launch: bool,
+    settlement: &crate::service::launch_readiness::LaunchSettlement,
+    session_authenticated: bool,
+) -> bool {
+    !bootstrap_consumed
+        && first_turn_launch
+        && !session_authenticated
+        && matches!(
+            settlement,
+            crate::service::launch_readiness::LaunchSettlement::Provisional { .. }
+        )
+}
+
+/// Before an unbound launch fails, press Enter once on a first-turn draft still
+/// parked in the composer, then give the binding a short window to arrive.
+pub(super) fn nudge_unconfirmed_draft(
+    svc: &ServiceContext,
+    attempt: &LaunchAttempt,
+    draft: &str,
+    await_ack: impl FnOnce(std::time::Duration) -> bool,
+) -> bool {
+    if LaunchAttempt::current(&svc.mux, &attempt.tab_id, &attempt.pty_id).as_ref() != Some(attempt)
+    {
+        return false;
+    }
+    match crate::service::pty_io::submit_transaction::nudge_unbound_launch_draft(
+        svc,
+        &attempt.pty_id,
+        draft,
+        b"\r",
+    ) {
+        Ok(()) => {
+            let bound = await_ack(DRAFT_NUDGE_ACK_WAIT);
+            log::info!(
+                "[launch-delivery] tab={} pty={} draft-nudge sent; session_bound={}",
+                attempt.tab_id,
+                attempt.pty_id,
+                bound
+            );
+            bound
+        }
+        Err(reason) => {
+            log::info!(
+                "[launch-delivery] tab={} pty={} draft-nudge skipped: {}",
+                attempt.tab_id,
+                attempt.pty_id,
+                reason
+            );
+            false
+        }
+    }
+}

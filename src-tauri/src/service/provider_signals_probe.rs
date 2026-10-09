@@ -3,7 +3,11 @@ use serde_json::Value;
 use tokio::io::AsyncReadExt;
 
 pub(super) fn capture(binary: &str, probe: &AuthStatusProbe) -> Option<Value> {
-    let binary = codeterm_plugin::js_runtime::resolved_bin_path(binary)?;
+    let codeterm_plugin::js_runtime::BinResolution::Found(binary) =
+        codeterm_plugin::js_runtime::probe_bin(binary).resolution
+    else {
+        return None;
+    };
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -39,4 +43,44 @@ pub(super) fn capture(binary: &str, probe: &AuthStatusProbe) -> Option<Value> {
         .ok()
         .flatten()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::capture;
+    use codeterm_plugin::provider::AuthStatusProbe;
+
+    #[test]
+    fn capture_probes_a_binary_no_provider_listing_has_cached() {
+        let dir = tempfile::tempdir().unwrap();
+        #[cfg(windows)]
+        let (bin_path, body) = (
+            dir.path().join("auth-status.cmd"),
+            "@echo {\"signedIn\":true}\r\n",
+        );
+        #[cfg(not(windows))]
+        let (bin_path, body) = (
+            dir.path().join("auth-status"),
+            "#!/bin/sh\necho '{\"signedIn\":true}'\n",
+        );
+        std::fs::write(&bin_path, body).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perm = std::fs::metadata(&bin_path).unwrap().permissions();
+            perm.set_mode(0o755);
+            std::fs::set_permissions(&bin_path, perm).unwrap();
+        }
+        let bin = bin_path.to_string_lossy().into_owned();
+        codeterm_plugin::js_runtime::forget_resolved_bin(&bin);
+        let probe = AuthStatusProbe {
+            args: Vec::new(),
+            timeout_ms: 5000,
+        };
+
+        let captured = capture(&bin, &probe);
+        codeterm_plugin::js_runtime::forget_resolved_bin(&bin);
+
+        assert_eq!(captured, Some(serde_json::json!({ "signedIn": true })));
+    }
 }

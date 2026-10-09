@@ -84,7 +84,12 @@ pub(crate) fn refresh(svc: &ServiceContext, tab: &str, force: bool) -> ProbeSnap
             provider.cli_binary().map(str::to_string)
         })
         .flatten()
-        .and_then(|binary| codeterm_plugin::js_runtime::resolved_bin_path(&binary));
+        .and_then(
+            |binary| match codeterm_plugin::js_runtime::probe_bin(&binary).resolution {
+                codeterm_plugin::js_runtime::BinResolution::Found(path) => Some(path),
+                _ => None,
+            },
+        );
     let Some(binary) = binary else {
         let result = unavailable(ProbeFailure::BinaryUnavailable);
         publish(&request, &result);

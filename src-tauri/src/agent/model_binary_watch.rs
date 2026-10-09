@@ -95,15 +95,18 @@ fn watchers() -> &'static ProviderBinaryWatchers {
     WATCHERS.get_or_init(ProviderBinaryWatchers::default)
 }
 
-/// Install the watch and the refresh it triggers. A provider whose CLI has not
-/// resolved yet is simply not watched; the next forced refresh resolves it.
+/// Install the watch and the refresh it triggers. A provider whose CLI is not
+/// installed is simply not watched; the next forced refresh resolves it.
 pub fn install(provider: Arc<dyn AgentProvider>) {
     let mut targets = provider
         .model_catalogue_capability()
         .fingerprint_files(provider.model_credential_files());
-    let binary = provider
-        .cli_binary()
-        .and_then(codeterm_plugin::js_runtime::resolved_bin_path);
+    let binary = provider.cli_binary().and_then(|binary| {
+        match codeterm_plugin::js_runtime::probe_bin(binary).resolution {
+            codeterm_plugin::js_runtime::BinResolution::Found(path) => Some(path),
+            _ => None,
+        }
+    });
     if let Some(binary) = &binary {
         targets.push(binary.clone());
     }
