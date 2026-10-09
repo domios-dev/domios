@@ -191,7 +191,8 @@ impl super::ServiceContext {
                 "field":"trigger.params", "passed":false, "reason":error
             }));
         }
-        let owner_matches = current.pipeline().map(|pipeline| pipeline.owner) == Some(spec.owner);
+        let owner_matches =
+            current.pipeline.as_ref().map(|pipeline| pipeline.owner) == Some(spec.owner);
         preview["checks"].as_array_mut().unwrap().push(json!({
             "field":"owner",
             "passed":owner_matches,
@@ -215,7 +216,7 @@ impl super::ServiceContext {
         self.validate_event_trigger(&spec)?;
         ensure_trigger_available(&spec.trigger)
             .map_err(|error| format!("{}: {}", error.field, error.reason))?;
-        if current.pipeline().map(|pipeline| pipeline.owner) != Some(spec.owner) {
+        if current.pipeline.as_ref().map(|pipeline| pipeline.owner) != Some(spec.owner) {
             return Err("owner: pipeline owner is immutable".into());
         }
         {
@@ -230,13 +231,13 @@ impl super::ServiceContext {
         if let codeterm_types::blueprint_pipeline::Trigger::Schedule { every } = &spec.trigger {
             next.interval_ms = crate::sentinel::store::duration_ms(every)?;
         }
-        next.set_pipeline(Some(spec));
+        next.pipeline = Some(spec);
         let handle = self
             .app_handle
             .try_state::<Handle>()
             .ok_or("blueprints not initialized")?;
         let authored_at = handle.store.lock().clock.now_ms();
-        if next.pipeline().is_some_and(|pipeline| {
+        if next.pipeline.as_ref().is_some_and(|pipeline| {
             matches!(
                 &pipeline.trigger,
                 codeterm_types::blueprint_pipeline::Trigger::Input { .. }
@@ -276,7 +277,7 @@ impl super::ServiceContext {
             .filter(|job| caller.can_amend(job))
             .cloned()
             .ok_or_else(|| format!("blueprint not found in this workspace and Team: {id}"))?;
-        if current.pipeline().is_none() {
+        if current.pipeline.is_none() {
             return Err("blueprint has no pipeline definition".into());
         }
         if current.definition_version != expect_version {
@@ -295,13 +296,31 @@ impl super::ServiceContext {
     }
 
     pub(crate) fn blueprint_pipeline_nodes(&self) -> Value {
-        let mut nodes = Trigger::DESCRIPTORS
-            .iter()
-            .chain(StepKind::DESCRIPTORS)
-            .chain(crate::sentinel::machine::Route::DESCRIPTORS)
-            .chain(codeterm_types::blueprint_catalog::SOURCES_AND_MODES)
-            .map(codeterm_types::blueprint_catalog::NodeDescriptor::value)
-            .collect::<Vec<_>>();
+        let mut nodes = vec![
+            json!({"role":"trigger", "kind":"trigger", "type":"schedule", "title":"Trigger: on a schedule", "params_schema":{"every":{"type":"duration","minimum":"10s"}}}),
+            json!({"role":"trigger", "kind":"trigger", "type":"event", "title":"Trigger: on an event", "params_schema":{"kind":"event source kind","params":"event source schema"}}),
+            json!({"role":"trigger", "kind":"trigger", "type":"input", "title":"Trigger: on input data", "params_schema":{"kind":"text|file|audio|video|image","source":"text|file|url"}}),
+            json!({"role":"trigger", "kind":"trigger", "type":"activated", "title":"Trigger: after an earlier stage", "params_schema":{"route":"blueprint:<exact-id> on the earlier stage","paused":true}}),
+            json!({"role":"source", "kind":"source", "type":"probe", "title":"Source: run a bounded probe command", "params_schema":{"probe":"shell command printing one stable verdict"}, "payload_schema":{"type":"text","max_bytes":32768}}),
+            json!({"role":"source", "kind":"source", "type":"terminal", "title":"Source: Team terminal output", "params_schema":{"observe":"tab:<same-Team tab>","terminal_pattern":"optional regex","output_settled":"optional idle milliseconds (10..60000)"}, "payload_schema":{"type":"text","max_bytes":32768}}),
+            json!({"role":"source", "kind":"source", "type":"observe", "title":"Source: observed tab or cron run", "params_schema":{"observe":"tab:<id>|cron-run:<id>"}}),
+            json!({"role":"source", "kind":"source", "type":"text_input", "title":"Source: graph text input", "params_schema":{"command":"blueprint input <id> --from-pad <path>"}, "payload_schema":{"type":"text","max_bytes":32768}}),
+            json!({"role":"agent", "kind":"decision", "type":"agent", "title":"Agent: chooses one bucket by instruction", "params_schema":{"question":"instruction naming every bucket and what is other","buckets":"declared string array"}}),
+            json!({"role":"logic", "kind":"decision", "type":"pattern", "title":"Logic: deterministic bucket patterns", "params_schema":{"match":"bucket=regex, checked before the agent"}}),
+            json!({"role":"action", "kind":"handler", "type":"notify", "title":"Action: notify the creator", "params_schema":{}}),
+            json!({"role":"action", "kind":"handler", "type":"send", "title":"Action: send the payload to a terminal or agent", "params_schema":{"target":"same-Team tab"}, "payload_schema":{"source":"stage output or graph text input"}}),
+            json!({"role":"action", "kind":"handler", "type":"cron", "title":"Action: start a cron job", "params_schema":{"name":"cron name"}}),
+            json!({"role":"action", "kind":"handler", "type":"command", "title":"Action: run a labelled command", "params_schema":{"label":"short name","command":"shell command","timeout_ms":"bound"}}),
+            json!({"role":"action", "kind":"handler", "type":"blueprint", "title":"Action: activate the next stage", "params_schema":{"target":"blueprint:<exact-id>"}}),
+            json!({"role":"action", "kind":"handler", "type":"escalate", "title":"Action: escalate to the creator or an agent", "params_schema":{"target":"creator|agent:<tab>"}}),
+            json!({"role":"action", "kind":"handler", "type":"respond_prompt", "title":"Action: answer a provider-declared prompt", "params_schema":{"kind":"declared prompt option"}}),
+            json!({"role":"action", "kind":"handler", "type":"stop", "title":"Action: stop the Blueprint", "params_schema":{}}),
+            json!({"role":"mode", "kind":"mode", "type":"session", "title":"Mode: conversation", "params_schema":{"session":true,"safety_limit":16384,"rate_limit_per_minute":120}}),
+            json!({"role":"step", "kind":"step", "type":"command", "title":"Pipeline step: command", "params_schema":{"command":{"type":"string","max_length":16384}}}),
+            json!({"role":"agent", "kind":"step", "type":"ask", "title":"Pipeline step: ask an agent", "params_schema":{"question":"string","buckets":"declared string array"}}),
+            json!({"role":"logic", "kind":"step", "type":"filter", "title":"Pipeline step: filter", "params_schema":{"pattern":"regex","bucket":"optional bucket"}}),
+            json!({"role":"step", "kind":"step", "type":"convert", "title":"Pipeline step: convert", "params_schema":{"from":"media kind","to":"media kind"}}),
+        ];
         for (_, conversion) in self.converter_registry.available() {
             nodes.push(json!({
                 "role":"step",
@@ -505,7 +524,12 @@ fn chain_summary(spec: &BlueprintSpec) -> String {
         Trigger::Input { kind, .. } => format!("input:{}", kind.as_str()),
     };
     let steps = spec.steps.iter().map(|step| {
-        let kind = step.kind.name();
+        let kind = match &step.kind {
+            StepKind::Command { .. } => "command",
+            StepKind::Ask { .. } => "ask",
+            StepKind::Filter { .. } => "filter",
+            StepKind::Convert { .. } => "convert",
+        };
         format!("{kind}:{}", step.name)
     });
     std::iter::once(trigger)

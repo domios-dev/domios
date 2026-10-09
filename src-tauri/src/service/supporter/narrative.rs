@@ -85,7 +85,7 @@ impl ActivityContext {
         match self {
             Self::Rerank { .. } => "memory_rerank",
             Self::TabState { decision_point, .. } => decision_point,
-            Self::Sentinel { .. } => "blueprint",
+            Self::Sentinel { .. } => "sentinel",
         }
     }
 

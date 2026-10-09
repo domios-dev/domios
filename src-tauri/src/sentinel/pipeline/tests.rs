@@ -280,7 +280,6 @@ fn blueprint_delivery_unresolvable_named_target_fails_at_fire_with_reason() {
     let BlueprintJournalWrite::Finish {
         outcome,
         result_summary,
-        body_ref: stored_body_ref,
         reason,
         ..
     } = journal
@@ -288,43 +287,6 @@ fn blueprint_delivery_unresolvable_named_target_fails_at_fire_with_reason() {
         panic!("unresolved target must finish as a durable result row");
     };
     assert_eq!(outcome, "handler_failed");
-    assert_eq!(result_summary, "result target unresolved");
-    assert_eq!(stored_body_ref.as_deref(), Some(body_ref.as_str()));
+    assert_eq!(result_summary, format!("body_ref:{body_ref}"));
     assert_eq!(reason.as_deref(), Some("result_target_unresolved"));
-}
-
-#[test]
-fn blueprint_pipeline_journal_write_failure_closes_once_as_failed() {
-    let closed = RefCell::new(Vec::new());
-    with_run_close(
-        || {
-            required_journal(false)?;
-            Ok(RunCompletion::new(JournalState::Done, "done"))
-        },
-        |completion| closed.borrow_mut().push(completion.clone()),
-    );
-    assert_eq!(
-        closed.into_inner(),
-        vec![RunCompletion::new(
-            JournalState::Failed,
-            JournalReason::JournalWriteFailed
-        )]
-    );
-}
-
-#[test]
-fn blueprint_pipeline_uncertain_effect_closes_once_as_held_with_typed_reason() {
-    let mut failure = probe::process::ProbeFailure::new("test_effect");
-    failure.unconfirmed(probe::process::ResourceKind::Child);
-    let result = command_failure(failure, "input");
-    assert!(result.uncertain);
-    let closed = RefCell::new(Vec::new());
-    with_run_close(
-        || Ok(RunCompletion::held(JournalReason::UncertainEffect)),
-        |completion| closed.borrow_mut().push(completion.clone()),
-    );
-    assert_eq!(
-        closed.into_inner(),
-        vec![RunCompletion::held(JournalReason::UncertainEffect)]
-    );
 }

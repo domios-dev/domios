@@ -104,10 +104,7 @@ fn render(job: &Value) {
 fn render_history(history: &Value) {
     println!(
         "{} history: current version {}{}",
-        history["blueprint_id"]
-            .as_str()
-            .or_else(|| history["sentinel_id"].as_str())
-            .unwrap_or("?"),
+        history["sentinel_id"].as_str().unwrap_or("?"),
         history["current_version"],
         if history["history_truncated"].as_bool().unwrap_or(false) {
             " (older versions truncated)"

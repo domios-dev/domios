@@ -15,7 +15,7 @@ impl Store {
         if let Err(error) = self.ensure_available() {
             return Staged::ready(Err(error));
         }
-        let Some(job) = self.get(id).filter(|job| job.pipeline().is_some()) else {
+        let Some(job) = self.get(id).filter(|job| job.pipeline.is_some()) else {
             return Staged::ready(Err("blueprint pipeline not found".into()));
         };
         let id = match SentinelId::new(id.to_string()) {
@@ -50,7 +50,7 @@ impl Store {
         let Some(job) = self.get(id) else {
             return Err("blueprint not found".into());
         };
-        if job.pipeline().is_none() {
+        if job.pipeline.is_none() {
             return Err("blueprint has no pipeline journal".into());
         }
         let Some(backend) = self.backend.sqlite() else {

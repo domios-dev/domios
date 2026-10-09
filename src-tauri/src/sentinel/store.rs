@@ -16,6 +16,7 @@ use codeterm_types::sentinel_input::InputSpec;
 pub(super) const MAX_SENTINELS: usize = 256;
 pub(super) const MAX_ACTIVE: usize = 64;
 pub(super) const MAX_LIFETIME_TRANSITIONS: usize = 65_536;
+pub(super) const PIPELINE_SOURCE: &str = "blueprint-pipeline";
 
 pub(super) type ScopeKey = (String, Option<String>);
 
@@ -59,9 +60,10 @@ fn default_every() -> String {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Sentinel {
-    #[serde(flatten)]
-    pub source: super::stage_source::StageSource,
+    #[serde(default)]
+    pub terminal: Option<codeterm_types::blueprint_terminal::Config>,
     #[serde(default)]
     pub session: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -71,6 +73,7 @@ pub struct Sentinel {
     pub creator_tab_id: String,
     pub workspace_id: String,
     pub cwd: String,
+    pub probe: String,
     pub question: String,
     pub buckets: Vec<String>,
     pub interval_ms: u64,
@@ -89,6 +92,8 @@ pub struct Sentinel {
     pub agent_authored: bool,
     #[serde(default)]
     pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pipeline: Option<codeterm_types::blueprint_pipeline::BlueprintSpec>,
     #[serde(default)]
     pub scenario_id: Option<String>,
     #[serde(default = "handlers::default_transitions")]
@@ -99,6 +104,10 @@ pub struct Sentinel {
     pub transitions: Vec<Transition>,
     #[serde(default)]
     pub run_transitions: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observe: Option<TabBinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<InputSpec>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run: Option<RunBinding>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -198,7 +207,7 @@ impl Store {
         }
         let now = self.clock.now_ms();
         let job = self.jobs.iter().find(|job| job.id == event.pipeline_id)?;
-        let matches_kind = job.pipeline().is_some_and(|pipeline| {
+        let matches_kind = job.pipeline.as_ref().is_some_and(|pipeline| {
             matches!(&pipeline.trigger, codeterm_types::blueprint_pipeline::Trigger::Event { kind, .. } if kind == &event.kind)
         });
         if !matches_kind
@@ -239,7 +248,7 @@ impl Store {
             return Err(failure.message());
         }
         if self.backend.held() {
-            return Err("blueprint_store_load_failed: persistence is held for repair".into());
+            return Err("sentinel_store_load_failed: persistence is held for repair".into());
         }
         Ok(())
     }
@@ -260,7 +269,7 @@ impl Store {
         }
         if let Some(capability) = job.pending_capability() {
             return Staged::ready(Err(format!(
-                "blueprint_capability_unavailable: {capability} is not executable yet"
+                "sentinel_capability_unavailable: {capability} is not executable yet"
             )));
         }
         if self.jobs.len() >= MAX_SENTINELS
@@ -469,7 +478,7 @@ impl Store {
     /// The typed backend plans on a copy, so the cache changes only on publication.
     pub(super) fn stage_due(&mut self) -> Staged<Vec<Lease>> {
         if self.admission_closed {
-            return Staged::ready(Err("blueprint_shutdown_admission_closed".into()));
+            return Staged::ready(Err("sentinel_shutdown_admission_closed".into()));
         }
         if let Err(error) = self.ensure_available() {
             return Staged::ready(Err(error));
@@ -548,7 +557,7 @@ impl Store {
         if job.machine.stopped || job.machine.paused || job.machine.held.is_some() {
             return false;
         }
-        if job.pipeline().is_some_and(|pipeline| {
+        if job.pipeline.as_ref().is_some_and(|pipeline| {
             matches!(
                 &pipeline.trigger,
                 codeterm_types::blueprint_pipeline::Trigger::Input { .. }
@@ -675,7 +684,7 @@ impl Store {
         }
         let now = self.clock.now_ms();
         let input_activation = self.get(id).is_some_and(|target| {
-            target.pipeline().is_some_and(|pipeline| {
+            target.pipeline.as_ref().is_some_and(|pipeline| {
                 matches!(
                     &pipeline.trigger,
                     codeterm_types::blueprint_pipeline::Trigger::Input { .. }
@@ -814,11 +823,11 @@ impl Store {
             .iter()
             .filter(|job| {
                 !job.machine.stopped
-                    && job.terminal().is_none()
+                    && job.terminal.is_none()
                     && !job.machine.paused
                     && !job.expires_at.is_some_and(|at| now >= at)
-                    && (matches!(job.observe(), Some(TabBinding::Tab(id)) if id == tab_id)
-                        || matches!(job.observe(), Some(TabBinding::CronRun(_))
+                    && (matches!(job.observe.as_ref(), Some(TabBinding::Tab(id)) if id == tab_id)
+                        || matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_))
                             if job.run.as_ref().is_some_and(|run| run.tab_id == tab_id)))
             })
             .map(|job| job.id.clone())
@@ -837,22 +846,22 @@ impl Store {
             .filter(|job| !job.machine.stopped)
             .flat_map(|job| {
                 let active = self.active.contains_key(&job.id);
-                let waiting_for_run =
-                    matches!(job.observe(), Some(TabBinding::CronRun(_))) && job.run.is_none();
-                let event_trigger = job.pipeline().is_some_and(|pipeline| {
+                let waiting_for_run = matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_)))
+                    && job.run.is_none();
+                let event_trigger = job.pipeline.as_ref().is_some_and(|pipeline| {
                     matches!(
                         &pipeline.trigger,
                         codeterm_types::blueprint_pipeline::Trigger::Event { .. }
                     )
                 });
-                let input_waiting = job.pipeline().is_some_and(|pipeline| {
+                let input_waiting = job.pipeline.as_ref().is_some_and(|pipeline| {
                     matches!(
                         &pipeline.trigger,
                         codeterm_types::blueprint_pipeline::Trigger::Input { .. }
                     ) && job.next_run == codeterm_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS
                 });
-                let next = if ((job.terminal().is_some()
-                    || (job.input().is_some()
+                let next = if ((job.terminal.is_some()
+                    || (job.input.is_some()
                         && job.next_run
                             == codeterm_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS))
                     && !self.wake_pending.contains(&job.id))
@@ -887,8 +896,8 @@ impl Store {
         !live.is_empty()
             && live.iter().all(|job| {
                 job.expires_at.is_none()
-                    && ((job.terminal().is_some() || job.input().is_some())
-                        || job.pipeline().is_some_and(|pipeline| {
+                    && ((job.terminal.is_some() || job.input.is_some())
+                        || job.pipeline.as_ref().is_some_and(|pipeline| {
                             matches!(
                                 &pipeline.trigger,
                                 codeterm_types::blueprint_pipeline::Trigger::Event { .. }
@@ -900,54 +909,6 @@ impl Store {
 }
 
 impl Sentinel {
-    pub fn probe(&self) -> &String {
-        self.source.probe()
-    }
-    pub fn observe(&self) -> Option<&TabBinding> {
-        self.source.observe()
-    }
-    pub fn input(&self) -> Option<&InputSpec> {
-        self.source.input()
-    }
-    pub fn terminal(&self) -> Option<&codeterm_types::blueprint_terminal::Config> {
-        self.source.terminal()
-    }
-    pub fn pipeline(&self) -> Option<&codeterm_types::blueprint_pipeline::BlueprintSpec> {
-        self.source.pipeline()
-    }
-    pub fn set_probe(&mut self, probe: String) {
-        self.source = super::stage_source::StageSource::Probe(probe);
-    }
-    pub fn set_input(&mut self, input: Option<InputSpec>) {
-        if let Some(input) = input {
-            self.source = super::stage_source::StageSource::Input(input);
-        }
-    }
-    pub fn set_pipeline(
-        &mut self,
-        pipeline: Option<codeterm_types::blueprint_pipeline::BlueprintSpec>,
-    ) {
-        if let Some(pipeline) = pipeline {
-            self.source = super::stage_source::StageSource::Pipeline(pipeline);
-        }
-    }
-    pub fn set_observe(&mut self, binding: Option<TabBinding>) {
-        if let Some(binding) = binding {
-            self.source = match self.terminal().cloned() {
-                Some(config) => super::stage_source::StageSource::Terminal { binding, config },
-                None => super::stage_source::StageSource::Observe(binding),
-            };
-        }
-    }
-    pub fn set_terminal(&mut self, config: Option<codeterm_types::blueprint_terminal::Config>) {
-        if let Some(binding) = self.observe().cloned() {
-            self.source = match config {
-                Some(config) => super::stage_source::StageSource::Terminal { binding, config },
-                None => super::stage_source::StageSource::Observe(binding),
-            };
-        }
-    }
-
     pub fn is_scenario_root(&self) -> bool {
         self.scenario_id.as_deref() == Some(self.id.as_str())
     }
@@ -969,7 +930,7 @@ impl Sentinel {
                 .map(|handler| &handler.action)
         };
         // Answering a prompt needs an observed agent tab; a shell probe has no prompt to answer.
-        if self.observe().is_none()
+        if self.observe.is_none()
             && actions().any(|action| matches!(action, Route::RespondPrompt(_)))
         {
             Some("respond_prompt")

@@ -5,7 +5,7 @@ pub(super) const MAX_ENTRIES: usize = 100;
 pub(super) fn entry(value: &Value) -> Option<Value> {
     let kind = match value["kind"].as_str()? {
         "rerank" => "rerank",
-        "blueprint" | "sentinel" => "blueprint",
+        "sentinel" => "sentinel",
         "heartbeat" => "heartbeat",
         "tab_state" if value["action"] == "recovery" => "recovery",
         "tab_state" => "tab_state",
@@ -124,7 +124,7 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
         &value["decision_point"],
         &[
             "memory_rerank",
-            "blueprint",
+            "sentinel",
             "heartbeat",
             "tab_state",
             "launch_ready",

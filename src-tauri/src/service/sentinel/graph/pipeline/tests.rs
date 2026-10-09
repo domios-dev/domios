@@ -121,7 +121,6 @@ fn blueprint_pipeline_read_model_revision_tracks_journal_rows() {
             ended_at_ms: Some(1100),
             result_summary: Some("step completed".into()),
             reason: None,
-            body_ref: None,
         }],
     )]);
 
@@ -164,8 +163,7 @@ fn blueprint_delivery_read_model_projects_reason_and_body_reference() {
         outcome: Some("handler_unconfirmed".into()),
         started_at_ms: 1000,
         ended_at_ms: Some(1100),
-        result_summary: Some("result delivery unconfirmed".into()),
-        body_ref: Some("inbox/result.md".into()),
+        result_summary: Some("body_ref:inbox/result.md".into()),
         reason: Some("delivery_pending".into()),
     };
     let node = project_snapshot(&job, &BTreeMap::from([(job.id.clone(), vec![journal])]))
@@ -236,12 +234,11 @@ fn row(
         step_index: step,
         step_name: name.into(),
         state: state.into(),
-        outcome: outcome.map(Into::into),
+        outcome: outcome.map(str::to_string),
         started_at_ms: 1000 + id as u64,
         ended_at_ms: (state != "running").then_some(1100 + id as u64),
         result_summary: None,
         reason: None,
-        body_ref: None,
     }
 }
 
@@ -362,8 +359,5 @@ fn pipeline_without_flat_stages_survives_store_reload() {
     let loaded = Store::new(path, MockClock::starting_at(1000));
     loaded.ensure_available().unwrap();
     assert!(loaded.get(&job.id).unwrap().routes.is_empty());
-    assert_eq!(
-        loaded.get(&job.id).unwrap().pipeline().cloned(),
-        job.pipeline().cloned()
-    );
+    assert_eq!(loaded.get(&job.id).unwrap().pipeline, job.pipeline);
 }

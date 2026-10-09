@@ -1,5 +1,4 @@
 use super::*;
-use codeterm_types::blueprint_journal::{JournalMarker, JournalOutcome, JournalState};
 
 pub(super) fn project_pipeline_contract(
     snapshot: &mut Snapshot,
@@ -10,7 +9,7 @@ pub(super) fn project_pipeline_contract(
 ) {
     let mut journal_revisions = jobs
         .iter()
-        .filter(|job| job.pipeline().is_some())
+        .filter(|job| job.pipeline.is_some())
         .filter_map(|job| {
             journals
                 .get(&job.id)
@@ -21,7 +20,7 @@ pub(super) fn project_pipeline_contract(
     let mut event_revisions = jobs
         .iter()
         .filter(|job| {
-            job.pipeline().is_some_and(|spec| {
+            job.pipeline.as_ref().is_some_and(|spec| {
                 matches!(
                     &spec.trigger,
                     codeterm_types::blueprint_pipeline::Trigger::Event { .. }
@@ -59,11 +58,11 @@ pub(super) fn project_pipeline_contract(
     for job in jobs.iter().filter(|job| job.is_scenario_root()) {
         let Some(node) = snapshot.nodes.iter_mut().find(|node| {
             node.pointer("/identity/id").and_then(Value::as_str) == Some(job.id.as_str())
-                && node.pointer("/identity/kind").and_then(Value::as_str) == Some("blueprint")
+                && node.pointer("/identity/kind").and_then(Value::as_str) == Some("sentinel")
         }) else {
             continue;
         };
-        let Some(spec) = job.pipeline() else {
+        let Some(spec) = job.pipeline.as_ref() else {
             continue;
         };
         let mut entries = journals
@@ -107,8 +106,6 @@ pub(super) fn project_pipeline_contract(
         } else if latest["closed"] == true {
             if latest["state"] == "failed" {
                 "failed"
-            } else if latest["state"] == "held" {
-                "held"
             } else {
                 "idle"
             }
@@ -157,54 +154,61 @@ fn pipeline_run_view(
     let newest = entries
         .iter()
         .copied()
-        .filter(|entry| seen.insert(entry.marker()))
+        .filter(|entry| seen.insert(entry.step_name.as_str()))
         .collect::<Vec<_>>();
-    let (closed_state, current) = BlueprintJournalEntry::derive_run(entries);
+    let close = newest
+        .iter()
+        .find(|entry| entry.step_name == "$run" && entry.state != "running");
+    let current = if close.is_some() {
+        None
+    } else {
+        newest
+            .iter()
+            .find(|entry| entry.step_index >= 0 && entry.state == "running")
+            .map(|entry| entry.step_index)
+    };
     let steps = spec
         .steps
         .iter()
         .enumerate()
         .map(|(index, step)| {
-            let entry = newest
+            let entry = newest.iter().find(|entry| entry.step_index == index as i64);
+            let summary = entries
                 .iter()
-                .find(|entry| entry.marker() == JournalMarker::Step(index as u16));
-            let summary = entries.iter().find(|entry| {
-                entry.marker() == JournalMarker::Step(index as u16)
-                    && entry.result_summary.is_some()
-            });
+                .find(|entry| entry.step_index == index as i64 && entry.result_summary.is_some());
             pipeline_step_view(index, &step.name, step_kind(&step.kind), entry, summary)
         })
         .collect::<Vec<_>>();
-    let result = newest
-        .iter()
-        .find(|entry| entry.marker() == JournalMarker::Result);
-    let result_state = match result.and_then(|entry| entry.outcome.as_ref()) {
-        Some(JournalOutcome::HandlerResult) => "delivered",
-        Some(JournalOutcome::HandlerUnconfirmed | JournalOutcome::HandlerFailed) => "failed",
+    let result = newest.iter().find(|entry| entry.step_name == "$result");
+    let result_state = match result.and_then(|entry| entry.outcome.as_deref()) {
+        Some("handler_result") => "delivered",
+        Some("handler_unconfirmed" | "handler_failed") => "failed",
         _ if result.is_some_and(|entry| entry.state == "running") => "delivering",
         _ => "waiting",
     };
-    let state = match closed_state {
-        Some(JournalState::Failed) => "failed",
-        Some(JournalState::Held) => "held",
-        Some(_) => "completed",
-        None if newest
-            .iter()
-            .any(|entry| entry.state == JournalState::Running) =>
-        {
-            "running"
+    let state = if close.is_some() {
+        if close.is_some_and(|entry| {
+            entry.outcome.as_deref() == Some("failed") || entry.state == "failed"
+        }) {
+            "failed"
+        } else {
+            "completed"
         }
-        None if entries.is_empty() => "idle",
-        None => "held",
+    } else if newest.iter().any(|entry| entry.state == "running") {
+        "running"
+    } else if entries.is_empty() {
+        "idle"
+    } else {
+        "held"
     };
     json!({
-        "id":entries.first().map(|entry| &entry.run_id),"state":state,"closed":closed_state.is_some(),
+        "id":entries.first().map(|entry| &entry.run_id),"state":state,"closed":close.is_some(),
         "started_at_ms":entries.iter().map(|entry| entry.started_at_ms).min(),
         "last_event_at_ms":entries.iter().map(|entry| entry.ended_at_ms.unwrap_or(entry.started_at_ms)).max(),
         "current_step":current,"steps":steps,
         "result":{"target":result_target_view(&spec.result.to,spec.owner,job),"state":result_state,
             "reason":result.and_then(|entry| entry.reason.as_deref()),
-            "body_ref":result.and_then(|entry| entry.body_ref.as_deref())}
+            "body_ref":result.and_then(|entry| entry.result_summary.as_deref()).and_then(|summary| summary.strip_prefix("body_ref:")).filter(|reference| *reference != "unavailable")}
     })
 }
 
@@ -222,7 +226,7 @@ fn pipeline_step_view(
         "kind":kind,
         "title":format!("{}: {name}", kind),
         "state":state,
-        "outcome":entry.filter(|entry| !entry.outcome.as_ref().is_some_and(JournalOutcome::is_skip)).and_then(|entry| entry.outcome.clone()),
+        "outcome":entry.filter(|entry| !entry.outcome.as_deref().is_some_and(|outcome| outcome.starts_with("skip:"))).and_then(|entry| entry.outcome.clone()),
         "started_at_ms":entry.map(|entry| entry.started_at_ms),
         "ended_at_ms":entry.and_then(|entry| entry.ended_at_ms),
         "result_summary":summary.and_then(|entry| entry.result_summary.clone()),
@@ -231,7 +235,13 @@ fn pipeline_step_view(
 }
 
 fn step_kind(kind: &codeterm_types::blueprint_pipeline::StepKind) -> &'static str {
-    kind.name()
+    use codeterm_types::blueprint_pipeline::StepKind;
+    match kind {
+        StepKind::Command { .. } => "command",
+        StepKind::Convert { .. } => "convert",
+        StepKind::Ask { .. } => "ask",
+        StepKind::Filter { .. } => "filter",
+    }
 }
 
 fn trigger_view(trigger: &codeterm_types::blueprint_pipeline::Trigger) -> Value {

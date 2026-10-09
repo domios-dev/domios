@@ -67,7 +67,29 @@ fn parse_spec(raw: &str) -> Result<Value, String> {
 }
 
 fn recipe_spec(name: &str) -> Result<Value, String> {
-    super::recipes::pipeline_spec(name)
+    let mut remaining = include_str!("../../../../prod-docs/BLUEPRINT-RECIPES.md");
+    while let Some((_, tail)) = remaining.split_once("<!-- blueprint-pipeline-recipe:") {
+        let (header, body) = tail
+            .split_once("-->")
+            .ok_or("pipeline recipe marker is incomplete")?;
+        let (content, rest) = body
+            .split_once("<!-- /blueprint-pipeline-recipe -->")
+            .ok_or_else(|| format!("pipeline recipe `{}` is incomplete", header.trim()))?;
+        if header.trim() == name {
+            let spec = fenced(content, "yaml")
+                .ok_or_else(|| format!("pipeline recipe `{name}` needs a YAML specification"))?;
+            return parse_spec(spec);
+        }
+        remaining = rest;
+    }
+    Err(format!("unknown pipeline recipe `{name}`"))
+}
+
+fn fenced<'a>(body: &'a str, language: &str) -> Option<&'a str> {
+    let opening = format!("```{language}");
+    let (_, tail) = body.split_once(&opening)?;
+    let (content, _) = tail.split_once("```")?;
+    Some(content.trim())
 }
 
 #[cfg(test)]

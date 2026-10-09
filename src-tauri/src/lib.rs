@@ -362,8 +362,6 @@ pub fn run() {
             commands::automation_node_files,
             commands::reveal_file,
             commands::automation_graph_workspace_snapshot,
-            commands::automation_graph_stop_blueprint,
-            commands::automation_graph_delete_blueprint,
             commands::automation_graph_stop_sentinel,
             commands::automation_graph_delete_sentinel,
             commands::cron_list,

@@ -208,7 +208,7 @@ fn sentinel_scheduler_graph_selected_child_activates_once_and_reaches_accepted_r
     let parent = create(
         &mut store.lock(),
         false,
-        json!({"done":[{"id":"branch","type":"blueprint","parameters":{"target":child.id}}]}),
+        json!({"done":[{"id":"branch","type":"sentinel","parameters":{"target":child.id}}]}),
     );
     let lease = store.lock().due().unwrap().remove(0);
     assert_eq!(lease.job.id, parent.id);
@@ -263,7 +263,7 @@ fn sentinel_scheduler_graph_weak_other_and_unchanged_never_activate() {
         create(
             &mut store.lock(),
             false,
-            json!({"done":[{"id":"branch","type":"blueprint","parameters":{"target":child.id}}]}),
+            json!({"done":[{"id":"branch","type":"sentinel","parameters":{"target":child.id}}]}),
         );
         let lease = store.lock().due().unwrap().remove(0);
         execute(&store, &lease, "same", bucket, confidence, |_, _, _| {
@@ -474,12 +474,12 @@ fn sentinel_scheduler_graph_two_parents_join_running_child_without_reset() {
     let first = create(
         &mut store.lock(),
         false,
-        json!({"done":[{"id":"join","type":"blueprint","parameters":{"target":child.id}}]}),
+        json!({"done":[{"id":"join","type":"sentinel","parameters":{"target":child.id}}]}),
     );
     let second = create(
         &mut store.lock(),
         false,
-        json!({"done":[{"id":"join","type":"blueprint","parameters":{"target":child.id}}]}),
+        json!({"done":[{"id":"join","type":"sentinel","parameters":{"target":child.id}}]}),
     );
     let leases = store.lock().due().unwrap();
     let one = leases.iter().find(|l| l.job.id == first.id).unwrap();

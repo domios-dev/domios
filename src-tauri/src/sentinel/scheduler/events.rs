@@ -31,7 +31,7 @@ pub(super) fn reconcile_subscriptions(svc: &ServiceContext, handle: &Handle) {
     let active = jobs
         .iter()
         .filter(|job| {
-            job.pipeline().is_some_and(|pipeline| {
+            job.pipeline.as_ref().is_some_and(|pipeline| {
                 matches!(
                     &pipeline.trigger,
                     codeterm_types::blueprint_pipeline::Trigger::Event { .. }
@@ -48,7 +48,7 @@ pub(super) fn reconcile_subscriptions(svc: &ServiceContext, handle: &Handle) {
     let mut changed = BTreeSet::new();
     for binding in subscriptions.bindings() {
         let job = jobs.iter().find(|job| job.id == binding.pipeline_id);
-        let selected = job.and_then(|job| match &job.pipeline()?.trigger {
+        let selected = job.and_then(|job| match &job.pipeline.as_ref()?.trigger {
             codeterm_types::blueprint_pipeline::Trigger::Event { kind, params }
                 if active.contains(job.id.as_str()) =>
             {
@@ -108,7 +108,7 @@ pub(super) fn reconcile_subscriptions(svc: &ServiceContext, handle: &Handle) {
     }
     for job in jobs.iter().filter(|job| active.contains(job.id.as_str())) {
         let Some(codeterm_types::blueprint_pipeline::Trigger::Event { kind, params }) =
-            job.pipeline().map(|pipeline| &pipeline.trigger)
+            job.pipeline.as_ref().map(|pipeline| &pipeline.trigger)
         else {
             continue;
         };
@@ -184,7 +184,7 @@ pub(super) fn reconcile_subscriptions(svc: &ServiceContext, handle: &Handle) {
 pub(super) fn dispatch_runs(svc: &crate::service::ServiceState, handle: &Handle) {
     let jobs = handle.store.lock().list().to_vec();
     for job in jobs.iter().filter(|job| {
-        job.pipeline().is_some_and(|pipeline| {
+        job.pipeline.as_ref().is_some_and(|pipeline| {
             matches!(
                 &pipeline.trigger,
                 codeterm_types::blueprint_pipeline::Trigger::Event { .. }

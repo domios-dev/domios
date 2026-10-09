@@ -91,12 +91,12 @@ impl Store {
                 match commit.outcome {
                     MutationOutcome::Applied => Ok(job),
                     MutationOutcome::Fenced(Fence::Duplicate) => {
-                        Err("duplicate blueprint ID".into())
+                        Err("duplicate sentinel ID".into())
                     }
                     MutationOutcome::Fenced(Fence::Capacity) => {
-                        Err("blueprint capacity reached".into())
+                        Err("sentinel capacity reached".into())
                     }
-                    other => Err(format!("blueprint creation refused: {other:?}")),
+                    other => Err(format!("sentinel creation refused: {other:?}")),
                 }
             }),
         )
@@ -131,7 +131,7 @@ impl Store {
                 match commit.outcome {
                     MutationOutcome::Applied => {
                         commit.sentinels.first().map(codec::decode).ok_or_else(|| {
-                            "blueprint update returned no committed state".to_string()
+                            "sentinel update returned no committed state".to_string()
                         })
                     }
                     MutationOutcome::Fenced(Fence::Version) => {
@@ -143,9 +143,9 @@ impl Store {
                         Err(crate::sentinel::amend::version_conflict(current_version))
                     }
                     MutationOutcome::Fenced(Fence::Missing) => {
-                        Err(format!("blueprint not found: {public_id}"))
+                        Err(format!("sentinel not found: {public_id}"))
                     }
-                    other => Err(format!("blueprint update refused: {other:?}")),
+                    other => Err(format!("sentinel update refused: {other:?}")),
                 }
             }),
         )
@@ -174,13 +174,13 @@ impl Store {
                                 store.pending_stop_notices.push(notice);
                             }
                             commit.sentinels.first().map(codec::decode).ok_or_else(|| {
-                                "blueprint stop returned no committed state".to_string()
+                                "sentinel stop returned no committed state".to_string()
                             })
                         }
                         MutationOutcome::Fenced(Fence::Missing) => {
-                            Err(format!("blueprint not found: {id}"))
+                            Err(format!("sentinel not found: {id}"))
                         }
-                        other => Err(format!("blueprint stop refused: {other:?}")),
+                        other => Err(format!("sentinel stop refused: {other:?}")),
                     }
                 }
                 Err(Failure::Failed(message)) => {
@@ -420,18 +420,18 @@ impl Store {
                     MutationOutcome::Applied => Ok(true),
                     MutationOutcome::Unchanged => Ok(false),
                     MutationOutcome::Fenced(Fence::Capacity) => {
-                        Err("blueprint active capacity reached".into())
+                        Err("sentinel active capacity reached".into())
                     }
                     MutationOutcome::Fenced(Fence::NotClaimed) => Err(
-                        "blueprint activation requires its declared durable handler claim".into(),
+                        "sentinel activation requires its declared durable handler claim".into(),
                     ),
                     MutationOutcome::Fenced(Fence::Missing) => {
-                        Err("blueprint target not found".into())
+                        Err("sentinel target not found".into())
                     }
                     MutationOutcome::Fenced(Fence::Scope) => {
-                        Err("blueprint target requires the same creator, Team and workspace".into())
+                        Err("sentinel target requires the same creator, Team and workspace".into())
                     }
-                    MutationOutcome::Fenced(_) => Err("blueprint activation source fenced".into()),
+                    MutationOutcome::Fenced(_) => Err("sentinel activation source fenced".into()),
                 }
             }),
         )
