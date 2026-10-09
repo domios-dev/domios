@@ -18,9 +18,9 @@ pub(super) fn reserve_binding_nonce(
             crate::service::launch_session_detection::register_resume_launch_marker(
                 tab_id, session_id,
             );
-            svc.rotate_session_binding_nonce_for_resume(tab_id, session_id)
+            svc.reserve_agent_launch_binding_nonce(tab_id, Some(session_id))
         }
-        None => svc.rotate_session_binding_nonce(tab_id),
+        None => svc.reserve_agent_launch_binding_nonce(tab_id, None),
     }
 }
 

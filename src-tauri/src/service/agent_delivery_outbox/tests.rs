@@ -65,6 +65,10 @@ fn authenticate(fixture: &ServiceFixture, tab: &str) {
 
 fn assert_auth_drains_once(session: Option<&str>, prelaunch: bool) {
     let (fixture, tab) = fixture(session, prelaunch);
+    assert_fixture_auth_drains_once(fixture, tab);
+}
+
+fn assert_fixture_auth_drains_once(fixture: ServiceFixture, tab: String) {
     let writes = Arc::new(Mutex::new(Vec::new()));
     let captured = writes.clone();
     let (done_tx, done_rx) = mpsc::channel();
@@ -89,6 +93,32 @@ fn assert_auth_drains_once(session: Option<&str>, prelaunch: bool) {
         Delivery::Pending { .. }
     ));
     assert!(writes.lock().is_empty());
+    let resumed = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab)
+        .unwrap()
+        .agent_session_id
+        .is_some();
+    if resumed {
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab).unwrap();
+            tab.pty_id = Some("own-pty".into());
+            tab.boot_stage = Some(BootStage::AgentReady);
+            tab.agent_booting = false;
+        }
+        fixture.service.wake_agent_deliveries_on_state_change(&tab);
+        done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(writes.lock().is_empty());
+        assert!(fixture
+            .service
+            .pending_delivery_payloads
+            .agent_deliveries
+            .has_pending(&tab)
+            .unwrap());
+    }
     authenticate(&fixture, &tab);
     done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
     assert_eq!(*writes.lock(), ["opaque held payload"]);
@@ -101,6 +131,49 @@ fn assert_auth_drains_once(session: Option<&str>, prelaunch: bool) {
     fixture.service.reconcile_authenticated_agent_input(&tab);
     done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
     assert_eq!(*writes.lock(), ["opaque held payload"]);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop ServiceContext fixture")]
+fn immediate_restore_send_delivers_once_after_authentication() {
+    let (fixture, tab) = fixture(Some("saved-session"), false);
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab).unwrap();
+        tab.restored_from_snapshot = true;
+        tab.agent_booting = false;
+        tab.pty_id = Some("outgoing-pty".into());
+    }
+    crate::service::pty_io::claim_restored_launch(
+        &fixture.service.mux,
+        &tab,
+        "opaque-provider",
+        Some("saved-session"),
+        None,
+        true,
+    )
+    .unwrap()
+    .expect("restore must claim its launch");
+    fixture
+        .service
+        .reserve_agent_launch_binding_nonce(&tab, Some("saved-session"));
+    assert_fixture_auth_drains_once(fixture, tab);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop ServiceContext fixture")]
+fn immediate_relaunch_send_delivers_once_after_authentication() {
+    let (fixture, tab) = fixture(Some("saved-session"), false);
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab).unwrap();
+        tab.boot_stage = Some(BootStage::SpawnFailed);
+        tab.pty_id = Some("outgoing-pty".into());
+    }
+    fixture
+        .service
+        .reserve_agent_launch_binding_nonce(&tab, Some("saved-session"));
+    assert_fixture_auth_drains_once(fixture, tab);
 }
 
 #[test]
@@ -118,8 +191,23 @@ fn fresh_send_before_launch_registration_queues_and_flushes_once() {
 #[test]
 #[cfg_attr(not(windows), ignore = "requires desktop ServiceContext fixture")]
 fn stale_pty_pin_emits_honest_zero_write_failure() {
+    assert_ended_launch_fails_once(false);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop ServiceContext fixture")]
+fn failed_relaunch_fails_held_send_once_without_writing() {
+    assert_ended_launch_fails_once(true);
+}
+
+fn assert_ended_launch_fails_once(failed_launch: bool) {
     use tauri::Listener;
     let (fixture, tab) = fixture(Some("saved-session"), false);
+    if failed_launch {
+        fixture
+            .service
+            .reserve_agent_launch_binding_nonce(&tab, Some("saved-session"));
+    }
     let (failure_tx, failure_rx) = mpsc::channel();
     let listener = fixture._app.listen("agent-delivery-status", move |event| {
         failure_tx
@@ -141,13 +229,16 @@ fn stale_pty_pin_emits_honest_zero_write_failure() {
     else {
         panic!("expected held send")
     };
-    fixture
-        .service
-        .mux
-        .write()
-        .get_tab_mut(&tab)
-        .unwrap()
-        .pty_id = Some("different-pty".into());
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab).unwrap();
+        if failed_launch {
+            tab.agent_booting = false;
+            tab.boot_stage = Some(BootStage::SpawnFailed);
+        } else {
+            tab.pty_id = Some("different-pty".into());
+        }
+    }
     fixture.service.wake_agent_deliveries_on_state_change(&tab);
     done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
     assert_eq!(
