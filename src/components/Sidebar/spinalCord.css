@@ -106,39 +106,36 @@
 }
 
 .ct-spinal-pop__settings {
-  position: relative;
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  margin-left: auto;
+  align-self: flex-start;
+  align-items: center;
+  justify-content: center;
   border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ct-muted-fg);
   cursor: pointer;
-  transition: background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+  transition: background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
 
 .ct-spinal-pop__settings > svg {
-  transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
-    transform var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
-}
-
-.ct-spinal-pop__settings > svg:last-child {
-  position: absolute;
-  right: -4px;
-  bottom: -4px;
-  width: 16px;
-  height: 16px;
-  padding: 2px;
-  border-radius: 50%;
-  background: var(--ct-bg);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ct-fg) 10%, transparent);
-  color: var(--ct-muted-fg);
+  transition: transform var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
 }
 
 .ct-spinal-pop__settings:hover,
 .ct-spinal-pop__settings:focus-visible {
-  background: color-mix(in srgb, var(--ct-accent) 22%, transparent);
+  background: color-mix(in srgb, var(--ct-fg) 8%, transparent);
+  color: var(--ct-fg);
   outline: none;
 }
 
-.ct-spinal-pop__settings:hover > svg:last-child,
-.ct-spinal-pop__settings:focus-visible > svg:last-child {
-  color: var(--ct-accent);
+.ct-spinal-pop__settings:hover > svg,
+.ct-spinal-pop__settings:focus-visible > svg {
   transform: rotate(60deg);
 }
 
