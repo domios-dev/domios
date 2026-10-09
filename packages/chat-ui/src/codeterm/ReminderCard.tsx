@@ -90,8 +90,8 @@ export function ReminderCard({
               aria-label="Stop recurring reminder"
               title="Stop recurring reminder"
               onClick={() => onStop(id)}
-              className="ct-liquid-interactive inline-flex shrink-0 items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-medium"
-              style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}
+              className="ct-bar-pill shrink-0"
+              style={{ "--ct-tab-pill-h": "24px" } as React.CSSProperties}
             >
               <X size={12} aria-hidden="true" />
               <span>Stop</span>
