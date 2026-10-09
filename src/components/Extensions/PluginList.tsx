@@ -350,6 +350,7 @@ function PluginRow({
         data-plugin-version={entry.version ?? ""}
         data-plugin-channel={entry.channel ?? ""}
         data-plugin-verified={entry.verified ? "true" : "false"}
+        data-plugin-load-error={entry.loadError ? "true" : "false"}
         tabIndex={0}
         onClick={onSelect}
         onKeyDown={(e) => {
@@ -385,11 +386,22 @@ function PluginRow({
               entry.installed && <Badge tone="installed">Installed</Badge>
             )}
             {entry.updateAvailable && <Badge tone="update">Update</Badge>}
+            {entry.loadError && <Badge tone="error">Error</Badge>}
           </div>
           <div style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 10, color: "var(--ct-muted)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {catalogKindLabel(entry)}
             {entry.version ? ` · v${entry.version}` : entry.remoteVersion ? ` · v${entry.remoteVersion}` : ""}
           </div>
+          {entry.loadError && (
+            <div
+              role="alert"
+              data-testid="extensions-plugin-load-error"
+              title={`${entry.loadError.message}\n${entry.loadError.path}`}
+              style={{ fontSize: 10.5, color: "var(--ct-red)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+            >
+              {entry.loadError.message}
+            </div>
+          )}
           <PluginActivityInline activity={activity} display={display} compact />
         </div>
       </div>
@@ -419,11 +431,11 @@ function ChannelBadge({ channel }: { channel: ChannelRecord }) {
   );
 }
 
-function Badge({ tone, children }: { tone: "installed" | "update" | "dev"; children: React.ReactNode }) {
+function Badge({ tone, children }: { tone: "installed" | "update" | "dev" | "error"; children: React.ReactNode }) {
   const style =
-    tone === "update"
-      ? { background: "transparent", color: "var(--ct-fg)", border: "1px solid var(--ct-border-default)" }
-      : tone === "dev"
+    tone === "error"
+      ? { background: "transparent", color: "var(--ct-red)", border: "1px solid var(--ct-red)" }
+      : tone === "update" || tone === "dev"
         ? { background: "transparent", color: "var(--ct-fg)", border: "1px solid var(--ct-border-default)" }
         : { background: "var(--ct-bg-active)", color: "var(--ct-muted)", border: "1px solid var(--ct-border-default)" };
   return (

@@ -62,7 +62,8 @@ mod parity_converter_test;
 mod fetch_async;
 
 pub use hot_reload::{
-    pending_reload_ids, set_watcher_service, CapabilityRegistries, HotReloadRegistry,
+    pending_reload_ids, plugin_load_errors, set_watcher_service, CapabilityRegistries,
+    HotReloadRegistry, PluginLoadError,
 };
 pub use loader::{default_roots, load_one, scan_roots, LoadOutcome};
 pub use provider::JsProvider;

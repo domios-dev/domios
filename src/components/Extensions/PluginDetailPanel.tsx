@@ -107,6 +107,29 @@ export function PluginDetailPanel({
         </div>
       )}
 
+      {entry.loadError && (
+        <div
+          role="alert"
+          data-testid="extensions-load-error"
+          style={{
+            fontSize: 12,
+            color: "var(--ct-red)",
+            background: "color-mix(in srgb, var(--ct-red) 10%, transparent)",
+            border: "1px solid var(--ct-red)",
+            borderRadius: 8,
+            padding: "8px 12px",
+            marginBottom: 14,
+            overflowWrap: "anywhere",
+          }}
+        >
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>
+            {entry.loadError.keptPrevious ? "Last reload failed; the previous version keeps running." : "This plugin failed to load."}
+          </div>
+          <div>{entry.loadError.message}</div>
+          <div style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 10.5, opacity: 0.8, marginTop: 4 }}>{entry.loadError.path}</div>
+        </div>
+      )}
+
       {action.reason && action.disabled && (
         <div style={{ fontSize: 11.5, color: "var(--ct-red)", marginBottom: 14 }} data-testid="extensions-action-disabled-reason">{action.reason}</div>
       )}

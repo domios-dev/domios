@@ -101,7 +101,7 @@ pub(super) fn set_mtime(path: &std::path::Path, mtime: std::time::SystemTime) {
         .unwrap();
 }
 
-fn manifest_for(id: &str) -> String {
+pub(super) fn manifest_for(id: &str) -> String {
     use crate::js_runtime::host_api::HOST_API_VERSION;
     format!(
         r#"{{"id":"{id}","version":"0","displayName":"{id}","hostApi":{HOST_API_VERSION},
@@ -158,7 +158,7 @@ fn chatbackend_with_model(model: &str) -> String {
     )
 }
 
-fn plugin_for(id: &str) -> String {
+pub(super) fn plugin_for(id: &str) -> String {
     format!(
         r#"module.exports.default = {{ detectFromTitle: function(t) {{ return t.indexOf("{id}") !== -1; }} }};"#
     )
@@ -1026,7 +1026,7 @@ fn reloading_a_view_plugin_announces_it_so_an_open_iframe_can_rebuild() {
 
 // `load_count` is incremented on the same statement that calls
 // `audit::append_daemon_reloaded`, so it counts daemon-reloaded events 1:1.
-fn bump_mtime(path: &std::path::Path) {
+pub(super) fn bump_mtime(path: &std::path::Path) {
     let current = std::fs::metadata(path).unwrap().modified().unwrap();
     set_mtime(path, current + Duration::from_secs(10));
 }
