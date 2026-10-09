@@ -260,13 +260,6 @@ fn xterm_paste(text: &str, live_mode: Option<bool>, capability: PasteEncodingCap
     }
 }
 
-pub(crate) fn live_command_input(text: &str, live_mode: Option<bool>) -> Vec<u8> {
-    let mut input =
-        xterm_paste(text, live_mode, PasteEncodingCapability::LiveModeOnly).into_bytes();
-    input.push(b'\r');
-    input
-}
-
 #[cfg(test)]
 fn initial_submit_frames(
     text: &str,

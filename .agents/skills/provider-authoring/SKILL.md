@@ -228,15 +228,13 @@ All fields optional.
 | `modelSwitch` | `"restart_resume"` \| `"live"` \| `"live_command"` \| `"next_turn"` \| `"unsupported"` | How `agent model` changes a live tab's model. `next_turn` records model and effort for the next RPC turn without restarting; confirmation follows thread-owned settings/model evidence. A missing sidecar uses `restart_resume`. `live` uses the exact tab's advertised session model route. `restart_resume` relaunches the tab resuming the same verified session with `modelLaunchArgsFormat`; confirmation waits for an assistant turn after the captured transcript boundary. Default `unsupported` refuses the switch without writing to the tab. `live_command` injects a declared slash command only at an idle prompt, confirms from the bound transcript append window, and never restarts on failure. Upstream commands may persist defaults; declare that behavior explicitly to users. |
 | `modelSwitchCommands` | `{model: {command, confirmation}, effort?: {command, confirmation}, transcript: {recordType, contentPath, prefix, suffix}}` | Required for `live_command`. Commands substitute `{model}` or `{effort}`; confirmation regexes also accept `{display_name}`, with selection values regex-escaped. Transcript declarations select the JSONL record type, string content path, and exact output wrapper. Only fresh output in the tab's own bound session confirms a switch. Busy tabs refuse before writing; a timeout fails without replay or restart. The picker offers a separate, confirmed `restart_resume` fallback. |
 
-Each live command may declare `prompt: {screenRegex, responseKeys, cancelKeys?}`. The screen
+Each live command may declare `prompt: {screenRegex, responseKeys}`. The screen
 regex accepts the same escaped placeholders; response keys are literal UTF-8
 strings (for example `"\r"`), concatenated into one bounded write. The host
 refuses a matching prompt before injection and answers once only after its own
 command was written, under the same session, PTY and binding nonce. The current
 screen must match at response enqueue. A response never confirms success: the
 declared transcript output must still arrive before the failure deadline.
-On failure, optional literal `cancelKeys` dismiss only the matching dialog caused
-by this command; the host waits for that dialog to clear before returning.
 An effort-only selection sends only its effort command and preserves model identity.
 | `autoApproveFlags` | string[] | Launch flags for permission-bypass mode (e.g. `--yolo`, `--force`). Empty ⇒ the UI hides the bypass choice (`supports_permission_bypass` is derived). |
 | `modelLaunchArgsFormat` | string[] | Launch-arg template, each element may contain `{model}`. Empty ⇒ default `--model <id>`. |

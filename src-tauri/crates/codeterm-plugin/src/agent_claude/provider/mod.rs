@@ -494,7 +494,8 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn model_switch(&self) -> crate::provider::ModelSwitchMode {
-        crate::provider::ModelSwitchMode::LiveCommand
+        // The in-place command path stays declared but unarmed until its TUI confirmation flow is proven live.
+        crate::provider::ModelSwitchMode::RestartResume
     }
 
     fn model_switch_commands(&self) -> Option<crate::provider::ModelSwitchCommands> {
@@ -672,7 +673,7 @@ mod tests {
         let p = ClaudeProvider::new();
         assert_eq!(
             p.model_switch(),
-            crate::provider::ModelSwitchMode::LiveCommand
+            crate::provider::ModelSwitchMode::RestartResume
         );
         assert_eq!(p.model_launch_args("sonnet"), vec!["--model", "sonnet"]);
     }

@@ -166,8 +166,6 @@ pub struct ModelSwitchCommand {
 pub struct ModelSwitchPrompt {
     pub screen_regex: String,
     pub response_keys: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub cancel_keys: Vec<String>,
 }
 
 /// Which runtime drives a provider's tab: a PTY process or a JS chatBackend.
