@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback, useEffect, useLayoutEffect, useR
 import { FullscreenOverlay, useFullscreenKeyboard } from "./FullscreenOverlay";
 import { createPortal } from "react-dom";
 import { ChevronDown, Copy, Check, Maximize2, Minimize2, RotateCcw, Scan } from "lucide-react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { SyntaxHighlighter } from "./syntaxHighlighter";
 import { themeAwarePrismStyle, SYNTAX_HIGHLIGHT_ROOT_CLASS } from "./syntaxTheme";
 import { inferCodeLanguage } from "./codeLanguage";
 import {
