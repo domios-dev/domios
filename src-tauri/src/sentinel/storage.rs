@@ -28,7 +28,7 @@ use crate::storage::{
 /// Failure bound around a commit wait only; expiry is unconfirmed, never failure.
 pub(crate) const COMMIT_DEADLINE: Duration = Duration::from_secs(30);
 pub(super) const GUARD_FREE_REQUIRED: &str =
-    "sentinel_store_guard_free_commit_required: settle typed Storage commits without the store lock";
+    "blueprint_store_guard_free_commit_required: settle typed Storage commits without the store lock";
 
 pub(super) type Mutation = Completion<Committed<SentinelCommit>>;
 pub(super) type Finish<T> =
@@ -68,11 +68,11 @@ impl LoadFailure {
     pub(super) fn message(self) -> String {
         let (code, detail) = match self {
             #[cfg(test)]
-            Self::UnsupportedFormat => ("sentinel_store_unsupported_format", ""),
-            Self::LoadFailed => ("sentinel_store_load_failed", ""),
-            Self::PersistenceFailed => ("sentinel_store_persistence_failed", ""),
+            Self::UnsupportedFormat => ("blueprint_store_unsupported_format", ""),
+            Self::LoadFailed => ("blueprint_store_load_failed", ""),
+            Self::PersistenceFailed => ("blueprint_store_persistence_failed", ""),
             Self::PersistenceUnconfirmed => (
-                "sentinel_store_persistence_failed",
+                "blueprint_store_persistence_failed",
                 "commit outcome unconfirmed until reconciled; ",
             ),
         };
@@ -361,7 +361,7 @@ pub(crate) fn commit<T: Send + 'static>(
 fn classify(error: StorageError) -> (Option<LoadFailure>, String) {
     match error {
         StorageError::Backpressure { .. } | StorageError::Busy { .. } => {
-            (None, format!("sentinel_store_busy: not applied: {error}"))
+            (None, format!("blueprint_store_busy: not applied: {error}"))
         }
         StorageError::Unconfirmed { .. } => {
             (Some(LoadFailure::PersistenceUnconfirmed), error.to_string())
@@ -676,7 +676,7 @@ pub(crate) fn committed_scope(
         .scope(workspace.to_string(), team.map(str::to_owned))
         .wait(COMMIT_DEADLINE)
         .map_err(|error| {
-            format!("sentinel_store_load_failed: committed scope read failed: {error}")
+            format!("blueprint_store_load_failed: committed scope read failed: {error}")
         })?;
     Ok((read.value.iter().map(codec::decode).collect(), leases))
 }
@@ -708,7 +708,7 @@ pub(crate) fn committed_workspace(
         .workspace(workspace.to_string())
         .wait(COMMIT_DEADLINE)
         .map_err(|error| {
-            format!("sentinel_store_load_failed: committed workspace read failed: {error}")
+            format!("blueprint_store_load_failed: committed workspace read failed: {error}")
         })?;
     Ok((read.value.iter().map(codec::decode).collect(), leases))
 }

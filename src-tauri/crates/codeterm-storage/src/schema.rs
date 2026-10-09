@@ -6,6 +6,7 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 use std::path::Path;
 use std::time::Duration;
 
+mod blueprint;
 mod desk;
 mod sentinel;
 
@@ -30,6 +31,7 @@ const MIGRATIONS: &[&str] = &[
      ALTER TABLE sentinel_transitions ADD COLUMN causal_run_json TEXT CHECK (causal_run_json IS NULL OR length(causal_run_json) <= 4096);",
     "ALTER TABLE sentinel_definitions ADD COLUMN terminal_spec TEXT CHECK (terminal_spec IS NULL OR length(terminal_spec) <= 8192);
      ALTER TABLE sentinel_definitions ADD COLUMN session INTEGER NOT NULL DEFAULT 0 CHECK (session IN (0, 1));",
+    blueprint::SCHEMA,
 ];
 pub(crate) const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
 
@@ -232,6 +234,15 @@ pub(crate) fn check_integrity(conn: &Connection) -> Result<(), StorageError> {
 }
 
 fn migrate(conn: &mut Connection, from: i32) -> Result<(), StorageError> {
+    conn.pragma_update(None, "foreign_keys", "OFF")
+        .map_err(|e| sqlite_error("suspend migration foreign keys", e))?;
+    let result = migrate_transaction(conn, from);
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(|e| sqlite_error("restore migration foreign keys", e))?;
+    result
+}
+
+fn migrate_transaction(conn: &mut Connection, from: i32) -> Result<(), StorageError> {
     let tx = conn
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|e| sqlite_error("begin migration", e))?;
@@ -251,6 +262,16 @@ fn migrate(conn: &mut Connection, from: i32) -> Result<(), StorageError> {
     }
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)
         .map_err(|e| sqlite_error("stamp schema version", e))?;
+    let violations: i64 = tx
+        .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+            row.get(0)
+        })
+        .map_err(|e| sqlite_error("verify migration foreign keys", e))?;
+    if violations != 0 {
+        return Err(StorageError::Corrupt {
+            detail: "migration violates foreign keys".into(),
+        });
+    }
     tx.commit().map_err(|e| sqlite_error("commit migration", e))
 }
 

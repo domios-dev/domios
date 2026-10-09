@@ -130,6 +130,7 @@ pub enum Route {
     Notify,
     Send(String),
     Cron(String),
+    #[serde(rename = "blueprint", alias = "sentinel")]
     Sentinel(String),
     Stop,
     Command(super::command::Parameters),
@@ -138,6 +139,22 @@ pub enum Route {
 }
 
 impl Route {
+    pub const DESCRIPTORS: &'static [codeterm_types::blueprint_catalog::NodeDescriptor] =
+        codeterm_types::blueprint_catalog::ROUTES;
+    pub fn name(&self) -> &'static str {
+        Self::DESCRIPTORS[match self {
+            Self::Notify => 0,
+            Self::Send(_) => 1,
+            Self::Cron(_) => 2,
+            Self::Command(_) => 3,
+            Self::Sentinel(_) => 4,
+            Self::Escalate(_) => 5,
+            Self::RespondPrompt(_) => 6,
+            Self::Stop => 7,
+        }]
+        .name
+    }
+
     pub fn parse(value: &str) -> Result<Self, String> {
         match value {
             "notify" => Ok(Self::Notify),
@@ -159,7 +176,7 @@ impl Route {
             }
             _ => {
                 let (kind, target) = value.split_once(':').ok_or(
-                    "route: use notify, sentinel:<exact-id>, send:<tab>, cron:<name>, respond_prompt:<kind>, stop, or escalate:creator|agent:<tab>",
+                    "route: use notify, blueprint:<exact-id>, send:<tab>, cron:<name>, respond_prompt:<kind>, stop, or escalate:creator|agent:<tab>",
                 )?;
                 if kind == "respond_prompt" {
                     if target.trim().is_empty()
@@ -186,8 +203,9 @@ impl Route {
                 match kind {
                     "send" => Ok(Self::Send(target.into())),
                     "cron" => Ok(Self::Cron(target.into())),
-                    "sentinel"
-                        if target.starts_with("sentinel_")
+                    "blueprint" | "sentinel"
+                        if (target.starts_with("blueprint_")
+                            || target.starts_with("sentinel_"))
                             && target
                                 .chars()
                                 .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') =>
@@ -195,7 +213,7 @@ impl Route {
                         Ok(Self::Sentinel(target.into()))
                     }
                     _ => Err(
-                        "route: use notify, sentinel:<exact-id>, send:<tab>, cron:<name>, or stop"
+                        "route: use notify, blueprint:<exact-id>, send:<tab>, cron:<name>, or stop"
                             .into(),
                     ),
                 }
