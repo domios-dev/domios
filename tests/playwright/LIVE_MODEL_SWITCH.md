@@ -72,6 +72,10 @@ Scoped SSE `lagged` frames trigger exact own-tab status and delivery-ledger
 resync, adopt the supplied replay cursor and continue live frames. Resyncs are
 recorded; a current Idle snapshot cannot manufacture a past Working transition.
 Unexpected DEV boot changes remain failures outside the explicit restored leg.
+Busy completion waits on filesystem changes to the exact session record store,
+bounded at 240 seconds. Claude requires the marked assistant's `end_turn`;
+Codex requires the exact turn's marked `task_complete`; Grok and OpenCode retain
+their completed-record oracles. A transient Idle never proves completion.
 
 Artifacts live in `artifacts/model-switch-<timestamp>/`: matrix JSON, raw
 records, screenshots and traces. Each result includes DEV SHA, provider, step,
