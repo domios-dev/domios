@@ -194,7 +194,10 @@ impl super::ServiceContext {
             .mux
             .read()
             .get_tab(&authority.tab_id)
-            .is_some_and(|tab| self.user_authority_matches_launch(tab, authority))
+            .is_some_and(|tab| {
+                self.user_authority_matches_launch(tab, authority)
+                    && super::boot_stage::session_allows_user_readiness(tab)
+            })
         {
             return false;
         }
@@ -220,6 +223,11 @@ impl super::ServiceContext {
 
     pub(crate) fn latch_user_input_authority(&self, authority: &UserSendAuthority) -> bool {
         self.user_authority_matches_launch_current(authority)
+            && self
+                .mux
+                .read()
+                .get_tab(&authority.tab_id)
+                .is_some_and(|tab| super::boot_stage::session_allows_user_readiness(tab))
             && !self
                 .pending_delivery_payloads
                 .user_sends

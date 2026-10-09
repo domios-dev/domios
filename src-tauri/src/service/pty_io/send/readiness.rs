@@ -194,11 +194,14 @@ pub(super) fn provider_frame_ready(
         || (!require_composer && prompt_ready)
 }
 
-fn composer_input_ready_for_position(
+pub(crate) fn composer_input_ready_for_position(
     input: codeterm_pty::pty::screen_state::ComposerInputState,
     position: crate::agent::provider::ComposerCursorPosition,
     modal_or_question: bool,
 ) -> bool {
+    if position == crate::agent::provider::ComposerCursorPosition::VisibleAnywhere {
+        return input.cursor_visible;
+    }
     if position == crate::agent::provider::ComposerCursorPosition::PromptLine {
         return !crate::agent::offline_state_classifier::composer_evidence_excluded(
             modal_or_question,

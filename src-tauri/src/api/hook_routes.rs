@@ -487,6 +487,10 @@ pub async fn hook_stop(
         crate::service::WorkerTurnSignal::ProviderStop,
     );
     state.svc.schedule_session_model_refresh_after_stop(&tab_id);
+    if verdict == StopReportVerdict::Verified {
+        state.svc.mark_agent_turn_complete(&tab_id);
+    }
+    state.svc.reconcile_chat_send_hook(&tab_id).await;
 
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -619,6 +623,7 @@ pub async fn hook_session_start(
                     false
                 };
             if can_short_circuit_session_start(&claim, fallback_pending, fallback_retry_available) {
+                state.svc.reconcile_chat_send_hook(&tab_id).await;
                 return Ok(unchanged_acknowledged_hook_report(
                     &state.svc,
                     &tab_id,

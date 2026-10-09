@@ -710,7 +710,6 @@ mod tests {
                 cwd: root.path().to_string_lossy().into_owned(),
                 session_id: session_id.into(),
                 start_offset: 0,
-                poll_interval: Duration::from_millis(1),
             },
             Some(source),
             fixture.service.agent_registry.clone(),

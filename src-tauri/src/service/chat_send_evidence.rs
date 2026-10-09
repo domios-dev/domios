@@ -427,6 +427,18 @@ impl ServiceContext {
             crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
         }
     }
+
+    pub(crate) async fn reconcile_chat_send_hook(&self, tab_id: &str) {
+        let service = self.clone();
+        let tab_id = tab_id.to_string();
+        if let Err(error) = tokio::task::spawn_blocking(move || {
+            service.reconcile_chat_send_evidence(&tab_id);
+        })
+        .await
+        {
+            log::warn!("[chat-send] hook reconciliation failed: {}", error);
+        }
+    }
 }
 
 #[cfg(test)]

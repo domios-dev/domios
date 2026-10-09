@@ -133,7 +133,6 @@ fn tab_chat_identity_uuidless_record_has_one_id_across_snapshot_window_live_and_
             cwd: CWD.into(),
             session_id: SID.into(),
             start_offset: plain_start - record_len,
-            poll_interval: Duration::from_millis(10),
         },
         registry.clone(),
         Arc::new(BatchSink(Mutex::new(tx))),

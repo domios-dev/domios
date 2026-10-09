@@ -32,42 +32,45 @@ pub fn spawn_structured_poller(
 
     let stop = stop_flag.clone();
     let off = offset.clone();
-    let join = thread::spawn(move || {
-        log::info!(
-            "[structured-poller] started tab={} provider={} sid={} cursor={:?}",
-            cfg.tab_id,
-            cfg.provider_id,
-            cfg.session_id,
-            cfg.start_cursor
-        );
-        let mut cursor = cfg.start_cursor.clone();
-        let mut last_emit_cursor: Option<String> = None;
-        while !stop.load(Ordering::Acquire) {
-            let delta = registry
-                .with_provider(&cfg.provider_id, |p| {
-                    p.read_structured_chat(&cfg.cwd, &cfg.session_id, cursor.as_deref())
-                })
-                .unwrap_or_default();
-            // boundary message every tick.
-            if !delta.messages.is_empty() && delta.cursor != last_emit_cursor {
-                log::debug!(
-                    "[structured-poller] tab={} emit {} msg(s) cursor={:?}",
-                    cfg.tab_id,
-                    delta.messages.len(),
-                    delta.cursor
-                );
-                last_emit_cursor = delta.cursor.clone();
-                sink.emit(&cfg.tab_id, delta.messages, delta.cursor.clone());
-            }
-            if let Some(c) = delta.cursor {
-                if let Ok(n) = c.parse::<u64>() {
-                    off.store(n, Ordering::Release);
+    let join = thread::Builder::new()
+        .name(format!("chat-structured-{}", cfg.tab_id))
+        .spawn(move || {
+            log::info!(
+                "[structured-poller] started tab={} provider={} sid={} cursor={:?}",
+                cfg.tab_id,
+                cfg.provider_id,
+                cfg.session_id,
+                cfg.start_cursor
+            );
+            let mut cursor = cfg.start_cursor.clone();
+            let mut last_emit_cursor: Option<String> = None;
+            while !stop.load(Ordering::Acquire) {
+                let delta = registry
+                    .with_provider(&cfg.provider_id, |p| {
+                        p.read_structured_chat(&cfg.cwd, &cfg.session_id, cursor.as_deref())
+                    })
+                    .unwrap_or_default();
+                // boundary message every tick.
+                if !delta.messages.is_empty() && delta.cursor != last_emit_cursor {
+                    log::debug!(
+                        "[structured-poller] tab={} emit {} msg(s) cursor={:?}",
+                        cfg.tab_id,
+                        delta.messages.len(),
+                        delta.cursor
+                    );
+                    last_emit_cursor = delta.cursor.clone();
+                    sink.emit(&cfg.tab_id, delta.messages, delta.cursor.clone());
                 }
-                cursor = Some(c);
+                if let Some(c) = delta.cursor {
+                    if let Ok(n) = c.parse::<u64>() {
+                        off.store(n, Ordering::Release);
+                    }
+                    cursor = Some(c);
+                }
+                thread::sleep(cfg.poll_interval);
             }
-            thread::sleep(cfg.poll_interval);
-        }
-    });
+        })
+        .expect("chat worker thread could not start");
 
     TailerHandle::new(stop_flag, offset, join)
 }
