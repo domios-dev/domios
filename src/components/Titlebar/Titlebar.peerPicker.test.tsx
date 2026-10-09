@@ -9,6 +9,7 @@ const fixture = vi.hoisted(() => ({ state: null as ExtendedState | null }));
 
 vi.mock("../../store/multiplexer", () => ({
   useMuxState: () => fixture.state,
+  useMuxSelector: (select: (state: unknown) => unknown) => select(fixture.state),
   useMultiplexer: () => ({}),
 }));
 vi.mock("../../hooks/useAgentProviders", () => ({
