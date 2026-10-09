@@ -31,6 +31,7 @@ import {
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
 import { getAgentDescriptor } from "../../lib/agentDescriptorCache";
 import { formatModelBadge } from "../../lib/formatModelBadge";
+import { statusLineModelName } from "./statusLinePickerModel";
 import { usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { usePlanTargetNavigation } from "../Canvas/teamViewNavigation";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
@@ -196,7 +197,7 @@ export function TabSessionChat({
   );
   const shellSessionModel = useShellSessionModel(tab);
   const tabModel = tab?.agent_session_model ?? shellSessionModel;
-  const workingModelBadge = tabModel ? formatModelBadge(tabModel) : null;
+  const workingModelBadge = formatModelBadge(tab ? statusLineModelName(tab, shellSessionModel) : tabModel ?? "Unknown model");
   const agentSessionId = tab?.agent_session_id ?? null;
   const currentPtyId = tab?.pty_id ?? null;
   const backendState = tab?.agent_state ?? null;

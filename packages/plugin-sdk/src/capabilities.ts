@@ -716,6 +716,7 @@ export interface NormalizedChatMessage
 }
 
 export interface ModelInfo {
+  primary?: boolean;
   id: string;
   // camelCase here; the host maps it to Rust ModelInfo.display_name.
   displayName: string;

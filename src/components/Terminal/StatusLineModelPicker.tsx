@@ -16,11 +16,14 @@ import {
   pickerAnchor,
   pickerModelGroups,
   pickerNeedsSearch,
+  pickerHasPrimaryModels,
   planSelection,
   statusLineSwitchGate,
   type PickerSelection,
   type StatusLineTabFacts,
 } from "./statusLinePickerModel";
+
+import { readPickerShowAll, writePickerShowAll } from "./statusLinePickerPreference";
 
 const PICKER_WIDTH = 300;
 const OPTION_SELECTOR = '[role="option"]:not([aria-disabled="true"])';
@@ -35,7 +38,7 @@ export function TabStatusLineModelPicker({ tab, label }: { tab: Tab; label: stri
       descriptor={descriptor}
       facts={{ hasSession: Boolean(tab.pty_id) || tab.backing?.kind === "chat_backend", protected: tab.protected === true }}
       label={label}
-      modelCandidates={[tab.agent_provider_resolved_model, tab.agent_session_model]}
+      modelCandidates={[tab.agent_provider_resolved_model, tab.agent_session_model, tab.agent_requested_model]}
       currentEffort={effort?.actual ?? effort?.resolved ?? effort?.requested ?? undefined}
     />
   );
@@ -97,19 +100,26 @@ export function StatusLineModelPicker({
     }
   }, [close, tabId]);
 
+  const selection = applied ?? { model: currentModel ?? "Unknown model", effort: currentEffort };
+  const modelName = descriptor?.available_models.find((model) => matchesModel(model, selection.model))?.display_name
+    || selection.model;
+  const displayedLabel = [modelName, selection.effort].filter(Boolean).join(" · ");
+  const harnessName = descriptor?.display_name ?? label.split(" · ")[0];
+
   if (!gate.interactive || !descriptor) {
     return (
-      <span className="ct-status-identity ct-status-identity--static" title={gate.interactive ? undefined : gate.reason}>
-        {label}
+      <span className="ct-status-identity-wrap">
+        <span className="ct-status-harness">{harnessName}</span>
+        <span className="ct-status-identity ct-status-identity--static" title={gate.interactive ? undefined : gate.reason}>
+          {displayedLabel}
+        </span>
       </span>
     );
   }
 
-  const displayedLabel = applied
-    ? [descriptor.display_name, applied.model, applied.effort].filter(Boolean).join(" · ")
-    : label;
   return (
     <span className="ct-status-identity-wrap">
+      <span className="ct-status-harness">{harnessName}</span>
       <button
         ref={triggerRef}
         type="button"
@@ -127,6 +137,7 @@ export function StatusLineModelPicker({
       {applying && <span className="ct-status-identity__pending" role="status">Applying…</span>}
       {open && (
         <ModelPickerPopover
+          key={descriptor.id}
           descriptor={descriptor}
           gate={gate}
           triggerRef={triggerRef}
@@ -178,6 +189,7 @@ function ModelPickerPopover({
   const popoverRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
+  const [showAll, setShowAll] = useState(() => readPickerShowAll(descriptor.id));
   const [staged, setStaged] = useState<PickerSelection | null>(
     failure?.selection ?? (currentModel ? { model: currentModel, effort: currentEffort } : null),
   );
@@ -187,7 +199,7 @@ function ModelPickerPopover({
   const [error, setError] = useState<string | null>(failure?.message ?? null);
   const [anchor, setAnchor] = useState<{ left: number; bottom: number } | null>(null);
   const searchable = pickerNeedsSearch(descriptor);
-  const groups = pickerModelGroups(descriptor, staged?.model, query);
+  const groups = pickerModelGroups(descriptor, staged?.model, query, showAll);
   const efforts = effortChoices(descriptor, staged?.model);
   const stagedEffort = staged ? effortAfterModelChange(descriptor, staged.model, staged.effort) : undefined;
   const selectionPlan = staged ? planSelection(gate, { model: currentModel, effort: currentEffort }, staged) : { action: "none" };
@@ -285,6 +297,7 @@ function ModelPickerPopover({
       style={{ width: PICKER_WIDTH, left: anchor?.left ?? 0, bottom: anchor?.bottom ?? 0, visibility: anchor ? undefined : "hidden" }}
       onKeyDown={(event) => {
         if (event.code !== "Escape" && event.code !== "Enter" && event.code !== "NumpadEnter") return;
+        if (event.code !== "Escape" && (event.target as HTMLElement).closest("button")) return;
         event.preventDefault();
         event.stopPropagation();
         if (event.code === "Escape") onClose();
@@ -355,6 +368,20 @@ function ModelPickerPopover({
           </div>
         ))}
       </div>
+      {pickerHasPrimaryModels(descriptor) && (
+        <button
+          type="button"
+          className="ct-model-picker__toggle"
+          aria-pressed={showAll}
+          onClick={() => {
+            const next = !showAll;
+            setShowAll(next);
+            writePickerShowAll(descriptor.id, next);
+          }}
+        >
+          {showAll ? "Show primary models" : "Show all models"}
+        </button>
+      )}
       {efforts.length > 0 && staged && stagedEffort && (
         <div className="ct-model-picker__effort">
           <span className="ct-model-picker__label">Reasoning</span>

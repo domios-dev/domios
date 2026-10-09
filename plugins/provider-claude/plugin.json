@@ -82,48 +82,57 @@
   "models": [
     {
       "id": "opus",
-      "displayName": "Claude Opus",
-      "description": "Best for everyday, complex tasks."
+      "displayName": "Opus 5.5",
+      "description": "Best for everyday, complex tasks.",
+      "primary": true
     },
     {
       "id": "sonnet",
-      "displayName": "Claude Sonnet",
-      "description": "Efficient for routine tasks."
+      "displayName": "Sonnet 5.5",
+      "description": "Efficient for routine tasks.",
+      "primary": true
     },
     {
       "id": "haiku",
-      "displayName": "Claude Haiku",
-      "description": "Fastest for quick answers."
+      "displayName": "Haiku 5.5",
+      "description": "Fastest for quick answers.",
+      "primary": true
     },
     {
       "id": "fable",
-      "displayName": "Claude Fable",
-      "description": "Most capable for your hardest and longest-running tasks."
+      "displayName": "Fable 5.1",
+      "description": "Most capable for your hardest and longest-running tasks.",
+      "primary": true
     },
     {
       "id": "best",
       "displayName": "Claude Best",
-      "description": "Claude Code's dynamic best-model alias."
+      "description": "Claude Code's dynamic best-model alias.",
+      "group": "Additional models"
     },
     {
       "id": "sonnet[1m]",
       "displayName": "Claude Sonnet (1M context)",
-      "description": "Claude Code's Sonnet long-context alias."
+      "description": "Claude Code's Sonnet long-context alias.",
+      "group": "Additional models"
     },
     {
       "id": "opus[1m]",
       "displayName": "Claude Opus (1M context)",
-      "description": "Claude Code's Opus long-context alias."
+      "description": "Claude Code's Opus long-context alias.",
+      "group": "Additional models"
     },
     {
       "id": "fable[1m]",
       "displayName": "Claude Fable (1M context)",
-      "description": "Claude Code's Fable long-context alias."
+      "description": "Claude Code's Fable long-context alias.",
+      "group": "Additional models"
     },
     {
       "id": "opusplan",
       "displayName": "Claude Opus Plan",
-      "description": "Claude Code's Opus planning alias."
+      "description": "Claude Code's Opus planning alias.",
+      "group": "Additional models"
     }
   ],
   "defaultModel": "sonnet",
