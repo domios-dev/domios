@@ -284,6 +284,7 @@ fn pending_store_watch_survives_flapping_availability_before_promotion() {
             provider_id: "delayed-store".into(),
             cwd: "/project".into(),
             session_id: sid.into(),
+            session_binding_nonce: None,
             poll_interval: Duration::from_millis(15),
         },
         Arc::new(agent_registry),
@@ -347,13 +348,14 @@ fn binding_completion_preserves_new_session_stream() {
     assert!(chat.insert(
         "mounted-chat".into(),
         "new-session".into(),
+        None,
         "desktop".into(),
         handle,
     ));
     let source = chat.jsonl_source("mounted-chat");
 
     chat.shutdown_session("mounted-chat", "previous-session");
-    assert!(chat.acquire("mounted-chat", "new-session", "desktop"));
+    assert!(chat.acquire("mounted-chat", "new-session", None, "desktop"));
     assert!(Arc::ptr_eq(&source, &chat.jsonl_source("mounted-chat")));
 
     for answer in ["first-answer", "later-answer"] {
@@ -515,6 +517,7 @@ fn pending_store_watch_promotes_to_tailer_and_streams_initial_batch() {
             provider_id: "delayed-store".into(),
             cwd: "/project".into(),
             session_id: sid.into(),
+            session_binding_nonce: None,
             poll_interval: Duration::from_millis(20),
         },
         Arc::new(agent_registry),
@@ -575,6 +578,7 @@ fn pending_store_watch_needs_registration_authority_before_promotion() {
             provider_id: "delayed-store".into(),
             cwd: "/project".into(),
             session_id: sid.into(),
+            session_binding_nonce: None,
             poll_interval: Duration::from_millis(5),
         },
         Arc::new(agent_registry),
