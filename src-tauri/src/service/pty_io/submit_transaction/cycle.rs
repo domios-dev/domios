@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{Arc, OnceLock, Weak};
 use std::time::Instant;
@@ -123,6 +123,7 @@ struct SubmitCycleState {
     next_generation: u64,
     current_generation: Option<u64>,
     waiter: Option<(u64, SyncSender<SubmitCycleSignal>)>,
+    provider_exit: Option<Arc<AtomicBool>>,
 }
 
 pub(super) struct SubmitCycle {
@@ -145,7 +146,7 @@ impl SubmitCycle {
         self.output_generation.load(Ordering::Acquire)
     }
 
-    fn claim(&self) -> u64 {
+    fn claim(&self, provider_exit: Option<Arc<AtomicBool>>) -> u64 {
         let mut state = self.state.lock();
         let generation = state.next_generation;
         state.next_generation = state.next_generation.wrapping_add(1).max(1);
@@ -153,7 +154,20 @@ impl SubmitCycle {
             let _ = waiter.try_send(SubmitCycleSignal::Closed);
         }
         state.current_generation = Some(generation);
+        state.provider_exit = provider_exit;
         generation
+    }
+
+    fn provider_exited(&self) {
+        let mut state = self.state.lock();
+        let Some(observed) = state.provider_exit.take() else {
+            return;
+        };
+        observed.store(true, Ordering::Release);
+        state.current_generation = None;
+        if let Some((_, waiter)) = state.waiter.take() {
+            let _ = waiter.try_send(SubmitCycleSignal::Closed);
+        }
     }
 
     pub(super) fn is_current(&self, generation: u64) -> bool {
@@ -171,6 +185,7 @@ impl SubmitCycle {
                 let _ = waiter.try_send(SubmitCycleSignal::Closed);
             }
             state.current_generation = None;
+            state.provider_exit = None;
         }
     }
 
@@ -259,9 +274,16 @@ pub(crate) struct SubmitCycleClaim {
     pub(super) cycle: Arc<SubmitCycle>,
     pub(super) generation: u64,
     _lease: Arc<ClaimLease>,
+    provider_exit: Option<Arc<AtomicBool>>,
 }
 
 impl SubmitCycleClaim {
+    pub(crate) fn provider_exited(&self) -> bool {
+        self.provider_exit
+            .as_ref()
+            .is_some_and(|observed| observed.load(Ordering::Acquire))
+    }
+
     pub(crate) fn with_trace_id(mut self, id: &str) -> Self {
         if crate::flow_trace::enabled() {
             self.trace_id = Some(id.into());
@@ -278,6 +300,14 @@ impl SubmitCycleClaim {
 }
 
 pub(crate) fn claim_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
+    claim_cycle(pty_id, None)
+}
+
+pub(crate) fn claim_exit_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
+    claim_cycle(pty_id, Some(Arc::new(AtomicBool::new(false))))
+}
+
+fn claim_cycle(pty_id: &str, provider_exit: Option<Arc<AtomicBool>>) -> SubmitCycleClaim {
     let cycle = {
         let mut cycles = submit_cycles().lock();
         if let Some(cycle) = cycles.get(pty_id).and_then(Weak::upgrade) {
@@ -288,7 +318,7 @@ pub(crate) fn claim_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
             cycle
         }
     };
-    let generation = cycle.claim();
+    let generation = cycle.claim(provider_exit.clone());
     log::info!(
         "[submit-cycle] claim pty={} generation={}",
         pty_id,
@@ -304,6 +334,14 @@ pub(crate) fn claim_submit_cycle(pty_id: &str) -> SubmitCycleClaim {
             cycle,
             generation,
         }),
+        provider_exit,
+    }
+}
+
+pub(crate) fn notify_submit_cycle_provider_exit(pty_id: &str) {
+    let cycle = submit_cycles().lock().get(pty_id).and_then(Weak::upgrade);
+    if let Some(cycle) = cycle {
+        cycle.provider_exited();
     }
 }
 

@@ -241,11 +241,13 @@ fn spawn_backend_pty(
         svc.model_provider_launch_env(provider_id)
             .map_err(|error| LaunchFailure::PtySpawn(error.to_string()))?,
     );
+    crate::service::agent_restart::timing::stage(tab_id, "pending", "relaunch-pty-request");
     let (pty_id, _) = svc
         .pty
         .lock()
         .spawn(None, cwd, 120, 40, env_vars)
         .map_err(|error| LaunchFailure::PtySpawn(error.to_string()))?;
+    crate::service::agent_restart::timing::stage(tab_id, &pty_id, "relaunch-pty-created");
     svc.screen_state.lock().resize(&pty_id, 120, 40);
     let reader = start_backend_reader(svc, &pty_id)?;
 
@@ -460,6 +462,7 @@ pub(crate) fn launch_agent_in_background_with_env(
     mark_tab_agent_launch_started(&svc.mux, &tab_id);
     crate::service::boot_wait::notify_boot_changed();
     std::thread::spawn(move || {
+        crate::service::agent_restart::timing::stage(&tab_id, "pending", "relaunch-worker");
         let public_send_guard = public_send::guard(&svc, &tab_id, public_send_key);
         let mut delivery_gate = crate::service::launch_delivery::LaunchDeliveryGate::new();
         let mut launch = LaunchGeneration::begin(&tab_id, "pending".into());

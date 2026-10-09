@@ -67,12 +67,24 @@ fn clear_agent_identity_after_prompt_clear(
     true
 }
 
+#[derive(Default)]
+struct ClearedAgentIdentity {
+    cleared: bool,
+    prompt_identity: Option<codeterm_types::pty::PromptIdentity>,
+    pty_id: Option<String>,
+}
+
 fn clear_agent_identity_with_prompt(
     tab: &mut crate::multiplexer::types::Tab,
-) -> (bool, Option<codeterm_types::pty::PromptIdentity>) {
+) -> ClearedAgentIdentity {
+    let pty_id = tab.pty_id.clone();
     let identity = crate::service::prompt_resolution::clear_tab_prompt(Some(tab));
     let cleared = clear_agent_identity_after_prompt_clear(tab, identity.is_some());
-    (cleared, identity.filter(|_| cleared))
+    ClearedAgentIdentity {
+        cleared,
+        prompt_identity: identity.filter(|_| cleared),
+        pty_id: pty_id.filter(|_| cleared),
+    }
 }
 
 impl ServiceContext {
@@ -141,20 +153,15 @@ impl ServiceContext {
             }
             return false;
         }
-        let (cleared, prompt_identity) = {
+        let cleared = {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
-                .map_or((false, None), |tab| clear_agent_identity_with_prompt(tab))
+                .map(clear_agent_identity_with_prompt)
+                .unwrap_or_default()
         };
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
-        let finished = self.finish_agent_identity_clear(
-            tab_id,
-            cause,
-            cleared,
-            prompt_identity,
-            "pty-exit",
-            tree_evidence,
-        );
+        let finished =
+            self.finish_agent_identity_clear(tab_id, cause, cleared, "pty-exit", tree_evidence);
         if let Some(exit) = exit {
             self.publish_launch_exit(&exit);
             self.handoff_launch_exit_after_teardown(&exit);
@@ -163,17 +170,17 @@ impl ServiceContext {
     }
 
     pub(crate) fn clear_tab_agent_identity_explicitly(&self, tab_id: &str, cause: &str) -> bool {
-        let (cleared, prompt_identity) = {
+        let cleared = {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
-                .map_or((false, None), |tab| clear_agent_identity_with_prompt(tab))
+                .map(clear_agent_identity_with_prompt)
+                .unwrap_or_default()
         };
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         self.finish_agent_identity_clear(
             tab_id,
             cause,
             cleared,
-            prompt_identity,
             "explicit-clear",
             "caller_explicitly_cleared_identity",
         )
@@ -254,17 +261,17 @@ impl ServiceContext {
         let exited = exit_proof
             .as_ref()
             .and_then(|proof| self.claim_launch_exit(tab_id, Some(&pty_id), None, proof));
-        let (cleared, prompt_identity) = {
+        let cleared = {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
-                .map_or((false, None), |tab| clear_agent_identity_with_prompt(tab))
+                .map(clear_agent_identity_with_prompt)
+                .unwrap_or_default()
         };
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         let finished = self.finish_agent_identity_clear(
             tab_id,
             cause,
             cleared,
-            prompt_identity,
             "lifecycle-clear",
             tree.evidence(),
         );
@@ -336,18 +343,18 @@ impl ServiceContext {
                 "finished_marker_tree_identity_mismatch",
             );
         }
-        let (cleared, prompt_identity) = {
+        let cleared = {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
                 .filter(|tab| crate::service::launch_readiness::attempt_owns_tab(tab, attempt))
-                .map_or((false, None), |tab| clear_agent_identity_with_prompt(tab))
+                .map(clear_agent_identity_with_prompt)
+                .unwrap_or_default()
         };
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         self.finish_agent_identity_clear(
             tab_id,
             cause,
             cleared,
-            prompt_identity,
             proof.source_label(),
             proof.tree_evidence(),
         )
@@ -369,21 +376,21 @@ impl ServiceContext {
         ) {
             return false;
         }
-        let (cleared, prompt_identity) = {
+        let cleared = {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
                 .filter(|tab| {
                     tab.boot_stage == Some(crate::service::boot_stage::BootStage::SpawnFailed)
                         && !tab.agent_booting
                 })
-                .map_or((false, None), |tab| clear_agent_identity_with_prompt(tab))
+                .map(clear_agent_identity_with_prompt)
+                .unwrap_or_default()
         };
         crate::service::launch_readiness::owner_prompt_cleared(tab_id);
         self.finish_agent_identity_clear(
             tab_id,
             cause,
             cleared,
-            prompt_identity,
             "spawn-failed",
             "launch_owner_recorded_spawn_failure",
         )
@@ -440,25 +447,19 @@ impl ServiceContext {
         &self,
         tab_id: &str,
         cause: &str,
-        cleared: bool,
-        prompt_identity: Option<codeterm_types::pty::PromptIdentity>,
+        identity: ClearedAgentIdentity,
         source: &str,
         tree_evidence: &str,
     ) -> bool {
-        if !cleared {
+        if !identity.cleared {
             return false;
         }
         if source != "explicit-clear" {
-            let pty_id = self
-                .mux
-                .read()
-                .get_tab(tab_id)
-                .and_then(|tab| tab.pty_id.clone());
-            if let Some(pty_id) = pty_id {
-                self.screen_state.lock().reset_input_modes(&pty_id);
+            if let Some(pty_id) = identity.pty_id.as_deref() {
+                self.screen_state.lock().reset_input_modes(pty_id);
             }
         }
-        if let Some(identity) = prompt_identity {
+        if let Some(identity) = identity.prompt_identity {
             self.resolve_prompt_notifications(tab_id, &identity);
         }
         self.record_lifecycle_end(
@@ -480,6 +481,13 @@ impl ServiceContext {
         self.prompt_detector.lock().clear(tab_id);
         crate::service::structured_prompt::clear_tab(tab_id);
         self.emit_state_changed();
+        if matches!(source, "pty-exit" | "lifecycle-clear" | "finished-marker") {
+            if let Some(pty_id) = identity.pty_id.as_deref() {
+                crate::service::pty_io::submit_transaction::notify_submit_cycle_provider_exit(
+                    pty_id,
+                );
+            }
+        }
         true
     }
 }
