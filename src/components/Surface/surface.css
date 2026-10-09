@@ -204,13 +204,26 @@
   white-space: nowrap;
 }
 
+.ct-surface-snip-frame {
+  position: absolute;
+  z-index: 4;
+  box-sizing: border-box;
+  border: 1px solid var(--ct-accent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ct-accent) 7%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ct-accent) 14%, transparent);
+  pointer-events: none;
+  animation: ct-surface-snip-in var(--ct-duration-liquid-hover, 140ms) var(--ct-ease-liquid-settle, ease-out) both;
+}
+
 @keyframes ct-surface-snip-in {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ct-surface-snip {
+  .ct-surface-snip,
+  .ct-surface-snip-frame {
     animation: none;
   }
 }
