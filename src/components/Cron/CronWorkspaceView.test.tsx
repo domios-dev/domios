@@ -199,7 +199,7 @@ test("an owner prompt remains visible in history and exposes cancel while active
   }, calls), calls, "AwaitingOwnerPrompt");
 
   assert(host.textContent?.includes("Awaiting owner"), "history labels the blocked run as awaiting its owner");
-  assert(host.textContent?.includes("!"), "history uses the owner-prompt status indicator");
+  assert(host.querySelector('[data-run-status="AwaitingOwnerPrompt"] [data-live]'), "history marks the blocked run as still live");
   const cancelButton = Array.from(host.querySelectorAll<HTMLButtonElement>("button"))
     .find((button) => button.textContent?.includes("Cancel running"));
   assert(cancelButton, "the blocked active run exposes its cancel control");
