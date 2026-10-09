@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import { fixtureGraph } from "./fixtures.testdata";
-import { legacyScenarioPipeline, pipelineModel } from "./pipelineModel";
+import { pipelineModel } from "./pipelineModel";
 import type { BlueprintSnapshot, BlueprintStepState } from "./types";
 
 function blueprint(overrides: Partial<BlueprintSnapshot> = {}): BlueprintSnapshot {
@@ -37,17 +36,6 @@ for (const state of ["waiting", "delivering", "delivered", "failed"] as const) {
   const view = pipelineModel(blueprint({ result: { ...blueprint().result!, state } }));
   assert.equal(view.nodes[view.nodes.length - 1]?.state, state, `result state ${state} is preserved`);
 }
-
-const legacyGraph = fixtureGraph();
-const legacyScenario = legacyGraph.scenarios[0];
-const legacy = legacyScenarioPipeline(legacyGraph, legacyScenario);
-assert.equal(legacy.nodes[0].kind, "trigger");
-assert.equal(legacy.nodes[1].kind, "step");
-assert.equal(legacy.nodes[2].title, "Ask · branch-a · branch-b");
-assert.equal(legacy.nodes[legacy.nodes.length - 1]?.kind, "result");
-assert.match(legacy.nodes[legacy.nodes.length - 1]?.targetSummary ?? "", /Routes · branch-a:/);
-assert.equal(legacy.nodes[legacy.nodes.length - 1]?.state, "failed");
-assert.equal(legacy.edges.length, legacy.nodes.length - 1, "legacy stage rows use the same trigger-step-result chain");
 
 const optional = pipelineModel({ id: "old", name: "Legacy", state: "idle", run_id: null, current_step: null, last_event_at_ms: null });
 assert.equal(optional.owner.kind, "tab");

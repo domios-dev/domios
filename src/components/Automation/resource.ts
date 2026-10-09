@@ -77,7 +77,7 @@ export class AutomationResource {
   stop = async (identity: AutomationIdentity) => {
     const key = automationKey(identity);
     const node = this.snapshot.graph?.nodes.find((candidate) => automationKey(candidate.identity) === key);
-    if (this.snapshot.failed || this.snapshot.stopping || !node?.stop.allowed || identity.kind !== "sentinel") return;
+    if (this.snapshot.failed || this.snapshot.stopping || !node?.stop.allowed || identity.kind !== "blueprint") return;
     const generation = this.generation;
     this.publish({ stopping: key, stopFailed: null });
     try {

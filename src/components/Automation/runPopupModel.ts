@@ -1,6 +1,6 @@
 import type { Notification } from "../../lib/types";
 import type { BlueprintRunPopup, GraphRun } from "../../lib/blueprintRun";
-import { graphRuns } from "./runLogModel";
+import { graphRuns } from "./blueprintRunModel";
 import type { AutomationGraph } from "./types";
 
 export interface PopupState {

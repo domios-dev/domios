@@ -6,7 +6,7 @@ export interface AutomationScope {
 export const ALL_JOBS_SCOPE = "__all_jobs__";
 
 export interface AutomationIdentity extends AutomationScope {
-  kind: "sentinel" | "cron" | "worker";
+  kind: "blueprint" | "cron" | "worker";
   id: string;
   owner_tab_id: string | null;
 }
@@ -60,7 +60,7 @@ export interface AutomationExecutor {
   capabilities: readonly string[] | null;
 }
 
-export interface AgentSentinelDefinition {
+export interface AgentBlueprintDefinition {
   definition_version?: number;
   source: "stored_agent_definition";
   definition_id: string;
@@ -74,7 +74,8 @@ export interface AutomationNode {
     observe_target?: { kind: string; id: string } | null;
     definition?: {
       unavailable?: string;
-      language?: string;
+      command_language?: string;
+      decision_kind?: "pattern" | "agent";
       question?: string;
       buckets?: readonly { name: string; pattern: string | null }[];
       probe?: string | null;
@@ -84,7 +85,7 @@ export interface AutomationNode {
   };
   history?: readonly AutomationTransition[];
   history_truncated?: boolean;
-  sentinel_definition?: AgentSentinelDefinition | null;
+  blueprint_definition?: AgentBlueprintDefinition | null;
   executor?: AutomationExecutor | null;
   identity: AutomationIdentity;
   name: string;
@@ -175,7 +176,7 @@ export interface BlueprintOwner {
 export interface BlueprintStep {
   index: number;
   name: string;
-  kind: "command" | "convert" | "ask" | "filter";
+  kind: import("./blueprintKinds").BlueprintStepKind;
   title: string;
   state: BlueprintStepState;
   outcome: string | null;
@@ -237,5 +238,5 @@ export function sameScope(a: AutomationScope, b: AutomationScope): boolean {
 }
 
 export function automationKindLabel(kind: string): string {
-  return kind === "sentinel" ? "node" : kind;
+  return kind === "blueprint" ? "node" : kind;
 }
