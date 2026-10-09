@@ -1,9 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { turnEvidence, type Evidence, type RawRecord } from "./live-model-switch";
+import { turnEvidence, switchModels, type Descriptor, type Evidence, type RawRecord } from "./live-model-switch";
 import { detectChatPrefix } from "../../../src/lib/chatPrefixes";
 
 const evidence = (records: RawRecord[]): Evidence => ({ path: "owned-records", session: "owned", records });
+
+test("effort matrix avoids a default-only model when an explicit pair exists", () => {
+  const model = (id: string, efforts: string[]) => ({ id, display_name: id, reasoning_efforts: efforts.map(id => ({ id })) });
+  const descriptor: Descriptor = { id: "opaque", default_model: "default-only", model_switch: "next_turn", reasoning_efforts: [],
+    available_models: [model("default-only", ["default"]), model("a", ["default", "low", "high"]), model("b", ["low", "high"])] };
+  assert.deepEqual(switchModels(descriptor), { a: descriptor.available_models[1], b: descriptor.available_models[2] });
+  descriptor.default_model = "b";
+  assert.equal(switchModels(descriptor).a.id, "b");
+});
 
 test("Codex model and effort come from the retained user's exact turn_id", () => {
   const rows = evidence([
