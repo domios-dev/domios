@@ -5,6 +5,7 @@
 
 export type { ChatOrigin, SlashCommand } from "@codeterm/chat-core";
 import type { ChatOrigin, SlashCommand } from "@codeterm/chat-core";
+import { automationOrigin } from "@codeterm/chat-core";
 import {
   buildDomiosMessage,
   DOMIOS_CLOSE_TAG,
@@ -92,34 +93,9 @@ function parseTranscriptDomiosMessage(content: string) {
 // Some transcripts store a large paste after the typed frame, leaving only the reply hint inside it.
 const REORDERED_FRAME_CONTENT = /^\s*(?:\[to reply, run: [^\]\n]*\])?\s*$/;
 
-const AUTOMATION_CONTEXT = /^(cron|blueprint):([^:]+)(?::(.+))?$/;
-
-function automationPrefix(attrs: Record<string, string>, body: string): PrefixMatch | null {
-  const from = attrs.from;
-  if (from === "system") {
-    const match = AUTOMATION_CONTEXT.exec(attrs.context ?? "");
-    if (!match) return null;
-    const [, source, name, detail] = match;
-    return { origin: { kind: "automation", source: source as "cron" | "blueprint", name, ...(detail ? { detail } : {}) }, body };
-  }
-  if (from === "report" && attrs.tab && attrs.label?.startsWith("cron:")) {
-    return {
-      origin: { kind: "automation", source: "cron", name: attrs.label.slice(5), tabIdShort: attrs.tab, report: true, ...(attrs.model ? { model: attrs.model } : {}) },
-      body,
-    };
-  }
-  if (from === "tab" && attrs.tab && attrs.purpose) {
-    return {
-      origin: { kind: "automation", source: "utility", name: attrs.label ?? attrs.purpose, purpose: attrs.purpose, tabIdShort: attrs.tab },
-      body,
-    };
-  }
-  return null;
-}
-
 function domiosPrefix(attrs: Record<string, string>, body: string): PrefixMatch | null {
-  const automation = automationPrefix(attrs, body);
-  if (automation) return automation;
+  const automation = automationOrigin(attrs);
+  if (automation) return { origin: automation, body };
   const from = attrs.from;
   if (from === "tab" || from === "report") {
     if (!attrs.tab) return null;
