@@ -509,7 +509,17 @@
               "value_name": "FORCE",
               "possible_values": [],
               "default": null,
-              "help": "Skip the graceful exit and force-kill instead. Use only when the agent is hung",
+              "help": "Skip graceful exit and force-kill; also permits --fresh on a live agent",
+              "aliases": []
+            },
+            {
+              "name": "fresh",
+              "positional": false,
+              "required": false,
+              "value_name": "FRESH",
+              "possible_values": [],
+              "default": null,
+              "help": "Start a new session in the same tab. Live agents require --force; an existing exact restored session is never replaced",
               "aliases": []
             },
             {
@@ -15221,6 +15231,77 @@
               "possible_values": [],
               "default": null,
               "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "surface",
+      "about": "Plugin surface tabs: app tabs whose content a plugin view renders",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "close",
+          "about": "Close a surface tab; refuses tabs that are not surfaces",
+          "aliases": [],
+          "args": [
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Surface tab id",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List the surfaces enabled plugins declare and the surface tabs that are open",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "open",
+          "about": "Open a plugin surface as a tab nested under its owner",
+          "aliases": [],
+          "args": [
+            {
+              "name": "owner",
+              "positional": false,
+              "required": false,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Tab that owns the surface (default: the calling agent tab)",
+              "aliases": []
+            },
+            {
+              "name": "target",
+              "positional": true,
+              "required": true,
+              "value_name": "TARGET",
+              "possible_values": [],
+              "default": null,
+              "help": "Surface to open, as `<plugin_id>:<surface_id>`",
+              "aliases": []
+            },
+            {
+              "name": "title-from-owner",
+              "positional": false,
+              "required": false,
+              "value_name": "TITLE_FROM_OWNER",
+              "possible_values": [],
+              "default": null,
+              "help": "Label the tab after its owner (\"{owner}'s {title}\") even when the surface is not agent-bound",
               "aliases": []
             }
           ],

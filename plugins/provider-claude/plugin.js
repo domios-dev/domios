@@ -70,14 +70,15 @@ var model_capabilities_default = {
   models: {
     opus: "standard",
     sonnet: "standard",
-    haiku: "haiku",
+    haiku: "standard",
     fable: "standard",
     best: "standard",
     opusplan: "standard",
     "opus[1m]": "long",
     "sonnet[1m]": "long",
     "fable[1m]": "long",
-    "claude-opus-4-7": "opus47"
+    "claude-opus-4-7": "opus47",
+    "claude-haiku-4-5": "haiku"
   }
 };
 
@@ -869,7 +870,7 @@ function mapAliasesToLive(aliases, live) {
     const mapped = {
       ...alias,
       id: alias.id,
-      displayName: match && !alias.id.endsWith("[1m]") ? withVersion(alias.displayName, versionOf(match)) : alias.displayName
+      displayName: match && alias.primary && liveDisplay(match) ? liveDisplay(match) : match && !alias.id.endsWith("[1m]") ? withVersion(alias.displayName, versionOf(match)) : alias.displayName
     };
     if (alias.description) mapped.description = alias.description;
     mapped.available = !!match;
