@@ -45,7 +45,7 @@ fn storage_migration_first_install_absence_commits_empty_domains() {
 
     let manifest = import_manifest(&f);
     assert!(manifest.contains(&line(&["provenance", "cron", "first-install"])));
-    assert!(manifest.contains(&line(&["provenance", "sentinel", "first-install"])));
+    assert!(manifest.contains(&line(&["provenance", "blueprint", "first-install"])));
     assert!(manifest.contains(&line(&["provenance", "desk", "first-install"])));
     assert_eq!(
         marker(&storage).map(|found| found.revision),
