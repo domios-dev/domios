@@ -131,7 +131,7 @@ impl TelegramService {
                 .post(&self.api_url("sendMessage"))
                 .json(&serde_json::json!({ "chat_id": chat_id, "text": chunk, "disable_web_page_preview": true }))
                 .timeout(std::time::Duration::from_secs(10))
-                .send().await.map_err(|e| e.to_string())?;
+                .send().await.map_err(|e| e.without_url().to_string())?;
             if !resp.status().is_success() {
                 log::warn!(
                     "[telegram] sendMessage failed: {}",
@@ -373,6 +373,7 @@ impl TelegramService {
                             v
                         }
                         Err(e) => {
+                            let e = e.without_url();
                             log::warn!("[telegram] parse error: {}", e);
                             status.mark_poll_error(&format!("parse error: {}", e));
                             if cancellable_sleep(&cancel, std::time::Duration::from_secs(1)).await {
@@ -414,6 +415,8 @@ impl TelegramService {
                 }
                 Err(e) => {
                     error_count += 1;
+                    // The request URL carries the bot token; never log or surface it.
+                    let e = e.without_url();
                     log::warn!("[telegram] poll error (count={}): {}", error_count, e);
                     status.mark_poll_error(&e.to_string());
                     let backoff = (2u64.pow(error_count.min(6))).min(60);
