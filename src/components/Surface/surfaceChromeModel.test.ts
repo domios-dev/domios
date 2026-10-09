@@ -5,10 +5,11 @@ import { BROWSER_SURFACE_CHROME } from "./browserChrome";
 import {
   addressSubmission,
   askPopoverPosition,
+  canOpenExternally,
+  canvasHint,
   CHROME_ITEM,
   ELEMENT_NAME_MAX,
   elementCard,
-  fileNameFromPath,
   grabSendArgs,
   navigationFailureNotice,
   isNeedsHuman,
@@ -21,6 +22,12 @@ import {
   profileSwitchedNotice,
   resolveToolbar,
   selectChoice,
+  SNIP_HINT,
+  snipCaptureArgs,
+  snipContext,
+  snipPlaceholder,
+  snipSendArgs,
+  snipSizeLabel,
   surfaceLabel,
   toolbarInvocation,
   validateProfileName,
@@ -63,22 +70,45 @@ for (const text of needsTexts) {
   assert.ok(!/\bYou\b/.test(text ?? ""), "the notice never names the viewer as the owner");
 }
 
+const page: SurfaceState = { ...base, url: "https://a.test/" };
 const ids = (state: SurfaceState, interactive: boolean, picking = false) =>
   resolveToolbar(BROWSER_SURFACE_CHROME, { interactive, picking, state }).map((item) => [item.id, item.disabled] as const);
-assert.deepEqual(ids(base, false), [
-  ["back", true], ["forward", true], ["reload", true], ["address", true],
-  [CHROME_ITEM.pick, false], [CHROME_ITEM.screenshot, false], ["profile", false], [CHROME_ITEM.takeControl, false],
-], "watch-only disables interactive items and keeps the owner's left-to-right order");
-assert.deepEqual(ids(base, true).filter(([, disabled]) => disabled), [], "interaction enables every item");
+assert.deepEqual(ids(page, false), [
+  ["back", true], ["forward", true], ["reload", true], ["address", true], [CHROME_ITEM.openExternal, false],
+  [CHROME_ITEM.pick, false], [CHROME_ITEM.snip, false], ["profile", false], [CHROME_ITEM.takeControl, false],
+], "watch-only disables page input only: open, pick and snip stay usable beside the agent, in the owner's order");
+assert.deepEqual(ids(page, true).filter(([, disabled]) => disabled), [], "interaction enables every item");
+assert.deepEqual(ids(base, true).filter(([, disabled]) => disabled), [[CHROME_ITEM.openExternal, true]], "no page url, nothing to open");
 
-const toggles = resolveToolbar(BROWSER_SURFACE_CHROME, { interactive: true, picking: true, state: base }).filter((item) => item.kind === "toggle");
-assert.deepEqual(toggles.map((item) => [item.id, item.kind === "toggle" && item.pressed]), [[CHROME_ITEM.pick, true], [CHROME_ITEM.takeControl, true]]);
+const toggles = resolveToolbar(BROWSER_SURFACE_CHROME, { interactive: false, picking: true, snipping: false, state: page }).filter((item) => item.kind === "toggle");
+assert.deepEqual(toggles.map((item) => [item.id, item.kind === "toggle" && item.pressed]), [[CHROME_ITEM.pick, true], [CHROME_ITEM.snip, false], [CHROME_ITEM.takeControl, false]]);
+const snipping = resolveToolbar(BROWSER_SURFACE_CHROME, { interactive: false, picking: false, snipping: true, state: page }).find((item) => item.id === CHROME_ITEM.snip);
+assert.deepEqual(snipping, { id: CHROME_ITEM.snip, kind: "toggle", label: "Snip and ask", icon: "camera", pressed: true, disabled: false });
+const external = resolveToolbar({ toolbar: [{ id: "x", kind: "button", label: "X" }], openExternal: true }, { interactive: false, picking: false, state: page });
+assert.deepEqual(external.map((item) => item.id), ["x", CHROME_ITEM.openExternal], "without an address the open button ends the navigation group");
+
+const externalCases: Array<[string | undefined, boolean]> = [
+  ["https://a.test/x?y=1", true], ["http://localhost:5173/", true], ["file:///C:/site/index.html", true],
+  ["about:blank", false], ["", false], [undefined, false], ["chrome://settings", false], ["javascript:alert(1)", false], ["data:text/html,hi", false], ["not a url", false],
+];
+for (const [url, expected] of externalCases) assert.equal(canOpenExternally(url), expected, String(url));
+
+const area = { x: 312, y: 96, width: 420, height: 180 };
+assert.equal(snipContext(area, { title: " Cart\n review ", url: "https://shop.test/cart" }), "Area 420×180 at (312, 96) · Cart review · https://shop.test/cart");
+assert.equal(snipContext(area, {}), "Area 420×180 at (312, 96)", "missing title and url drop out");
+assert.equal(snipContext(area, { title: "t".repeat(80) }).length, "Area 420×180 at (312, 96) · ".length + 60, "a long title is cut");
+assert.equal(snipSizeLabel(area), "420 × 180");
+assert.deepEqual(snipCaptureArgs(area), { x: 312, y: 96, w: 420, h: 180 });
+assert.deepEqual(snipSendArgs({ id: "s1", width: 840, height: 360, thumbnail: null }, "  why?  ", false), { id: "s1", comment: "why?", image: false });
+assert.equal(snipPlaceholder("Jev"), "Ask Jev about this area");
+assert.equal(canvasHint(false, false, true), SNIP_HINT);
+assert.equal(SNIP_HINT, "Drag to select an area · Esc to cancel");
 
 const address = resolveToolbar(BROWSER_SURFACE_CHROME, { interactive: true, picking: false, state: { ...base, url: "https://a.test/" } }).find((item) => item.id === "address");
 assert.equal(address?.kind === "input" && address.value, "https://a.test/", "address shows the page url");
 
-const busy = resolveToolbar(BROWSER_SURFACE_CHROME, { interactive: true, picking: false, state: base, busy: new Set(["profile", CHROME_ITEM.screenshot]) });
-assert.deepEqual(busy.filter((item) => item.disabled).map((item) => item.id), [CHROME_ITEM.screenshot, "profile"], "busy items are disabled");
+const busy = resolveToolbar(BROWSER_SURFACE_CHROME, { interactive: true, picking: false, state: page, busy: new Set(["profile", CHROME_ITEM.snip]) });
+assert.deepEqual(busy.filter((item) => item.disabled).map((item) => item.id), [CHROME_ITEM.snip, "profile"], "busy items are disabled");
 
 const bare = resolveToolbar({ toolbar: [{ id: "x", kind: "select", label: "X", source: "unknown" }] }, { interactive: true, picking: false, state: base });
 assert.deepEqual(bare, [{ id: "x", kind: "select", label: "X", options: [], value: "", disabled: true }], "unknown select sources render disabled and chrome flags off add nothing");
@@ -111,13 +141,6 @@ assert.deepEqual(declared("back").invoke?.args, { action: "back" }, "invocation 
 
 assert.equal(addressSubmission("  a.test "), "a.test");
 assert.equal(addressSubmission("   "), null);
-
-const fileCases: Array<[string, string]> = [
-  ["C:\\data\\screenshots\\shot-1.png", "shot-1.png"],
-  ["/tmp/a/b.png", "b.png"],
-  ["b.png", "b.png"],
-];
-for (const [path, expected] of fileCases) assert.equal(fileNameFromPath(path), expected, path);
 
 const friendly = (target: GrabTarget, label = "") => elementCard({ id: "g1", label, target });
 const friendlyCases: Array<[string, GrabTarget, string, string]> = [

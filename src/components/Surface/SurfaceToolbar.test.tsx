@@ -11,7 +11,7 @@ const suite = testSuite("SurfaceToolbar");
 const state: SurfaceState = { owner: "Jev", url: "https://a.test/", profile: "clean", profiles: ["Work"] };
 
 interface Calls {
-  button: Array<[string, { shiftKey: boolean }]>;
+  button: string[];
   toggle: string[];
   submit: Array<[string, string]>;
   select: Array<[string, string]>;
@@ -22,7 +22,7 @@ async function renderToolbar(items: ResolvedToolbarItem[]) {
   const props: SurfaceToolbarProps = {
     label: "Jev's Browser",
     items,
-    onButton: (id, modifiers) => calls.button.push([id, modifiers]),
+    onButton: (id) => calls.button.push(id),
     onToggle: (id) => calls.toggle.push(id),
     onSubmit: (id, value) => calls.submit.push([id, value]),
     onSelect: (id, value) => calls.select.push([id, value]),
@@ -54,12 +54,14 @@ suite.test("buttons and toggles fire their handler once", async () => {
   const items = resolveToolbar(BROWSER_SURFACE_CHROME, { interactive: true, picking: false, state });
   const { toolbar, calls, unmount } = await renderToolbar(items);
   await act(async () => getByRole(toolbar, "button", "Back").click());
+  await act(async () => getByRole(toolbar, "button", "Open in browser").click());
   await act(async () => getByRole(toolbar, "button", "Take control").click());
   await act(async () => {
-    getByRole(toolbar, "button", "Screenshot").dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true }));
+    getByRole(toolbar, "button", "Snip and ask").dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true }));
   });
-  assert.deepEqual(calls.button, [["back", { shiftKey: false }], [CHROME_ITEM.screenshot, { shiftKey: true }]]);
-  assert.deepEqual(calls.toggle, [CHROME_ITEM.takeControl]);
+  assert.deepEqual(calls.button, ["back", CHROME_ITEM.openExternal]);
+  assert.deepEqual(calls.toggle, [CHROME_ITEM.takeControl, CHROME_ITEM.snip], "Shift has no second meaning on the camera");
+  assert.equal(getByRole(toolbar, "button", "Snip and ask").getAttribute("title"), "Snip and ask");
   await unmount();
 });
 
@@ -79,6 +81,18 @@ suite.test("address submits on Enter and the profile select reports its value", 
     profile.dispatchEvent(new Event("change", { bubbles: true }));
   });
   assert.deepEqual(calls.select, [["profile", "Work"]]);
+  await unmount();
+});
+
+suite.test("Open in browser sits right after the address field", async () => {
+  const items = resolveToolbar(BROWSER_SURFACE_CHROME, { interactive: false, picking: false, state });
+  const { toolbar, unmount } = await renderToolbar(items);
+  const address = getByRole(toolbar, "textbox", "Address");
+  const open = getByRole(toolbar, "button", "Open in browser");
+  assert.equal(address.nextElementSibling, open);
+  assert.equal(open.getAttribute("title"), "Open in browser");
+  assert.ok(open.classList.contains("ct-surface-icon-btn"), "the quiet ghost icon style of the other toolbar icons");
+  assert.ok(open.querySelector("svg"), "icon only");
   await unmount();
 });
 

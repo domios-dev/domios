@@ -1,4 +1,5 @@
 import { clampFloatingPosition } from "../shared/floatingPosition";
+import type { PageRect } from "./streamModel";
 
 export const NEEDS_HUMAN_KINDS = ["captcha", "consent", "login", "dialog", "file_chooser"] as const;
 export type NeedsHumanKind = (typeof NEEDS_HUMAN_KINDS)[number];
@@ -36,7 +37,8 @@ export interface SurfaceChromeSpec {
   toolbar: ToolbarItemSpec[];
   takeControl?: boolean;
   pointAndAsk?: boolean;
-  screenshot?: boolean;
+  snip?: boolean;
+  openExternal?: boolean;
 }
 
 export interface SelectOption {
@@ -59,6 +61,7 @@ export type ResolvedToolbarItem =
 export interface ToolbarContext {
   interactive: boolean;
   picking: boolean;
+  snipping?: boolean;
   state: SurfaceState;
   busy?: ReadonlySet<string>;
 }
@@ -68,7 +71,7 @@ export interface Invocation {
   args: Record<string, unknown>;
 }
 
-export const CHROME_ITEM = { pick: "pick", screenshot: "screenshot", takeControl: "take-control" } as const;
+export const CHROME_ITEM = { pick: "pick", snip: "snip", openExternal: "open-external", takeControl: "take-control" } as const;
 
 export const CLEAN_PROFILE = "clean";
 const ATTACHED_PROFILE = "attached";
@@ -143,13 +146,38 @@ function resolveDeclared(item: ToolbarItemSpec, context: ToolbarContext): Resolv
   return { id: item.id, kind: "button", label: item.label, icon: item.icon, disabled };
 }
 
+const EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "file:"]);
+
+export function canOpenExternally(url: string | undefined): boolean {
+  if (!url?.trim()) return false;
+  try {
+    return EXTERNAL_PROTOCOLS.has(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+}
+
+function openExternalItem(context: ToolbarContext): ResolvedToolbarItem {
+  return { id: CHROME_ITEM.openExternal, kind: "button", label: "Open in browser", icon: "external-link", disabled: !canOpenExternally(context.state.url) };
+}
+
+// Pick and snip are owner annotations, never page input, so neither waits for Take control.
 export function resolveToolbar(spec: SurfaceChromeSpec, context: ToolbarContext): ResolvedToolbarItem[] {
-  const declared = spec.toolbar.map((item) => resolveDeclared(item, context));
-  const navigation = declared.filter((item) => item.kind !== "select");
-  const selects = declared.filter((item) => item.kind === "select");
+  const navigation: ResolvedToolbarItem[] = [];
+  const selects: ResolvedToolbarItem[] = [];
+  let external = spec.openExternal ? openExternalItem(context) : null;
+  for (const item of spec.toolbar) {
+    const resolved = resolveDeclared(item, context);
+    (resolved.kind === "select" ? selects : navigation).push(resolved);
+    if (external && item.source === "url") {
+      navigation.push(external);
+      external = null;
+    }
+  }
+  if (external) navigation.push(external);
   const chrome: ResolvedToolbarItem[] = [];
   if (spec.pointAndAsk) chrome.push({ id: CHROME_ITEM.pick, kind: "toggle", label: "Pick element", icon: "crosshair", pressed: context.picking, disabled: false });
-  if (spec.screenshot) chrome.push({ id: CHROME_ITEM.screenshot, kind: "button", label: "Screenshot", icon: "camera", disabled: context.busy?.has(CHROME_ITEM.screenshot) ?? false });
+  if (spec.snip) chrome.push({ id: CHROME_ITEM.snip, kind: "toggle", label: "Snip and ask", icon: "camera", pressed: context.snipping ?? false, disabled: context.busy?.has(CHROME_ITEM.snip) ?? false });
   const takeControl: ResolvedToolbarItem[] = spec.takeControl
     ? [{ id: CHROME_ITEM.takeControl, kind: "toggle", label: "Take control", pressed: context.interactive, disabled: false }]
     : [];
@@ -196,7 +224,10 @@ export function addressSubmission(raw: string): string | null {
   return value ? value : null;
 }
 
-export function canvasHint(interactive: boolean, picking: boolean): string {
+export const SNIP_HINT = "Drag to select an area · Esc to cancel";
+
+export function canvasHint(interactive: boolean, picking: boolean, snipping = false): string {
+  if (snipping) return SNIP_HINT;
   if (picking) return "Click an element to ask about it. Escape cancels.";
   if (interactive) return "Interacting alongside the agent. Shift+Escape stops.";
   return "Watch only. Press Take control to interact.";
@@ -204,14 +235,6 @@ export function canvasHint(interactive: boolean, picking: boolean): string {
 
 export function blockedNotice(owner: string): string {
   return `Press Take control to interact alongside ${owner}.`;
-}
-
-export function fileNameFromPath(path: string): string {
-  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
-}
-
-export function screenshotSavedNotice(path: string): string {
-  return `Saved ${path}`;
 }
 
 export function failureNotice(action: string, error: unknown): string {
@@ -338,6 +361,45 @@ export function askPlaceholder(owner: string): string {
 
 export function grabSendArgs(selection: GrabSelection, comment: string, intent: AskIntent = "question"): { id: string; comment: string; intent: AskIntent } {
   return { id: selection.id, comment: comment.trim(), intent };
+}
+
+export interface SnipCapture {
+  id: string;
+  width: number;
+  height: number;
+  thumbnail: string | null;
+}
+
+export const SNIP_MIN_SIDE = 4;
+const SNIP_TITLE_MAX = 60;
+
+export function snipCaptureArgs(rect: PageRect): { x: number; y: number; w: number; h: number } {
+  return { x: rect.x, y: rect.y, w: rect.width, h: rect.height };
+}
+
+export function snipSendArgs(capture: SnipCapture, comment: string, image: boolean): { id: string; comment: string; image: boolean } {
+  return { id: capture.id, comment: comment.trim(), image };
+}
+
+export function snipSizeLabel(rect: PageRect): string {
+  return `${rect.width} × ${rect.height}`;
+}
+
+/** "Area 420×180 at (312, 96) · Title · URL": the one line the snip composer shows. */
+export function snipContext(rect: PageRect, state: Pick<SurfaceState, "title" | "url">): string {
+  const title = squash(state.title);
+  const parts = [
+    `Area ${rect.width}×${rect.height} at (${rect.x}, ${rect.y})`,
+    title.length > SNIP_TITLE_MAX ? `${title.slice(0, SNIP_TITLE_MAX - 1).trimEnd()}…` : title,
+    squash(state.url),
+  ];
+  return parts.filter(Boolean).join(" · ");
+}
+
+export const SNIP_DIALOG_LABEL = "Ask about this area";
+
+export function snipPlaceholder(owner: string): string {
+  return `Ask ${owner} about this area`;
 }
 
 export function withTranscripts(comment: string, transcripts: readonly string[]): string {

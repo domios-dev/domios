@@ -144,6 +144,77 @@
   cursor: crosshair;
 }
 
+.ct-surface-snip {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  overflow: hidden;
+  background: color-mix(in srgb, #000 34%, transparent);
+  cursor: crosshair;
+  outline: none;
+  touch-action: none;
+  user-select: none;
+  animation: ct-surface-snip-in var(--ct-duration-liquid-hover, 140ms) var(--ct-ease-liquid-settle, ease-out) both;
+}
+
+.ct-surface-snip[data-dragging="true"] {
+  background: transparent;
+}
+
+.ct-surface-snip__hint {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  margin: 0;
+  padding: 5px 12px;
+  border: 1px solid color-mix(in srgb, var(--ct-accent) 30%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-surface) 82%, transparent);
+  -webkit-backdrop-filter: blur(var(--ct-blur-md)) saturate(1.4);
+  backdrop-filter: blur(var(--ct-blur-md)) saturate(1.4);
+  color: var(--ct-fg);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.ct-surface-snip__box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--ct-accent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ct-accent) 8%, transparent);
+  box-shadow: 0 0 0 100vmax color-mix(in srgb, #000 34%, transparent);
+  pointer-events: none;
+}
+
+.ct-surface-snip__size {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-surface) 86%, transparent);
+  color: var(--ct-fg);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+@keyframes ct-surface-snip-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-surface-snip {
+    animation: none;
+  }
+}
+
 .ct-surface-notice {
   position: absolute;
   top: 10px;
@@ -272,6 +343,17 @@
 .ct-surface-ask__chip > svg {
   flex-shrink: 0;
   color: color-mix(in srgb, var(--ct-accent) 80%, var(--ct-muted-fg));
+}
+
+.ct-surface-ask__context {
+  flex: 1 1 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ct-surface-ask__chip-name {

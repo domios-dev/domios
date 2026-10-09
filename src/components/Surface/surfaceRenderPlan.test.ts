@@ -6,7 +6,6 @@ import {
   findDeclaredSurface,
   parseChromeSpec,
   parseDeclaredSurfaces,
-  screenshotSaveMode,
   surfaceRenderPlan,
   type DeclaredSurface,
 } from "./surfaceRenderPlan";
@@ -42,8 +41,8 @@ assert.deepEqual(
   "a stream without chrome falls back to the browser chrome",
 );
 assert.deepEqual(
-  surfaceRenderPlan(ready({ renderer: "stream", runtime: "browser", chrome: { toolbar: [], screenshot: true } }), false),
-  { kind: "stream", runtime: "browser", chrome: { toolbar: [], screenshot: true }, live: false },
+  surfaceRenderPlan(ready({ renderer: "stream", runtime: "browser", chrome: { toolbar: [], snip: true } }), false),
+  { kind: "stream", runtime: "browser", chrome: { toolbar: [], snip: true }, live: false },
   "declared chrome wins and a hidden tab holds no live stream",
 );
 assert.deepEqual(surfaceRenderPlan(ready({ renderer: "stream", runtime: "browser", chrome: "nope" }), true).kind, "stream");
@@ -76,7 +75,7 @@ assert.deepEqual(
 );
 assert.deepEqual(parseChromeSpec(BROWSER_SURFACE_CHROME), BROWSER_SURFACE_CHROME, "the built-in chrome round-trips");
 
-assert.equal(screenshotSaveMode(true), "download", "the web mirror downloads the image");
-assert.equal(screenshotSaveMode(false), "saved-path", "the desktop app reports the path the core wrote");
+assert.deepEqual(parseChromeSpec({ screenshot: true, openExternal: true }), { toolbar: [], snip: true, openExternal: true }, "a legacy screenshot flag declares the snip camera");
+assert.deepEqual(parseChromeSpec({ screenshot: true, snip: false }), { toolbar: [], snip: false }, "an explicit snip flag wins");
 
 console.log("✓ surfaceRenderPlan tests green");
