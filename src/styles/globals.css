@@ -2374,16 +2374,22 @@ button,
 
 .sidebar-workspace-card-scroll {
   max-width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
   padding: 4px 8px 7px;
 }
 
 .sidebar-workspace-card-grid {
   display: grid;
-  width: max-content;
-  grid-auto-columns: 42px;
+  grid-auto-rows: 40px;
   gap: 4px;
+}
+
+.sidebar-workspace-card-more {
+  border-style: solid;
+  border-color: transparent;
+  background: color-mix(in srgb, var(--ct-fg) 5%, transparent);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .sidebar-workspace-card {

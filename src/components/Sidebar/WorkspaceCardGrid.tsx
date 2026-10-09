@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Pencil, Plus } from "lucide-react";
+import { ChevronUp, Pencil, Plus } from "lucide-react";
 import { ActivityDots } from "../shared/ActivityDots";
 import type { TabStatus, Workspace } from "../../lib/types";
 import { SortableContext, SortableRow, WS_PREFIX, rectSortingStrategy } from "./sortable";
@@ -25,14 +25,30 @@ const CARD_GAP = 4;
 const EDITOR_WIDTH = 190;
 const EDITOR_HEIGHT = 82;
 
-export function workspaceCardPosition(index: number, columns: number): { gridColumn: number; gridRow: number } {
-  const pageSize = columns * 2;
-  const page = Math.floor(index / pageSize);
-  const pageIndex = index % pageSize;
-  return {
-    gridColumn: page * columns + (pageIndex % columns) + 1,
-    gridRow: Math.floor(pageIndex / columns) + 1,
-  };
+const COLLAPSED_ROWS = 2;
+
+/**
+ * Collapsed, two rows hold the cards plus one trailing control (create, or "+N" when
+ * more are hidden); the selected workspace always stays visible. Expanded shows all.
+ */
+export function visibleWorkspaceIds(
+  ids: readonly string[],
+  selectedId: string | null,
+  columns: number,
+  expanded: boolean,
+): { visible: string[]; hidden: number } {
+  const capacity = Math.max(1, columns * COLLAPSED_ROWS - 1);
+  if (expanded || ids.length <= capacity) return { visible: [...ids], hidden: 0 };
+  const visible = ids.slice(0, capacity);
+  if (selectedId && ids.includes(selectedId) && !visible.includes(selectedId)) visible[capacity - 1] = selectedId;
+  return { visible, hidden: ids.length - visible.length };
+}
+
+/** Puts a reordered visible subset back into the full order; hidden ids keep their slots. */
+export function mergeVisibleOrder(all: readonly string[], visibleOrdered: readonly string[]): string[] {
+  const visibleSet = new Set(visibleOrdered);
+  let next = 0;
+  return all.map((id) => (visibleSet.has(id) ? visibleOrdered[next++] : id));
 }
 
 export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, sortIds, onSelect, onCreate }: WorkspaceCardGridProps) {
@@ -43,7 +59,14 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editorPosition, setEditorPosition] = useState({ left: 0, top: 0 });
   const [draft, setDraft] = useState("");
-  const rows = Math.min(2, Math.ceil((workspaces.length + 1) / columns));
+  const [expanded, setExpanded] = useState(false);
+  const allIds = workspaces.map((workspace) => workspace.id);
+  const { visible, hidden } = visibleWorkspaceIds(allIds, selectedWorkspaceId, columns, expanded);
+  const visibleSet = new Set(visible);
+  const shown = visible.map((id) => workspaces.find((workspace) => workspace.id === id)).filter((workspace): workspace is Workspace => workspace != null);
+  const visibleSortIds = sortIds.filter((sortId) => visibleSet.has(sortId.slice(WS_PREFIX.length)));
+  const overflow = expanded || hidden > 0;
+  const fullOrder = (ordered: string[]) => mergeVisibleOrder(allIds, ordered);
 
   const beginEditing = useCallback((workspace: Workspace, anchor: HTMLElement) => {
     const rect = anchor.closest<HTMLElement>('[data-testid="workspace-card"]')?.getBoundingClientRect()
@@ -105,23 +128,23 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
 
   return <>
     <div ref={scrollRef} className="sidebar-workspace-card-scroll" data-testid="workspace-card-scroll" role="region" aria-label="Workspace cards">
-      <SortableContext items={sortIds} strategy={rectSortingStrategy}>
+      <SortableContext items={visibleSortIds} strategy={rectSortingStrategy}>
         <div
           className="sidebar-workspace-card-grid"
           data-testid="workspace-card-grid"
+          data-expanded={expanded || undefined}
           role="list"
           aria-label="Workspaces"
-          style={{ gridTemplateRows: `repeat(${rows}, 40px)` }}
+          style={{ gridTemplateColumns: `repeat(${columns}, 42px)` }}
         >
-          {workspaces.map((workspace, index) => {
+          {shown.map((workspace) => {
             const selected = workspace.id === selectedWorkspaceId;
             const status = statuses[workspace.id];
             return (
               <SortableRow
                 key={workspace.id}
                 id={`${WS_PREFIX}${workspace.id}`}
-                data={{ group: "workspace", groupKey: "workspaces" }}
-                layoutStyle={workspaceCardPosition(index, columns)}
+                data={{ group: "workspace", groupKey: "workspaces", fullOrder }}
               >
                 <div
                   className="sidebar-workspace-card"
@@ -166,17 +189,43 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
               </SortableRow>
             );
           })}
-          <button
-            type="button"
-            data-testid="workspace-card-create"
-            className="sidebar-workspace-card-create"
-            aria-label="Create workspace"
-            title="New workspace"
-            onClick={onCreate}
-            style={workspaceCardPosition(workspaces.length, columns)}
-          >
-            <Plus size={17} strokeWidth={1.5} />
-          </button>
+          {hidden > 0 ? (
+            <button
+              type="button"
+              data-testid="workspace-card-more"
+              className="sidebar-workspace-card-create sidebar-workspace-card-more"
+              aria-label={`Show all workspaces, ${hidden} more`}
+              aria-expanded={false}
+              title="Show all workspaces"
+              onClick={() => setExpanded(true)}
+            >
+              +{hidden}
+            </button>
+          ) : (
+            <button
+              type="button"
+              data-testid="workspace-card-create"
+              className="sidebar-workspace-card-create"
+              aria-label="Create workspace"
+              title="New workspace"
+              onClick={onCreate}
+            >
+              <Plus size={17} strokeWidth={1.5} />
+            </button>
+          )}
+          {expanded && overflow && (
+            <button
+              type="button"
+              data-testid="workspace-card-less"
+              className="sidebar-workspace-card-create sidebar-workspace-card-more"
+              aria-label="Show fewer workspaces"
+              aria-expanded={true}
+              title="Show fewer"
+              onClick={() => setExpanded(false)}
+            >
+              <ChevronUp size={16} strokeWidth={1.75} />
+            </button>
+          )}
         </div>
       </SortableContext>
     </div>

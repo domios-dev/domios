@@ -26,6 +26,8 @@ export interface SortableGroupData {
   /** Prefixed ids pinned to the front of the group (the General workspace /
    *  General tab). A drop that would not keep them leading is rejected. */
   pinnedIds?: string[];
+  /** Expands a reordered visible subset into the full order the backend expects. */
+  fullOrder?: (orderedRawIds: string[]) => string[];
   /** Expands the group's new order into the full top-level order of its workspace. */
   toWorkspaceOrder?: (orderedRawIds: string[]) => { workspaceId: string; orderedTabIds: string[] };
 }
@@ -175,7 +177,7 @@ export function commitSidebarDrag(event: DragEndEvent, handlers: ReorderHandlers
     return;
   }
   if (activeData.group === "workspace") {
-    handlers.reorderWorkspaces(ordered);
+    handlers.reorderWorkspaces(activeData.fullOrder ? activeData.fullOrder(ordered) : ordered);
   } else if (activeData.group === "child") {
     handlers.reorderTabs({ parentTabId: activeData.groupKey, orderedTabIds: ordered });
   } else {
