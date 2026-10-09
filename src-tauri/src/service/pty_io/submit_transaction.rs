@@ -12,12 +12,15 @@ use crate::service::inject_verify::{
 use crate::service::ServiceContext;
 mod cycle;
 mod evidence_watcher;
+#[cfg(test)]
+mod exit_tests;
 mod line_mode;
 mod recovery_guard;
 mod runner;
 pub(crate) use cycle::{
-    claim_submit_cycle, notify_submit_cycle_status_transition, wake_submit_cycle,
-    wake_submit_cycle_output, SubmitCycleClaim,
+    claim_exit_submit_cycle, claim_submit_cycle, notify_submit_cycle_provider_exit,
+    notify_submit_cycle_status_transition, wake_submit_cycle, wake_submit_cycle_output,
+    SubmitCycleClaim,
 };
 use cycle::{retire_submit_cycle, CycleWait, SubmitCycle, SubmitCycleSignal};
 use evidence_watcher::watch_session_evidence;

@@ -37,7 +37,19 @@ impl ServiceContext {
             );
             return;
         }
-        if let Err(error) = self.send_text(&snap.tab_id, &exit_command) {
+        let claim =
+            crate::service::pty_io::submit_transaction::claim_exit_submit_cycle(&snap.pty_id);
+        let result =
+            self.deliver_pty_input_claimed(&snap.pty_id, &exit_command, true, claim.clone());
+        if claim.provider_exited() {
+            crate::service::agent_restart::timing::stage(
+                &snap.tab_id,
+                &snap.pty_id,
+                "provider-exit",
+            );
+            return;
+        }
+        if let Err(error) = result {
             log::warn!(
                 "[agent_restart] graceful exit send failed for tab={}: {}",
                 snap.tab_id,
