@@ -265,7 +265,7 @@ function opencodeFileDiffs(path, edits, metadata) {
 }
 
 // plugins/provider-opencode/src/helpers.ts
-var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v5";
+var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v6";
 var CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-session-binding-v";
 var QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 var QUESTION_MENU_SELECTORS = [">", "\u276F", "\u25B6", "\u27A4", "\u2192", "\u25CF"];
@@ -906,13 +906,15 @@ function opencodeBindingPluginSource() {
     "",
     "export default async function CodeTermSessionBindingPlugin({ directory, client }) {",
     "  const resumed = normalizeSessionID(process.env.CODETERM_RESUME_SESSION_ID) || resumedSessionID(process.argv || []);",
-    "  if (resumed && client?.session?.get) {",
+    "  const startupBinding = (async () => {",
+    "    if (!resumed || !client?.session?.get) return;",
     "    const result = await client.session.get({ path: { id: resumed } }).catch(() => null);",
     "    const session = result?.data || result;",
     '    if (session?.id === resumed) await report(resumed, "session.get", session.directory || directory);',
-    "  }",
+    "  })().catch(() => null);",
     "  return {",
     "    async event({ event }) {",
+    "      await startupBinding;",
     '      if (event?.type === "session.error" || event?.type === "session.idle" || (event?.type === "session.status" && event?.properties?.status?.type === "busy")) {',
     "        await reportProviderEvent(event, directory);",
     "        return;",
@@ -928,6 +930,7 @@ function opencodeBindingPluginSource() {
     "      }",
     "    },",
     '    async "chat.message"(input) {',
+    "      await startupBinding;",
     '      await report(input?.sessionID, "chat.message", directory);',
     "    },",
     '    async "tool.execute.before"(input) {',

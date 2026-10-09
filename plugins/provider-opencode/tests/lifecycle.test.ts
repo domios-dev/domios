@@ -38,9 +38,11 @@ test("every_launch_shape_scopes_the_resume_session_to_the_worker_environment", (
 async function loadBinding(input: {
   argv?: string[];
   resumeSession?: string;
+  waitForStartup?: boolean;
+  bindingNonce?: string;
   sessionGet?: (args: unknown) => Promise<unknown>;
 } = {}) {
-  const posts: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const posts: Array<{ url: string; body: Record<string, unknown>; headers: Record<string, string> }> = [];
   const source = opencodeBindingPluginSource().replace(
     "export default async function CodeTermSessionBindingPlugin",
     "async function CodeTermSessionBindingPlugin",
@@ -51,14 +53,14 @@ async function loadBinding(input: {
       env: {
         CODETERM_TAB_ID: "tab-1",
         CODETERM_API_TOKEN: "token",
-        CODETERM_SESSION_BINDING_NONCE: "nonce",
+        CODETERM_SESSION_BINDING_NONCE: input.bindingNonce || "nonce",
         CODETERM_API_URL: "http://dev",
         CODETERM_RESUME_SESSION_ID: input.resumeSession,
       },
       cwd: () => "/work",
     },
-    fetch: async (url: string, options: { body: string }) => {
-      posts.push({ url, body: JSON.parse(options.body) as Record<string, unknown> });
+    fetch: async (url: string, options: { body: string; headers: Record<string, string> }) => {
+      posts.push({ url, body: JSON.parse(options.body) as Record<string, unknown>, headers: options.headers });
       return { ok: true };
     },
     module: { exports: undefined as unknown },
@@ -72,8 +74,26 @@ async function loadBinding(input: {
     directory: "/work",
     client: input.sessionGet ? { session: { get: input.sessionGet } } : undefined,
   });
+  if (input.waitForStartup !== false) await hooks.event({ event: { type: "test.startup.completed" } });
   return { hooks, posts };
 }
+
+test("resume_factory_returns_before_own_server_session_lookup_can_complete", async () => {
+  let completeLookup!: (value: unknown) => void;
+  const lookup = new Promise((resolve) => { completeLookup = resolve; });
+  const binding = await loadBinding({
+    resumeSession: "ses_owned",
+    waitForStartup: false,
+    bindingNonce: "current-launch-nonce",
+    sessionGet: () => lookup,
+  });
+  assert.deepEqual(binding.posts, []);
+  completeLookup({ data: { id: "ses_owned", directory: "/work" } });
+  await binding.hooks.event({ event: { type: "test.startup.completed" } });
+  assert.deepEqual(binding.posts.map(({ body }) => [body.session_id, body.source]), [["ses_owned", "session.get"]]);
+  assert.equal(binding.posts[0].headers["x-codeterm-binding-nonce"], "current-launch-nonce");
+  assert.equal(binding.posts[0].url, "http://dev/api/tabs/tab-1/hook/session_start");
+});
 
 test("opencode_resume_rebinds_session", async () => {
   const requests: unknown[] = [];
