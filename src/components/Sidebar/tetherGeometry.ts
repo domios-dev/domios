@@ -29,6 +29,7 @@ function centre(rect: TetherRect): [number, number] {
 }
 
 /** One cubic curve per attachment, from just below the owner icon to the attachment icon's centre; "" when it cannot be drawn. */
+// Fanned curves read as tangled hair past one or two attachments; once owners hold several surfaces, tether to a single grouping tray instead.
 export function tetherPaths(owner: TetherRect, attachments: readonly TetherRect[], bend = TETHER_BEND): string[] {
   if (!measurable(owner)) return attachments.map(() => "");
   const x0 = owner.left + owner.width / 2;
