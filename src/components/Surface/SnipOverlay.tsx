@@ -5,7 +5,8 @@ import { SNIP_HINT, SNIP_MIN_SIDE, snipSizeLabel, type PopoverAnchor } from "./s
 export interface SnipOverlayProps {
   drawRect(): Rect;
   pageRect(start: Point, end: Point): PageRect | null;
-  onFinish(rect: PageRect, anchor: PopoverAnchor): void;
+  /** `frame` is the selection in stage px, so the area stays outlined while the question is asked. */
+  onFinish(rect: PageRect, anchor: PopoverAnchor, frame: Rect): void;
   onCancel(): void;
 }
 
@@ -55,7 +56,13 @@ export function SnipOverlay({ drawRect, pageRect, onFinish, onCancel }: SnipOver
     const rect = pageRect(drag.start, end);
     if (!rect || rect.width < SNIP_MIN_SIDE || rect.height < SNIP_MIN_SIDE) return;
     const box = event.currentTarget.getBoundingClientRect();
-    onFinish(rect, { x: Math.max(drag.start.x, end.x), y: Math.max(drag.start.y, end.y), width: box.width, height: box.height });
+    const frame = {
+      x: Math.min(drag.start.x, end.x),
+      y: Math.min(drag.start.y, end.y),
+      width: Math.abs(end.x - drag.start.x),
+      height: Math.abs(end.y - drag.start.y),
+    };
+    onFinish(rect, { x: frame.x + frame.width, y: frame.y + frame.height, width: box.width, height: box.height }, frame);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -97,5 +104,17 @@ export function SnipOverlay({ drawRect, pageRect, onFinish, onCancel }: SnipOver
         <p className="ct-surface-snip__hint">{SNIP_HINT}</p>
       )}
     </div>
+  );
+}
+
+/** The snipped area outlined on the live page while its question is open; it never takes input. */
+export function SnipFrame({ frame }: { frame: Rect }) {
+  return (
+    <div
+      aria-hidden="true"
+      data-testid="surface-snip-frame"
+      className="ct-surface-snip-frame"
+      style={{ left: frame.x, top: frame.y, width: frame.width, height: frame.height }}
+    />
   );
 }

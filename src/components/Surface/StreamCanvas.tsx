@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { decodeJpegFrame, type FrameDecoder, type FrameFeed } from "./frameFeed";
 import { SnipOverlay } from "./SnipOverlay";
-import { clickInput, decideKey, wheelInput, type PagePoint, type PageRect, type StreamInput, type StreamViewport } from "./streamModel";
+import { clickInput, decideKey, wheelInput, type PagePoint, type PageRect, type Rect, type StreamInput, type StreamViewport } from "./streamModel";
 import { canvasHint, liveViewLabel, type PopoverAnchor } from "./surfaceChromeModel";
 import { useStreamCanvas } from "./useStreamCanvas";
 
@@ -22,7 +22,7 @@ export interface StreamCanvasProps {
   onBlocked(): void;
   onExitInteraction(): void;
   onCancelPick(): void;
-  onSnip?(rect: PageRect, anchor: PopoverAnchor): void;
+  onSnip?(rect: PageRect, anchor: PopoverAnchor, frame: Rect): void;
   onCancelSnip?(): void;
   onError?(error: unknown): void;
 }
