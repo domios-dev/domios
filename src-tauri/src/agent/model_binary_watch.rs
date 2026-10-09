@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use notify::event::{MetadataKind, ModifyKind};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use parking_lot::Mutex;
 
@@ -19,7 +20,50 @@ use crate::agent::model_catalog;
 /// Keeps one watcher per provider alive for the daemon's lifetime.
 #[derive(Default)]
 pub struct ProviderBinaryWatchers {
-    watchers: Mutex<HashMap<String, RecommendedWatcher>>,
+    watchers: Mutex<HashMap<String, InputWatch>>,
+}
+
+type OnChange = Arc<dyn Fn() + Send + Sync>;
+
+struct InputWatch {
+    targets: Vec<PathBuf>,
+    callback: Arc<Mutex<OnChange>>,
+    _watcher: RecommendedWatcher,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum WatchInstall {
+    Installed(PathBuf),
+    Reused,
+    Unavailable,
+}
+
+#[derive(PartialEq, Eq)]
+struct InputStamp {
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+}
+
+fn input_stamps(targets: &[PathBuf]) -> Vec<Option<InputStamp>> {
+    targets
+        .iter()
+        .map(|path| {
+            std::fs::metadata(path).ok().map(|metadata| InputStamp {
+                len: metadata.len(),
+                modified: metadata.modified().ok(),
+            })
+        })
+        .collect()
+}
+
+fn changes_input(event: &Event, targets: &[PathBuf]) -> bool {
+    matches!(
+        event.kind,
+        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+    ) && !matches!(
+        event.kind,
+        EventKind::Modify(ModifyKind::Metadata(MetadataKind::AccessTime))
+    ) && touches_any(event, targets)
 }
 
 impl ProviderBinaryWatchers {
@@ -28,9 +72,14 @@ impl ProviderBinaryWatchers {
         key: String,
         mut targets: Vec<PathBuf>,
         on_change: Arc<dyn Fn() + Send + Sync>,
-    ) -> Option<PathBuf> {
+    ) -> WatchInstall {
         targets.sort();
         targets.dedup();
+        let mut watchers = self.watchers.lock();
+        if let Some(existing) = watchers.get(&key).filter(|watch| watch.targets == targets) {
+            *existing.callback.lock() = on_change;
+            return WatchInstall::Reused;
+        }
         let watch_dirs: Vec<PathBuf> = targets
             .iter()
             .filter_map(|target| target.parent().map(Path::to_path_buf))
@@ -39,30 +88,49 @@ impl ProviderBinaryWatchers {
             .into_iter()
             .collect();
         if watch_dirs.is_empty() {
-            return None;
+            watchers.remove(&key);
+            return WatchInstall::Unavailable;
         }
         let watched_targets = targets.clone();
-        let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
+        let callback = Arc::new(Mutex::new(on_change));
+        let event_callback = callback.clone();
+        let mut stamps = input_stamps(&targets);
+        let watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
             let Ok(event) = event else { return };
-            if !matches!(
-                event.kind,
-                EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
-            ) {
+            if !changes_input(&event, &watched_targets) {
                 return;
             }
-            if !touches_any(&event, &watched_targets) {
+            let current = input_stamps(&watched_targets);
+            if current == stamps {
                 return;
             }
+            stamps = current;
+            let on_change = event_callback.lock().clone();
             on_change();
-        })
-        .ok()?;
+        });
+        let Ok(mut watcher) = watcher else {
+            return WatchInstall::Unavailable;
+        };
         for dir in watch_dirs {
-            watcher.watch(&dir, RecursiveMode::NonRecursive).ok()?;
+            if watcher.watch(&dir, RecursiveMode::NonRecursive).is_err() {
+                return WatchInstall::Unavailable;
+            }
         }
-        self.watchers.lock().insert(key, watcher);
-        targets.into_iter().next()
+        watchers.insert(
+            key,
+            InputWatch {
+                targets: targets.clone(),
+                callback,
+                _watcher: watcher,
+            },
+        );
+        WatchInstall::Installed(targets.remove(0))
     }
 }
+
+#[cfg(test)]
+#[path = "model_binary_watch/tests.rs"]
+mod tests;
 
 fn touches_any(event: &Event, targets: &[PathBuf]) -> bool {
     event
@@ -116,11 +184,14 @@ pub fn install(provider: Arc<dyn AgentProvider>) {
         on_catalogue_input_changed(watched_provider.clone());
     });
     match watchers().watch(key, targets, on_change) {
-        Some(path) => log::info!(
+        WatchInstall::Installed(path) => log::info!(
             "[model_catalog] watching catalogue input {}",
             path.display()
         ),
-        None => log::debug!("[model_catalog] no declared catalogue inputs to watch"),
+        WatchInstall::Unavailable => {
+            log::debug!("[model_catalog] no declared catalogue inputs to watch")
+        }
+        WatchInstall::Reused => {}
     }
 }
 
@@ -137,11 +208,14 @@ pub fn install_chatbackend(
         let _ = refresh_registry.refresh_provider(&refresh_id);
     });
     match watchers().watch(format!("chatbackend:{id}"), targets, on_change) {
-        Some(path) => log::info!(
+        WatchInstall::Installed(path) => log::info!(
             "[model_catalog] watching catalogue input {}",
             path.display()
         ),
-        None => log::debug!("[model_catalog] no declared chatBackend catalogue inputs to watch"),
+        WatchInstall::Unavailable => {
+            log::debug!("[model_catalog] no declared chatBackend catalogue inputs to watch")
+        }
+        WatchInstall::Reused => {}
     }
 }
 
