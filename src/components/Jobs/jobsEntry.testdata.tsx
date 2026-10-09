@@ -38,11 +38,11 @@ export const unteamedCron = cronJob("cron-unteamed-a", workspaceA, null);
 export const foreignCron = cronJob("cron-workspace-b", workspaceB, null);
 
 export const graphA: AutomationGraph = { ...fixtureGraph(), all_teams: true, team_id: null };
-const rootB = { ...identity("sentinel", "sentinel-workspace-b"), workspace_id: workspaceB, team_id: null };
+const rootB = { ...identity("blueprint", "sentinel-workspace-b"), workspace_id: workspaceB, team_id: null };
 export const graphB: AutomationGraph = {
   workspace_id: workspaceB, team_id: null, all_teams: true, revision: "revision-b",
   scenarios: [{ id: "scenario-workspace-b", name: "Workspace B watcher", root: rootB }],
-  nodes: [{ ...fixtureNode(rootB, "Watcher B"), sentinel_definition: { source: "stored_agent_definition", definition_id: rootB.id, creator_tab_id: rootB.owner_tab_id! } }],
+  nodes: [{ ...fixtureNode(rootB, "Watcher B"), blueprint_definition: { source: "stored_agent_definition", definition_id: rootB.id, creator_tab_id: rootB.owner_tab_id! } }],
   edges: [],
 };
 export function pipelineFixture(id: string, ownerTeamId: string | null): BlueprintSnapshot {

@@ -3,7 +3,7 @@ import { blueprintModel, nodeKeys, wireId } from "./blueprintModel";
 import { followIdentity, typedGraph, watchIdentity } from "./blueprintModel.testdata";
 import { nextRunIndex, replayFrame, replaySteps, REPLAY_STEP_MS, runRow, runTimeline, runTransitions, timelineText } from "./blueprintRunModel";
 import { clampLogHeight, dragLogHeight, keyLogHeight, LOG_DEFAULT_HEIGHT, LOG_HEIGHT_KEY, LOG_MIN_HEIGHT, readLogHeight, writeLogHeight } from "./dividerModel";
-import { graphRuns } from "./runLogModel";
+import { graphRuns } from "./blueprintRunModel";
 import { automationKey, type AutomationGraph } from "./types";
 
 const tests: Array<[string, () => void]> = [];
@@ -79,11 +79,31 @@ test("pattern transitions keep their origin in the row and timeline with a confi
   const graph = ranGraph();
   graph.configured_fallback = { adapter_id: "typesafe-jev", model: "jev-latest" };
   const root = graph.nodes[0];
-  graph.nodes = [{ ...root, history: root.history!.map((entry) => ({ ...entry, decided_by: "pattern", adapter_id: null, model: null })) }, ...graph.nodes.slice(1)];
+  graph.nodes = [{ ...root, history: root.history!.map((entry) => ({ ...entry, decided_by: "pattern" })) }, ...graph.nodes.slice(1)];
   const run = graphRuns(graph)[0];
   const model = blueprintModel(graph);
   assert.ok(runRow(model, run).path.some((entry) => entry.startsWith("Pattern rules:")));
   assert.ok(runTimeline(model, run).some((entry) => entry.kind === "decision" && entry.title.startsWith("Pattern rules chose")));
+  assert.ok(!runRow(model, run).path.some((entry) => entry.includes("Jev")));
+  assert.ok(!runTimeline(model, run).some((entry) => entry.kind === "decision" && entry.title.includes("Jev")));
+});
+
+test("historical handlers do not light changed routes", () => {
+  const graph = ranGraph();
+  graph.nodes = graph.nodes.map((node) => ({ ...node, history: node.history?.map((transition) => ({ ...transition, routes_current: false })) }));
+  const model = blueprintModel(graph);
+  const steps = replaySteps(model, graphRuns(graph)[0]);
+  assert.ok(steps.length > 0);
+  assert.ok(!steps.flatMap((step) => step.nodes).some((key) => model.nodes.find((node) => node.key === key)?.type === "action"));
+  assert.ok(!steps.flatMap((step) => step.wires).some((id) => model.wires.find((wire) => wire.id === id)?.handlerId));
+});
+
+test("notification replay keeps its cadence in the shared engine", () => {
+  const steps = [{ nodes: [], wires: ["first"] }, { nodes: [], wires: ["second"] }];
+  assert.deepEqual(replayFrame(steps, 0, false, 850).travelling, ["first"]);
+  assert.deepEqual(replayFrame(steps, 850, false, 850).travelling, ["second"]);
+  assert.equal(replayFrame(steps, 1700, false, 850).done, true);
+  assert.deepEqual(replayFrame(steps, 0, true, 850).travelling, []);
 });
 
 test("a run row summarizes trigger, path, confidence, duration and status", () => {

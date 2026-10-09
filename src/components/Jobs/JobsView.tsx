@@ -8,10 +8,9 @@ import { AutomationNotices, useScenarioCameras } from "../Automation/AutomationG
 import { focusEntry, focusLost } from "../Automation/focus";
 import { hostAutomationAdapter } from "../Automation/hostAdapter";
 import { ScopedScenarioPanel } from "../Automation/ScopedScenarioPanel";
-import { sentinelJobs } from "../Automation/scenarios";
+import { blueprintScenarioJobs } from "../Automation/scenarios";
 import { AUTOMATION_TOOL } from "../Automation/styles";
 import type { AutomationGraphAdapter } from "../Automation/types";
-import { legacyScenarioPipeline } from "../Automation/pipelineModel";
 import { BlueprintPipelineCanvas } from "../Automation/BlueprintPipelineCanvas";
 import { BlueprintExportButton } from "../Automation/BlueprintExportButton";
 import { BlueprintImportForm } from "./BlueprintImportForm";
@@ -97,18 +96,14 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
   const graphsRead = graphs.every((graph) => graph.graph !== null);
   const graphsFailed = graphs.some((graph) => graph.failed);
-  const sentinels = useMemo(() => graphs.flatMap((graph) => graph.graph ? sentinelJobs(graph.graph, graph.attachment) : []), [graphs]);
+  const sentinels = useMemo(() => graphs.flatMap((graph) => graph.graph ? blueprintScenarioJobs(graph.graph, graph.attachment) : []), [graphs]);
   const blueprints = useMemo(() => graphs.flatMap((graph) => graph.graph ? blueprintJobs(graph.graph) : []), [graphs]);
   const jobs = useMemo(() => mergeJobs(filter, crons.jobs ?? [], sentinels, blueprints), [filter, crons.jobs, sentinels, blueprints]);
   const pipelines = useMemo(() => graphs.flatMap((graph) => {
     if (!graph.graph) return [];
-    const explicit = graph.graph.blueprints ?? [];
-    const entries = blueprintJobs(graph.graph).map(({ pipeline }) => ({ workspaceId: graph.attachment.workspace_id, pipeline }));
-    const known = new Set(explicit.map((blueprint) => blueprint.id));
-    const legacy = graph.graph.scenarios
-      .filter((scenario) => !known.has(scenario.id))
-      .map((scenario) => ({ workspaceId: graph.attachment.workspace_id, pipeline: legacyScenarioPipeline(graph.graph!, scenario) }));
-    return [...entries, ...legacy].filter(({ pipeline }) => filter.teamId === null || pipeline.owner.team_id === filter.teamId);
+    return blueprintJobs(graph.graph)
+      .map(({ pipeline }) => ({ workspaceId: graph.attachment.workspace_id, pipeline }))
+      .filter(({ pipeline }) => filter.teamId === null || pipeline.owner.team_id === filter.teamId);
   }), [filter.teamId, graphs]);
   const clearable = useMemo(() => clearableJobs(jobs), [jobs]);
   const canClear = graphsRead && crons.jobs !== null && !graphsFailed && !crons.failed;
