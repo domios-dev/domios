@@ -239,8 +239,12 @@ impl JsProvider {
             "sessionModelIdentityPath",
             &[json!(cwd), json!(session_id)],
         )??;
+        self.permitted_session_path(PathBuf::from(path))
+    }
+
+    pub(super) fn permitted_session_path(&self, path: PathBuf) -> Option<PathBuf> {
         let root = self.manifest_read_session_root()?.canonicalize().ok()?;
-        let path = PathBuf::from(path).canonicalize().ok()?;
+        let path = path.canonicalize().ok()?;
         (path.starts_with(root) && self.vm.can_read_path(&path) && path.is_file()).then_some(path)
     }
 

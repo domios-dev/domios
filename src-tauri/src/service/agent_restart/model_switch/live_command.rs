@@ -643,6 +643,7 @@ impl ServiceContext {
                     picker.injected();
                 }
                 loop {
+                    let observed = Instant::now();
                     let generation = signal.generation();
                     if !binding_current() {
                         break false;
@@ -681,7 +682,17 @@ impl ServiceContext {
                             break false;
                         }
                     }
-                    if !signal.wait_after(generation, remaining) {
+                    let observe_ms = observed.elapsed().as_millis();
+                    if observe_ms >= 50 {
+                        log::info!("[agent-model/timing] tab={} command={} phase=frame_observation phase_ms={} elapsed_ms={}", target.tab_id, command, observe_ms, started.elapsed().as_millis());
+                    }
+                    let waiting = Instant::now();
+                    let changed = signal.wait_after(generation, remaining);
+                    let wait_ms = waiting.elapsed().as_millis();
+                    if wait_ms >= 50 {
+                        log::info!("[agent-model/timing] tab={} command={} phase=frame_event_wait phase_ms={} changed={} elapsed_ms={}", target.tab_id, command, wait_ms, changed, started.elapsed().as_millis());
+                    }
+                    if !changed {
                         break binding_current()
                             && read_confirmation(&path, boundary.get(), source, &pattern)
                             && command_dialogs_absent(

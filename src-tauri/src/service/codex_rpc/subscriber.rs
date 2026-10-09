@@ -199,6 +199,14 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
                 if first {
                     sidecar.busy.store(false, Ordering::Release);
                     svc.mark_agent_turn_complete(&tab);
+                    let nonce = svc
+                        .mux
+                        .read()
+                        .get_tab(&tab)
+                        .and_then(|tab| tab.session_binding_nonce.clone());
+                    if let Some(nonce) = nonce {
+                        svc.staged_model_turn_completed(&tab, &current, &nonce);
+                    }
                     sidecar
                         .turn_settled
                         .send_modify(|generation| *generation = generation.wrapping_add(1));

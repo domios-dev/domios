@@ -19,6 +19,25 @@ impl JsProvider {
         cwd: &str,
         session_id: &str,
     ) -> Option<std::path::PathBuf> {
+        let path = self.session_jsonl_path_unchecked(cwd, session_id)?;
+        if self
+            .manifest
+            .commands
+            .model_switch_commands
+            .as_ref()
+            .is_some_and(|commands| commands.turn_completion.is_some())
+        {
+            self.permitted_session_path(path)
+        } else {
+            Some(path)
+        }
+    }
+
+    fn session_jsonl_path_unchecked(
+        &self,
+        cwd: &str,
+        session_id: &str,
+    ) -> Option<std::path::PathBuf> {
         // Hook-reported evidence wins over any reconstruction; absence falls through.
         if let Some(stored) = crate::session_evidence::stored_transcript_path(session_id) {
             return Some(stored);

@@ -46,6 +46,47 @@ const EFFORT_SCREEN: &str = include_str!(concat!(
 ));
 
 #[test]
+fn captured_cached_sonnet_confirmation_answers_target_yes_once_and_requires_closure() {
+    let commands = commands();
+    let mut selection = target();
+    selection.model = "sonnet".into();
+    selection.display_name = "Sonnet 5.5".into();
+    let screen = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../plugins/provider-claude/tests/fixtures/model-switch/cached-sonnet-confirmation.txt"
+    ));
+    let mut prompt =
+        CommandPrompt::new(commands.model.prompt.as_ref().unwrap(), &selection, None).unwrap();
+    prompt
+        .respond(screen, |_| panic!("unowned confirmation response"))
+        .unwrap();
+    prompt.injected();
+    assert!(prompt.present(screen));
+    prompt
+        .respond(screen, |keys| {
+            assert_eq!(keys, b"\r");
+            Ok(())
+        })
+        .unwrap();
+    assert!(prompt.answered());
+    assert!(prompt.present(screen));
+    prompt
+        .respond(screen, |_| panic!("duplicate confirmation response"))
+        .unwrap();
+    assert!(!prompt.present("composer"));
+    let mut foreign = selection;
+    foreign.model = "opus".into();
+    foreign.display_name = "Opus 5.5".into();
+    let mut prompt =
+        CommandPrompt::new(commands.model.prompt.as_ref().unwrap(), &foreign, None).unwrap();
+    prompt.injected();
+    prompt
+        .respond(screen, |_| panic!("different target confirmation"))
+        .unwrap();
+    assert!(!prompt.answered());
+}
+
+#[test]
 fn combined_switch_selects_current_sonnet_label_across_reordered_and_stale_frames() {
     let declaration = commands().model.picker.unwrap();
     let mut selection = target();
@@ -67,9 +108,8 @@ fn combined_switch_selects_current_sonnet_label_across_reordered_and_stale_frame
         .replace("❯ 4.", "  4.")
         .replace("    3.", "  ❯ 3.");
     picker
-        .respond(&format!("{initial}\n{middle}"), |key| {
-            keys.push(key.to_vec());
-            Ok(())
+        .respond(&format!("{initial}\n{middle}"), |_| {
+            panic!("intermediate cursor must not repeat batched navigation")
         })
         .unwrap();
     picker
@@ -78,10 +118,7 @@ fn combined_switch_selects_current_sonnet_label_across_reordered_and_stale_frame
             Ok(())
         })
         .unwrap();
-    assert_eq!(
-        keys,
-        [b"\x1b[B".to_vec(), b"\x1b[B".to_vec(), b"s".to_vec()]
-    );
+    assert_eq!(keys, [b"\x1b[B\x1b[B".to_vec(), b"s".to_vec()]);
     let mut reordered = CommandPicker::new(&declaration, &selection, None).unwrap();
     reordered.injected();
     let screen = MODEL_SCREEN
@@ -96,7 +133,7 @@ fn combined_switch_selects_current_sonnet_label_across_reordered_and_stale_frame
 }
 
 #[test]
-fn picker_reobserves_each_cursor_before_session_only_submit() {
+fn picker_batches_numbered_moves_and_observes_final_cursor_before_session_only_submit() {
     let mut picker =
         CommandPicker::new(&commands().model.picker.unwrap(), &target(), None).unwrap();
     let mut keys = Vec::new();
@@ -115,9 +152,8 @@ fn picker_reobserves_each_cursor_before_session_only_submit() {
         .unwrap();
     let middle = MODEL_SCREEN.replace("❯ 4.", "  4.").replace("  3.", "❯ 3.");
     picker
-        .respond(&middle, |key| {
-            keys.push(key.to_vec());
-            Ok(())
+        .respond(&middle, |_| {
+            panic!("intermediate cursor must not repeat batched navigation")
         })
         .unwrap();
     let final_frame = MODEL_SCREEN.replace("❯ 4.", "  4.").replace("  2.", "❯ 2.");
@@ -130,10 +166,7 @@ fn picker_reobserves_each_cursor_before_session_only_submit() {
     picker
         .respond(&final_frame, |_| panic!("duplicate submit"))
         .unwrap();
-    assert_eq!(
-        keys,
-        vec![b"\x1b[A".to_vec(), b"\x1b[A".to_vec(), b"s".to_vec()]
-    );
+    assert_eq!(keys, vec![b"\x1b[A\x1b[A".to_vec(), b"s".to_vec()]);
 }
 
 #[test]
@@ -219,7 +252,11 @@ fn catalogue_labels_and_model_ids_match_lf_and_crlf_rows() {
                     Ok(())
                 })
                 .unwrap();
-            assert_eq!(keys, vec![b"\x1b[A".to_vec()], "{model} / {display_name}");
+            assert_eq!(
+                keys,
+                vec![b"\x1b[A\x1b[A".to_vec()],
+                "{model} / {display_name}"
+            );
         }
     }
 }
