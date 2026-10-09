@@ -198,11 +198,20 @@ It drops only vectors of bodyless items, never the items. Log
 
 ## STAGE 7 — C Maintenance (10 updates)
 
-    codeterm mem search "" --area "" --limit 10      # no area: read, then
-    codeterm mem update <id> --area <area>           # assign if clear
-    codeterm mem search "" --kind learning --limit 10
-    codeterm mem learn-promote <id>                  # old + often accessed only
-    codeterm mem graph revive-broken --dry-run       # revive only what is still true
+Use up to 10 IDs from the supervisor preface's `UNCLASSIFIED` section.
+Read each with `codeterm mem get <id>`, then assign an area only when clear:
+
+    codeterm mem update <id> --area <area>
+
+For promotion, inspect the supplied `LEARNINGS >30d` IDs with `mem get` and
+use their age and access counts; promote only old, often-accessed learnings:
+
+    codeterm mem learn-promote <id>
+    codeterm mem graph revive-broken --dry-run
+
+An absent candidate section means zero candidates for that operation. Never
+replace it with an empty search query or an empty area filter. Revive only
+what is still true.
 
 Never delete a learning here. Log `MAINTENANCE: classified=N promoted=M revived=K`.
 
