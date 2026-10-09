@@ -152,6 +152,7 @@ pub enum TabKind {
     Agent,
     RawShell,
     ChatBackend,
+    Surface,
     Unknown,
 }
 
@@ -177,6 +178,7 @@ pub fn classify_tab_kind(record: &serde_json::Value) -> TabKind {
     }
     match record.get("backing_kind").and_then(|v| v.as_str()) {
         Some("chat_backend") => TabKind::ChatBackend,
+        Some("surface") => TabKind::Surface,
         Some("pty") => TabKind::RawShell,
         _ => TabKind::Unknown,
     }
@@ -191,10 +193,12 @@ pub fn decide_send_eligibility(
     require_agent: bool,
     to_shell: bool,
 ) -> SendEligibility {
-    if to_shell {
-        return SendEligibility::Allow;
-    }
     match kind {
+        TabKind::Surface => SendEligibility::Refuse(
+            "target is a plugin surface tab, which has no text input; drive it through the plugin's verbs (`codeterm plugin --help`)"
+                .into(),
+        ),
+        _ if to_shell => SendEligibility::Allow,
         TabKind::Agent => SendEligibility::Allow,
         TabKind::ChatBackend => {
             if require_agent {

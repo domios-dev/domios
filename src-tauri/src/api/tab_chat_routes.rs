@@ -40,6 +40,7 @@ pub(crate) fn chat_read_target(
         .ok_or((StatusCode::NOT_FOUND, "Tab not found"))?;
     match &tab.backing {
         TabBacking::ChatBackend { .. } => Ok(ChatReadTarget::OwnedSession),
+        TabBacking::Surface(_) => Ok(ChatReadTarget::Unbound),
         TabBacking::Pty => {
             if tab.agent_type.is_some() && tab.agent_session_id.is_some() {
                 Ok(ChatReadTarget::OwnedSession)
@@ -77,6 +78,7 @@ pub async fn snapshot(
                     tab.agent_type.clone().unwrap_or_default(),
                     tab.agent_session_id.clone().unwrap_or_default(),
                 ),
+                TabBacking::Surface(surface) => (surface.plugin_id.clone(), "-".to_string()),
             })
             .unwrap_or_else(|| ("-".to_string(), "-".to_string()))
     };

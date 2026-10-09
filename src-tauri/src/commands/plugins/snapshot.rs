@@ -130,6 +130,9 @@ fn enrich_from_manifest_with_icon(
         if perm_on("agent_commands", "agentCommands") {
             granted.push("agent_commands");
         }
+        if perm_on("surfaces", "surfaces") {
+            granted.push("surfaces");
+        }
         if perm_on("manage_workspaces", "manageWorkspaces") {
             granted.push("manage_workspaces");
         }
@@ -306,6 +309,7 @@ pub(super) fn build_snapshot(
             enrich_from_manifest_with_icon(&mut entry, dir, m, icon_svg.as_deref());
             arr.push(entry);
         }
+        attach_load_errors(arr, crate::plugin::js_runtime::plugin_load_errors());
     }
     // Best-effort register the default channel so its plugins surface as available; offline failures retry next snapshot.
     let _ = run_plugin_cli(&["plugin", "channel", "ensure-default", "--json"]);
@@ -355,6 +359,51 @@ pub(super) fn build_snapshot(
         "audit": audit,
         "lastOutput": last_output,
     }))
+}
+
+/// Joins live watcher load failures onto plugin rows; a plugin with no row (its manifest is
+/// not even JSON) gets a minimal one so the failure stays visible.
+fn attach_load_errors(
+    arr: &mut Vec<Value>,
+    errors: Vec<crate::plugin::js_runtime::PluginLoadError>,
+) {
+    let mut errors: std::collections::HashMap<String, Value> = errors
+        .into_iter()
+        .map(|error| {
+            let id = error.id.clone();
+            (id, serde_json::to_value(error).unwrap_or(Value::Null))
+        })
+        .collect();
+    for entry in arr.iter_mut() {
+        let Some(obj) = entry.as_object_mut() else {
+            continue;
+        };
+        let Some(id) = obj.get("id").and_then(Value::as_str).map(String::from) else {
+            continue;
+        };
+        obj.insert(
+            "load_error".into(),
+            errors.remove(&id).unwrap_or(Value::Null),
+        );
+    }
+    let mut orphans: Vec<(String, Value)> = errors.into_iter().collect();
+    orphans.sort_by(|a, b| a.0.cmp(&b.0));
+    for (id, error) in orphans {
+        let install_path = error["path"]
+            .as_str()
+            .map(std::path::Path::new)
+            .and_then(std::path::Path::parent)
+            .map(|dir| dir.to_string_lossy().into_owned());
+        arr.push(serde_json::json!({
+            "id": id,
+            "state": "error",
+            "system": false,
+            "removable": false,
+            "dev": true,
+            "install_path": install_path,
+            "load_error": error,
+        }));
+    }
 }
 
 fn reconcile_update_availability(plugins: &mut Value, diff: &Value) {
@@ -478,6 +527,40 @@ fn manifest_icon_svg(dir: &std::path::Path, manifest: &Value) -> Option<String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn load_errors_attach_to_their_row_and_orphans_get_a_row() {
+        let mut arr = vec![
+            serde_json::json!({"id": "claude", "state": "active"}),
+            serde_json::json!({"id": "healthy", "state": "active"}),
+        ];
+        let error = |id: &str, path: &str| crate::plugin::js_runtime::PluginLoadError {
+            id: id.to_string(),
+            path: std::path::PathBuf::from(path),
+            message: "parse: unknown field `prompt`".to_string(),
+            at_ms: 7,
+            kept_previous: true,
+        };
+        attach_load_errors(
+            &mut arr,
+            vec![
+                error("claude", "/p/provider-claude/plugin.json"),
+                error("broken", "/p/broken/plugin.json"),
+            ],
+        );
+        assert_eq!(
+            arr[0]["load_error"]["message"],
+            "parse: unknown field `prompt`"
+        );
+        assert_eq!(arr[0]["load_error"]["at_ms"], 7);
+        assert!(arr[1]["load_error"].is_null());
+        assert_eq!(arr.len(), 3);
+        assert_eq!(arr[2]["id"], "broken");
+        assert_eq!(arr[2]["state"], "error");
+        assert!(arr[2]["install_path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("broken")));
+    }
 
     #[test]
     fn update_reconciliation_uses_current_install_and_owning_channel() {

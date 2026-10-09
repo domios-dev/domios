@@ -36,6 +36,7 @@ pub async fn graceful_shutdown(
         .clone();
 
     quiesce_pty_spawns(&svc).await?;
+    let surfaces = crate::service::surface::begin_surface_shutdown(&svc);
 
     let swept = collect_owned_pty_tabs(&svc);
     log::info!(
@@ -50,6 +51,10 @@ pub async fn graceful_shutdown(
     let shutdown_result = shutdown_storage_off_runtime(app).await;
     persist_result?;
     shutdown_result?;
+
+    if let Err(error) = tokio::task::spawn_blocking(move || surfaces.wait()).await {
+        log::warn!("[updater] surface shutdown wait failed: {error}");
+    }
 
     let mem_owner = svc.clone();
     let checkpoint = tokio::task::spawn_blocking(move || mem_owner.mem.checkpoint_and_close())

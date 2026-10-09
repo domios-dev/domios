@@ -40,6 +40,7 @@ fn terminal_leaf(tab_id: &str, parent: Option<&str>) -> SplitNodeSnapshot {
         model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
+        surface: None,
         watcher: None,
         pending_delivery: None,
     }

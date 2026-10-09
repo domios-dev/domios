@@ -39,6 +39,12 @@
       "path": "analytics",
       "version": "1.10.20",
       "minCodeterm": "1.10.20"
+    },
+    {
+      "id": "browser",
+      "path": "browser",
+      "version": "1.12.4",
+      "minCodeterm": "1.12.4"
     }
   ]
 }

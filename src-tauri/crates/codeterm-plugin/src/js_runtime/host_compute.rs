@@ -217,7 +217,7 @@ pub(super) fn install_handles(
         }
     });
 
-    Ok(())
+    super::host_surface::install(host, sandbox)
 }
 
 #[cfg(test)]

@@ -7,6 +7,8 @@ use crate::{Commands, MemAction, TeamAction};
 
 const TEAM_LOCAL_ONLY: &str = "team management is local-only — run it on the target machine";
 const TASK_LOCAL_ONLY: &str = "task management is local-only — run it on the target machine";
+const SURFACE_LOCAL_ONLY: &str =
+    "surface tabs are owned by a local tab — run it on the target machine";
 
 /// Where a command is handled before the socket dispatch match sees it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,6 +134,7 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         Commands::Keepawake { .. } => socket_rest(),
         Commands::Integration { .. } => socket_rest(),
         Commands::Theme { .. } => socket_rest(),
+        Commands::Surface { .. } => socket_unsupported(SURFACE_LOCAL_ONLY),
         Commands::Agent { action: crate::AgentAction::Turns { .. } } => socket_unsupported("agent turns reads this daemon's authenticated session; run on the target machine"),
         Commands::Agent { .. } => socket_rest(),
         Commands::Cron { .. } => socket_rest(),

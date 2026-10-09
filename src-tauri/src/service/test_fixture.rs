@@ -293,6 +293,11 @@ impl ServiceFixture {
             agent_command_registry: Arc::new(crate::agent_commands::AgentCommandRegistry::new()),
             webhook_registry: Arc::new(codeterm_plugin::WebhookRegistry::new()),
             tab_menu_registry: Arc::new(codeterm_plugin::tab_menu::TabMenuRegistry::new()),
+            surface_registry: Arc::new(codeterm_plugin::surfaces::SurfaceRegistry::new()),
+            surface_runtimes: Arc::new(
+                super::surface::SurfaceRuntimeRegistry::with_builtin_runtimes(&data_dir),
+            ),
+            surface_activity: Default::default(),
             receiver_targets: Arc::new(crate::service::receiver_target::ReceiverTargetStore::open(
                 data_dir.join("receiver-targets.json"),
             )),

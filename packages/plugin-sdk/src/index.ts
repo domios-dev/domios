@@ -38,6 +38,7 @@ export type {
   AnalyticsSnapshot,
   AnalyticsRefusal,
   HostReceiverTarget,
+  HostSurface,
   ReceiverTargetView,
   ReceiverTargetRefusal,
 } from "./host";

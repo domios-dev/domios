@@ -92,6 +92,13 @@ const PLUGIN_PREAMBLE: &str = r#"
   host.events = {
     emit: function (event) { return parseJson(host.graphEventEmit(JSON.stringify(event || {}))); },
   };
+  // Returns the JSON text `{ result }` or `{ error }` exactly as the host produced it.
+  host.surface = {
+    call: function (verb, argsJson) {
+      var args = typeof argsJson === "string" ? argsJson : JSON.stringify(argsJson === undefined ? [] : argsJson);
+      return host.surfaceCall(String(verb || ""), args);
+    },
+  };
   host.receiverTarget = {
     get:   function () { return parseJson(host.receiverTargetGet()); },
     clear: function () { return parseJson(host.receiverTargetClear()); },

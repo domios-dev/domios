@@ -135,6 +135,11 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "../../../prod-docs/TAB-LIFECYCLE.md"
     ),
     doc!(
+        "SURFACES",
+        "Plugin surface tabs: declaring, opening and closing app tabs",
+        "../../../prod-docs/SURFACES.md"
+    ),
+    doc!(
         "MESH",
         "Peer discovery, trust, and remote routing",
         "../../../prod-docs/MESH.md"
@@ -271,15 +276,28 @@ pub(crate) fn canonical_name(name: &str) -> Option<&'static str> {
 
 pub fn handle(json: bool, name: Option<String>) {
     match name {
-        None if json => crate::cmd::print::print_json(&serde_json::json!({
-            "ok": true,
-            "docs": DOCS
+        None if json => {
+            let plugins = installed_plugin_guides();
+            let docs = DOCS
                 .iter()
-                .map(|document| serde_json::json!({ "name": document.name, "purpose": document.purpose }))
-                .collect::<Vec<_>>(),
-        })),
-        None => print!("{}", render_list()),
-        Some(name) => match render_doc(&name) {
+                .map(|document| (document.name, document.purpose))
+                .chain(
+                    plugins
+                        .iter()
+                        .map(|guide| (guide.name.as_str(), guide.purpose.as_str())),
+                )
+                .map(|(name, purpose)| serde_json::json!({ "name": name, "purpose": purpose }))
+                .collect::<Vec<_>>();
+            crate::cmd::print::print_json(&serde_json::json!({ "ok": true, "docs": docs }))
+        }
+        None => print!("{}", render_list_with(&installed_plugin_guides())),
+        Some(name) => match render_doc(&name).map(str::to_string).or_else(|error| {
+            installed_plugin_guides()
+                .into_iter()
+                .find(|guide| guide.name.eq_ignore_ascii_case(&name))
+                .map(|guide| guide.body)
+                .ok_or(error)
+        }) {
             Ok(body) if json => crate::cmd::print::print_json(
                 &serde_json::json!({ "ok": true, "name": name, "content": body }),
             ),
@@ -295,10 +313,60 @@ pub fn handle(json: bool, name: Option<String>) {
     }
 }
 
+/// An enabled core plugin's agent guide, served under the plugin id.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct PluginGuide {
+    pub name: String,
+    pub purpose: String,
+    pub body: String,
+}
+
+// Only the daemon knows which bundles loaded as verified core plugins; without it there are none.
+fn installed_plugin_guides() -> Vec<PluginGuide> {
+    let Ok((mut client, _)) = crate::client::SocketClient::connect_local() else {
+        return Vec::new();
+    };
+    client
+        .call("plugin.core_guides", None)
+        .map(|value| plugin_guides_from(&value))
+        .unwrap_or_default()
+}
+
+pub(crate) fn plugin_guides_from(value: &serde_json::Value) -> Vec<PluginGuide> {
+    let entries = value.get("guides").and_then(serde_json::Value::as_array);
+    entries
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let id = entry.get("id")?.as_str()?.trim();
+            let body = entry.get("guide")?.as_str()?;
+            if id.is_empty() || body.trim().is_empty() || canonical_name(id).is_some() {
+                return None;
+            }
+            let display = entry
+                .get("display_name")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(id);
+            Some(PluginGuide {
+                name: id.to_ascii_uppercase(),
+                purpose: format!("{display} plugin: how agents use it"),
+                body: format!("{}\n", body.trim_end()),
+            })
+        })
+        .collect()
+}
+
 pub(crate) fn render_list() -> String {
+    render_list_with(&[])
+}
+
+fn render_list_with(plugins: &[PluginGuide]) -> String {
     let mut output = String::from("Available docs:\n");
     for document in DOCS {
         writeln!(output, "  {:<16} {}", document.name, document.purpose).unwrap();
+    }
+    for guide in plugins {
+        writeln!(output, "  {:<16} {}", guide.name, guide.purpose).unwrap();
     }
     output.push_str("\nRead one complete document: codeterm docs <NAME>\n");
     output
@@ -343,7 +411,7 @@ pub(crate) fn render_doc(name: &str) -> Result<&'static str, UnknownDocument> {
 mod tests {
     use std::collections::{HashMap, HashSet};
 
-    use super::{render_doc, render_list, DOCS};
+    use super::{plugin_guides_from, render_doc, render_list, render_list_with, DOCS};
 
     #[test]
     fn docs_without_name_lists_available_documents_with_purposes() {
@@ -354,6 +422,22 @@ mod tests {
             assert!(!document.purpose.trim().is_empty());
             assert!(!document.purpose.contains('\n'));
         }
+    }
+
+    #[test]
+    fn core_plugin_guides_are_listed_by_uppercased_id_without_shadowing_built_in_docs() {
+        let guides = plugin_guides_from(&serde_json::json!({ "guides": [
+            { "id": "opaque-q7", "display_name": "Opaque", "guide": "# OPAQUE GUIDE\nbody" },
+            { "id": "orchestration", "display_name": "Shadow", "guide": "# SHADOW" },
+            { "id": "blank-q7", "guide": "  " },
+        ]}));
+        assert_eq!(guides.len(), 1);
+        assert_eq!(guides[0].name, "OPAQUE-Q7");
+        assert_eq!(guides[0].body, "# OPAQUE GUIDE\nbody\n");
+        let list = render_list_with(&guides);
+        assert!(list.contains("OPAQUE-Q7"));
+        assert!(list.contains(&guides[0].purpose));
+        assert!(plugin_guides_from(&serde_json::json!({})).is_empty());
     }
 
     #[test]

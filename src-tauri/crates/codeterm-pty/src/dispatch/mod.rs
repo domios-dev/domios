@@ -529,7 +529,7 @@ fn snapshot_agent_liveness(
     tab: &crate::multiplexer::types::Tab,
     tracked: Option<&codeterm_types::pty::TabStatus>,
 ) -> codeterm_types::pty::AgentLiveness {
-    use codeterm_types::pty::{AgentBacking, LivenessEvidence, TabStatus};
+    use codeterm_types::pty::{AgentBacking, AgentLiveness, LivenessEvidence, TabStatus};
     let backing = match &tab.backing {
         crate::multiplexer::types::TabBacking::ChatBackend { .. } => AgentBacking::ChatBackend {
             session_open: tab.agent_session_id.is_some(),
@@ -540,6 +540,7 @@ fn snapshot_agent_liveness(
                 .as_ref()
                 .and_then(|_| tracked.map(|status| *status != TabStatus::Dead)),
         },
+        crate::multiplexer::types::TabBacking::Surface(_) => return AgentLiveness::Absent,
     };
     codeterm_types::pty::classify_agent_liveness(LivenessEvidence {
         declares_agent: tab.agent_type.is_some(),
@@ -626,10 +627,7 @@ pub fn build_tab_summary_json(
         })
         .filter_map(|tab| {
             let (tab_id, workspace_id, workspace_name) = tab_index.get(tab.id.as_str())?;
-            let backing_kind = match &tab.backing {
-                crate::multiplexer::types::TabBacking::Pty => "pty",
-                crate::multiplexer::types::TabBacking::ChatBackend { .. } => "chat_backend",
-            };
+            let backing_kind = tab.backing.kind();
             let liveness = snapshot_agent_liveness(tab, snapshot.tab_statuses.get(tab.id.as_str()));
             Some(serde_json::json!({
                 "id": tab.id,

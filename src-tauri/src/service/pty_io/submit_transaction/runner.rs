@@ -304,6 +304,14 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
         };
         if !key_ready {
             if submit_key_writes > 0 {
+                log::info!(
+                    "[submit-transaction] recovery key schedule stopped after {} key(s): {}",
+                    submit_key_writes,
+                    key_error
+                        .as_ref()
+                        .map(ToString::to_string)
+                        .unwrap_or_else(|| "draft evidence absent".into())
+                );
                 break;
             }
             if bytes_written == 0 {

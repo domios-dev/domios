@@ -92,12 +92,28 @@ pub(crate) fn provider_launch_task(
 }
 
 pub(crate) fn agent_system_prompt(assignment: Option<&str>) -> String {
-    let mut sections = vec![
-        crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string(),
+    agent_system_prompt_with_plugins(
+        assignment,
+        crate::service::plugin_prompt::built_in_plugins_section().as_deref(),
+    )
+}
+
+fn primer_sections(built_in_plugins: Option<&str>) -> Vec<String> {
+    let mut sections = vec![crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string()];
+    sections.extend(built_in_plugins.map(str::to_string));
+    sections
+}
+
+fn agent_system_prompt_with_plugins(
+    assignment: Option<&str>,
+    built_in_plugins: Option<&str>,
+) -> String {
+    let mut sections = primer_sections(built_in_plugins);
+    sections.extend([
         crate::prompts::UTILITY_TAB_GUIDANCE.trim().to_string(),
         crate::prompts::AGENT_PAD_RULE.trim().to_string(),
         crate::prompts::RICH_RENDERING_GUIDANCE.trim().to_string(),
-    ];
+    ]);
     if let Some(assignment) = assignment.filter(|text| !text.trim().is_empty()) {
         sections.push(format!("## Assignment\n\n{assignment}"));
     }
@@ -118,13 +134,27 @@ fn worker_agent_system_prompt_from_identity(
     assignment: &str,
     role_profile: Option<&str>,
 ) -> String {
+    worker_agent_system_prompt_with_plugins(
+        identity,
+        assignment,
+        role_profile,
+        crate::service::plugin_prompt::built_in_plugins_section().as_deref(),
+    )
+}
+
+fn worker_agent_system_prompt_with_plugins(
+    identity: Option<&str>,
+    assignment: &str,
+    role_profile: Option<&str>,
+    built_in_plugins: Option<&str>,
+) -> String {
     let mut sections = vec![crate::service::persona::guidance_for(
         crate::service::persona::Occasion::WorkerLaunchIdentity,
         Some(crate::multiplexer::types::AgentRole::Worker),
         role_profile,
         identity,
     )];
-    sections.push(crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string());
+    sections.extend(primer_sections(built_in_plugins));
     sections.push(crate::prompts::WORKER_CODETERM_CONTEXT.trim().to_string());
     sections.push(crate::prompts::AGENT_PAD_RULE.trim().to_string());
     sections.push(crate::prompts::RICH_RENDERING_GUIDANCE.trim().to_string());

@@ -694,3 +694,66 @@ fn layout_active_tab_round_trip_expected_pass() {
     );
     close(restarted);
 }
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri service fixture requires Windows"
+)]
+fn surface_resume_point_round_trip_expected_pass() {
+    use crate::multiplexer::types::{SurfaceBacking, TabBacking};
+    use crate::service::surface::resume::write_surface_resume;
+    use crate::service::surface::runtime::SurfaceResume;
+
+    let root = tempfile::tempdir().unwrap();
+    let instance = started(root.path());
+    let workspace_id = instance.fixture.service.mux.read().list_workspaces()[0]
+        .id
+        .clone();
+    let tab_id = instance
+        .fixture
+        .service
+        .create_named_tab(&workspace_id, "Browser")
+        .unwrap();
+    instance
+        .fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .backing = TabBacking::Surface(SurfaceBacking {
+        plugin_id: "browser".into(),
+        surface_id: "browser".into(),
+        instance_id: "inst-1".into(),
+        owner_label: true,
+        resume_url: None,
+        resume_profile: None,
+    });
+    let resume = SurfaceResume {
+        url: Some("https://mail.example.com/inbox#thread/42".into()),
+        profile: Some("work".into()),
+    };
+    let app = instance.fixture._app.handle().clone();
+    assert_eq!(
+        write_surface_resume(&app, &instance.fixture.service.mux, &tab_id, &resume),
+        Some(true)
+    );
+
+    let restarted = instance.restart(root.path());
+    let restored = restarted
+        .fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.surface().cloned())
+        .expect("surface tab restored");
+    assert_eq!(
+        restored.resume_url.as_deref(),
+        Some("https://mail.example.com/inbox#thread/42")
+    );
+    assert_eq!(restored.resume_profile.as_deref(), Some("work"));
+    assert!(restored.owner_label);
+    close(restarted);
+}

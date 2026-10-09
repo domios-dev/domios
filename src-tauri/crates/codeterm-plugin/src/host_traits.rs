@@ -81,6 +81,18 @@ pub trait PluginHostCtx: Send + Sync {
     fn secret_set(&self, plugin_id: &str, name: &str, value: &str) -> bool;
     fn secret_delete(&self, plugin_id: &str, name: &str) -> bool;
 
+    // ── Surfaces ────────────────────────────────────────────────────────
+    /// Runs one verb on `caller`'s own stream surface of `plugin_id`; `{ result }` or `{ error }`.
+    fn surface_call_json(
+        &self,
+        _plugin_id: &str,
+        _caller: &str,
+        _verb: &str,
+        _args_json: &str,
+    ) -> String {
+        r#"{"error":"surfaces_unavailable"}"#.to_string()
+    }
+
     // ── Receiver target ─────────────────────────────────────────────────
     /// The host-owned tab bound to this plugin's own webhook receiver.
     fn receiver_target_json(&self, _plugin_id: &str) -> String {

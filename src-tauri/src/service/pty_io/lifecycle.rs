@@ -489,6 +489,9 @@ impl ServiceContext {
         if self.tab_chat_backing(&resolved).is_some() {
             return Ok(());
         }
+        if let Some(refusal) = self.tab_surface_input_refusal(&resolved) {
+            return Err(refusal);
+        }
         let pty_claim = self.pty_ownership.acquire(&resolved);
         self.ensure_tab_pty_for_send_inner(&resolved, &pty_claim)
     }

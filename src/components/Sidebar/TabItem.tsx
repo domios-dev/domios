@@ -2,7 +2,9 @@ import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { ShellPurposeIcon } from "../shared/ShellStatus";
 import { isUtilityShell, shellPurposeLabel } from "../../lib/shellCommandState";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { ShieldCheck, TriangleAlert } from "lucide-react";
+import { Globe, ShieldCheck, TriangleAlert } from "lucide-react";
+import { surfaceBacking, tabRowLabel } from "../../lib/surfaceTab";
+import { SurfaceIcon } from "../Surface/surfaceIcon";
 import { usePluginTabMenu } from "../../lib/pluginTabMenu";
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
 import { getAgentDescriptor, listAgentDescriptors } from "../../lib/agentDescriptorCache";
@@ -67,6 +69,63 @@ interface TabItemProps {
   onToggleCollapse?: () => void;
   /** Shown on the head only while collapsed — "1 manager · 2 workers". */
   collapsedSummary?: string | null;
+  /** Owner's title, composed into an owner-labelled surface's label. */
+  ownerTitle?: string | null;
+  /** Compact surface row tucked under its owner. */
+  variant?: "attachment";
+  /** Left inset in px; an attachment sits one avatar in from its owner. */
+  insetPx?: number;
+  /** Narrow sidebar: the owner's glyph rides on the surface icon instead of a tether. */
+  ownerBadgeTab?: Tab | null;
+  /** Owner row folding its surface attachments. */
+  attachmentToggle?: AttachmentToggle | null;
+}
+
+export interface AttachmentToggle {
+  count: number;
+  collapsed: boolean;
+  onToggle: () => void;
+}
+
+function AttachmentToggleButton({ toggle }: { toggle: AttachmentToggle }) {
+  const noun = toggle.count === 1 ? "1 surface" : `${toggle.count} surfaces`;
+  const label = toggle.collapsed ? `Show ${noun}` : `Hide ${noun}`;
+  return (
+    <button
+      type="button"
+      data-testid="attachment-toggle"
+      data-collapsed={toggle.collapsed ? "true" : "false"}
+      aria-expanded={!toggle.collapsed}
+      aria-label={label}
+      title={label}
+      className="sidebar-attachment-toggle"
+      onClick={(event) => {
+        event.stopPropagation();
+        toggle.onToggle();
+      }}
+    >
+      <Globe size={10} aria-hidden="true" />
+      {toggle.collapsed && toggle.count > 1 && <span data-testid="attachment-toggle-count">{toggle.count}</span>}
+    </button>
+  );
+}
+
+function OwnerBadgedSurfaceIcon({ tab, ownerTab, size }: { tab: Tab; ownerTab: Tab; size: number }) {
+  const owner = useTabProvider(ownerTab);
+  return (
+    <span data-testid="tab-surface-owner-badge" className="sidebar-surface-badged-icon">
+      <SurfaceIcon data-testid="tab-surface-icon" backing={surfaceBacking(tab)} size={size} />
+      {owner && (
+        <ProviderGlyph
+          iconSvg={owner.iconSvg}
+          iconColor={owner.iconColor}
+          iconHint={owner.iconHint}
+          className="sidebar-surface-badged-icon__owner leading-none"
+          title={owner.displayName}
+        />
+      )}
+    </span>
+  );
 }
 
 function GroupCollapseChevron({
@@ -187,7 +246,13 @@ function TabItemInner({
   collapsed = false,
   onToggleCollapse,
   collapsedSummary,
+  ownerTitle = null,
+  variant,
+  insetPx,
+  ownerBadgeTab = null,
+  attachmentToggle = null,
 }: TabItemProps) {
+  const attachment = variant === "attachment";
   // Unified identity for agent (agent_type) AND chatBackend shell (backing.plugin_id)
   // tabs — drives the icon, tooltip, and (for shells) the model badge.
   const provider = useTabProvider(tab);
@@ -233,7 +298,8 @@ function TabItemInner({
   // The first-run marker lives in the description field; it is an internal flag, not text to show.
   const description = isFirstRunGeneralTab(tab) ? "Choose your General Agent" : tab.description ?? null;
   const canonicalTitle = displayTitleForTab(tab);
-  const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
+  const rowTitle = tabRowLabel(tab, canonicalTitle, ownerTitle);
+  const displayTitle = hasAgent ? rowTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : rowTitle;
   const isGeneralAgent = isGeneralAgentTab(tab);
   const utilityShell = isUtilityShell(tab);
   const shellRunning = utilityShell && tab.shell_command_state?.activity === "running";
@@ -248,7 +314,9 @@ function TabItemInner({
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(canonicalTitle);
   const tabRef = useRef<HTMLDivElement>(null);
-  const tabText = pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
+  const tabText = attachment
+    ? pickUiFontScaleValue(uiFontScale, ["text-[10px]", "text-[10.5px]", "text-xs", "text-sm"])
+    : pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
   const tabTouchText = pickUiFontScaleValue(uiFontScale, ["text-[13px]", "text-[14px]", "text-[15px]", "text-base"]);
 
   const [closePhase, setClosePhase] = useState<0 | 1 | 2>(0);
@@ -300,10 +368,13 @@ function TabItemInner({
       data-tab-id={tab.id}
       data-tab-no-task-bubble="true"
       title={description ? `${displayTitle}\n${description}` : displayTitle}
+      data-variant={variant}
+      style={insetPx != null ? { paddingLeft: insetPx } : undefined}
       className={`
         sidebar-tab group flex items-center justify-between cursor-pointer transition-colors relative
         ${touchMode ? "sidebar-tab-touch" : ""}
-        ${touchMode ? "min-h-11 pl-5 pr-2 py-2" : "pl-4 pr-2 py-1.5"}
+        ${attachment ? "sidebar-tab--attachment" : ""}
+        ${touchMode ? (attachment ? "min-h-9 pl-5 pr-2 py-1" : "min-h-11 pl-5 pr-2 py-2") : attachment ? "pl-4 pr-2 py-0.5" : "pl-4 pr-2 py-1.5"}
         ${animClass}
         ${isActive || editing ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
       `}
@@ -358,6 +429,12 @@ function TabItemInner({
               className={`leading-none ${touchMode ? "text-[15px]" : isSubTab ? "text-[10px]" : "text-[12px]"}`}
               title={status === "Working" ? `${providerName} working...` : status === "Waiting" ? `${providerName} — waiting for input` : providerName}
             />
+          ) : surfaceBacking(tab) ? (
+            ownerBadgeTab ? (
+              <OwnerBadgedSurfaceIcon tab={tab} ownerTab={ownerBadgeTab} size={touchMode ? 14 : 11} />
+            ) : (
+              <SurfaceIcon data-testid="tab-surface-icon" backing={surfaceBacking(tab)} size={touchMode ? 15 : isSubTab ? 11 : 13} />
+            )
           ) : tab.tab_type === "Choice" ? (
             <ChoiceIcon className={`${touchMode ? "scale-110" : isSubTab ? "scale-90" : ""}`} />
           ) : (
@@ -368,7 +445,7 @@ function TabItemInner({
             <span className="flex min-w-0 items-center gap-1.5">
               <span
                 data-testid="tab-title"
-                className={`${touchMode ? tabTouchText : tabText} block truncate min-w-0 text-[var(--ct-fg)] ${isActive ? "font-medium" : ""}`}
+                className={`${touchMode && !attachment ? tabTouchText : tabText} block truncate min-w-0 ${attachment && !isActive ? "text-[var(--ct-muted-fg)]" : "text-[var(--ct-fg)]"} ${isActive ? "font-medium" : ""}`}
                 onDoubleClick={(e) => {
                   if (tab?.protected) return; // Main is unrenameable
                   e.stopPropagation();
@@ -390,7 +467,7 @@ function TabItemInner({
               >
                 {collapsedSummary}
               </span>
-            ) : (
+            ) : attachment ? null : (
               <>
                 <TabDescriptionSubtitle description={description} />
                 <TabSubline subtitle={localSubtitle} generalAgent={isGeneralAgent} />
@@ -465,6 +542,7 @@ function TabItemInner({
         {accessibleTitle} tab status {status ?? "Unknown"}
       </span>}
       <div className={`shrink-0 relative z-[1] flex items-center justify-end ${utilityShell ? "" : "min-w-5"}`}>
+        {attachmentToggle && attachmentToggle.count > 0 && <AttachmentToggleButton toggle={attachmentToggle} />}
         {tabModelBadge && !touchMode ? (
           <SidebarModelBadge label={tabModelBadge} title={tabModelTitle} />
         ) : null}
@@ -489,8 +567,8 @@ function TabItemInner({
   );
 }
 
-function backingPluginId(p: Tab): string | undefined {
-  return p.backing?.kind === "chat_backend" ? p.backing.plugin_id : undefined;
+function backingPluginId(p: Tab | null | undefined): string | undefined {
+  return p?.backing?.kind === "chat_backend" ? p.backing.plugin_id : undefined;
 }
 function backingSessionId(p: Tab): string | undefined {
   return p.backing?.kind === "chat_backend" ? p.backing.session_id : undefined;
@@ -513,6 +591,15 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     prev.groupCollapsible !== next.groupCollapsible ||
     prev.collapsed !== next.collapsed ||
     prev.collapsedSummary !== next.collapsedSummary ||
+    prev.ownerTitle !== next.ownerTitle ||
+    prev.variant !== next.variant ||
+    prev.insetPx !== next.insetPx ||
+    prev.ownerBadgeTab?.id !== next.ownerBadgeTab?.id ||
+    prev.ownerBadgeTab?.agent_type !== next.ownerBadgeTab?.agent_type ||
+    backingPluginId(prev.ownerBadgeTab) !== backingPluginId(next.ownerBadgeTab) ||
+    prev.attachmentToggle?.count !== next.attachmentToggle?.count ||
+    prev.attachmentToggle?.collapsed !== next.attachmentToggle?.collapsed ||
+    prev.attachmentToggle?.onToggle !== next.attachmentToggle?.onToggle ||
     prev.onToggleCollapse !== next.onToggleCollapse ||
     prev.reportCount !== next.reportCount ||
     prev.activeWork !== next.activeWork

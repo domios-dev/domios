@@ -29,6 +29,7 @@ export interface CatalogEntry {
   updateAvailable: boolean;
   /** Installed after daemon start, capability waiting on a reload to activate (§1.8). */
   pendingReload?: boolean | null;
+  loadError?: { message: string; path: string; atMs: number; keptPrevious: boolean } | null;
   capabilities?: PluginCapabilities | null;
   grantedPermissions?: string[] | null;
   networkAllow?: string[] | null;
@@ -99,6 +100,9 @@ function entryFromInstalled(p: InstalledPlugin): CatalogEntry {
     blockedReason: null,
     updateAvailable: p.dev !== true && p.update?.available === true,
     pendingReload: p.pending_reload ?? false,
+    loadError: p.load_error
+      ? { message: p.load_error.message, path: p.load_error.path, atMs: p.load_error.at_ms, keptPrevious: p.load_error.kept_previous === true }
+      : null,
     capabilities: p.capabilities ?? null,
     grantedPermissions: p.granted_permissions ?? null,
     networkAllow: p.network_allow ?? [],
@@ -138,6 +142,7 @@ function mergeMarketplace(base: CatalogEntry | undefined, m: MarketplaceRow): Ca
     blockedReason: base ? base.blockedReason : m.blocked_reason ?? null,
     updateAvailable,
     pendingReload: base?.pendingReload ?? false,
+    loadError: base?.loadError ?? null,
     // back to the channel manifest for not-yet-installed plugins.
     capabilities: base?.capabilities ?? m.capabilities ?? null,
     grantedPermissions: base?.grantedPermissions ?? m.granted_permissions ?? null,

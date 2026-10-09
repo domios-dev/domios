@@ -698,6 +698,7 @@ pub fn tab_chat_snapshot(
                 .ok_or_else(|| super::tab_transport_chat::removed_chatbackend_error(&plugin_id))?;
             chatbackend_transcript_snapshot(provider.as_ref(), &session_id, since)
         }
+        crate::multiplexer::types::TabBacking::Surface(_) => Ok((Vec::new(), 0)),
         crate::multiplexer::types::TabBacking::Pty => {
             let (provider_id, cwd, session_id) = {
                 let m = svc.mux.write();
