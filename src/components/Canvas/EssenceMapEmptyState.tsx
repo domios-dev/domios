@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
-import { AlertTriangle, FileText, Map as MapIcon, RefreshCw, Send } from "lucide-react";
+import { AlertTriangle, FileText, Map as MapIcon, RefreshCw } from "lucide-react";
+import { SendIcon } from "../Icons";
 import { UI_BUTTON } from "../shared/design";
 import { projectName, statusLabel } from "./EssenceMapProjectView";
 import type { EssenceMapProject } from "./essenceMapModel";
@@ -48,7 +49,7 @@ export function EssenceMapEmptyState({ projects, orchestrator, onAskOrchestrator
       </p>
       <div className="flex flex-wrap items-center justify-center gap-2">
         {canAsk && <button type="button" data-testid="essence-map-ask-orchestrator" className={`${UI_BUTTON.primary} inline-flex items-center gap-1.5`} disabled={sending} onClick={() => void ask()}>
-          <Send size={13} aria-hidden="true" />{sending ? "Sending…" : "Ask the Orchestrator to build the project map"}
+          <SendIcon size={13} />{sending ? "Sending…" : "Ask the Orchestrator to build the project map"}
         </button>}
         {onRetry && <button type="button" className={`${UI_BUTTON.ghost} inline-flex items-center gap-1.5`} onClick={onRetry}><RefreshCw size={12} aria-hidden="true" />Check again</button>}
       </div>

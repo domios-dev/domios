@@ -43,17 +43,3 @@ export function bubblePoseFromPointer(
   const sy = clamp(ry.squish * (1 + stretchY - PINCH * stretchX), SCALE_MIN, SCALE_MAX);
   return { x: rx.clamped, y: ry.clamped, sx, sy };
 }
-
-export function ComposerSendIcon({ size = 20 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M4.5 12H19M13 5.5 19.5 12 13 18.5"
-        stroke="currentColor"
-        strokeWidth="2.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}

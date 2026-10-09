@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import { ChevronUp, Lock, Mic, Square, X } from "lucide-react";
-import { ComposerSendIcon } from "./composerBubble";
 import type { ComposerVoiceHandle } from "./voice/useComposerVoice";
+import { SendIcon } from "../Icons";
 
 const btnBase =
   "ct-liquid-interactive flex items-center justify-center shrink-0";
@@ -127,7 +127,7 @@ function ActionButtonIcon({
   voiceActive: boolean;
   cancelArmed: boolean;
 }) {
-  if (mainIsSend) return <ComposerSendIcon size={20} />;
+  if (mainIsSend) return <SendIcon size={20} />;
   // Armed to cancel: red cross. Locked: dark pause. Recording: red mic.
   if (cancelArmed) return <X size={30} strokeWidth={2.6} color={recordingFg} />;
   if (isLocked) return <Square size={18} fill={lockedFg} color={lockedFg} />;

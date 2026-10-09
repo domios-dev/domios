@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Pause, Play, SendHorizontal, Trash2 } from "lucide-react";
+import { Pause, Play, Trash2 } from "lucide-react";
+import { SendIcon } from "../../Icons";
 import type { VoicePreviewData } from "./useVoiceRecorder";
 
 function formatClock(sec: number): string {
@@ -118,7 +119,7 @@ export function VoicePreview({
         className="ct-voice-control flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white shadow-[0_4px_16px_rgba(31,111,235,0.45)] disabled:opacity-50"
         style={{ background: "linear-gradient(145deg, #4f8cff 0%, #1f6feb 100%)" }}
       >
-        <SendHorizontal size={17} fill="currentColor" />
+        <SendIcon size={17} />
       </button>
     </div>
   );

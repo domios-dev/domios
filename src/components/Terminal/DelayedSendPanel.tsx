@@ -5,11 +5,11 @@ import {
   Clock3,
   Infinity as InfinityIcon,
   Pencil,
-  SendHorizontal,
   TriangleAlert,
   X,
 } from "lucide-react";
 import type { DelayedMessage } from "./delayedSend";
+import { SendIcon } from "../Icons";
 import {
   formatClock,
   formatRelative,
@@ -614,7 +614,7 @@ function QueueCard({
               onClick={onStartEdit}
             />
             <CardAction
-              icon={<SendHorizontal size={15} />}
+              icon={<SendIcon size={15} />}
               title="Send now"
               color="var(--ct-green, #3fb950)"
               disabled={busy}
