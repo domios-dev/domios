@@ -84,6 +84,7 @@ fn watcher_wakes_on_own_append_and_the_matching_turn_releases() {
     let (wake, events) = std::sync::mpsc::channel();
     let _watcher = boundary.watch(wake).unwrap();
     writeln!(file, "{}", record("own", "turn_completed")).unwrap();
+    file.as_file().sync_all().unwrap();
     events
         .recv_timeout(std::time::Duration::from_secs(5))
         .unwrap();
