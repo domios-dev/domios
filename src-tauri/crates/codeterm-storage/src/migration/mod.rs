@@ -59,7 +59,7 @@ impl ImportDomain {
         match self {
             ImportDomain::Desk => "desk",
             ImportDomain::Cron => "cron",
-            ImportDomain::Sentinel => "sentinel",
+            ImportDomain::Sentinel => "blueprint",
         }
     }
 }

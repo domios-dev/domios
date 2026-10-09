@@ -158,13 +158,13 @@ impl SentinelRepository {
 
     /// Inserts exact existing stages as `Imported` version 1; nothing is executed or rearmed.
     pub fn import(&self, records: Vec<SentinelImport>) -> Mutation {
-        let validated = batch_bound("sentinel import", records.len()).and_then(|()| {
+        let validated = batch_bound("blueprint import", records.len()).and_then(|()| {
             let mut ids = HashSet::new();
             for record in &records {
                 record.validate()?;
                 if !ids.insert(record.identity.id.as_str()) {
                     return Err(StorageError::invalid(
-                        "sentinel import",
+                        "blueprint import",
                         "repeats a stage id",
                     ));
                 }
@@ -288,7 +288,7 @@ impl SentinelRepository {
     }
 
     pub fn schedule(&self, updates: Vec<ScheduleUpdate>) -> Mutation {
-        let validated = batch_bound("sentinel schedule", updates.len())
+        let validated = batch_bound("blueprint schedule", updates.len())
             .and_then(|()| updates.iter().try_for_each(ScheduleUpdate::validate));
         if let Err(error) = validated {
             return refused(error);

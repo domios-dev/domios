@@ -19,7 +19,7 @@ fn scope_row(conn: &Connection, id: &str) -> Result<Option<ScopeRow>, StorageErr
             .query_row([id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
             .optional()
     })
-    .map_err(|e| sqlite_error("read sentinel scope", e))
+    .map_err(|e| sqlite_error("read blueprint scope", e))
 }
 
 pub(super) fn activate_target(

@@ -88,7 +88,7 @@ pub(super) fn command_status_from(text: &str) -> Result<CommandStatus, StorageEr
 
 pub(super) fn corrupt(detail: &str) -> StorageError {
     StorageError::Corrupt {
-        detail: format!("sentinel runtime: {detail}"),
+        detail: format!("blueprint runtime: {detail}"),
     }
 }
 
