@@ -775,6 +775,28 @@ fn a_new_send_cancels_remaining_keys_and_writes_while_the_prior_cycle_is_open() 
 }
 
 #[test]
+fn superseding_a_written_payload_preserves_its_initial_enter() {
+    let pty_id = "superseded-written-initial-enter";
+    let first_claim = claim_submit_cycle(pty_id);
+    let (transport, pasted, _, _) = EventTransport::new(true, 0);
+    transport.state.lock().unwrap().composer_ready = true;
+    transport.pause_after_paste();
+    transport.connect_submit_cycle_claim(first_claim.clone());
+    let sender = Arc::clone(&transport);
+    let send = std::thread::spawn(move || run_with_readiness_guard(&sender, "first"));
+    pasted.recv_timeout(Duration::from_secs(2)).unwrap();
+    let _newer = claim_submit_cycle(pty_id);
+    assert!(!first_claim.is_current());
+    transport.release_paste();
+    let result = join(send, "superseded initial Enter").unwrap().unwrap();
+    assert!(result.submit_observed);
+    assert_eq!(
+        transport.state.lock().unwrap().writes,
+        ["paste:first", "enter"]
+    );
+}
+
+#[test]
 fn deferred_key_is_not_written_when_the_readiness_event_is_a_dialog() {
     let (transport, paste_rx, deferred_wait_rx, _) =
         EventTransport::new(false, MAX_SUBMIT_KEY_WRITES);

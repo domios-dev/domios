@@ -4,7 +4,7 @@ use crate::service::delivery_error::DeliveryError;
 use crate::service::ServiceContext;
 
 mod agent_binding;
-mod readiness;
+pub(super) mod readiness;
 
 fn compose_routed_suffix(suffix: &str, requires_instruction: bool) -> String {
     let mut typed_suffix = suffix.to_string();

@@ -95,6 +95,9 @@ pub(crate) async fn hook_provider_event(
             "provider active tab has no PTY status".to_string(),
         ));
     }
+    if turn_started || turn_complete || turn_error {
+        state.svc.reconcile_chat_send_hook(&tab_id).await;
+    }
     Ok(Json(serde_json::json!({
         "ok": true,
         "turn_error": turn_error,
