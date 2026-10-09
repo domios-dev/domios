@@ -5,6 +5,39 @@ use super::super::*;
 use super::*;
 
 #[test]
+fn completion_record_source_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    let project = tempfile::tempdir().unwrap();
+    let cwd = project.path().to_string_lossy().to_string();
+    let session = format!("completion-parity-{}", uuid::Uuid::new_v4());
+    let path = native.session_jsonl_path(&cwd, &session).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "{}").unwrap();
+    for source in ["session_jsonl", "session_file"] {
+        let declaration: crate::provider::ModelSwitchTurnCompletion = serde_json::from_value(
+            serde_json::json!({"source":source,"eventPointer":"/event","eventValue":"complete","sessionPointer":"/session","startEventValue":"start","turnPointer":"/turn","activeTurnPointer":"/active"}),
+        ).unwrap();
+        assert_eq!(
+            declaration
+                .record_path(&native, &cwd, &session)
+                .unwrap()
+                .canonicalize()
+                .unwrap(),
+            declaration
+                .record_path(&js, &cwd, &session)
+                .unwrap()
+                .canonicalize()
+                .unwrap(),
+        );
+    }
+    std::fs::remove_file(&path).unwrap();
+    std::fs::remove_dir(path.parent().unwrap()).unwrap();
+}
+
+#[test]
 fn session_effort_confirmed_command_and_later_turn_native_js_parity() {
     if require_plugins().is_none() {
         return;

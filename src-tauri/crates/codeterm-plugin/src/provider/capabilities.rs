@@ -151,12 +151,34 @@ pub struct ModelSwitchCommands {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ModelSwitchTurnCompletion {
+    pub source: ModelSwitchCompletionSource,
     pub event_pointer: String,
     pub event_value: String,
     pub session_pointer: String,
     pub start_event_value: String,
     pub turn_pointer: String,
     pub active_turn_pointer: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelSwitchCompletionSource {
+    SessionJsonl,
+    SessionFile,
+}
+
+impl ModelSwitchTurnCompletion {
+    pub fn record_path(
+        &self,
+        provider: &dyn super::AgentProvider,
+        cwd: &str,
+        session: &str,
+    ) -> Option<std::path::PathBuf> {
+        match self.source {
+            ModelSwitchCompletionSource::SessionJsonl => provider.session_jsonl_path(cwd, session),
+            ModelSwitchCompletionSource::SessionFile => provider.session_file_path(cwd, session),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
