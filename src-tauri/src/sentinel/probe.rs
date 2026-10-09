@@ -82,9 +82,31 @@ pub(super) fn run_with_receipt(
     (Output, process::DeadlineReceipt),
     (process::ProbeFailure, Option<process::DeadlineReceipt>),
 > {
+    run_with_runtime_and_receipt(
+        command,
+        cwd,
+        limit,
+        PROBE_RUNTIME,
+        owner,
+        &environment::Environment::default(),
+    )
+}
+
+#[cfg(test)]
+fn run_with_runtime_and_receipt(
+    command: &str,
+    cwd: &Path,
+    limit: Duration,
+    runtime: Duration,
+    owner: &Arc<owner::ProbeResourceOwner>,
+    environment: &environment::Environment,
+) -> Result<
+    (Output, process::DeadlineReceipt),
+    (process::ProbeFailure, Option<process::DeadlineReceipt>),
+> {
     let admitted = std::time::Instant::now();
-    let deadlines = process::Deadlines::at(limit, PROBE_RUNTIME, admitted)
-        .map_err(|failure| (failure, None))?;
+    let deadlines =
+        process::Deadlines::at(limit, runtime, admitted).map_err(|failure| (failure, None))?;
     let receipt = deadlines.receipt();
     run_transaction(
         command,
@@ -93,7 +115,7 @@ pub(super) fn run_with_receipt(
         owner,
         &cancellation::Cancellation::default(),
         false,
-        &environment::Environment::default(),
+        environment,
     )
     .map(|output| (output, receipt))
     .map_err(|failure| (failure, Some(receipt)))
