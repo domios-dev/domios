@@ -140,10 +140,21 @@ pub enum ModelSwitchMode {
 pub struct ModelSwitchCommands {
     pub model: ModelSwitchCommand,
     pub effort: Option<ModelSwitchCommand>,
+    #[serde(default)]
+    pub confirmation_source: ModelSwitchConfirmationSource,
+    #[serde(default)]
     pub transcript: ModelSwitchTranscript,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ModelSwitchConfirmationSource {
+    #[default]
+    Transcript,
+    SessionIdentity,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ModelSwitchTranscript {
     pub record_type: String,
@@ -156,6 +167,7 @@ pub struct ModelSwitchTranscript {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ModelSwitchCommand {
     pub command: String,
+    #[serde(default)]
     pub confirmation: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<ModelSwitchPrompt>,

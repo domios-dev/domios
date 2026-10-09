@@ -213,6 +213,27 @@ Drives the manifest fallbacks for session discovery (`sessionFilePath`,
 | `fileExtension` | string | `"jsonl"` | Session file extension. |
 | `searchFiles` | object? | absent | Search-only filesystem enumeration. `rootSubdir` selects a path beneath `rootDir`, `directoryDepth` bounds the number of directories to descend (default 1, host maximum 8), and `fileStemRegex` optionally extracts the session id from capture group 1. Search reads file paths and timestamps in Rust, then asks the provider for descriptive fields only after the raw content prefilter selects a candidate. |
 
+### Session identity confirmation
+
+`commands.modelSwitchCommands.confirmationSource: {kind: "session_identity"}`
+selects provider-owned model metadata instead of transcript stdout. Declare
+`model: {command: "/model {model}"}` and optional
+`effort: {command: "/effort {effort}"}`. Export
+`sessionModelIdentityPath(cwd, sessionId): string | null` for the exact session.
+The host canonicalizes that existing file beneath the permitted session root,
+installs a parent watcher before writing, and requires changed own-file bytes
+plus the target from `detectSessionModel` or `detectSessionReasoningEffort`.
+An already-current value is a no-op. Missing paths or unchanged evidence fail
+honestly. Session, PTY and binding nonce remain fixed; no automatic restart.
+The default `confirmationSource: {kind: "transcript"}` preserves the existing
+`transcript` declaration and fresh wrapped-stdout confirmation.
+No new sandbox host function or filesystem grant is exposed.
+
+`parseUsage` snapshots carry `billing_mode` (`subscription`, `api`, `unknown`)
+and `limits_reported` (boolean). Unknown is the default. Subscription snapshots
+with no reported metrics display that limits were not reported, without guessed
+spend. Providers must preserve missing meters as null.
+
 ### `commands`
 
 All fields optional.

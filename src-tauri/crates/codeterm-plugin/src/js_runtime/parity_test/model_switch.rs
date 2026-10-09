@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "session_model_identity.rs"]
+mod session_model_identity;
+
 #[test]
 fn opencode_live_model_switch_matches_the_native_capability_wire_value() {
     let Some(_) = require_plugins() else {
