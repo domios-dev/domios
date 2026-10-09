@@ -58,8 +58,9 @@ Evidence comes from the bound session's provider storage:
   Effort uses explicitly labeled session-level evidence: the provider-authored
   exact-session `summary.json` must be updated after Apply, read before the ACK
   starts, and carry the selected effort. It is not labeled a turn-record proof.
-- OpenCode: exact session SQLite rows, marked user parts and parent-linked
-  assistant `providerID/modelID/variant`.
+- OpenCode: exact session SQLite rows and completed parent-linked assistant
+  `providerID/modelID`, with matching answer. Effort is labeled
+  `turn-config evidence (user.variant)` from that assistant's exact parent user.
 
 Every action has a 15-second failure cap. Turn and streaming waits use DOM
 or SSE events with bounded deadlines. No sleeps, injected responses, network

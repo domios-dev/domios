@@ -4,7 +4,7 @@
 import { performance } from "node:perf_hooks";
 import { writeFileSync } from "node:fs";
 import { expect, test } from "../../helpers/fixtures";
-import { dc, identity, records, turnEvidence, assertModel, restoreManifest, grokEffortEvidence, switchModels, type Descriptor, type Model, type RestoreTab } from "../../helpers/live-model-switch";
+import { dc, identity, records, turnEvidence, assertModel, restoreManifest, grokEffortEvidence, switchModels, deliveryLog, type Descriptor, type Model, type RestoreTab } from "../../helpers/live-model-switch";
 import { openAgent, readChat, type AgentUi } from "../16-chat-view/chat-send-matrix.live.helpers";
 import { detectChatPrefix } from "../../../../src/lib/chatPrefixes";
 
@@ -200,6 +200,8 @@ for (let run = startRun; run < startRun + repeats; run++) {
               const diagnostic = await Promise.allSettled([
                 dc("tab", "get-text", "--tab", target.tabId),
                 dc("tab", "inspect", "--tab", target.tabId, "--lifecycle"),
+                dc("tab", "chat", "--tab", target.tabId),
+                deliveryLog(target.tabId),
               ]);
               writeFileSync(info.outputPath(`${providerId}-${step}-pty.json`), JSON.stringify(diagnostic, null, 2));
               await ui.page.keyboard.press("Escape");
@@ -218,7 +220,7 @@ for (let run = startRun; run < startRun + repeats; run++) {
             await scenario("effort", async () => {
             const change = await apply(b!, effortB);
             change.row.recordModel = await ack(b!, effortB, change.switchedAtMs);
-            change.row.effortEvidence = providerId === "grok" ? "session-level evidence" : "turn record";
+            change.row.effortEvidence = providerId === "grok" ? "session-level evidence" : providerId === "opencode" ? "turn-config evidence (user.variant)" : "turn record";
             change.row.confirmMs = performance.now() - change.started;
             change.row.verdict = "pass";
             });
@@ -227,7 +229,7 @@ for (let run = startRun; run < startRun + repeats; run++) {
             expect(common, "second effort supported by model A").toBeDefined();
             const change = await apply(a, common!.id);
             change.row.recordModel = await ack(a, common!.id, change.switchedAtMs);
-            change.row.effortEvidence = providerId === "grok" ? "session-level evidence" : "turn record";
+            change.row.effortEvidence = providerId === "grok" ? "session-level evidence" : providerId === "opencode" ? "turn-config evidence (user.variant)" : "turn record";
             change.row.confirmMs = performance.now() - change.started;
             change.row.verdict = "pass";
             });
@@ -238,13 +240,14 @@ for (let run = startRun; run < startRun + repeats; run++) {
           const floor = target.events.latestSequence();
           const marker = `SWITCH_BUSY_${run}_${providerId}_${Date.now()}`;
           await send(`Write 600 numbered sentences about trees, one per line, starting with ${marker}. Do not use tools.`);
+          await expect(target.chat.getByRole("article", { name: "user message" }).filter({ hasText: marker })).toHaveCount(1);
           await target.events.waitFor(e => e.seq > floor && e.event_type === "tab-status-changed" && e.data.tab_id === target.tabId && e.data.status === "Working", 60_000, "long turn starts");
           await expect(target.chat.getByRole("article", { name: "assistant message" }).filter({ hasText: marker })).toHaveCount(1, { timeout: 60_000 });
           await expect(target.chat.locator('[data-agent-state="working"]')).toHaveCount(1);
           const busyBefore = await identity(api, target.tabId);
           const activeModels = choices.filter(m => m.id === busyBefore.agent_session_model || m.id.endsWith(`/${busyBefore.agent_session_model}`));
           expect(activeModels, "session model resolves to one catalogue model").toHaveLength(1);
-          const busyModel = choices.find(m => m.id !== activeModels[0].id)!;
+          const busyModel = [a, b].find(m => m.id !== activeModels[0].id)!;
           const change = await apply(busyModel, undefined, true);
           await expect(target.chat.locator('[data-agent-state="working"]'), "Apply happened before long turn completed").toHaveCount(1);
           expect((await identity(api, target.tabId)).agent_session_model).toBe(busyBefore.agent_session_model);
