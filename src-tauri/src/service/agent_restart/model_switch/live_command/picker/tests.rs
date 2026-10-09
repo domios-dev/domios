@@ -18,7 +18,7 @@ fn target() -> CommandTarget {
         binding_nonce: "owned-nonce".into(),
         cwd: None,
         model: "opus".into(),
-        display_name: "Claude Opus".into(),
+        display_name: "Opus 5.5".into(),
     }
 }
 
@@ -119,17 +119,53 @@ fn effort_uses_the_current_gauge_and_ignores_history() {
 
 #[test]
 fn already_selected_effort_uses_s_without_changing_the_model() {
-    let mut picker = CommandPicker::new(
-        &commands().effort.unwrap().picker.unwrap(),
-        &target(),
-        Some("high"),
-    )
-    .unwrap();
-    picker.injected();
-    picker
-        .respond(EFFORT_SCREEN, |key| {
-            assert_eq!(key, b"s");
-            Ok(())
-        })
+    for screen in [
+        EFFORT_SCREEN.replace("\r\n", "\n"),
+        EFFORT_SCREEN.replace("\r\n", "\n").replace('\n', "\r\n"),
+    ] {
+        let mut picker = CommandPicker::new(
+            &commands().effort.unwrap().picker.unwrap(),
+            &target(),
+            Some("high"),
+        )
         .unwrap();
+        picker.injected();
+        let mut keys = Vec::new();
+        picker
+            .respond(&screen, |key| {
+                keys.push(key.to_vec());
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(keys, vec![b"s".to_vec()]);
+    }
+}
+
+#[test]
+fn catalogue_labels_and_model_ids_match_lf_and_crlf_rows() {
+    let declaration = commands().model.picker.unwrap();
+    for screen in [
+        MODEL_SCREEN.replace("\r\n", "\n"),
+        MODEL_SCREEN.replace("\r\n", "\n").replace('\n', "\r\n"),
+    ] {
+        for (model, display_name) in [
+            ("opus", "Opus 5.5"),
+            ("opaque-id", "Opus 5.5"),
+            ("opus", "Custom label"),
+        ] {
+            let mut selection = target();
+            selection.model = model.into();
+            selection.display_name = display_name.into();
+            let mut picker = CommandPicker::new(&declaration, &selection, None).unwrap();
+            picker.injected();
+            let mut keys = Vec::new();
+            picker
+                .respond(&screen, |key| {
+                    keys.push(key.to_vec());
+                    Ok(())
+                })
+                .unwrap();
+            assert_eq!(keys, vec![b"\x1b[A".to_vec()], "{model} / {display_name}");
+        }
+    }
 }

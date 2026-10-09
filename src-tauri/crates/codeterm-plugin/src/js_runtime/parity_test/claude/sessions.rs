@@ -287,10 +287,15 @@ fn local_model_stdout_overrides_old_turn_native_js_parity() {
     let temp = tempfile::tempdir().unwrap();
     let cwd = codeterm_paths::canonical_cwd(&temp.path().to_string_lossy());
     let evidence = temp.path().join("evidence");
-    let _env = EnvGuard::new(&[(
-        crate::session_evidence::EVIDENCE_DIR_ENV,
-        evidence.to_str().unwrap(),
-    )]);
+    let data = temp.path().join("data");
+    let _env = EnvGuard::new(&[
+        ("CODETERM_DATA_DIR", data.to_str().unwrap()),
+        ("CLAUDE_CONFIG_DIR", temp.path().to_str().unwrap()),
+        (
+            crate::session_evidence::EVIDENCE_DIR_ENV,
+            evidence.to_str().unwrap(),
+        ),
+    ]);
     let session = uuid::Uuid::new_v4().to_string();
     let native = ClaudeProvider::new();
     let js = super::super::find_session::claude_js_rooted_at(&temp.path().join("projects"));
@@ -301,9 +306,9 @@ fn local_model_stdout_overrides_old_turn_native_js_parity() {
         path.to_str().unwrap()
     ));
     for (kind, content, expected) in [
-        ("user", "<local-command-stdout>Set model to `Sonnet 5.5` for this session only</local-command-stdout>", "Sonnet"),
-        ("assistant", "<local-command-stdout>Set model to `Sonnet 5.5` for this session only</local-command-stdout>", "Opus"),
-        ("user", "Set model to `Sonnet 5.5` for this session only", "Opus"),
+        ("user", "<local-command-stdout>Set model to `Sonnet 5.5` for this session only</local-command-stdout>", "sonnet"),
+        ("assistant", "<local-command-stdout>Set model to `Sonnet 5.5` for this session only</local-command-stdout>", "opus"),
+        ("user", "Set model to `Sonnet 5.5` for this session only", "opus"),
     ] {
         let old = serde_json::json!({"type":"assistant","message":{"model":"claude-opus-5-5"}});
         let stdout = serde_json::json!({"type":kind,"message":{"content":content}});
