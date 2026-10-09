@@ -226,8 +226,13 @@
 
 .ct-sidebar-grip--collapsed {
   left: 0;
-  width: 100%;
+  width: 20px;
   margin-left: 0;
+}
+
+.ct-sidebar-panel[data-collapsed="true"] {
+  border-right: 0;
+  background: transparent;
 }
 
 .ct-sidebar-grip--collapsed::after {
@@ -237,11 +242,11 @@
 .ct-sidebar-drop {
   position: absolute;
   left: 0;
-  width: 9px;
-  height: 46px;
+  width: 5px;
+  height: 44px;
   border-radius: 0 999px 999px 0;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--ct-accent) 70%, transparent), color-mix(in srgb, var(--ct-accent) 40%, transparent));
-  box-shadow: 0 0 14px color-mix(in srgb, var(--ct-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--ct-accent) 38%, var(--ct-bg));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--ct-accent) 18%, transparent);
   pointer-events: none;
   transform: translateY(-50%);
   transform-origin: left center;

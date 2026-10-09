@@ -56,7 +56,7 @@ function main() {
   ]) {
     assert.ok(drawer.includes(utility), `the drawer does not use ${utility}`);
   }
-  const handle = classAttributeContaining(sidebar, "cursor-col-resize");
+  const handle = classAttributeContaining(sidebar, "ct-sidebar-grip");
   assert.ok(handle.includes("shell-narrow:hidden"), "the resize handle does not use shell-narrow:hidden");
   for (const [name, line] of [["backdrop", backdrop], ["drawer", drawer], ["resize handle", handle]] as const) {
     assert.ok(!/(^|[\s`"'])(max-)?sm:/.test(line), `the ${name} still carries a Tailwind sm utility`);

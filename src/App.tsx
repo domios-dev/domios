@@ -111,6 +111,8 @@ function AppInner() {
     closeOnPhone: closeSidebarOnMobile,
     phone: phoneViewport,
   } = useSidebarViewport();
+  const [sidebarRailCollapsed, setSidebarRailCollapsed] = useState(false);
+  const [sidebarExpandRequest, setSidebarExpandRequest] = useState(0);
 
   const viewLayerStyle = (active: boolean): React.CSSProperties => ({
     zIndex: active ? 2 : 0,
@@ -617,8 +619,8 @@ function AppInner() {
           own --ct-safe-top padding covers the web notch/status-bar inset. */}
       <Titlebar
         api={stableApiConfig}
-        onToggleSidebar={toggleSidebar}
-        showSidebarToggle={!sidebarOpen}
+        onToggleSidebar={sidebarRailCollapsed && sidebarOpen ? () => setSidebarExpandRequest((count) => count + 1) : toggleSidebar}
+        showSidebarToggle={!sidebarOpen || sidebarRailCollapsed}
         onNewTab={handleNewTab}
         theme={stableTheme}
         onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
@@ -663,6 +665,8 @@ function AppInner() {
             >
               <Sidebar
                 onCollapse={closeSidebar}
+                onCollapsedChange={setSidebarRailCollapsed}
+                expandRequest={sidebarExpandRequest}
                 onOpenMemory={() => { setMemoryOpen(true); closeSidebarOnMobile(); }}
                 onOpenMesh={() => { setMeshOpen(true); closeSidebarOnMobile(); }}
                 onOpenExtensions={() => { setExtensionsOpen(true); closeSidebarOnMobile(); }}
