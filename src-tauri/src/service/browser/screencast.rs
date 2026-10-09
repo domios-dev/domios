@@ -227,6 +227,26 @@ struct HubState {
     driver: Option<mpsc::UnboundedSender<DriverCommand>>,
     params: ScreencastParams,
     closed: bool,
+    captures: usize,
+}
+
+/// A cast frame sized unlike the viewport is one Chrome re-rendered for a screenshot, not the page.
+fn off_viewport(metadata: &FrameMetadata, viewport: Viewport) -> bool {
+    let differs = |device: f64, css: u32| device > 0.0 && (device - css as f64).abs() > 1.0;
+    differs(metadata.device_width, viewport.width)
+        || differs(metadata.device_height, viewport.height)
+}
+
+/// While held, cast frames that do not match the viewport are dropped instead of shown.
+pub struct CaptureHold {
+    hub: Arc<FrameHub>,
+}
+
+impl Drop for CaptureHold {
+    fn drop(&mut self) {
+        let mut state = self.hub.state.lock();
+        state.captures = state.captures.saturating_sub(1);
+    }
 }
 
 /// Host-level frame source: survives browser relaunches, so viewers never resubscribe.
@@ -248,6 +268,7 @@ impl FrameHub {
                 driver: None,
                 params,
                 closed: false,
+                captures: 0,
             }),
         })
     }
@@ -325,6 +346,9 @@ impl FrameHub {
             if state.closed || state.generation != generation {
                 return false;
             }
+            if state.captures > 0 && !still && off_viewport(&metadata, state.params.viewport) {
+                return false;
+            }
             state.seq += 1;
             Arc::new(ScreencastFrame {
                 seq: state.seq,
@@ -339,6 +363,11 @@ impl FrameHub {
 
     pub fn latest(&self) -> Option<Arc<ScreencastFrame>> {
         self.frames.borrow().clone()
+    }
+
+    pub fn hold_for_capture(self: &Arc<Self>) -> CaptureHold {
+        self.state.lock().captures += 1;
+        CaptureHold { hub: self.clone() }
     }
 
     pub fn notice(&self, text: impl Into<String>) {

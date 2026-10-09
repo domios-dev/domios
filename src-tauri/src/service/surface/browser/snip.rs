@@ -1,11 +1,15 @@
 use std::collections::VecDeque;
+use std::io::Cursor;
 
 use base64::Engine;
+use image::codecs::jpeg::JpegEncoder;
+use image::{DynamicImage, ImageFormat};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::grab::Rect;
 use super::BrowserRuntime;
+use crate::service::browser::screencast::FrameMetadata;
 use crate::service::surface::runtime::{SurfaceCallCtx, SurfaceCallOutcome};
 
 const MAX_SIDE_CSS: f64 = 8192.0;
@@ -122,37 +126,141 @@ pub(crate) fn snip_rect(args: &SnipArgs) -> Result<Rect, String> {
     Ok(rect)
 }
 
-fn clip(rect: &Rect, scale: f64) -> Value {
-    json!({ "x": rect.x, "y": rect.y, "width": rect.width, "height": rect.height, "scale": scale })
+/// The whole viewport, unclipped: a clip or scale makes Chrome re-render the page, and the screencast shows it.
+pub(crate) fn viewport_shot_params() -> Value {
+    json!({ "format": "png" })
 }
 
-/// Full resolution: clip scale 1 keeps the emulated device pixel ratio.
-pub(crate) fn capture_params(rect: &Rect) -> Value {
-    json!({ "format": "png", "clip": clip(rect, 1.0), "captureBeyondViewport": false })
+/// How the viewer mapped the stream to page px: the cast frame's metadata, inverted here.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ShotGeometry {
+    pub device: (f64, f64),
+    pub scroll: (f64, f64),
+    pub page_scale: f64,
+    pub offset_top: f64,
 }
 
-pub(crate) fn thumbnail_params(rect: &Rect) -> Value {
-    let longest = rect.width.max(rect.height).max(1.0);
-    let scale = (THUMB_SIDE_CSS / longest).min(1.0);
-    json!({
-        "format": "jpeg",
-        "quality": THUMB_QUALITY,
-        "clip": clip(rect, scale),
-        "captureBeyondViewport": false,
+impl ShotGeometry {
+    pub(crate) fn from_frame(metadata: &FrameMetadata) -> Option<Self> {
+        (metadata.device_width > 0.0 && metadata.device_height > 0.0).then_some(Self {
+            device: (metadata.device_width, metadata.device_height),
+            scroll: (metadata.scroll_offset_x, metadata.scroll_offset_y),
+            page_scale: metadata.page_scale_factor,
+            offset_top: metadata.offset_top,
+        })
+    }
+
+    pub(crate) fn from_layout(viewport: (f64, f64), scroll: (f64, f64)) -> Self {
+        Self {
+            device: viewport,
+            scroll,
+            page_scale: 1.0,
+            offset_top: 0.0,
+        }
+    }
+
+    /// Image px per device px; an unknown viewport assumes the shot is in device px.
+    fn image_scale(&self, image: (u32, u32)) -> (f64, f64) {
+        let axis = |device: f64, px: u32| {
+            if device > 0.0 {
+                px as f64 / device
+            } else {
+                1.0
+            }
+        };
+        (axis(self.device.0, image.0), axis(self.device.1, image.1))
+    }
+}
+
+/// Pixel box of the snip inside a viewport shot, clamped to the image.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CropBox {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// `None` when nothing of the area is left inside the shot.
+pub(crate) fn crop_box(rect: &Rect, geometry: &ShotGeometry, image: (u32, u32)) -> Option<CropBox> {
+    let (sx, sy) = geometry.image_scale(image);
+    let zoom = if geometry.page_scale > 0.0 {
+        geometry.page_scale
+    } else {
+        1.0
+    };
+    let px = |page: f64| (page - geometry.scroll.0) * zoom * sx;
+    let py = |page: f64| ((page - geometry.scroll.1) * zoom + geometry.offset_top) * sy;
+    let clamp = |value: f64, limit: u32| value.round().clamp(0.0, limit as f64) as u32;
+    let left = clamp(px(rect.x), image.0);
+    let right = clamp(px(rect.x + rect.width), image.0);
+    let top = clamp(py(rect.y), image.1);
+    let bottom = clamp(py(rect.y + rect.height), image.1);
+    if right <= left || bottom <= top {
+        return None;
+    }
+    Some(CropBox {
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
     })
 }
 
-/// Pixel size from the PNG IHDR without decoding the image.
-pub(crate) fn png_size(base64: &str) -> Option<(u32, u32)> {
-    let head = base64.get(..32)?;
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(head)
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct SnipCut {
+    pub png: String,
+    pub width: u32,
+    pub height: u32,
+    pub thumbnail: Option<String>,
+}
+
+fn encode_png(image: &DynamicImage) -> Result<Vec<u8>, String> {
+    let mut bytes = Cursor::new(Vec::new());
+    image
+        .write_to(&mut bytes, ImageFormat::Png)
+        .map_err(|error| format!("snip.capture: encode: {error}"))?;
+    Ok(bytes.into_inner())
+}
+
+fn thumbnail_data_url(crop: &DynamicImage, side: u32) -> Option<String> {
+    let side = side.max(1);
+    let small = if crop.width().max(crop.height()) > side {
+        crop.thumbnail(side, side)
+    } else {
+        crop.clone()
+    };
+    let mut bytes = Vec::new();
+    DynamicImage::ImageRgb8(small.to_rgb8())
+        .write_with_encoder(JpegEncoder::new_with_quality(&mut bytes, THUMB_QUALITY))
         .ok()?;
-    if bytes.get(..8)? != b"\x89PNG\r\n\x1a\n" || bytes.get(12..16)? != b"IHDR" {
-        return None;
-    }
-    let read = |at: usize| Some(u32::from_be_bytes(bytes.get(at..at + 4)?.try_into().ok()?));
-    Some((read(16)?, read(20)?))
+    let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Some(format!("data:image/jpeg;base64,{data}"))
+}
+
+/// Crops the snip out of a base64 viewport PNG at full resolution, plus a small JPEG for the chip.
+pub(crate) fn cut_snip(
+    shot_base64: &str,
+    rect: &Rect,
+    geometry: &ShotGeometry,
+) -> Result<SnipCut, String> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(shot_base64.as_bytes())
+        .map_err(|error| format!("snip.capture: the screenshot is not base64: {error}"))?;
+    let shot = image::load_from_memory_with_format(&bytes, ImageFormat::Png)
+        .map_err(|error| format!("snip.capture: decode: {error}"))?;
+    let size = (shot.width(), shot.height());
+    let area = crop_box(rect, geometry, size)
+        .ok_or("snip.capture: the area is outside the visible page")?;
+    let crop = shot.crop_imm(area.x, area.y, area.width, area.height);
+    let (sx, sy) = geometry.image_scale(size);
+    let thumb_side = (THUMB_SIDE_CSS * sx.max(sy)).round() as u32;
+    Ok(SnipCut {
+        png: base64::engine::general_purpose::STANDARD.encode(encode_png(&crop)?),
+        width: area.width,
+        height: area.height,
+        thumbnail: thumbnail_data_url(&crop, thumb_side),
+    })
 }
 
 /// Viewport size and scroll offset from `Page.getLayoutMetrics`, visual viewport first.
@@ -235,39 +343,40 @@ impl BrowserRuntime {
     pub(super) async fn snip_capture(&self, args: SnipArgs) -> Result<Value, String> {
         let rect = snip_rect(&args)?;
         let page = self.ensure_page().await?;
-        let shot = self
-            .send(&page, "Page.captureScreenshot", capture_params(&rect))
-            .await?;
-        let png = shot
-            .get("data")
-            .and_then(Value::as_str)
-            .ok_or("the snip returned no image")?
-            .to_string();
-        let thumbnail = self
-            .send(&page, "Page.captureScreenshot", thumbnail_params(&rect))
-            .await
-            .ok()
-            .and_then(|thumb| {
-                thumb
-                    .get("data")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            })
-            .map(|data| format!("data:image/jpeg;base64,{data}"));
         let (viewport, scroll) = match self.send(&page, "Page.getLayoutMetrics", json!({})).await {
             Ok(metrics) => layout_facts(&metrics),
             Err(_) => ((0.0, 0.0), (0.0, 0.0)),
         };
+        let shot = {
+            let _hold = self.host.hold_screencast_for_capture();
+            self.send(&page, "Page.captureScreenshot", viewport_shot_params())
+                .await?
+        };
+        let shot = shot
+            .get("data")
+            .and_then(Value::as_str)
+            .ok_or("the snip returned no image")?
+            .to_string();
+        let geometry = self
+            .host
+            .latest_frame()
+            .and_then(|frame| ShotGeometry::from_frame(&frame.metadata))
+            .unwrap_or_else(|| ShotGeometry::from_layout(viewport, scroll));
+        let cut_rect = rect.clone();
+        let cut = tokio::task::spawn_blocking(move || cut_snip(&shot, &cut_rect, &geometry))
+            .await
+            .map_err(|error| format!("snip.capture: {error}"))??;
         let state = self.shared.state();
-        let (width, height) = png_size(&png).unwrap_or((0, 0));
         let facts = SnipFacts {
             url: state.url,
             title: state.title,
             viewport,
             scroll,
         };
-        let id = self.snips.lock().keep(rect, png, facts);
-        Ok(json!({ "id": id, "width": width, "height": height, "thumbnail": thumbnail }))
+        let id = self.snips.lock().keep(rect, cut.png, facts);
+        Ok(
+            json!({ "id": id, "width": cut.width, "height": cut.height, "thumbnail": cut.thumbnail }),
+        )
     }
 
     /// `snip.send`: the crop reaches the owner's pad only now, and only with the image kept.
