@@ -985,3 +985,16 @@ fn manifest_accepts_legacy_icon_fields_shipped_by_channel_plugins() {
 fn retired_memory_flush_hook_route_is_refused() {
     assert!(crate::provider::HookIngestionRoute::parse("mem_flush").is_none());
 }
+
+#[test]
+fn manifest_accepts_a_one_line_pitch() {
+    let manifest: PluginManifest = serde_json::from_value(serde_json::json!({
+        "id": "telegram-client", "version": "1.0.1", "displayName": "Telegram Client",
+        "pitch": "Let agents find your Telegram chats, read them and send messages for you."
+    }))
+    .expect("pitch is a known manifest field");
+    assert_eq!(
+        manifest.pitch.as_deref(),
+        Some("Let agents find your Telegram chats, read them and send messages for you.")
+    );
+}

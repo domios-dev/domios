@@ -65,6 +65,9 @@ pub struct PluginManifest {
     // relative markdown path the snapshot loads into a bounded field.
     #[serde(default)]
     pub description: Option<String>,
+    /// One-line outcome shown on chat plugin cards.
+    #[serde(default)]
+    pub pitch: Option<String>,
     #[serde(default)]
     pub homepage: Option<String>,
     #[serde(default)]
