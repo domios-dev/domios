@@ -23,6 +23,7 @@ use super::{launch_artifacts, prompt_parse, JsProvider};
 
 mod chat_read;
 mod delivery;
+mod model_launch;
 mod session_detection;
 mod session_wire;
 
@@ -55,11 +56,7 @@ impl AgentProvider for JsProvider {
         model: Option<&str>,
         effort: &str,
     ) -> Vec<String> {
-        self.try_call(
-            "reasoningEffortLaunchArgsForModel",
-            &[json!(model), json!(effort)],
-        )
-        .unwrap_or_else(|| self.reasoning_effort_launch_args(effort))
+        self.js_reasoning_effort_launch_args_for_model(model, effort)
     }
 
     fn parse_auth_status(&self, record: &Value) -> Option<provider::AuthStatus> {
@@ -463,6 +460,10 @@ impl AgentProvider for JsProvider {
                 steps,
             }
         })
+    }
+
+    fn session_model_identity_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
+        self.owned_session_model_identity_path(cwd, session_id)
     }
 
     fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
@@ -882,14 +883,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn model_launch_args(&self, model: &str) -> Vec<String> {
-        if model.is_empty() {
-            return Vec::new();
-        }
-        let tmpl = &self.manifest.commands.model_launch_args_format;
-        if tmpl.is_empty() {
-            return vec!["--model".into(), model.into()];
-        }
-        tmpl.iter().map(|t| t.replace("{model}", model)).collect()
+        self.js_model_launch_args(model)
     }
 
     fn reasoning_efforts(&self) -> Vec<ReasoningEffortInfo> {
@@ -902,15 +896,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn reasoning_effort_launch_args(&self, effort: &str) -> Vec<String> {
-        if effort.is_empty() {
-            return Vec::new();
-        }
-        self.manifest
-            .commands
-            .reasoning_effort_launch_args_format
-            .iter()
-            .map(|t| t.replace("{effort}", effort))
-            .collect()
+        self.js_reasoning_effort_launch_args(effort)
     }
 
     fn compact_command(&self) -> Option<&str> {

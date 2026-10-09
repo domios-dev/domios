@@ -5,6 +5,7 @@ use crate::provider::{
 
 pub(super) fn commands() -> ModelSwitchCommands {
     ModelSwitchCommands {
+        confirmation_source: Default::default(),
         transcript: ModelSwitchTranscript {
             record_type: "user".into(),
             content_path: vec!["message".into(), "content".into()],
