@@ -1,4 +1,5 @@
 pub mod ansi;
+pub mod backend_output;
 pub mod capture;
 pub mod cast;
 pub mod child_env;
