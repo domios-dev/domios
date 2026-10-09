@@ -5,7 +5,6 @@ import { useChatBlockHost, useChatBlockMessageId } from "./ChatBlockHost";
 import { useLiveBinding } from "./liveBinding";
 import { choiceOutcome, type ChoiceOutcome } from "./choiceBlockModel";
 
-const FOCUS_RING = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]";
 
 const STATUS: Record<ChoiceOutcome["kind"], ChatBlockStatus> = {
   open: { label: "Waiting for you", tone: "warn" },
@@ -57,7 +56,7 @@ export function ChoiceBlock({ options, source }: { options: string[]; source: st
       name="choice"
       source={source}
       title="Choose a reply"
-      icon={<MessageCircleQuestionMark size={18} aria-hidden="true" />}
+      icon={<MessageCircleQuestionMark size={14} aria-hidden="true" />}
       status={STATUS[outcome.kind]}
       summary={summaryFor(outcome)}
       pinnable={false}
@@ -75,10 +74,8 @@ export function ChoiceBlock({ options, source }: { options: string[]; source: st
                   aria-pressed={isPicked}
                   disabled={!open}
                   onClick={() => void choose(label)}
-                  className={`inline-flex min-h-8 max-w-full items-center gap-1.5 rounded-lg border px-3 py-1 text-left text-xs font-medium transition-[background-color,border-color,opacity] motion-reduce:transition-none ${open ? "hover:border-[var(--ct-accent)] hover:bg-[color-mix(in_srgb,var(--ct-accent)_10%,transparent)]" : "cursor-default"} ${!open && !isPicked ? "opacity-45" : ""} ${FOCUS_RING}`}
-                  style={isPicked
-                    ? { background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)", borderColor: "var(--ct-accent, #58a6ff)", color: "var(--ct-fg)" }
-                    : { borderColor: "color-mix(in srgb, var(--ct-muted-fg) 32%, transparent)", color: "var(--ct-fg)" }}
+                  className={`ct-bar-pill max-w-full text-left disabled:cursor-default${isPicked ? " ct-bar-pill--primary" : ""} ${!open && !isPicked ? "opacity-45" : ""}`}
+                  style={{ height: "auto", minHeight: 28, paddingBlock: 4, whiteSpace: "normal" }}
                 >
                   {isPicked && (outcome.kind === "sending"
                     ? <Loader2 size={12} aria-hidden="true" className="shrink-0 animate-spin motion-reduce:animate-none" />
@@ -88,7 +85,7 @@ export function ChoiceBlock({ options, source }: { options: string[]; source: st
               );
             })}
           </div>
-          {error && <p role="alert" className="m-0 mt-2 text-xs" style={{ color: "var(--ct-err, #f85149)" }}>{error}</p>}
+          {error && <p role="alert" className="m-0 mt-2 text-xs" style={{ color: "var(--ct-err)" }}>{error}</p>}
         </>
       )}
       askText={`About this question (\`${source}\`): `}

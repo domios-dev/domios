@@ -45,20 +45,16 @@ export interface ChatBlockFrameProps {
 type Outcome = { kind: "idle" } | { kind: "running"; id: string } | { kind: "done"; message: string } | { kind: "failed"; message: string };
 
 export const TONE_COLOR: Record<ChatBlockTone, string> = {
-  ok: "var(--ct-ok, #3fb950)",
-  accent: "var(--ct-accent, #58a6ff)",
-  warn: "var(--ct-warn, #d29922)",
-  muted: "var(--ct-muted-fg, #8b949e)",
+  ok: "var(--ct-ok)",
+  accent: "var(--ct-accent)",
+  warn: "var(--ct-warn)",
+  muted: "var(--ct-muted-fg)",
 };
 
 export const FOCUS_RING = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]";
 
 /** A compact field that sits on the block surface. */
-export const BLOCK_INPUT = `h-7 min-w-0 rounded-md border bg-transparent px-2 text-xs placeholder:text-[var(--ct-muted-fg)] disabled:opacity-50 ${FOCUS_RING}`;
-export const BLOCK_INPUT_STYLE: React.CSSProperties = {
-  borderColor: "color-mix(in srgb, var(--ct-muted-fg) 30%, transparent)",
-  color: "var(--ct-fg)",
-};
+export const BLOCK_INPUT = "ct-field";
 
 /** The shared chrome every chat block renders in: header, inline body, expandable details, actions and extras. */
 export function ChatBlockFrame({
@@ -71,7 +67,7 @@ export function ChatBlockFrame({
   const [confirming, setConfirming] = useState<ChatBlockAction | null>(null);
   const running = useRef(false);
   const detailsId = useId();
-  const tint = accent ?? "var(--ct-accent, #58a6ff)";
+  const tint = accent ?? "var(--ct-accent)";
 
   const execute = async (action: ChatBlockAction) => {
     if (running.current || action.disabled) return;
@@ -96,53 +92,38 @@ export function ChatBlockFrame({
       data-testid="chat-block"
       data-chat-block={name}
       aria-label={title}
-      className="my-2 w-full max-w-[34rem] min-w-0 rounded-xl border"
-      style={{
-        background: "color-mix(in srgb, var(--ct-surface, #161b22) 94%, var(--ct-fg, #c9d1d9) 6%)",
-        borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
-        color: "var(--ct-fg)",
-        opacity: muted ? 0.78 : 1,
-      }}
+      className={`ct-card my-2 w-full max-w-[34rem] min-w-0${muted ? " ct-card--quiet" : ""}`}
+      style={{ "--ct-card-tone": tint, opacity: muted ? 0.78 : 1 } as React.CSSProperties}
     >
-      <header className="flex min-w-0 items-start gap-3 px-3 pt-3">
-        <span
-          aria-hidden="true"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px]"
-          style={{
-            background: `color-mix(in srgb, ${tint} ${muted ? 8 : 16}%, transparent)`,
-            boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${tint} ${muted ? 18 : 34}%, transparent)`,
-            color: tint,
-          }}
-        >
-          {icon}
-        </span>
-        <div className="min-w-0 flex-1">
+      <header className="ct-card__head" style={{ alignItems: "flex-start" }}>
+        <span aria-hidden="true" className="ct-card__icon">{icon}</span>
+        <div className="min-w-0 flex-1 pt-0.5">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-            <h4 className="m-0 min-w-0 truncate text-[13px] font-semibold leading-5" title={title}>{title}</h4>
+            <h4 className="ct-card__title m-0 min-w-0 truncate" title={title}>{title}</h4>
             {status && (
-              <span data-testid="chat-block-status" data-tone={status.tone} className="inline-flex items-center gap-1.5 text-[11px] leading-5" style={{ color: TONE_COLOR[status.tone] }}>
+              <span data-testid="chat-block-status" data-tone={status.tone} className="ct-card__meta inline-flex items-center gap-1.5" style={{ color: TONE_COLOR[status.tone] }}>
                 <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full" style={{ background: "currentColor" }} />
                 {status.label}
               </span>
             )}
           </div>
-          {summary && <div className="mt-0.5 text-xs leading-relaxed" style={{ color: "var(--ct-muted-fg)" }}>{summary}</div>}
+          {summary && <div className="ct-card__meta mt-0.5 leading-relaxed">{summary}</div>}
         </div>
         <BlockExtras source={source} title={title} askText={askText} pinned={pinned} pinnable={pinnable} />
       </header>
 
-      {body && <div data-testid="chat-block-body" className={`mt-2 min-w-0 px-3 ${hasFooter ? "" : "pb-3"}`}>{body}</div>}
+      {body && <div data-testid="chat-block-body" className="ct-card__body" style={hasFooter ? { paddingBottom: 0 } : undefined}>{body}</div>}
 
       {details && expanded && (
-        <div id={detailsId} data-testid="chat-block-details" className="mx-3 mt-2 border-t pt-2 text-xs leading-relaxed" style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg) 18%, transparent)", color: "var(--ct-muted-fg)" }}>
+        <div id={detailsId} data-testid="chat-block-details" className="ct-card__body ct-card__body--reveal mt-2" style={{ paddingBottom: 0, color: "var(--ct-muted-fg)" }}>
           {details}
         </div>
       )}
 
-      {hasFooter && <div className="flex min-w-0 flex-wrap items-center gap-2 px-3 pb-3 pt-2.5">
+      {hasFooter && <div className="ct-card__body flex flex-wrap items-center gap-2" style={{ paddingTop: 10 }}>
         {confirming ? (
           <div role="group" aria-label={`Confirm ${confirming.label}`} className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-            <span className="min-w-0 flex-1 text-xs">{confirming.confirm?.message}</span>
+            <span className="min-w-0 flex-1">{confirming.confirm?.message}</span>
             <BlockButton primary onClick={() => void execute(confirming)}>{confirming.confirm?.confirmLabel}</BlockButton>
             <BlockButton onClick={() => setConfirming(null)}>Cancel</BlockButton>
           </div>
@@ -173,7 +154,7 @@ export function ChatBlockFrame({
                 aria-expanded={expanded}
                 aria-controls={detailsId}
                 onClick={() => setExpanded((open) => !open)}
-                className={`ml-auto inline-flex items-center gap-1 rounded px-1 text-xs hover:text-[var(--ct-fg)] ${FOCUS_RING}`}
+                className={`ml-auto inline-flex items-center gap-1 rounded-md px-1 text-xs hover:text-[var(--ct-fg)] ${FOCUS_RING}`}
                 style={{ color: "var(--ct-muted-fg)" }}
               >
                 Details
@@ -184,9 +165,9 @@ export function ChatBlockFrame({
         )}
       </div>}
 
-      <div aria-live="polite" className="empty:hidden px-3 pb-3 -mt-1 text-xs" data-testid="chat-block-result">
+      <div aria-live="polite" className="ct-card__body empty:hidden" data-testid="chat-block-result">
         {outcome.kind === "done" && <span style={{ color: TONE_COLOR.ok }}>{outcome.message}</span>}
-        {outcome.kind === "failed" && <span role="alert" style={{ color: "var(--ct-err, #f85149)" }}>{outcome.message}</span>}
+        {outcome.kind === "failed" && <span role="alert" style={{ color: "var(--ct-err)" }}>{outcome.message}</span>}
       </div>
     </section>
   );
@@ -197,10 +178,7 @@ export function BlockButton({ primary = false, children, className = "", ...prop
     <button
       type="button"
       {...props}
-      className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-[filter,background-color] disabled:cursor-default disabled:opacity-50 motion-reduce:transition-none ${primary ? "hover:enabled:brightness-110" : "border hover:enabled:bg-[var(--ct-hover,rgba(127,127,127,0.12))]"} ${FOCUS_RING} ${className}`}
-      style={primary
-        ? { background: "var(--ct-accent, #58a6ff)", color: "var(--ct-on-accent, #fff)" }
-        : { border: "1px solid color-mix(in srgb, var(--ct-muted-fg) 30%, transparent)", color: "var(--ct-fg)" }}
+      className={`ct-bar-pill${primary ? " ct-bar-pill--primary" : ""} disabled:opacity-50 ${className}`}
     >
       {children}
     </button>

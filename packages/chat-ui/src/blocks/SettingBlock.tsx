@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Lock, Minus, Plus, SlidersHorizontal } from "lucide-react";
 import { BlockNotice } from "./BlockNotice";
-import { BLOCK_INPUT, BLOCK_INPUT_STYLE, BlockButton, ChatBlockFrame, FOCUS_RING } from "./ChatBlockFrame";
+import { BLOCK_INPUT, BlockButton, ChatBlockFrame, FOCUS_RING } from "./ChatBlockFrame";
 import { useChatBlockHost, type SettingBlockHost } from "./ChatBlockHost";
 import { useLiveBinding } from "./liveBinding";
 import {
@@ -62,12 +62,12 @@ function SettingCard({ setting, host, source }: { setting: SettingInfo; host: Se
       name="setting"
       source={source}
       title={setting.label}
-      icon={<SlidersHorizontal size={18} aria-hidden="true" />}
+      icon={<SlidersHorizontal size={14} aria-hidden="true" />}
       summary={setting.description}
       body={(
         <div className="flex min-w-0 flex-col gap-1.5" data-setting-key={setting.key} aria-busy={write.pending || undefined}>
           <SettingControlView setting={setting} disabled={write.pending} onCommit={(value) => void commit(value)} />
-          {write.error && <p role="alert" className="m-0 text-xs" style={{ color: "var(--ct-err, #f85149)" }}>{write.error}</p>}
+          {write.error && <p role="alert" className="m-0 text-xs" style={{ color: "var(--ct-err)" }}>{write.error}</p>}
         </div>
       )}
       details={(
@@ -119,11 +119,11 @@ function SwitchControl({ label, checked, disabled, onToggle }: { label: string; 
       <span
         aria-hidden="true"
         className="relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors motion-reduce:transition-none"
-        style={{ background: checked ? "var(--ct-accent, #58a6ff)" : "color-mix(in srgb, var(--ct-muted-fg) 35%, transparent)" }}
+        style={{ background: checked ? "var(--ct-accent)" : "color-mix(in srgb, var(--ct-muted-fg) 35%, transparent)" }}
       >
         <span
           className={`absolute h-3 w-3 rounded-full transition-transform motion-reduce:transition-none ${checked ? "translate-x-[13px]" : "translate-x-[2px]"}`}
-          style={{ background: "var(--ct-surface, #fff)" }}
+          style={{ background: "var(--ct-bg)" }}
         />
       </span>
       <span style={{ color: "var(--ct-fg)" }}>{checked ? "On" : "Off"}</span>
@@ -137,8 +137,7 @@ function SegmentedControl({ label, options, value, disabled, onPick }: { label: 
       role="radiogroup"
       aria-label={label}
       data-setting-control="segmented"
-      className="inline-flex w-fit max-w-full flex-wrap rounded-md p-0.5"
-      style={{ border: "1px solid color-mix(in srgb, var(--ct-muted-fg) 30%, transparent)" }}
+      className="ct-bar-pill-group w-fit max-w-full"
     >
       {options.map((option) => {
         const selected = option.value === value;
@@ -150,10 +149,8 @@ function SegmentedControl({ label, options, value, disabled, onPick }: { label: 
             aria-checked={selected}
             disabled={disabled}
             onClick={() => onPick(option.value)}
-            className={`h-6 rounded px-2.5 text-xs disabled:opacity-50 ${selected ? "font-medium" : "hover:enabled:bg-[var(--ct-hover,rgba(127,127,127,0.12))]"} ${FOCUS_RING}`}
-            style={selected
-              ? { background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 22%, transparent)", color: "var(--ct-fg)" }
-              : { color: "var(--ct-muted-fg)" }}
+            className="ct-bar-pill disabled:opacity-50"
+            style={selected ? { background: "color-mix(in srgb, var(--ct-accent) 16%, transparent)", color: "var(--ct-fg)" } : undefined}
           >
             {option.label}
           </button>
@@ -172,7 +169,6 @@ function SelectControl({ label, options, value, disabled, onPick }: { label: str
       data-setting-control="select"
       onChange={(event) => onPick(event.currentTarget.value)}
       className={`${BLOCK_INPUT} w-fit max-w-full`}
-      style={{ ...BLOCK_INPUT_STYLE, background: "var(--ct-surface, #161b22)" }}
     >
       {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
     </select>
@@ -193,15 +189,15 @@ function StepperControl({ label, control, value, disabled, onStep }: {
       aria-label={`${direction > 0 ? "Increase" : "Decrease"} ${label}`}
       disabled={disabled || !canStep(value, direction, control)}
       onClick={() => onStep(stepValue(value, direction, control))}
-      className={`flex h-6 w-6 items-center justify-center rounded disabled:opacity-40 hover:enabled:bg-[var(--ct-hover,rgba(127,127,127,0.12))] ${FOCUS_RING}`}
-      style={{ color: "var(--ct-fg)" }}
+      className="ct-bar-pill disabled:opacity-40"
+      style={{ width: 28, justifyContent: "center", padding: 0 }}
     >
       {direction > 0 ? <Plus size={12} aria-hidden="true" /> : <Minus size={12} aria-hidden="true" />}
     </button>
   );
   return (
     <div className="flex items-center gap-2" data-setting-control="stepper">
-      <div role="group" aria-label={label} className="inline-flex items-center rounded-md p-0.5" style={{ border: "1px solid color-mix(in srgb, var(--ct-muted-fg) 30%, transparent)" }}>
+      <div role="group" aria-label={label} className="ct-bar-pill-group items-center">
         {stepButton(-1)}
         <output className="min-w-[4ch] px-1 text-center text-sm font-semibold tabular-nums" style={{ color: "var(--ct-fg)" }}>{value}</output>
         {stepButton(1)}
@@ -229,7 +225,6 @@ function TextControl({ label, value, placeholder, disabled, onSave }: { label: s
         spellCheck={false}
         onChange={(event) => setDraft(event.currentTarget.value)}
         className={`${BLOCK_INPUT} w-full max-w-[18rem] flex-1`}
-        style={BLOCK_INPUT_STYLE}
       />
       <BlockButton primary disabled={disabled || !dirty} data-block-action="save" onClick={() => onSave(shown)}>Save</BlockButton>
     </div>

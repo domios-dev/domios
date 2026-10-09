@@ -1,7 +1,7 @@
 import { useId, useRef, useState } from "react";
 import { KeyRound, MessageCircle, Unplug } from "lucide-react";
 import { BlockNotice } from "./BlockNotice";
-import { BLOCK_INPUT, BLOCK_INPUT_STYLE, ChatBlockFrame, type ChatBlockAction } from "./ChatBlockFrame";
+import { BLOCK_INPUT, ChatBlockFrame, type ChatBlockAction } from "./ChatBlockFrame";
 import { useChatBlockHost, type ConnectBlockHost } from "./ChatBlockHost";
 import { useLiveBinding } from "./liveBinding";
 import { connectResult, connectStatus, needsTokenEntry, type BridgeConnectInfo, type ConnectBlockState } from "./connectBlockModel";
@@ -88,7 +88,7 @@ function ConnectCard({ bridge, host, source }: { bridge: BridgeConnectInfo; host
       name="connect"
       source={source}
       title={bridge.name}
-      icon={<MessageCircle size={18} aria-hidden="true" />}
+      icon={<MessageCircle size={14} aria-hidden="true" />}
       status={connectStatus(bridge.phase)}
       summary={summary}
       body={entering ? (
@@ -107,7 +107,6 @@ function ConnectCard({ bridge, host, source }: { bridge: BridgeConnectInfo; host
               placeholder={bridge.method.placeholder}
               onInput={(event) => setHasDraft(event.currentTarget.value.trim().length > 0)}
               className={`${BLOCK_INPUT} flex-1 font-mono`}
-              style={BLOCK_INPUT_STYLE}
             />
           </div>
           <p id={helpId} className="m-0 text-[11px] leading-relaxed" style={{ color: "var(--ct-muted-fg)" }}>{bridge.method.help}</p>

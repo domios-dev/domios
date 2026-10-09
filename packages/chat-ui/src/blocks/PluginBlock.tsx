@@ -61,7 +61,7 @@ function PluginCard({ plugin, host, source }: { plugin: PluginBlockInfo; host: P
       name="plugin"
       source={source}
       title={plugin.name}
-      icon={host.renderIcon?.(plugin.id, 18) ?? <Puzzle size={18} aria-hidden="true" />}
+      icon={host.renderIcon?.(plugin.id, 16) ?? <Puzzle size={14} aria-hidden="true" />}
       accent={plugin.iconColor}
       status={chip}
       summary={plugin.pitch || undefined}

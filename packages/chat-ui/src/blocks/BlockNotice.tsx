@@ -19,8 +19,8 @@ export function BlockNotice({ name, source, label, text, icon: Icon, missing = f
       data-block-missing={missing || undefined}
       role="note"
       aria-label={label}
-      className="my-2 flex w-fit max-w-[34rem] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs"
-      style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg) 22%, transparent)", color: "var(--ct-muted-fg)" }}
+      className="ct-card ct-card--quiet my-2 flex w-fit max-w-[34rem] items-center gap-2 px-3 py-1.5 text-xs"
+      style={{ color: "var(--ct-muted-fg)" }}
       title={source}
     >
       {missing ? <MissingIcon size={13} aria-hidden="true" /> : <Icon size={13} aria-hidden="true" />}
