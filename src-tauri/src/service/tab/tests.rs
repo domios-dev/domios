@@ -6,6 +6,56 @@ use crate::session::lifecycle::{JournalRecord, LifecycleTransition, TabLifecycle
 use codeterm_types::pty::{RemoteOwnership, RemoteOwnershipTeam};
 use std::collections::HashSet;
 
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn failed_restore_keeps_identity_session_and_exact_restore_data() {
+    use codeterm_types::pty::BootStage;
+    for stage in [
+        BootStage::SpawnFailed,
+        BootStage::LaunchDeadlineElapsed,
+        BootStage::LaunchBindingUnconfirmed,
+    ] {
+        let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("fixture-provider".into());
+        tab.agent_type_locked = true;
+        tab.agent_session_id = Some("saved-session".into());
+        tab.session_binding_nonce = Some("failed-nonce".into());
+        tab.role = Some(AgentRole::Manager);
+        tab.role_profile = Some("general_agent".into());
+        tab.boot_stage = Some(stage);
+        tab.boot_error = Some("opaque-launch-failure".into());
+        tab.close_restore = Some(crate::multiplexer::types::CloseRestoreTabState {
+            exact_session: true,
+            session_cwd: Some("saved-cwd".into()),
+            record_id: Some("saved-close-record".into()),
+            ..Default::default()
+        });
+        let fixture = ServiceFixture::new(mux);
+        for _ in 0..3 {
+            assert!(!fixture
+                .service
+                .clear_tab_spawn_failed_identity_if_absent(&tab_id, "failed restore"));
+            assert!(!fixture
+                .service
+                .clear_tab_agent_identity_after_confirmed_exit(&tab_id, "failed process exit"));
+        }
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&tab_id).unwrap();
+        assert_eq!(tab.agent_type.as_deref(), Some("fixture-provider"));
+        assert!(tab.agent_type_locked);
+        assert_eq!(tab.agent_session_id.as_deref(), Some("saved-session"));
+        assert_eq!(tab.role, Some(AgentRole::Manager));
+        assert_eq!(tab.role_profile.as_deref(), Some("general_agent"));
+        assert_eq!(tab.boot_stage, Some(stage));
+        assert_eq!(tab.boot_error.as_deref(), Some("opaque-launch-failure"));
+        let restore = tab.close_restore.as_ref().unwrap();
+        assert!(restore.exact_session);
+        assert_eq!(restore.session_cwd.as_deref(), Some("saved-cwd"));
+        assert_eq!(restore.record_id.as_deref(), Some("saved-close-record"));
+    }
+}
+
 fn restored_opencode_fixture() -> (
     ServiceFixture,
     String,
@@ -537,7 +587,7 @@ fn powershell_finished_marker_uses_a_distinct_launch_written_absence() {
         .mux
         .read()
         .get_tab(&tab_id)
-        .is_some_and(|tab| tab.agent_type.is_none()));
+        .is_some_and(|tab| tab.agent_type.as_deref() == Some("opencode")));
     fixture
         .service
         .pty
@@ -570,7 +620,7 @@ fn bash_finished_marker_exit_code_finalises_launch_before_provider_seen() {
         .mux
         .read()
         .get_tab(&tab_id)
-        .is_some_and(|tab| tab.agent_type.is_none()));
+        .is_some_and(|tab| tab.agent_type.as_deref() == Some("opencode")));
     fixture
         .service
         .pty
@@ -593,7 +643,7 @@ fn confirmed_pty_exit_finalises_launch_before_provider_is_seen() {
         .kill(&pty_id)
         .expect("reap the tab's PTY shell");
 
-    assert!(fixture
+    assert!(!fixture
         .service
         .clear_tab_agent_identity_after_confirmed_exit(&tab_id, "PTY process reaped"));
     assert!(launch_readiness::take_published_failure(&attempt)
@@ -603,7 +653,7 @@ fn confirmed_pty_exit_finalises_launch_before_provider_is_seen() {
         .mux
         .read()
         .get_tab(&tab_id)
-        .is_some_and(|tab| tab.agent_type.is_none()));
+        .is_some_and(|tab| tab.agent_type.as_deref() == Some("opencode")));
 }
 
 #[test]
@@ -648,6 +698,7 @@ fn confirmed_provider_exit_resets_terminal_modes_for_shell() {
         tab.agent_type = Some("fixture-provider".into());
         tab.agent_session_id = Some("verified-session".into());
         tab.session_binding_nonce = Some("verified-nonce".into());
+        tab.reported_session_binding_nonce = Some("verified-nonce".into());
         tab.pty_id = Some(pty_id.into());
     }
     let fixture = ServiceFixture::new(mux);

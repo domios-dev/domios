@@ -11,9 +11,16 @@ fn failed_provider(tab: &crate::multiplexer::types::Tab) -> Option<&str> {
         .failed_provider
         .as_deref()
         .or_else(|| {
-            (tab.boot_stage == Some(BootStage::SpawnFailed))
-                .then_some(tab.agent_type.as_deref())
-                .flatten()
+            matches!(
+                tab.boot_stage,
+                Some(
+                    BootStage::SpawnFailed
+                        | BootStage::LaunchDeadlineElapsed
+                        | BootStage::LaunchBindingUnconfirmed
+                )
+            )
+            .then_some(tab.agent_type.as_deref())
+            .flatten()
         })
 }
 
@@ -66,24 +73,36 @@ impl ServiceContext {
             }
             tab.agent_session_id.clone()
         } else {
-            super::exit_recovery::select_recovery_session(
+            let selected = super::exit_recovery::select_journal_recovery_session(
+                &crate::session::lifecycle::TabLifecycleJournal::shared()
+                    .load()
+                    .records,
+                &tab.id,
+                tab.agent_session_id.as_deref(),
                 &tab.prior_session_binding_nonces,
-                &super::exit_recovery::verified_session_ids(
-                    &crate::session::lifecycle::TabLifecycleJournal::shared()
-                        .load()
-                        .records,
-                    &tab.id,
-                ),
-            )
-            .ok()
-            .filter(|session_id| {
-                super::exit_recovery::recovery_provider(
+            );
+            let saved_session = tab.agent_session_id.is_some()
+                || tab.prior_session_binding_nonces.iter().any(|binding| {
+                    binding.session_id.is_some() || binding.resume_target_session_id.is_some()
+                });
+            let selected = match selected {
+                Ok(session) => Some(session),
+                Err(error) if saved_session => return Err(error),
+                Err(_) => None,
+            };
+            if let Some(session_id) = selected.as_deref() {
+                let owner = super::exit_recovery::recovery_provider(
                     &self.agent_registry,
                     tab.cwd.as_deref(),
                     session_id,
-                )
-                .is_ok_and(|owner| owner == provider)
-            })
+                )?;
+                if owner != provider {
+                    return Err(AgentRestartError::BadRequest(
+                        "recovery session belongs to a different provider".into(),
+                    ));
+                }
+            }
+            selected
         };
         Ok(Some(TabRestartSnapshot {
             tab_id: tab.id.clone(),
