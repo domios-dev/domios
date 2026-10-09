@@ -3,6 +3,48 @@ use std::cell::Cell;
 use super::*;
 
 #[test]
+fn captured_switch_outputs_confirm_model_and_effort_from_exact_records() {
+    let manifest: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../plugins/provider-claude/plugin.json"
+    )))
+    .unwrap();
+    let commands: crate::agent::provider::ModelSwitchCommands =
+        serde_json::from_value(manifest["commands"]["modelSwitchCommands"].clone()).unwrap();
+    let records: Vec<serde_json::Value> = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../plugins/provider-claude/tests/fixtures/model-switch/live-command-records.json"
+    )))
+    .unwrap();
+    let bytes = records
+        .iter()
+        .map(serde_json::Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let model =
+        confirmation_pattern(&commands.model.confirmation, "opus", "Opus 5.5", None).unwrap();
+    let effort = confirmation_pattern(
+        &commands.effort.unwrap().confirmation,
+        "opus",
+        "Opus 5.5",
+        Some("low"),
+    )
+    .unwrap();
+    assert!(transcript_confirms(&bytes, &commands.transcript, &model));
+    assert!(transcript_confirms(&bytes, &commands.transcript, &effort));
+    assert!(!transcript_confirms(
+        &records[0].to_string(),
+        &commands.transcript,
+        &model
+    ));
+    assert!(!transcript_confirms(
+        &records[2].to_string(),
+        &commands.transcript,
+        &effort
+    ));
+}
+
+#[test]
 fn session_identity_planner_uses_actual_model_after_unconfirmed_picker_switch() {
     use crate::agent::provider::ModelSwitchConfirmationSource::{SessionIdentity, Transcript};
     let current = planning_model(SessionIdentity, Some("previous".into()), || {

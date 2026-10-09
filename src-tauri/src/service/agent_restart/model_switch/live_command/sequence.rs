@@ -77,19 +77,23 @@ impl CommandSequence {
         svc: &ServiceContext,
         target: &CommandTarget,
     ) -> Result<(), ModelSwitchError> {
-        wait_for_idle(&self.signal, self.deadline, || {
+        let started = Instant::now();
+        let result = wait_for_idle(&self.signal, self.deadline, || {
             if !target.current(svc) || svc.pty.lock().get_session(&target.pty_id).is_none() {
                 return Err("the command session authority changed before post-command idle".into());
             }
             let anchor = self.anchor.as_ref().ok_or_else(||
                 "the next command cannot distinguish foreign activity without an own-session turn boundary".to_owned())?;
             let foreign_turn = crate::service::chat_send_evidence::window_has_foreign_user_turn(&svc.agent_registry, anchor, &self.transcript)?;
-            let snapshot = crate::service::status_reconciliation::snapshot_with_reconciled_status_until(
-                &svc.mux, &svc.agent_tracker, &svc.agent_registry, self.deadline,
-            );
-            post_command_idle(foreign_turn, snapshot.is_some_and(|snapshot| snapshot.tab_statuses.get(&target.tab_id) == Some(&codeterm_types::pty::TabStatus::Idle))
-                && svc.mux.read().get_tab(&target.tab_id).is_some_and(|tab| tab.pending_prompt.is_none()))
-        }).map_err(ModelSwitchError::LiveCommandFailed)
+            post_command_idle(foreign_turn, svc.command_tab_idle(target))
+        }).map_err(ModelSwitchError::LiveCommandFailed);
+        log::info!(
+            "[agent-model/timing] tab={} phase=post_command_idle elapsed_ms={} succeeded={}",
+            target.tab_id,
+            started.elapsed().as_millis(),
+            result.is_ok()
+        );
+        result
     }
 }
 
