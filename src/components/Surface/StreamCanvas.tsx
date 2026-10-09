@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { decodeJpegFrame, type FrameDecoder, type FrameFeed } from "./frameFeed";
-import { clickInput, decideKey, wheelInput, type PagePoint, type StreamInput, type StreamViewport } from "./streamModel";
+import { SnipOverlay } from "./SnipOverlay";
+import { clickInput, decideKey, wheelInput, type PagePoint, type PageRect, type StreamInput, type StreamViewport } from "./streamModel";
 import { canvasHint, liveViewLabel, type PopoverAnchor } from "./surfaceChromeModel";
 import { useStreamCanvas } from "./useStreamCanvas";
 
@@ -9,6 +10,7 @@ export interface StreamCanvasProps {
   pageTitle?: string;
   interactive: boolean;
   picking: boolean;
+  snipping?: boolean;
   frames: FrameFeed;
   decode?: FrameDecoder;
   children?: ReactNode;
@@ -20,6 +22,8 @@ export interface StreamCanvasProps {
   onBlocked(): void;
   onExitInteraction(): void;
   onCancelPick(): void;
+  onSnip?(rect: PageRect, anchor: PopoverAnchor): void;
+  onCancelSnip?(): void;
   onError?(error: unknown): void;
 }
 
@@ -30,6 +34,7 @@ export function StreamCanvas({
   pageTitle,
   interactive,
   picking,
+  snipping = false,
   frames,
   decode = decodeJpegFrame,
   children,
@@ -41,6 +46,8 @@ export function StreamCanvas({
   onBlocked,
   onExitInteraction,
   onCancelPick,
+  onSnip = noop,
+  onCancelSnip = noop,
   onError = noop,
 }: StreamCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -98,7 +105,7 @@ export function StreamCanvas({
     else onCancelPick();
   };
 
-  const mode = picking ? "picking" : interactive ? "interactive" : "watch";
+  const mode = snipping ? "snipping" : picking ? "picking" : interactive ? "interactive" : "watch";
   return (
     <div ref={stageRef} className="ct-surface-stage">
       <canvas
@@ -114,7 +121,8 @@ export function StreamCanvas({
         onMouseMove={onMouseMove}
         onKeyDown={onKeyDown}
       />
-      <p id={hintId} className="sr-only">{canvasHint(interactive, picking)}</p>
+      <p id={hintId} className="sr-only">{canvasHint(interactive, picking, snipping)}</p>
+      {snipping && <SnipOverlay drawRect={stream.drawRect} pageRect={stream.pageRect} onFinish={onSnip} onCancel={onCancelSnip} />}
       {children}
     </div>
   );

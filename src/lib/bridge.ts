@@ -835,7 +835,7 @@ async function invokeRaw<T>(cmd: string, args?: Args): Promise<T> {
     return tauriInvoke<T>(cmd, args);
   }
   if (cmd === "open_url") {
-    window.open(String(args?.url ?? ""), "_blank");
+    window.open(String(args?.url ?? ""), "_blank", "noopener");
     return undefined as T;
   }
   const mapper = HTTP_MAP[cmd];

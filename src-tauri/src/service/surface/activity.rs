@@ -57,7 +57,7 @@ pub(crate) struct Activity {
 
 /// Whether a `/call` method is agent work worth showing; only agent callers reach here.
 pub(crate) fn is_agent_method(method: &str) -> bool {
-    !UI_METHODS.contains(&method) && !method.starts_with("grab.")
+    !UI_METHODS.contains(&method) && !method.starts_with("grab.") && !method.starts_with("snip.")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -245,6 +245,8 @@ mod tests {
             "profiles.list",
             "grab.hover",
             "grab.send",
+            "snip.capture",
+            "snip.send",
         ] {
             assert!(!is_agent_method(method), "{method}");
         }

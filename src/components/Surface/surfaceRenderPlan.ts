@@ -21,8 +21,6 @@ export type SurfaceRenderPlan =
   | { kind: "stream"; runtime: string; chrome: SurfaceChromeSpec; live: boolean }
   | { kind: "unsupported"; message: string };
 
-export type ScreenshotSaveMode = "download" | "saved-path";
-
 const ITEM_KINDS: ReadonlySet<string> = new Set(["button", "input", "select"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -89,9 +87,11 @@ export function parseChromeSpec(value: unknown): SurfaceChromeSpec | null {
   if (!isRecord(value)) return null;
   const toolbar = Array.isArray(value.toolbar) ? value.toolbar.map(toolbarItem).filter((item): item is ToolbarItemSpec => item !== null) : [];
   const spec: SurfaceChromeSpec = { toolbar };
-  for (const flag of ["takeControl", "pointAndAsk", "screenshot"] as const) {
+  for (const flag of ["takeControl", "pointAndAsk", "snip", "openExternal"] as const) {
     if (typeof value[flag] === "boolean") spec[flag] = value[flag] as boolean;
   }
+  // The camera was declared as `screenshot` before it became snip and ask.
+  if (spec.snip === undefined && typeof value.screenshot === "boolean") spec.snip = value.screenshot;
   return spec;
 }
 
@@ -104,8 +104,4 @@ export function surfaceRenderPlan(lookup: SurfaceDeclLookup, visible: boolean): 
   if (renderer !== "stream") return { kind: "unsupported", message: `This surface uses the "${renderer}" renderer, which this Domios cannot show.` };
   if (!runtime) return { kind: "unsupported", message: "This stream surface declares no runtime." };
   return { kind: "stream", runtime, chrome: parseChromeSpec(chrome) ?? BROWSER_SURFACE_CHROME, live: visible };
-}
-
-export function screenshotSaveMode(isWeb: boolean): ScreenshotSaveMode {
-  return isWeb ? "download" : "saved-path";
 }

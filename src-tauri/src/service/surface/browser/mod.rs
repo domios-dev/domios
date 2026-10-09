@@ -5,6 +5,7 @@ mod inbox;
 mod input;
 mod page;
 mod resume;
+mod snip;
 mod stream;
 mod verbs;
 
@@ -20,6 +21,7 @@ use self::grab::GrabTarget;
 use self::inbox::AnnotationInbox;
 use self::input::{input_commands, InputArgs, NavAction};
 use self::page::PageShared;
+use self::snip::SnipStore;
 use super::runtime::{
     SurfaceCallCtx, SurfaceCallOutcome, SurfaceEvents, SurfaceNotice, SurfaceResume,
     SurfaceRuntime, SurfaceRuntimeFactory, SurfaceState,
@@ -75,6 +77,7 @@ pub(crate) struct BrowserRuntime {
     resume_profile: tokio::sync::Mutex<Option<String>>,
     resume_url: Mutex<Option<String>>,
     grabs: Mutex<GrabStore>,
+    snips: Mutex<SnipStore>,
     inbox: Mutex<AnnotationInbox>,
 }
 
@@ -107,6 +110,7 @@ impl BrowserRuntime {
             resume_profile: tokio::sync::Mutex::new(resume.profile),
             resume_url: Mutex::new(resume.url),
             grabs: Mutex::new(GrabStore::default()),
+            snips: Mutex::new(SnipStore::default()),
             inbox: Mutex::new(AnnotationInbox::default()),
         }
     }

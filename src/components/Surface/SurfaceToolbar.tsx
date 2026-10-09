@@ -1,11 +1,11 @@
-import { useEffect, useRef, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useRef, type KeyboardEvent } from "react";
 import type { ResolvedToolbarItem } from "./surfaceChromeModel";
 import { surfaceIcon } from "./surfaceIcons";
 
 export interface SurfaceToolbarProps {
   label: string;
   items: ResolvedToolbarItem[];
-  onButton(id: string, modifiers: { shiftKey: boolean }): void;
+  onButton(id: string): void;
   onToggle(id: string): void;
   onSubmit(id: string, value: string): void;
   onSelect(id: string, value: string): void;
@@ -100,7 +100,7 @@ export function SurfaceToolbar({ label, items, onButton, onToggle, onSubmit, onS
                 aria-label={item.label}
                 title={item.label}
                 disabled={item.disabled}
-                onClick={(event: MouseEvent<HTMLButtonElement>) => onButton(item.id, { shiftKey: event.shiftKey })}
+                onClick={() => onButton(item.id)}
               >
                 <IconOrLabel icon={item.icon} label={item.label} />
               </button>
