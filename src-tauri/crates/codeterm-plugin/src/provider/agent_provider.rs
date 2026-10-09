@@ -732,6 +732,10 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    fn supports_idle_restart_termination(&self) -> bool {
+        false
+    }
+
     /// Raw key bytes from a provider's single-key `stopKey` declaration.
     /// Returning `None` means the provider has no in-tab stop hook
     /// and the UI should hide the Stop affordance for that tab.

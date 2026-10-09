@@ -24,6 +24,9 @@ and lifecycle lineage, persists the snapshot, and resumes after relaunch. Steps:
 2. Send the provider's exit command (Claude: `/exit`, etc.) only when the Tab
    reads `idle`. A busy composer would queue it as a user turn, so a working
    agent skips it and is stopped at the process by step 4.
+   A provider declaring `commands.idleRestartTermination` skips the command
+   for its own nonce-verified idle session with no known background work.
+   Claude declares this because its transcript is written per message.
 3. Wait up to `grace_secs` (default 10) for the PTY to exit cleanly.
 4. If `--force` is set, the Tab was busy, or the timeout fires, kill the PTY.
 5. The existing Tab lifecycle detects the exit and respawns the agent
@@ -221,6 +224,14 @@ the unverified session, and reports `action=fresh_launch`. If the provider or
 recorded launch cannot be used, the command fails instead of reporting success.
 
 ## Implementation sources
+
+Restart stage telemetry uses `[restart-timing]` with `tab`, `pty`, `stage`, and
+`at_ms` (Unix milliseconds). Compare `exit-request`, `process-exit`,
+`relaunch-request`, `relaunch-spawn`, `session-bound`, and `ready` for both agent
+restart and the model restart fallback. `idle-terminate` proves the bypass ran.
+`first-composer` records the first composer observed by the launch input gate;
+hook-only resume can settle readiness without entering that gate. Never infer a
+composer timestamp from `session-bound` or `ready`.
 
 - `src-tauri/src/service/agent_restart/exit_recovery.rs` — in-place recovery of an exited agent session
 - `src-tauri/src/service/pty_io/lifecycle.rs` — restored agent materialization and PTY lifecycle

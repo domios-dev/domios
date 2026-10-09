@@ -448,6 +448,7 @@ impl ServiceContext {
         let mut onboarding_choice_submitted = false;
         let mut directory_trust_prompt_observed = false;
         let mut final_observation = false;
+        let mut composer_logged = false;
 
         let result = (|| loop {
             diagnostic.begin_frame(attempt, timeout, generation);
@@ -693,6 +694,14 @@ impl ServiceContext {
                 active_interactive_prompt,
                 classification,
             };
+            if composer_ready && !composer_logged {
+                composer_logged = true;
+                crate::service::agent_restart::timing::stage(
+                    &attempt.tab_id,
+                    &attempt.pty_id,
+                    "first-composer",
+                );
+            }
             diagnostic.observe_decision(
                 &observation,
                 provider_tui,
