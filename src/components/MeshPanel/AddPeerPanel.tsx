@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import type { MeshPeersResponse, DiscoveredPeer, MeshPairingRequest, PairedPeer } from "../../lib/types";
-import { UI_BUTTON, UI_INPUT, UI_PANEL, UI_TEXT } from "../shared/design";
+import { UI_BUTTON, UI_PANEL, UI_TEXT } from "../shared/design";
 import { BusySpinner } from "../shared/BusyState";
 
 const ACTION_BTN_CLASS = `${UI_BUTTON.ghost} ${UI_BUTTON.compact}`;
@@ -166,7 +166,7 @@ export default function AddPeerPanel() {
   return (
     <div className="flex flex-col gap-3">
       {meshOnline === false && (
-        <div className={`${UI_PANEL.card} bg-[var(--ct-titlebar-bg)] p-2.5 flex items-center justify-between gap-3`}>
+        <div className="ct-card ct-card--quiet p-2.5 flex items-center justify-between gap-3">
           <span className={UI_TEXT.meta}>
             You're offline — broadcasting peers won't show up here.
           </span>
@@ -243,7 +243,7 @@ export default function AddPeerPanel() {
                 onChange={(e) => setManualAddr(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleAddManual()}
                 placeholder="192.168.1.50:7685"
-                className={`${UI_INPUT.mono} flex-1 bg-[var(--ct-titlebar-bg)]`}
+                className="ct-field ct-text-mono flex-1"
                 autoFocus
               />
               <button
@@ -280,7 +280,7 @@ function Section({ label, action, children }: { label: string; action?: React.Re
         <div className={`${UI_TEXT.metaMuted} uppercase`}>{label}</div>
         {action}
       </div>
-      <div className="rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] divide-y divide-[var(--ct-border)]">
+      <div className="ct-card ct-card--quiet flex flex-col">
         {children}
       </div>
     </div>

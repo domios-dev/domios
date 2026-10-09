@@ -1,0 +1,28 @@
+.ct-rows {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 8px;
+}
+
+.ct-row {
+  border-radius: 10px;
+  transition: background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.ct-row:hover,
+.ct-row[data-expanded] {
+  background: color-mix(in srgb, var(--ct-fg) 4%, transparent);
+}
+
+.ct-row--selected,
+.ct-row--selected:hover {
+  background: color-mix(in srgb, var(--ct-accent) 10%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-row {
+    transition: none;
+  }
+}

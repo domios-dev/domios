@@ -1,4 +1,3 @@
-export const AUTOMATION_BUTTON = "rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] px-3 py-2 text-left text-xs text-[var(--ct-fg)] hover:border-[var(--ct-accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]";
 export const AUTOMATION_TOOL = "ct-bar-pill disabled:opacity-50";
 export const AUTOMATION_ROW = "ct-card group flex w-full min-w-0 items-center gap-3 px-3 py-2.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)] aria-pressed:border-[var(--ct-accent)]";
 export const AUTOMATION_TONE = { cron: "var(--ct-tone-cron)", blueprint: "var(--ct-tone-blueprint)" } as const;

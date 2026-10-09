@@ -55,7 +55,7 @@ export function RunLog({ rows, model, selected, truncated = false, height, onRep
     list.current?.querySelectorAll<HTMLButtonElement>("button[data-run-replay]")[next]?.focus();
     return true;
   };
-  return <section id="blueprint-run-log" aria-labelledby={headingId} style={height === undefined ? undefined : { height }} className="flex min-h-0 shrink-0 flex-col bg-[var(--ct-titlebar-bg)] text-xs">
+  return <section id="blueprint-run-log" aria-labelledby={headingId} style={height === undefined ? undefined : { height }} className="flex min-h-0 shrink-0 flex-col bg-[var(--ct-bg)] text-xs">
     <div className="flex items-baseline gap-2 px-4 pb-1.5 pt-3">
       <h3 id={headingId} className="text-[length:var(--ct-font-size-sm)] font-semibold text-[var(--ct-fg)]">Runs</h3>
       {rows.length > 0 && <span className="text-[var(--ct-muted-fg)]">{rows.length} recorded · newest first</span>}
@@ -69,7 +69,7 @@ export function RunLog({ rows, model, selected, truncated = false, height, onRep
         const open = expanded === row.key;
         const timelineId = `run-steps-${index}`;
         return <li key={row.key}>
-          <div className="bp-run" data-selected={isSelected || undefined} onClick={(event) => { if (!(event.target as HTMLElement).closest("button")) onReplay(row); }} onKeyDown={(event) => { if (move(index, event.code)) event.preventDefault(); }}>
+          <div className={`ct-row bp-run${isSelected ? " ct-row--selected" : ""}`} data-selected={isSelected || undefined} onClick={(event) => { if (!(event.target as HTMLElement).closest("button")) onReplay(row); }} onKeyDown={(event) => { if (move(index, event.code)) event.preventDefault(); }}>
             <span className={`h-2 w-2 shrink-0 rounded-full ${STATUS_TONE[row.status]}`} title={row.status} aria-hidden="true" />
             <span className="shrink-0 tabular-nums text-[var(--ct-muted-fg)] sm:w-[4.75rem]">{time}</span>
             <span className="bp-chip hidden max-w-[9rem] truncate md:inline" title="Trigger">{row.trigger}</span>

@@ -155,7 +155,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
   return (
     <div className="absolute inset-0 flex flex-col" data-testid="memory-activity-tab">
       {/* Header / global filters */}
-      <div className="flex items-center gap-3 px-4 py-2 border-b border-[var(--ct-border)]">
+      <div className="ct-jobs-header flex items-center gap-3 px-4 py-2">
         <ActivityIcon size={14} className="text-[var(--ct-muted-fg)]" />
         <span className="text-xs font-semibold text-[var(--ct-fg)]">Activity</span>
         <span className="text-[10px] text-[var(--ct-muted-fg)]">
@@ -164,10 +164,10 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
       </div>
 
       {/* 2-column body: events | workers (each scrolls independently) */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 divide-x divide-[var(--ct-border)]">
+      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2">
         {/* Events column */}
         <div className="flex flex-col min-h-0">
-          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--ct-border)]">
+          <div className="ct-jobs-header flex items-center gap-2 px-3 py-1.5">
             <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--ct-muted-fg)]">Stream</span>
             <select
               data-testid="memory-activity-op-filter"
@@ -206,7 +206,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
             </label>
           </div>
 
-          <div ref={eventsScrollRef} className="flex-1 overflow-y-auto" onScroll={handleScroll} data-testid="memory-activity-stream">
+          <div ref={eventsScrollRef} className="ct-rows flex-1 overflow-y-auto" onScroll={handleScroll} data-testid="memory-activity-stream">
             {newCount > 0 && !autoScroll && (
               <div className="sticky top-0 z-10 flex justify-center py-1">
                 <button
@@ -239,7 +239,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
                     </div>
                   )}
                   <div
-                    className="flex items-start gap-2.5 px-3 py-1.5 border-b border-white/[0.04] hover:bg-[var(--ct-bg-hover)] transition-colors duration-75"
+                    className="ct-row flex items-start gap-2.5 px-2 py-1.5"
                     data-testid="memory-activity-event"
                     data-memory-op={ev.op}
                   >
@@ -302,7 +302,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
 
         {/* Workers column */}
         <div className="flex flex-col min-h-0">
-          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--ct-border)]">
+          <div className="ct-jobs-header flex items-center gap-2 px-3 py-1.5">
             <Cpu size={12} className="text-[var(--ct-muted-fg)]" />
             <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--ct-muted-fg)]">Workers</span>
             <button

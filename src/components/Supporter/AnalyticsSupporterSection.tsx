@@ -11,7 +11,7 @@ export function AnalyticsSupporterSection({ api }: { api: ApiConfig }) {
   return (
     <details
       data-testid="analytics-supporter-activity"
-      className="shrink-0 border-t border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)]"
+      className="shrink-0 bg-[var(--ct-bg)]"
     >
       <summary className="cursor-pointer px-4 py-2">
         <span className={UI_TEXT.sectionLabel}>Spinal Cord activity</span>

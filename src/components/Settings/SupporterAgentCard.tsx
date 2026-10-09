@@ -182,7 +182,7 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
               : "The Spinal Cord is stopped. Deterministic behavior is available."}
           </p>
         )}
-        <section aria-label="Spinal Cord connections" className="flex flex-col">
+        <section aria-label="Spinal Cord connections" className="ct-rows -mx-2">
           {orderedRows.length ? (
             orderedRows.map((row) => {
               const selectedReadiness = selected?.adapter === row.adapter && status ? readiness(status, row) : null;

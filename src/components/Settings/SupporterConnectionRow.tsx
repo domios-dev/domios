@@ -124,7 +124,7 @@ export function SupporterConnectionRow({ row, controls, stale, unavailableReason
       tabIndex={-1}
       data-adapter={row.adapter}
       aria-label={`${name} connection`}
-      className="flex flex-col gap-1.5 border-b border-[var(--ct-border)] py-2 last:border-b-0"
+      className="ct-row flex flex-col gap-1.5 px-2 py-2"
     >
       <div className="flex min-w-0 items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-sm text-[var(--ct-fg)]">{name}</span>

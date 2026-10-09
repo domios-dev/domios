@@ -57,7 +57,7 @@ function ToolbarInput({ item, onSubmit }: { item: Extract<ResolvedToolbarItem, {
 
 export function SurfaceToolbar({ label, items, onButton, onToggle, onSubmit, onSelect }: SurfaceToolbarProps) {
   return (
-    <div role="toolbar" aria-label={`${label} controls`} className="ct-surface-toolbar">
+    <div role="toolbar" aria-label={`${label} controls`} className="ct-surface-toolbar ct-jobs-header">
       {items.map((item) => {
         switch (item.kind) {
           case "input":

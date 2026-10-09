@@ -32,7 +32,7 @@ export function BlueprintNodeDetails({ node, graph, onClose, panelRef, presence 
       {view.properties.length > 0 && <Facts>{view.properties.map(([name, value]) => <Fragment key={name}><dt>{name}</dt><dd>{value}</dd></Fragment>)}</Facts>}
       {view.prompt && <section aria-label="Instruction" className="space-y-2">
         <h4 className={SECTION}>Instruction</h4>
-        <p className="whitespace-pre-wrap break-words rounded-lg border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] px-3 py-2.5 leading-relaxed">{view.prompt}</p>
+        <p className="whitespace-pre-wrap break-words rounded-[10px] bg-[color-mix(in_srgb,var(--ct-fg)_3%,var(--ct-bg))] px-3 py-2.5 leading-relaxed">{view.prompt}</p>
       </section>}
       {view.routes.length > 0 && <section aria-label="Routes" className="space-y-2">
         <h4 className={SECTION}>Routes</h4>

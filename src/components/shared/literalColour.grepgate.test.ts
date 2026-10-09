@@ -17,7 +17,7 @@ const BASELINE: Record<string, number> = {
   "src/components/MemoryPanel": 46,
   "src/components/MeshPanel": 2,
   "src/components/Snake": 101,
-  "src/components/Terminal": 28,
+  "src/components/Terminal": 25,
   "src/components/UpdateBadge.tsx": 2,
 };
 

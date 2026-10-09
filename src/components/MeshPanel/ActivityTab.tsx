@@ -20,9 +20,9 @@ export function ActivityTab({ active }: Props) {
     );
   }
   return (
-    <div className="overflow-auto h-full">
+    <div className="ct-rows overflow-auto h-full">
       {events.map((ev, i) => (
-        <div key={ev.id ?? i} className="grid items-center px-4 py-1.5 border-b border-[var(--ct-border)]"
+        <div key={ev.id ?? i} className="ct-row grid items-center px-2 py-1.5"
           style={{ gridTemplateColumns: "70px 100px 18px 1fr", color: LEVEL_COLOR[ev.level] ?? "var(--ct-fg)" }}>
           <span className="text-[10px] text-[var(--ct-muted-fg)] font-mono">{new Date(ev.occurred_at).toLocaleTimeString()}</span>
           <span className="text-[10px] text-[var(--ct-muted-fg)]">{ev.source_peer ?? "this"}</span>

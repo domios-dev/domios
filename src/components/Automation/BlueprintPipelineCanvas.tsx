@@ -12,9 +12,9 @@ function stateTone(state: string, current: boolean): string {
 }
 
 function stateSurface(state: string, current: boolean): string {
-  if (current) return "border-[color-mix(in_srgb,var(--ct-accent)_45%,var(--ct-border))] shadow-[inset_0_0_16px_color-mix(in_srgb,var(--ct-accent)_7%,transparent),var(--ct-shadow-sm)]";
-  if (state === "failed") return "border-[color-mix(in_srgb,var(--ct-red)_60%,var(--ct-border))] shadow-[var(--ct-shadow-sm)]";
-  return "border-[var(--ct-border)] shadow-[var(--ct-shadow-sm)]";
+  if (current) return "shadow-[inset_0_0_16px_color-mix(in_srgb,var(--ct-accent)_7%,transparent)]";
+  if (state === "failed") return "ct-card--error";
+  return "";
 }
 
 function eventTime(value: number | null): string {
@@ -25,7 +25,7 @@ function PipelineNodeCard({ node }: { node: PipelineViewNode }) {
   const Icon = node.kind === "trigger" ? Play : node.kind === "result" ? Bell : Workflow;
   return <article
     aria-current={node.kind === "step" && node.current ? "step" : undefined}
-    className={`flex h-full flex-col gap-1 rounded-lg border bg-[var(--ct-titlebar-bg)] px-3 py-2.5 ${stateSurface(node.state, node.current)}`}
+    className={`ct-card flex h-full flex-col gap-1 px-3 py-2.5 ${stateSurface(node.state, node.current)}`}
   >
     <div className="flex items-center gap-1.5 text-[0.6875rem] uppercase tracking-wider text-[var(--ct-muted-fg)]">
       <Icon size={12} aria-hidden="true" />
@@ -76,7 +76,7 @@ function PipelineChain({ pipeline }: { pipeline: PipelineView }) {
         <defs><marker id={`pipeline-arrow-${markerId}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ct-muted-fg)" /></marker></defs>
         {layout.edges.map((edge) => <path key={`${edge.from}:${edge.to}`} d={`M ${edge.x + 8} ${edge.y} L ${edge.x + edge.width - 8} ${edge.y}`} stroke="var(--ct-muted-fg)" strokeWidth="1.5" markerEnd={`url(#pipeline-arrow-${markerId})`} />)}
       </svg>
-      {layout.edges.map((edge) => edge.label ? <span key={`label:${edge.from}:${edge.to}`} title={edge.label} className="absolute z-10 max-w-[4.5rem] -translate-x-1/2 truncate rounded-full border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] px-1.5 py-0.5 text-[0.625rem] text-[var(--ct-muted-fg)]" style={{ left: edge.x + edge.width / 2, top: edge.y - 28 }}>{edge.label}</span> : null)}
+      {layout.edges.map((edge) => edge.label ? <span key={`label:${edge.from}:${edge.to}`} title={edge.label} className="absolute z-10 max-w-[4.5rem] -translate-x-1/2 truncate rounded-full bg-[color-mix(in_srgb,var(--ct-fg)_6%,var(--ct-bg))] px-1.5 py-0.5 text-[0.625rem] text-[var(--ct-muted-fg)]" style={{ left: edge.x + edge.width / 2, top: edge.y - 28 }}>{edge.label}</span> : null)}
       {layout.nodes.map((box) => {
         const node = byKey.get(box.key);
         if (!node) return null;

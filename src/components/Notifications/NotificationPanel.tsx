@@ -45,7 +45,7 @@ export function NotificationPanel({
     [onJumpToTab, onMarkRead],
   );
   const headerBtnClass = `${UI_BUTTON.ghost} ${UI_BUTTON.compact} h-6 px-1.5 text-[10px] disabled:pointer-events-none disabled:opacity-35`;
-  const rowClass = `group flex items-start gap-2 border-b border-[var(--ct-border)] px-3 py-2.5 transition-colors hover:bg-[var(--ct-hover)]`;
+  const rowClass = "ct-row group flex items-start gap-2 px-2 py-2.5";
   // The card cannot widen past the panel it lives in, so reading room is the
   // panel's to give: it grows while anything is open and returns when nothing is.
   const anyExpanded = expandedIds.size > 0;
@@ -63,7 +63,7 @@ export function NotificationPanel({
         maxHeight: "min(520px, calc(100dvh - var(--ct-safe-top, 0px) - var(--ct-safe-bottom, 0px) - 48px))",
       }}
     >
-      <div className="flex min-h-9 shrink-0 items-center justify-between border-b border-[var(--ct-border)] px-2.5 py-1">
+      <div className="flex min-h-9 shrink-0 items-center justify-between px-2.5 py-1">
         <span className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--ct-fg)]">
           <Bell size={13} /> Notifications
         </span>
@@ -100,7 +100,7 @@ export function NotificationPanel({
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="ct-rows flex-1 overflow-y-auto">
         {sorted.length === 0 ? (
           <div className="flex h-28 flex-col items-center justify-center gap-2">
             <Bell size={18} className="text-[var(--ct-muted)]" />

@@ -109,10 +109,7 @@ export function PlanCompanionBubble({
             borderColor: "var(--ct-border)",
           }}
         >
-          <header
-            className="flex shrink-0 items-center gap-2 border-b px-3 py-2"
-            style={{ borderColor: "var(--ct-border)", background: "var(--ct-titlebar-bg)" }}
-          >
+          <header className="ct-jobs-header rounded-t-[inherit] flex shrink-0 items-center gap-2 px-3 py-2">
             <AgentCircle
               agent={{ id: resolution.tabId, label: name, role: kindLabel, color }}
               size={20}
