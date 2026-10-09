@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, RotateCw } from "lucide-react";
+import { MultiplexerActionsContext } from "../../store/multiplexer/context";
 import type { ProviderDescriptor, Tab } from "../../lib/types";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { getModelCatalogueRefreshApi } from "../../lib/modelCatalogueRefresh";
@@ -72,6 +73,8 @@ export function StatusLineModelPicker({
   const appliedRef = useRef<PickerSelection | null>(null);
   appliedRef.current = applied;
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const actions = useContext(MultiplexerActionsContext);
+  const commitRef = useRef<(selection: PickerSelection, restart: boolean) => Promise<void>>(async () => undefined);
   useEffect(() => {
     if (descriptor && applied && selectionReached(descriptor, applied, currentModel, currentEffort)) {
       setApplied(null);
@@ -99,12 +102,18 @@ export function StatusLineModelPicker({
       }
     } catch (error) {
       setApplied(previous);
-      setFailure({ message: error instanceof Error ? error.message : String(error), selection });
-      setOpen(true);
+      actions?.upsertToast({
+        id: `model-switch:${tabId}`, tab_id: tabId, workspace_id: null,
+        title: "Model switch did not apply",
+        body: error instanceof Error ? error.message : String(error),
+        severity: "Warning", level: "verbose", lifetime_ms: 15_000,
+        local_actions: restart ? undefined : [{ label: "Restart and resume", run: () => void commitRef.current(selection, true) }],
+      });
     } finally {
       setApplying(false);
     }
-  }, [close, tabId]);
+  }, [actions, close, tabId]);
+  commitRef.current = commit;
 
   const selection = pendingSelection ? { model: pendingSelection.model, effort: pendingSelection.effort ?? undefined }
     : applied ?? { model: currentModel ?? "Unknown model", effort: currentEffort };

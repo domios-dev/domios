@@ -8,6 +8,11 @@ import { __setModelCatalogueRefreshApiForTest } from "../../lib/modelCatalogueRe
 import { __setTabModelApiForTest } from "../Sidebar/tabModelApi";
 import { readPickerShowAll, writePickerShowAll } from "./statusLinePickerPreference";
 import { StatusLineModelPicker } from "./StatusLineModelPicker";
+import { MultiplexerActionsContext } from "../../store/multiplexer/context";
+
+type RaisedToast = { title: string; body: string | null; local_actions?: { label: string; run: () => void }[] };
+const toasts: RaisedToast[] = [];
+const toastActions = { upsertToast: (toast: RaisedToast) => { toasts.push(toast); } } as unknown as Parameters<typeof MultiplexerActionsContext.Provider>[0]["value"];
 
 function descriptor(model_switch: ProviderDescriptor["model_switch"]): ProviderDescriptor {
   return {
@@ -30,7 +35,9 @@ async function mount(provider: ProviderDescriptor | undefined) {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
+  toasts.length = 0;
   const render = (pendingSelection?: { model: string; effort: string | null }) => root.render(
+    <MultiplexerActionsContext.Provider value={toastActions}>
     <StatusLineModelPicker
       tabId="tab"
       descriptor={provider}
@@ -39,7 +46,8 @@ async function mount(provider: ProviderDescriptor | undefined) {
       modelCandidates={["deep"]}
       currentEffort="high"
       pendingSelection={pendingSelection}
-    />,
+    />
+    </MultiplexerActionsContext.Provider>,
   );
   await act(async () => render());
   return {
@@ -202,7 +210,7 @@ test("live commands switch immediately without restart confirmation", async () =
   }
 });
 
-test("a failed live command offers a separately confirmed restart fallback", async () => {
+test("a failed live command closes the picker and offers restart through a toast", async () => {
   const fallback: unknown[][] = [];
   __setTabModelApiForTest({
     switchModel: async () => { throw new Error("opaque failure"); },
@@ -213,15 +221,15 @@ test("a failed live command offers a separately confirmed restart fallback", asy
     await act(async () => view.trigger()!.click());
     await act(async () => view.option("Fast").click());
     await act(async () => button("Apply").click());
-    assert.ok(document.body.querySelector('[role="alert"]'));
+    assert.equal(view.picker(), null);
+    assert.equal(document.body.querySelector('[role="alert"]'), null);
+    assert.equal(toasts.length, 1);
+    assert.equal(toasts[0].title, "Model switch did not apply");
+    assert.equal(toasts[0].body, "opaque failure");
     assert.deepEqual(fallback, []);
-    const fallbackButton = Array.from(document.body.querySelectorAll<HTMLButtonElement>('button'))
-      .find((entry) => entry.textContent === "Restart and resume instead")!;
-    await act(async () => fallbackButton.click());
-    assert.deepEqual(fallback, []);
-    const confirm = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[aria-label="Confirm restart"] button'))
-      .find((entry) => entry.textContent === "Restart and switch")!;
-    await act(async () => confirm.click());
+    const restart = toasts[0].local_actions?.find((action) => action.label === "Restart and resume");
+    assert.ok(restart);
+    await act(async () => restart.run());
     assert.deepEqual(fallback, [["tab", "fast", undefined]]);
   } finally {
     await view.unmount();
@@ -368,7 +376,7 @@ test("Enter commits the staged effort once and shows it in the status line", asy
 });
 
 for (const fails of [false, true]) {
-  test(`Apply closes the picker, shows Applying with the draft, and ${fails ? "rolls back on failure" : "retains it on success"}`, async () => {
+  test(`Apply closes the picker, shows Applying with the draft, and ${fails ? "rolls back on failure with a toast" : "retains it on success"}`, async () => {
     let resolve!: () => void;
     let reject!: (error: Error) => void;
     const response = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
@@ -388,8 +396,8 @@ for (const fails of [false, true]) {
       await act(async () => { if (fails) reject(new Error("refused")); else resolve(); });
       if (fails) {
         assert.equal(view.trigger()!.textContent, "Deep · high");
-        assert.ok(document.body.querySelector('[role="alert"]'));
-        assert.ok(view.picker());
+        assert.equal(view.picker(), null);
+        assert.equal(toasts.length, 1);
       } else {
         assert.equal(view.trigger()!.textContent, "Deep · low");
         assert.equal(view.picker(), null);
