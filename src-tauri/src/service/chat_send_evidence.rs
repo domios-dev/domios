@@ -20,8 +20,6 @@ mod deferred_first_turn;
 mod turn_window;
 
 pub(crate) use turn_window::{window_has_foreign_user_turn, window_user_turns};
-#[cfg(test)]
-pub(crate) use turn_window::jsonl_has_foreign_user_turn;
 use turn_window::{structured_user_turns, StructuredUserTurn};
 
 #[cfg(test)]

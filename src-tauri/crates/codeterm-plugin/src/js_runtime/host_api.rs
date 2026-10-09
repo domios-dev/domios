@@ -495,6 +495,20 @@ pub(super) fn install(
     }
 
     let manifest_owned: Option<String> = manifest_json.map(|s| s.to_string());
+    bind!(
+        "commandTranscriptStdout",
+        move |record_json: String, declaration_json: String| -> Option<String> {
+            if record_json.len() > PLUGIN_READ_FILE_LIMIT as usize
+                || declaration_json.len() > 24 * 1024
+            {
+                return None;
+            }
+            let source: crate::provider::ModelSwitchTranscript =
+                serde_json::from_str(&declaration_json).ok()?;
+            let record = serde_json::from_str(&record_json).ok()?;
+            source.record_stdout(&record)
+        }
+    );
     bind!("manifestJson", move || -> Option<String> {
         manifest_owned.clone()
     });

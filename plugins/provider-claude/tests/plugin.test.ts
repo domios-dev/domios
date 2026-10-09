@@ -75,7 +75,10 @@ const manifestSeed = JSON.parse(fs.readFileSync(
   "utf8",
 )) as { models: Array<{ id: string; displayName: string; description?: string }> };
 
+const commandCases = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures/model-switch/command-transcript.json"), "utf8")) as Array<{record: unknown; stdout: string | null}>;
+
 const baseHost = (over: Record<string, unknown>) => ({
+  commandTranscriptStdout: (record: string) => commandCases.find(entry => JSON.stringify(entry.record) === record)?.stdout ?? null,
   manifestJson: () => JSON.stringify(manifestSeed),
   homeDir: () => "/tmp",
   path: { equal: () => true },
