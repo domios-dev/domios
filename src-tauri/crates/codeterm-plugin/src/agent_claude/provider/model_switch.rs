@@ -16,6 +16,7 @@ pub(super) fn commands() -> ModelSwitchCommands {
             prompt: Some(ModelSwitchPrompt {
                 screen_regex: "(?im)^\\s*Switch model\\?\\s*$[\\s\\S]*^\\s*❯ 1\\. Yes, switch to (?:{model}|{display_name})(?: [^\\r\\n]+)?\\s*$[\\s\\S]*^\\s*2\\. No, go back\\s*\\z".into(),
                 response_keys: vec!["\r".into()],
+                cancel_keys: vec!["\u{1b}".into()],
             }),
         },
         effort: Some(ModelSwitchCommand {
@@ -44,5 +45,6 @@ mod tests {
         assert!(!pattern.is_match(&screen.replace("Sonnet", "Opus")));
         assert!(!pattern.is_match(&format!("{screen}\nUnrelated prompt")));
         assert_eq!(declaration.response_keys, vec!["\r"]);
+        assert_eq!(declaration.cancel_keys, vec!["\u{1b}"]);
     }
 }
