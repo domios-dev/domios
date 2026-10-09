@@ -85,6 +85,7 @@
   animation-timeline: --ct-chat-scroll;
   animation-range: calc(100% - 24px) 100%;
   transition: margin var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
+    padding var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
     border-radius var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
     border-color var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
     background-color var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
@@ -93,8 +94,9 @@
 @container ct-chat (min-width: 64rem) {
   .ct-chat-bottom-bar {
     margin: 0 max(1rem, calc((100% - 58rem) / 2)) 0.75rem;
+    padding-block: 0.5rem 0.375rem;
     border-radius: 1.75rem;
-    background-color: color-mix(in srgb, var(--ct-surface) 82%, transparent);
+    background-color: var(--ct-bg);
     box-shadow: var(--ct-shadow-lg);
     animation: none;
   }
