@@ -214,10 +214,11 @@ export class TabEvents {
         this.api.get<{ status: string }>(`/tabs/${encodeURIComponent(this.tabId)}/status`),
         this.api.get<ChatSendStatus[]>(`/tabs/${encodeURIComponent(this.tabId)}/chat-send`),
       ]);
+      const status = state.status.replace(/^./, letter => letter.toUpperCase());
       this.sequence = Number(info.next_seq) - 1;
-      this.resyncs.push({ boot: info.boot, nextSeq: Number(info.next_seq), status: state.status });
+      this.resyncs.push({ boot: info.boot, nextSeq: Number(info.next_seq), status });
       console.log(`[tab-events-resync] tab=${this.tabId} boot=${info.boot} next_seq=${info.next_seq} status=${state.status}`);
-      this.publish({ seq: this.sequence, event_type: "tab-status-changed", data: { tab_id: this.tabId, status: state.status, resynced: true }, receivedAt: performance.now() });
+      this.publish({ seq: this.sequence, event_type: "tab-status-changed", data: { tab_id: this.tabId, status, resynced: true }, receivedAt: performance.now() });
       for (const status of ledger) this.publish({ seq: this.sequence, event_type: "chat-send-status", data: { ...status, resynced: true }, receivedAt: performance.now() });
       return;
     }
