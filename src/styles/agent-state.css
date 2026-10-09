@@ -194,6 +194,14 @@
   transform: scale(0.9);
 }
 
+.ct-agent-row--chat .activity-dots--still i,
+.ct-agent-row--chat .activity-dots--cooling i {
+  animation: none;
+  opacity: 0.5;
+  transform: none;
+  transition: opacity var(--ct-duration-smooth) var(--ct-ease-liquid-settle);
+}
+
 /* Going idle keeps the slot intact while the shared cooldown animation settles. */
 [data-agent-state="idle"] .ct-phase-dots {
   color: var(--ct-muted-fg);
@@ -235,6 +243,8 @@
    outline that doesn't compete with the dots) and resolves to danger only on
    intent (hover/focus), so interrupting reads as deliberate. */
 .ct-agent-stop {
+  margin-left: auto;
+  border-radius: 999px;
   color: var(--ct-muted-fg, #8b949e);
   background: transparent;
   border: 1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent);
