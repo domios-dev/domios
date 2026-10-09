@@ -210,7 +210,10 @@ pub enum AgentAction {
         /// Include bounded, redacted history in a provider-changing fresh launch.
         #[arg(long, requires = "provider")]
         handoff_history: bool,
-        /// Skip the graceful exit and force-kill instead. Use only when the agent is hung.
+        /// Start a new session in the same tab. Live agents require --force; an existing exact restored session is never replaced.
+        #[arg(long, conflicts_with_all = ["provider", "handoff_history"])]
+        fresh: bool,
+        /// Skip graceful exit and force-kill; also permits --fresh on a live agent.
         #[arg(long)]
         force: bool,
         /// Wait this long for graceful exit before force-killing (seconds)

@@ -42,6 +42,7 @@ async function main() {
         overlayVisible={false}
         onRetry={() => undefined}
         onStartFreshAgent={() => { starts += 1; }}
+        onStartNewSession={() => { throw new Error("unexpected new session"); }}
         onKeepShell={() => { keeps += 1; }}
       />,
     );

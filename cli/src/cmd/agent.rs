@@ -892,6 +892,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             tab,
             provider,
             handoff_history,
+            fresh,
             force,
             grace_secs,
         } => {
@@ -901,6 +902,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 grace_secs,
                 provider: provider.as_deref(),
                 handoff_history,
+                fresh,
             };
             match local_http
                 .post(format!("{}/api/tabs/{}/agent/restart", base, tab_id))

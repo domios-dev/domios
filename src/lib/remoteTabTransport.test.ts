@@ -2,6 +2,12 @@ import { describe, expect, finish, it } from "../test/standaloneTest";
 import { classifyTabTarget, hasCompositeTabArgument, parseCompositeTabId, remoteTransportCall } from "./remoteTabTransport";
 
 describe("remote tab transport adapter", () => {
+  it("preserves explicit fresh session intent for the owning tab", () => {
+    const call = remoteTransportCall("restart_agent_tab", { tabId: "mesh:peer/restored", fresh: true });
+    expect(call?.suffix).toBe("/agent/restart");
+    expect(call?.remoteTabId).toBe("restored");
+    expect(call?.body).toEqual({ fresh: true });
+  });
   it("routes local previews to the composite tab's owning daemon", () => {
     for (const command of ["read_local_preview_file", "read_html_preview_file", "check_local_preview_files"]) {
       const call = remoteTransportCall(command, { tabId: "mesh:peer/shared", path: "/work/preview.html", kind: "page", paths: ["/work/preview.html"] });
