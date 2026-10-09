@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { List, Square, X } from "lucide-react";
+import { List, Square } from "lucide-react";
+import { BackPill } from "../shared/BackPill";
 import { BlueprintExportButton } from "./BlueprintExportButton";
 import { BlueprintCanvas, type CanvasReplay } from "./BlueprintCanvas";
 import { BlueprintNodeDetails } from "./BlueprintNodeDetails";
@@ -127,13 +128,13 @@ export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBac
     event.preventDefault();
     onBack();
   }}>
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--ct-border)] py-2.5 pl-4 pr-3">
+    <div className="ct-jobs-header flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5 pl-4 pr-3">
+      <BackPill label={backLabel} onBack={onBack} />
       <Heading className="min-w-0 flex-[1_1_12rem] truncate text-[length:var(--ct-font-size-md)] font-semibold text-[var(--ct-fg)]">{title}</Heading>
       {state_ && <span className="flex items-center gap-1.5 text-xs text-[var(--ct-muted-fg)]"><span className={`h-1.5 w-1.5 rounded-full ${stateTone(state_)}`} aria-hidden="true" />{state_}{cadence ? ` · ${cadence}` : ""}</span>}
       <BlueprintExportButton workspaceId={scope.workspace_id} teamId={scenario.root.team_id} id={scenario.root.id} />
       {root && <button type="button" className={AUTOMATION_TOOL} disabled={!root.stop.allowed || state.failed || state.stopping !== null} onClick={() => void state.stop(root.identity)}>{state.stopping ? "Stopping…" : "Stop Blueprint"}</button>}
       <button type="button" className={AUTOMATION_TOOL} aria-expanded={runsOpen} aria-controls="blueprint-run-log" onClick={() => setRunsOpen(!runsOpen)}><List size={14} aria-hidden="true" />Runs</button>
-      <button type="button" className="plan-side-panel__action" aria-label="Close Blueprint" title={`Close and return to ${backLabel} (Esc)`} onClick={onBack}><X size={15} aria-hidden="true" /></button>
     </div>
     {children}
     {state.stopFailed && <p role="alert" className="px-4 py-2">Blueprint stop failed.</p>}
