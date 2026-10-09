@@ -66,19 +66,39 @@
 [data-send="true"] > .ct-send-glyph--mic { opacity: 0; transform: scale(0.8); }
 [data-send="true"] > .ct-send-glyph--send { opacity: 1; transform: none; transition-delay: 60ms; }
 @media (prefers-reduced-motion: reduce) {
-  .ct-composer-dock, .ct-composer-card, .ct-send-bloom, .ct-send-glyph { transition: none; }
+  .ct-composer-dock, .ct-composer-card, .ct-send-bloom, .ct-send-glyph, .ct-chat-bottom-bar { transition: none; }
 }
 
 .ct-composer-readonly, .ct-composer-status { padding-inline: var(--ct-composer-gutter-x); }
 .ct-composer-status { padding-top: 6px; }
 
-.ct-chat-shell { timeline-scope: --ct-chat-scroll; }
+.ct-chat-shell {
+  container: ct-chat / inline-size;
+  timeline-scope: --ct-chat-scroll;
+}
 .ct-chat-scroller { scroll-timeline: --ct-chat-scroll block; }
 .ct-chat-bottom-bar {
-  border-top: 1px solid transparent;
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: 0;
   animation: ct-chat-bottom-divider linear both;
   animation-timeline: --ct-chat-scroll;
   animation-range: calc(100% - 24px) 100%;
+  transition: margin var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
+    border-radius var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
+    border-color var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
+    background-color var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
+    box-shadow var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
+}
+@container ct-chat (min-width: 64rem) {
+  .ct-chat-bottom-bar {
+    margin: 0 max(1rem, calc((100% - 58rem) / 2)) 0.75rem;
+    border-radius: 1.75rem;
+    background-color: color-mix(in srgb, var(--ct-surface) 82%, transparent);
+    box-shadow: var(--ct-shadow-lg);
+    animation: none;
+  }
+  .ct-chat-bottom-bar .ct-composer-card { box-shadow: none; }
 }
 @keyframes ct-chat-bottom-divider {
   from { border-top-color: var(--ct-border-default); }
