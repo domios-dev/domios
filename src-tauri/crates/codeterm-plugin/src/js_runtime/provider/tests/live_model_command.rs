@@ -6,7 +6,7 @@ fn live_command_mode_and_templates_round_trip_through_manifest() {
     manifest["commands"]["modelSwitch"] = json!("live_command");
     manifest["commands"]["modelSwitchCommands"] = json!({
         "model": {"command": "/choose {model}", "confirmation": "^accepted {model}$",
-            "prompt": {"screenRegex": "^confirm {model}$", "responseKeys": ["y", "\r"]}},
+            "prompt": {"screenRegex": "^confirm {model}$", "responseKeys": ["y", "\r"], "cancelKeys": ["\u{1b}"]}},
         "effort": {"command": "/reason {effort}", "confirmation": "^accepted {effort}$"},
         "transcript": {"recordType": "opaque", "contentPath": ["payload"], "prefix": "<ok>", "suffix": "</ok>"}
     });
@@ -20,6 +20,9 @@ fn live_command_mode_and_templates_round_trip_through_manifest() {
     assert!(serde_json::from_value::<PluginManifest>(invalid).is_err());
     let mut invalid = manifest.clone();
     invalid["commands"]["modelSwitchCommands"]["model"]["prompt"]["responseKeys"] = json!("y");
+    assert!(serde_json::from_value::<PluginManifest>(invalid).is_err());
+    let mut invalid = manifest.clone();
+    invalid["commands"]["modelSwitchCommands"]["model"]["prompt"]["cancelKeys"] = json!("escape");
     assert!(serde_json::from_value::<PluginManifest>(invalid).is_err());
     let commands = provider.model_switch_commands().unwrap();
     assert_eq!(
