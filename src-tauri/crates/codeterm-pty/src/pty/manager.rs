@@ -54,7 +54,7 @@ pub struct PtySession {
     /// read_pty reads from this instead of the raw PTY reader to avoid competing reads.
     /// Bounded to prevent memory leaks when frontend isn't consuming (hidden tabs).
     pub backend_reader_tx: StdMutex<Option<tokio::sync::mpsc::Sender<Vec<u8>>>>,
-    pub backend_reader_rx: StdMutex<Option<tokio::sync::mpsc::Receiver<Vec<u8>>>>,
+    pub backend_output: super::backend_output::BackendOutput,
     pub backend_reader_active: AtomicBool,
     pub teardown: PtyTeardownSignal,
     /// Recorded once when the child process exits, with its exit code.
@@ -636,7 +636,7 @@ pub fn build_session_with_profile(
         guarded_input: GuardedInputGate::default(),
         child: StdMutex::new(child),
         backend_reader_tx: StdMutex::new(None),
-        backend_reader_rx: StdMutex::new(None),
+        backend_output: super::backend_output::BackendOutput::default(),
         backend_reader_active: AtomicBool::new(false),
         teardown: PtyTeardownSignal::default(),
         child_exit: Arc::default(),
@@ -870,9 +870,7 @@ impl PtyManager {
         if let Ok(mut tx) = session.backend_reader_tx.lock() {
             let _ = tx.take();
         }
-        if let Ok(mut rx) = session.backend_reader_rx.lock() {
-            let _ = rx.take();
-        }
+        session.backend_output.close();
         // ConPTY handle is closed by the reaper's background thread, not here —
         // ClosePseudoConsole can block (see teardown.rs) and must not stall the caller.
         log::info!("Killed PTY {} process tree; ConPTY teardown queued", pty_id);
@@ -914,7 +912,7 @@ impl PtyManager {
         }
         let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(Self::BACKEND_CHANNEL_CAPACITY);
         *session.backend_reader_tx.lock().unwrap() = Some(tx.clone());
-        *session.backend_reader_rx.lock().unwrap() = Some(rx);
+        session.backend_output.install(rx);
         Some(tx)
     }
 
