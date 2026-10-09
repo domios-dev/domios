@@ -1,5 +1,15 @@
 import type { Ref } from "react";
 
+export function KebabGlyph() {
+  return (
+    <svg className="ct-kebab-glyph" viewBox="0 0 4 14" aria-hidden="true">
+      <circle cx="2" cy="2" r="1.3" />
+      <circle cx="2" cy="7" r="1.3" />
+      <circle cx="2" cy="12" r="1.3" />
+    </svg>
+  );
+}
+
 export function RowMenuButton({ label, title, touchMode = false, ref }: {
   label: string;
   title?: string;
@@ -13,9 +23,9 @@ export function RowMenuButton({ label, title, touchMode = false, ref }: {
       aria-label={label}
       aria-haspopup="menu"
       title={title ?? label}
-      className={`${touchMode ? "h-11 w-11" : "w-5 h-5"} flex items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-border)] hover:text-[var(--ct-fg)] transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--ct-accent)]`}
+      className={`ct-row-kebab ${touchMode ? "ct-row-kebab--touch" : ""}`}
     >
-      <span aria-hidden="true" className={`${touchMode ? "text-[20px]" : "text-[13px]"} leading-none font-bold`}>⋮</span>
+      <KebabGlyph />
     </button>
   );
 }

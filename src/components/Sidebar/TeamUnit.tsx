@@ -10,6 +10,7 @@ import { summarizeWorkers } from "./orchestrationSections";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { clampFloatingPosition } from "../shared/floatingPosition";
 import { ActivityDots } from "../shared/ActivityDots";
+import { KebabGlyph } from "../shared/RowMenuButton";
 import {
   PLAN_STATUS_COLORS,
   SegmentedDonut,
@@ -254,7 +255,7 @@ function TeamMenu({
         aria-label="Team actions"
         aria-haspopup="menu"
         aria-expanded={open}
-        className="sidebar-team-kebab"
+        className="ct-row-kebab sidebar-team-kebab"
         onClick={(event) => {
           event.stopPropagation();
           if (open) {
@@ -265,7 +266,7 @@ function TeamMenu({
           openAt(rect.right - 174, rect.bottom + 2);
         }}
       >
-        ⋮
+        <KebabGlyph />
       </button>
       {open && createPortal(
         <div
@@ -748,7 +749,7 @@ export function TeamUnit({
                   {workingWorkerCount > 0 && (
                     <ActivityDots size="small" tone="muted" active />
                   )}
-                  <span className="sidebar-team-summary-kebab">⋮</span>
+                  <span className="sidebar-team-summary-kebab"><KebabGlyph /></span>
                 </div>
               )}
             </div>

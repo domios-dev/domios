@@ -54,18 +54,4 @@
   border-radius: 999px;
   background: color-mix(in srgb, var(--ct-accent) 12%, transparent);
   color: color-mix(in srgb, var(--ct-accent) 85%, var(--ct-fg));
-  transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
-    transform var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
-}
-
-.sidebar-tab:hover .sidebar-mesh-dot,
-.sidebar-tab:focus-within .sidebar-mesh-dot {
-  opacity: 0;
-  transform: scale(0.8);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sidebar-mesh-dot {
-    transition: none;
-  }
 }

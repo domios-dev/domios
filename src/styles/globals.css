@@ -15,6 +15,7 @@
 @import "../components/Terminal/composerContext.css";
 @import "../components/shared/dropdownMenu.css";
 @import "../components/Sidebar/sidebarPanel.css";
+@import "../components/shared/rowKebab.css";
 @import "../components/Canvas/missionControl/missionControl.css";
 @import "../components/Surface/surface.css";
 @import "../components/Sidebar/surfaceTether.css";
@@ -1129,12 +1130,20 @@ button,
   opacity: 0;
 }
 
-/* Tab close (3-dot menu) — hidden by default, fades in on hover and
-   overlays the badge slot via absolute positioning in the right cell. */
-.sidebar-tab-close {
+/* Row kebab lives in its own right-edge lane, so it never covers the row's badges. */
+.sidebar-tab-kebab {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  padding-top: 5px;
   opacity: 0;
-  transform: scale(0.8);
-  transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle), transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell), background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+  transform: translateX(3px);
+  transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    transform var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
 
 /* Plan view modes: Board in its own capsule, the plan views in another, one thumb gliding across both. */
@@ -1697,25 +1706,21 @@ button,
   100% { transform: translate(var(--kx-to), -50%) scale(1, 1); }
 }
 
-.sidebar-tab:hover .sidebar-tab-close,
-.sidebar-tab:focus-within .sidebar-tab-close {
-  opacity: 0.6;
-  transform: scale(1);
+.sidebar-tab:hover .sidebar-tab-kebab,
+.sidebar-tab:focus-within .sidebar-tab-kebab {
+  opacity: 1;
+  transform: translateX(0);
 }
 
-.sidebar-tab-close:hover {
-  opacity: 1 !important;
-  transform: scale(1) !important;
-  background-color: rgba(239, 68, 68, 0.15);
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-tab-kebab {
+    transform: none;
+    transition: none;
+  }
 }
 
 .sidebar-tab-touch .sidebar-tab-badge {
   display: none;
-}
-
-.sidebar-tab-touch .sidebar-tab-close {
-  opacity: 1;
-  transform: scale(1);
 }
 
 /* When the tab is too narrow to fit a comfortable badge alongside the
@@ -2711,20 +2716,6 @@ button,
   color: var(--ct-fg);
 }
 
-.sidebar-team-kebab {
-  display: flex;
-  width: 20px;
-  height: 20px;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--ct-muted-fg);
-  font-size: 14px;
-  font-weight: 700;
-}
-
 .sidebar-team-menu-root .sidebar-team-kebab {
   position: absolute;
   inset: 0;
@@ -2926,8 +2917,9 @@ button,
 }
 
 .sidebar-team-summary-kebab {
+  display: inline-flex;
   margin-left: auto;
-  font-weight: 700;
+  color: var(--ct-muted-fg);
 }
 
 @property --launch-progress {
