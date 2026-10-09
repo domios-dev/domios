@@ -105,3 +105,28 @@ fn capability_reload_cannot_turn_a_live_request_into_a_restart() {
         .require_mechanism(ModelSwitchMode::RestartResume)
         .is_err());
 }
+
+#[test]
+fn staged_then_already_idle_claims_once_without_another_transition() {
+    let (request, _) = fixture();
+    let mut queue = PendingSwitches::default();
+    let (tx, rx) = channel();
+    queue.replace_at_idle(request.clone(), tx, true);
+    assert_eq!(rx.try_recv(), Ok(()));
+    assert!(queue.claim(&request));
+    assert!(!queue.claim(&request));
+}
+
+#[test]
+fn idle_between_staging_check_and_waiter_subscription_is_retained_once() {
+    let (request, _) = fixture();
+    let mut queue = PendingSwitches::default();
+    let (tx, rx) = channel();
+    queue.replace_at_idle(request.clone(), tx, false);
+    queue.signal_idle(&request.tab_id);
+    queue.signal_idle(&request.tab_id);
+    assert_eq!(rx.try_recv(), Ok(()));
+    assert!(queue.claim(&request));
+    assert_eq!(rx.try_recv(), Ok(()));
+    assert!(!queue.claim(&request));
+}

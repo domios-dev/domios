@@ -50,6 +50,7 @@ impl ServiceContext {
         target: &CommandTarget,
         effort: Option<&str>,
         template: &ModelSwitchCommand,
+        deadline: Instant,
     ) -> Result<(), ModelSwitchError> {
         let fail = ModelSwitchError::LiveCommandFailed;
         if template.prompt.is_some() || template.picker.is_some() {
@@ -92,7 +93,6 @@ impl ServiceContext {
                     .as_deref()
                     == Some(target.model.as_str())
         };
-        let deadline = Instant::now() + Duration::from_secs(MODEL_OBSERVE_TIMEOUT_SECS);
         let idle = || {
             target.current(self)
                 && self

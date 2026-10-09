@@ -101,6 +101,9 @@ impl ServiceContext {
         self.output_stream_pty_changed(pty_id);
         let tab_id = self.mux.read().tab_id_for_pty(pty_id);
         if let Some(ref pid) = tab_id {
+            if now == TabStatus::Idle {
+                self.apply_staged_model_switch_on_idle(pid);
+            }
             self.wake_agent_deliveries_on_state_change(pid);
             self.wake_user_owner_on_state_change(pid);
             crate::api::events::emit_everywhere(
