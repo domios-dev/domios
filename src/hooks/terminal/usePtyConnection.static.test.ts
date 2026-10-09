@@ -12,7 +12,8 @@ test("Tab cwd updates do not restart the live PTY reader", () => {
 });
 
 test("An unmounted reader leaves the uncancellable read_pty long-poll instead of retaining the terminal", () => {
-  assert.match(source, /await Promise\.race\(\[invoke<number\[\]>\("read_pty", \{ ptyId: predictedId \}\), readingStopped\]\)/);
+  assert.match(source, /await Promise\.race\(\[readPtyChunk\(predictedId\), readingStopped\]\)/);
+  assert.match(source, /queueMicrotask\(\(\) => \{ invoke<number\[\]>\("read_pty", \{ ptyId \}\)\.then\(resolve, reject\); \}\)/);
   assert.match(source, /await Promise\.race\(\[waitForDrain\(\), readingStopped\]\)/);
   assert.match(source, /reading = false;\r?\n\s+stopReading\(\);/);
 });
