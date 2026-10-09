@@ -222,6 +222,7 @@ All fields optional.
 | `compact` | string? | In-agent compact command (e.g. `/compact`). |
 | `freshContext` | string? | In-agent fresh-context command. |
 | `exit` | string? | In-agent clean-exit command. |
+| `idleRestartTermination` | bool | Transcript is durable while idle, so a verified idle restart may terminate without the exit command. Default `false`; busy restart behavior is unchanged. |
 | `stopKey` | string? | One raw key value for interrupting the current generation. |
 | `stopKeys` | string[]? | Ordered raw key values for a multi-key interrupt sequence. |
 | `stopKeyWaitForOutput` | bool | Wait for a PTY screen change between sequence keys. Default `false`. |

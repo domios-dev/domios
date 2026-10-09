@@ -1,6 +1,32 @@
 use super::*;
 
 #[test]
+fn idle_restart_termination_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    assert!(native.supports_idle_restart_termination());
+    assert_eq!(
+        native.supports_idle_restart_termination(),
+        js.supports_idle_restart_termination()
+    );
+}
+
+#[test]
+fn idle_restart_termination_is_an_explicit_manifest_opt_in() {
+    for (commands, expected) in [
+        ("{}", false),
+        (r#"{"idleRestartTermination":false}"#, false),
+        (r#"{"idleRestartTermination":true}"#, true),
+    ] {
+        let config: crate::js_runtime::manifest::CommandsConfig =
+            serde_json::from_str(commands).unwrap();
+        assert_eq!(config.idle_restart_termination, expected);
+    }
+}
+
+#[test]
 fn parse_prompt_native_js_parity() {
     if require_plugins().is_none() {
         return;
