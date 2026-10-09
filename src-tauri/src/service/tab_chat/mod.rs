@@ -16,6 +16,7 @@ mod file_events;
 pub mod host_context;
 pub mod raw_text_sink;
 pub mod registry;
+pub(crate) mod restore_notice;
 pub mod session_window;
 pub mod store_watch;
 pub mod structured_poller;
@@ -712,7 +713,11 @@ pub fn tab_chat_snapshot(
                     .ok_or("Tab has no session_id yet")?;
                 (provider, cwd, sid)
             };
-            session_chat_snapshot(svc, &provider_id, &cwd, &session_id, since)
+            let result = session_chat_snapshot(svc, &provider_id, &cwd, &session_id, since)?;
+            if result.0.iter().any(|message| message.kind == "user") {
+                svc.note_session_conversation(tab_id, &session_id);
+            }
+            Ok(result)
         }
     }
 }

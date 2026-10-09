@@ -168,7 +168,10 @@ and model/effort before close and after Undo/Recently Closed restore.
 | Grok | Close, then Recently Closed restore; route input before binding | Input is held until current-PTY PID-registry binding, then written once; original session history and contextual answer appear. |
 | Codex | Confirm low effort, close, then Undo and complete one reply | Original session and model remain; requested/resolved effort remain low; actual effort returns to low with actual_source session-owned. |
 | Unresumable session | Restore a saved session unavailable to its provider | UI shows a restore failure with a reason; no replacement session starts. |
-| Missing exact session | Provider confirms the saved session is absent; click Start new session | One fresh session becomes ready in the same tab; tab id, title, role, Team, plan binding, cwd, model and effort remain; dead session and exact restore flag are cleared; lifecycle names the old session. |
+| Missing conversation | Provider confirms the saved session is absent and journal or exact provider content proves a user turn | Card retains Start new session and Keep shell; no automatic replacement. |
+| Empty missing session (Volta) | Rebuild DEV and restore Restoreprobe tab `32ffb66f` with no ConversationStarted or exact provider user content | Same tab becomes a fresh Claude Manager automatically; recorded provider, model, effort, permission/runtime mode, role/profile, Team/plan, cwd, title and launch prompt remain; one quiet system notice appears in Chat; no failure card. |
+| Unknown restore evidence | Provider check or transcript read is inconclusive, journal is missing/corrupt, or launch parameters were not captured | Failure card remains and the saved session binding is preserved. |
+| Explicit fresh recovery | Provider confirms the saved session is absent; click Start new session | One fresh session becomes ready in the same tab; tab id, title, role, Team, plan binding, cwd, model and effort remain; dead session and exact restore flag are cleared; lifecycle names the old session. |
 | Existing unresumable session | Provider still owns the exact session but cannot resume it | Card offers Keep shell without Start new session; explicit `dc agent restart --tab <id> --fresh` refuses without changing the binding. |
 
 Use a unique opaque token in the first turn and require the post-restore answer

@@ -45,6 +45,48 @@ fn merged_turn_evidence_key(tab_id: &str, anchor: &SendEvidenceAnchor, turn_text
 }
 
 impl ChatSendLedger {
+    pub(crate) fn evidence_session_for_send(&self, send_id: &str) -> Option<String> {
+        let state = self.state.lock();
+        state
+            .live_binding_by_id
+            .get(send_id)
+            .and_then(|binding| binding.session_id.clone())
+            .or_else(|| {
+                state
+                    .anchor_by_id
+                    .get(send_id)
+                    .map(|anchor| anchor.session_id.clone())
+            })
+    }
+    pub(crate) fn session_conversation(&self, tab_id: &str, session_id: &str) -> Option<bool> {
+        let state = self.state.lock();
+        let mut uncertain = false;
+        for status in state
+            .by_id
+            .values()
+            .filter(|status| status.tab_id == tab_id)
+        {
+            let binding = state
+                .live_binding_by_id
+                .get(&status.send_id)
+                .and_then(|binding| binding.session_id.as_deref())
+                .or_else(|| {
+                    state
+                        .anchor_by_id
+                        .get(&status.send_id)
+                        .map(|anchor| anchor.session_id.as_str())
+                });
+            if binding.is_some_and(|binding| binding != session_id) {
+                continue;
+            }
+            match status.state {
+                ChatSendState::Sent => return Some(true),
+                ChatSendState::Written | ChatSendState::Unknown => uncertain = true,
+                _ => {}
+            }
+        }
+        (!uncertain).then_some(false)
+    }
     pub(crate) fn has_written_user_send_before(
         &self,
         authority: &UserSendAuthority,
