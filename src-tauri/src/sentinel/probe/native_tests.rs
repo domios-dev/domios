@@ -1,6 +1,5 @@
 use super::environment::Environment;
 use super::owner::{ProbeResourceOwner, MAX_RESOURCE_SLOTS};
-use super::run_with_environment;
 use super::{MAX_OUTPUT_BYTES, PROBE_RUNTIME};
 #[cfg(unix)]
 use std::io::Write;
@@ -8,6 +7,8 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
+
+const NATIVE_TEST_RUNTIME: Duration = Duration::from_secs(30);
 
 #[test]
 fn sentinel_probe_native_success_and_nonzero() {
@@ -21,7 +22,7 @@ fn sentinel_probe_native_success_and_nonzero() {
                     panic!("exit {status}: {failure:?}; deadline receipt={receipt:?}")
                 },
             );
-        assert_deadline_receipt(receipt, PROBE_RUNTIME);
+        assert_deadline_receipt(receipt, PROBE_RUNTIME, PROBE_RUNTIME);
         assert_eq!(
             i32::from_le_bytes(output.bytes[..4].try_into().unwrap()),
             status
@@ -66,14 +67,18 @@ fn sentinel_probe_process_receives_instance_cli_and_auth_environment() {
         Some(cli.as_path()),
         inherited_path.as_deref(),
     );
-    let output = run_with_environment(
+    let (output, receipt) = super::run_with_runtime_and_receipt(
         command,
         dir.path(),
-        PROBE_RUNTIME,
+        NATIVE_TEST_RUNTIME,
+        NATIVE_TEST_RUNTIME,
         &Arc::new(ProbeResourceOwner::new()),
         &environment,
     )
-    .unwrap();
+    .unwrap_or_else(|(failure, receipt)| {
+        panic!("instance environment: {failure:?}; deadline receipt={receipt:?}")
+    });
+    assert_deadline_receipt(receipt, NATIVE_TEST_RUNTIME, NATIVE_TEST_RUNTIME);
 
     assert!(output.success, "{}", output.text);
     assert!(output
@@ -86,12 +91,18 @@ fn sentinel_probe_process_receives_instance_cli_and_auth_environment() {
 fn sentinel_probe_native_output_is_bounded_and_drained() {
     let dir = tempfile::tempdir().unwrap();
     let owner = Arc::new(ProbeResourceOwner::new());
-    let (output, receipt) =
-        super::run_with_receipt(&large_command(), dir.path(), PROBE_RUNTIME, &owner)
-            .unwrap_or_else(|(failure, receipt)| {
-                panic!("bounded capture: {failure:?}; deadline receipt={receipt:?}")
-            });
-    assert_deadline_receipt(receipt, PROBE_RUNTIME);
+    let (output, receipt) = super::run_with_runtime_and_receipt(
+        &large_command(),
+        dir.path(),
+        NATIVE_TEST_RUNTIME,
+        NATIVE_TEST_RUNTIME,
+        &owner,
+        &Environment::default(),
+    )
+    .unwrap_or_else(|(failure, receipt)| {
+        panic!("bounded capture: {failure:?}; deadline receipt={receipt:?}")
+    });
+    assert_deadline_receipt(receipt, NATIVE_TEST_RUNTIME, NATIVE_TEST_RUNTIME);
     assert_eq!(output.bytes.len(), MAX_OUTPUT_BYTES + 12);
     let stdout_len = u64::from_le_bytes(output.bytes[4..12].try_into().unwrap()) as usize;
     assert_eq!(stdout_len, 32 * 1024);
@@ -117,7 +128,7 @@ fn sentinel_probe_native_closed_stream_live_child_is_unconfirmed() {
         &owner,
     );
     let (failure, receipt) = result.expect_err("a live process group cannot be reported complete");
-    assert_deadline_receipt(receipt.unwrap(), Duration::from_secs(1));
+    assert_deadline_receipt(receipt.unwrap(), Duration::from_secs(1), PROBE_RUNTIME);
     assert!(started.elapsed() < Duration::from_secs(3));
     assert_eq!(failure.primary, "probe_group_completion_unconfirmed");
     assert!(failure.is_unconfirmed());
@@ -143,7 +154,7 @@ fn sentinel_probe_native_inherited_stream_deadline() {
     );
     fixture.release_and_wait();
     let (failure, receipt) = result.expect_err("inherited output keeps capture incomplete");
-    assert_deadline_receipt(receipt.unwrap(), Duration::from_secs(1));
+    assert_deadline_receipt(receipt.unwrap(), Duration::from_secs(1), PROBE_RUNTIME);
     assert!(started.elapsed() >= Duration::from_millis(500));
     assert!(started.elapsed() < Duration::from_secs(3));
     assert_eq!(failure.primary, "probe_timeout");
@@ -176,7 +187,7 @@ fn sentinel_probe_native_windows_preexecution_containment() {
         &Environment::default(),
         |_, _| Err("injected Job assignment failure".into()),
     );
-    assert_deadline_receipt(receipt, PROBE_RUNTIME);
+    assert_deadline_receipt(receipt, PROBE_RUNTIME, PROBE_RUNTIME);
     let failure = result.expect_err("assignment failure must stop before resume");
     assert_eq!(failure.primary, "probe_containment_failed");
     assert!(failure
@@ -205,7 +216,7 @@ fn sentinel_probe_native_cancelled_capture_settles() {
         &owner,
     );
     let (failure, receipt) = result.expect_err("cancelled Windows capture is not a normal result");
-    assert_deadline_receipt(receipt.unwrap(), Duration::from_secs(3));
+    assert_deadline_receipt(receipt.unwrap(), Duration::from_secs(3), PROBE_RUNTIME);
     assert_eq!(failure.primary, "probe_timeout");
     assert!(!failure.is_unconfirmed());
     assert!(owner.wait_for_free_slots_with_timeout(MAX_RESOURCE_SLOTS, Duration::from_secs(5)));
@@ -377,8 +388,12 @@ fn large_command() -> String {
     "[Console]::Out.Write('x' * 100000); [Console]::Error.Write('y' * 100000)".into()
 }
 
-fn assert_deadline_receipt(receipt: super::process::DeadlineReceipt, limit: Duration) {
-    let duration = limit.min(PROBE_RUNTIME);
+fn assert_deadline_receipt(
+    receipt: super::process::DeadlineReceipt,
+    limit: Duration,
+    runtime: Duration,
+) {
+    let duration = limit.min(runtime);
     let reserve = Duration::from_millis(500).min(duration / 4);
     assert_eq!(receipt.duration, duration);
     assert_eq!(receipt.hard.duration_since(receipt.admitted), duration);
