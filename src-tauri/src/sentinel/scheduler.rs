@@ -21,8 +21,10 @@ mod events;
 mod probe_failure;
 mod record;
 pub use record::record;
+#[cfg(test)]
+pub(super) use record::record_unconfirmed_failure_with;
+pub(super) use record::resolve_probe_result;
 use record::{record_failure, record_input_unavailable, record_unconfirmed_failure};
-pub(super) use record::{record_unconfirmed_failure_with, resolve_probe_result};
 mod text;
 
 use crate::cron::clock::SharedClock;

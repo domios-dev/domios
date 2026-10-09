@@ -88,7 +88,7 @@ pub enum BlueprintJournalWrite {
 }
 
 impl BlueprintJournalWrite {
-    pub(super) fn validate(&self) -> Result<(), StorageError> {
+    pub(in crate::repositories::sentinel) fn validate(&self) -> Result<(), StorageError> {
         let (run_id, marker, step_name, outcome, summary, reason) = match self {
             Self::Claim {
                 run_id,

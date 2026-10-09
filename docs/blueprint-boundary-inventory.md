@@ -31,7 +31,7 @@ One appended schema migration renames the tables and columns, rebuilds the handl
 CHECK constraint to admit the canonical action kind, and checks foreign keys before
 commit. Historical migrations remain byte-compatible with pre-release fixtures.
 
-Verification is deferred to canonical QA. Requested focused selectors cover the
+Focused verification selectors cover the
 pre-rename SQLite fixture, persisted deletion through the REST alias, old-key
 portable import, and the existing Blueprint/Sentinel suites.
 
