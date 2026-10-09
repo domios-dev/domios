@@ -311,14 +311,13 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
           type="button"
           onClick={onOriginClick}
           disabled={!onOriginClick}
-          className="flex items-center gap-1.5 text-xs mb-1 uppercase tracking-wider opacity-80"
+          className="mb-1 flex items-center gap-1.5 text-[11.5px] font-medium"
           style={{
-            color: "var(--ct-accent, #58a6ff)",
+            color: "color-mix(in srgb, var(--ct-accent) 72%, var(--ct-muted-fg))",
             cursor: onOriginClick ? "pointer" : "default",
             background: "transparent",
             border: "none",
             padding: 0,
-            textTransform: "uppercase",
           }}
           title={onOriginClick ? "Click to focus source Tab" : undefined}
         >

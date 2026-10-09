@@ -73,7 +73,7 @@ function JobCard({ job, host, jobRef, source }: { job: JobBlockInfo; host: JobBl
       name="job"
       source={source}
       title={job.name}
-      icon={job.kind === "cron" ? <Clock3 size={18} aria-hidden="true" /> : <Workflow size={18} aria-hidden="true" />}
+      icon={job.kind === "cron" ? <Clock3 size={14} aria-hidden="true" /> : <Workflow size={14} aria-hidden="true" />}
       status={{ label: job.stateLabel, tone: JOB_STATE_TONE[job.state] }}
       summary={jobScheduleLine(job)}
       body={job.lastResult ? (

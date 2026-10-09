@@ -1,6 +1,6 @@
 import type { NormalizedChatMessage as ChatMessage, ToolEvent } from "@codeterm/chat-core";
 import type { ReactNode } from "react";
-import { ToolCardActionButton, ToolCardFrame } from "../toolcard/ToolCardFrame";
+import { ToolCardActionButton, ToolCardChips, ToolCardFrame } from "../toolcard/ToolCardFrame";
 import type { ToolKindVisual } from "../toolcard/toolKindVisual";
 
 interface Props {
@@ -44,7 +44,7 @@ export function InboundActivityCard({ message, testId, title, summary, presentat
       variant="codeterm"
       visualOverride={visual}
       disclosureLabel={disclosureLabel}
-      metric={chips.length ? <span className="flex min-w-0 gap-1">{chips.map((chip) => <span key={chip} className="max-w-40 truncate rounded border px-1.5 py-0.5 text-[10px]" style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}>{chip}</span>)}</span> : undefined}
+      metric={chips.length ? <ToolCardChips chips={chips} /> : undefined}
       action={onFocusTab ? <ToolCardActionButton label="Show Tab" onClick={onFocusTab} testId="inbound-show-tab" /> : undefined}
     >
       {children}

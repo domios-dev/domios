@@ -39,7 +39,7 @@ function TasksCard({ state, spec, host, source }: { state: Extract<TasksBlockSta
       name="tasks"
       source={source}
       title={state.title}
-      icon={<ListTodo size={18} aria-hidden="true" />}
+      icon={<ListTodo size={14} aria-hidden="true" />}
       status={{ label: `${state.total} ${state.total === 1 ? "task" : "tasks"}`, tone: "accent" }}
       summary={tasksBlockSummary(state)}
       body={state.groups.length === 0
@@ -94,7 +94,7 @@ function TaskRow({ row, onOpen }: { row: TasksBlockRow; onOpen: (taskId: string)
         data-task-row={row.id}
         onClick={() => onOpen(row.id)}
         aria-label={`Open ${row.key} ${row.name} in the plan`}
-        className={`grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-0.5 rounded-md px-1.5 py-1.5 text-left hover:bg-[var(--ct-hover,rgba(127,127,127,0.12))] ${FOCUS_RING}`}
+        className={`grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-0.5 px-1.5 py-1.5 text-left ct-row ${FOCUS_RING}`}
         style={{ color: "var(--ct-fg)" }}
       >
         <span className="text-[11px] tabular-nums" style={{ color: "var(--ct-muted-fg)" }}>{row.key}</span>

@@ -14,7 +14,6 @@ import {
 } from "./checklistBlockModel";
 
 const MISSING: ChecklistBlockState = { kind: "missing" };
-const FOCUS_RING = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]";
 
 type RenderBlock = (source: string) => React.ReactNode;
 
@@ -78,8 +77,8 @@ function ChecklistRow({ item, onOpen, renderBlock }: { item: ChecklistItemInfo; 
             data-checklist-action={item.id}
             aria-expanded={action.kind === "block" ? showBlock : undefined}
             onClick={() => (action.kind === "block" ? setShowBlock((open) => !open) : onOpen())}
-            className={`shrink-0 rounded-md px-2 py-0.5 text-xs font-medium hover:bg-[var(--ct-hover,rgba(127,127,127,0.12))] ${FOCUS_RING}`}
-            style={{ color: "var(--ct-accent, #58a6ff)" }}
+            className="ct-bar-pill shrink-0"
+            style={{ height: 24 }}
           >
             {action.label}
           </button>
@@ -97,7 +96,7 @@ function ProgressRing({ progress }: { progress: ChecklistProgress }) {
   const circumference = 2 * Math.PI * radius;
   const share = progress.total ? progress.done / progress.total : 0;
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" data-testid="checklist-ring">
+    <svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true" data-testid="checklist-ring">
       <circle cx="10" cy="10" r={radius} fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2.5" />
       <circle
         cx="10"

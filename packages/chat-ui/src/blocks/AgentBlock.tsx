@@ -50,7 +50,7 @@ function AgentCard({ agent, host, tabRef, source }: { agent: AgentBlockInfo; hos
       name="agent"
       source={source}
       title={agent.name}
-      icon={<Bot size={18} aria-hidden="true" />}
+      icon={<Bot size={14} aria-hidden="true" />}
       status={{ label: AGENT_STATE_LABEL[agent.state], tone: AGENT_STATE_TONE[agent.state] }}
       summary={identity || undefined}
       body={activity ? (

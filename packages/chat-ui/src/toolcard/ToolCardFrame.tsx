@@ -22,6 +22,15 @@ interface ToolCardFrameProps {
   disclosureLabel?: string;
 }
 
+export function ToolCardChips({ chips, wrap = false }: { chips: readonly string[]; wrap?: boolean }) {
+  if (chips.length === 0) return null;
+  return (
+    <span className={`flex min-w-0 gap-1 ${wrap ? "flex-wrap" : ""}`}>
+      {chips.map((chip) => <span key={chip} className="ct-card__chip">{chip}</span>)}
+    </span>
+  );
+}
+
 export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, title, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel }: ToolCardFrameProps) {
   const visual = visualOverride ?? toolKindVisual[event.kind];
   const Glyph = visual.glyph;
@@ -89,14 +98,14 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   );
 }
 
-export function ToolCardActionButton({ label, onClick, testId }: { label: string; onClick: () => void; testId?: string }) {
+export function ToolCardActionButton({ label, onClick, testId, primary = false }: { label: string; onClick: () => void; testId?: string; primary?: boolean }) {
   return (
     <button
       type="button"
       data-testid={testId}
       title={label}
       onClick={onClick}
-      className="ct-bar-pill font-mono"
+      className={`ct-bar-pill w-fit${primary ? " ct-bar-pill--primary" : ""}`}
       style={{ height: 22 }}
     >
       {label}
