@@ -22,9 +22,11 @@ use self::inbox::AnnotationInbox;
 use self::input::{input_commands, InputArgs, NavAction};
 use self::page::PageShared;
 use self::snip::SnipStore;
+#[cfg(test)]
+use super::runtime::SurfaceState;
 use super::runtime::{
     SurfaceCallCtx, SurfaceCallOutcome, SurfaceEvents, SurfaceNotice, SurfaceResume,
-    SurfaceRuntime, SurfaceRuntimeFactory, SurfaceState,
+    SurfaceRuntime, SurfaceRuntimeFactory,
 };
 use crate::service::browser::process::CloseOutcome;
 use crate::service::browser::profile::{sanitize_profile_name, ProfileLayout};
@@ -339,6 +341,7 @@ impl SurfaceRuntime for BrowserRuntime {
         self.shared.update(|state| state.owner = name.to_string());
     }
 
+    #[cfg(test)]
     fn state(&self) -> SurfaceState {
         self.shared.state()
     }

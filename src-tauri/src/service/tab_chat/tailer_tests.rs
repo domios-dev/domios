@@ -369,6 +369,7 @@ fn binding_completion_preserves_new_session_stream() {
             .unwrap();
         writeln!(file, "{record}").unwrap();
         file.flush().unwrap();
+        drop(file);
         let rows = receiver.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].blocks[0].data["text"], answer);

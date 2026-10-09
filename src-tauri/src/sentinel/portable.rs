@@ -87,12 +87,9 @@ fn handler(handler: &Handler) -> Value {
 fn redact(value: &mut Value, path: &str, placeholders: &mut BTreeMap<String, String>) {
     match value {
         Value::Object(fields) => {
-            let handler = fields.contains_key("parameters") && fields.contains_key("type");
             for (key, value) in fields {
                 let next = format!("{path}.{key}");
-                if handler && key == "id" {
-                    redact_payload(value, &next, placeholders);
-                } else if matches!(
+                if matches!(
                     key.as_str(),
                     "probe"
                         | "command"
