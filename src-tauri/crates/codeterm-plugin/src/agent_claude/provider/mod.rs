@@ -294,9 +294,8 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<String> {
-        sessions::detect_session_model(cwd, session_id).map(|family| {
-            crate::model_catalog::resolve_family_model("claude", &family).unwrap_or(family)
-        })
+        sessions::detect_session_model(cwd, session_id)
+            .map(|family| crate::model_catalog::resolve_observed_model("claude", family))
     }
 
     fn session_model_transcript_boundary(
@@ -313,9 +312,8 @@ impl AgentProvider for ClaudeProvider {
         session_id: &str,
         boundary: &codeterm_types::agent::SessionModelTranscriptBoundary,
     ) -> Option<String> {
-        sessions::detect_session_model_after_boundary(cwd, session_id, boundary).map(|family| {
-            crate::model_catalog::resolve_family_model("claude", &family).unwrap_or(family)
-        })
+        sessions::detect_session_model_after_boundary(cwd, session_id, boundary)
+            .map(|family| crate::model_catalog::resolve_observed_model("claude", family))
     }
 
     fn detect_session_reasoning_effort(&self, cwd: &str, session_id: &str) -> Option<String> {
