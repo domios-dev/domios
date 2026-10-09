@@ -297,6 +297,31 @@ test("refresh asks the provider's catalogue once and escape returns focus", asyn
   }
 });
 
+test("tab picker retains the observed model when the streaming label ends", async () => {
+  const { setAgentDescriptors } = await import("../../lib/agentDescriptorCache");
+  const { TabStatusLineModelPicker } = await import("./StatusLineModelPicker");
+  setAgentDescriptors([descriptor("live")]);
+  const tab = {
+    id: "tab", pty_id: "pty", agent_type: "vendor",
+    agent_requested_model: "deep", agent_provider_resolved_model: "deep",
+    agent_session_model: "vendor/actual",
+  } as unknown as import("../../lib/types").Tab;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    for (const label of ["Vendor · vendor/actual", "Vendor · Deep"]) {
+      await act(async () => root.render(<TabStatusLineModelPicker tab={{ ...tab }} label={label} />));
+      assert.equal(host.querySelector('button[aria-haspopup="dialog"]')?.getAttribute("aria-label"),
+        "Change model, currently vendor/actual");
+    }
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    setAgentDescriptors([]);
+  }
+});
+
 test("an open picker follows a catalogue change without polling", async () => {
   const { setAgentDescriptors } = await import("../../lib/agentDescriptorCache");
   const { TabStatusLineModelPicker } = await import("./StatusLineModelPicker");

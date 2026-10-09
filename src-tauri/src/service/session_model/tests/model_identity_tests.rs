@@ -111,6 +111,29 @@ fn fallback_without_provider_resolution_uses_observed_model() {
 }
 
 #[test]
+fn runtime_mismatch_surfaces_once_until_runtime_evidence_is_cleared() {
+    let first = model_identity_update(None, None, Some("requested"), None, None, "actual", false);
+    assert!(runtime_mismatch_notice_needed(
+        None,
+        first.mismatch.as_ref()
+    ));
+    let fallback = first.fallback.unwrap();
+    assert!(!runtime_mismatch_notice_needed(
+        Some(&fallback),
+        first.mismatch.as_ref(),
+    ));
+    assert!(!runtime_mismatch_notice_needed(None, None));
+    let cleared = crate::multiplexer::types::ModelFallbackNotice {
+        actual_model: None,
+        ..fallback
+    };
+    assert!(runtime_mismatch_notice_needed(
+        Some(&cleared),
+        first.mismatch.as_ref(),
+    ));
+}
+
+#[test]
 fn session_change_clears_stale_actual_but_keeps_launch_provenance() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).unwrap();

@@ -1095,6 +1095,14 @@ mod model_refresh_tests {
         let notifications = notif.list(false);
         assert_eq!(notifications.len(), 1);
         assert_eq!(
+            notifications[0].level,
+            Some(crate::notification::push::NotifyLevel::Verbose)
+        );
+        assert_eq!(
+            notifications[0].severity,
+            crate::notification::store::NotificationSeverity::Info
+        );
+        assert_eq!(
             notifications[0].title,
             "model fallback: requested sonnet, actual opus"
         );
