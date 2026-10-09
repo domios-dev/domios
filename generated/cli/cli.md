@@ -157,7 +157,8 @@ Send a report to your parent in the hierarchy
 
 Restart a live agent, or resume an exited provider's verified session in its shell
 
-- `--force` — Skip the graceful exit and force-kill instead. Use only when the agent is hung
+- `--force` — Skip graceful exit and force-kill; also permits --fresh on a live agent
+- `--fresh` — Start a new session in the same tab. Live agents require --force; an existing exact restored session is never replaced
 - `--grace-secs` — Wait this long for graceful exit before force-killing (seconds)
 - `--handoff-history` — Include bounded, redacted history in a provider-changing fresh launch
 - `--provider` — Relaunch with this installed PTY provider instead of the current provider
@@ -3223,6 +3224,28 @@ Connect or activate an adapter, remembering its own model and token
 
 - `<adapter>`
 - `--model`
+
+#### `codeterm surface`
+
+Plugin surface tabs: app tabs whose content a plugin view renders
+
+#### `codeterm surface close`
+
+Close a surface tab; refuses tabs that are not surfaces
+
+- `--tab` — Surface tab id
+
+#### `codeterm surface list`
+
+List the surfaces enabled plugins declare and the surface tabs that are open
+
+#### `codeterm surface open`
+
+Open a plugin surface as a tab nested under its owner
+
+- `--owner` — Tab that owns the surface (default: the calling agent tab)
+- `<target>` — Surface to open, as `<plugin_id>:<surface_id>`
+- `--title-from-owner` — Label the tab after its owner ("{owner}'s {title}") even when the surface is not agent-bound
 
 #### `codeterm system`
 
