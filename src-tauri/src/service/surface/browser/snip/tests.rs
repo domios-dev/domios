@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use image::{Rgba, RgbaImage};
 use serde_json::json;
 
 use super::*;
@@ -65,38 +66,136 @@ fn browser_snip_rect_rounds_and_rejects_bad_areas() {
     }
 }
 
-#[test]
-fn browser_snip_capture_clips_the_area_at_full_resolution_inside_the_viewport() {
-    let area = rect(312.0, 736.0, 420.0, 180.0);
-    assert_eq!(
-        capture_params(&area),
-        json!({
-            "format": "png",
-            "clip": { "x": 312.0, "y": 736.0, "width": 420.0, "height": 180.0, "scale": 1.0 },
-            "captureBeyondViewport": false,
-        })
-    );
-    let thumb = thumbnail_params(&area);
-    assert_eq!(thumb["format"], "jpeg");
-    assert_eq!(thumb["captureBeyondViewport"], false);
-    assert_eq!(thumb["clip"]["x"], 312.0);
-    assert_eq!(thumb["clip"]["width"], 420.0);
-    let scale = thumb["clip"]["scale"].as_f64().unwrap();
-    assert!(
-        (scale * 420.0 - 64.0).abs() < 1e-9,
-        "longest side shrinks to the thumb"
-    );
-    assert_eq!(
-        thumbnail_params(&rect(0.0, 0.0, 20.0, 10.0))["clip"]["scale"],
-        1.0
-    );
+const RED: Rgba<u8> = Rgba([220, 30, 30, 255]);
+const BLUE: Rgba<u8> = Rgba([20, 40, 200, 255]);
+
+/// A viewport shot whose only red pixels are the box `(x, y, w, h)`.
+fn shot_png(size: (u32, u32), red: (u32, u32, u32, u32)) -> String {
+    let (rx, ry, rw, rh) = red;
+    let image = RgbaImage::from_fn(size.0, size.1, |x, y| {
+        if (rx..rx + rw).contains(&x) && (ry..ry + rh).contains(&y) {
+            RED
+        } else {
+            BLUE
+        }
+    });
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    DynamicImage::ImageRgba8(image)
+        .write_to(&mut bytes, ImageFormat::Png)
+        .unwrap();
+    base64::engine::general_purpose::STANDARD.encode(bytes.into_inner())
+}
+
+fn decode(base64: &str) -> DynamicImage {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64)
+        .unwrap();
+    image::load_from_memory(&bytes).unwrap()
 }
 
 #[test]
-fn browser_snip_reads_png_size_and_layout_facts() {
-    assert_eq!(png_size(PNG_420X180), Some((420, 180)));
-    assert_eq!(png_size("aGVsbG8="), None);
-    assert_eq!(png_size(""), None);
+fn browser_snip_capture_shoots_the_viewport_without_clip_or_scale() {
+    let params = viewport_shot_params();
+    assert_eq!(params, json!({ "format": "png" }));
+    assert!(
+        params.get("clip").is_none(),
+        "a clip re-renders the cast page"
+    );
+    assert!(params.get("captureBeyondViewport").is_none());
+}
+
+#[test]
+fn browser_snip_crop_inverts_the_viewer_mapping_into_shot_pixels() {
+    let layout = ShotGeometry::from_layout((1280.0, 720.0), (0.0, 640.0));
+    assert_eq!(
+        crop_box(&rect(312.0, 736.0, 420.0, 180.0), &layout, (2560, 1440)),
+        Some(CropBox {
+            x: 624,
+            y: 192,
+            width: 840,
+            height: 360
+        }),
+        "device pixel ratio 2 doubles the box"
+    );
+    let zoomed = ShotGeometry::from_frame(&FrameMetadata {
+        offset_top: 10.0,
+        page_scale_factor: 2.0,
+        device_width: 500.0,
+        device_height: 400.0,
+        scroll_offset_x: 0.0,
+        scroll_offset_y: 10.0,
+        timestamp: None,
+    })
+    .unwrap();
+    assert_eq!(
+        crop_box(&rect(10.0, 20.0, 30.0, 40.0), &zoomed, (1000, 800)),
+        Some(CropBox {
+            x: 40,
+            y: 60,
+            width: 120,
+            height: 160
+        })
+    );
+    assert_eq!(
+        crop_box(&rect(1200.0, 700.0, 400.0, 100.0), &layout, (1280, 720)),
+        Some(CropBox {
+            x: 1200,
+            y: 60,
+            width: 80,
+            height: 100
+        }),
+        "an area past the edge is clamped to the shot"
+    );
+    assert_eq!(
+        crop_box(&rect(0.0, 0.0, 100.0, 100.0), &layout, (1280, 720)),
+        None,
+        "an area scrolled out of view leaves nothing"
+    );
+    let unknown = FrameMetadata {
+        device_width: 0.0,
+        ..cast_metadata()
+    };
+    assert_eq!(ShotGeometry::from_frame(&unknown), None);
+}
+
+fn cast_metadata() -> FrameMetadata {
+    FrameMetadata {
+        offset_top: 0.0,
+        page_scale_factor: 1.0,
+        device_width: 640.0,
+        device_height: 360.0,
+        scroll_offset_x: 0.0,
+        scroll_offset_y: 640.0,
+        timestamp: None,
+    }
+}
+
+#[test]
+fn browser_snip_cut_keeps_full_resolution_and_a_chip_sized_thumbnail() {
+    let geometry = ShotGeometry::from_frame(&cast_metadata()).unwrap();
+    let shot = shot_png((1280, 720), (200, 120, 400, 200));
+    let cut = cut_snip(&shot, &rect(100.0, 700.0, 200.0, 100.0), &geometry).unwrap();
+    assert_eq!((cut.width, cut.height), (400, 200));
+    let crop = decode(&cut.png).to_rgba8();
+    assert_eq!(crop.dimensions(), (400, 200));
+    assert!(
+        crop.pixels().all(|pixel| *pixel == RED),
+        "exactly the snipped box, nothing around it"
+    );
+    let thumbnail = cut.thumbnail.unwrap();
+    let data = thumbnail.strip_prefix("data:image/jpeg;base64,").unwrap();
+    let small = decode(data);
+    assert_eq!(
+        (small.width(), small.height()),
+        (128, 64),
+        "64 CSS px at ratio 2"
+    );
+    assert!(cut_snip("not png", &rect(0.0, 0.0, 1.0, 1.0), &geometry).is_err());
+    assert!(cut_snip(&shot, &rect(0.0, 0.0, 10.0, 10.0), &geometry).is_err());
+}
+
+#[test]
+fn browser_snip_reads_layout_facts() {
     let metrics = json!({
         "cssLayoutViewport": { "clientWidth": 1, "clientHeight": 1, "pageX": 0, "pageY": 0 },
         "cssVisualViewport": { "clientWidth": 1280.0, "clientHeight": 720.0, "pageX": 12.0, "pageY": 640.0 },
