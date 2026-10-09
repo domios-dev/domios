@@ -23,6 +23,16 @@ export type Evidence = { path: string; session: string; records: RawRecord[] };
 export type RestoreTab = { provider: string; tabId: string; session: string; nonce: string; pty: string; a: string; b: string };
 export type RestoreManifest = { workspace: string; tabs: RestoreTab[] };
 
+export function switchModels(descriptor: Descriptor): { a: Model; b: Model } {
+  const explicitEfforts = (model: Model) => (model.reasoning_efforts ?? descriptor.reasoning_efforts).filter(e => e.id !== "default");
+  const effortModels = descriptor.available_models.filter(model => explicitEfforts(model).length >= 2);
+  const choices = effortModels.length >= 2 ? effortModels : descriptor.available_models;
+  const a = choices.find(model => model.id === descriptor.default_model) ?? choices[0];
+  const b = choices.find(model => model.id !== a?.id && (model.primary || !choices.some(c => c.primary)));
+  if (!a || !b) throw new Error("Two switchable catalogue models required");
+  return { a, b };
+}
+
 export async function grokEffortEvidence(session: string, switchedAtMs: number, effort: string) {
   const meta = await dc<{ file_path: string }>("sessions", "get", session);
   const summaryPath = path.join(path.dirname(meta.file_path), "summary.json");
