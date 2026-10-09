@@ -1,5 +1,25 @@
 use super::*;
 
+#[test]
+fn staged_model_selection_is_visible_but_never_restores_execution() {
+    let mut tab = tab_with("pending-model-tab", TabBacking::Pty);
+    tab.pending_model_selection = Some(PendingModelSelection {
+        model: "selected-model".into(),
+        effort: Some("selected-effort".into()),
+    });
+    let snapshot = serde_json::to_value(&tab).unwrap();
+    assert_eq!(
+        snapshot["pending_model_selection"]["model"],
+        "selected-model"
+    );
+    assert_eq!(
+        snapshot["pending_model_selection"]["effort"],
+        "selected-effort"
+    );
+    let restored: Tab = serde_json::from_value(snapshot).unwrap();
+    assert!(restored.pending_model_selection.is_none());
+}
+
 fn tab_with(id: &str, backing: TabBacking) -> Tab {
     Tab {
         id: id.to_string(),

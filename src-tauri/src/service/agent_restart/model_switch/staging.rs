@@ -65,10 +65,23 @@ pub(super) struct SwitchRequest {
     effort: Option<String>,
     force: bool,
     restart_fallback: bool,
+    mechanism: ModelSwitchMode,
     deadline: Instant,
 }
 
 impl SwitchRequest {
+    pub(super) fn require_mechanism(
+        &self,
+        mechanism: ModelSwitchMode,
+    ) -> Result<(), ModelSwitchError> {
+        if self.mechanism == mechanism {
+            Ok(())
+        } else {
+            Err(ModelSwitchError::NotSwitchable(
+                "staged model switch refused: provider switch capability changed".into(),
+            ))
+        }
+    }
     fn matches(&self, tab: &Tab, now: Instant) -> bool {
         now < self.deadline
             && tab.agent_type.as_deref() == Some(&self.provider)
@@ -89,6 +102,21 @@ impl SwitchRequest {
             Ok(())
         } else {
             Err(ModelSwitchError::NotSwitchable("staged model switch refused: the launch or session binding changed, or its deadline elapsed".into()))
+        }
+    }
+
+    pub(super) fn require_snapshot(
+        &self,
+        snap: &TabRestartSnapshot,
+    ) -> Result<(), ModelSwitchError> {
+        if snap.tab_id == self.tab_id
+            && snap.pty_id == self.pty_id
+            && snap.provider == self.provider
+            && snap.session_id.as_deref() == Some(&self.session_id)
+        {
+            Ok(())
+        } else {
+            Err(ModelSwitchError::NotSwitchable("staged model switch refused: restart snapshot belongs to another launch or session".into()))
         }
     }
 }
@@ -154,6 +182,7 @@ impl ServiceContext {
                 effort: effort.map(str::to_owned),
                 force: params.force,
                 restart_fallback: params.restart_fallback,
+                mechanism: params.mechanism,
                 deadline: Instant::now() + STAGING_DEADLINE,
             };
             tab.pending_model_selection = Some(PendingModelSelection {
@@ -170,7 +199,7 @@ impl ServiceContext {
         let worker_request = request.clone();
         if let Err(error) = std::thread::Builder::new()
             .name("model-switch-idle".into())
-            .spawn(move || {
+            .spawn(move || loop {
                 let idle = rx
                     .recv_timeout(
                         worker_request
@@ -178,7 +207,14 @@ impl ServiceContext {
                             .saturating_duration_since(Instant::now()),
                     )
                     .is_ok();
+                if idle
+                    && worker_request.require_current(&svc).is_ok()
+                    && !svc.tab_is_idle(&worker_request.tab_id)
+                {
+                    continue;
+                }
                 svc.settle_staged_model_switch(worker_request, idle);
+                break;
             })
         {
             self.settle_staged_model_switch(request, false);
