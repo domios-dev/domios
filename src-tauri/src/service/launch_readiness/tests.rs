@@ -817,10 +817,6 @@ fn exit_after_readiness_is_never_auto_restarted() {
     assert!(claim_exit(&attempt.tab_id, Some(&attempt.pty_id), None, &proof).is_none());
 }
 
-/// The second half of the same live failure: every observer that sees an exit
-/// also tears the tab's agent identity down, and the teardown clears the launch
-/// nonce. A settlement attempted afterwards can only be Superseded, so the
-/// settle must come first at every call site.
 include!("tests/exit_ordering.rs");
 
 /// The exit is evidence about the launch whether or not the launch already

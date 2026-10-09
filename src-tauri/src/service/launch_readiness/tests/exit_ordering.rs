@@ -8,6 +8,10 @@ fn lifecycle_identity_clear_source() -> &'static str {
         .unwrap()
 }
 
+/// The second half of the same live failure: every observer that sees an exit
+/// also tears the tab's agent identity down, and the teardown clears the launch
+/// nonce. A settlement attempted afterwards can only be Superseded, so the
+/// settle must come first at every call site.
 #[test]
 fn launch_readiness_exit_settles_before_identity_teardown() {
     let tab = launching_tab("pty-teardown", "nonce-teardown");
