@@ -240,12 +240,17 @@ pub async fn ensure_for_spawn(
         .with_provider(&spawn.provider, |provider| {
             (
                 provider.structured_control(),
-                codeterm_plugin::js_runtime::resolved_bin_path(provider.binary_name()),
+                provider.binary_name().to_string(),
             )
         })
         .ok_or("Provider unavailable")?;
     let cap = cap.ok_or("Structured control unavailable")?;
-    let binary = binary.ok_or("Provider binary unavailable")?;
+    // Probe, not the listing cache: a restore can launch before any provider listing filled it.
+    let codeterm_plugin::js_runtime::BinResolution::Found(binary) =
+        codeterm_plugin::js_runtime::probe_bin(&binary).resolution
+    else {
+        return Err("Provider binary unavailable".into());
+    };
     if !binary.is_absolute() {
         return Err(format!("Sidecar binary must be absolute: {binary:?}"));
     }
