@@ -4,6 +4,20 @@ use crate::multiplexer::types::{AgentRole, CloseRestoreTabState, RestorableLaunc
 use crate::session::lifecycle::{LifecycleEpoch, LifecycleKey};
 
 #[test]
+fn queued_unwritten_turns_are_not_conversations_but_claimed_turns_are_unknown() {
+    use crate::service::pending_delivery_payloads::user_sends::UserSendState;
+    assert!(!unresolved_user_turn([]));
+    assert!(!unresolved_user_turn([UserSendState::Queued]));
+    for state in [
+        UserSendState::Claimed,
+        UserSendState::Uncertain,
+        UserSendState::BodyLease,
+    ] {
+        assert!(unresolved_user_turn([UserSendState::Queued, state]));
+    }
+}
+
+#[test]
 fn missing_session_classifier_requires_definite_empty_evidence() {
     assert_eq!(
         classify_missing_session(Some(false), Some(false), Some(false), true),
