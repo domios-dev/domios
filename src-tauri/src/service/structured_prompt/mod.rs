@@ -6,6 +6,7 @@ mod recovery;
 mod session_events;
 pub(crate) mod snapshot;
 mod subscriber;
+mod subscription;
 #[cfg(test)]
 mod tests;
 mod tool_diffs;
@@ -52,6 +53,7 @@ static ACTIVE: LazyLock<Mutex<HashMap<String, Active>>> =
 static QUEUED: LazyLock<Mutex<HashMap<String, Vec<Active>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 struct Subscriber {
+    binding: subscription::Binding,
     signal: tokio::sync::watch::Sender<subscriber::Wake>,
     live: Arc<Mutex<bool>>,
 }
@@ -75,6 +77,7 @@ pub fn allocate_server() -> Option<crate::agent::provider::StructuredPromptServe
 /// Record the structured-prompt server for a tab (called at spawn, once the
 /// host has allocated the fixed port). `base_url` is e.g. `http://127.0.0.1:PORT`.
 pub fn register_endpoint(tab_id: &str, base_url: String, cwd: String) {
+    stop_subscriber(tab_id);
     super::structured_endpoint::register(
         tab_id,
         super::structured_endpoint::Endpoint::Sse { base_url, cwd },
@@ -127,36 +130,56 @@ pub fn clear_tab(tab_id: &str) {
     QUEUED.lock().remove(tab_id);
 }
 
+fn stop_subscriber(tab_id: &str) {
+    let subscriber = { SUBSCRIBED.lock().remove(tab_id) };
+    if let Some(subscriber) = subscriber {
+        *subscriber.live.lock() = false;
+    }
+}
+
+pub(crate) fn bind_launch(tab_id: &str, nonce: &str) {
+    stop_subscriber(tab_id);
+    super::structured_endpoint::bind_sse_launch(tab_id, nonce);
+}
+
 /// Start the SSE subscriber for a tab if it has a registered endpoint and none
 /// is running yet. Idempotent — safe to call on every session-bind. The caller
 /// has already gated on `supports_structured_prompts`.
 pub fn maybe_start_subscriber(svc: &ServiceContext, tab_id: &str) {
-    let (base_url, cwd) = match endpoint_for_tab(tab_id) {
-        Some(ep) => ep,
-        None => return,
+    let Some(binding) = subscription::current(svc, tab_id) else {
+        return;
     };
     let mut subscribed = SUBSCRIBED.lock();
-    if let Some(signal) = subscribed.get(tab_id) {
-        signal
-            .signal
-            .send_modify(|wake| wake.output = wake.output.wrapping_add(1));
-        return;
+    if let Some(subscriber) = subscribed.get(tab_id) {
+        if subscriber.binding == binding {
+            subscriber
+                .signal
+                .send_modify(|wake| wake.output = wake.output.wrapping_add(1));
+            return;
+        }
     }
+    let previous = subscribed.remove(tab_id);
     let (signal, receiver) = tokio::sync::watch::channel(subscriber::Wake::default());
     let live = Arc::new(Mutex::new(true));
     subscribed.insert(
         tab_id.to_string(),
         Subscriber {
+            binding: binding.clone(),
             signal,
             live: live.clone(),
         },
     );
+    drop(subscribed);
+    if let Some(previous) = previous {
+        *previous.live.lock() = false;
+    }
+    log::info!("[structured-channel] tab={tab_id} status=subscribing endpoint={} session={} binding_nonce={}", binding.base_url, binding.session_id, binding.nonce);
     let svc = svc.clone();
     let tab_id = tab_id.to_string();
-    tauri::async_runtime::spawn(subscriber::run(svc, tab_id, base_url, cwd, receiver, live));
+    tauri::async_runtime::spawn(subscriber::run(svc, tab_id, binding, receiver, live));
 }
 
-/// Allocate and subscribe to the tab's server when the provider declares that capability.
+/// Allocate the server; subscription starts after authenticated launch binding.
 pub fn ensure_for_spawn(
     svc: &ServiceContext,
     agent_cmd: &str,
@@ -173,7 +196,8 @@ pub fn ensure_for_spawn(
     let server = allocate_server()?;
     let base_url = format!("http://{}:{}", server.hostname, server.port);
     register_endpoint(tab_id, base_url, cwd.to_string());
-    maybe_start_subscriber(svc, tab_id);
+    let nonce = svc.ensure_session_binding_nonce(tab_id);
+    bind_launch(tab_id, &nonce);
     Some(server)
 }
 
@@ -601,10 +625,6 @@ fn emit_chat_part(
         Some(svc.chat_send_ledger.clone()),
     );
     sink.emit(tab_id, vec![chat_message], None);
-}
-
-fn tab_gone(svc: &ServiceContext, tab_id: &str) -> bool {
-    svc.mux.read().get_tab(tab_id).is_none()
 }
 
 fn owns_session(svc: &ServiceContext, tab_id: &str, session_id: &str) -> bool {
