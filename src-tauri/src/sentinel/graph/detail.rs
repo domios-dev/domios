@@ -133,6 +133,30 @@ pub(super) fn missing(identity: &super::Identity) -> Value {
         "decisions":{"history_complete":false,"adapter_used":null}})
 }
 
+pub(super) fn metadata(
+    job: &Sentinel,
+    mux: &MultiplexerState,
+    workspace: &str,
+    team: Option<&str>,
+    now_ms: u64,
+    executing: bool,
+) -> Value {
+    let mut value = project(job, mux, workspace, team, now_ms, executing);
+    if let Some(definition) = value["definition"].as_object_mut() {
+        definition.remove("probe");
+        definition.remove("probe_truncated");
+        if let Some(commands) = definition.get_mut("commands").and_then(Value::as_array_mut) {
+            for command in commands {
+                if let Some(command) = command.as_object_mut() {
+                    command.remove("command");
+                    command.remove("command_truncated");
+                }
+            }
+        }
+    }
+    value
+}
+
 pub(super) fn project_decision(result: &mut Value, decision: Option<&Decision>) {
     let decision = decision.filter(|decision| decision.valid());
     result["decided_by"] = decision
