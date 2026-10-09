@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { CircleCheck, Clock3, Infinity as InfinityIcon, Map, Plus, Timer, Workflow, X } from "lucide-react";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { JobConfirmationDialog } from "../Jobs/JobConfirmationDialog";
@@ -28,6 +28,39 @@ type OwnedBlueprint = ReturnType<typeof useTabJobs>["blueprints"][number];
 
 const KIND_ICON = { blueprints: Workflow, crons: Clock3, delayed: Timer } as const;
 const KIND_LABEL = { blueprints: "Blueprints", crons: "Crons", delayed: "Delayed messages" } as const;
+
+const keepComposerFocus = (event: MouseEvent) => event.preventDefault();
+
+function ContextBubble({ tone, label, onOpen, dismissLabel, dismissTitle, onDismiss, children }: {
+  tone: string;
+  label?: string;
+  onOpen: () => void;
+  dismissLabel?: string;
+  dismissTitle?: string;
+  onDismiss?: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <span className="ct-ctx-bubble" data-tone={tone}>
+      <button type="button" className="ct-ctx-bubble__open" aria-label={label} onMouseDown={keepComposerFocus} onClick={onOpen}>{children}</button>
+      {onDismiss && (
+        <button type="button" className="ct-ctx-bubble__dismiss" aria-label={dismissLabel} title={dismissTitle} onMouseDown={keepComposerFocus} onClick={onDismiss}>
+          <X size={11} aria-hidden="true" />
+        </button>
+      )}
+    </span>
+  );
+}
+
+function StateBody({ title, state }: { title: string; state: string }) {
+  return (
+    <>
+      <span className="ct-ctx-bubble__dot" aria-hidden="true" />
+      <span className="ct-ctx-bubble__title">{title}</span>
+      <span className="ct-ctx-bubble__meta">{jobStateLabel(state)}</span>
+    </>
+  );
+}
 
 function stateTone(state: string): string {
   const label = jobStateLabel(state);
@@ -103,43 +136,31 @@ export function ComposerContextHeader({ tabId, workspaceId, delayed, onEditDelay
     if (!job) return null;
     const stoppable = canStopJob(job);
     return (
-      <span key={tabJobKey(chip)} className="ct-ctx-bubble" data-tone={stateTone(chip.state)}>
-        <button type="button" className="ct-ctx-bubble__open" onMouseDown={(event) => event.preventDefault()} onClick={() => openTabJob(job)}>
-          <span className="ct-ctx-bubble__dot" aria-hidden="true" />
-          <span className="ct-ctx-bubble__title">{chip.title}</span>
-          <span className="ct-ctx-bubble__meta">{jobStateLabel(chip.state)}</span>
-        </button>
-        <button
-          type="button"
-          className="ct-ctx-bubble__dismiss"
-          aria-label={stoppable ? `Stop ${chip.title}` : `Delete ${chip.title}`}
-          title={stoppable ? "Stop" : "Delete"}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => {
-            setError(null);
-            if (stoppable) void stopMergedJob(job, context).catch(() => setError(`Could not stop ${chip.title}.`));
-            else setConfirming(job);
-          }}
-        >
-          <X size={11} aria-hidden="true" />
-        </button>
-      </span>
+      <ContextBubble
+        key={tabJobKey(chip)}
+        tone={stateTone(chip.state)}
+        onOpen={() => openTabJob(job)}
+        dismissLabel={stoppable ? `Stop ${chip.title}` : `Delete ${chip.title}`}
+        dismissTitle={stoppable ? "Stop" : "Delete"}
+        onDismiss={() => {
+          setError(null);
+          if (stoppable) void stopMergedJob(job, context).catch(() => setError(`Could not stop ${chip.title}.`));
+          else setConfirming(job);
+        }}
+      >
+        <StateBody title={chip.title} state={chip.state} />
+      </ContextBubble>
     );
   };
 
   const blueprintBubble = ({ workspaceId: ownerWorkspace, blueprint, pipeline }: OwnedBlueprint) => (
-    <span key={`blueprint:${blueprint.id}`} className="ct-ctx-bubble" data-tone={stateTone(blueprint.state)}>
-      <button
-        type="button"
-        className="ct-ctx-bubble__open"
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={() => requestOpenJob({ workspaceId: ownerWorkspace, target: { teamId: blueprint.owner?.team_id ?? null, blueprintId: pipeline.id } })}
-      >
-        <span className="ct-ctx-bubble__dot" aria-hidden="true" />
-        <span className="ct-ctx-bubble__title">{blueprint.name}</span>
-        <span className="ct-ctx-bubble__meta">{jobStateLabel(blueprint.state)}</span>
-      </button>
-    </span>
+    <ContextBubble
+      key={`blueprint:${blueprint.id}`}
+      tone={stateTone(blueprint.state)}
+      onOpen={() => requestOpenJob({ workspaceId: ownerWorkspace, target: { teamId: blueprint.owner?.team_id ?? null, blueprintId: pipeline.id } })}
+    >
+      <StateBody title={blueprint.name} state={blueprint.state} />
+    </ContextBubble>
   );
 
   const strip: Record<ContextKind, () => ReactNode> = {
@@ -148,19 +169,22 @@ export function ComposerContextHeader({ tabId, workspaceId, delayed, onEditDelay
     delayed: () => (
       <>
         {[...delayed].sort((a, b) => Number(a.state === "stashed") - Number(b.state === "stashed")).map((message) => (
-          <span key={message.id} className="ct-ctx-bubble" data-tone={delayedTone(message)}>
-            <button type="button" className="ct-ctx-bubble__open" aria-label={`Edit ${message.state === "stashed" ? "stashed" : "delayed"} message: ${message.text}`} onMouseDown={(event) => event.preventDefault()} onClick={() => onEditDelayed(message)}>
-              {message.state === "stashed"
-                ? <InfinityIcon size={13} aria-label="Stashed, sends only when you schedule it" className="ct-ctx-bubble__stash" />
-                : <span className="ct-ctx-bubble__meta">{delayedWhen(message)}</span>}
-              <span className="ct-ctx-bubble__title ct-ctx-bubble__title--text">{message.text}</span>
-            </button>
-            <button type="button" className="ct-ctx-bubble__dismiss" aria-label="Cancel delayed message" title="Cancel" onMouseDown={(event) => event.preventDefault()} onClick={() => onDeleteDelayed(message.id)}>
-              <X size={11} aria-hidden="true" />
-            </button>
-          </span>
+          <ContextBubble
+            key={message.id}
+            tone={delayedTone(message)}
+            label={`Edit ${message.state === "stashed" ? "stashed" : "delayed"} message: ${message.text}`}
+            onOpen={() => onEditDelayed(message)}
+            dismissLabel="Cancel delayed message"
+            dismissTitle="Cancel"
+            onDismiss={() => onDeleteDelayed(message.id)}
+          >
+            {message.state === "stashed"
+              ? <InfinityIcon size={13} aria-label="Stashed, sends only when you schedule it" className="ct-ctx-bubble__stash" />
+              : <span className="ct-ctx-bubble__meta">{delayedWhen(message)}</span>}
+            <span className="ct-ctx-bubble__title ct-ctx-bubble__title--text">{message.text}</span>
+          </ContextBubble>
         ))}
-        <button type="button" className="ct-ctx-bubble ct-ctx-bubble--add" onMouseDown={(event) => event.preventDefault()} onClick={onScheduleDelayed}>
+        <button type="button" className="ct-ctx-bubble ct-ctx-bubble--add" onMouseDown={keepComposerFocus} onClick={onScheduleDelayed}>
           <Plus size={11} aria-hidden="true" />Schedule
         </button>
       </>
@@ -194,7 +218,7 @@ export function ComposerContextHeader({ tabId, workspaceId, delayed, onEditDelay
                   aria-pressed={open === kind}
                   aria-label={`${counts[kind]} ${KIND_LABEL[kind].toLowerCase()}${alerts[kind] ? ", one needs you" : ""}`}
                   title={KIND_LABEL[kind]}
-                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseDown={keepComposerFocus}
                   onClick={() => toggle(kind)}
                 >
                   <Icon size={13} aria-hidden="true" />
@@ -253,7 +277,7 @@ function ContextTitle({ kind, prefix, primary, secondary, extra, onOpen }: {
     </>
   );
   return onOpen ? (
-    <button type="button" className="ct-ctx__title" data-kind={kind} title={`${prefix} ${primary}`} onMouseDown={(event) => event.preventDefault()} onClick={onOpen}>{body}</button>
+    <button type="button" className="ct-ctx__title" data-kind={kind} title={`${prefix} ${primary}`} onMouseDown={keepComposerFocus} onClick={onOpen}>{body}</button>
   ) : (
     <span className="ct-ctx__title" data-kind={kind} title={`${prefix} ${primary}`}>{body}</span>
   );

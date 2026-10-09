@@ -122,9 +122,10 @@ async function main() {
 
   await act(async () => { host.querySelector<HTMLButtonElement>('.ct-ctx-kind[data-kind="delayed"]')!.click(); });
   const delayedBubbles = Array.from(host.querySelectorAll(".ct-ctx__strip .ct-ctx-bubble:not(.ct-ctx-bubble--add)"));
-  assert.equal(delayedBubbles.at(-1)?.getAttribute("data-tone"), "stashed", "stashed messages sort after scheduled ones");
-  assert.ok(delayedBubbles.at(-1)?.querySelector(".ct-ctx-bubble__stash"), "a stashed message shows the stash mark instead of a time");
-  assert.equal(delayedBubbles.at(-1)?.querySelector(".ct-ctx-bubble__meta"), null, "a stashed message shows no send time");
+  const lastDelayed = delayedBubbles[delayedBubbles.length - 1];
+  assert.equal(lastDelayed?.getAttribute("data-tone"), "stashed", "stashed messages sort after scheduled ones");
+  assert.ok(lastDelayed?.querySelector(".ct-ctx-bubble__stash"), "a stashed message shows the stash mark instead of a time");
+  assert.equal(lastDelayed?.querySelector(".ct-ctx-bubble__meta"), null, "a stashed message shows no send time");
   await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Edit delayed message"]')!.click(); });
   assert.deepEqual(edited, ["later-1"], "a delayed bubble opens its editor");
 

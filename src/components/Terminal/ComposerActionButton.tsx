@@ -2,9 +2,7 @@ import type { CSSProperties } from "react";
 import { ChevronUp, Lock, Mic, Square, X } from "lucide-react";
 import type { ComposerVoiceHandle } from "./voice/useComposerVoice";
 import { SendIcon } from "../Icons";
-
-const btnBase =
-  "ct-liquid-interactive flex items-center justify-center shrink-0";
+import { COMPOSER_BUTTON_BASE } from "./composerButton";
 
 const accentFg = "var(--ct-on-accent, #fff)";
 const recordingFg = "var(--ct-red, #f85149)";
@@ -84,7 +82,7 @@ export function ComposerActionButton({
           e.preventDefault();
           onSchedule();
         }}
-        className={`${btnBase} ct-composer-voice-bubble absolute left-1/2 top-1/2 rounded-full border ${
+        className={`${COMPOSER_BUTTON_BASE} ct-composer-voice-bubble absolute left-1/2 top-1/2 rounded-full border ${
           voiceActive ? "z-30 is-active" : "ct-composer-round-button ct-composer-control"
         } ${isLocked ? "ring-4 ring-[var(--ct-accent,#58a6ff)]/25" : ""} shadow-none disabled:opacity-40`}
         style={actionButtonStyle(voiceActive, mainIsSend, isLocked, bubblePose)}
