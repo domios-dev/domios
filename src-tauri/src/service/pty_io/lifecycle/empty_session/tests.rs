@@ -214,6 +214,41 @@ fn unreadable_or_malformed_journal_is_unknown() {
 }
 
 #[test]
+fn quarantine_evidence_is_exact_session_scoped_and_malformed_data_is_unknown() {
+    let temp = tempfile::tempdir().unwrap();
+    let journal = TabLifecycleJournal::for_dir(temp.path().into());
+    let sidecar = crate::session::lifecycle::refused_tail_path(journal.path());
+    assert_eq!(
+        quarantined_conversation(&sidecar, "own", "saved"),
+        Some(false)
+    );
+    journal
+        .note_conversation_started(
+            LifecycleKey::new("foreign", LifecycleEpoch(1), "launch"),
+            "saved",
+        )
+        .unwrap();
+    std::fs::copy(journal.path(), &sidecar).unwrap();
+    assert_eq!(
+        quarantined_conversation(&sidecar, "own", "saved"),
+        Some(false)
+    );
+    journal
+        .note_conversation_started(
+            LifecycleKey::new("own", LifecycleEpoch(1), "launch"),
+            "saved",
+        )
+        .unwrap();
+    std::fs::copy(journal.path(), &sidecar).unwrap();
+    assert_eq!(
+        quarantined_conversation(&sidecar, "own", "saved"),
+        Some(true)
+    );
+    std::fs::write(&sidecar, "malformed-journal").unwrap();
+    assert_eq!(quarantined_conversation(&sidecar, "own", "saved"), None);
+}
+
+#[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn restore_service_claims_fresh_only_for_an_empty_missing_session() {
     for evidence in [Some(false), Some(true), None] {
