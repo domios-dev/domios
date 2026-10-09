@@ -56,20 +56,20 @@ fn blueprint_terminal_delta_settles_once_without_polling() {
 #[test]
 fn blueprint_terminal_pattern_handles_split_ansi_and_utf8_with_bounded_delta() {
     let (_dir, _store, mut job) = fixture();
-    job.terminal = Some(Config {
+    job.set_terminal(Some(Config {
         pattern: Some("ready".into()),
         idle_ms: None,
-    });
+    }));
     let mut inbox = Inbox::default();
     inbox.feed(&job, Some(1), b"\x1b[3", 1);
     inbox.feed(&job, Some(1), b"2mrea", 2);
     assert!(inbox.take(&job.id).is_none());
     inbox.feed(&job, Some(1), b"dy\x1b[0m", 3);
     assert_eq!(inbox.take(&job.id).as_deref(), Some("ready"));
-    job.terminal = Some(Config {
+    job.set_terminal(Some(Config {
         pattern: None,
         idle_ms: Some(20),
-    });
+    }));
     let text = "\u{03bb}".repeat(MAX_PAYLOAD_BYTES);
     inbox.feed(&job, Some(1), text.as_bytes(), 4);
     inbox.settle(24);
@@ -106,7 +106,7 @@ fn blueprint_terminal_shell_scope_and_send_scope_are_team_bound() {
     job.workspace_id = mux.find_workspace_for_tab(&creator).unwrap();
     let shell = mux.create_tab(&job.workspace_id).unwrap();
     mux.get_tab_mut(&shell).unwrap().team_id = job.team_id.clone();
-    job.observe = Some(TabBinding::Tab(shell.clone()));
+    job.set_observe(Some(TabBinding::Tab(shell.clone())));
     assert!(crate::sentinel::source::validate_tab_scope(&mux, &job, &shell).is_ok());
     assert_eq!(
         crate::sentinel::routes::resolve_send(&mux, &job, &shell).unwrap(),
@@ -159,14 +159,14 @@ fn blueprint_text_input_queue_is_ordered_bounded_and_at_most_once() {
 #[test]
 fn blueprint_text_input_admission_wakes_only_live_stage_and_routes_queued_body() {
     let (_dir, mut store, mut job) = fixture();
-    job.terminal = None;
-    job.observe = None;
-    job.input = Some(codeterm_types::sentinel_input::InputSpec {
+    job.set_terminal(None);
+    job.set_observe(None);
+    job.set_input(Some(codeterm_types::sentinel_input::InputSpec {
         kind: codeterm_types::sentinel_input::MediaKind::Text,
         data: codeterm_types::sentinel_input::DataRef::Text("initial".into()),
         convert_to: None,
         convert_timeout_ms: None,
-    });
+    }));
     store.jobs[0] = job.clone();
     let handle = crate::sentinel::scheduler::fixture_handle_without_app(store);
     let body = "\u{03bb} 'quotes' $() `ticks`\nnext";

@@ -65,7 +65,9 @@ impl Inbox {
     }
 
     pub fn feed(&mut self, job: &Sentinel, generation: Option<u64>, bytes: &[u8], now: u64) {
-        let Some(config) = &job.terminal else { return };
+        let Some(config) = &job.terminal().cloned() else {
+            return;
+        };
         self.bind(job);
         let stream = self
             .streams
@@ -142,7 +144,8 @@ impl Stream {
             generation,
             revision: job.revision,
             pattern: job
-                .terminal
+                .terminal()
+                .cloned()
                 .as_ref()
                 .and_then(|config| config.pattern.as_ref())
                 .and_then(|pattern| regex::Regex::new(pattern).ok()),
@@ -225,9 +228,12 @@ fn normalize(text: &str) -> String {
 }
 
 pub(crate) fn validate(job: &Sentinel) -> Result<(), String> {
-    if let Some(config) = &job.terminal {
+    if let Some(config) = &job.terminal().cloned() {
         config.validate()?;
-        if !matches!(job.observe, Some(super::source::TabBinding::Tab(_))) {
+        if !matches!(
+            job.observe().cloned(),
+            Some(super::source::TabBinding::Tab(_))
+        ) {
             return Err("terminal options require --observe tab:<id>".into());
         }
         if let Some(pattern) = &config.pattern {

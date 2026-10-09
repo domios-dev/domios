@@ -110,7 +110,7 @@ fn sentinel_update_expect_version_conflict_leaves_definition_unchanged() {
 
     let error = apply(&store, &job, 9, "editor", update("New question?")).unwrap_err();
 
-    assert_eq!(error, "sentinel_version_conflict: current_version=1");
+    assert_eq!(error, "blueprint_version_conflict: current_version=1");
     let after = serde_json::to_value(store.lock().get(&job.id).unwrap()).unwrap();
     assert_eq!(after, before);
 }

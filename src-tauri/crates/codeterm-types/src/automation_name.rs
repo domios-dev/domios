@@ -18,6 +18,7 @@ fn validate(name: &str, kind: &str, meaning: &str, id_prefix: &str) -> Result<()
         || name.chars().any(char::is_control)
         || !name.chars().any(char::is_alphabetic)
         || is_raw_id(name, id_prefix)
+        || (id_prefix == "sentinel" && is_raw_id(name, "blueprint"))
     {
         return Err(format!(
             "{kind} name must be 3–40 characters, {meaning}, and not be a raw ID; examples: ci-green-watch, build-done-notify"
@@ -49,7 +50,7 @@ pub fn generated_handler_id(
         "stop" => "stop".to_string(),
         "send" => format!("send-to-{}", slug(target.unwrap_or("agent"), 20)),
         "cron" => format!("run-{}", slug(target.unwrap_or("cron"), 24)),
-        "sentinel" => format!("activate-{}", slug(target.unwrap_or("stage"), 20)),
+        "blueprint" | "sentinel" => format!("activate-{}", slug(target.unwrap_or("stage"), 20)),
         "respond_prompt" => format!("respond-to-{}", slug(target.unwrap_or("prompt"), 20)),
         "escalate" => format!(
             "escalate-to-{}",
