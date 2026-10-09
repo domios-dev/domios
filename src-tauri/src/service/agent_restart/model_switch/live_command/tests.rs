@@ -88,7 +88,6 @@ fn command_prompt() -> CommandPrompt {
         &crate::agent::provider::ModelSwitchPrompt {
             screen_regex: "^confirm {model}$".into(),
             response_keys: vec!["y".into(), "\r".into()],
-            cancel_keys: vec!["\u{1b}".into()],
         },
         &target(),
         None,
@@ -224,7 +223,6 @@ fn invalid_prompt_declarations_refuse_before_injection() {
             &crate::agent::provider::ModelSwitchPrompt {
                 screen_regex: screen_regex.into(),
                 response_keys: response_keys.into_iter().map(str::to_owned).collect(),
-                cancel_keys: vec![],
             },
             &target(),
             None
@@ -401,64 +399,4 @@ fn transcript_boundary_excludes_old_confirmation() {
         &source(),
         &pattern
     ));
-}
-
-#[test]
-fn cancellation_never_touches_a_preexisting_or_different_dialog() {
-    let mut prompt = command_prompt();
-    assert!(prompt
-        .cancel("confirm m[1]", |_| panic!("unowned cancellation"))
-        .unwrap());
-    prompt.injected();
-    assert!(prompt
-        .cancel("confirm other", |_| panic!("foreign cancellation"))
-        .unwrap());
-}
-
-#[test]
-fn cancellation_is_once_and_requires_observed_clearance() {
-    let mut prompt = command_prompt();
-    prompt.injected();
-    assert!(!prompt
-        .cancel("confirm m[1]", |keys| {
-            assert_eq!(keys, b"\x1b");
-            Ok(())
-        })
-        .unwrap());
-    assert!(!prompt
-        .cancel("confirm m[1]", |_| panic!("cancellation replay"))
-        .unwrap());
-    assert!(prompt
-        .cancel("composer", |_| panic!("unexpected write"))
-        .unwrap());
-}
-
-#[test]
-fn cancelled_prompt_never_accepts_a_late_confirmation() {
-    let mut prompt = command_prompt();
-    prompt.injected();
-    assert!(!prompt.cancel("confirm m[1]", |_| Ok(())).unwrap());
-    prompt
-        .respond("confirm m[1]", |_| {
-            panic!("late confirmation after cancellation")
-        })
-        .unwrap();
-}
-
-#[test]
-fn missing_cancellation_declaration_reports_the_open_dialog() {
-    let mut declaration = crate::agent::provider::ModelSwitchPrompt {
-        screen_regex: "^confirm {model}$".into(),
-        response_keys: vec!["y".into()],
-        cancel_keys: vec![],
-    };
-    let mut prompt = CommandPrompt::new(&declaration, &target(), None).unwrap();
-    prompt.injected();
-    assert!(prompt
-        .cancel("confirm m[1]", |_| panic!("undeclared cancellation"))
-        .is_err());
-    declaration.cancel_keys = vec!["".into()];
-    assert!(CommandPrompt::new(&declaration, &target(), None).is_err());
-    declaration.cancel_keys = vec!["x".repeat(65)];
-    assert!(CommandPrompt::new(&declaration, &target(), None).is_err());
 }

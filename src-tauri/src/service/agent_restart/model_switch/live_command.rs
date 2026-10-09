@@ -10,7 +10,6 @@ use crate::agent::provider::{ModelSwitchCommand, ModelSwitchTranscript};
 const MAX_CONFIRMATION_BYTES: u64 = 1024 * 1024;
 
 mod prompt;
-mod transport;
 use prompt::CommandPrompt;
 
 #[derive(Clone)]
@@ -384,7 +383,6 @@ impl ServiceContext {
         let deadline = Instant::now() + Duration::from_secs(MODEL_OBSERVE_TIMEOUT_SECS);
         let binding_current = || target.current(self);
         let mut prompt_error = None;
-        let injected = std::cell::Cell::new(false);
         let result = execute_command(
             || {
                 binding_current()
@@ -392,49 +390,23 @@ impl ServiceContext {
                     && command_prompt_absent(self, target, prompt_pattern.as_ref())
             },
             || {
-                let _claim = crate::service::pty_io::submit_transaction::claim_submit_cycle(pty_id);
-                let (session, permit, input) = {
-                    let mux = self.mux.read();
-                    if !mux
-                        .get_tab(&target.tab_id)
-                        .is_some_and(|tab| target.matches(tab))
-                    {
-                        return Err("the session changed before command injection".into());
-                    }
-                    let screen = self.screen_state.lock();
-                    if prompt_pattern.as_ref().is_some_and(|pattern| {
-                        screen
-                            .get_screen_text(pty_id)
-                            .is_none_or(|text| pattern.is_match(&text))
-                    }) {
-                        return Err(
-                            "a confirmation was already present before command injection".into(),
-                        );
-                    }
-                    let input = crate::service::pty_io::submit_transaction::live_command_input(
-                        &command,
-                        screen.bracketed_paste_mode(pty_id),
-                    );
-                    let pty = self.pty.lock();
-                    let session = pty
-                        .get_session(pty_id)
-                        .ok_or_else(|| "the command PTY closed".to_owned())?;
-                    let permit = pty.issue_guarded_input_permit(pty_id)?;
-                    (session, permit, input)
-                };
-                transport::enqueue_command(
-                    &session.write_queue,
-                    permit,
-                    input.clone(),
-                    deadline.saturating_duration_since(Instant::now()),
-                    &injected,
-                )?;
-                crate::pty::capture::CaptureRegistry::global().tap_input(
-                    pty_id,
-                    "pty.write",
-                    &input,
-                );
-                Ok(())
+                let permit = self.pty.lock().issue_guarded_input_permit(pty_id)?;
+                let svc = self.clone();
+                let expected = target.clone();
+                let prompt_pattern = prompt_pattern.clone();
+                let guard = std::sync::Arc::new(move || {
+                    svc.tab_is_idle(&expected.tab_id)
+                        && expected.current(&svc)
+                        && command_prompt_absent(&svc, &expected, prompt_pattern.as_ref())
+                });
+                let claim = crate::service::pty_io::submit_transaction::claim_submit_cycle(pty_id);
+                crate::service::pty_io::submit_transaction::submit_text_with_key_claimed_and_follow_up_revalidated(
+                    self, pty_id, &command, None, true, b"\r",
+                    crate::agent::provider::VerifySubmitStrategy::None,
+                    crate::service::inject_verify::VerifyOpts {
+                        require_prompt_first: false, verify_echo: false, verify_submit: false, ..Default::default()
+                    }, Some(permit), false, claim, Some(guard), false, None,
+                ).map(|_| ()).map_err(|error| error.to_string())
             },
             || {
                 if let Some(prompt) = prompt.as_mut() {
@@ -445,9 +417,7 @@ impl ServiceContext {
                     if !binding_current() {
                         break false;
                     }
-                    if read_confirmation(&path, boundary, source, &pattern)
-                        && command_prompt_absent(self, target, prompt_pattern.as_ref())
-                    {
+                    if read_confirmation(&path, boundary, source, &pattern) {
                         break true;
                     }
                     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
@@ -461,8 +431,7 @@ impl ServiceContext {
                     }
                     if !signal.wait_after(generation, remaining) {
                         break binding_current()
-                            && read_confirmation(&path, boundary, source, &pattern)
-                            && command_prompt_absent(self, target, prompt_pattern.as_ref());
+                            && read_confirmation(&path, boundary, source, &pattern);
                     }
                 }
             },
@@ -470,29 +439,7 @@ impl ServiceContext {
         self.screen_state
             .lock()
             .unsubscribe_screen_changes(pty_id, &signal);
-        let result = result.map_err(|error| prompt_error.unwrap_or(error));
-        transport::finish_command(
-            result,
-            injected.get(),
-            || {
-                if let Some(prompt) = prompt.as_mut() {
-                    prompt.injected();
-                    self.cancel_command_prompt(target, prompt)?;
-                }
-                Ok(())
-            },
-            || {
-                let mux = self.mux.read();
-                if !mux
-                    .get_tab(&target.tab_id)
-                    .is_some_and(|tab| target.matches(tab) && tab.launch_session_authenticated())
-                {
-                    return Err("the session changed before input could be rearmed".into());
-                }
-                self.pty.lock().rearm_guarded_input(pty_id)
-            },
-        )
-        .map_err(ModelSwitchError::LiveCommandFailed)
+        result.map_err(|error| ModelSwitchError::LiveCommandFailed(prompt_error.unwrap_or(error)))
     }
 }
 
