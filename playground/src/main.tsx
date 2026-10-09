@@ -1,8 +1,9 @@
+import "./mocks/setup";
+import "./mocks/theme";
 import { StrictMode, useEffect, useState } from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { GalleryDetail, GalleryIndex } from "./gallery/Gallery";
-import "./ds/tokens.css";
-import "./playground.css";
+import "../../src/styles/globals.css";
 import "./portal.css";
 
 function readRoute(): string {
@@ -25,10 +26,11 @@ function App() {
   );
 }
 
-const root = document.getElementById("root");
-if (!root) throw new Error("Playground root is missing");
+const container = document.getElementById("root") as (HTMLElement & { __galleryRoot?: Root }) | null;
+if (!container) throw new Error("Playground root is missing");
 
-createRoot(root).render(
+container.__galleryRoot ??= createRoot(container);
+container.__galleryRoot.render(
   <StrictMode>
     <App />
   </StrictMode>,

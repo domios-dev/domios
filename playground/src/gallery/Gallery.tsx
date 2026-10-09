@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { AnimationInspector, StaticComponentNote } from "./AnimationInspector";
-import type { Specimen } from "./types";
+import { useMemo, useState, type ReactNode } from "react";
+import { PortalHostContext } from "../mocks/portalHost";
+import type { Specimen, SpecimenState } from "./types";
 
 const modules = import.meta.glob("./specimens/*.spec.tsx", { eager: true }) as Record<string, { default?: Specimen }>;
 
@@ -9,9 +9,9 @@ export const specimens = Object.values(modules)
   .filter((specimen): specimen is Specimen => Boolean(specimen))
   .sort((a, b) => a.title.localeCompare(b.title));
 
-const CATEGORY_ORDER = ["Buttons", "Controls", "Composer", "Voice", "Status", "Sidebar"];
+const CATEGORY_ORDER = ["Buttons", "Controls", "Menus", "Composer", "Voice", "Status", "Sidebar"];
 
-function GalleryShell({ activeId, children }: { activeId?: string; children: React.ReactNode }) {
+function GalleryShell({ activeId, children }: { activeId?: string; children: ReactNode }) {
   const groups = CATEGORY_ORDER.map((category) => ({ category, entries: specimens.filter((specimen) => specimen.category === category) })).filter((group) => group.entries.length);
   return <div className="gallery-catalog">
     <aside className="gallery-nav" aria-label="Component catalog">
@@ -31,34 +31,32 @@ export function GalleryIndex() {
   }
   return <GalleryShell><main className="portal-inner">
       <p className="portal-kicker">Component Gallery</p>
-      <h1>Motion specimens</h1>
-      <p className="portal-lede">Live components, their intentional states, and a frame-by-frame view of the browser motion underneath.</p>
-      <p className="portal-lede">Choose a component from the catalog to inspect every intentional state together.</p>
+      <h1>Product components</h1>
+      <p className="portal-lede">Every stage renders the shipped component from <code>src/</code> with the shipped stylesheet, fed by fixture data, so the catalog cannot drift from the app.</p>
+      <p className="portal-lede">Choose a component from the catalog to see every meaningful state side by side.</p>
     </main></GalleryShell>;
+}
+
+function StateStage({ state }: { state: SpecimenState }) {
+  const [host, setHost] = useState<HTMLDivElement | null>(null);
+  return <figure className="gallery-state-stage" data-state-id={state.id}>
+    <figcaption className="gallery-state-label">{state.label}</figcaption>
+    <div className="gallery-stage-instance">
+      {host && <PortalHostContext.Provider value={host}>{state.render()}</PortalHostContext.Provider>}
+      <div ref={setHost} className="gallery-portal-host" />
+    </div>
+  </figure>;
 }
 
 export function GalleryDetail({ id }: { id: string }) {
   const specimen = useMemo(() => specimens.find((entry) => entry.id === id), [id]);
-  const [stateId, setStateId] = useState(() => specimen?.states[0]?.id ?? "");
-  const stage = useRef<HTMLDivElement>(null);
-
-  useEffect(() => setStateId(specimen?.states[0]?.id ?? ""), [specimen?.id]);
-
   if (!specimen) return <GalleryShell><main className="portal-inner gallery-empty"><p className="portal-kicker">Component Gallery</p><h1>Specimen not found</h1><a className="portal-back" href="#gallery">← gallery</a></main></GalleryShell>;
-  const state = specimen.states.find((entry) => entry.id === stateId) ?? specimen.states[0];
-  if (!state) return <GalleryShell activeId={id}><main className="portal-inner gallery-empty"><h1>{specimen.title}</h1><p className="portal-lede">This specimen has no states.</p></main></GalleryShell>;
-  return <GalleryShell activeId={id}><main className="portal-inner gallery-detail">
+  return <GalleryShell activeId={id}><main className="portal-inner gallery-detail" key={specimen.id}>
       <p className="portal-kicker">{specimen.where}</p>
       <h1>{specimen.title}</h1>
       {specimen.notes && <p className="portal-lede">{specimen.notes}</p>}
       <section className={`gallery-state-board${specimen.stage === "wide" ? " gallery-state-board--wide" : ""}`} aria-label={`${specimen.title} states`}>
-        {specimen.states.map((entry) => <button key={entry.id} className={`gallery-state-stage${entry.id === state.id ? " is-focused" : ""}`} type="button" onClick={() => setStateId(entry.id)} aria-pressed={entry.id === state.id}>
-          <span className="gallery-state-label">{entry.label}</span>
-          <span className="gallery-stage-instance" ref={entry.id === state.id ? stage : undefined}>{entry.render()}</span>
-        </button>)}
+        {specimen.states.map((state) => <StateStage key={state.id} state={state} />)}
       </section>
-      {specimen.motion === "static"
-        ? <StaticComponentNote />
-        : <AnimationInspector specimen={specimen} state={state} stage={stage} />}
     </main></GalleryShell>;
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LivingDots } from "../../ds/LivingDots";
+import { ActivityDots } from "../../../../src/components/shared/ActivityDots";
 import { GlassButton } from "./GlassButton";
 import { LiquidFlip, LiquidSegmented, LiquidToggle } from "./LiquidControls";
 import "./liquidglass.css";
@@ -44,7 +44,7 @@ export function LiquidGlassLab() {
         <div className="flex flex-wrap items-center gap-3">
           <GlassButton variant="primary">Run agent</GlassButton>
           <GlassButton variant="accent">
-            <LivingDots size="small" />
+            <ActivityDots size="small" />
             <span>Working</span>
           </GlassButton>
           <GlassButton variant="ghost">Details</GlassButton>
@@ -62,15 +62,15 @@ export function LiquidGlassLab() {
       <Bay eyebrow="pulse" title="Living dots — the signature">
         <div className="flex flex-wrap items-center gap-8">
           <div className="flex items-center gap-2.5">
-            <LivingDots />
+            <ActivityDots />
             <span className="text-sm text-[var(--ct-muted-fg)]">working</span>
           </div>
           <div className="flex items-center gap-2.5">
-            <LivingDots tone="thinking" rhythm="thinking" />
+            <ActivityDots tone="thinking" rhythm="thinking" />
             <span className="text-sm text-[var(--ct-muted-fg)]">thinking</span>
           </div>
           <div className="flex items-center gap-2.5">
-            <LivingDots idle />
+            <ActivityDots active={false} />
             <span className="text-sm text-[var(--ct-muted-fg)]">idle</span>
           </div>
         </div>
