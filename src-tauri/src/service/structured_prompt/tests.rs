@@ -7,6 +7,8 @@ use super::*;
 use crate::multiplexer::types::PendingPrompt;
 use serde_json::Value;
 
+mod model_tests;
+
 fn dummy_prompt(q: &str) -> PendingPrompt {
     PendingPrompt {
         question: q.to_string(),
@@ -310,6 +312,7 @@ fn opencode_part_kind_is_cleared_with_part_text() {
         state.messages.insert(
             id.clone(),
             MessageMeta {
+                model: None,
                 session_id: "ses_1".into(),
                 message_id: id.clone(),
                 role: "assistant".into(),
@@ -320,6 +323,7 @@ fn opencode_part_kind_is_cleared_with_part_text() {
         state.part_kind.insert(id, "text".into());
     }
     state.record_message(MessageMeta {
+        model: None,
         session_id: "ses_1".into(),
         message_id: "message-new".into(),
         role: "assistant".into(),
