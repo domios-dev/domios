@@ -354,6 +354,12 @@ impl ServiceContext {
             || (!provider_changed
                 && snap.session_id.is_some()
                 && !self.session_file_present(&snap));
+        if mode == RestartMode::SkipExit && snap.session_id.is_some() && session_was_stale {
+            return Err(AgentRestartError::BadRequest(
+                "the saved recovery session is unavailable; refusing a fresh conversation".into(),
+            )
+            .into());
+        }
         let mut outcome = RestartOutcome::accepted(&snap, session_was_stale, force);
         if mode == RestartMode::Fresh {
             outcome.session_id = None;

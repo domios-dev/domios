@@ -106,11 +106,7 @@ impl ServiceContext {
         cause: &str,
         tree_evidence: &str,
     ) -> bool {
-        if !self.lifecycle_clear_allowed(
-            tab_id,
-            cause,
-            crate::crash::shutdown::active_shutdown().as_ref(),
-        ) {
+        if crate::crash::shutdown::active_shutdown().is_some() {
             return false;
         }
         let exit = {
@@ -135,6 +131,16 @@ impl ServiceContext {
                 })
             }
         };
+        if !self.lifecycle_clear_allowed(
+            tab_id,
+            cause,
+            crate::crash::shutdown::active_shutdown().as_ref(),
+        ) {
+            if let Some(exit) = exit {
+                self.publish_launch_exit(&exit);
+            }
+            return false;
+        }
         let (cleared, prompt_identity) = {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
@@ -392,6 +398,22 @@ impl ServiceContext {
         if let Some(reason) = shutdown {
             log::info!(
                 "[agent-lifecycle] preserving Tab identity during shutdown ({reason:?}): tab={tab_id} cause={cause}"
+            );
+            return false;
+        }
+        if self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            (tab.agent_type.is_some() && !tab.launch_session_authenticated())
+                || matches!(
+                    tab.boot_stage,
+                    Some(
+                        codeterm_types::pty::BootStage::SpawnFailed
+                            | codeterm_types::pty::BootStage::LaunchDeadlineElapsed
+                            | codeterm_types::pty::BootStage::LaunchBindingUnconfirmed
+                    )
+                )
+        }) {
+            log::info!(
+                "[agent-lifecycle] preserving failed launch identity: tab={tab_id} cause={cause}"
             );
             return false;
         }

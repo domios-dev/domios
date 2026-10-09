@@ -360,6 +360,61 @@ fn recovery_resolves_the_provider_owning_that_exact_session() {
 }
 
 #[test]
+fn journal_target_recovery_requires_own_provenance_and_existing_provider_session() {
+    let target = |seq, tab, transition| JournalRecord::Transition {
+        entry: LifecycleEntry {
+            seq,
+            key: key(tab),
+            transition,
+            recorded_at: String::new(),
+        },
+    };
+    let records = [
+        target(
+            1,
+            "tab-a",
+            LifecycleTransition::ResumeTargetRecorded {
+                session_id: "owned".into(),
+            },
+        ),
+        target(
+            2,
+            "tab-b",
+            LifecycleTransition::ResumeTargetRecorded {
+                session_id: "foreign".into(),
+            },
+        ),
+        target(
+            3,
+            "tab-a",
+            LifecycleTransition::RestoreAwaitingAgentRestart {
+                session_id: "owned".into(),
+            },
+        ),
+    ];
+    assert!(verified_session_ids(&records, "tab-a").is_empty());
+    let provider_registry = registry(&[("fixture-provider", Some("owned"))]);
+    let recover = |session: &str| {
+        select_journal_recovery_session(&records, "tab-a", Some(session), &[])
+            .and_then(|session| recovery_provider(&provider_registry, Some("owned-cwd"), &session))
+    };
+    assert_eq!(recover("owned").unwrap(), "fixture-provider");
+    assert!(recover("foreign").is_err());
+    assert!(recover("unrecorded").is_err());
+    assert!(
+        select_journal_recovery_session(&records, "tab-a", None, &lineage(&[Some("foreign")]))
+            .is_err()
+    );
+    assert_eq!(
+        select_journal_recovery_session(&records, "tab-a", None, &lineage(&[Some("owned")]))
+            .unwrap(),
+        "owned"
+    );
+    let absent = registry(&[("fixture-provider", None)]);
+    assert!(recovery_provider(&absent, Some("owned-cwd"), "owned").is_err());
+}
+
+#[test]
 fn recovery_refuses_unowned_ambiguous_or_unlocatable_sessions() {
     let registry = registry(&[("codex", Some("shared")), ("claude", Some("shared"))]);
 
