@@ -477,11 +477,15 @@ impl super::ServiceContext {
                 .chat_send_ledger
                 .status(send_id)
                 .ok_or("user send ledger admission absent")?;
-            let reservation = self.pending_delivery_payloads.user_sends.reserve(
-                self.user_send_authority(tab_id)?,
-                accepted.correlation_id,
-                || (send_id.to_string(), accepted.sequence),
-            )?;
+            let reservation = self
+                .pending_delivery_payloads
+                .user_sends
+                .reserve_with_replay_only(
+                    self.user_send_authority(tab_id)?,
+                    accepted.correlation_id,
+                    false,
+                    || (send_id.to_string(), accepted.sequence),
+                )?;
             let record =
                 self.pending_delivery_payloads
                     .user_sends
