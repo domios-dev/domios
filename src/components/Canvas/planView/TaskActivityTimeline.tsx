@@ -5,6 +5,7 @@ import { resolveTaskExecutionAttempts, attemptTabId, attemptTabTitle } from "../
 import type { Plan, Task } from "../types";
 import { laneTurnStatsLabel } from "../taskTurnStats";
 import { AttachmentGallery } from "./attachments";
+import { ActivityLogRow } from "./ActivityLogRow";
 import {
   milestoneAbsoluteTitle,
   milestoneAgeLabel,
@@ -25,14 +26,13 @@ export interface TaskActivityTimelineProps {
   now?: number;
 }
 
-function KindChip({ label, color }: { label: string; color?: string }) {
-  return (
-    <span className="plan-task-activity-kind" data-testid="plan-task-activity-kind">
-      {color && <span className="plan-task-activity-kind-dot" style={{ background: color }} />}
-      {label}
-    </span>
-  );
-}
+const TASK_ROW_IDS = {
+  row: "plan-task-activity-entry",
+  kind: "plan-task-activity-kind",
+  age: "plan-task-activity-age",
+  stamp: "plan-task-activity-timestamp",
+  author: "plan-task-activity-author",
+};
 
 function AttemptRow({
   attempt,
@@ -86,14 +86,14 @@ function TaskActivityTimelineBody({
 
   return (
     <section
-      className="plan-task-activity"
+      className="ct-activity plan-task-activity"
       data-testid="plan-task-activity"
       aria-label="Task activity"
     >
-      <div className="plan-task-activity-label">Activity</div>
+      <h3 className="ct-activity__title">Activity</h3>
       {attempts.length > 0 && (
         <div className="plan-task-activity-attempts" data-testid="plan-task-activity-attempts">
-          <div className="plan-task-activity-subhead">Execution attempts</div>
+          <div className="plan-task-activity-subhead">Attempts</div>
           {attempts.map((attempt, index) => (
             <AttemptRow key={attempt.id ?? `${attempt.tab_id ?? "attempt"}-${index}`} attempt={attempt} index={index} tabs={tabs} />
           ))}
@@ -111,42 +111,26 @@ function TaskActivityTimelineBody({
           data-testid="plan-task-activity-timeline"
           data-expanded={expanded ? "true" : "false"}
         >
-          <div className="plan-task-activity-subhead">Strides</div>
+          <div className="plan-task-activity-subhead">Log</div>
           {visible.map((milestone) => {
             const author = resolveMilestoneAuthor(milestone, tabs);
             const kind = milestoneKindLabel(milestone.kind);
             const color = colors.get(milestone.kind);
             return (
-              <article
+              <ActivityLogRow
                 key={milestone.id}
-                className="plan-task-activity-entry"
-                data-testid="plan-task-activity-entry"
-                data-milestone-id={milestone.id}
+                kind={kind}
+                color={color}
+                age={milestoneAgeLabel(milestone.ts, now)}
+                stamp={milestoneTimestampLabel(milestone.ts, now)}
+                stampTitle={milestoneAbsoluteTitle(milestone.ts)}
+                author={author}
+                text={milestone.text}
+                testIds={TASK_ROW_IDS}
+                data={{ "milestone-id": milestone.id }}
               >
-                <div className="plan-task-activity-entry-meta">
-                  <KindChip label={kind} color={color} />
-                  <span
-                    className="plan-task-activity-timestamp"
-                    data-testid="plan-task-activity-timestamp"
-                    title={milestoneAbsoluteTitle(milestone.ts)}
-                  >
-                    {milestoneTimestampLabel(milestone.ts, now)}
-                  </span>
-                  <span
-                    className="plan-task-activity-age"
-                    data-testid="plan-task-activity-age"
-                  >
-                    {milestoneAgeLabel(milestone.ts, now)}
-                  </span>
-                  {author && (
-                    <span className="plan-task-activity-author" data-testid="plan-task-activity-author">
-                      {author}
-                    </span>
-                  )}
-                </div>
-                <div className="plan-task-activity-text">{milestone.text}</div>
                 <AttachmentGallery api={api} planId={planId} attachments={milestone.attachments} />
-              </article>
+              </ActivityLogRow>
             );
           })}
           {hiddenCount > 0 && (
