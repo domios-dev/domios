@@ -11,7 +11,7 @@ const controls = {
   reasoning_effort_identity: { resolved: "high" },
 };
 
-async function binding(read: () => Promise<unknown>, sessionGet?: () => Promise<unknown>) {
+async function binding(read: () => Promise<unknown>, sessionGet?: () => Promise<unknown>, envelope = (value: unknown): unknown => [value]) {
   const gets: Array<{ url: string; headers: unknown }> = [];
   const warnings: unknown[] = [];
   const deadlines: number[] = [];
@@ -26,7 +26,8 @@ async function binding(read: () => Promise<unknown>, sessionGet?: () => Promise<
     fetch: async (url: string, options: { body?: string; headers: unknown }) => {
       if (options.body) return { ok: true };
       gets.push({ url, headers: options.headers });
-      return { ok: true, json: read };
+      assert.equal(url, "http://instance/api/tabs/inspect?tab_ids=tab-owned");
+      return { ok: true, json: async () => envelope(await read()) };
     },
     module: { exports: undefined as unknown },
   };
@@ -54,7 +55,7 @@ test("typed and API prompts use exact-tab model and effort before message persis
   current = { ...controls, agent_provider_resolved_model: "vendor/old", reasoning_effort_identity: { resolved: "default" } };
   await runtime.hooks["chat.message"]({ sessionID: "ses_owned" }, { message });
   assert.deepEqual(JSON.parse(JSON.stringify(message)), { model: { providerID: "vendor", modelID: "old" } });
-  assert.deepEqual(JSON.parse(JSON.stringify(runtime.gets)), [0, 1].map(() => ({ url: "http://instance/api/tabs/tab-owned", headers: { authorization: "Bearer secret" } })));
+  assert.deepEqual(JSON.parse(JSON.stringify(runtime.gets)), [0, 1].map(() => ({ url: "http://instance/api/tabs/inspect?tab_ids=tab-owned", headers: { authorization: "Bearer secret" } })));
   assert.deepEqual(runtime.deadlines, [200, 200]);
 });
 
@@ -67,6 +68,16 @@ test("foreign tab, session, or stale binding cannot override a turn", async () =
     const message = { model: "unchanged", variant: "unchanged" };
     await runtime.hooks["chat.message"]({ sessionID: "ses_owned" }, { message });
     assert.deepEqual(message, { model: "unchanged", variant: "unchanged" });
+  }
+});
+
+test("turn controls require the inspection endpoint's single-tab array envelope", async () => {
+  for (const envelope of [(value: unknown) => value, () => [], (value: unknown) => [value, value]]) {
+    const runtime = await binding(async () => controls, undefined, envelope);
+    const message = { model: "unchanged", variant: "unchanged" };
+    await runtime.hooks["chat.message"]({ sessionID: "ses_owned" }, { message });
+    assert.deepEqual(message, { model: "unchanged", variant: "unchanged" });
+    assert.equal(runtime.warnings.length, 1);
   }
 });
 
