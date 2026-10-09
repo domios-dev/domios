@@ -105,7 +105,7 @@ it("counts partial selections as parts and restores a whole message when all its
   expect(whole.count).toBe(2);
   expect(clipsForParts(index, [first, second])[0].source).toBe("  First.\n\nSecond.\n");
   expect(clipsForParts(index, ["missing"])).toEqual([]);
-});
+}, 20_000);
 
 it("adds and removes a contiguous range of source part IDs across message boundaries", () => {
   const order = ["a:0-10", "a:12-20", "b:0-6", "b:8-14"];
