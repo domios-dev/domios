@@ -1,3 +1,4 @@
+import { tabActivity } from "../../lib/tabActivity";
 import { ComposerContextMeter } from "./ComposerContextMeter";
 import { DocumentsButton } from "./DocumentsPanel";
 import { ChangesButton } from "./ChangesPanel";
@@ -239,7 +240,7 @@ export function TabTopBar({
           </span>
         )}
         {shellTab && isUtilityShell(shellTab) && <>
-          <ShellPurposeIcon purpose={shellTab.purpose} icon={shellTab.icon} running={shellTab.shell_command_state?.activity === "running"} />
+          <ShellPurposeIcon purpose={shellTab.purpose} icon={shellTab.icon} running={tabActivity(shellTab).active} />
           <ShellStatus tab={shellTab} />
         </>}
         {isWatcherTab && <WatcherStatusBadge lastStatus={watcherLastStatus} />}

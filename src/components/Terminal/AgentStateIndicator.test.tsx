@@ -1,3 +1,4 @@
+import { tabActivity } from "../../lib/tabActivity";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -25,7 +26,7 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLElement; root
 async function main(): Promise<void> {
   const idle = await render(
     <AgentStateIndicator
-      state={{ state: "idle" }}
+      activity={tabActivity({ agent_state: { state: "idle" } })}
       providerName="Codex"
       model="gpt-5.6-sol"
       reasoningEffort={{ actual: " high ", actual_source: "session-owned" }}
@@ -39,7 +40,7 @@ async function main(): Promise<void> {
   let stopCalls = 0;
   await act(async () => idle.root.render(
     <AgentStateIndicator
-      state={{ state: "working", status_line: "Editing files", phase: "thinking" }}
+      activity={tabActivity({ agent_state: { state: "working", status_line: "Editing files", phase: "thinking" } })}
       providerName="Codex"
       model="gpt-5.6-sol"
       onStop={() => { stopCalls += 1; }}
@@ -55,7 +56,7 @@ async function main(): Promise<void> {
 
   await act(async () => idle.root.render(
     <AgentStateIndicator
-      state={{ state: "idle" }}
+      activity={tabActivity({ agent_state: { state: "idle" } })}
       providerName="Codex"
       model="gpt-5.6-sol"
       onStop={() => { stopCalls += 1; }}
@@ -68,7 +69,7 @@ async function main(): Promise<void> {
 
   await act(async () => idle.root.render(
     <AgentStateIndicator
-      state={{ state: "working", status_line: "Editing files" }}
+      activity={tabActivity({ agent_state: { state: "working", status_line: "Editing files" } })}
       providerName="Codex"
       model="gpt-5.6-sol"
       reasoningEffort={{ actual: "high", actual_source: "provider-default-unverified" }}
@@ -78,7 +79,7 @@ async function main(): Promise<void> {
 
   await act(async () => idle.root.render(
     <AgentStateIndicator
-      state={{ state: "idle" }}
+      activity={tabActivity({ agent_state: { state: "idle" } })}
       providerName="Codex"
       model="gpt-5.6-sol"
       reasoningEffort={{ actual: null, requested: "medium" }}
@@ -88,7 +89,7 @@ async function main(): Promise<void> {
 
   await act(async () => idle.root.render(
     <AgentStateIndicator
-      state={{ state: "idle" }}
+      activity={tabActivity({ agent_state: { state: "idle" } })}
       providerName="Codex"
       model="gpt-5.6-sol"
       reasoningEffort={{ actual: "   ", actual_source: "session-owned" }}
@@ -99,7 +100,7 @@ async function main(): Promise<void> {
   await act(async () => idle.root.render(
     <div style={{ width: 390 }}>
       <AgentStateIndicator
-        state={{ state: "working", status_line: "A deliberately long status suffix that must remain in the compact row" }}
+        activity={tabActivity({ agent_state: { state: "working", status_line: "A deliberately long status suffix that must remain in the compact row" } })}
         providerName="Codex"
         model="gpt-5.6-sol"
         reasoningEffort={{ actual: "high", actual_source: "session-owned" }}
@@ -113,7 +114,7 @@ async function main(): Promise<void> {
   let cancelCalls = 0;
   await act(async () => idle.root.render(
     <AgentStateIndicator
-      state={{ state: "question", subtype: "permission" }}
+      activity={tabActivity({ agent_state: { state: "question", subtype: "permission" } })}
       providerName="Codex"
       model="gpt-5.6-sol"
       reasoningEffort={{ actual: "low", actual_source: "provider-default-unverified" }}
@@ -129,7 +130,7 @@ async function main(): Promise<void> {
   assert(terminalCalls === 1 && cancelCalls === 1, "question actions invoke their handlers once");
 
   await act(async () => idle.root.render(
-    <AgentStateIndicator state={{ state: "quiet" }} providerName="Codex" model="gpt-5.6-sol" />,
+    <AgentStateIndicator activity={tabActivity({ agent_state: { state: "quiet" } })} providerName="Codex" model="gpt-5.6-sol" />,
   ));
   const quiet = idle.host.querySelector('[data-testid="agent-state"]');
   assert(quiet?.getAttribute("data-agent-state") === "quiet", "quiet state keeps the status rail hook");

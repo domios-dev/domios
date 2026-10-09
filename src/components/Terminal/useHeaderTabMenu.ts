@@ -1,3 +1,4 @@
+import { useTabActivity } from "../../lib/useTabActivity";
 import { useCallback } from "react";
 import { anchorsTeam } from "../../lib/roleKind";
 import type { ProviderDescriptor, Tab } from "../../lib/types";
@@ -30,7 +31,7 @@ export function useHeaderTabMenu(
   const { closeTab, setTabTitle } = useMultiplexer();
   const { index } = usePlanIndexOptional();
   const descriptors = useAgentDescriptors();
-  const status = useMuxSelector(useCallback((state: ExtendedState) => (tabId ? state.tabStatuses[tabId] ?? null : null), [tabId]));
+  const status = useTabActivity(tabId).status;
   const orchestrators = useMuxSelector(selectOrchestrators, sameTabs);
   const activity = useMuxSelector(
     useCallback((state: ExtendedState) => resolveTabTabActivity(index, tabId, state.tabs), [index, tabId]),

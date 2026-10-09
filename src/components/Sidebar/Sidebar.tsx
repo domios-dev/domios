@@ -664,6 +664,7 @@ export function Sidebar({
         .filter(isSidebarTabVisible)
         .map((tab) => tab.id),
       state.tabStatuses,
+      state.tabs,
     ),
   ])), [ordinaryWorkspaces, state.tabStatuses, state.tabs]);
   const workspaceSortIds = useMemo(

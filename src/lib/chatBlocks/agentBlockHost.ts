@@ -1,12 +1,12 @@
 import type { AgentBlockHost, AgentBlockState } from "@codeterm/chat-ui";
 import type { Plan } from "../../components/Canvas/types";
 import { interruptAgentArgs } from "../agentInterrupt";
-import type { MultiplexerState, Tab } from "../types";
+import type { MultiplexerState, Tab, TabStatus } from "../types";
 import { agentBlockState, resolveTabRef } from "./agentBlockState";
 import type { ValueFeed } from "./valueFeed";
 
 export interface AgentBlockSources {
-  mux: { getState(): Pick<MultiplexerState, "tabs" | "workspaces">; subscribe(listener: () => void): () => void };
+  mux: { getState(): Pick<MultiplexerState, "tabs" | "workspaces"> & { tabStatuses?: Record<string, TabStatus> }; subscribe(listener: () => void): () => void };
   plans: ValueFeed<readonly Plan[]>;
   providerName(agentType: string): string | null;
   selectTab(workspaceId: string, tabId: string): Promise<void> | void;
@@ -17,6 +17,7 @@ export interface AgentBlockSources {
 export function createAgentBlockHost(sources: AgentBlockSources): AgentBlockHost {
   let cachedTabs: unknown = null;
   let cachedPlans: unknown = null;
+  let cachedStatuses: unknown = null;
   const states = new Map<string, AgentBlockState>();
 
   const tab = (ref: string): Tab => {
@@ -36,16 +37,17 @@ export function createAgentBlockHost(sources: AgentBlockSources): AgentBlockHost
         };
       },
       read(ref) {
-        const { tabs } = sources.mux.getState();
+        const { tabs, tabStatuses } = sources.mux.getState();
         const plans = sources.plans.get();
-        if (tabs !== cachedTabs || plans !== cachedPlans) {
+        if (tabs !== cachedTabs || plans !== cachedPlans || tabStatuses !== cachedStatuses) {
           cachedTabs = tabs;
+          cachedStatuses = tabStatuses;
           cachedPlans = plans;
           states.clear();
         }
         let state = states.get(ref);
         if (!state) {
-          state = agentBlockState(tabs, plans, ref, sources.providerName);
+          state = agentBlockState(tabs, plans, ref, sources.providerName, tabStatuses);
           states.set(ref, state);
         }
         return state;

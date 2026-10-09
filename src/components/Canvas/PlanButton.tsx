@@ -1,3 +1,4 @@
+import { useTabActivity } from "../../lib/useTabActivity";
 import { useEffect, useMemo } from "react";
 import { Map } from "lucide-react";
 import { listen } from "../../lib/bridge";
@@ -21,6 +22,7 @@ interface PlanButtonProps {
 
 export function PlanButton({ tabId, tabs }: PlanButtonProps) {
   const { index } = usePlanIndex();
+  const activity = useTabActivity(tabId, tabs[tabId]);
 
   const relevantPlans = useMemo(
     () => findPlanIndexForTab(index, tabId, tabs),
@@ -82,7 +84,7 @@ export function PlanButton({ tabId, tabs }: PlanButtonProps) {
     >
       <Map size={13} />
       Plan
-      {pulsing && <ActivityDots data-testid="plan-button-activity" size="small" tone="muted" active />}
+      <ActivityDots data-testid="plan-button-activity" size="small" tone="muted" rhythm={activity.phase} active={activity.active} />
       {pulsing && <span className="sr-only" role="status" aria-live="polite">Plan updated</span>}
     </button>
   );

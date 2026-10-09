@@ -125,6 +125,18 @@ impl MultiplexerState {
                     .map(|status| (tab_id.clone(), status))
             })
             .collect();
+        for (tab_id, status) in &snap.tab_statuses {
+            if let Some(tab) = snap
+                .tabs
+                .get_mut(tab_id)
+                .filter(|tab| tab.agent_type.is_some())
+            {
+                tab.agent_state = Some(super::status_view::agent_state_for_status(
+                    tab.agent_state.as_ref(),
+                    *status,
+                ));
+            }
+        }
         snap
     }
 

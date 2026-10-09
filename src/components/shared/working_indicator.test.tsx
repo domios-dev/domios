@@ -102,12 +102,12 @@ describe("working_indicator", () => {
       expect(source, relativePath).toMatch(/ActivityDots/);
     }
     const tabItem = readFileSync(resolve(repoRoot, "src/components/Sidebar/TabItem.tsx"), "utf8");
-    expect(tabItem).toMatch(/status === "Working" \|\| status === "Idle"/);
-    expect(tabItem).toMatch(/<TabWorkingActivity active=\{status === "Working"\} \/>/);
+    expect(tabItem).toMatch(/tabActivity\(tab, status\)/);
+    expect(tabItem).toMatch(/<TabWorkingActivity activity=\{tabState\} \/>/);
     const agentState = readFileSync(
       resolve(repoRoot, "src/components/Terminal/AgentStateIndicator.tsx"),
       "utf8",
     );
-    expect(agentState).toMatch(/active=\{isWorking\}/);
+    expect(agentState).toMatch(/active=\{activity.active\}/);
   });
 });
