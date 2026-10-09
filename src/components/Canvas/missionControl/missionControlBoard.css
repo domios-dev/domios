@@ -261,6 +261,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  background: color-mix(in srgb, var(--ct-fg) 3%, var(--ct-bg));
 }
 
 .mc-board-panel-head {
@@ -273,7 +274,7 @@
 
 .mc-board-panel-head h2 {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--mc-text-body);
   font-weight: 650;
   line-height: 1.4;
   color: var(--ct-fg);

@@ -26,9 +26,10 @@ export function ActivityLogRow({ kind, color, age, stamp, stampTitle, author, le
       data-expanded={expanded || undefined}
       data-testid={testIds.row}
       style={{ "--ct-activity-tone": color ?? "var(--ct-muted)" } as CSSProperties}
+      onClick={onOpen}
       {...Object.fromEntries(Object.entries(data).map(([k, v]) => [`data-${k}`, v]))}
     >
-      <button type="button" className="ct-activity-row__head" aria-expanded={onOpen ? undefined : expanded} onClick={onOpen ?? (() => setExpanded((v) => !v))}>
+      <button type="button" className="ct-activity-row__head" aria-expanded={onOpen ? undefined : expanded} onClick={onOpen ? undefined : () => setExpanded((v) => !v)}>
         <ChevronRight size={12} aria-hidden="true" className="ct-activity-row__chevron" />
         <span className="ct-activity-row__age" data-testid={testIds.age} title={stampTitle}>{age}</span>
         <span className="ct-activity-row__kind" data-testid={testIds.kind}><span className="ct-activity-row__dot" aria-hidden="true" />{kind}</span>

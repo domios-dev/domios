@@ -77,9 +77,9 @@ test("renders milestone timeline with kind, age, and author", async () => {
   const FOLLOWING = 4;
   assert(
     kindEl && stamp && ageEl &&
-      (kindEl.compareDocumentPosition(stamp) & FOLLOWING) !== 0 &&
-      (stamp.compareDocumentPosition(ageEl) & FOLLOWING) !== 0,
-    "meta order: kind → absolute stamp → relative age",
+      (ageEl.compareDocumentPosition(kindEl) & FOLLOWING) !== 0 &&
+      (kindEl.compareDocumentPosition(stamp) & FOLLOWING) !== 0,
+    "log row order: relative age → kind → absolute stamp in the expanded detail",
   );
   assert(host.querySelector('[data-testid="plan-task-activity-author"]')?.textContent === "Puccini", "author label");
   assert(entry?.textContent?.includes("Shipped first pass"), "stride text");
