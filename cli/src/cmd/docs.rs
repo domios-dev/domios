@@ -25,6 +25,11 @@ pub(crate) struct EmbeddedDoc {
 
 pub(crate) const DOCS: &[EmbeddedDoc] = &[
     doc!(
+        "SPINAL-CORD",
+        "Spinal Cord (Supporter Agent): everyday help, connection and verification",
+        "../../../prod-docs/SPINAL-CORD.md"
+    ),
+    doc!(
         "BLUEPRINTS",
         "Bounded status probes, changed-output classification and safe transition routes",
         "../../../prod-docs/BLUEPRINTS.md"
@@ -493,6 +498,15 @@ mod tests {
         for document in DOCS {
             assert!(names.insert(document.name.to_ascii_lowercase()));
         }
+    }
+
+    #[test]
+    fn spinal_cord_resolves_to_registered_whole_document() {
+        let document = DOCS.iter().find(|doc| doc.name == "SPINAL-CORD").unwrap();
+        assert_eq!(super::canonical_name("spinal-cord"), Some(document.name));
+        assert_eq!(render_doc("SPINAL-CORD").unwrap(), document.body);
+        assert_eq!(render_doc("spinal-cord").unwrap(), document.body);
+        assert!(super::render_list().contains(document.name));
     }
 
     #[test]

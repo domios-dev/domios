@@ -2,7 +2,7 @@ use super::{error_message, read_token, Reply};
 use crate::args::supporter::{SupporterAction, SupporterTokenAction};
 use crate::cmd::supporter_render::{render_models, render_status, render_token_status};
 use crate::{Cli, Commands, MemAction};
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use serde_json::json;
 
 fn parse(argv: &[&str]) -> Result<Commands, clap::Error> {
@@ -17,6 +17,49 @@ fn parse_mem(argv: &[&str]) -> Result<MemAction, clap::Error> {
     match parse(&full)? {
         Commands::Mem { action } => Ok(action),
         _ => panic!("expected mem command"),
+    }
+}
+
+#[test]
+fn spinal_cord_alias_uses_supporter_command_tree() {
+    for name in ["supporter", "spinal-cord"] {
+        assert!(matches!(
+            parse(&[name, "status"]).unwrap(),
+            Commands::Supporter {
+                action: SupporterAction::Status
+            }
+        ));
+        assert!(matches!(
+            parse(&[name, "use", "fixture", "--model", "listed"]).unwrap(),
+            Commands::Supporter { action: SupporterAction::Use { adapter, model } }
+                if adapter == "fixture" && model.as_deref() == Some("listed")
+        ));
+        assert!(matches!(
+            parse(&[name, "token", "set", "--adapter", "fixture"]).unwrap(),
+            Commands::Supporter { action: SupporterAction::Token {
+                action: SupporterTokenAction::Set { adapter: Some(adapter) }
+            } } if adapter == "fixture"
+        ));
+        assert!(parse(&[name, "token", "set", "secret"]).is_err());
+    }
+    let command = Cli::command();
+    assert!(command
+        .get_subcommands()
+        .all(|child| child.get_name() != "spinal-cord"));
+    let supporter = command.find_subcommand("supporter").unwrap();
+    assert!(supporter
+        .get_visible_aliases()
+        .any(|alias| alias == "spinal-cord"));
+}
+
+#[test]
+fn supporter_help_names_spinal_cord() {
+    for name in ["supporter", "spinal-cord"] {
+        let help = Cli::try_parse_from(["codeterm", name, "--help"])
+            .err()
+            .unwrap();
+        assert_eq!(help.kind(), clap::error::ErrorKind::DisplayHelp);
+        assert!(help.to_string().contains("Spinal Cord (Supporter Agent)"));
     }
 }
 

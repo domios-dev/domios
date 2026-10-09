@@ -340,7 +340,8 @@ pub enum Commands {
         action: MemAction,
     },
 
-    /// Configure and inspect the Supporter Agent.
+    /// Configure and inspect Spinal Cord (Supporter Agent).
+    #[command(visible_alias = "spinal-cord")]
     Supporter {
         #[command(subcommand)]
         action: SupporterAction,
