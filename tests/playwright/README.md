@@ -25,6 +25,10 @@ see [`.agents/skills/testing/SKILL.md`](../../.agents/skills/testing/SKILL.md).
 
 ## Run
 
+The opt-in [live model-switch acceptance](LIVE_MODEL_SWITCH.md) attaches to DEV
+7686/CDP 9223, requires an explicit product SHA, and is excluded from ordinary
+project discovery. Run it only under serialized Orchestrator QA authority.
+
 ```bash
 pnpm test:pw:lint    # fail if any Playwright test has no tier tag
 pnpm test:pw:smoke   # @smoke project
