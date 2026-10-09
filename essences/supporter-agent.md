@@ -30,7 +30,7 @@ An interactive prompt that an agent meets at launch or during a cron run, and th
 
 ## Bounded recovery and unattended work
 
-The General Agent's recovery is driven by lifecycle events. Quiescing, launch grace, process ownership and restart limits are checked at the event. Model observations cannot restart a live provider merely because its screen looks broken.
+The protected Main General Agent's recovery is driven by lifecycle events. Quiescing, launch grace, process ownership and restart limits are checked at the event. Independent General-session exits cannot restart Main or consume its recovery budget. Model observations cannot restart a live provider merely because its screen looks broken.
 
 | Condition | Authority and permitted outcome |
 |---|---|

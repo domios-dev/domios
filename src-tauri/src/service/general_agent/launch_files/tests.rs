@@ -80,6 +80,34 @@ fn general_agent_fresh_and_resumed_launch_plans_select_structured_control() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn fresh_general_model_policy_preserves_structured_launch_selection() {
+    let (fixture, tab, provider) = fixture();
+    let params = AgentLaunchParams {
+        task: Some("opaque-general-contract".into()),
+        args: Some(vec!["--model".into(), "configured-model".into()]),
+        ..Default::default()
+    };
+    let selection = codex_rpc::launch::Selection {
+        model: Some("configured-model".into()),
+        ..Default::default()
+    };
+    let selected = codex_rpc::launch::selection_plan(
+        &fixture.service,
+        &tab,
+        &provider,
+        "general-home",
+        &params,
+        selection,
+    )
+    .unwrap();
+    assert_eq!(selected.model.as_deref(), Some("configured-model"));
+    assert_eq!(selected.cwd, "general-home");
+    assert_eq!(selected.instructions, params.task);
+    assert_eq!(selected.resume, None);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn general_agent_structured_credentials_precede_provider_identity_and_preserve_nonce() {
     let (fixture, tab, provider) = fixture();
     let svc = &fixture.service;

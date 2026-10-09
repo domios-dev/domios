@@ -108,5 +108,6 @@
   "src/lib/surfaceActivity.test.ts",
   "src/lib/surfaceControlStore.test.tsx",
   "src/components/Surface/surfaceIcon.test.ts",
-  "src/components/CrashReportToast.test.tsx"
+  "src/components/CrashReportToast.test.tsx",
+  "src/lib/generalSession.adapter.test.ts"
 ]

@@ -217,6 +217,7 @@ pub fn run() {
             commands::get_rest_api_status,
             commands::rest_api_port_released,
             commands::restart_general_agent,
+            commands::spawn_general_agent_session,
             commands::restart_general_agent_tab,
             commands::restart_agent_tab,
             commands::fork_agent_tab,
