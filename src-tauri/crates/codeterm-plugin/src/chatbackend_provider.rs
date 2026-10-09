@@ -584,6 +584,7 @@ mod tests {
             description: Some(format!("{id} description")),
             available,
             availability: None,
+            primary: None,
             featured: None,
             badge: None,
             group: None,

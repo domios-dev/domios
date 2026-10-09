@@ -103,6 +103,9 @@ pub(crate) fn render_example(
                 desc.replace('"', "\\\"")
             ));
         }
+        if let Some(primary) = m.primary {
+            out.push_str(&format!("primary = {primary}\n"));
+        }
         if m.is_featured() {
             out.push_str("featured = true\n");
         }
