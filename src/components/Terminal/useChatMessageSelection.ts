@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, type KeyboardEvent, type MouseEvent, type RefObject } from "react";
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useReducer, useRef, type KeyboardEvent, type MouseEvent, type RefObject } from "react";
 import {
   clipMessage,
   DOMIOS_TEXT_MIME,
@@ -84,14 +84,16 @@ interface Press {
   dragging: boolean;
 }
 
-export function useChatMessageSelection({ tabId, rows, agent, surfaceRef }: {
+export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, streamingMessageId }: {
   tabId: string;
   rows: readonly SelectableRow[];
   agent: string;
   surfaceRef: RefObject<HTMLElement | null>;
+  streamingMessageId?: string | null;
 }) {
   const [state, dispatch] = useReducer(reduceMessageSelection, EMPTY_SELECTION);
-  const index = useMemo(() => indexMessageParts(rows.map((row) => rowClip(row, chatClipNames(agent)))), [rows, agent]);
+  const renderingStreamId = useDeferredValue(streamingMessageId);
+  const index = useMemo(() => indexMessageParts(rows.map((row) => rowClip(row, chatClipNames(agent))), renderingStreamId), [rows, agent, renderingStreamId]);
   const { byMessage: partsByMessage, order } = index;
   const live = useRef({ index, state });
   live.current = { index, state };

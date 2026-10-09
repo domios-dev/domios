@@ -1,0 +1,21 @@
+import assert from "node:assert/strict";
+import { streamingMessageId } from "./streamingMessage";
+import { indexMessageParts } from "./messagePartSelection";
+import { messageParts } from "@codeterm/chat-ui";
+
+const msg = { id: "answer", type: "assistant" as const, content: "# First\n\nA paragraph\n\nAnother paragraph" };
+assert.equal(streamingMessageId([{ msg }], true), "answer");
+assert.equal(streamingMessageId([{ msg }], false), null);
+assert.equal(streamingMessageId([], true), null);
+assert.equal(streamingMessageId([{ msg }, { msg: { ...msg, id: "tool", type: "tool_call" } }], true), null);
+const clips = [{ id: msg.id, role: "assistant" as const, source: msg.content, author: "Agent" }];
+const live = indexMessageParts(clips, msg.id);
+assert.deepEqual(live.order, [msg.id]);
+assert.equal(live.byId.get(msg.id)?.source, msg.content);
+const settled = indexMessageParts(clips);
+assert.ok(settled.order.length > 1);
+const parts = messageParts(msg.id, msg.content);
+assert.equal(messageParts(msg.id, msg.content), parts);
+assert.notEqual(messageParts(msg.id, msg.content + "\n\nLast"), parts);
+assert.deepEqual(messageParts(msg.id, msg.content), parts);
+console.log("Only active assistant tails defer parsing; settled parts and cache invalidation retain source");

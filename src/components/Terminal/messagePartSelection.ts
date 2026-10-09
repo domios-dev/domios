@@ -1,10 +1,10 @@
 import type { ClipMessage } from "@codeterm/chat-core";
 import { messageParts, type MessagePart } from "@codeterm/chat-ui";
 
-export function indexMessageParts(clips: readonly ClipMessage[]) {
+export function indexMessageParts(clips: readonly ClipMessage[], streamingMessageId?: string | null) {
   const rows = clips.map((clip) => ({
     clip,
-    parts: clip.role === "assistant" ? messageParts(clip.id, clip.source) : [{ id: clip.id, start: 0, end: clip.source.length, renderedStart: 0, renderedEnd: clip.source.length }],
+    parts: clip.role === "assistant" && clip.id !== streamingMessageId ? messageParts(clip.id, clip.source) : [{ id: clip.id, start: 0, end: clip.source.length, renderedStart: 0, renderedEnd: clip.source.length }],
   }));
   const byMessage = new Map<string, readonly MessagePart[]>(rows.map(({ clip, parts }) => [clip.id, parts]));
   const byId = new Map<string, ClipMessage>();
