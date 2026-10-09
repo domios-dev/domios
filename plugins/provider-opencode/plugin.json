@@ -162,7 +162,7 @@
       "--variant",
       "{effort}"
     ],
-    "modelSwitch": "restart_resume"
+    "modelSwitch": "next_turn"
   },
   "permissions": {
     "subprocess": {

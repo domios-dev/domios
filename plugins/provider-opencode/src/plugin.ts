@@ -1,4 +1,5 @@
 import { modelProviderExports } from "./modelProviders";
+import { modelSwitch } from "./modelSwitch";
 import { decisionModel } from "./decisionModel";
 import { variantLaunch } from "./modelVariants";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
@@ -94,6 +95,7 @@ function withPadPermissionConfig(command: string, instructions?: string[], clean
 }
 
 const plugin: PluginModule = {
+  ...modelSwitch,
   ...decisionModel,
   ...modelProviderExports,
   starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake"): string | undefined {

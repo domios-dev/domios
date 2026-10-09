@@ -1,10 +1,11 @@
 import type { Host, ModelInfo, ParsedPrompt } from "@codeterm/plugin-sdk";
 import { parseModelVariants } from "./modelVariants";
+import { bindingModelSwitchSource } from "./bindingModelSwitch";
 import { opencodeFileDiffs } from "./fileDiffs";
 import { fileDiffFromEdit, type FileDiff } from "@codeterm/chat-core";
 
 // Constants and regexes
-export const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v6";
+export const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v7";
 export const CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-session-binding-v";
 export const QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 export const QUESTION_MENU_SELECTORS = [">", "❯", "▶", "➤", "→", "●"];
@@ -696,7 +697,7 @@ export function opencodeBindingPluginSource(): string {
     "  return null;",
     "}",
     "",
-    "async function report(sessionID, source, directory) {",
+    "async function report(sessionID, source, directory, signal) {",
     "  sessionID = normalizeSessionID(sessionID);",
     "  if (!sessionID) return false;",
     "  if (sessionID === lastReported) return true;",
@@ -711,6 +712,7 @@ export function opencodeBindingPluginSource(): string {
     "  const delivered = await fetch(url, {",
     "    method: \"POST\",",
     "    headers,",
+    "    signal,",
     "    body: JSON.stringify({",
     "      provider_id: PROVIDER_ID,",
     "      session_id: sessionID,",
@@ -774,6 +776,7 @@ export function opencodeBindingPluginSource(): string {
     "  }).catch(() => null);",
     "}",
     "",
+    ...bindingModelSwitchSource(),
     "export default async function CodeTermSessionBindingPlugin({ directory, client }) {",
     "  const resumed = normalizeSessionID(process.env.CODETERM_RESUME_SESSION_ID) || resumedSessionID(process.argv || []);",
     "  const startupBinding = (async () => {",
@@ -799,9 +802,10 @@ export function opencodeBindingPluginSource(): string {
     "        await report(eventSessionID(event), event.type, eventDirectory(event, directory));",
     "      }",
     "    },",
-    "    async \"chat.message\"(input) {",
-    "      await startupBinding;",
-    "      await report(input?.sessionID, \"chat.message\", directory);",
+    "    async \"chat.message\"(input, output) {",
+    "      const signal = AbortSignal.timeout(200);",
+    "      await report(input?.sessionID, \"chat.message\", directory, signal);",
+    "      await applyTurnModel(input, output, signal);",
     "    },",
     "    async \"tool.execute.before\"(input) {",
     "      await report(input?.sessionID, \"tool.execute.before\", directory);",

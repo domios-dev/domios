@@ -315,6 +315,16 @@ test("tab picker retains the observed model when the streaming label ends", asyn
       assert.equal(host.querySelector('button[aria-haspopup="dialog"]')?.getAttribute("aria-label"),
         "Change model, currently vendor/actual");
     }
+    await act(async () => root.render(<TabStatusLineModelPicker tab={{ ...tab,
+      pending_model_switch_observation: { launched_model: "fast" },
+    }} label="Vendor" />));
+    assert.equal(host.querySelector('button[aria-haspopup="dialog"]')?.getAttribute("aria-label"),
+      "Change model, currently Fast · after this turn");
+    await act(async () => root.render(<TabStatusLineModelPicker tab={{ ...tab,
+      agent_session_model: "fast",
+    }} label="Vendor" />));
+    assert.equal(host.querySelector('button[aria-haspopup="dialog"]')?.getAttribute("aria-label"),
+      "Change model, currently Fast");
   } finally {
     await act(async () => root.unmount());
     host.remove();

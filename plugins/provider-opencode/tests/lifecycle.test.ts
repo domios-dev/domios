@@ -48,6 +48,7 @@ async function loadBinding(input: {
     "async function CodeTermSessionBindingPlugin",
   );
   const context = {
+    AbortSignal,
     process: {
       argv: input.argv || [],
       env: {
