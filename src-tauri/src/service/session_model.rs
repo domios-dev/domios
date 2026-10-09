@@ -402,6 +402,12 @@ impl ServiceContext {
         };
         let Some(agent_id) = agent_id else { return };
         let Some(cwd) = cwd else { return };
+        self.refresh_session_reasoning_effort_once(
+            tab_id,
+            &agent_id,
+            &cwd,
+            &observation.session_id,
+        );
         let Some(model) = self
             .agent_registry
             .with_provider(&agent_id, |provider| {

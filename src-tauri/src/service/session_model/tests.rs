@@ -25,6 +25,8 @@ mod startup_model_refresh_tests {
     }
 }
 
+mod restored_effort;
+
 mod model_refresh_tests {
     use std::collections::{HashMap, HashSet};
     use std::path::PathBuf;
