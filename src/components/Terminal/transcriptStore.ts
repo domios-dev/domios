@@ -9,6 +9,7 @@ import {
   type TranscriptState,
 } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
+import { frameNotifications } from "./frameNotifications";
 
 export interface TranscriptWindow {
   transcript: TranscriptState;
@@ -23,6 +24,12 @@ const pendingSends = new Map<string, Map<string, { correlationId: string; sentAt
 const MAX_TRANSCRIPT_WINDOWS = 8;
 
 const EMPTY_WINDOW: TranscriptWindow = { transcript: createTranscriptState(), anchorKey: null };
+const notifications = frameNotifications((key) => {
+  for (const listener of listeners.get(key) ?? []) listener();
+}, {
+  request: (callback) => globalThis.requestAnimationFrame(callback),
+  cancel: (handle) => globalThis.cancelAnimationFrame(handle),
+});
 
 export function transcriptWindowKey(tabId: string, agentSessionId: string | null): string {
   return `${tabId}:${agentSessionId ?? ""}`;
@@ -32,15 +39,17 @@ export function readTranscriptWindow(key: string): TranscriptWindow {
   return windows.get(key) ?? EMPTY_WINDOW;
 }
 
-function publish(key: string, next: TranscriptWindow): void {
+function publish(key: string, next: TranscriptWindow, coalesce = false): void {
   windows.delete(key);
   windows.set(key, next);
   while (windows.size > MAX_TRANSCRIPT_WINDOWS) {
     const oldest = windows.keys().next().value;
     if (oldest == null || oldest === key) break;
     windows.delete(oldest);
+    notifications.remove(oldest);
   }
-  for (const listener of listeners.get(key) ?? []) listener();
+  if (coalesce && typeof globalThis.requestAnimationFrame === "function") notifications.enqueue(key);
+  else notifications.immediate(key);
 }
 
 /** Reduce one batch into the stored window and report what the reducer decided;
@@ -48,7 +57,7 @@ function publish(key: string, next: TranscriptWindow): void {
 export function commitTranscriptBatch(key: string, batch: TranscriptBatch): TranscriptOutcome {
   const current = readTranscriptWindow(key);
   const { state, outcome } = reduceTranscript(current.transcript, batch);
-  if (state !== current.transcript) publish(key, { ...current, transcript: state });
+  if (state !== current.transcript) publish(key, { ...current, transcript: state }, batch.kind === "delta");
   return outcome;
 }
 
@@ -126,6 +135,7 @@ export function replaceTranscriptWindow(
 }
 
 export function clearTranscriptWindows(): void {
+  notifications.clear();
   pendingSends.clear();
   for (const key of [...windows.keys()]) {
     windows.delete(key);
