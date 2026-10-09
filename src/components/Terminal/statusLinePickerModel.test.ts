@@ -66,6 +66,19 @@ test("current model resolves through id or display name in priority order", () =
   assert.equal(currentModelId(descriptor, ["Fast", "deep"]), "fast");
   assert.equal(currentModelId(descriptor, ["vendor/unknown"]), "vendor/unknown");
   assert.equal(currentModelId(descriptor, [null, undefined]), undefined);
+  assert.equal(currentModelId(descriptor, ["vendor/unknown", "deep"]), "vendor/unknown");
+});
+
+test("observed model wins after the turn ends even outside the catalogue", () => {
+  const descriptor = provider();
+  const launch = { agent_requested_model: "deep", agent_provider_resolved_model: "deep" };
+  const observed = { ...launch, agent_session_model: "vendor/actual" };
+  const resolve = (tab: Parameters<typeof statusLineModelName>[0]) =>
+    currentModelId(descriptor, [statusLineModelName(tab)]);
+
+  assert.equal(resolve(launch), "deep");
+  assert.equal(resolve(observed), "vendor/actual");
+  assert.equal(resolve({ ...observed }), "vendor/actual");
 });
 
 test("models group by declared section and mark the current one", () => {
