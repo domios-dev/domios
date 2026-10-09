@@ -279,8 +279,10 @@ been ready, every send is written immediately, even while it is busy, because
 the provider owns its own input queue. Each send's status follows reality:
 held, written, then delivered on exact own-session turn evidence, otherwise
 submit_unconfirmed. A written payload never replays after reopen or rebind.
-Delivery state is internal telemetry: Chat UI never renders
-delivery banners, failure cards, Retry actions, or notifications. Do not add
+Chat sends clear the composer immediately and show one bubble with subtle sending,
+queued, delivered or not-delivered state. Retry reuses that bubble only after proven
+non-delivery; written and uncertain input never replays. Transcript echoes reconcile
+without duplicate rows. Do not add
 screen/composer acknowledgement, guessed readiness, payload retries, sleeps,
 or provider-id branches. Use exact claimed-session evidence; never scrape the
 screen to determine submission.

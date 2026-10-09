@@ -76,6 +76,12 @@ import { useTabChatBlockHost } from "./pinnedBlocks";
 import { interruptAgentArgs } from "../../lib/agentInterrupt";
 import { useTabChoiceHost } from "./useTabChoiceHost";
 import { ChatMessageRow } from "./ChatMessageRow";
+import { ChatDeliveryState } from "./ChatDeliveryState";
+import { deliveryState, sendForRow } from "./chatDeliveryModel";
+import { beginChatSendRetry, failChatSendRequest, useChatSends } from "./chatSendStore";
+import { sendTrackedChatMessage } from "./chatSendStatus";
+import { prepareChatDelivery } from "./chatDeliveryPreparation";
+import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
 import { MessageSelectionBar } from "./MessageSelectionBar";
 import { useChatMessageSelection } from "./useChatMessageSelection";
 import { jumpToMessage } from "./jumpToMessage";
@@ -171,6 +177,8 @@ export function TabSessionChat({
   }
 
   const touchMode = useTouchOptimizedUi();
+  const deliverySends = useChatSends(tabId);
+  const { expand: expandDeliveryTasks, plansSink: deliveryPlansSink } = useDsTasksExpander(tabId);
   const tabBlockHost = useTabChatBlockHost(tabId);
   const lastStopAtRef = useRef(0);
   const chatRootRef = useRef<HTMLDivElement>(null);
@@ -256,6 +264,19 @@ export function TabSessionChat({
     allowUnboundAuthority: effectiveChatBackend,
     followTailRef: chatFollowTailRef,
   });
+  const retryChatDelivery = async (id: string) => {
+    const send = beginChatSendRetry(tabId, id);
+    if (!send) return;
+    let content = send.content;
+    try { content = await prepareChatDelivery(tabId, send, expandDeliveryTasks); }
+    catch { failChatSendRequest(tabId, id); return; }
+    try {
+      observeChatSendStatus(await sendTrackedChatMessage(tabId, send.correlationId ?? send.id, content));
+    } catch {
+      void invoke<import("./chatSendStatus").ChatSendStatus[]>("chat_send_status", { tabId })
+        .then((statuses) => statuses.forEach(observeChatSendStatus)).catch(() => {});
+    }
+  };
   useEffect(() => {
     chatChangesStore.bind(tabId, JSON.stringify([agentSessionId, tab?.session_binding_nonce]));
   }, [tabId, agentSessionId, tab?.session_binding_nonce]);
@@ -834,6 +855,7 @@ export function TabSessionChat({
           const originProps = originPropsById.get(msg.id);
           const following = reportPlacement.afterIndex.get(messageIndex) ?? [];
           const nextId = renderedEnrichedMessages[messageIndex + 1]?.msg.id;
+          const deliverySend = sendForRow(deliverySends, msg);
           return (
             <Fragment key={msg.id}>
             <ChatMessageRow
@@ -847,6 +869,9 @@ export function TabSessionChat({
             >
               <MessageBubble
                 message={msg}
+                userFooter={deliverySend && deliveryState(deliverySend) !== "delivered"
+                  ? <ChatDeliveryState state={deliveryState(deliverySend)} onRetry={() => void retryChatDelivery(deliverySend.id)} />
+                  : undefined}
                 showTimestamp={msg.type === "user" || agentTimeMessageIds.has(msg.id)}
                 item={item.kind === "tool" ? item : undefined}
                 isLatestFailedToolCall={msg.id === latestFailedToolCallId}
@@ -937,6 +962,7 @@ export function TabSessionChat({
           />
         )}
       </div>
+      {deliveryPlansSink}
       {tab?.managed && <ManagedTabBar managed={tab.managed} onStop={handleStopAgent} />}
       {!managedTabPresentation(tab?.managed).locked && <ChatComposer
         tabId={tabId}

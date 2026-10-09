@@ -43,7 +43,7 @@ import {
   useTranscriptWindow,
 } from "./transcriptStore";
 import type { ChatSendStatus } from "./chatSendStatus";
-import { chatSendAt } from "./chatSendStore";
+import { chatSendAt, observeDeliveryStatus, reconcileDeliveryStatuses } from "./chatSendStore";
 import { clearPersistedChatScrollState } from "./chatViewport";
 import { useChatWindowView } from "./useChatWindowView";
 
@@ -249,7 +249,11 @@ export function useChatSession({
       do {
         sendStatusQueuedRef.current = false;
         const statuses = await invoke<ChatSendStatus[]>("chat_send_status", { tabId });
-        for (const status of statuses) stampConfirmedTranscriptRow(windowKeyRef.current, status);
+        reconcileDeliveryStatuses(tabId, statuses);
+        for (const status of statuses) {
+          trackTranscriptSend(windowKeyRef.current, status, chatSendAt(tabId, status.correlationId));
+          stampConfirmedTranscriptRow(windowKeyRef.current, status);
+        }
       } while (sendStatusQueuedRef.current);
     } catch {
       return;
@@ -259,9 +263,27 @@ export function useChatSession({
   }, [tabId]);
 
   const observeChatSendStatus = useCallback((status: ChatSendStatus) => {
+    observeDeliveryStatus(status);
     trackTranscriptSend(windowKeyRef.current, status, chatSendAt(tabId, status.correlationId));
     void reconcileSendStatuses();
   }, [reconcileSendStatuses, tabId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: UnlistenFn | undefined;
+    void listen<ChatSendStatus>("chat-send-status", ({ payload }) => {
+      if (!cancelled && payload.tab_id === tabId) observeChatSendStatus(payload);
+    }).then((release) => {
+      if (cancelled) release();
+      else {
+        unlisten = release;
+        void reconcileSendStatuses();
+      }
+    }).catch((error: unknown) => {
+      console.warn("[chat-send] status subscription failed", error);
+    });
+    return () => { cancelled = true; unlisten?.(); };
+  }, [tabId, observeChatSendStatus, reconcileSendStatuses]);
 
   const loadOlderPage = useCallback(async (beforeOffset: number) => {
     const generationAtRequest = attachmentRef.current.generation;
