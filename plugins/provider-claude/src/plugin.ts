@@ -26,7 +26,6 @@ import {
   aiTitleFromEntry,
   ClaudeToolUseResult,
   claudeSessionFilePath,
-  contentToText,
   detectSessionModelAfterBoundary,
   editedTextFilePath,
   extractSetModelFamily,
