@@ -198,7 +198,7 @@ fn suspended_job_process(owner: &Arc<ProbeResourceOwner>) -> WindowsRun {
 }
 
 #[test]
-fn signaled_parent_refreshes_job_after_early_exit_notice_without_another_packet() {
+fn signaled_parent_confirms_job_after_early_exit_notice_within_deadline() {
     for capture_pending in [false, true] {
         let owner = Arc::new(ProbeResourceOwner::new());
         let mut run = suspended_job_process(&owner);
@@ -219,10 +219,26 @@ fn signaled_parent_refreshes_job_after_early_exit_notice_without_another_packet(
             .unwrap());
         assert!(run.parent_exited);
         assert_eq!(run.exit_code, Some(7));
-        assert!(
-            run.job_empty,
-            "the process wait must refresh Job accounting"
-        );
+        assert!(!run.parent_exit_pending);
+        assert!(!run.process.is_open());
+        assert!(!run.process_registered);
+        assert!(!run.primary_thread.is_open());
+        assert!(!run.thread_registered);
+        // Process signaling may precede Job accounting reaching zero under load.
+        while !run.job_empty {
+            assert!(run.job.is_open());
+            assert!(run.port.is_open());
+            assert!(!run.runtime_success_ready());
+            let remaining = run.deadlines.remaining_operation();
+            assert!(
+                !remaining.is_zero(),
+                "Job did not drain within the operation deadline"
+            );
+            assert!(
+                run.wait_event(Some(remaining)).unwrap(),
+                "Job completion wait reached the operation deadline"
+            );
+        }
         assert!(!run.job.is_open());
         assert_eq!(run.port.is_open(), capture_pending);
         assert_eq!(run.runtime_success_ready(), !capture_pending);
