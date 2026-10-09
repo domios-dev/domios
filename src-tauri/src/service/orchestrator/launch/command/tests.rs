@@ -60,6 +60,26 @@ fn plain_resume_keeps_the_provider_resume_contract() {
 }
 
 #[test]
+fn restored_general_plain_resume_does_not_duplicate_the_typed_model_argument() {
+    let resumes = Arc::new(Mutex::new(Vec::new()));
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(
+        MockProvider::new("general-resume-fixture").with_resume_context_log(resumes.clone()),
+    ));
+    let params = SpawnAgentParams {
+        resume_session_id: Some("owned-general-session".into()),
+        model: Some("selected-model".into()),
+        args: Some(vec!["--model".into(), "selected-model".into()]),
+        role: Some("Manager".into()),
+        role_profile: Some("general_agent".into()),
+        ..Default::default()
+    };
+    let command = build_agent_command("general-resume-fixture", &params, None, None, &registry);
+    assert!(!command.is_empty());
+    assert_eq!(resumes.lock()[0].args, vec!["--model", "selected-model"]);
+}
+
+#[test]
 fn structured_server_does_not_bypass_an_unsupported_session_fork() {
     let launches = Arc::new(Mutex::new(Vec::new()));
     let registry = AgentRegistry::new();

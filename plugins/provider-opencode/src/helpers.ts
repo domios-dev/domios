@@ -4,7 +4,7 @@ import { opencodeFileDiffs } from "./fileDiffs";
 import { fileDiffFromEdit, type FileDiff } from "@codeterm/chat-core";
 
 // Constants and regexes
-export const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v4";
+export const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v5";
 export const CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-session-binding-v";
 export const QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 export const QUESTION_MENU_SELECTORS = [">", "❯", "▶", "➤", "→", "●"];
@@ -775,7 +775,7 @@ export function opencodeBindingPluginSource(): string {
     "}",
     "",
     "export default async function CodeTermSessionBindingPlugin({ directory, client }) {",
-    "  const resumed = resumedSessionID(process.argv || []);",
+    "  const resumed = normalizeSessionID(process.env.CODETERM_RESUME_SESSION_ID) || resumedSessionID(process.argv || []);",
     "  if (resumed && client?.session?.get) {",
     "    const result = await client.session.get({ path: { id: resumed } }).catch(() => null);",
     "    const session = result?.data || result;",
