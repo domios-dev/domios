@@ -1,6 +1,6 @@
 .ct-sidebar-panel {
   border-right: 1px solid var(--ct-border);
-  background: var(--ct-sidebar-bg);
+  background: var(--ct-bg);
 }
 
 @media not all and (max-width: 640px) {

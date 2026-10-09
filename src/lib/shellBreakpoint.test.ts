@@ -52,7 +52,7 @@ function main() {
     "shell-narrow:inset-y-0",
     "shell-narrow:left-0",
     "shell-narrow:z-40",
-    "shell-narrow:bg-[var(--ct-sidebar-bg)]",
+    "shell-narrow:bg-[var(--ct-bg)]",
   ]) {
     assert.ok(drawer.includes(utility), `the drawer does not use ${utility}`);
   }

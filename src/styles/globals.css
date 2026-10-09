@@ -2278,7 +2278,7 @@ button,
   width: 45.45%;
   height: 45.45%;
   border-radius: 50%;
-  background: var(--ct-sidebar-bg);
+  background: var(--ct-bg);
 }
 
 .sidebar-plan-entry-count-completion .ct-plan-status-breakdown-item[data-status="done"] .ct-plan-status-breakdown-count {
@@ -2350,7 +2350,7 @@ button,
   position: sticky;
   top: 0;
   z-index: 5;
-  background: var(--ct-sidebar-bg);
+  background: var(--ct-bg);
 }
 
 [data-touch-mode="true"] { --sidebar-section-header-h: 52px; }
