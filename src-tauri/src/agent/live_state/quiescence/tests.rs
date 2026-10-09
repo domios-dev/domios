@@ -239,3 +239,38 @@ fn next_boundary_tracks_both_clocks_and_output_rearms_checks() {
         );
     }
 }
+
+#[test]
+fn post_seed_turn_status_entry_reaches_quiescence_without_output() {
+    use codeterm_types::pty::{TabStatus, TabStatusTracker};
+
+    let now = Instant::now();
+    let mut tracker = TabStatusTracker::new();
+    let mut deadlines = Deadlines::default();
+    assert!(tracker.all_ids().is_empty());
+    assert_eq!(deadlines.next(), None);
+
+    tracker.set_working("post-seed");
+    assert_eq!(tracker.get_status("post-seed"), TabStatus::Working);
+    let clocks = tracker.quiescence("post-seed", now);
+    assert_eq!(clocks, Some((0, 0)));
+    deadlines.set("post-seed", next_deadline(now, clocks, None));
+    assert_eq!(deadlines.next(), Some(now + Duration::from_millis(800)));
+
+    let frame = Frame::output(0, &["❯"]);
+    let mut state = verdict(TimelineState::Working);
+    let mut elapsed = StatusElapsedTracker::new();
+    for boundary in [800, 1500, 5000] {
+        let at = now + Duration::from_millis(boundary);
+        assert_eq!(deadlines.take_due(at), vec!["post-seed"]);
+        state = classify(&frame, boundary, 0, state, false, &mut elapsed);
+        deadlines.set(
+            "post-seed",
+            next_deadline(at, Some((boundary, boundary)), None),
+        );
+        if boundary >= 1500 {
+            assert_eq!(state.state, TimelineState::Idle);
+        }
+    }
+    assert_eq!(deadlines.next(), None);
+}

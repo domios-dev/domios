@@ -158,6 +158,7 @@ impl ServiceContext {
             }
             (previous, tracker.get_status(&pty_id))
         };
+        crate::agent::live_state::schedule(self, &pty_id);
         self.emit_tab_status_if_changed(&pty_id, previous, current);
         crate::service::pty_io::submit_transaction::notify_submit_cycle_status_transition(
             &pty_id, previous, current,
