@@ -52,12 +52,20 @@ function save() {
 }
 
 async function api(path, method = "GET", body, signal = AbortSignal.timeout(30_000)) {
-  const response = await fetch(`${API}${path}`, {
-    method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal,
-  });
-  const text = await response.text();
-  if (!response.ok) throw new Error(`${method} ${path}: HTTP ${response.status} ${text}`);
-  return text ? JSON.parse(text) : null;
+  const until = Date.now() + deadlineMs;
+  for (;;) {
+    const response = await fetch(`${API}${path}`, {
+      method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal,
+    });
+    const text = await response.text();
+    // A read-only snapshot answers 503 while restore settles; retry only idempotent GETs.
+    if (response.status === 503 && method === "GET" && Date.now() < until) {
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 1_000));
+      continue;
+    }
+    if (!response.ok) throw new Error(`${method} ${path}: HTTP ${response.status} ${text}`);
+    return text ? JSON.parse(text) : null;
+  }
 }
 
 async function command(args) {
