@@ -506,6 +506,10 @@ impl AgentProvider for ClaudeProvider {
         Some("/exit")
     }
 
+    fn supports_idle_restart_termination(&self) -> bool {
+        true
+    }
+
     fn stop_keystroke(&self) -> Option<&str> {
         Some("\u{1b}")
     }

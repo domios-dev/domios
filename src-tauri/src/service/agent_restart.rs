@@ -370,6 +370,7 @@ impl ServiceContext {
         mode: RestartMode,
     ) -> Result<RestartOutcome, RestartAttemptError> {
         self.require_background_work_safe(&snap.tab_id, force)?;
+        crate::service::agent_restart::timing::stage(&snap.tab_id, &snap.pty_id, "request");
         let target_provider = snap.target_provider.as_deref().unwrap_or(&snap.provider);
         let provider_changed = target_provider != snap.provider;
         if !provider_changed {
@@ -426,6 +427,11 @@ impl ServiceContext {
         }
         if mode != RestartMode::SkipExit {
             self.require_background_work_safe(&snap.tab_id, force)?;
+            crate::service::agent_restart::timing::stage(
+                &snap.tab_id,
+                &snap.pty_id,
+                "exit-request",
+            );
             self.request_graceful_exit(&snap, force, Duration::from_secs(grace_secs.max(1)));
         }
         self.require_background_work_safe(&snap.tab_id, force)?;
@@ -476,6 +482,11 @@ impl ServiceContext {
             crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
             None,
         );
+        crate::service::agent_restart::timing::stage(
+            &snap.tab_id,
+            &snap.pty_id,
+            "relaunch-request",
+        );
         crate::service::orchestrator::launch_agent_in_background_with_env(
             self.clone(),
             snap.tab_id.clone(),
@@ -513,6 +524,11 @@ impl ServiceContext {
                 return Err(error);
             }
         };
+        timing::stage(
+            &snap.tab_id,
+            ready.new_pty_id.as_deref().unwrap_or("-"),
+            "ready",
+        );
         self.settle_restored_binding(ready, &snap)
     }
 
@@ -726,83 +742,6 @@ impl ServiceContext {
         self.agent_registry
             .with_provider(&snap.provider, |p| p.session_exists(cwd, sid))
             .unwrap_or(false)
-    }
-
-    fn request_graceful_exit(&self, snap: &TabRestartSnapshot, force: bool, grace: Duration) {
-        if force {
-            return;
-        }
-        let exit_command = self
-            .agent_registry
-            .with_provider(&snap.provider, |provider| {
-                provider.exit_command().map(str::to_string)
-            })
-            .flatten();
-        let Some(exit_command) = exit_command else {
-            return;
-        };
-        // A busy composer takes the exit command as a queued user turn, so a
-        // working agent is stopped at the process by the PTY teardown instead.
-        if !self.tab_is_idle(&snap.tab_id) {
-            log::info!(
-                "[agent_restart] tab={} is busy; skipping the in-chat exit command",
-                snap.tab_id
-            );
-            return;
-        }
-        if let Err(error) = self.send_text(&snap.tab_id, &exit_command) {
-            log::warn!(
-                "[agent_restart] graceful exit send failed for tab={}: {}",
-                snap.tab_id,
-                error
-            );
-            return;
-        }
-        let _ = crate::service::pty_io::await_bare_shell_prompt(
-            &self.screen_state,
-            &snap.pty_id,
-            grace,
-        );
-    }
-
-    fn tear_down_restart_pty(&self, snap: &TabRestartSnapshot) -> Result<(), String> {
-        self.pty_ownership.release_pty(&snap.pty_id);
-        let reaper = {
-            let mut manager = self.pty.lock();
-            match manager.begin_kill(&snap.pty_id) {
-                Ok(reaper) => Some(reaper),
-                Err(_) if manager.get_session(&snap.pty_id).is_none() => None,
-                Err(error) => return Err(error),
-            }
-        };
-        if let Some(reaper) = reaper {
-            reaper.wait_bounded(Duration::from_secs(5))?;
-        }
-        self.signal_worker_interruption(
-            &snap.tab_id,
-            crate::service::worker_interruption::WorkerInterruptionEvent::ForcedContextReset,
-        );
-        self.screen_state.lock().remove(&snap.pty_id);
-        crate::service::stream_preview::remove(&snap.pty_id);
-        self.clear_tab_agent_identity_after_confirmed_exit(
-            &snap.tab_id,
-            "agent restart reaped the previous PTY",
-        );
-        {
-            let mut mux = self.mux.write();
-            let tab = mux
-                .get_tab_mut(&snap.tab_id)
-                .ok_or_else(|| format!("Tab {} disappeared during restart", snap.tab_id))?;
-            tab.pty_id = None;
-            crate::service::boot_stage::apply_boot_stage(
-                tab,
-                codeterm_types::pty::BootStage::PtyStarting,
-                None,
-            );
-        }
-        crate::service::boot_wait::notify_boot_changed();
-        self.emit_state_changed();
-        Ok(())
     }
 
     fn finish_observed_restart(
@@ -1156,6 +1095,8 @@ mod exit_recovery;
 mod failed_launch;
 mod model_switch;
 mod relaunch;
+mod shutdown;
+pub(crate) mod timing;
 mod unverified_shell;
 pub(crate) use model_switch::{
     ModelSwitchConfirmation, ModelSwitchError, ModelSwitchEvidence, ModelSwitchOutcome,

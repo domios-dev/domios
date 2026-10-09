@@ -925,6 +925,10 @@ impl AgentProvider for JsProvider {
         self.manifest.commands.exit.as_deref()
     }
 
+    fn supports_idle_restart_termination(&self) -> bool {
+        self.manifest.commands.idle_restart_termination
+    }
+
     fn stop_keystroke(&self) -> Option<&str> {
         self.manifest.commands.stop_key.as_deref()
     }
