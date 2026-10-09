@@ -291,9 +291,11 @@ for (let run = startRun; run < startRun + repeats; run++) {
           const change = await apply(busyModel, undefined, true);
           await expect(target.chat.locator('[data-agent-state="working"]'), "Apply happened before long turn completed").toHaveCount(1);
           expect((await identity(api, target.tabId)).agent_session_model).toBe(busyBefore.agent_session_model);
-          const responsiveness: Array<{ at: string; elapsedMs: number; error?: string }> = [];
+          const responsiveness: Array<{ at: string; elapsedMs: number; completedAtSnapshot: boolean; error?: string }> = [];
           const cdp = providerId === "opencode" ? await ui.page.context().newCDPSession(ui.page) : undefined;
-          const probeRenderer = cdp ? async () => {
+          const probeRenderer = cdp ? async (snapshot: Awaited<ReturnType<typeof records>>) => {
+            let completedAtSnapshot = false;
+            try { completedTurn(providerId, snapshot, marker); completedAtSnapshot = true; } catch {}
             const started = performance.now();
             const at = new Date().toISOString();
             const signal = AbortSignal.timeout(15_000);
@@ -305,8 +307,8 @@ for (let run = startRun; run < startRun + repeats; run++) {
             try {
               const result = await Promise.race([cdp.send("Runtime.evaluate", { expression: "1", returnByValue: true }), deadline]);
               expect(result.result.value).toBe(1);
-              responsiveness.push({ at, elapsedMs: performance.now() - started });
-            } catch (error) { responsiveness.push({ at, elapsedMs: performance.now() - started, error: String(error) }); }
+              responsiveness.push({ at, elapsedMs: performance.now() - started, completedAtSnapshot });
+            } catch (error) { responsiveness.push({ at, elapsedMs: performance.now() - started, completedAtSnapshot, error: String(error) }); }
             finally { signal.removeEventListener("abort", expired); }
           } : undefined;
           let rawBusy;
@@ -319,6 +321,7 @@ for (let run = startRun; run < startRun + repeats; run++) {
           }
           writeFileSync(info.outputPath(`${providerId}-${step}-raw.json`), JSON.stringify(rawBusy, null, 2));
           expect(responsiveness.filter(sample => sample.error), "renderer responds to CDP during OpenCode stream").toEqual([]);
+          if (cdp) expect(responsiveness.some(sample => !sample.completedAtSnapshot), "CDP measurement covers the active long turn").toBe(true);
           const busyRecords = completedTurn(providerId, rawBusy, marker);
           assertModel(providerId, busyRecords.model, activeModels[0].id);
           await expect(target.chat.locator('[data-agent-state="idle"]')).toHaveCount(1, { timeout: 15_000 });
