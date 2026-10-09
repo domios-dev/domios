@@ -670,7 +670,7 @@ pub(super) fn resolve_probe_result<T>(
 }
 
 pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
-    if lease.job.pipeline.is_some() {
+    if lease.job.pipeline().is_some() {
         super::pipeline::tick(handle, svc, lease);
         return;
     }
@@ -689,7 +689,7 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
         });
         return;
     }
-    if lease.job.input.as_ref().is_some_and(|input| {
+    if lease.job.input().is_some_and(|input| {
         input.kind != codeterm_types::sentinel_input::MediaKind::Text || input.convert_to.is_some()
     }) {
         record_input_unavailable(handle, svc, lease);
@@ -703,7 +703,7 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
             .map(|at| Duration::from_millis(at.saturating_sub(now)))
             .unwrap_or(probe::PROBE_RUNTIME)
     };
-    let observed = if lease.job.input.is_some() || lease.job.terminal.is_some() {
+    let observed = if lease.job.input().is_some() || lease.job.terminal().is_some() {
         let text = handle.inbox.lock().take(&lease.job.id);
         match text {
             Some(text) => Ok(probe::Output {
@@ -713,17 +713,17 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
                 exit_code: Some(0),
                 ..probe::Output::default()
             }),
-            None if lease.job.input.is_some() => {
+            None if lease.job.input().is_some() => {
                 super::input::text_output(&lease.job, std::time::Instant::now() + remaining)
                     .map_err(|_| probe::process::ProbeFailure::new("input_text_unavailable"))
             }
             None => return,
         }
-    } else if let Some(binding) = &lease.job.observe {
+    } else if let Some(binding) = &lease.job.observe().cloned() {
         source::observe(svc, &lease.job, binding)
     } else {
         probe::run_with_environment(
-            &lease.job.probe,
+            &lease.job.probe(),
             Path::new(&lease.job.cwd),
             remaining,
             &handle.probe_owner,
@@ -733,7 +733,7 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
     let output = resolve_probe_result(
         observed,
         |reason| {
-            let decision = if lease.job.observe.is_none() {
+            let decision = if lease.job.observe().is_none() {
                 probe_failure::decide(lease.job.last_reason.as_deref(), &reason)
             } else if reason.is_unconfirmed() {
                 probe_failure::Decision::StopResources
@@ -903,7 +903,7 @@ pub(super) fn advance(
         return;
     }
     let mut job = lease.job.clone();
-    if job.terminal.is_some() || job.input.is_some() {
+    if job.terminal().is_some() || job.input().is_some() {
         job.machine.last_hash = None;
         job.machine.last_bucket = None;
     }

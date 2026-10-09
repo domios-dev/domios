@@ -190,7 +190,7 @@ pub fn scope_revision(jobs: &[Sentinel], workspace: &str, team: Option<&str>) ->
                 j.transitions,
                 j.expires_at,
                 j.next_run,
-                j.input
+                j.input().cloned()
             ])
         })
         .collect();
@@ -203,10 +203,10 @@ pub fn scope_revision(jobs: &[Sentinel], workspace: &str, team: Option<&str>) ->
 /// The node source shape: probe, observe kind, or input metadata without inline text,
 /// path directories or the URL query.
 pub(crate) fn source_descriptor(job: &Sentinel) -> Value {
-    if job.pipeline.is_some() {
+    if job.pipeline().is_some() {
         return json!({"type":"pipeline"});
     }
-    if let Some(input) = &job.input {
+    if let Some(input) = &job.input().cloned() {
         use codeterm_types::sentinel_input::DataRef;
         let ref_type = match &input.data {
             DataRef::Text(_) => "text",
@@ -221,8 +221,8 @@ pub(crate) fn source_descriptor(job: &Sentinel) -> Value {
             "convert_to": input.convert_to.map(|kind| kind.as_str()),
         });
     }
-    if let Some(binding) = &job.observe {
-        if let Some(terminal) = &job.terminal {
+    if let Some(binding) = &job.observe().cloned() {
+        if let Some(terminal) = &job.terminal().cloned() {
             return json!({"type":"terminal","kind":"tab","pattern":terminal.pattern,"idle_ms":terminal.idle_ms,"max_payload_bytes":codeterm_types::blueprint_terminal::MAX_PAYLOAD_BYTES});
         }
         let kind = match binding {

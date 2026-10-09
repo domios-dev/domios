@@ -57,6 +57,53 @@ DROP INDEX sentinels_by_team;
 CREATE INDEX blueprints_by_team ON blueprints(team_id);
 DROP INDEX sentinels_by_scenario;
 CREATE INDEX blueprints_by_scenario ON blueprints(scenario_id);
+CREATE TEMP TABLE blueprint_definitions_hold AS SELECT * FROM blueprint_definitions;
+DROP TABLE blueprint_definitions;
+CREATE TABLE blueprint_definitions (
+    blueprint_id TEXT NOT NULL REFERENCES blueprints(id),
+    version INTEGER NOT NULL CHECK (version > 0),
+    provenance TEXT NOT NULL CHECK (provenance IN ('authored', 'imported')),
+    name TEXT,
+    source_kind TEXT NOT NULL CHECK (source_kind IN ('probe', 'observe', 'input', 'event', 'terminal', 'pipeline')),
+    source_spec TEXT,
+    probe TEXT NOT NULL,
+    observe_kind TEXT CHECK (observe_kind IN ('tab', 'cron_run')),
+    observe_ref TEXT CHECK (observe_ref IS NULL OR length(observe_ref) > 0),
+    question TEXT NOT NULL,
+    interval_ms INTEGER NOT NULL CHECK (interval_ms > 0),
+    until_bucket TEXT,
+    escalation_timeout_ms INTEGER
+        CHECK (escalation_timeout_ms IS NULL OR escalation_timeout_ms > 0),
+    max_transitions INTEGER NOT NULL CHECK (max_transitions BETWEEN 1 AND 65535),
+    max_actions INTEGER NOT NULL CHECK (max_actions BETWEEN 1 AND 65535),
+    replaced_version INTEGER,
+    author_tab_id TEXT CHECK (author_tab_id IS NULL OR length(author_tab_id) > 0),
+    cause_transition_id TEXT
+        CHECK (cause_transition_id IS NULL OR length(cause_transition_id) > 0),
+    authored_at INTEGER CHECK (authored_at IS NULL OR authored_at >= 0),
+    created_revision INTEGER NOT NULL CHECK (created_revision > 0),
+    pipeline_spec TEXT,
+    terminal_spec TEXT CHECK (terminal_spec IS NULL OR length(terminal_spec) <= 8192),
+    session INTEGER NOT NULL DEFAULT 0 CHECK (session IN (0, 1)),
+    PRIMARY KEY (blueprint_id, version),
+    CHECK ((source_kind = 'pipeline') = (pipeline_spec IS NOT NULL)),
+    CHECK ((source_kind = 'terminal') = (terminal_spec IS NOT NULL)),
+    CHECK ((source_kind = 'probe') = (length(probe) > 0)),
+    CHECK ((source_kind IN ('observe', 'terminal')) = (observe_kind IS NOT NULL)),
+    CHECK ((source_kind IN ('input', 'event')) = (source_spec IS NOT NULL)),
+    CHECK ((observe_kind IS NULL) = (observe_ref IS NULL)),
+    CHECK (replaced_version IS NULL OR (replaced_version > 0 AND replaced_version < version)),
+    CHECK ((replaced_version IS NULL) = (author_tab_id IS NULL)
+        AND (replaced_version IS NULL) = (authored_at IS NULL)),
+    CHECK (cause_transition_id IS NULL OR replaced_version IS NOT NULL)
+) STRICT;
+INSERT INTO blueprint_definitions SELECT blueprint_id, version, provenance, name,
+    CASE WHEN pipeline_spec IS NOT NULL THEN 'pipeline' WHEN terminal_spec IS NOT NULL THEN 'terminal' ELSE source_kind END,
+    source_spec, CASE WHEN pipeline_spec IS NOT NULL THEN '' ELSE probe END,
+    observe_kind, observe_ref, question, interval_ms, until_bucket, escalation_timeout_ms,
+    max_transitions, max_actions, replaced_version, author_tab_id, cause_transition_id,
+    authored_at, created_revision, pipeline_spec, terminal_spec, session FROM blueprint_definitions_hold;
+DROP TABLE blueprint_definitions_hold;
 "#;
 
 #[cfg(test)]

@@ -139,6 +139,22 @@ pub enum Route {
 }
 
 impl Route {
+    pub const DESCRIPTORS: &'static [codeterm_types::blueprint_catalog::NodeDescriptor] =
+        codeterm_types::blueprint_catalog::ROUTES;
+    pub fn name(&self) -> &'static str {
+        Self::DESCRIPTORS[match self {
+            Self::Notify => 0,
+            Self::Send(_) => 1,
+            Self::Cron(_) => 2,
+            Self::Command(_) => 3,
+            Self::Sentinel(_) => 4,
+            Self::Escalate(_) => 5,
+            Self::RespondPrompt(_) => 6,
+            Self::Stop => 7,
+        }]
+        .name
+    }
+
     pub fn parse(value: &str) -> Result<Self, String> {
         match value {
             "notify" => Ok(Self::Notify),

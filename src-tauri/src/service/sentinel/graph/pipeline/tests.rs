@@ -359,5 +359,8 @@ fn pipeline_without_flat_stages_survives_store_reload() {
     let loaded = Store::new(path, MockClock::starting_at(1000));
     loaded.ensure_available().unwrap();
     assert!(loaded.get(&job.id).unwrap().routes.is_empty());
-    assert_eq!(loaded.get(&job.id).unwrap().pipeline, job.pipeline);
+    assert_eq!(
+        loaded.get(&job.id).unwrap().pipeline().cloned(),
+        job.pipeline().cloned()
+    );
 }

@@ -37,7 +37,7 @@ fn effect_after_claim<T>(claim: impl FnOnce() -> bool, effect: impl FnOnce() -> 
 }
 
 pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
-    let Some(spec) = lease.job.pipeline.as_ref() else {
+    let Some(spec) = lease.job.pipeline() else {
         return;
     };
     if !super::routes::owner_live(svc, &lease.job) {

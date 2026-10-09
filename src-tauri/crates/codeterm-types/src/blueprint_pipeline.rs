@@ -38,6 +38,19 @@ pub enum Trigger {
     Input { kind: MediaKind, source: DataRef },
 }
 
+impl Trigger {
+    pub const DESCRIPTORS: &'static [crate::blueprint_catalog::NodeDescriptor] =
+        crate::blueprint_catalog::TRIGGERS;
+    pub fn name(&self) -> &'static str {
+        Self::DESCRIPTORS[match self {
+            Self::Schedule { .. } => 0,
+            Self::Event { .. } => 1,
+            Self::Input { .. } => 2,
+        }]
+        .name
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlueprintResult {
@@ -126,6 +139,18 @@ pub enum StepKind {
 }
 
 impl StepKind {
+    pub const DESCRIPTORS: &'static [crate::blueprint_catalog::NodeDescriptor] =
+        crate::blueprint_catalog::STEPS;
+    pub fn name(&self) -> &'static str {
+        Self::DESCRIPTORS[match self {
+            Self::Command { .. } => 0,
+            Self::Ask { .. } => 1,
+            Self::Filter { .. } => 2,
+            Self::Convert { .. } => 3,
+        }]
+        .name
+    }
+
     pub fn output_type(&self) -> IoType {
         match self {
             Self::Convert { to, .. } => IoType::from(*to),
@@ -133,7 +158,7 @@ impl StepKind {
         }
     }
 
-    fn outcomes(&self) -> Result<BTreeSet<String>, String> {
+    pub fn outcomes(&self) -> Result<BTreeSet<String>, String> {
         match self {
             Self::Command { .. } | Self::Convert { .. } => {
                 Ok(["done".into(), "failed".into()].into())

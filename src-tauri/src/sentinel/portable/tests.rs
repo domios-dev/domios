@@ -91,7 +91,7 @@ fn blueprint_recipe_round_trip_into_another_team_preserves_definition() {
     let recipe = Recipe::parse(&serde_json::to_string(&export(&job).unwrap()).unwrap()).unwrap();
     assert_eq!(
         recipe.definition.get("create").is_some(),
-        job.pipeline.is_none()
+        job.pipeline().is_none()
     );
     let bound = recipe.bind(&bindings(&recipe, &definition(&job))).unwrap();
     let imported = store
@@ -137,12 +137,12 @@ fn blueprint_pipeline_export_round_trip_preserves_trigger_steps_and_result() {
     }
     assert_eq!(
         recipe.definition.get("create").is_some(),
-        job.pipeline.is_none()
+        job.pipeline().is_none()
     );
     let bound = recipe.bind(&bindings(&recipe, &definition(&job))).unwrap();
     assert_eq!(
         bound["spec"],
-        serde_json::to_value(job.pipeline.unwrap()).unwrap()
+        serde_json::to_value(job.pipeline().cloned().unwrap()).unwrap()
     );
 }
 

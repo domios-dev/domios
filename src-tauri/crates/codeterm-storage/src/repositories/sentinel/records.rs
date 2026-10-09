@@ -1,8 +1,9 @@
+mod source;
 mod transition;
+pub use source::{ObserveKind, ObserveSource, SourceKind, StageSource};
 
 use crate::error::StorageError;
 use crate::repositories::{to_sql_u64, Revision};
-use codeterm_types::sentinel_input::InputSpec;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -94,64 +95,6 @@ pub enum HandlerAction {
     Escalate(EscalateTarget),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ObserveKind {
-    Tab,
-    CronRun,
-}
-
-/// A tab-scoped observation source; a stage has either this or a shell probe.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ObserveSource {
-    pub kind: ObserveKind,
-    pub reference: String,
-}
-
-/// Column tag of a stage source. The event lane adds its variant; `event` already exists in
-/// the schema, so that costs no migration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum SourceKind {
-    Probe,
-    Observe,
-    Input,
-}
-
-impl SourceKind {
-    pub const ALL: [SourceKind; 3] = [SourceKind::Probe, SourceKind::Observe, SourceKind::Input];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            SourceKind::Probe => "probe",
-            SourceKind::Observe => "observe",
-            SourceKind::Input => "input",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<SourceKind> {
-        SourceKind::ALL
-            .into_iter()
-            .find(|kind| kind.as_str() == value)
-    }
-}
-
-/// The one source one definition version evaluates; `event` arrives with the event lane.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StageSource {
-    Probe(String),
-    Observe(ObserveSource),
-    Input(InputSpec),
-}
-
-impl StageSource {
-    pub fn kind(&self) -> SourceKind {
-        match self {
-            StageSource::Probe(_) => SourceKind::Probe,
-            StageSource::Observe(_) => SourceKind::Observe,
-            StageSource::Input(_) => SourceKind::Input,
-        }
-    }
-}
-
 /// Exact historical target identity; it never implies a live tab, cron or Team exists.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetIdentity {
@@ -180,11 +123,9 @@ pub struct BucketDefinition {
 /// Authored configuration of one stage; runtime state never lives here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StageDefinition {
-    pub terminal: Option<codeterm_types::blueprint_terminal::Config>,
     pub session: bool,
     pub name: Option<String>,
     pub source: StageSource,
-    pub pipeline: Option<codeterm_types::blueprint_pipeline::BlueprintSpec>,
     pub question: String,
     pub interval_ms: u64,
     pub until: Option<String>,
@@ -741,12 +682,27 @@ impl HandlerDefinition {
 }
 
 impl StageDefinition {
+    pub fn terminal(&self) -> Option<&codeterm_types::blueprint_terminal::Config> {
+        if let StageSource::Terminal { config, .. } = &self.source {
+            Some(config)
+        } else {
+            None
+        }
+    }
+    pub fn pipeline(&self) -> Option<&codeterm_types::blueprint_pipeline::BlueprintSpec> {
+        if let StageSource::Pipeline(spec) = &self.source {
+            Some(spec)
+        } else {
+            None
+        }
+    }
+
     pub(super) fn validate(&self) -> Result<(), StorageError> {
-        if let Some(terminal) = &self.terminal {
+        if let Some(terminal) = self.terminal() {
             terminal
                 .validate()
                 .map_err(|error| StorageError::invalid("terminal", error))?;
-            if !matches!(&self.source, StageSource::Observe(observe) if observe.kind == ObserveKind::Tab)
+            if !matches!(&self.source, StageSource::Terminal { binding, .. } if binding.kind == ObserveKind::Tab)
             {
                 return Err(StorageError::invalid(
                     "terminal",
@@ -758,15 +714,17 @@ impl StageDefinition {
         match &self.source {
             StageSource::Probe(command) => text("sentinel probe", command)?,
             StageSource::Observe(observe) => identifier("observe source", &observe.reference)?,
+            StageSource::Terminal { binding, .. } => {
+                identifier("terminal source", &binding.reference)?
+            }
+            StageSource::Pipeline(_) => {}
             StageSource::Input(input) => codeterm_types::sentinel_input::validate(input)
                 .map_err(|error| StorageError::invalid("sentinel input", error.to_string()))?,
         }
-        if let Some(pipeline) = &self.pipeline {
+        if let Some(pipeline) = self.pipeline() {
             let bytes = serde_json::to_vec(pipeline)
                 .map_err(|_| StorageError::invalid("pipeline", "cannot be encoded"))?;
-            if bytes.len() > 65_536
-                || !matches!(&self.source, StageSource::Probe(probe) if probe == "blueprint-pipeline")
-            {
+            if bytes.len() > 65_536 {
                 return Err(StorageError::invalid(
                     "pipeline",
                     "must be bounded and use the pipeline scheduler source",
@@ -857,6 +815,13 @@ impl StageDefinition {
             + match &self.source {
                 StageSource::Probe(command) => command.len(),
                 StageSource::Observe(observe) => observe.reference.len(),
+                StageSource::Terminal { binding, config } => {
+                    binding.reference.len()
+                        + serde_json::to_vec(config).map_or(0, |bytes| bytes.len())
+                }
+                StageSource::Pipeline(spec) => {
+                    serde_json::to_vec(spec).map_or(0, |bytes| bytes.len())
+                }
                 StageSource::Input(input) => {
                     serde_json::to_vec(input).map_or(0, |bytes| bytes.len())
                 }

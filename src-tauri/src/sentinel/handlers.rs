@@ -494,7 +494,7 @@ impl Store {
         };
         let mut accepted = job.clone();
         if matches!(
-            current.observe.as_ref(),
+            current.observe(),
             Some(super::source::TabBinding::CronRun(_))
         ) && current.run.is_some()
         {

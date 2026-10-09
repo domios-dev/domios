@@ -18,3 +18,5 @@ pub mod team;
 pub mod trace;
 pub mod update;
 pub mod usage;
+
+pub mod blueprint_catalog;

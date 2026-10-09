@@ -9,7 +9,7 @@ pub(super) fn project_pipeline_contract(
 ) {
     let mut journal_revisions = jobs
         .iter()
-        .filter(|job| job.pipeline.is_some())
+        .filter(|job| job.pipeline().is_some())
         .filter_map(|job| {
             journals
                 .get(&job.id)
@@ -20,7 +20,7 @@ pub(super) fn project_pipeline_contract(
     let mut event_revisions = jobs
         .iter()
         .filter(|job| {
-            job.pipeline.as_ref().is_some_and(|spec| {
+            job.pipeline().is_some_and(|spec| {
                 matches!(
                     &spec.trigger,
                     codeterm_types::blueprint_pipeline::Trigger::Event { .. }
@@ -62,7 +62,7 @@ pub(super) fn project_pipeline_contract(
         }) else {
             continue;
         };
-        let Some(spec) = job.pipeline.as_ref() else {
+        let Some(spec) = job.pipeline() else {
             continue;
         };
         let mut entries = journals
@@ -235,13 +235,7 @@ fn pipeline_step_view(
 }
 
 fn step_kind(kind: &codeterm_types::blueprint_pipeline::StepKind) -> &'static str {
-    use codeterm_types::blueprint_pipeline::StepKind;
-    match kind {
-        StepKind::Command { .. } => "command",
-        StepKind::Convert { .. } => "convert",
-        StepKind::Ask { .. } => "ask",
-        StepKind::Filter { .. } => "filter",
-    }
+    kind.name()
 }
 
 fn trigger_view(trigger: &codeterm_types::blueprint_pipeline::Trigger) -> Value {
