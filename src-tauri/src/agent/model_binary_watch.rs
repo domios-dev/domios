@@ -94,8 +94,10 @@ impl ProviderBinaryWatchers {
         let watched_targets = targets.clone();
         let callback = Arc::new(Mutex::new(on_change));
         let event_callback = callback.clone();
+        let role = format!("catalogue-watch:{key}");
         let mut stamps = input_stamps(&targets);
         let watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
+            let _role = codeterm_util::named_thread::Scope::enter(&role);
             let Ok(event) = event else { return };
             if !changes_input(&event, &watched_targets) {
                 return;

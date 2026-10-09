@@ -261,7 +261,7 @@ impl SocketServer {
 
         log::info!("Socket server listening at {}", socket_display_path());
 
-        std::thread::spawn(move || {
+        codeterm_util::named_thread::spawn("socket-listener", move || {
             for conn in listener.incoming() {
                 match conn {
                     Ok(stream) => {
@@ -280,7 +280,7 @@ impl SocketServer {
                         let out_buf = output_buf.clone();
                         let svc = svc_state.clone();
 
-                        std::thread::spawn(move || {
+                        codeterm_util::named_thread::spawn("socket-connection", move || {
                             handle_connection(
                                 stream,
                                 &mux,

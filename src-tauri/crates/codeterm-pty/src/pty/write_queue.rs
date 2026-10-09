@@ -85,7 +85,7 @@ impl WriteQueue {
     pub fn new(mut writer: Box<dyn Write + Send>) -> Self {
         let (sender, receiver) = mpsc::channel::<WriteRequest>();
 
-        std::thread::spawn(move || {
+        codeterm_util::named_thread::spawn("pty-write", move || {
             while let Ok(req) = receiver.recv() {
                 let result = match req.permit {
                     Some(permit) => match permit.gate.lock() {
