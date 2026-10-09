@@ -475,6 +475,8 @@ pub struct CommandsConfig {
     /// `""` for Ctrl+C.
     #[serde(default)]
     pub stop_key: Option<String>,
+    #[serde(default)]
+    pub uses_win32_control_keys: bool,
     /// Ordered raw key bytes for a multi-key stop action.
     #[serde(default)]
     pub stop_keys: Option<Vec<String>>,

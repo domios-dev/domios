@@ -688,7 +688,10 @@ pub fn write_pty_string_core(
         &bytes,
     );
     mark_manual_agent_interrupt(svc, &pty_id, &bytes);
-    session.write_queue.send(bytes)
+    let encoded = svc.encode_provider_control_key(&pty_id, &bytes);
+    session
+        .write_queue
+        .send(encoded.map(Vec::from).unwrap_or(bytes))
 }
 
 #[tauri::command]
@@ -710,7 +713,10 @@ pub async fn write_pty(
     mark_user_activity(&svc, &mux_state, &pty_id);
     crate::pty::capture::CaptureRegistry::global().tap_input(&pty_id, "write_pty", &data);
     mark_manual_agent_interrupt(&svc, &pty_id, &data);
-    session.write_queue.send(data)
+    let encoded = svc.encode_provider_control_key(&pty_id, &data);
+    session
+        .write_queue
+        .send(encoded.map(Vec::from).unwrap_or(data))
 }
 
 fn mark_manual_agent_interrupt(svc: &ServiceState, pty_id: &str, bytes: &[u8]) {
