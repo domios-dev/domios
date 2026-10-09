@@ -347,16 +347,6 @@ fn mesh_received_long_send_lands_in_local_recipient_pad() {
             .with_paste_limit_bytes(4096),
     ));
     let _pty = fixture.bind_test_pty_session(&recipient, "mesh-session", "mesh-nonce");
-    {
-        let mux = fixture.service.mux.read();
-        let pty_id = mux.get_tab(&recipient).unwrap().pty_id.as_deref().unwrap();
-        fixture
-            .service
-            .pty
-            .lock()
-            .rearm_guarded_input(pty_id)
-            .unwrap();
-    }
     let original = "mesh payload\nend sentinel".repeat(400);
     let envelope = MessageEnvelope::tab("Remote", sender.clone()).mesh(Some("peer-token".into()));
     let delivery =
