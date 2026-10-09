@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createHash } from "node:crypto";
 import { exactReply, kind } from "./oracle.mjs";
+import { digest, logLines, newEvidence } from "./logs.mjs";
 
 const script = fileURLToPath(import.meta.url);
 const root = resolve(dirname(script), "../..");
@@ -44,8 +44,10 @@ function save() {
     ].map(cell).join(" | ")} |`);
     lines.push("", `Log evidence: [round-${entry.round}.log](round-${entry.round}.log). Full tab records, lifecycle and transcripts are in results.json.`, "");
     for (const row of entry.rows.filter((row) => !row.pass && !row.observed_only)) {
-      lines.push(`### ${cell(row.id ?? row.provider)} failure`, "", `${cell(row.reason)}`, "", "```text",
-        ...(row.log_evidence?.length ? row.log_evidence : ["No tab-specific restore/launch log line retained; cause unproven."]), "```", "");
+      lines.push(`### ${cell(row.id ?? row.provider)} failure`, "", `${cell(row.reason)}`, "", "```text");
+      if (!row.log_evidence?.length) lines.push("No tab-specific restore/launch log line retained; cause unproven.");
+      for (const line of row.log_evidence ?? []) lines.push(line);
+      lines.push("```", "");
     }
   }
   writeFileSync(join(out, "results.md"), `${lines.join("\n")}\n`);
@@ -338,19 +340,8 @@ async function setup() {
   save();
 }
 
-function logLines() {
-  const directory = join(dataDir, "logs");
-  const lines = [];
-  for (const name of readdirSync(directory).filter((name) => /^codeterm.*\.log(?:\.\d+)?$/.test(name)).sort()) {
-    lines.push(...readFileSync(join(directory, name), "utf8").split("\n").filter(Boolean));
-  }
-  return lines;
-}
-const digest = (line) => createHash("sha256").update(line).digest("hex");
 function captureLogs(n) {
-  const baseline = new Set(result.log_baseline ?? []);
-  const lines = logLines().filter((line) => !baseline.has(digest(line)) &&
-    /\[restore\]|\[agent-launch\]|cleared.*identity|launch failed/i.test(line));
+  const lines = newEvidence(logLines(join(dataDir, "logs")), result.log_baseline ?? []);
   writeFileSync(join(out, `round-${n}.log`), `${lines.join("\n")}\n`);
   return lines;
 }
@@ -391,7 +382,7 @@ async function main() {
   else if (mode === "before") {
     await checkHealth();
     result.round_started_at = new Date().toISOString();
-    result.log_baseline = logLines().map(digest);
+    result.log_baseline = logLines(join(dataDir, "logs")).map(digest);
     result.pre_restart_tabs = await tabs();
     save();
   } else if (mode === "round") await runRound(round);
