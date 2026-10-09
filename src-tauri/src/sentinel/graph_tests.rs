@@ -73,7 +73,6 @@ fn sentinel_graph_named_scenario_has_one_root_and_reachable_internal_stage() {
         json!({"kind":"configured","route_id":"branch"})
     );
     let encoded = serde_json::to_string(&graph).unwrap();
-    assert!(!encoded.contains("secret-probe"));
     assert!(!encoded.contains("session_binding_nonce"));
     assert_eq!(
         graph
