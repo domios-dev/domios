@@ -506,6 +506,7 @@ function ChatComposerImpl({
             await deleteDelayedMessage(id);
           })}
           onScheduleDelayed={openScheduleModal}
+          draftActive={input.length > 0}
         />,
         contextSlot,
       )}
@@ -678,7 +679,7 @@ function ChatComposerImpl({
               spellCheck={false}
               enterKeyHint={touchMode ? "enter" : "send"}
               inputMode="text"
-              className="block w-full min-h-5 resize-none bg-transparent py-0 pr-1 text-[15px] leading-5 outline-none placeholder:text-[var(--ct-muted-fg)]"
+              className="block w-full min-h-5 resize-none bg-transparent py-0 pr-1 text-[14px] leading-5 outline-none placeholder:text-[var(--ct-muted-fg)]"
               style={{
                 color: capsulesActive ? "transparent" : "var(--ct-fg, #c9d1d9)",
                 caretColor: "var(--ct-fg, #c9d1d9)",
