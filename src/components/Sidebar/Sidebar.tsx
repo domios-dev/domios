@@ -36,6 +36,7 @@ import type { JobsTarget } from "../Jobs/JobsView";
 import type { JobsOpenScope } from "../Jobs/jobsLayout";
 import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
 import { SidebarCompactRail, type CompactRailGroup } from "./SidebarCompactRail";
+import { SpinalCordButton } from "./SpinalCord";
 import { loadSelectedWorkspaceId, persistSelectedWorkspaceId } from "./workspaceCardMetadata";
 import type { SidebarTeamActions } from "./TeamUnit";
 import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
@@ -792,6 +793,7 @@ export function Sidebar({
                       >
                         <span className="sidebar-structural-label">GENERAL</span>
                       </SidebarDisclosure>
+                      <SpinalCordButton api={config?.api} />
                     </div>
                     {generalExpanded && <GeneralWorkspaceTabs
                       workspace={generalWorkspace}

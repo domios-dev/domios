@@ -28,7 +28,7 @@ async function main() {
       assert.ok(view.host.querySelector('[role="group"][aria-label="Job filters"]'));
       assert.equal(removeCapsules(view.host).length, 0, "the machine-wide entry starts unfiltered");
       assert.ok(entry(view.host, `cron:${foreignCron.id}`) && entry(view.host, scenarioB), "jobs of every workspace are listed");
-      await act(async () => named(view.host, "Close jobs")!.click());
+      await act(async () => named(view.host, "Back to where you were")!.click());
       assert.equal(view.host.querySelector('section[aria-label="Jobs"]'), null, "closing Jobs returns to the Settings sections");
       assert.ok(view.host.querySelector('[role="navigation"][aria-label="Settings sections"]'));
     } finally { await view.close(); }
