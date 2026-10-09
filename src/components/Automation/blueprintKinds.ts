@@ -13,18 +13,18 @@ export type BlueprintNodeType = keyof typeof blueprintNodeKinds;
 export const blueprintLegend = Object.keys(blueprintNodeKinds) as BlueprintNodeType[];
 
 export const blueprintTriggers = {
-  schedule: { icon: Clock3, purpose: "Starts this stage on its schedule." },
-  event: { icon: Radio, purpose: "Starts when the watched source reports new activity." },
-  manual: { icon: Hand, purpose: "Starts when text arrives through codeterm blueprint input." },
-  activated: { icon: Workflow, purpose: "Starts when an earlier stage activates it." },
+  schedule: { catalogType: "schedule", icon: Clock3, purpose: "Starts this stage on its schedule." },
+  event: { catalogType: "event", icon: Radio, purpose: "Starts when the watched source reports new activity." },
+  manual: { catalogType: "input", icon: Hand, purpose: "Starts when text arrives through codeterm blueprint input." },
+  activated: { catalogType: "activated", icon: Workflow, purpose: "Starts when an earlier stage activates it." },
 } as const;
 export type TriggerKind = keyof typeof blueprintTriggers;
 
 export const blueprintSources = {
-  probe: { icon: SquareTerminal },
-  terminal: { icon: SquareTerminal },
-  observe: { icon: Radio },
-  input: { icon: FileInput },
+  probe: { catalogType: "probe", icon: SquareTerminal },
+  terminal: { catalogType: "terminal", icon: SquareTerminal },
+  observe: { catalogType: "observe", icon: Radio },
+  input: { catalogType: "text_input", icon: FileInput },
 } as const;
 export type SourceKind = keyof typeof blueprintSources;
 
