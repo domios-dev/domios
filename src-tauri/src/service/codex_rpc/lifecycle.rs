@@ -222,7 +222,8 @@ pub async fn ensure_for_spawn(
     if let Some(existing) = for_tab(tab) {
         return reusable_sidecar(existing, &spawn);
     }
-    super::delivery::begin(tab, &svc.ensure_session_binding_nonce(tab));
+    let launch_nonce = svc.ensure_session_binding_nonce(tab);
+    super::delivery::begin(tab, &launch_nonce);
     let gate = STARTING
         .lock()
         .entry(tab.into())
@@ -232,8 +233,27 @@ pub async fn ensure_for_spawn(
     if let Some(existing) = for_tab(tab) {
         return reusable_sidecar(existing, &spawn);
     }
-    if let Some(tab) = svc.mux.write().get_tab_mut(tab) {
-        tab.structured_control_active = false;
+    super::startup_retry::run(tab, || start(svc, tab, spawn.clone(), &launch_nonce)).await
+}
+
+async fn start(
+    svc: &ServiceContext,
+    tab: &str,
+    spawn: Spawn,
+    expected_nonce: &str,
+) -> Result<Arc<Sidecar>, String> {
+    {
+        let mut mux = svc.mux.write();
+        let current = mux.get_tab_mut(tab);
+        super::startup_retry::verify_launch(
+            expected_nonce,
+            current
+                .as_ref()
+                .and_then(|tab| tab.session_binding_nonce.as_deref()),
+        )?;
+        if let Some(tab) = current {
+            tab.structured_control_active = false;
+        }
     }
     let (cap, binary) = svc
         .agent_registry
@@ -282,6 +302,7 @@ pub async fn ensure_for_spawn(
     };
     let mut env = svc.tab_env(tab);
     let launch_nonce = env.get("CODETERM_SESSION_BINDING_NONCE").cloned();
+    super::startup_retry::verify_launch(expected_nonce, launch_nonce.as_deref())?;
     let attach_nonce = launch_nonce
         .clone()
         .ok_or("Structured launch requires a binding nonce")?;
@@ -299,134 +320,157 @@ pub async fn ensure_for_spawn(
         &marker_file,
     )
     .await?;
-    let client = Client::connect(port, &token).await?;
-    let init = client.initialize().await.map_err(rpc_error)?;
-    let init: super::schema::InitializeResponse =
-        serde_json::from_value(init).map_err(|error| error.to_string())?;
-    if !super::capability::version_supported(&init.user_agent, &cap.min_version) {
-        client.close("Unsupported protocol version");
-        return Err("Unsupported app-server protocol version".into());
-    }
-    let runtime_mode = svc
-        .mux
-        .read()
-        .get_tab(tab)
-        .and_then(|tab| tab.restorable_launch.structured_runtime_mode.clone())
-        .and_then(|mode| serde_json::from_value::<super::model::RuntimeMode>(json!(mode)).ok())
-        .unwrap_or(if spawn.full_access {
-            super::model::RuntimeMode::FullAccess
+    let cleanup = process.cleanup();
+    let result = async {
+        let client = Client::connect(port, &token).await?;
+        let mut client_guard = StartupClient { client: client.clone(), committed: false };
+        let init = client.initialize().await.map_err(rpc_error)?;
+        let init: super::schema::InitializeResponse =
+            serde_json::from_value(init).map_err(|error| error.to_string())?;
+        if !super::capability::version_supported(&init.user_agent, &cap.min_version) {
+            client.close("Unsupported protocol version");
+            return Err("Unsupported app-server protocol version".into());
+        }
+        let runtime_mode = svc
+            .mux
+            .read()
+            .get_tab(tab)
+            .and_then(|tab| tab.restorable_launch.structured_runtime_mode.clone())
+            .and_then(|mode| serde_json::from_value::<super::model::RuntimeMode>(json!(mode)).ok())
+            .unwrap_or(if spawn.full_access {
+                super::model::RuntimeMode::FullAccess
+            } else {
+                super::model::RuntimeMode::AutoAcceptEdits
+            });
+        let mut params = super::thread_start::parameters(&spawn, runtime_mode);
+        let resume = spawn
+            .resume
+            .filter(|_| crate::config::resume_sessions_enabled(&spawn.provider));
+        let response = if let Some(thread) = resume.as_deref() {
+            params["threadId"] = json!(thread);
+            params["excludeTurns"] = json!(true);
+            resume_thread(&client, params.clone()).await?
         } else {
-            super::model::RuntimeMode::AutoAcceptEdits
-        });
-    let mut params = super::thread_start::parameters(&spawn, runtime_mode);
-    let resume = spawn
-        .resume
-        .filter(|_| crate::config::resume_sessions_enabled(&spawn.provider));
-    let response = if let Some(thread) = resume.as_deref() {
-        params["threadId"] = json!(thread);
-        params["excludeTurns"] = json!(true);
-        resume_thread(&client, params.clone()).await?
-    } else {
-        client
-            .request("thread/start", params.clone())
-            .await
-            .map_err(rpc_error)?
-    };
-    let (thread, auth, history) =
-        super::thread_start::initial_state(&client, response, resume.is_some()).await?;
-    if !svc
-        .mux
-        .read()
-        .get_tab(tab)
-        .is_some_and(|tab| tab.session_binding_nonce == launch_nonce)
-    {
-        client.close("Tab launch superseded");
-        return Err("Tab launch superseded while sidecar was starting".into());
-    }
-    let busy = history.active_turn.is_some();
-    let mut control = super::control::ControlState::default();
-    control.restore(
-        &thread,
-        history.active_turn.as_deref(),
-        &history.completed_turns,
-    );
-    let remote_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
-        .await
-        .map_err(|error| error.to_string())?;
-    let remote_port = remote_listener
-        .local_addr()
-        .map_err(|error| error.to_string())?
-        .port();
-    let sidecar = Arc::new(Sidecar {
-        normalizer: Mutex::new(super::normalize::Normalizer::from_history(
+            client
+                .request("thread/start", params.clone())
+                .await
+                .map_err(rpc_error)?
+        };
+        let (thread, auth, history) =
+            super::thread_start::initial_state(&client, response, resume.is_some()).await?;
+        if !svc
+            .mux
+            .read()
+            .get_tab(tab)
+            .is_some_and(|tab| tab.session_binding_nonce == launch_nonce)
+        {
+            client.close("Tab launch superseded");
+            return Err("Tab launch superseded while sidecar was starting".into());
+        }
+        let busy = history.active_turn.is_some();
+        let mut control = super::control::ControlState::default();
+        control.restore(
             &thread,
-            history.messages,
-        )),
-        auth: Mutex::new(auth),
-        controls: Mutex::new(super::model::TurnControls {
-            model: spawn.model.clone(),
-            effort: params["config"]["model_reasoning_effort"]
-                .as_str()
-                .map(str::to_owned),
-            mode: runtime_mode,
-        }),
-        control: Mutex::new(control),
-        compaction: Mutex::new(super::compaction::CompactionState::default()),
-        turn_settled: tokio::sync::watch::channel(0).0,
-        busy: std::sync::atomic::AtomicBool::new(busy),
-        client,
-        port: remote_port,
-        upstream_port: port,
-        binary,
-        version: init.user_agent,
-        thread: Mutex::new(thread.clone()),
-        verified: std::sync::atomic::AtomicBool::new(true),
-        token,
-        thread_settings: params,
-        process,
-        launch_nonce: attach_nonce.clone(),
-    });
-    crate::service::structured_endpoint::register(
-        tab,
-        crate::service::structured_endpoint::Endpoint::Rpc(sidecar.clone()),
-    );
-    if let Some(tab) = svc.mux.write().get_tab_mut(tab) {
-        tab.structured_control_active = true;
-        tab.structured_runtime_mode = serde_json::to_value(runtime_mode)
-            .ok()
-            .and_then(|value| value.as_str().map(str::to_owned));
+            history.active_turn.as_deref(),
+            &history.completed_turns,
+        );
+        let remote_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .map_err(|error| error.to_string())?;
+        let remote_port = remote_listener
+            .local_addr()
+            .map_err(|error| error.to_string())?
+            .port();
+        let sidecar = Arc::new(Sidecar {
+            normalizer: Mutex::new(super::normalize::Normalizer::from_history(
+                &thread,
+                history.messages,
+            )),
+            auth: Mutex::new(auth),
+            controls: Mutex::new(super::model::TurnControls {
+                model: spawn.model.clone(),
+                effort: params["config"]["model_reasoning_effort"]
+                    .as_str()
+                    .map(str::to_owned),
+                mode: runtime_mode,
+            }),
+            control: Mutex::new(control),
+            compaction: Mutex::new(super::compaction::CompactionState::default()),
+            turn_settled: tokio::sync::watch::channel(0).0,
+            busy: std::sync::atomic::AtomicBool::new(busy),
+            client,
+            port: remote_port,
+            upstream_port: port,
+            binary,
+            version: init.user_agent,
+            thread: Mutex::new(thread.clone()),
+            verified: std::sync::atomic::AtomicBool::new(true),
+            token,
+            thread_settings: params,
+            process,
+            launch_nonce: attach_nonce.clone(),
+        });
+        crate::service::structured_endpoint::register(
+            tab,
+            crate::service::structured_endpoint::Endpoint::Rpc(sidecar.clone()),
+        );
+        if let Some(tab) = svc.mux.write().get_tab_mut(tab) {
+            tab.structured_control_active = true;
+            tab.structured_runtime_mode = serde_json::to_value(runtime_mode)
+                .ok()
+                .and_then(|value| value.as_str().map(str::to_owned));
+        }
+        svc.chat_registry.shutdown_tab(tab);
+        bind(svc, tab, thread.clone());
+        super::status::observe(
+            svc,
+            tab,
+            &thread,
+            &sidecar,
+            if busy {
+                "turn/started"
+            } else {
+                "turn/completed"
+            },
+        );
+        super::subscriber::start(svc.clone(), tab.into(), &sidecar);
+        log::info!("[codex-rpc-attach] tab={tab} nonce={attach_nonce} upstream_port={port} remote_port={remote_port} state=pending");
+        super::attachment::start(
+            svc.clone(),
+            tab.into(),
+            attach_nonce,
+            thread,
+            sidecar.token.clone(),
+            port,
+            remote_listener,
+            sidecar.process.death.clone(),
+        );
+        if resume.is_none() {
+            super::thread_start::refresh_account(svc.clone(), tab.into(), sidecar.clone());
+        }
+        crate::service::launch_diagnostics::log_rpc_sidecar(tab);
+        artifacts.committed = true;
+        client_guard.committed = true;
+        Ok(sidecar)
     }
-    svc.chat_registry.shutdown_tab(tab);
-    bind(svc, tab, thread.clone());
-    super::status::observe(
-        svc,
-        tab,
-        &thread,
-        &sidecar,
-        if busy {
-            "turn/started"
-        } else {
-            "turn/completed"
-        },
-    );
-    super::subscriber::start(svc.clone(), tab.into(), &sidecar);
-    log::info!("[codex-rpc-attach] tab={tab} nonce={attach_nonce} upstream_port={port} remote_port={remote_port} state=pending");
-    super::attachment::start(
-        svc.clone(),
-        tab.into(),
-        attach_nonce,
-        thread,
-        sidecar.token.clone(),
-        port,
-        remote_listener,
-        sidecar.process.death.clone(),
-    );
-    if resume.is_none() {
-        super::thread_start::refresh_account(svc.clone(), tab.into(), sidecar.clone());
+    .await;
+    if result.is_err() {
+        cleanup.finish().await?;
     }
-    crate::service::launch_diagnostics::log_rpc_sidecar(tab);
-    artifacts.committed = true;
-    Ok(sidecar)
+    result
+}
+
+struct StartupClient {
+    client: Client,
+    committed: bool,
+}
+
+impl Drop for StartupClient {
+    fn drop(&mut self) {
+        if !self.committed {
+            self.client.close("Sidecar startup failed");
+        }
+    }
 }
 
 struct Artifacts {
