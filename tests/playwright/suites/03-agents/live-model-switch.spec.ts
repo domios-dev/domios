@@ -9,6 +9,7 @@ import { expect, test } from "../../helpers/fixtures";
 import { dc, identity, records, turnEvidence, assertModel, restoreManifest, grokEffortEvidence, switchModels, deliveryLog, type Descriptor, type Model, type RestoreTab } from "../../helpers/live-model-switch";
 import { openAgent, readChat, type AgentUi } from "../16-chat-view/chat-send-matrix.live.helpers";
 import { detectChatPrefix } from "../../../../src/lib/chatPrefixes";
+import { completedTurn, waitForCompletedTurn } from "../../helpers/live-switch-completion";
 
 const providers = (process.env.PW_SWITCH_PROVIDERS ?? "claude,codex,grok").split(",");
 if (providers.some(id => !["claude", "codex", "opencode", "grok"].includes(id))) throw new Error("Unknown switch matrix provider");
@@ -277,12 +278,11 @@ for (let run = startRun; run < startRun + repeats; run++) {
           const change = await apply(busyModel, undefined, true);
           await expect(target.chat.locator('[data-agent-state="working"]'), "Apply happened before long turn completed").toHaveCount(1);
           expect((await identity(api, target.tabId)).agent_session_model).toBe(busyBefore.agent_session_model);
-          await target.events.waitFor(e => e.seq > floor && e.event_type === "tab-status-changed" && e.data.tab_id === target.tabId && e.data.status === "Idle", 240_000, "long turn completes");
-          await expect(target.chat.locator('[data-agent-state="idle"]')).toHaveCount(1, { timeout: 240_000 });
-          const rawBusy = await records(providerId, baseline.agent_session_id);
+          const rawBusy = await waitForCompletedTurn(providerId, startedRecords, marker, 240_000);
           writeFileSync(info.outputPath(`${providerId}-${step}-raw.json`), JSON.stringify(rawBusy, null, 2));
-          const busyRecords = turnEvidence(providerId, rawBusy, marker);
+          const busyRecords = completedTurn(providerId, rawBusy, marker);
           assertModel(providerId, busyRecords.model, activeModels[0].id);
+          await expect(target.chat.locator('[data-agent-state="idle"]')).toHaveCount(1, { timeout: 15_000 });
           if (descriptor.model_switch === "live_command") await expect(capsule).not.toHaveAttribute("aria-label", /after this turn/, { timeout: 3_000 });
           change.row.recordModel = await ack(busyModel);
           change.row.confirmMs = performance.now() - change.started;
