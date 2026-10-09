@@ -22,6 +22,7 @@
 @import "../components/shared/field.css";
 @import "../components/Sidebar/spinalCord.css";
 @import "../components/Settings/logs.css";
+@import "../components/Settings/settings.css";
 @import "../components/Usage/spend.css";
 @import "../components/Canvas/canvasRender/detailContent.css";
 @import "../components/shared/selectionAsk.css";
@@ -1633,16 +1634,12 @@ button,
   gap: 0.5625rem;
 }
 .ct-settings-section__label {
-  font-size: 0.625rem;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ct-muted);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ct-muted-fg);
 }
 .ct-settings-section__rule {
-  flex: 1;
-  height: 1px;
-  background: color-mix(in srgb, var(--ct-border) 70%, transparent);
+  display: none;
 }
 
 /* The whole tile is the hit target, so the switch never travels away from the
@@ -1651,19 +1648,19 @@ button,
   display: flex;
   gap: 0.5625rem;
   width: 100%;
-  padding: 0.5625rem 0.625rem;
-  border: 1px solid var(--ct-border);
-  border-radius: 7px;
-  background: var(--ct-surface);
+  padding: 0.625rem 0.75rem;
+  border: 0;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ct-fg) 4%, transparent);
   text-align: left;
   cursor: pointer;
-  transition: border-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+  transition: background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
 .ct-switch-tile:hover {
-  border-color: color-mix(in srgb, var(--ct-fg) 6%, var(--ct-border));
+  background: color-mix(in srgb, var(--ct-fg) 7%, transparent);
 }
 .ct-switch-tile[aria-checked="true"] {
-  border-color: color-mix(in srgb, var(--ct-accent) 34%, transparent);
+  background: color-mix(in srgb, var(--ct-accent) 10%, transparent);
 }
 .ct-switch-tile--dense {
   align-items: center;
@@ -1680,10 +1677,9 @@ button,
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  padding: 0.625rem 0.6875rem 0.6875rem;
-  border: 1px solid var(--ct-border);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--ct-surface) 86%, var(--ct-bg));
+  padding: 0.75rem;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--ct-fg) 3%, transparent);
 }
 .ct-level-card__switches {
   display: grid;

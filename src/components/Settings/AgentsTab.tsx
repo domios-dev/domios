@@ -16,7 +16,6 @@ import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import type { SettingsCardAnchorId } from "./sections";
 import { SettingsCard, SettingsPill, Toggle } from "./shared";
 import { AgentIcon } from "../AgentIcon";
-import { Button } from "../shared/Button";
 
 export function AgentsOverview({
   config,
@@ -36,11 +35,35 @@ export function AgentsOverview({
   const apiHeaders: HeadersInit = authToken ? { Authorization: `Bearer ${authToken}` } : {};
 
   return (
-    <div className="flex flex-col gap-5" data-testid="settings-agents-overview">
+    <div className="flex flex-col gap-3" data-testid="settings-agents-overview">
+      <SettingsCard icon={<Server size={16} />} title="Providers" description="Installed as plugins from Extensions.">
+        {error && <div className="text-[11px] text-[var(--ct-red)]">Failed to load agent providers: {error}</div>}
+        {loading && providers.length === 0 && <div className="text-[11px] text-[var(--ct-muted-fg)]">Loading providers…</div>}
+        <div className="ct-rows !p-0">
+          {providers.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className="ct-row ct-settings-provider"
+              data-testid="settings-agent-provider-row"
+              data-provider-id={p.id}
+              onClick={() => onOpenProvider(p.id)}
+            >
+              <span className="ct-settings-card__icon text-[16px]" aria-hidden="true"><AgentIcon providerId={p.id} title={p.display_name} /></span>
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="ct-settings-nav__label">{p.display_name}</span>
+                <span className="ct-settings-nav__desc">{providerSummary(p)}</span>
+              </span>
+              <ChevronRight size={14} aria-hidden="true" className="ct-settings-nav__chevron" />
+            </button>
+          ))}
+        </div>
+      </SettingsCard>
+
       <SettingsCard
         icon={<Bot size={16} />}
         title="Agent access"
-        description="One permission policy for every agent provider. Applied whenever an agent starts or restarts."
+        description="One policy for every provider, applied when an agent starts."
       >
         <Toggle
           label="Full access for agents"
@@ -65,59 +88,15 @@ export function AgentsOverview({
         icon={<FolderTree size={16} />}
         title="Skills"
         headerRight={<SettingsPill tone="green">auto-synced</SettingsPill>}
-        description={
-          <>
-            Drop skill folders into <code className="text-[10px]">~/.codeterm/skills/</code> — they're
-            available to every agent provider automatically.
-          </>
-        }
+        description={<>Drop skill folders into <code className="ct-detail__mono">~/.codeterm/skills/</code>; every provider sees them.</>}
       >
-        <div className="flex items-center justify-between text-[10px] text-[var(--ct-muted)]">
-          <span className="font-mono">~/.codeterm/skills/</span>
-          <button
-            onClick={() => invoke("open_folder", { path: "~/.codeterm/skills" }).catch(() => {})}
-            className="text-[var(--ct-accent)] hover:underline"
-          >
-            Open folder
-          </button>
-        </div>
-      </SettingsCard>
-
-      <SettingsCard
-        icon={<Server size={16} />}
-        title="Providers"
-        description="Providers are installed and managed as plugins — see the Extensions panel in the titlebar."
-      >
-        {error && (
-          <div className="text-[10px] text-[var(--ct-red)]">
-            Failed to load agent providers: {error}
-          </div>
-        )}
-        {loading && providers.length === 0 && (
-          <div className="text-[10px] text-[var(--ct-muted-fg)]">Loading providers…</div>
-        )}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {providers.map((p) => (
-            <div key={p.id} className="space-y-2">
-              <Button
-                variant="ghost"
-                className="h-auto min-h-0 justify-start gap-3 p-4 text-left"
-                data-testid="settings-agent-provider-row"
-                data-provider-id={p.id}
-                onClick={() => onOpenProvider(p.id)}
-              >
-                <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[var(--ct-accent)]/15 text-[var(--ct-accent)] text-[18px] shrink-0">
-                  <AgentIcon providerId={p.id} title={p.display_name} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13px] font-medium text-[var(--ct-fg)]">{p.display_name}</div>
-                  <div className="text-[11px] text-[var(--ct-muted-fg)] mt-0.5">{providerSummary(p)}</div>
-                </div>
-                <ChevronRight size={14} className="shrink-0 text-[var(--ct-muted)]" />
-              </Button>
-            </div>
-          ))}
-        </div>
+        <button
+          type="button"
+          onClick={() => invoke("open_folder", { path: "~/.codeterm/skills" }).catch(() => {})}
+          className="ct-bar-pill ct-settings-link"
+        >
+          Open skills folder
+        </button>
       </SettingsCard>
     </div>
   );
