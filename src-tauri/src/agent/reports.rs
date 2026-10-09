@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use super::ledger::{LedgerRow, OrchestrationLedger};
 
+mod verdict_footer;
+
 pub use codeterm_types::agent::ReportStatus;
 
 pub const BLOCK_PROPOSAL_NOTICE: &str =
@@ -105,10 +107,8 @@ pub struct AgentReport {
 }
 
 impl AgentReport {
-    /// Build the PTY-injected body: a deterministic block of the present
-    /// structured fields (stable order) followed by the freeform message. When
-    /// no structured field is set, returns the message verbatim — message-only
-    /// and synthetic reports inject exactly as they did before this existed.
+    /// Render structured evidence, the freeform message and a task-bound verdict footer.
+    /// Reports without structured fields retain their original message.
     pub fn inject_body(&self) -> String {
         let mut lines: Vec<String> = Vec::new();
         match (self.plan_id.as_deref(), self.task_id.as_deref()) {
@@ -139,11 +139,18 @@ impl AgentReport {
         if let Some(ref skipped) = self.skipped {
             lines.push(format!("skipped: {}", skipped));
         }
-        if lines.is_empty() {
+        let body = if lines.is_empty() {
             self.message.clone()
         } else {
             format!("{}\n{}", lines.join("\n"), self.message)
-        }
+        };
+        verdict_footer::append(
+            &body,
+            self.plan_id.as_deref(),
+            self.task_id.as_deref(),
+            self.status,
+            self.timestamp,
+        )
     }
 }
 
@@ -821,7 +828,8 @@ mod tests {
              tests: cargo test -> 42 passed\n\
              skipped: manual UI step\n\
              the freeform body";
-        assert_eq!(report.inject_body(), expected);
+        let body = report.inject_body();
+        assert_eq!(body.rsplit_once('\n').unwrap().0, expected);
     }
 
     #[test]
@@ -846,7 +854,11 @@ mod tests {
         let body = report.inject_body();
         assert!(body.contains(BLOCK_PROPOSAL_NOTICE));
         assert!(body.contains("tests: focused-check -> blocked by dependency"));
-        assert!(body.ends_with("dependency unavailable"));
+        assert!(body
+            .rsplit_once('\n')
+            .unwrap()
+            .0
+            .ends_with("dependency unavailable"));
         assert_eq!(report.status, Some(ReportStatus::Blocked));
     }
 
