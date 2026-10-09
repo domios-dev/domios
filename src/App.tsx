@@ -32,6 +32,7 @@ import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { CanvasView } from "./components/Canvas/CanvasView";
 import { EssenceMapCanvas } from "./components/Canvas/EssenceMapCanvas";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
+import { usePlanPeerContext } from "./components/Canvas/usePlanPeerContext";
 import { PlanSidePanelHost } from "./components/Canvas/PlanSidePanelHost";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
 import { useBlueprintRunPopups } from "./components/Automation/useBlueprintRunPopups";
@@ -236,7 +237,8 @@ function AppInner() {
   } = useMultiplexer();
   const state = useMuxState();
   useHelperMomentsHost(state.tabs, configLoading ? null : config.integrations?.telegram_enabled ?? false);
-  useBlueprintRunPopups(state.workspaces, state.generation, state.toasts, upsertToast);
+  const peerContext = usePlanPeerContext();
+  useBlueprintRunPopups(state.workspaces, peerContext.generation, state.toasts, upsertToast);
   const navigateToNotificationTab = useCallback(
     (tabId: string, workspaceId: string | null) => {
       if (workspaceId) {
