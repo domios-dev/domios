@@ -78,7 +78,7 @@ export function TabContent({
   if (surface) {
     return (
       <TabWrapper tabId={tab.id}>
-        <SurfaceTabHost tab={tab} backing={surface} workspaceId={workspaceId} api={api} isVisible={isVisible} />
+        <SurfaceTabHost tab={tab} backing={surface} api={api} isVisible={isVisible} />
       </TabWrapper>
     );
   }

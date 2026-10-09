@@ -63,7 +63,7 @@
   box-sizing: border-box;
   border: 1px solid var(--ct-border);
   border-radius: 999px;
-  background: var(--ct-bg);
+  background: transparent;
   color: var(--ct-fg);
   font: 12px var(--ct-font-ui);
 }
