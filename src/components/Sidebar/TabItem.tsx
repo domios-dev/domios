@@ -3,7 +3,7 @@ import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { ShellPurposeIcon } from "../shared/ShellStatus";
 import { isUtilityShell, shellPurposeLabel } from "../../lib/shellCommandState";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Globe, ShieldCheck, TriangleAlert } from "lucide-react";
+import { Globe, Network, ShieldCheck, TriangleAlert } from "lucide-react";
 import { surfaceBacking, tabRowLabel } from "../../lib/surfaceTab";
 import { SurfaceIcon } from "../Surface/surfaceIcon";
 import { usePluginTabMenu } from "../../lib/pluginTabMenu";
@@ -212,14 +212,14 @@ function RemoteIdentityLine({ tab }: { tab: Tab }) {
   );
 }
 
-function ManagedByLine({ label }: { label: string | null }) {
+function ManagedByChip({ label }: { label: string | null }) {
   if (!label) return null;
   return (
-    <span
-      data-testid="remote-managed-by"
-      className="block truncate text-[10px] font-mono font-semibold uppercase leading-3 text-[var(--ct-accent)]"
-    >
-      {label}
+    <span data-testid="remote-managed-by" className="sidebar-managed-chip">
+      <span className="sidebar-managed-chip__label">{label}</span>
+      <span className="sidebar-managed-chip__dot">
+        <Network size={9} strokeWidth={2.25} aria-hidden="true" />
+      </span>
     </span>
   );
 }
@@ -422,8 +422,8 @@ function TabItemInner({
         onClick={onClick}
         className={`sidebar-tab-activation flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
       >
-      <div className={`flex flex-1 items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`}>
-        <span data-testid="tab-tab-icon" className="shrink-0 leading-none">
+      <div className={`sidebar-tab-body flex-1 min-w-0 ${touchMode ? "gap-x-2.5" : "gap-x-2"}`}>
+        <span data-testid="tab-tab-icon" className="sidebar-tab-body__icon leading-none">
           {provider ? (
             <ProviderGlyph
               iconSvg={provider.iconSvg}
@@ -444,82 +444,81 @@ function TabItemInner({
             utilityShell ? <ShellPurposeIcon purpose={tab.purpose} icon={tab.icon} running={shellRunning} /> : <TerminalIcon className={`${touchMode ? "scale-110" : isSubTab ? "scale-90" : ""}`} />
           )}
         </span>
-        <span className="min-w-0 flex-1">
-            <span className="flex min-w-0 items-center gap-1.5">
-              <span
-                data-testid="tab-title"
-                className={`${touchMode && !attachment ? tabTouchText : tabText} block truncate min-w-0 ${attachment && !isActive ? "text-[var(--ct-muted-fg)]" : "text-[var(--ct-fg)]"} ${isActive ? "font-medium" : ""}`}
-                onDoubleClick={(e) => {
-                  if (tab?.protected) return; // Main is unrenameable
-                  e.stopPropagation();
-                  setEditName(canonicalTitle);
-                  setEditing(true);
-                }}
-              >
-                {displayTitle}
-              </span>
-              {hasAgent && (
-                <TabWorkingActivity activity={tabState} />
-              )}
-              {shellRunning && <TabWorkingActivity activity={tabState} label={`${displayTitle} working`} />}
-            </span>
-            {collapsed && groupCollapsible && collapsedSummary ? (
-              <span
-                data-testid="group-collapsed-summary"
-                className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]"
-              >
-                {collapsedSummary}
-              </span>
-            ) : attachment ? null : (
-              <>
-                <TabDescriptionSubtitle description={description} />
-                <TabSubline subtitle={localSubtitle} generalAgent={isGeneralAgent} />
-                <RemoteIdentityLine tab={tab} />
-                <ManagedByLine label={managedBy} />
-              </>
-            )}
+        <span className="sidebar-tab-body__title flex min-w-0 items-center gap-1.5">
+          <span
+            data-testid="tab-title"
+            className={`${touchMode && !attachment ? tabTouchText : tabText} block truncate min-w-0 ${attachment && !isActive ? "text-[var(--ct-muted-fg)]" : "text-[var(--ct-fg)]"} ${isActive ? "font-medium" : ""}`}
+            onDoubleClick={(e) => {
+              if (tab?.protected) return; // Main is unrenameable
+              e.stopPropagation();
+              setEditName(canonicalTitle);
+              setEditing(true);
+            }}
+          >
+            {displayTitle}
+          </span>
+          {hasAgent && (
+            <TabWorkingActivity activity={tabState} />
+          )}
+          {shellRunning && <TabWorkingActivity activity={tabState} label={`${displayTitle} working`} />}
+          {!attachment && <ManagedByChip label={managedBy} />}
         </span>
-        {/* Connected services */}
-        {tab?.connected_services?.includes("telegram") && (
+        <span className={`sidebar-tab-body__trailing ${touchMode ? "gap-2.5" : "gap-2"}`}>
+          {tab?.connected_services?.includes("telegram") && (
+            <span
+              role="img"
+              aria-label={`${accessibleTitle} is connected to Telegram`}
+              className="shrink-0 text-[var(--ct-muted-fg)]/50"
+            >
+              <TelegramIcon />
+            </span>
+          )}
+          {tab?.permission_auto_confirm && (
+            <span
+              role="img"
+              aria-label={`${accessibleTitle} auto-confirms recognized permission prompts`}
+              title="Auto-confirms recognized permission prompts"
+              data-testid="tab-auto-confirm-indicator"
+              className="shrink-0"
+              style={{ color: "var(--ct-green)" }}
+            >
+              <ShieldCheck size={12} aria-hidden />
+            </span>
+          )}
+          {/* Prompt/status indicator dot */}
+          {tabState.kind === "waiting-on-user" && (
+            <span
+              role="img"
+              aria-label={tab.boot_stage === "awaiting_owner_prompt" ? `${accessibleTitle} is waiting for you` : `${accessibleTitle} needs a response`}
+              className="shrink-0 w-2 h-2 rounded-full"
+              style={{ background: "var(--ct-yellow)" }}
+              title={tabState.label}
+            />
+          )}
+          {declaredAttention && (
+            <StatusDot
+              status="Waiting"
+              label={declaredAttentionLabel(declaredAttention)}
+            />
+          )}
+          {reportCount > 0 && (
+            <span className="inline-flex shrink-0 items-center justify-center min-w-[14px] h-3.5 px-0.5 rounded-full bg-[var(--ct-accent)]/20 text-[var(--ct-accent)] text-[9px] font-bold leading-none">
+              {reportCount}
+            </span>
+          )}
+        </span>
+        {collapsed && groupCollapsible && collapsedSummary ? (
           <span
-            role="img"
-            aria-label={`${accessibleTitle} is connected to Telegram`}
-            className="shrink-0 text-[var(--ct-muted-fg)]/50"
+            data-testid="group-collapsed-summary"
+            className="sidebar-tab-body__sub block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]"
           >
-            <TelegramIcon />
+            {collapsedSummary}
           </span>
-        )}
-        {tab?.permission_auto_confirm && (
-          <span
-            role="img"
-            aria-label={`${accessibleTitle} auto-confirms recognized permission prompts`}
-            title="Auto-confirms recognized permission prompts"
-            data-testid="tab-auto-confirm-indicator"
-            className="shrink-0"
-            style={{ color: "var(--ct-green)" }}
-          >
-            <ShieldCheck size={12} aria-hidden />
-          </span>
-        )}
-        {/* Prompt/status indicator dot */}
-        {tabState.kind === "waiting-on-user" && (
-          <span
-            role="img"
-            aria-label={tab.boot_stage === "awaiting_owner_prompt" ? `${accessibleTitle} is waiting for you` : `${accessibleTitle} needs a response`}
-            className="shrink-0 w-2 h-2 rounded-full"
-            style={{ background: "var(--ct-yellow)" }}
-            title={tabState.label}
-          />
-        )}
-        {declaredAttention && (
-          <StatusDot
-            status="Waiting"
-            label={declaredAttentionLabel(declaredAttention)}
-          />
-        )}
-        {reportCount > 0 && (
-          <span className="inline-flex shrink-0 items-center justify-center min-w-[14px] h-3.5 px-0.5 rounded-full bg-[var(--ct-accent)]/20 text-[var(--ct-accent)] text-[9px] font-bold leading-none">
-            {reportCount}
+        ) : attachment ? null : (
+          <span className="sidebar-tab-body__sub">
+            <TabDescriptionSubtitle description={description} />
+            <TabSubline subtitle={localSubtitle} generalAgent={isGeneralAgent} />
+            <RemoteIdentityLine tab={tab} />
           </span>
         )}
       </div>
@@ -544,7 +543,7 @@ function TabItemInner({
       >
         {accessibleTitle} tab status {tabState.status}
       </span>}
-      <div className={`shrink-0 relative z-[1] flex items-center justify-end ${utilityShell ? "" : "min-w-5"}`}>
+      <div className={`shrink-0 relative z-[1] flex items-center justify-end ${touchMode ? "" : `sidebar-tab-end ${tabText}`} ${utilityShell ? "" : "min-w-5"}`}>
         {attachmentToggle && attachmentToggle.count > 0 && <AttachmentToggleButton toggle={attachmentToggle} />}
         {tabModelBadge && !touchMode ? (
           <SidebarModelBadge label={tabModelBadge} title={tabModelTitle} />
