@@ -1972,6 +1972,27 @@ button,
   background: radial-gradient(closest-side, color-mix(in srgb, var(--ct-fg) 4%, transparent), transparent 72%);
 }
 
+.picker-mode-frame {
+  overflow: clip;
+  overflow-clip-margin: 4px;
+  transition: height var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
+}
+.picker-mode-panel {
+  animation: picker-mode-panel-in var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
+}
+@keyframes picker-mode-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
 @keyframes picker-reveal {
   from {
     opacity: 0;
@@ -1997,6 +2018,7 @@ button,
   .picker-mode-card,
   .picker-mode-card::before,
   .picker-ambient-wash,
+  .picker-mode-frame,
   .sidebar-team-disclosure-glyph::before,
   .sidebar-team-disclosure-glyph::after,
   .sidebar-team-disclosure-label,
@@ -2008,7 +2030,8 @@ button,
   .picker-mode-card:not(:disabled):active {
     transform: none;
   }
-  .picker-stagger > * {
+  .picker-stagger > *,
+  .picker-mode-panel {
     animation: none !important;
     opacity: 1;
     transform: none;
