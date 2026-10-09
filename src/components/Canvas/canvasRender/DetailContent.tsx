@@ -1,6 +1,7 @@
 import { RichMarkdown } from "@codeterm/chat-ui";
 import { useState, type CSSProperties, type ReactNode } from "react";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, ChevronRight } from "lucide-react";
+import { AgentIcon } from "../../AgentIcon";
 import type { ApiConfig, Tab } from "../../../lib/types";
 import { TASK_STATUS_COLORS } from "../settings";
 import type { Plan, Section, Task, TaskLaneMetadata } from "../types";
@@ -37,10 +38,10 @@ function tone(color: string): CSSProperties {
   return { "--ct-detail-tone": color } as CSSProperties;
 }
 
-function Block({ label, children, testId, quiet }: { label: string; children: ReactNode; testId?: string; quiet?: boolean }) {
+function Block({ label, children, testId }: { label: string; children: ReactNode; testId?: string }) {
   return (
-    <section data-testid={testId} className={`ct-detail__block${quiet ? " ct-detail__block--quiet" : ""}`}>
-      <h3 className="ct-detail__label">{label}</h3>
+    <section data-testid={testId} className="ct-detail__block">
+      <h3 className="ct-detail__heading">{label}</h3>
       {children}
     </section>
   );
@@ -163,21 +164,35 @@ function AgentCard({ task, tabs, persona, agentTab, onOpenTab }: {
   const showLane = Boolean(lane && (laneTab || rows.length > 0));
   if (!name && !agentTab?.provider && !agentTab?.model && !showLane) return null;
   const tabId = agentTab?.tabId;
+  const canOpen = Boolean(onOpenTab && tabId);
+  const identity = (
+    <>
+      <span className="ct-detail__avatar" data-alive={agentTab?.alive || undefined}>
+        <AgentIcon providerId={agentTab?.provider} />
+      </span>
+      <span className="ct-detail__agent-text">
+        {persona
+          ? <span className="ct-detail__persona" data-testid="task-personality" title="Executing persona">{persona}</span>
+          : name && <span className="ct-detail__persona">{name}</span>}
+        <span className="ct-detail__agent-sub">
+          {name && <span className="sr-only" data-testid="task-agent-name">{name}</span>}
+          {agentTab?.provider && <span data-testid="task-agent-provider">{agentTab.provider}</span>}
+          {agentTab?.model && <span className="ct-detail__mono" data-testid="task-agent-model">{agentTab.model}</span>}
+          {agentTab && !agentTab.alive && <span>tab closed</span>}
+        </span>
+      </span>
+    </>
+  );
   return (
     <div className="ct-card ct-card--quiet ct-detail__agent">
-      {(name || agentTab?.provider || agentTab?.model) && (
-        <div className="ct-detail__agent-head" data-testid="task-agent-identity">
-          {persona && <span className="ct-detail__persona" data-testid="task-personality" title="Executing persona">{persona}</span>}
-          {name && <span className="sr-only" data-testid="task-agent-name">{name}</span>}
-          {agentTab?.provider && <span className="ct-detail__faint" data-testid="task-agent-provider">{agentTab.provider}</span>}
-          {agentTab?.model && <span className="ct-detail__mono ct-detail__faint" data-testid="task-agent-model">{agentTab.model}</span>}
-          {onOpenTab && tabId && (
-            <button type="button" className="ct-bar-pill ct-detail__open" data-testid="plan-detail-open-tab" onClick={() => onOpenTab(tabId)}>
-              Open chat
-            </button>
-          )}
-        </div>
-      )}
+      {(name || agentTab?.provider || agentTab?.model) && (canOpen ? (
+        <button type="button" className="ct-detail__agent-head" data-testid="plan-detail-open-tab" onClick={() => tabId && onOpenTab?.(tabId)}>
+          <span className="contents" data-testid="task-agent-identity">{identity}</span>
+          <span className="ct-detail__open">Open chat<ChevronRight size={13} aria-hidden="true" /></span>
+        </button>
+      ) : (
+        <div className="ct-detail__agent-head" data-testid="task-agent-identity">{identity}</div>
+      ))}
       {showLane && (
         <dl className="ct-detail__lane" data-testid="task-lane-panel">
           {laneTab && (
@@ -215,12 +230,19 @@ function TaskDetail({ api, task, plan, planId, tabs = {}, onOpenTab, onSection, 
         </span>
         {task.priority && <span className="ct-detail__fact">{task.priority.toUpperCase()}</span>}
         {task.type && <span className="ct-detail__fact">{task.type}</span>}
-        {task.executor_role?.trim() && <span className="ct-detail__fact" data-testid="task-executor-role">{task.executor_role}</span>}
       </div>
+      {(task.executor_role?.trim() || task.role_guidance?.trim()) && (
+        <section className="ct-detail__role" data-testid="task-role-guidance">
+          <h3 className="ct-detail__heading">
+            Role{task.executor_role?.trim() && <span className="ct-detail__role-name" data-testid="task-executor-role">{task.executor_role}</span>}
+          </h3>
+          {task.role_guidance?.trim() && <Markdown text={task.role_guidance} />}
+        </section>
+      )}
       <AgentCard task={task} tabs={tabs} persona={persona} agentTab={agentTab} onOpenTab={onOpenTab} />
-      <section className="ct-detail__block" data-testid="canvas-detail-description">
+      <Block label="Description" testId="canvas-detail-description">
         {body ? <Markdown text={body} /> : <span className="ct-detail__empty" data-testid="canvas-detail-empty-body">No description</span>}
-      </section>
+      </Block>
       {task.acceptance_criteria?.length ? (
         <Block label="Acceptance criteria">
           <ul className="ct-detail__checks">
@@ -230,11 +252,6 @@ function TaskDetail({ api, task, plan, planId, tabs = {}, onOpenTab, onSection, 
       ) : null}
       {task.test_plan?.trim() && <Block label="Test plan"><Markdown text={task.test_plan} /></Block>}
       {task.correctness?.trim() && <Block label="Correctness"><Markdown text={task.correctness} /></Block>}
-      {task.role_guidance?.trim() && (
-        <Block label="Role guidance" testId="task-role-guidance" quiet>
-          <Markdown text={task.role_guidance} />
-        </Block>
-      )}
       <AttachmentGallery api={api} planId={planId} attachments={task.attachments} />
       {attachmentThumbnails && (
         <Block label="Attachments">

@@ -9,6 +9,7 @@ import {
   milestoneKindLabel,
   resolveMilestoneAuthor,
 } from "./taskActivityModel";
+import { ActivityLogRow } from "./ActivityLogRow";
 
 export interface PlanRecentActivityRailProps {
   plan: Plan;
@@ -30,38 +31,24 @@ export function PlanRecentActivityRail({
   if (items.length === 0) return null;
 
   return (
-    <section className="plan-recent-activity" data-testid="plan-recent-activity" aria-label="Recent activity">
-      <div className="plan-recent-activity-label">Recent activity</div>
+    <section className="ct-activity plan-recent-activity" data-testid="plan-recent-activity" aria-label="Recent activity">
+      <h3 className="ct-activity__title">Recent activity</h3>
       <div className="plan-recent-activity-rail">
-        {items.map(({ taskId, taskLabel, milestone }) => {
-          const author = resolveMilestoneAuthor(milestone, tabs);
-          const kind = milestoneKindLabel(milestone.kind);
-          const color = colors.get(milestone.kind);
-          const snippet = milestone.text.replace(/\s+/g, " ").trim().slice(0, 72);
-          const RowTag = onOpenTask ? "button" : "div";
-          return (
-            <RowTag
-              key={`${taskId}:${milestone.id}`}
-              type={onOpenTask ? "button" : undefined}
-              className="plan-recent-activity-item"
-              data-testid="plan-recent-activity-item"
-              data-task-id={taskId}
-              data-milestone-id={milestone.id}
-              onClick={onOpenTask ? () => onOpenTask(taskId) : undefined}
-            >
-              <span className="plan-recent-activity-task">{taskLabel}</span>
-              <span className="plan-task-activity-kind">
-                {color && <span className="plan-task-activity-kind-dot" style={{ background: color }} />}
-                {kind}
-              </span>
-              <span className="plan-task-activity-age" title={milestoneAbsoluteTitle(milestone.ts)}>
-                {milestoneAgeLabel(milestone.ts, now)}
-              </span>
-              {author && <span className="plan-recent-activity-author">{author}</span>}
-              {snippet && <span className="plan-recent-activity-snippet">{snippet}</span>}
-            </RowTag>
-          );
-        })}
+        {items.map(({ taskId, taskLabel, milestone }) => (
+          <ActivityLogRow
+            key={`${taskId}:${milestone.id}`}
+            kind={milestoneKindLabel(milestone.kind)}
+            color={colors.get(milestone.kind)}
+            age={milestoneAgeLabel(milestone.ts, now)}
+            stampTitle={milestoneAbsoluteTitle(milestone.ts)}
+            author={resolveMilestoneAuthor(milestone, tabs)}
+            lead={taskLabel}
+            text={milestone.text}
+            onOpen={onOpenTask ? () => onOpenTask(taskId) : undefined}
+            testIds={{ row: "plan-recent-activity-item" }}
+            data={{ "task-id": taskId, "milestone-id": milestone.id }}
+          />
+        ))}
       </div>
     </section>
   );
