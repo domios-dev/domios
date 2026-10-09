@@ -32,6 +32,14 @@ impl AgentProvider for NativeControlKeys {
     fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
         None
     }
+    fn detect_session_id(
+        &self,
+        _: &str,
+        _: &[String],
+        _: Option<std::time::Duration>,
+    ) -> Option<String> {
+        None
+    }
     fn uses_win32_control_keys(&self) -> bool {
         self.0
     }
