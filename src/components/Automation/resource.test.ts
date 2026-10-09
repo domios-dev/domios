@@ -116,7 +116,7 @@ test("only stored agent Sentinel roots and exact connected participants enter pr
   const graph = fixtureGraph();
   const unrelatedCron = fixtureNode(identity("cron", "unrelated-cron"), "Unrelated schedule");
   const unrelatedWorker = fixtureNode(identity("worker", "unrelated-worker"), "Unrelated worker");
-  const internal = fixtureNode(identity("sentinel", "internal-monitor"), "Internal monitor");
+  const internal = fixtureNode(identity("blueprint", "internal-monitor"), "Internal monitor");
   const result = scopedAutomationGraph({ ...graph, nodes: [...graph.nodes, unrelatedCron, unrelatedWorker, internal], edges: [...graph.edges, { ...graph.edges[0], id: "internal-route", source: internal.identity, target: unrelatedWorker.identity }] }, attachment);
   assert.deepEqual(result.nodes.map((node) => node.identity.id), ["sentinel-a", "cron-a", "worker-a", "missing-a"]);
   assert.deepEqual(result.edges.map((edge) => edge.id).sort(), graph.edges.map((edge) => edge.id).sort());
@@ -140,7 +140,7 @@ test("scenario keys do not replace the declared root identity", () => {
 test("shell-created scenario roots remain visible without agent authorship", () => {
   const graph = fixtureGraph();
   const root = graph.nodes[0];
-  const result = scopedAutomationGraph({ ...graph, nodes: [{ ...root, sentinel_definition: null }, ...graph.nodes.slice(1)] }, attachment);
+  const result = scopedAutomationGraph({ ...graph, nodes: [{ ...root, blueprint_definition: null }, ...graph.nodes.slice(1)] }, attachment);
   assert.ok(result.nodes.some((node) => node.identity.id === root.identity.id));
   assert.equal(result.scenarios.length, graph.scenarios.length);
 });

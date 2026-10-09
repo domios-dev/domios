@@ -18,16 +18,16 @@ export const hostAutomationAdapter: AutomationGraphAdapter = {
     });
   },
   async stop(attachment, identity) {
-    if (!matchesActionScope(attachment, identity) || identity.kind !== "sentinel") throw new Error("Invalid Blueprint scope");
-    await invoke("automation_graph_stop_sentinel", {
+    if (!matchesActionScope(attachment, identity) || identity.kind !== "blueprint") throw new Error("Invalid Blueprint scope");
+    await invoke("automation_graph_stop_blueprint", {
       workspaceId: attachment.workspace_id,
       teamId: identity.team_id,
       id: identity.id,
     });
   },
   async delete(attachment, identity) {
-    if (!matchesActionScope(attachment, identity) || identity.kind !== "sentinel") throw new Error("Invalid Blueprint scope");
-    await invoke("automation_graph_delete_sentinel", { workspaceId: attachment.workspace_id, teamId: identity.team_id, id: identity.id });
+    if (!matchesActionScope(attachment, identity) || identity.kind !== "blueprint") throw new Error("Invalid Blueprint scope");
+    await invoke("automation_graph_delete_blueprint", { workspaceId: attachment.workspace_id, teamId: identity.team_id, id: identity.id });
   },
 };
 

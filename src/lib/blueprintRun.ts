@@ -1,4 +1,5 @@
 export interface RunEvent {
+  decidedBy?: "adapter" | "pattern" | null;
   classifier?: { ai: boolean; label: string; detail?: string } | null;
   confidence?: number | null;
   reason?: string | null;

@@ -4,6 +4,7 @@ import { blueprintModel, MAX_ACTIONS_PER_STAGE, nodeKeys, wireId, type Blueprint
 import { ALL_HANDLER_TYPES, followIdentity, sourceStage, typedGraph, watchIdentity } from "./blueprintModel.testdata";
 import { frameBlueprint, layoutBlueprint, READABLE_SCALE, ROW_HEIGHT } from "./blueprintLayout";
 import { automationKey } from "./types";
+import { inspectBlueprintNode } from "./blueprintInspector";
 
 const tests: Array<[string, () => void]> = [];
 function test(name: string, run: () => void) { tests.push([name, run]); }
@@ -22,11 +23,11 @@ test("every stage explodes into Trigger, Source, decision and one action per dec
   const keys = nodeKeys(watch);
   assert.deepEqual(model.stages[0].nodes.slice(0, 3), [keys.trigger, keys.source, keys.decision]);
   assert.deepEqual(model.nodes.filter((node) => node.stageKey === watch && node.type === "action").map((node) => node.action!.handler!.type), [
-    "notify", "send", "cron", "command", "sentinel", "escalate", "respond_prompt", "stop",
+    "notify", "send", "cron", "command", "blueprint", "escalate", "respond_prompt", "stop",
   ]);
   assert.equal(new Set(model.nodes.map((node) => node.key)).size, model.nodes.length, "node keys are unique");
   assert.equal(model.nodes.filter((node) => node.stageKey === watch).length, 3 + ALL_HANDLER_TYPES.length);
-  assert.ok(!model.nodes.some((node) => node.stage.identity.kind !== "sentinel"), "worker and cron targets are named on actions, never invented as stages");
+  assert.ok(!model.nodes.some((node) => node.stage.identity.kind !== "blueprint"), "worker and cron targets are named on actions, never invented as stages");
 });
 
 test("the agent node carries prompt, receives pin and one exec pin per bucket with its route definition, never code", () => {
@@ -38,7 +39,7 @@ test("the agent node carries prompt, receives pin and one exec pin per bucket wi
   assert.equal(agent.body?.text, typedGraph().nodes[0].detail!.definition!.question);
   assert.deepEqual(agent.inputs.map((pin) => [pin.id, pin.kind]), [["exec", "exec"], ["receives", "data"]]);
   assert.deepEqual(agent.outputs.map((pin) => [pin.bucket, pin.kind, pin.detail]), [
-    ["green", "exec", "the build passed"], ["red", "exec", "compilation failed"], ["flaky", "exec", "a network error"],
+    ["green", "exec", undefined], ["red", "exec", undefined], ["flaky", "exec", undefined],
   ]);
   assert.deepEqual(agent.outputs.map((pin) => pin.connected), [false, true, true], "a bucket without actions is an open pin");
   const code = model.nodes.filter((node) => node.body?.kind === "code").map((node) => node.type);
@@ -78,7 +79,7 @@ test("actions name their targets and only chaining actions get an exec out", () 
   assert.equal(byKey(model.nodes, keys.action("red", "rebuild")).body?.text, "cargo clean && cargo check");
   for (const node of model.nodes.filter((entry) => entry.type === "action")) {
     assert.deepEqual(node.inputs.map((pin) => [pin.id, pin.kind]), [["exec", "exec"], ["payload", "data"]]);
-    assert.equal(node.outputs.length, node.action!.handler!.type === "sentinel" ? 1 : 0);
+    assert.equal(node.outputs.length, node.action!.handler!.type === "blueprint" ? 1 : 0);
   }
 });
 
@@ -110,6 +111,17 @@ test("pattern-only stages render a Logic node listing their rules with a configu
   assert.equal(logic.type, "logic");
   assert.equal(logic.title, "Pattern match");
   assert.equal(logic.body?.text, "fixed: /Finished/\nbroken: /error/");
+});
+
+test("definition controls decision type and command language", () => {
+  const graph = typedGraph();
+  graph.nodes = graph.nodes.map((stage, index) => index ? stage : { ...stage, detail: { definition: { ...stage.detail!.definition, command_language: "powershell", decision_kind: "pattern" } } });
+  const model = blueprintModel(graph);
+  assert.equal(byKey(model.nodes, nodeKeys(watch).decision).type, "logic");
+  for (const node of model.nodes.filter((node) => node.stageKey === watch && node.body?.kind === "code")) {
+    assert.equal(node.body?.language, "powershell");
+    assert.equal(inspectBlueprintNode(node, graph).code?.language, "powershell");
+  }
 });
 
 test("actions past the per-stage bound fold into one counted overflow node", () => {
