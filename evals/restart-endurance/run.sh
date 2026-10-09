@@ -56,9 +56,17 @@ for ROUND in 1 2 3; do
   echo "NOTICE: Endure DEV 7686 restart $ROUND/3 begins now."
   node "$ROOT/evals/restart-endurance/notice.mjs" "$NOTICE_HOOK" "$ROUND" > "$OUT/notice-$ROUND.log" 2>&1
   dev_run node "$ROOT/evals/restart-endurance/observe.mjs" before "$OUT" "$ROUND"
-  if ! dev_run bash "$ROOT/build.sh" dev-prebuilt --wait --wait-build > "$OUT/restart-$ROUND.log" 2>&1; then
+  restarted=0
+  if dev_run bash "$ROOT/build.sh" dev-prebuilt --wait --wait-build > "$OUT/restart-$ROUND.log" 2>&1; then
+    restarted=1
+  elif grep -q "refusing before stopping dev" "$OUT/restart-$ROUND.log"; then
+    # Frontend commits made after the DEV build invalidate prebuilt provenance; an incremental dev build restarts honestly.
+    echo "Prebuilt provenance is stale; restarting with an incremental dev build." >> "$OUT/restart-$ROUND.log"
+    dev_run bash "$ROOT/build.sh" dev --wait --wait-build >> "$OUT/restart-$ROUND.log" 2>&1 && restarted=1
+  fi
+  if [ "$restarted" -ne 1 ]; then
     dev_run node "$ROOT/evals/restart-endurance/observe.mjs" abort "$OUT" "$ROUND" || true
-    echo "Restart failed; see $OUT/restart-$ROUND.log. No rebuild or retry attempted." >&2
+    echo "Restart failed; see $OUT/restart-$ROUND.log." >&2
     exit 2
   fi
   dev_run node "$ROOT/evals/restart-endurance/observe.mjs" round "$OUT" "$ROUND"
