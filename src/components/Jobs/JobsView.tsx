@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { Clock3, Network, Plus, Square, Trash2, Workflow } from "lucide-react";
 import { BackPill } from "../shared/BackPill";
 import { returnToOrigin, type ReturnTo, type ReturnToRoute } from "../../lib/returnTo";
@@ -11,7 +11,7 @@ import { focusEntry, focusLost } from "../Automation/focus";
 import { hostAutomationAdapter } from "../Automation/hostAdapter";
 import { ScopedScenarioPanel } from "../Automation/ScopedScenarioPanel";
 import { blueprintScenarioJobs } from "../Automation/scenarios";
-import { AUTOMATION_TOOL } from "../Automation/styles";
+import { AUTOMATION_TONE, AUTOMATION_TOOL } from "../Automation/styles";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { BlueprintPipelineCanvas } from "../Automation/BlueprintPipelineCanvas";
 import { BlueprintExportButton } from "../Automation/BlueprintExportButton";
@@ -226,11 +226,20 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
     return <CronWorkspaceView cronId={id} actionAdapter={cronActionAdapter} backLabel="All jobs" onBack={() => { void crons.refresh(); back(`cron:${id}`); }} />;
   }
   if (selection?.kind === "blueprint") {
-    return <section className="min-w-0 p-4" aria-label="Blueprint view">
-      <BackPill label="All jobs" onBack={() => back(`${blueprints.some(({ pipeline }) => pipeline.id === selection.id) ? "blueprint" : "scenario"}:${selection.id}`)} />
-      {openedBlueprint
-        ? <div className="mt-3 space-y-3"><div className="flex items-center gap-3"><h3 className="text-[length:var(--ct-font-size-md)] font-semibold">{openedBlueprint.pipeline.name}</h3><BlueprintExportButton workspaceId={openedBlueprint.workspaceId} teamId={openedBlueprint.pipeline.owner.team_id} id={graphs.flatMap((entry) => entry.graph?.scenarios ?? []).find((scenario) => scenario.id === openedBlueprint.pipeline.id)?.root.id ?? openedBlueprint.pipeline.id} /></div><BlueprintPipelineCanvas pipeline={openedBlueprint.pipeline} initialRunId={initialRunId} /></div>
-        : graphsRead ? <p role="alert" className="mt-3">The selected Blueprint is unavailable.</p> : <p role="status" className="mt-3">Reading Blueprint…</p>}
+    return <section className="flex min-w-0 flex-col" aria-label="Blueprint view">
+      <div className="ct-jobs-header flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5 pl-4 pr-3">
+        <BackPill label="All jobs" onBack={() => back(`${blueprints.some(({ pipeline }) => pipeline.id === selection.id) ? "blueprint" : "scenario"}:${selection.id}`)} />
+        {openedBlueprint && <>
+          <span className="ct-card__icon" style={{ "--ct-card-tone": AUTOMATION_TONE.blueprint } as CSSProperties}><Network size={14} aria-hidden="true" /></span>
+          <h3 className="min-w-0 flex-[1_1_12rem] break-words text-[length:var(--ct-font-size-md)] font-semibold">{openedBlueprint.pipeline.name}</h3>
+          <BlueprintExportButton workspaceId={openedBlueprint.workspaceId} teamId={openedBlueprint.pipeline.owner.team_id} id={graphs.flatMap((entry) => entry.graph?.scenarios ?? []).find((scenario) => scenario.id === openedBlueprint.pipeline.id)?.root.id ?? openedBlueprint.pipeline.id} />
+        </>}
+      </div>
+      <div className="min-w-0 px-4 py-3">
+        {openedBlueprint
+          ? <BlueprintPipelineCanvas pipeline={openedBlueprint.pipeline} initialRunId={initialRunId} />
+          : graphsRead ? <p role="alert" className="ct-job-note">The selected Blueprint is unavailable.</p> : <p role="status" className="ct-job-note">Reading Blueprint…</p>}
+      </div>
     </section>;
   }
   if (opened) {
@@ -331,7 +340,7 @@ export function JobsView({ workspaces, teams, tabs = {}, initialFilter = NO_JOBS
       </div>
     </header>
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      {importOpen && <BlueprintImportForm creators={Object.values(tabs).filter((tab) => tab.team_id && teams.some((team) => team.id === tab.team_id && (filter.teamId === null || team.id === filter.teamId) && (filter.workspaceId === null || team.workspace_id === filter.workspaceId))).map((tab) => ({ id: tab.id, label: `${tab.title} (${teams.find((team) => team.id === tab.team_id)?.name ?? tab.team_id})` }))} onCancel={() => setImportOpen(false)} onCreated={() => { setImportOpen(false); setImportRevision((revision) => revision + 1); }} />}
+      {importOpen && <div className="mx-auto w-full max-w-3xl px-4 pt-4 sm:px-6"><BlueprintImportForm creators={Object.values(tabs).filter((tab) => tab.team_id && teams.some((team) => team.id === tab.team_id && (filter.teamId === null || team.id === filter.teamId) && (filter.workspaceId === null || team.workspace_id === filter.workspaceId))).map((tab) => ({ id: tab.id, label: `${tab.title} (${teams.find((team) => team.id === tab.team_id)?.name ?? tab.team_id})` }))} onCancel={() => setImportOpen(false)} onCreated={() => { setImportOpen(false); setImportRevision((revision) => revision + 1); }} /></div>}
       {importRevision > 0 && <p role="status" className="px-4 py-2">Blueprint imported stopped.</p>}
       {!context.ready ? <p role="status" className="p-4">Attaching jobs…</p>
         : !layout.teamAvailable ? <p role="alert" className="p-4">The selected Team is unavailable.</p>

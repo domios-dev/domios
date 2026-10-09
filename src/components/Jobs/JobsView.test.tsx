@@ -385,7 +385,7 @@ async function main() {
       const canvas = view.host.querySelector('[role="group"][aria-label="Echo pipeline pipeline"]');
       assert.ok(canvas);
       assert.deepEqual(Array.from(canvas.querySelectorAll("article h4")).map((node) => node.textContent), ["Trigger", "command: emit", "filter: match", "Result"]);
-      await act(async () => buttonWith(view.host, "Runs (").click());
+      await act(async () => view.host.querySelector<HTMLButtonElement>('[aria-label="Blueprint view"] button[aria-expanded]')!.click());
       const run = view.host.querySelector<HTMLButtonElement>('[aria-label="Run run-echo"]');
       assert.ok(run);
       await act(async () => run.click());
