@@ -270,7 +270,7 @@ fn effort_only_plan_sends_only_effort_and_preserves_model_identity() {
         }),
         transcript: source(),
     };
-    let plan = planned_commands(&commands, false, Some("high"));
+    let plan = planned_commands(&commands, false, Some("high"), Some("medium"));
     assert_eq!(plan.len(), 1);
     assert_eq!(
         render_command(&plan[0].0.command, "chosen", plan[0].1).unwrap(),
@@ -303,7 +303,22 @@ fn effort_only_plan_sends_only_effort_and_preserves_model_identity() {
         tab.reasoning_effort_identity.actual.as_deref(),
         Some("high")
     );
-    assert_eq!(planned_commands(&commands, true, Some("high")).len(), 2);
+    assert_eq!(
+        planned_commands(&commands, true, Some("high"), Some("medium")).len(),
+        2
+    );
+    let plan = planned_commands(&commands, true, Some("medium"), Some("medium"));
+    assert_eq!(plan.len(), 1);
+    assert_eq!(
+        render_command(&plan[0].0.command, "chosen", plan[0].1).unwrap(),
+        "/choose chosen"
+    );
+    assert!(planned_commands(&commands, false, Some("medium"), Some("medium")).is_empty());
+    assert!(planned_commands(&commands, false, None, Some("medium")).is_empty());
+    assert_eq!(
+        planned_commands(&commands, true, Some("medium"), None).len(),
+        2
+    );
 }
 
 #[test]

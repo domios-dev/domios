@@ -11,6 +11,7 @@ const MAX_CONFIRMATION_BYTES: u64 = 1024 * 1024;
 
 mod picker;
 mod prompt;
+mod sequence;
 mod session_identity;
 mod transport;
 use picker::CommandPicker;
@@ -78,12 +79,16 @@ fn planned_commands<'a>(
     commands: &'a crate::agent::provider::ModelSwitchCommands,
     model_changed: bool,
     effort: Option<&'a str>,
+    confirmed_effort: Option<&str>,
 ) -> Vec<(&'a ModelSwitchCommand, Option<&'a str>)> {
     let mut plan = Vec::new();
-    if model_changed || effort.is_none() {
+    if model_changed {
         plan.push((&commands.model, None));
     }
-    if let (Some(effort), Some(command)) = (effort, commands.effort.as_ref()) {
+    if let (Some(effort), Some(command)) = (
+        effort.filter(|effort| Some(*effort) != confirmed_effort),
+        commands.effort.as_ref(),
+    ) {
         plan.push((command, Some(effort)));
     }
     plan
@@ -220,7 +225,6 @@ impl ServiceContext {
         session_id: &str,
         model: &str,
         effort: Option<&str>,
-        previous_model: Option<String>,
     ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
         let _claim = {
             let mut tracker = self.restart_tracker.lock();
@@ -243,11 +247,6 @@ impl ServiceContext {
                     "the provider has no live command declaration".into(),
                 )
             })?;
-        if effort.is_some() && commands.effort.is_none() {
-            return Err(ModelSwitchError::LiveCommandFailed(
-                "the provider has no live effort command".into(),
-            ));
-        }
         if commands.confirmation_source
             == crate::agent::provider::ModelSwitchConfirmationSource::Transcript
             && (commands.transcript.record_type.is_empty()
@@ -303,7 +302,16 @@ impl ServiceContext {
                 "the session changed before reading its current model".into(),
             ));
         }
-        let previous_model = planning_model(commands.confirmation_source, previous_model, || {
+        let recorded_model = self.mux.read().get_tab(&target.tab_id).and_then(|tab| {
+            tab.agent_session_model_identity
+                .as_ref()
+                .filter(|identity| {
+                    identity.session_id == target.session_id
+                        && identity.session_binding_nonce == target.binding_nonce
+                })
+                .and(tab.agent_session_model.clone())
+        });
+        let previous_model = planning_model(commands.confirmation_source, recorded_model, || {
             target.cwd.as_deref().and_then(|cwd| {
                 self.agent_registry
                     .with_provider(&target.provider, |provider| {
@@ -325,8 +333,44 @@ impl ServiceContext {
                 previous,
             )
         });
-        for (command, command_effort) in planned_commands(&commands, model_changed, effort) {
-            self.run_declared_model_command(&target, command_effort, command, &commands)?;
+        let current_effort = planning_model(
+            commands.confirmation_source,
+            self.mux
+                .read()
+                .get_tab(&target.tab_id)
+                .and_then(|tab| tab.reasoning_effort_identity.actual.clone()),
+            || {
+                target.cwd.as_deref().and_then(|cwd| {
+                    self.agent_registry
+                        .with_provider(&target.provider, |provider| {
+                            provider.detect_session_reasoning_effort(cwd, &target.session_id)
+                        })
+                        .flatten()
+                })
+            },
+        );
+        let changed_effort = effort.filter(|effort| current_effort.as_deref() != Some(*effort));
+        if !target.current(self) {
+            return Err(ModelSwitchError::LiveCommandFailed(
+                "the session changed while reading its current effort".into(),
+            ));
+        }
+        if changed_effort.is_some() && commands.effort.is_none() {
+            return Err(ModelSwitchError::LiveCommandFailed(
+                "the provider has no live effort command".into(),
+            ));
+        }
+        let deadline = Instant::now() + Duration::from_secs(MODEL_OBSERVE_TIMEOUT_SECS);
+        let sequence = sequence::CommandSequence::new(self, &target, deadline);
+        for (index, (command, command_effort)) in
+            planned_commands(&commands, model_changed, effort, current_effort.as_deref())
+                .into_iter()
+                .enumerate()
+        {
+            if index > 0 {
+                sequence.wait_for_idle(self, &target)?;
+            }
+            self.run_declared_model_command(&target, command_effort, command, &commands, deadline)?;
             if !target.current(self) {
                 return Err(ModelSwitchError::LiveCommandFailed(
                     "the command session identity changed".into(),
@@ -401,13 +445,14 @@ impl ServiceContext {
         effort: Option<&str>,
         template: &ModelSwitchCommand,
         commands: &crate::agent::provider::ModelSwitchCommands,
+        deadline: Instant,
     ) -> Result<(), ModelSwitchError> {
         if commands.confirmation_source
             == crate::agent::provider::ModelSwitchConfirmationSource::SessionIdentity
         {
-            self.run_session_identity_command(target, effort, template)
+            self.run_session_identity_command(target, effort, template, deadline)
         } else {
-            self.run_model_command(target, effort, template, &commands.transcript)
+            self.run_model_command(target, effort, template, &commands.transcript, deadline)
         }
     }
 
@@ -417,6 +462,7 @@ impl ServiceContext {
         effort: Option<&str>,
         template: &ModelSwitchCommand,
         source: &ModelSwitchTranscript,
+        deadline: Instant,
     ) -> Result<(), ModelSwitchError> {
         let model = target.model.as_str();
         let display_name = target.display_name.as_str();
@@ -492,7 +538,6 @@ impl ServiceContext {
             return Err(ModelSwitchError::LiveCommandFailed(error.to_string()));
         }
         let started = Instant::now();
-        let deadline = started + Duration::from_secs(MODEL_OBSERVE_TIMEOUT_SECS);
         let binding_current = || target.current(self);
         let picker_absent = !picker.as_ref().is_some_and(|picker| {
             self.screen_state

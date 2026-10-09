@@ -35,7 +35,7 @@ pub(super) fn structured_user_turns(
         })
 }
 
-pub(super) fn window_user_turns(
+pub(crate) fn window_user_turns(
     registry: &AgentRegistry,
     anchor: &SendEvidenceAnchor,
 ) -> Vec<String> {

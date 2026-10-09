@@ -19,7 +19,8 @@ use std::sync::Arc;
 mod deferred_first_turn;
 mod turn_window;
 
-use turn_window::{structured_user_turns, window_user_turns, StructuredUserTurn};
+pub(crate) use turn_window::window_user_turns;
+use turn_window::{structured_user_turns, StructuredUserTurn};
 
 #[cfg(test)]
 #[path = "chat_send_evidence/deferred_first_turn_tests.rs"]
