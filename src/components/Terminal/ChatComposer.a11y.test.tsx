@@ -143,7 +143,7 @@ test("composer shell declares a visible keyboard-focus style", async () => {
   await teardown(h);
 });
 
-test("a rejected draft sets aria-invalid, and editing clears it", async () => {
+test("a rejected send clears the composer without marking it invalid; the bubble owns the failure", async () => {
   const h = await renderComposer("mesh:");
   assert(
     h.el.getAttribute("aria-invalid") === "false",
@@ -154,15 +154,10 @@ test("a rejected draft sets aria-invalid, and editing clears it", async () => {
   await fire(h.el, enterKeydown());
   await flush();
 
-  assert(
-    h.el.getAttribute("aria-invalid") === "true",
-    "a rejected draft must be announced via aria-invalid",
-  );
-
-  await type(h, "fixture message ");
+  assert((h.el as HTMLTextAreaElement).value === "", "send always clears the composer");
   assert(
     h.el.getAttribute("aria-invalid") === "false",
-    "editing the field again must clear the invalid announcement",
+    "a send failure is reported on its bubble, not on the empty composer",
   );
 
   await teardown(h);
