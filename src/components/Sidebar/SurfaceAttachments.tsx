@@ -1,9 +1,8 @@
-import { useCallback, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { Tab } from "../../lib/types";
-import { useKeyedFlag } from "../../lib/keyedFlagStore";
 import { useSurfacePulse } from "../../lib/surfaceActivity";
 import { useSurfaceControlled } from "../../lib/surfaceControlStore";
-import { attachmentBlockModel, attachmentCollapseStore } from "./surfaceAttachmentModel";
+import { attachmentBlockModel } from "./surfaceAttachmentModel";
 import { relativeRect, tetherClearings, tetherPaths, type TetherClearing, type TetherRect } from "./tetherGeometry";
 import type { AttachmentToggle } from "./TabItem";
 
@@ -21,14 +20,12 @@ interface SurfaceOwnerBlockProps {
 
 /** An owner row with its surfaces tucked under it, joined by a tether rather than a tree connector. */
 export function SurfaceOwnerBlock({ ownerId, attachments, compact, renderOwner, renderAttachment, wrapAttachments = (rows) => rows }: SurfaceOwnerBlockProps) {
-  const collapsed = useKeyedFlag(attachmentCollapseStore, ownerId);
-  const onToggle = useCallback(() => attachmentCollapseStore.set(ownerId, !attachmentCollapseStore.get(ownerId)), [ownerId]);
   if (attachments.length === 0) return <>{renderOwner(null)}</>;
-  const model = attachmentBlockModel(attachments, collapsed, compact);
+  const model = attachmentBlockModel(attachments, false, compact);
   return (
     <div className="sidebar-surface-owner" data-testid="surface-owner-block" data-owner-id={ownerId}>
       <div className="sidebar-surface-owner-row" data-tether-owner="">
-        {renderOwner({ count: attachments.length, collapsed, onToggle })}
+        {renderOwner(null)}
       </div>
       {model.rows.length > 0 && (
         <div className="sidebar-surface-attachments" data-testid="surface-attachments">
