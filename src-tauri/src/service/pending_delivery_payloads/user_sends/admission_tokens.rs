@@ -1,5 +1,4 @@
 use parking_lot::{Condvar, Mutex};
-use sha2::{Digest, Sha256};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -13,38 +12,15 @@ pub(super) struct TokenEntry {
     changed: Condvar,
 }
 
+#[derive(Default)]
 pub(super) struct AdmissionTokens {
     entries: HashMap<String, Arc<TokenEntry>>,
     order: VecDeque<String>,
-    retired: Vec<u64>,
-}
-
-impl Default for AdmissionTokens {
-    fn default() -> Self {
-        Self {
-            entries: HashMap::new(),
-            order: VecDeque::new(),
-            retired: vec![0; 1024],
-        }
-    }
-}
-
-fn token_bits(token: &str) -> [usize; 4] {
-    let digest = Sha256::digest(token.as_bytes());
-    std::array::from_fn(|index| {
-        u16::from_le_bytes([digest[index * 2], digest[index * 2 + 1]]) as usize
-    })
 }
 
 impl AdmissionTokens {
     pub(super) fn existing(&self, token: &str) -> Option<Arc<TokenEntry>> {
         self.entries.get(token).cloned()
-    }
-
-    pub(super) fn retired(&self, token: &str) -> bool {
-        token_bits(token)
-            .iter()
-            .all(|bit| self.retired[bit / 64] & (1 << (bit % 64)) != 0)
     }
 
     pub(super) fn insert(
@@ -65,9 +41,6 @@ impl AdmissionTokens {
                 .order
                 .remove(position)
                 .expect("retained token position");
-            for bit in token_bits(&old) {
-                self.retired[bit / 64] |= 1 << (bit % 64);
-            }
             self.entries.remove(&old);
         }
         let entry = Arc::new(TokenEntry {
@@ -105,7 +78,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn evicted_terminal_token_refuses_replay_with_bounded_memory() {
+    fn terminal_tokens_are_evicted_to_allow_fresh_admissions_with_bounded_memory() {
         let mut tokens = AdmissionTokens::default();
         for index in 0..=MAX_TOKENS {
             tokens
@@ -118,8 +91,7 @@ mod tests {
                 .finish();
         }
         assert!(tokens.existing("token-0").is_none());
-        assert!(tokens.retired("token-0"));
         assert_eq!(tokens.entries.len(), MAX_TOKENS);
-        assert_eq!(tokens.retired.len(), 1024);
+        assert!(tokens.existing(&format!("token-{MAX_TOKENS}")).is_some());
     }
 }
