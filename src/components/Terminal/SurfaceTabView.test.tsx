@@ -131,6 +131,26 @@ describe("surface tab view", () => {
     expect(host!.querySelector("[role='alert']")).not.toBeNull();
   });
 
+  it("shows a quiet unavailable state instead of the plugin view when the plugin declares nothing", async () => {
+    const browserBacking: SurfaceTabBacking = { ...backing, plugin_id: "browser", surface_id: "browser" };
+    const browserTab: Tab = { ...tab, title: "Browser", backing: browserBacking };
+    await mount(<SurfaceTabView tab={browserTab} backing={browserBacking} ownerName="Jev" isVisible decl={{ status: "ready", declared: null }} />);
+    expect(host!.querySelector("iframe")).toBeNull();
+    expect(host!.querySelector("[data-testid='surface-flow-line']")).toBeNull();
+    const notice = host!.querySelector("[data-testid='surface-unavailable']")!;
+    expect(notice.textContent).toBe("Browser unavailable: the plugin is not loaded");
+    expect(notice.querySelector("details")).toBeNull();
+  });
+
+  it("keeps the lookup error behind a details disclosure and never mounts the plugin view", async () => {
+    await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" isVisible decl={{ status: "failed", error: "HTTP 503" }} />);
+    expect(host!.querySelector("iframe")).toBeNull();
+    const notice = host!.querySelector("[data-testid='surface-unavailable']")!;
+    expect(notice.querySelector("p")?.textContent).toBe("Board unavailable: the plugin is not loaded");
+    expect(notice.querySelector("details summary")?.textContent).toBe("Details");
+    expect(notice.querySelector("details code")?.textContent).toBe("HTTP 503");
+  });
+
   it("offers no owner link when the owner is gone", async () => {
     await mount(<SurfaceTabView tab={tab} backing={backing} ownerName={null} onFocusOwner={vi.fn()} isVisible decl={viewDecl} />);
     const names = [...host!.querySelectorAll("button")].map((candidate) => candidate.getAttribute("aria-label"));
