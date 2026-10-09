@@ -28,11 +28,21 @@ pub const MAX_RUNS_PER_CRON: usize = 64;
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Identity {
+    #[serde(deserialize_with = "identity_kind")]
     pub kind: String,
     pub id: String,
     pub workspace_id: String,
     pub team_id: Option<String>,
     pub owner_tab_id: Option<String>,
+}
+
+fn identity_kind<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let kind = String::deserialize(deserializer)?;
+    Ok(if kind == "sentinel" {
+        "blueprint".into()
+    } else {
+        kind
+    })
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -66,7 +76,7 @@ pub struct ConnectedCron {
 
 pub fn identity(job: &Sentinel) -> Identity {
     Identity {
-        kind: "sentinel".into(),
+        kind: "blueprint".into(),
         id: job.id.clone(),
         workspace_id: job.workspace_id.clone(),
         team_id: job.team_id.clone(),
@@ -234,7 +244,7 @@ fn record(result: &ResultRecord) -> Value {
 
 fn placeholder(identity: &Identity) -> Value {
     let mut node = json!({"identity":identity,"name":format!("Missing {}", identity.kind),"purpose":null,"state":null,"availability":"missing","hidden":null,"schedule":null,"cadence_ms":null,"expires_at":null,"outcomes":[],"last_result":null,"stop":{"allowed":false,"reason":"exact target unavailable"},"executor":null});
-    if identity.kind == "sentinel" {
+    if identity.kind == "blueprint" {
         node["detail"] = detail::missing(identity);
     }
     node
@@ -298,7 +308,7 @@ fn target(
     crons: &BTreeMap<String, ConnectedCron>,
 ) -> Option<(Identity, bool)> {
     let (kind, id, owner) = match action {
-        Route::Sentinel(id) => ("sentinel", id, Some(source.creator_tab_id.clone())),
+        Route::Sentinel(id) => ("blueprint", id, Some(source.creator_tab_id.clone())),
         Route::Send(id) => ("worker", id, None),
         Route::Escalate(super::machine::EscalateTarget::Agent(id)) => ("worker", id, None),
         Route::Cron(id) => ("cron", id, None),
@@ -512,7 +522,7 @@ pub fn project(
                         continue;
                     }
                     match target.kind.as_str() {
-                        "sentinel" => pending.push_back(target),
+                        "blueprint" => pending.push_back(target),
                         "worker" => {
                             if let Some(tab) = mux.get_tab(&target.id) {
                                 nodes.insert(target.clone(), worker(tab, &target));
@@ -540,7 +550,7 @@ pub fn project(
         let last_result = last.map(|t| { let mut result = json!({"bucket":t.bucket,"accepted_at":t.accepted_at,"handlers":t.handlers.iter().map(|r| { let mut value=record(r); value["handler_id"]=json!(r.handler_id); value }).collect::<Vec<_>>()}); detail::project_decision(&mut result, t.decision.as_ref()); result });
         let history = history::project(job, &mut history_budget);
         let history_truncated = history.len() < job.transitions.len();
-        nodes.insert(exact.clone(),json!({"identity":exact,"name":safe_name(job.name.as_deref().unwrap_or(&job.id)),"purpose":safe_purpose(&job.question),"state":if job.machine.stopped && executing{"finishing"}else if job.machine.stopped{"stopped"}else if expired{"expired"}else if job.machine.paused{"paused"}else{"active"},"availability":"available","hidden":false,"schedule":null,"cadence_ms":job.interval_ms,"conversation":{"enabled":job.session,"exchanges":super::session::usage(jobs,job,now_ms).exchanges,"actions":super::session::usage(jobs,job,now_ms).actions,"safety_limit":codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT,"rate_limit_per_minute":codeterm_types::blueprint_terminal::SESSION_RATE_LIMIT},"expires_at":job.expires_at,"outcomes":outcomes,"last_result":last_result,"history":history,"history_truncated":history_truncated,"stop":{"allowed":executing || (!job.machine.stopped && !expired),"reason":if executing{None}else if job.machine.stopped{job.last_reason.as_deref().map(safe_purpose)}else if expired{Some("deadline elapsed".into())}else{None}},"executor":null,"detail":detail::project(job, mux, workspace, team, now_ms, executing),"source":source_descriptor(job),"sentinel_definition":{"source":"stored_agent_definition","definition_id":job.id,"creator_tab_id":job.creator_tab_id,"definition_version":job.definition_version,"lineage":job.amendments.iter().map(|amendment| json!({"version":amendment.version,"replaced_version":amendment.replaced_version,"author_tab_id":amendment.author_tab_id,"cause_transition_id":amendment.cause_transition_id,"at":amendment.at})).collect::<Vec<_>>()}}));
+        nodes.insert(exact.clone(),json!({"identity":exact,"name":safe_name(job.name.as_deref().unwrap_or(&job.id)),"purpose":safe_purpose(&job.question),"state":if job.machine.stopped && executing{"finishing"}else if job.machine.stopped{"stopped"}else if expired{"expired"}else if job.machine.paused{"paused"}else{"active"},"availability":"available","hidden":false,"schedule":null,"cadence_ms":job.interval_ms,"conversation":{"enabled":job.session,"exchanges":super::session::usage(jobs,job,now_ms).exchanges,"actions":super::session::usage(jobs,job,now_ms).actions,"safety_limit":codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT,"rate_limit_per_minute":codeterm_types::blueprint_terminal::SESSION_RATE_LIMIT},"expires_at":job.expires_at,"outcomes":outcomes,"last_result":last_result,"history":history,"history_truncated":history_truncated,"stop":{"allowed":executing || (!job.machine.stopped && !expired),"reason":if executing{None}else if job.machine.stopped{job.last_reason.as_deref().map(safe_purpose)}else if expired{Some("deadline elapsed".into())}else{None}},"executor":null,"detail":detail::project(job, mux, workspace, team, now_ms, executing),"source":source_descriptor(job),"blueprint_definition":{"source":"stored_agent_definition","definition_id":job.id,"creator_tab_id":job.creator_tab_id,"definition_version":job.definition_version,"lineage":job.amendments.iter().map(|amendment| json!({"version":amendment.version,"replaced_version":amendment.replaced_version,"author_tab_id":amendment.author_tab_id,"cause_transition_id":amendment.cause_transition_id,"at":amendment.at})).collect::<Vec<_>>()}}));
     }
     let nodes: Vec<_> = nodes.into_values().collect();
     let runs = runs::project(&nodes, jobs, now_ms, live_leases);

@@ -152,7 +152,7 @@ pub(in crate::sentinel) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>
         }
         for handler in job.routes.values().flatten() {
             let expected_kind_id = match &handler.action {
-                Route::Sentinel(id) => Some(("sentinel", id)),
+                Route::Sentinel(id) => Some(("blueprint", id)),
                 Route::Send(id) => Some(("worker", id)),
                 Route::Cron(id) => Some(("cron", id)),
                 Route::Notify
@@ -171,7 +171,7 @@ pub(in crate::sentinel) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>
                 if expected_kind_id != Some((target.kind.as_str(), &target.id))
                     || target.workspace_id != job.workspace_id
                     || target.team_id != job.team_id
-                    || (target.kind == "sentinel"
+                    || (target.kind == "blueprint"
                         && target.owner_tab_id.as_deref() != Some(&job.creator_tab_id))
                 {
                     return Err("invalid stored exact handler target scope".into());
@@ -270,7 +270,7 @@ impl Store {
         pipeline: Option<codeterm_types::blueprint_pipeline::BlueprintSpec>,
     ) -> Result<Sentinel, String> {
         if self.admission_closed {
-            return Err("sentinel_shutdown_admission_closed".into());
+            return Err("blueprint_shutdown_admission_closed".into());
         }
         self.ensure_available()?;
         let Owner {
@@ -365,7 +365,7 @@ impl Store {
             .transpose()?
             .map(|duration| now.saturating_add(duration));
         let id = format!(
-            "sentinel_{}",
+            "blueprint_{}",
             &uuid::Uuid::new_v4().simple().to_string()[..12]
         );
         let job = Sentinel {

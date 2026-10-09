@@ -169,7 +169,7 @@ fn action_columns(action: &HandlerAction) -> Result<ActionColumns<'_>, StorageEr
         HandlerAction::Stop => ActionColumns::plain("stop", None),
         HandlerAction::Send(target) => ActionColumns::plain("send", Some(target.as_str())),
         HandlerAction::Cron(target) => ActionColumns::plain("cron", Some(target.as_str())),
-        HandlerAction::Sentinel(target) => ActionColumns::plain("sentinel", Some(target.as_str())),
+        HandlerAction::Sentinel(target) => ActionColumns::plain("blueprint", Some(target.as_str())),
         HandlerAction::Command(parameters) => ActionColumns {
             command: Some(parameters.command.as_str()),
             label: Some(parameters.label.as_str()),
@@ -233,7 +233,7 @@ impl ActionRow {
             ("stop", None, None, None) => HandlerAction::Stop,
             ("send", Some(target), None, None) => HandlerAction::Send(target),
             ("cron", Some(target), None, None) => HandlerAction::Cron(target),
-            ("sentinel", Some(target), None, None) => HandlerAction::Sentinel(target),
+            ("blueprint", Some(target), None, None) => HandlerAction::Sentinel(target),
             ("respond_prompt", None, Some(safe_kind), None) => {
                 HandlerAction::RespondPrompt(safe_kind_from(&safe_kind)?)
             }
@@ -315,7 +315,7 @@ pub(super) fn insert_version(
         .map(|amendment| to_sql_u64("amendment time", amendment.authored_at))
         .transpose()?;
     cx.write(
-        "INSERT INTO sentinel_definitions (sentinel_id, version, provenance, name, source_kind, \
+        "INSERT INTO blueprint_definitions (blueprint_id, version, provenance, name, source_kind, \
          source_spec, pipeline_spec, probe, observe_kind, observe_ref, question, interval_ms, until_bucket, \
          escalation_timeout_ms, max_transitions, max_actions, replaced_version, author_tab_id, \
          cause_transition_id, authored_at, created_revision, terminal_spec, session) \
@@ -387,14 +387,14 @@ fn insert_bucket(
     handlers: &[HandlerDefinition],
 ) -> Result<(), StorageError> {
     cx.write(
-        "INSERT INTO sentinel_buckets (sentinel_id, version, ordinal, bucket, match_pattern, rearm_on_change) \
+        "INSERT INTO blueprint_buckets (blueprint_id, version, ordinal, bucket, match_pattern, rearm_on_change) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![id, version, ordinal, bucket, match_pattern, rearm_on_change],
     )?;
     for (position, handler) in (0_i64..).zip(handlers) {
         let columns = action_columns(&handler.action)?;
         cx.write(
-            "INSERT INTO sentinel_handlers (sentinel_id, version, bucket, ordinal, \
+            "INSERT INTO blueprint_handlers (blueprint_id, version, bucket, ordinal, \
              handler_id, kind, target_ref, command, label, timeout_ms, safe_kind, escalate_to) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
@@ -414,7 +414,7 @@ fn insert_bucket(
         )?;
         if let Some(exact) = &handler.target {
             cx.write(
-                "INSERT INTO sentinel_handler_targets (sentinel_id, version, handler_id, \
+                "INSERT INTO blueprint_handler_targets (blueprint_id, version, handler_id, \
                  kind, target_id, workspace_id, team_id, owner_tab_id) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
@@ -439,7 +439,7 @@ pub(super) fn insert_head(
     version: u64,
 ) -> Result<(), StorageError> {
     cx.write(
-        "INSERT INTO sentinel_heads (sentinel_id, version) VALUES (?1, ?2)",
+        "INSERT INTO blueprint_heads (blueprint_id, version) VALUES (?1, ?2)",
         params![id, to_sql_u64("definition version", version)?],
     )?;
     Ok(())
@@ -447,7 +447,7 @@ pub(super) fn insert_head(
 
 pub(super) fn move_head(cx: &mut WriteCx<'_>, id: &str, version: u64) -> Result<(), StorageError> {
     cx.write(
-        "UPDATE sentinel_heads SET version = ?2 WHERE sentinel_id = ?1",
+        "UPDATE blueprint_heads SET version = ?2 WHERE blueprint_id = ?1",
         params![id, to_sql_u64("definition version", version)?],
     )?;
     Ok(())
@@ -455,7 +455,7 @@ pub(super) fn move_head(cx: &mut WriteCx<'_>, id: &str, version: u64) -> Result<
 
 pub(super) fn head_version(conn: &Connection, id: &str) -> Result<Option<u64>, StorageError> {
     let stored: Option<i64> = conn
-        .prepare_cached("SELECT version FROM sentinel_heads WHERE sentinel_id = ?1")
+        .prepare_cached("SELECT version FROM blueprint_heads WHERE blueprint_id = ?1")
         .and_then(|mut statement| statement.query_row([id], |row| row.get(0)).optional())
         .map_err(|e| sqlite_error("read sentinel head", e))?;
     stored
@@ -466,7 +466,7 @@ pub(super) fn head_version(conn: &Connection, id: &str) -> Result<Option<u64>, S
 pub(super) fn latest_version(conn: &Connection, id: &str) -> Result<u64, StorageError> {
     let latest: i64 = conn
         .prepare_cached(
-            "SELECT COALESCE(MAX(version), 0) FROM sentinel_definitions WHERE sentinel_id = ?1",
+            "SELECT COALESCE(MAX(version), 0) FROM blueprint_definitions WHERE blueprint_id = ?1",
         )
         .and_then(|mut statement| statement.query_row([id], |row| row.get(0)))
         .map_err(|e| sqlite_error("read sentinel versions", e))?;
@@ -476,9 +476,9 @@ pub(super) fn latest_version(conn: &Connection, id: &str) -> Result<u64, Storage
 /// `(max_transitions, max_actions)` of the current head version.
 pub(super) fn head_budgets(conn: &Connection, id: &str) -> Result<(u64, u64), StorageError> {
     conn.prepare_cached(
-        "SELECT CASE WHEN d.session THEN ?2 ELSE d.max_transitions END, CASE WHEN d.session THEN ?2 ELSE d.max_actions END FROM sentinel_heads h \
-         JOIN sentinel_definitions d ON d.sentinel_id = h.sentinel_id AND d.version = h.version \
-         WHERE h.sentinel_id = ?1",
+        "SELECT CASE WHEN d.session THEN ?2 ELSE d.max_transitions END, CASE WHEN d.session THEN ?2 ELSE d.max_actions END FROM blueprint_heads h \
+         JOIN blueprint_definitions d ON d.blueprint_id = h.blueprint_id AND d.version = h.version \
+         WHERE h.blueprint_id = ?1",
     )
     .and_then(|mut statement| {
         statement.query_row(params![id, codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT as i64], |row| {
@@ -504,9 +504,9 @@ pub(super) fn head_handler(
     let row = conn
         .prepare_cached(
             "SELECT hd.kind, hd.target_ref, hd.command, hd.label, hd.timeout_ms, hd.safe_kind, \
-             hd.escalate_to FROM sentinel_heads h JOIN sentinel_handlers hd \
-             ON hd.sentinel_id = h.sentinel_id AND hd.version = h.version \
-             WHERE h.sentinel_id = ?1 AND hd.bucket = ?2 AND hd.handler_id = ?3",
+             hd.escalate_to FROM blueprint_heads h JOIN blueprint_handlers hd \
+             ON hd.blueprint_id = h.blueprint_id AND hd.version = h.version \
+             WHERE h.blueprint_id = ?1 AND hd.bucket = ?2 AND hd.handler_id = ?3",
         )
         .and_then(|mut statement| {
             statement
@@ -553,7 +553,7 @@ pub(super) fn load_version(
              observe_ref, question, interval_ms, until_bucket, escalation_timeout_ms, \
              max_transitions, max_actions, replaced_version, author_tab_id, \
              cause_transition_id, authored_at, created_revision, terminal_spec, session \
-             FROM sentinel_definitions WHERE sentinel_id = ?1 AND version = ?2",
+             FROM blueprint_definitions WHERE blueprint_id = ?1 AND version = ?2",
         )
         .and_then(|mut statement| {
             statement
@@ -647,8 +647,8 @@ fn load_buckets(
     let mut buckets: Vec<BucketDefinition> = {
         let mut statement = conn
             .prepare_cached(
-                "SELECT bucket, match_pattern, rearm_on_change FROM sentinel_buckets \
-                 WHERE sentinel_id = ?1 AND version = ?2 ORDER BY ordinal",
+                "SELECT bucket, match_pattern, rearm_on_change FROM blueprint_buckets \
+                 WHERE blueprint_id = ?1 AND version = ?2 ORDER BY ordinal",
             )
             .map_err(|e| sqlite_error("read sentinel buckets", e))?;
         let rows = statement
@@ -673,8 +673,8 @@ fn load_buckets(
     let mut statement = conn
         .prepare_cached(
             "SELECT bucket, handler_id, kind, target_ref, command, label, timeout_ms, \
-             safe_kind, escalate_to FROM sentinel_handlers \
-             WHERE sentinel_id = ?1 AND version = ?2 ORDER BY bucket, ordinal",
+             safe_kind, escalate_to FROM blueprint_handlers \
+             WHERE blueprint_id = ?1 AND version = ?2 ORDER BY bucket, ordinal",
         )
         .map_err(|e| sqlite_error("read sentinel handlers", e))?;
     let rows = statement
@@ -725,7 +725,7 @@ fn load_targets(
     let mut statement = conn
         .prepare_cached(
             "SELECT handler_id, kind, target_id, workspace_id, team_id, owner_tab_id \
-             FROM sentinel_handler_targets WHERE sentinel_id = ?1 AND version = ?2",
+             FROM blueprint_handler_targets WHERE blueprint_id = ?1 AND version = ?2",
         )
         .map_err(|e| sqlite_error("read sentinel targets", e))?;
     let rows = statement
@@ -756,7 +756,7 @@ pub(super) fn load_lineage(
     let mut statement = conn
         .prepare_cached(
             "SELECT version, replaced_version, author_tab_id, cause_transition_id, authored_at \
-             FROM sentinel_definitions WHERE sentinel_id = ?1 AND version <= ?2 \
+             FROM blueprint_definitions WHERE blueprint_id = ?1 AND version <= ?2 \
              AND replaced_version IS NOT NULL ORDER BY version DESC LIMIT ?3",
         )
         .map_err(|e| sqlite_error("read sentinel lineage", e))?;
@@ -795,7 +795,7 @@ pub(super) fn load_history(
     let versions: Vec<i64> = {
         let mut statement = conn
             .prepare_cached(
-                "SELECT version FROM sentinel_definitions WHERE sentinel_id = ?1 ORDER BY version",
+                "SELECT version FROM blueprint_definitions WHERE blueprint_id = ?1 ORDER BY version",
             )
             .map_err(|e| sqlite_error("read sentinel versions", e))?;
         let rows = statement

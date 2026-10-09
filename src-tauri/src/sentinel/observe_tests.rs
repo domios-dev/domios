@@ -204,7 +204,7 @@ fn sentinel_removed_observation_tab_stops_with_one_creator_notice() {
 
     let binding = job.observe.as_ref().unwrap();
     let failure = super::observe(&fixture.service, &job, binding).unwrap_err();
-    assert_eq!(failure.reason(), "sentinel_observation_tab_removed");
+    assert_eq!(failure.reason(), "blueprint_observation_tab_removed");
 
     let store = std::sync::Arc::new(parking_lot::Mutex::new(store));
     crate::sentinel::storage::commit(&store, |store| {

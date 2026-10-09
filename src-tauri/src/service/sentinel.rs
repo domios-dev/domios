@@ -435,8 +435,8 @@ impl ServiceContext {
         if let Err(error) = crate::service::supporter::runtime_with_notifications(self)
             .sentinel_event(serde_json::json!({
                 "time": chrono::Utc::now().timestamp(),
-                "kind": "sentinel",
-                "sentinel_id": &updated.id,
+                "kind": "blueprint",
+                "blueprint_id": &updated.id,
                 "tab": &caller.tab,
                 "team_id": &caller.team,
                 "workspace_id": &caller.workspace,
@@ -597,8 +597,8 @@ impl ServiceContext {
         if let Err(error) = crate::service::supporter::runtime_with_notifications(self)
             .sentinel_event(serde_json::json!({
                 "time": chrono::Utc::now().timestamp(),
-                "kind": "sentinel",
-                "sentinel_id": id,
+                "kind": "blueprint",
+                "blueprint_id": id,
                 "transition_id": transition_id,
                 "tab": caller.tab,
                 "team_id": caller.team,
@@ -701,11 +701,12 @@ fn history_definition(
     expect_version: u64,
 ) -> Result<serde_json::Value, String> {
     if history
-        .get("sentinel_id")
+        .get("blueprint_id")
+        .or_else(|| history.get("sentinel_id"))
         .and_then(serde_json::Value::as_str)
         != Some(id)
     {
-        return Err("history sentinel_id does not match update id".into());
+        return Err("history blueprint_id does not match update id".into());
     }
     let current_version = history
         .get("current_version")

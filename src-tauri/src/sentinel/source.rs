@@ -155,13 +155,15 @@ pub(super) fn observe(
     binding: &TabBinding,
 ) -> Result<Output, ProbeFailure> {
     if job.observe.as_ref() != Some(binding) {
-        return Err(ProbeFailure::new("sentinel_observation_binding_changed"));
+        return Err(ProbeFailure::new("blueprint_observation_binding_changed"));
     }
     let (tab_id, run_id) = match binding {
         TabBinding::Tab(tab_id) => (tab_id.as_str(), None),
         TabBinding::CronRun(_) => {
             let Some(run) = job.run.as_ref() else {
-                return Err(ProbeFailure::new("sentinel_observation_source_unavailable"));
+                return Err(ProbeFailure::new(
+                    "blueprint_observation_source_unavailable",
+                ));
             };
             (run.tab_id.as_str(), Some(run.run_id.as_str()))
         }
@@ -170,9 +172,9 @@ pub(super) fn observe(
         let mux = svc.mux.read();
         validate_tab_scope(&mux, job, tab_id).map_err(|error| {
             if error == "observation tab not found" {
-                ProbeFailure::new("sentinel_observation_tab_removed")
+                ProbeFailure::new("blueprint_observation_tab_removed")
             } else {
-                ProbeFailure::new("sentinel_observation_scope_changed")
+                ProbeFailure::new("blueprint_observation_scope_changed")
             }
         })?
     };
@@ -194,11 +196,11 @@ pub(super) fn observe(
         run_id,
         screen.as_deref(),
     )
-    .map_err(|_| ProbeFailure::new("sentinel_observation_invalid"))?;
+    .map_err(|_| ProbeFailure::new("blueprint_observation_invalid"))?;
     let text = serde_json::to_string(&value)
-        .map_err(|_| ProbeFailure::new("sentinel_observation_encoding_failed"))?;
+        .map_err(|_| ProbeFailure::new("blueprint_observation_encoding_failed"))?;
     if text.len() > MAX_OBSERVATION_BYTES {
-        return Err(ProbeFailure::new("sentinel_observation_too_large"));
+        return Err(ProbeFailure::new("blueprint_observation_too_large"));
     }
     Ok(Output {
         bytes: text.as_bytes().to_vec(),

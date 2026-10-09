@@ -85,6 +85,7 @@ pub struct AmendmentLineage {
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct History {
+    #[serde(rename = "blueprint_id", alias = "sentinel_id")]
     pub sentinel_id: String,
     pub current_version: u64,
     pub history_truncated: bool,
@@ -403,7 +404,7 @@ impl Store {
         };
         if let Some(capability) = next.pending_capability() {
             return Staged::ready(Err(format!(
-                "sentinel_capability_unavailable: {capability} is not executable yet"
+                "blueprint_capability_unavailable: {capability} is not executable yet"
             )));
         }
         if let Some(cancelled) = self.active.remove(&current.id) {
@@ -510,7 +511,7 @@ pub fn from_storage_history(sentinel_id: String, versions: Vec<DefinitionVersion
 }
 
 pub(crate) fn version_conflict(current_version: u64) -> String {
-    format!("sentinel_version_conflict: current_version={current_version}")
+    format!("blueprint_version_conflict: current_version={current_version}")
 }
 
 fn claimed_actions(job: &Sentinel) -> usize {

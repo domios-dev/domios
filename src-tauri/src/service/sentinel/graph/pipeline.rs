@@ -58,7 +58,7 @@ pub(super) fn project_pipeline_contract(
     for job in jobs.iter().filter(|job| job.is_scenario_root()) {
         let Some(node) = snapshot.nodes.iter_mut().find(|node| {
             node.pointer("/identity/id").and_then(Value::as_str) == Some(job.id.as_str())
-                && node.pointer("/identity/kind").and_then(Value::as_str) == Some("sentinel")
+                && node.pointer("/identity/kind").and_then(Value::as_str) == Some("blueprint")
         }) else {
             continue;
         };

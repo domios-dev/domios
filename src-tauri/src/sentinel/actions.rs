@@ -28,12 +28,16 @@ pub(super) fn respond_prompt(
     };
     let observed: Value = match serde_json::from_str(&output.text) {
         Ok(observed) => observed,
-        Err(_) => return Ok(prompt_refused_effect("sentinel_prompt_observation_invalid")),
+        Err(_) => {
+            return Ok(prompt_refused_effect(
+                "blueprint_prompt_observation_invalid",
+            ))
+        }
     };
     let prompt = observed
         .get("prompt")
         .filter(|prompt| !prompt.is_null())
-        .ok_or("sentinel_prompt_observation_missing_identity");
+        .ok_or("blueprint_prompt_observation_missing_identity");
     let prompt = match prompt {
         Ok(prompt) => prompt,
         Err(reason) => return Ok(prompt_refused_effect(reason)),
@@ -53,7 +57,7 @@ fn prompt_request_effect(effect: RequestEffect) -> Effect {
         status: Status::Unconfirmed,
         execution_id,
         command_result: None,
-        reason: Some("sentinel_prompt_answer_held".into()),
+        reason: Some("blueprint_prompt_answer_held".into()),
     }
 }
 
@@ -81,7 +85,7 @@ mod tests {
             assert_eq!(effect.status, Status::Unconfirmed);
             assert_eq!(
                 effect.reason.as_deref(),
-                Some("sentinel_prompt_answer_held")
+                Some("blueprint_prompt_answer_held")
             );
         }
         assert_eq!(
@@ -94,11 +98,11 @@ mod tests {
 
     #[test]
     fn prompt_refusal_keeps_its_reason() {
-        let effect = prompt_refused_effect("sentinel_prompt_identity_changed");
+        let effect = prompt_refused_effect("blueprint_prompt_identity_changed");
         assert_eq!(effect.status, Status::Failed);
         assert_eq!(
             effect.reason.as_deref(),
-            Some("sentinel_prompt_identity_changed")
+            Some("blueprint_prompt_identity_changed")
         );
     }
 }
