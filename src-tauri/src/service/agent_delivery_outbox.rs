@@ -24,12 +24,12 @@ impl ServiceContext {
             crate::flow_trace::record(&id, "message.started", target, "", "accepted", None);
             payload.trace_id = Some(id);
         }
+        let pty_claim = self.pty_ownership.acquire(target);
         self.pin_agent_delivery_binding(target, &mut payload)?;
         let encoded = serde_json::to_string(&payload)
             .map_err(|_| "agent delivery payload serialization failed")?;
         let idempotency_key = self.agent_delivery_idempotency_key(&payload);
         let owner = Arc::clone(&self.pending_delivery_payloads.agent_deliveries);
-        let pty_claim = self.pty_ownership.acquire(target);
         if owner.has_pending(target)? {
             let id = owner.enqueue(target, &encoded, idempotency_key)?;
             if let Some(flow) = payload.trace_id.as_deref() {

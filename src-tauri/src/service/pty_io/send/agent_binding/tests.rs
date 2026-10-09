@@ -30,6 +30,27 @@ fn pinned(tab: &Tab) -> AgentDeliveryPayload {
 }
 
 #[test]
+fn incoming_launch_does_not_pin_the_outgoing_pty() {
+    let mut tab = launching_tab();
+    tab.boot_stage = Some(BootStage::PtyStarting);
+    tab.agent_session_id = Some("saved-own-session".into());
+    let payload = pinned(&tab);
+    assert!(payload.expected_pty_id.is_none());
+    assert!(queued_delivery_target(&tab, &payload).is_err());
+    tab.pty_id = Some("replacement-pty".into());
+    tab.boot_stage = Some(BootStage::AgentReady);
+    tab.agent_booting = false;
+    assert!(queued_delivery_target(&tab, &payload).is_err());
+    tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
+    assert_eq!(
+        queued_delivery_target(&tab, &payload).unwrap(),
+        ("replacement-pty".into(), "late-session-provider".into())
+    );
+    tab.session_binding_nonce = Some("unrelated-launch".into());
+    assert!(queued_delivery_target(&tab, &payload).is_err());
+}
+
+#[test]
 fn reserved_nonce_admits_before_pty_registration_and_refuses_ended_launch() {
     let mut tab = launching_tab();
     tab.pty_id = None;
