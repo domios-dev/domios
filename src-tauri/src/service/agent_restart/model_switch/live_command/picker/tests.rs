@@ -9,6 +9,20 @@ fn commands() -> crate::agent::provider::ModelSwitchCommands {
     serde_json::from_value(manifest["commands"]["modelSwitchCommands"].clone()).unwrap()
 }
 
+fn column_picker() -> crate::agent::provider::ModelSwitchPicker {
+    use crate::agent::provider::{ModelSwitchPicker, ModelSwitchPickerPosition};
+    ModelSwitchPicker {
+        screen_regex: r"(?m)^\s*Effort\s*$[\s\S]*^\s*←/→ to adjust · Enter to confirm · s for this session only · Esc to cancel\s*\z".into(),
+        selected_regex: r"(?m)^(?P<position>[^\r\n▲]*)▲[^\r\n]*\r?$".into(),
+        target_regex: r"(?im)^(?P<position>[^\r\n]*?)(?P<label>\b{effort}\b)[^\r\n]*\s+Tab to toggle\s*\r?$".into(),
+        position: ModelSwitchPickerPosition::Column,
+        previous_key: "\x1b[D".into(),
+        next_key: "\x1b[C".into(),
+        response_key: "s".into(),
+        cancel_key: "\x1b".into(),
+    }
+}
+
 fn target() -> CommandTarget {
     CommandTarget {
         tab_id: "owned-tab".into(),
@@ -86,13 +100,8 @@ fn missing_model_refuses_without_navigation_or_submit() {
 }
 
 #[test]
-fn effort_uses_the_current_gauge_and_ignores_history() {
-    let mut picker = CommandPicker::new(
-        &commands().effort.unwrap().picker.unwrap(),
-        &target(),
-        Some("xhigh"),
-    )
-    .unwrap();
+fn column_picker_uses_the_current_gauge_and_ignores_history() {
+    let mut picker = CommandPicker::new(&column_picker(), &target(), Some("xhigh")).unwrap();
     picker.injected();
     let mut keys = Vec::new();
     picker
@@ -118,17 +127,12 @@ fn effort_uses_the_current_gauge_and_ignores_history() {
 }
 
 #[test]
-fn already_selected_effort_uses_s_without_changing_the_model() {
+fn already_selected_column_picker_uses_s_without_changing_the_model() {
     for screen in [
         EFFORT_SCREEN.replace("\r\n", "\n"),
         EFFORT_SCREEN.replace("\r\n", "\n").replace('\n', "\r\n"),
     ] {
-        let mut picker = CommandPicker::new(
-            &commands().effort.unwrap().picker.unwrap(),
-            &target(),
-            Some("high"),
-        )
-        .unwrap();
+        let mut picker = CommandPicker::new(&column_picker(), &target(), Some("high")).unwrap();
         picker.injected();
         let mut keys = Vec::new();
         picker
@@ -168,4 +172,31 @@ fn catalogue_labels_and_model_ids_match_lf_and_crlf_rows() {
             assert_eq!(keys, vec![b"\x1b[A".to_vec()], "{model} / {display_name}");
         }
     }
+}
+
+#[test]
+fn direct_effort_declaration_renders_target_and_confirms_captured_stdout() {
+    let commands = commands();
+    let plan = planned_commands(&commands, false, Some("high"), Some("medium"));
+    assert_eq!(plan.len(), 1);
+    assert_eq!(
+        render_command(&plan[0].0.command, "haiku", plan[0].1).unwrap(),
+        "/effort high"
+    );
+    assert!(plan[0].0.picker.is_none());
+    assert!(plan[0].0.prompt.is_none());
+    let pattern =
+        confirmation_pattern(&plan[0].0.confirmation, "haiku", "Haiku 5.5", plan[0].1).unwrap();
+    let captured = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../plugins/provider-claude/tests/fixtures/model-switch/effort-direct-confirmation.txt"
+    ));
+    assert!(captured
+        .lines()
+        .filter(|line| line.starts_with("Set effort level to high"))
+        .any(|line| pattern.is_match(line)));
+    assert!(!captured
+        .lines()
+        .filter(|line| line.starts_with("Set effort level to medium"))
+        .any(|line| pattern.is_match(line)));
 }
