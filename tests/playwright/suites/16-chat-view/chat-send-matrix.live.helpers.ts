@@ -302,6 +302,10 @@ export async function openAgent(
   const conversation = chat.getByRole("log", { name: "Conversation" });
   const composer = chat.getByRole("textbox", { name: "Message composer" });
   const activate = async () => {
+    const showAllWorkspaces = ui.page.getByRole("button", { name: /^Show all workspaces,/ });
+    if ((await workspaceCard.count()) === 0 && await showAllWorkspaces.isVisible()) {
+      await showAllWorkspaces.click();
+    }
     await expect(workspaceCard, `owned workspace ${workspaceId} is visible`).toBeVisible({
       timeout: 30_000,
     });
@@ -1055,4 +1059,3 @@ export function recordMetrics(metrics: ProviderMetrics): Record<string, unknown>
     maxComposerToDeliveredMs: Math.max(0, ...latencies),
   };
 }
-

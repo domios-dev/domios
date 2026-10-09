@@ -25,6 +25,11 @@ pnpm exec playwright test -c tests/playwright --project=live-model-switch
 ```
 
 Include `opencode` only after the Orchestrator confirms hook v7 is on DEV.
+For a coordinated single run, set `PW_SWITCH_RUNS=1` and
+`PW_SWITCH_RUN_NUMBER` to its stability index (1..3). Optional
+`PW_SWITCH_WORKSPACE` must name an empty provisioned `SwitchQA-*` workspace;
+the suite validates it before spawning tabs. Clear that variable for automatic
+workspace creation or when using a restored manifest.
 Descriptors discover model A (provider default) and B (a different primary
 model, or a different catalogue model when no primary group exists). No model
 ids are hardcoded. Restart/resume modes fail with their explicit descriptor
