@@ -68,8 +68,8 @@ well-meaning "one more heuristic" changes. Read this before touching
 
 An admitted USER-initiated send (chat UI, via `start_chat_send`) remains
 conserved or honestly classified. Bounded durable admission can refuse capacity,
-preparation, or persistence before acceptance; preserve draft and attachments,
-including newer edits and ambiguous RPC completion, without automatic resubmit.
+preparation, or persistence before acceptance; clear the composer immediately and retain the message and attachments on one optimistic
+bubble, including rejected or ambiguous RPC completion, without automatic resubmit.
 Acceptance requires payload and index durability off the UI/runtime and outside
 mux/ledger locks. This user backlog is separate from launch/bootstrap replacement.
 The prewrite owner holds only sends accepted before the current launch's readiness
@@ -130,8 +130,11 @@ Claimed or uncertain records remain held and are never replayed.
 - A send with no evidence after the recovery deadline remains `submit_unconfirmed`.
   Anchored sends can still reconcile from later transcript evidence; a send
   whose session or bounded window cannot be identified remains honestly
-  live-evidence-only. Chat UI never renders delivery banners, failure cards,
-  Retry actions, or notifications.
+  live-evidence-only. Chat shows one bubble per send: sending for written or
+  unconfirmed input, queued while held, normal when delivered, and a quiet
+  not-delivered mark with Retry for proven refusal or failed never-written input.
+  Retry reuses the bubble with a fresh correlation token and transaction; it never
+  replays uncertain or written input. Provider echoes reconcile into that bubble.
 
 ## Hard don'ts
 
@@ -156,3 +159,5 @@ Claimed or uncertain records remain held and are never replayed.
 | Chat send ledger + turn-evidence reconciliation | `service/chat_send_transaction.rs` |
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
+
+<!-- revision: 1 -->

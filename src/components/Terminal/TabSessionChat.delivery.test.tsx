@@ -1,5 +1,4 @@
 import { act } from "react";
-import { existsSync, readFileSync } from "node:fs";
 import { Window } from "happy-dom";
 import { createRoot, type Root } from "react-dom/client";
 import type { Tab } from "../../lib/types";
@@ -10,7 +9,7 @@ import {
 } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../store/multiplexer/tree";
-import { addChatSend } from "./chatSendStore";
+import { addChatSend, readChatSends } from "./chatSendStore";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -141,7 +140,7 @@ async function renderChat(tabId = "delivery-tab"): Promise<{
         subscription_id: "delivery-subscription",
       };
     }
-    if (command === "delayed_send_list") return [];
+    if (command === "delayed_send_list" || command === "chat_send_status") return [];
     return {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }) as any);
@@ -241,28 +240,48 @@ test("three optimistic sends render as one bubble when one glued provider turn a
   host.remove();
 });
 
-test("TabSessionChat does not subscribe to or render delivery telemetry", () => {
-  const source = readFileSync(new URL("./TabSessionChat.tsx", import.meta.url), "utf8");
-  assert(!source.includes("listen<ChatSendStatus>"), "no delivery-status subscription");
-  assert(!source.includes("ChatDeliveryState"), "no delivery-state renderer");
-  assert(!source.includes("retryChatDelivery"), "no delivery Retry path");
-});
-
-test("the send boundary logs failures and has no delivery notification path", () => {
-  const source = readFileSync(new URL("./ChatComposer.tsx", import.meta.url), "utf8");
-  const sendStart = source.indexOf("async function send(");
-  const sendEnd = source.indexOf("async function scheduleDraft", sendStart);
-  const sendBody = source.slice(sendStart, sendEnd);
-
-  assert(sendBody.includes('console.warn("[chat-send] optimistic delivery failed"'), "failure is logged");
-  assert(
-    !sendBody.includes("showComposerError(e instanceof Error ? e.message : String(e));"),
-    "delivery failure never enters notification UI",
-  );
-  assert(
-    !existsSync(new URL("./ChatDeliveryState.tsx", import.meta.url)),
-    "delivery status component is deleted",
-  );
+test("one bubble follows event state and Retry reuses it", async () => {
+  const tabId = "bubble-delivery-states";
+  const { __setInvokeForTest } = await import("../../lib/bridge");
+  const { host, root, dispatch } = await renderChat(tabId);
+  const status = (state: "held" | "written" | "failed" | "delivered", sequence: number, send_id = "tx-one") => ({
+    tab_id: tabId, send_id, state, sequence, ledger_id: "ledger", retained_from: 1,
+    error: null, correlationId: readChatSends(tabId)[0]?.correlationId ?? "bubble-one",
+  });
+  let latest = status("held", 1);
+  let requests = 0;
+  __setInvokeForTest(async <T,>(command: string) => {
+    if (command === "chat_send_status") return [latest] as T;
+    if (command === "chat_send_text") { requests++; latest = status("written", 5, "tx-two"); return latest as T; }
+    return [] as T;
+  });
+  try {
+    await act(async () => addChatSend(tabId, { id: "bubble-one", correlationId: "bubble-one", content: "opaque-message", sentAtMs: Date.now() }));
+    const bubble = () => host.querySelectorAll('[data-testid="chat-message"][data-message-role="user"]');
+    assert(bubble().length === 1, "one optimistic row");
+    assert(host.querySelector('[role="status"]')?.getAttribute("aria-live") === "polite", "subtle accessible status");
+    for (const [state, sequence] of [["held", 2], ["failed", 4]] as const) {
+      latest = status(state, sequence);
+      await act(async () => { dispatch("chat-send-status", latest); });
+      assert(bubble().length === 1, "state changes never add a row");
+    }
+    const retry = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Retry");
+    assert(retry, "failed send offers Retry");
+    await act(async () => { retry.click(); retry.click(); });
+    assert(requests === 1, "Retry admits once");
+    assert(readChatSends(tabId).length === 1, "Retry keeps one send record");
+    assert(bubble()[0]?.getAttribute("data-message-id") === "bubble-one", "Retry retains bubble identity");
+    latest = status("delivered", 6, "tx-two");
+    await act(async () => { dispatch("chat-send-status", latest); });
+    assert(!Array.from(host.querySelectorAll("button")).some((button) => button.textContent === "Retry"), "delivery removes Retry");
+    await act(async () => dispatch(`tab-chat-msg-${tabId}`, {
+      tab_id: tabId, source_session_id: "session-1", session_binding_nonce: "nonce-1",
+      messages: [{ id: "provider-echo", type: "user", content: "opaque-message", timestamp: String(Date.now()), correlationId: latest.correlationId }],
+    }));
+    assert(bubble().length === 1, "provider echo reconciles to one row");
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+  }
 });
 
 async function main() {
