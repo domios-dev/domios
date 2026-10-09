@@ -2,7 +2,7 @@
   --ct-composer-gutter-x: 0.75rem;
   --ct-composer-gutter-b: var(--ct-composer-bottom-padding, calc(0.5rem + var(--ct-safe-bottom, 0px)));
   --ct-composer-lane-max: 56rem;
-  --ct-composer-radius: 1.35rem;
+  --ct-composer-radius: 1.215rem;
   --ct-composer-editor-max: min(230px, 40dvh);
   --ct-composer-float-min-width: 30rem;
   --ct-composer-control-size: var(--ct-control-height);
@@ -78,7 +78,7 @@
 .ct-chat-bottom-bar {
   margin: 0 max(0.5rem, calc((100% - 58rem) / 2)) 0.5rem;
   padding-block: 0.5rem 0.375rem;
-  border-radius: 1.75rem;
+  border-radius: 1.575rem;
   background-color: var(--ct-bg);
   box-shadow: var(--ct-shadow-capsule);
   transition: margin var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
