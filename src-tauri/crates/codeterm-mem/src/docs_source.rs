@@ -41,6 +41,7 @@ macro_rules! embedded_docs {
 }
 
 const DOCS: &[EmbeddedDoc] = embedded_docs![
+    "SPINAL-CORD",
     "BLUEPRINTS",
     "BLUEPRINT-RECIPES",
     "CONFIG",
@@ -63,6 +64,7 @@ const DOCS: &[EmbeddedDoc] = embedded_docs![
     "API-TRANSPORT",
     "API-CLI",
     "TAB-LIFECYCLE",
+    "SURFACES",
     "MESH",
     "MESH-SERVICES",
     "MEMORY",

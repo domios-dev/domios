@@ -554,6 +554,7 @@ pub(crate) fn normalize_session_model(model: &str) -> String {
 /// A tab launched with a DECLARED model was dispatched as that agent; running a
 /// different one is a failure, not a note. Without a declaration the operator
 /// took the default and a substitution is only worth a warning.
+#[cfg(test)]
 pub(crate) fn unrequested_substitution_severity(planned_model: Option<&str>) -> &'static str {
     match planned_model
         .map(str::trim)

@@ -579,16 +579,7 @@ pub(super) fn notify_pipeline_result(
 }
 
 pub fn action_name(route: &Route) -> &'static str {
-    match route {
-        Route::Notify => "notify",
-        Route::Send(_) => "send",
-        Route::Cron(_) => "cron",
-        Route::Stop => "stop",
-        Route::Command(_) => "command",
-        Route::Sentinel(_) => "blueprint",
-        Route::RespondPrompt(_) => "respond_prompt",
-        Route::Escalate(_) => "escalate",
-    }
+    route.name()
 }
 
 #[cfg(test)]

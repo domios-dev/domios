@@ -27,8 +27,7 @@ mod spawn_model_catalogue;
 pub use spawn_model::ModelFallbackNotice;
 pub(crate) use spawn_model::{
     attach_planned_model, normalize_session_model, persist_model_launch_identity,
-    resolve_fresh_agent_model, resolve_fresh_agent_model_with_notice,
-    unrequested_substitution_severity, CatalogBackgroundModelPort,
+    resolve_fresh_agent_model, resolve_fresh_agent_model_with_notice, CatalogBackgroundModelPort,
 };
 pub(crate) use spawn_model_catalogue::{
     catalogue_lookup_model, catalogue_models_match, model_catalogue_capability,
