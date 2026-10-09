@@ -4,6 +4,40 @@ use crate::multiplexer::types::{ReasoningEffortIdentity, Tab};
 const UNVERIFIED: &str = "provider-default-unverified";
 const SESSION_OWNED: &str = "session-owned";
 
+struct EffortObservation {
+    identity: ReasoningEffortIdentity,
+    nonce: Option<String>,
+    acknowledged_nonce: Option<String>,
+}
+
+impl EffortObservation {
+    fn capture(tab: &Tab) -> Self {
+        Self {
+            identity: tab.reasoning_effort_identity.clone(),
+            nonce: tab.session_binding_nonce.clone(),
+            acknowledged_nonce: tab.reported_session_binding_nonce.clone(),
+        }
+    }
+
+    fn current(&self, tab: &Tab) -> bool {
+        self.identity == tab.reasoning_effort_identity
+            && self.nonce == tab.session_binding_nonce
+            && self.acknowledged_nonce == tab.reported_session_binding_nonce
+    }
+}
+
+fn apply_observed_actual(
+    tab: &mut Tab,
+    agent_id: &str,
+    session_id: &str,
+    binding_nonce: Option<&str>,
+    actual: Option<String>,
+    expected: Option<&EffortObservation>,
+) -> bool {
+    expected.is_none_or(|expected| expected.current(tab))
+        && apply_session_owned_actual(tab, agent_id, session_id, binding_nonce, actual)
+}
+
 fn normalized(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
@@ -75,11 +109,15 @@ impl ServiceContext {
         cwd: &str,
         session_id: &str,
     ) {
-        let model = self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .and_then(|tab| tab.agent_provider_resolved_model.clone());
+        let observation = self.mux.read().get_tab(tab_id).map(|tab| {
+            (
+                tab.agent_provider_resolved_model.clone(),
+                EffortObservation::capture(tab),
+            )
+        });
+        let Some((model, observation)) = observation else {
+            return;
+        };
         let actual = self
             .agent_registry
             .with_provider(agent_id, |provider| {
@@ -90,7 +128,14 @@ impl ServiceContext {
                     })
             })
             .flatten();
-        self.record_session_reasoning_effort(tab_id, agent_id, session_id, None, actual);
+        self.record_observed_reasoning_effort(
+            tab_id,
+            agent_id,
+            session_id,
+            observation.nonce.as_deref(),
+            actual,
+            Some(&observation),
+        );
     }
 
     pub(crate) fn record_session_reasoning_effort(
@@ -101,13 +146,32 @@ impl ServiceContext {
         binding_nonce: Option<&str>,
         actual: Option<String>,
     ) {
+        self.record_observed_reasoning_effort(
+            tab_id,
+            agent_id,
+            session_id,
+            binding_nonce,
+            actual,
+            None,
+        );
+    }
+
+    fn record_observed_reasoning_effort(
+        &self,
+        tab_id: &str,
+        agent_id: &str,
+        session_id: &str,
+        binding_nonce: Option<&str>,
+        actual: Option<String>,
+        expected: Option<&EffortObservation>,
+    ) {
         let (identity_changed, owned_actual) = {
             let mut mux = self.mux.write();
             let Some(tab) = mux.get_tab_mut(tab_id) else {
                 return;
             };
             let identity_changed =
-                apply_session_owned_actual(tab, agent_id, session_id, binding_nonce, actual);
+                apply_observed_actual(tab, agent_id, session_id, binding_nonce, actual, expected);
             let owned_actual = (tab.agent_type.as_deref() == Some(agent_id)
                 && tab.agent_session_id.as_deref() == Some(session_id)
                 && tab.reasoning_effort_identity.actual_source.as_deref() == Some(SESSION_OWNED))
@@ -192,6 +256,63 @@ fn session_effort_epoch_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stale_refresh_cannot_replace_a_newer_confirmed_command_or_binding() {
+        let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("provider".into());
+        tab.agent_session_id = Some("own".into());
+        apply_session_owned_actual(tab, "provider", "own", None, Some("low".into()));
+        let observation = EffortObservation::capture(tab);
+        persist_launch_identity(tab, Some("medium"), Some("medium"));
+        tab.reasoning_effort_identity.actual = Some("medium".into());
+        tab.reasoning_effort_identity.actual_source = Some("session-command".into());
+        assert!(!apply_observed_actual(
+            tab,
+            "provider",
+            "own",
+            None,
+            Some("low".into()),
+            Some(&observation)
+        ));
+        assert_eq!(
+            tab.reasoning_effort_identity.actual.as_deref(),
+            Some("medium")
+        );
+        let observation = EffortObservation::capture(tab);
+        assert!(apply_observed_actual(
+            tab,
+            "provider",
+            "own",
+            None,
+            Some("medium".into()),
+            Some(&observation)
+        ));
+        let observation = EffortObservation::capture(tab);
+        assert!(apply_observed_actual(
+            tab,
+            "provider",
+            "own",
+            None,
+            Some("high".into()),
+            Some(&observation)
+        ));
+        assert_eq!(
+            tab.reasoning_effort_identity.actual.as_deref(),
+            Some("high")
+        );
+        let observation = EffortObservation::capture(tab);
+        tab.session_binding_nonce = Some("new-launch".into());
+        assert!(!apply_observed_actual(
+            tab,
+            "provider",
+            "own",
+            None,
+            Some("low".into()),
+            Some(&observation)
+        ));
+    }
 
     #[test]
     fn session_owned_effort_attestation_never_uses_global_latest() {
