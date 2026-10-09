@@ -10,3 +10,9 @@ test("Tab cwd updates do not restart the live PTY reader", () => {
   assert.doesNotMatch(source, /\}, \[ptyId, tabId, tabCwd,/);
   assert.match(source, /consumePendingCwd\(tabId\) \|\| tabCwdRef\.current/);
 });
+
+test("An unmounted reader leaves the uncancellable read_pty long-poll instead of retaining the terminal", () => {
+  assert.match(source, /await Promise\.race\(\[invoke<number\[\]>\("read_pty", \{ ptyId: predictedId \}\), readingStopped\]\)/);
+  assert.match(source, /await Promise\.race\(\[waitForDrain\(\), readingStopped\]\)/);
+  assert.match(source, /reading = false;\r?\n\s+stopReading\(\);/);
+});
