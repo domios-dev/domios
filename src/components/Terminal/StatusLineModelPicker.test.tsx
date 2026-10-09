@@ -276,7 +276,7 @@ test("Enter commits the staged effort once and shows it in the status line", asy
 });
 
 for (const fails of [false, true]) {
-  test(`Apply displays the draft before the response and ${fails ? "rolls back on failure" : "retains it on success"}`, async () => {
+  test(`Apply closes the picker, shows Applying with the draft, and ${fails ? "rolls back on failure" : "retains it on success"}`, async () => {
     let resolve!: () => void;
     let reject!: (error: Error) => void;
     const response = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
@@ -290,8 +290,8 @@ for (const fails of [false, true]) {
       await act(async () => button("Low").click());
       await act(async () => button("Apply").click());
       assert.equal(view.trigger()!.textContent, "Vendor · deep · low");
-      assert.equal(view.host.querySelector('[role="status"]'), null);
-      await act(async () => view.picker()!.dispatchEvent(new KeyboardEvent("keydown", { code: "Enter", bubbles: true })));
+      assert.equal(view.picker(), null);
+      assert.equal(view.host.querySelector('[role="status"]')?.textContent, "Applying…");
       assert.deepEqual(calls, [["tab", "deep", "low"]]);
       await act(async () => { if (fails) reject(new Error("refused")); else resolve(); });
       if (fails) {
@@ -302,6 +302,7 @@ for (const fails of [false, true]) {
         assert.equal(view.trigger()!.textContent, "Vendor · deep · low");
         assert.equal(view.picker(), null);
       }
+      assert.equal(view.host.querySelector('[role="status"]'), null);
     } finally {
       await view.unmount();
       __setTabModelApiForTest(null);
