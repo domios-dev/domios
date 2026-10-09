@@ -13,61 +13,46 @@ body,
   background: var(--ct-bg);
 }
 
-.portal-inner {
-  max-width: 880px;
-  margin: 0 auto;
-  padding: 64px 24px 80px;
-  font-family: var(--ct-font-ui);
-}
-
-.portal-kicker {
-  margin: 0 0 6px;
-  color: var(--ct-muted-fg);
-  font: 11px var(--ct-font-mono);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.portal-inner > h1 {
-  margin: 0 0 8px;
-  font-size: 26px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
-}
-
-.portal-lede {
-  max-width: 70ch;
-  margin: 0 0 20px;
-  color: var(--ct-muted-fg);
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.portal-back {
-  color: var(--ct-muted-fg);
-  font-size: 12px;
-}
-
 .gallery-catalog { display: grid; grid-template-columns: 216px minmax(0, 1fr); min-height: 100vh; }
-.gallery-nav { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto; box-sizing: border-box; padding: 26px 14px; border-right: 1px solid var(--ct-border); background: var(--ct-sidebar-bg); font-family: var(--ct-font-ui); }
-.gallery-nav-title { display: block; margin: 0 8px 26px; color: var(--ct-fg); font: 600 13px var(--ct-font-mono); text-decoration: none; }
-.gallery-nav-group { margin: 0 0 20px; }
-.gallery-nav-group h2 { margin: 0 8px 6px; color: var(--ct-muted-fg); font: 600 10px/1.2 var(--ct-font-mono); letter-spacing: 0.1em; text-transform: uppercase; }
-.gallery-nav-group a { display: block; padding: 6px 8px; border-radius: 5px; color: var(--ct-muted-fg); font-size: 12px; text-decoration: none; }
+.gallery-nav { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto; box-sizing: border-box; padding: 24px 12px; background: var(--ct-bg); font-family: var(--ct-font-ui); }
+.gallery-nav-title { display: block; margin: 0 8px 20px; color: var(--ct-fg); font: 600 13px var(--ct-font-mono); text-decoration: none; }
+.gallery-search { width: 100%; box-sizing: border-box; height: var(--ct-control-height); margin-bottom: 20px; padding: 0 10px; border: 1px solid var(--ct-border); border-radius: 10px; background: var(--ct-bg); color: var(--ct-fg); font: 12px var(--ct-font-ui); }
+.gallery-search::placeholder { color: var(--ct-muted-fg); }
+.gallery-nav-group { margin: 0 0 14px; }
+.gallery-nav-group summary { padding: 6px 8px; color: var(--ct-muted-fg); font: 11px var(--ct-font-mono); cursor: pointer; }
+.gallery-nav-group summary span { float: right; opacity: .6; }
+.gallery-nav-group a { display: block; padding: 6px 8px; border-radius: 8px; color: var(--ct-muted-fg); font-size: 12px; text-decoration: none; transition: background var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle), color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle); }
 .gallery-nav-group a:hover { color: var(--ct-fg); background: var(--ct-hover); }
-.gallery-nav-group a.is-active { color: var(--ct-fg); background: color-mix(in srgb, var(--ct-accent) 16%, transparent); box-shadow: inset 2px 0 var(--ct-accent); }
+.gallery-nav-group a.is-active { color: var(--ct-fg); background: color-mix(in srgb, var(--ct-accent) 10%, var(--ct-bg)); }
+.gallery-nav-empty { padding: 0 8px; color: var(--ct-muted-fg); font-size: 12px; }
 .gallery-content { min-width: 0; }
-.gallery-detail { max-width: 1180px; }
-.gallery-empty { padding-top: 88px; }
+.gallery-page { font-family: var(--ct-font-ui); }
+.gallery-header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px 20px; padding: 24px 28px 20px; }
+.gallery-heading { display: flex; flex: 1; align-items: baseline; flex-wrap: wrap; gap: 8px 16px; min-width: 0; }
+.gallery-heading h1 { margin: 0; font-size: 22px; font-weight: 650; letter-spacing: -.02em; }
+.gallery-kicker { margin: 0; color: var(--ct-muted-fg); font: 11px/1.5 var(--ct-font-mono); overflow-wrap: anywhere; }
+.gallery-about { max-width: 70ch; color: var(--ct-muted-fg); font-size: 12px; }
+.gallery-about summary { cursor: pointer; }
+.gallery-about[open] { flex-basis: 100%; order: 1; }
+.gallery-about p { margin: 10px 0 0; line-height: 1.6; }
+.gallery-canvas { --gallery-gap: 28px; padding: 24px 28px 36px; min-height: calc(100vh - 90px); box-sizing: border-box; background-color: color-mix(in srgb, var(--ct-fg) 2.5%, var(--ct-bg)); background-image: radial-gradient(circle, color-mix(in srgb, var(--ct-fg) 4%, transparent) .8px, transparent 1px); background-size: 20px 20px; }
+.gallery-artboards { display: flex; flex-wrap: wrap; align-items: flex-start; align-content: flex-start; gap: var(--gallery-gap); }
+.gallery-artboard { display: flex; flex-direction: column; width: max-content; max-width: 100%; min-width: 0; margin: 0; }
+.gallery-artboard--wide { width: min(100%, 560px); }
+.gallery-artboard--full { width: 100%; }
+.gallery-state-label { margin-bottom: 8px; color: var(--ct-muted-fg); font: 11px/1.5 var(--ct-font-mono); }
+.gallery-state-label a { display: inline-flex; align-items: baseline; gap: 8px; color: var(--ct-fg); text-decoration: none; }
+.gallery-state-label a span { color: var(--ct-muted-fg); }
+.gallery-state-label a:hover { color: var(--ct-accent); }
+.gallery-overview-group + .gallery-overview-group { margin-top: 36px; }
+.gallery-overview-group h2 { display: flex; gap: 10px; align-items: baseline; margin: 0 0 16px; font-size: 14px; font-weight: 600; }
+.gallery-overview-group h2 span { color: var(--ct-muted-fg); font: 11px var(--ct-font-mono); }
+.gallery-pagination { display: flex; justify-content: space-between; gap: 16px; padding: 16px 28px; font-family: var(--ct-font-ui); }
+.gallery-pagination a { text-decoration: none; }
+.gallery-catalog :is(a, input, summary):focus-visible { outline: 2px solid var(--ct-accent); outline-offset: 3px; }
 
-.gallery-state-board { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 28px; }
-.gallery-state-board--wide { grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); }
-.gallery-state-board--full { grid-template-columns: minmax(0, 1fr); }
-.gallery-state-stage { display: flex; flex-direction: column; min-width: 0; margin: 0; padding: 14px; border: 1px solid var(--ct-border); border-radius: 9px; background: var(--ct-surface); }
-.gallery-state-label { display: block; margin-bottom: 12px; color: var(--ct-muted-fg); font: 11px var(--ct-font-mono); }
-
-/* The transform makes the stage the containing block for fixed product overlays portaled into it. */
-.gallery-stage-instance { position: relative; overflow: hidden; display: grid; flex: 1; align-content: center; justify-items: center; gap: 4px; min-height: 126px; padding: 14px; border-radius: 6px; background: var(--ct-bg); color: var(--ct-fg); font-family: var(--ct-font-ui); transform: translateZ(0); }
+/* The transform contains fixed overlays within the artboard's portal host. */
+.gallery-stage-instance { position: relative; overflow: hidden; display: grid; align-content: center; justify-items: center; gap: 4px; min-width: 0; padding: 10px; border-radius: 12px; background: var(--ct-bg); box-shadow: var(--ct-shadow-capsule); color: var(--ct-fg); font-family: var(--ct-font-ui); transform: translateZ(0); }
 .gallery-portal-host { display: contents; }
 .gallery-stage-instance .ct-portal-menu { position: relative !important; top: auto !important; left: auto !important; max-height: none !important; justify-self: end; }
 .gallery-stage-instance .ct-model-picker { position: relative !important; left: auto !important; bottom: auto !important; order: -1; justify-self: start; }
@@ -84,6 +69,14 @@ body,
 
 @media (max-width: 720px) {
   .gallery-catalog { grid-template-columns: 1fr; }
-  .gallery-nav { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--ct-border); }
-  .gallery-nav-group { display: inline-block; vertical-align: top; margin-right: 20px; }
+  .gallery-nav { position: static; height: auto; padding: 16px; }
+  .gallery-nav-title { margin-bottom: 12px; }
+  .gallery-nav-group { display: inline-block; vertical-align: top; min-width: 160px; margin-right: 16px; }
+  .gallery-header { padding: 20px 16px 16px; }
+  .gallery-canvas { padding: 20px 16px 28px; --gallery-gap: 24px; }
+  .gallery-pagination { padding: 16px; flex-wrap: wrap; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gallery-nav-group a { transition: none; }
 }
