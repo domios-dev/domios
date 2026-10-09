@@ -62,12 +62,14 @@
   background: color-mix(in srgb, var(--ct-fg) 10%, transparent);
 }
 
-.ct-menu-row[aria-checked="true"] {
+.ct-menu-row[aria-checked="true"],
+.ct-menu-row[aria-selected="true"] {
   background: color-mix(in srgb, var(--ct-accent) 13%, transparent);
 }
 
 .ct-menu-row[aria-checked="true"]:hover,
-.ct-menu-row[aria-checked="true"]:focus-visible {
+.ct-menu-row[aria-checked="true"]:focus-visible,
+.ct-menu-row[aria-selected="true"]:hover {
   background: color-mix(in srgb, var(--ct-accent) 18%, transparent);
 }
 

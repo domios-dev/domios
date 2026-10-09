@@ -785,28 +785,25 @@ export function CommandBody({ commands, body }: { commands: SlashCommand[]; body
   return (
     <div className="space-y-2">
       {commands.map((c, i) => (
-        <div key={i} className="space-y-1">
-          <div className="flex items-center gap-2">
+        <div key={i} className="space-y-1.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <code
-              className="px-2 py-0.5 rounded text-xs font-mono"
+              className="rounded-full px-2 py-0.5 font-mono text-xs font-medium"
               style={{
-                background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)",
-                color: "var(--ct-accent, #58a6ff)",
+                background: "color-mix(in srgb, var(--ct-accent) 14%, transparent)",
+                color: "color-mix(in srgb, var(--ct-accent) 70%, var(--ct-fg))",
               }}
             >
               {c.name}
             </code>
-            {c.args && (
-              <span className="text-xs opacity-70 font-mono">{c.args}</span>
-            )}
+            {c.args && <span className="min-w-0 break-words font-mono text-xs" style={{ color: "var(--ct-muted-fg)" }}>{c.args}</span>}
           </div>
           {c.stdout && (
             <pre
-              className={`text-xs font-mono px-2 py-1.5 rounded ${PRE_WRAP_CLASS}`}
+              className={`m-0 rounded-[10px] px-2.5 py-2 font-mono text-xs ${PRE_WRAP_CLASS}`}
               style={{
-                background: "color-mix(in srgb, var(--ct-bg, #0d1117) 70%, black 5%)",
-                color: "color-mix(in srgb, var(--ct-fg, #c9d1d9) 80%, transparent)",
-                borderLeft: "2px solid color-mix(in srgb, var(--ct-muted-fg) 40%, transparent)",
+                background: "color-mix(in srgb, var(--ct-fg) 4%, transparent)",
+                color: "color-mix(in srgb, var(--ct-fg) 82%, var(--ct-muted-fg))",
               }}
             >
               {c.stdout}
@@ -815,7 +812,7 @@ export function CommandBody({ commands, body }: { commands: SlashCommand[]; body
         </div>
       ))}
       {body.trim() && (
-        <div className="text-sm opacity-70">{body}</div>
+        <div className="text-sm" style={{ color: "var(--ct-muted-fg)" }}>{body}</div>
       )}
     </div>
   );
