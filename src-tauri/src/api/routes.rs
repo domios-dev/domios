@@ -256,6 +256,10 @@ pub fn create_router(state: AppState) -> Router {
             post(workspace_routes::reorder_tabs),
         )
         .route(
+            "/api/workspaces/{id}/tabs/display-order",
+            post(workspace_routes::reorder_display),
+        )
+        .route(
             "/api/tabs/{id}/children/reorder",
             post(workspace_routes::reorder_children),
         )
