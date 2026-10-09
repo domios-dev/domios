@@ -85,6 +85,13 @@
   --ct-blur-lg: 32px;
   --ct-blur-overlay: 24px;
 
+  /* Frosted glass surfaces (menus, popovers) */
+  --ct-glass-blur: 40px;
+  --ct-glass-saturate: 1.6;
+  --ct-glass-bg: color-mix(in srgb, var(--ct-surface) 86%, var(--ct-bg) 10%);
+  --ct-glass-sheen: linear-gradient(180deg, color-mix(in srgb, var(--ct-fg) 5%, transparent), transparent 42%);
+  --ct-glass-edge: inset 0 1px 0 color-mix(in srgb, var(--ct-fg) 9%, transparent);
+
   /* Radii */
   --ct-radius-sm: 4px;
   --ct-radius-md: 8px;
