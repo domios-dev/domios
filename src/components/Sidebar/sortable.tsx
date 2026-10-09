@@ -2,6 +2,7 @@ import { useMemo, type CSSProperties, type ReactNode } from "react";
 import {
   type CollisionDetection,
   DndContext,
+  type Modifier,
   type DragEndEvent,
   KeyboardSensor,
   PointerSensor,
@@ -135,11 +136,26 @@ export function SidebarDnd({
   );
 
   return (
-    <DndContext sensors={sensors} collisionDetection={sameGroupCollision} onDragEnd={onDragEnd}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={sameGroupCollision}
+      modifiers={LIST_AXIS_MODIFIERS}
+      autoScroll={VERTICAL_AUTO_SCROLL}
+      onDragEnd={onDragEnd}
+    >
       {children}
     </DndContext>
   );
 }
+
+/** Tab rows travel only vertically; the workspace card grid keeps both axes. */
+export const lockListRowsToVerticalAxis: Modifier = ({ active, transform }) => {
+  const group = (active?.data.current as SortableGroupData | undefined)?.group;
+  return group && group !== "workspace" ? { ...transform, x: 0 } : transform;
+};
+
+const LIST_AXIS_MODIFIERS = [lockListRowsToVerticalAxis];
+const VERTICAL_AUTO_SCROLL = { threshold: { x: 0, y: 0.2 } };
 
 function sameGroup(a: SortableGroupData | undefined, b: SortableGroupData | undefined): boolean {
   return Boolean(a && b && a.group === b.group && a.groupKey === b.groupKey);

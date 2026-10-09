@@ -65,6 +65,14 @@ function SpinalGraphic() {
 export function SpinalCordButton({ api }: { api: ApiConfig | undefined }) {
   const { data } = useSupporterResource<SpinalStatus>(api, "/api/supporter/status");
   const connected = data?.connected === true;
+  const reflexes = data?.calls_last_day ?? 0;
+  const [pulse, setPulse] = useState(0);
+  const seenReflexes = useRef<number | null>(null);
+  useEffect(() => {
+    if (!connected) return;
+    if (seenReflexes.current !== null && reflexes > seenReflexes.current) setPulse((value) => value + 1);
+    seenReflexes.current = reflexes;
+  }, [connected, reflexes]);
   const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -119,7 +127,8 @@ export function SpinalCordButton({ api }: { api: ApiConfig | undefined }) {
         className="ct-spinal-btn"
         onClick={toggle}
       >
-        <Vertebrae />
+        <Vertebrae key={pulse} className={pulse > 0 ? "ct-spinal-vertebrae--reflex" : undefined} />
+        {pulse > 0 && <span key={`ring-${pulse}`} className="ct-spinal-btn__reflex" aria-hidden="true" />}
         <span className="ct-spinal-btn__label">Spinal Cord</span>
         {!connected && <span className="ct-spinal-btn__invite" aria-hidden="true" />}
       </button>
