@@ -1,6 +1,7 @@
 import React, { useId, useRef, useState } from "react";
 import { ChevronRight, Loader2, MessageSquarePlus, Pin } from "lucide-react";
-import { useChatBlockHost } from "./ChatBlockHost";
+import { ChatCardMenu } from "../ChatCardMenu";
+import { useChatBlockHost, type ChatCardMenuItem } from "./ChatBlockHost";
 import { useLiveBinding } from "./liveBinding";
 
 export type ChatBlockTone = "ok" | "accent" | "warn" | "muted";
@@ -106,10 +107,11 @@ export function ChatBlockFrame({
                 {status.label}
               </span>
             )}
+            {pinned && <Pin size={11} aria-label="Pinned to the side panel" className="shrink-0" style={{ color: "var(--ct-muted-fg)" }} />}
           </div>
           {summary && <div className="ct-card__meta mt-0.5 leading-relaxed">{summary}</div>}
         </div>
-        <BlockExtras source={source} title={title} askText={askText} pinned={pinned} pinnable={pinnable} />
+        <BlockMenu source={source} title={title} askText={askText} pinned={pinned} pinnable={pinnable} />
       </header>
 
       {body && <div data-testid="chat-block-body" className="ct-card__body" style={hasFooter ? { paddingBottom: 0 } : undefined}>{body}</div>}
@@ -185,37 +187,27 @@ export function BlockButton({ primary = false, children, className = "", ...prop
   );
 }
 
-function BlockExtras({ source, title, askText, pinned, pinnable }: { source: string; title: string; askText?: string; pinned: boolean; pinnable: boolean }) {
+function BlockMenu({ source, title, askText, pinned, pinnable }: { source: string; title: string; askText?: string; pinned: boolean; pinnable: boolean }) {
   const host = useChatBlockHost();
-  if (!host.askAbout && !(host.pin && pinnable)) return null;
-  return (
-    <div className="-mr-1 flex shrink-0 items-center" data-testid="chat-block-extras">
-      {host.askAbout && (
-        <ExtraButton label={`Ask about ${title}`} onClick={() => host.askAbout?.({ title, text: askText ?? `About ${title} (\`${source}\`)` })}>
-          <MessageSquarePlus size={13} aria-hidden="true" />
-        </ExtraButton>
-      )}
-      {host.pin && pinnable && (
-        <ExtraButton label={pinned ? `Unpin ${title} from the side panel` : `Pin ${title} to the side panel`} pressed={pinned} onClick={() => host.pin?.(source)}>
-          <Pin size={13} aria-hidden="true" fill={pinned ? "currentColor" : "none"} />
-        </ExtraButton>
-      )}
-    </div>
-  );
-}
-
-function ExtraButton({ label, pressed, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { label: string; pressed?: boolean }) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      aria-pressed={pressed}
-      title={label}
-      {...props}
-      className={`flex h-6 w-6 items-center justify-center rounded-md hover:bg-[var(--ct-hover,rgba(127,127,127,0.12))] hover:text-[var(--ct-fg)] ${FOCUS_RING}`}
-      style={{ color: pressed ? "var(--ct-accent)" : "var(--ct-muted-fg)" }}
-    >
-      {children}
-    </button>
-  );
+  const items: ChatCardMenuItem[] = [];
+  if (host.askAbout) {
+    const askAbout = host.askAbout;
+    items.push({
+      label: "Ask about this",
+      icon: <MessageSquarePlus size={14} aria-hidden="true" />,
+      testId: "chat-block-ask",
+      onSelect: () => askAbout({ title, text: askText ?? `About ${title} (\`${source}\`)` }),
+    });
+  }
+  if (host.pin && pinnable) {
+    const pin = host.pin;
+    items.push({
+      label: "Pin to side panel",
+      icon: <Pin size={14} aria-hidden="true" />,
+      checked: pinned,
+      testId: "chat-block-pin",
+      onSelect: () => pin(source),
+    });
+  }
+  return <ChatCardMenu label={`Actions for ${title}`} items={items} />;
 }

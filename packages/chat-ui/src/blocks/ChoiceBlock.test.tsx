@@ -63,6 +63,7 @@ function fakeChoiceHost() {
   const { RichMarkdown } = await import("../MarkdownBody");
   const { ChatBlockHostProvider, ChatBlockMessageProvider } = await import("./ChatBlockHost");
   type Host = Parameters<typeof ChatBlockHostProvider>[0]["value"];
+  const menuButtons: Host["renderMenu"] = ({ items }) => items.map((item) => <button key={item.label} type="button" aria-label={item.label} onClick={item.onSelect} />);
 
   async function withRender(text: string, value: Host, messageId: string | null, run: (element: HTMLDivElement) => Promise<void>) {
     const element = document.createElement("div");
@@ -137,7 +138,7 @@ function fakeChoiceHost() {
   test("outside_its_chat_the_choice_cannot_send_and_cannot_be_pinned", async () => {
     const { host, sent } = fakeChoiceHost();
     const pins: string[] = [];
-    await withRender(TEXT, { choice: host, pin: (source) => pins.push(source) }, null, async (element) => {
+    await withRender(TEXT, { choice: host, renderMenu: menuButtons, pin: (source) => pins.push(source) }, null, async (element) => {
       assert(option(element, "Hold").disabled, "choice without its message must not send");
       await act(async () => option(element, "Hold").click());
       assert(sent.length === 0, "sent without a message scope");
