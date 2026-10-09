@@ -691,8 +691,9 @@ export function Sidebar({
           aria-label="Sidebar"
           data-testid="sidebar"
           data-touch-mode={touchMode ? "true" : "false"}
-          className="shrink-0 h-full min-h-0 bg-[var(--ct-sidebar-bg)] border-r border-[var(--ct-border)] flex flex-col select-none overflow-x-hidden overflow-y-hidden relative"
-          style={{ width: visibleSidebarWidth }}
+          data-collapsed={isSidebarCollapsed ? "true" : "false"}
+          className="ct-sidebar-panel shrink-0 h-full min-h-0 flex flex-col select-none overflow-x-hidden overflow-y-hidden relative"
+          style={{ width: "100%" }}
         >
           {!isSidebarCollapsed && (
             <>

@@ -14,6 +14,7 @@
 @import "../components/Terminal/scrollToLatest.css";
 @import "../components/Terminal/composerContext.css";
 @import "../components/shared/dropdownMenu.css";
+@import "../components/Sidebar/sidebarPanel.css";
 @import "../components/Canvas/missionControl/missionControl.css";
 @import "../components/Surface/surface.css";
 @import "../components/Sidebar/surfaceTether.css";
