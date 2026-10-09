@@ -3,6 +3,7 @@
  * Run: npx tsx plugins/provider-claude/tests/plugin.test.ts
  */
 
+import { runSessionModelTests } from "./session-model";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
@@ -105,59 +106,7 @@ const baseHost = (over: Record<string, unknown>) => ({
   ...over,
 });
 
-console.log("\n--- session model detection ---\n");
-{
-  const transcript = [
-    JSON.stringify({ type: "assistant", message: { model: "claude-opus-5-5" } }),
-    JSON.stringify({ type: "user", message: {
-      content: "<local-command-stdout>Set model to `Sonnet 5.5` for this session only</local-command-stdout>",
-    } }),
-  ].join("\n");
-  const p = loadClaudeWithHost(baseHost({ fs: {
-    fileExists: () => true,
-    readFileTail: () => transcript,
-  } }));
-  eq(p.detectSessionModel("/fixture/project", "owned-session"), "Sonnet",
-    "backtick command stdout wins over the previous assistant model");
-}
-{
-  for (const record of [
-    { type: "user", message: { content: "Set model to `Haiku 5.5` for this session only" } },
-    { type: "assistant", message: { content: "<local-command-stdout>Set model to `Haiku 5.5` for this session only</local-command-stdout>" } },
-  ]) {
-    const transcript = [JSON.stringify({ type: "assistant", message: { model: "claude-opus-5-5" } }),
-      JSON.stringify(record)].join("\n");
-    const p = loadClaudeWithHost(baseHost({ fs: { fileExists: () => true, readFileTail: () => transcript } }));
-    eq(p.detectSessionModel("/fixture/project", "owned-session"), "Opus",
-      "ordinary message text cannot override the actual model");
-  }
-}
-{
-  const transcript = '{"type":"assistant","message":{"model":"claude-opus-5","content":[]}}';
-  let fullReads = 0;
-  let tailBytes = 0;
-  const p = loadClaudeWithHost(baseHost({
-    fs: {
-      fileExists: () => true,
-      readFile: () => { fullReads += 1; return transcript; },
-      readFileTail: (_path: string, maxBytes: number) => {
-        tailBytes = maxBytes;
-        return transcript;
-      },
-      readJson: () => null,
-      writeTempFile: () => "/tmp/ct-task",
-      writeJson: () => true,
-    },
-  }));
-
-  eq(
-    p.detectSessionModel("/fixture/project", "session-model"),
-    "Opus",
-    "session model uses the exact session transcript",
-  );
-  eq(fullReads, 0, "session model avoids loading the full transcript");
-  eq(tailBytes, 4 * 1024 * 1024, "session model reads a bounded 4 MiB transcript tail");
-}
+runSessionModelTests(loadClaudeWithHost, baseHost, eq);
 
 {
   const fixturePath = path.join(

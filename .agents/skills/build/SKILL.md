@@ -410,6 +410,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| A touched test file exceeds the 1200-line source limit | One harness accumulated several independent test groups | Move a group into a module with injected shared harness functions, retain the runner entrypoint, and rerun its focused suite plus the size check. |
 | `tsc --noEmit` reports TS6133 after a provider delegates parsing to a shared helper | The old parser import remains after its last call was removed | Remove the unused import, regenerate the provider bundle, and rerun TypeScript plus the focused plugin suite. |
 | Focused `model_switch` tests panic unwrapping an effort picker after a provider adopts a direct effort command | Generic picker tests depended on the provider's live picker declaration | Give column-picker unit tests an explicit declaration fixture; verify the provider's direct target command against captured stdout, then rerun `test-one app service::agent_restart::model_switch`. |
 | Blueprint integration reports E0412, E0308, E0560, E0716 or private journal validation | Journal imports, string transport outcomes, StageSource constructors and borrowed accessors drifted during the merge; validation was scoped only to its child module. | Import `JournalOutcome`, compare wire outcomes as strings, construct only `source`, borrow accessors directly and expose validation within `repositories::sentinel`; rerun `worktree-check` and the focused Blueprint selectors. |
