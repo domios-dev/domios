@@ -1,33 +1,41 @@
 .ct-bar-pill {
   --ct-bar-pill-tone: var(--ct-fg);
+  --ct-bar-pill-edge: inset 0 0 0 1px color-mix(in srgb, var(--ct-bar-pill-tone) 7%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--ct-fg) 7%, transparent);
   position: relative;
   display: inline-flex;
-  height: var(--ct-tab-pill-h, 24px);
+  height: var(--ct-tab-pill-h, 28px);
   flex: none;
   align-items: center;
   gap: 6px;
-  padding: 0 10px;
-  border: 1px solid color-mix(in srgb, var(--ct-bar-pill-tone) 14%, transparent);
+  padding: 0 13px;
+  border: 0;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--ct-fg) 3%, var(--ct-bg));
-  color: var(--ct-muted-fg);
-  font-size: 11px;
+  background: color-mix(in srgb, var(--ct-fg) 6%, var(--ct-bg));
+  box-shadow: var(--ct-bar-pill-edge);
+  color: color-mix(in srgb, var(--ct-fg) 78%, var(--ct-muted-fg));
+  font-size: 12px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
   transition: background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
-    border-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
     color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
     box-shadow var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
     transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
 }
 
+.ct-bar-pill > svg:first-child {
+  margin-left: -3px;
+  opacity: 0.8;
+}
+
 .ct-bar-pill:hover,
 .ct-bar-pill:focus-visible {
-  border-color: color-mix(in srgb, var(--ct-bar-pill-tone) 26%, transparent);
-  background: color-mix(in srgb, var(--ct-fg) 7%, var(--ct-bg));
+  background: color-mix(in srgb, var(--ct-fg) 10%, var(--ct-bg));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-bar-pill-tone) 12%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--ct-fg) 10%, transparent);
   color: var(--ct-fg);
   outline: none;
   animation: ct-bar-pill-sway var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
@@ -47,13 +55,13 @@
 
 .ct-bar-pill[aria-expanded="true"],
 .ct-bar-pill.is-open {
-  border-color: color-mix(in srgb, var(--ct-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--ct-accent) 14%, var(--ct-bg));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-accent) 30%, transparent), 0 4px 14px rgb(0 0 0 / 28%);
   color: var(--ct-fg);
-  box-shadow: 0 4px 14px rgb(0 0 0 / 28%);
 }
 
 .ct-bar-pill:focus-visible {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ct-accent) 45%, transparent);
+  box-shadow: var(--ct-bar-pill-edge), 0 0 0 2px color-mix(in srgb, var(--ct-accent) 45%, transparent);
 }
 
 .ct-bar-pill--static,
@@ -96,11 +104,12 @@
 
 .ct-bar-pill-group {
   display: inline-flex;
-  height: var(--ct-tab-pill-h, 24px);
+  height: var(--ct-tab-pill-h, 28px);
   align-items: stretch;
-  border: 1px solid color-mix(in srgb, var(--ct-fg) 14%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--ct-fg) 3%, var(--ct-bg));
+  background: color-mix(in srgb, var(--ct-fg) 6%, var(--ct-bg));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-fg) 7%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--ct-fg) 7%, transparent);
   overflow: hidden;
 }
 
@@ -121,9 +130,12 @@
 .ct-bar-pill-group > .ct-bar-pill:focus-visible,
 .ct-bar-pill-group > .ct-bar-pill[aria-expanded="true"] {
   background: color-mix(in srgb, var(--ct-fg) 7%, transparent);
+  box-shadow: none;
+  animation: none;
 }
 
-.ct-bar-pill-group > .ct-bar-pill + .ct-bar-pill {
+.ct-bar-pill-group > .ct-bar-pill + .ct-bar-pill,
+.ct-bar-pill-group > .ct-bar-pill + .ct-bar-pill:hover {
   box-shadow: inset 1px 0 0 color-mix(in srgb, var(--ct-fg) 10%, transparent);
 }
 
