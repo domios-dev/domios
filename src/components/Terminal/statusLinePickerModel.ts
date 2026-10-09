@@ -1,4 +1,5 @@
 import { modelSwitchModeSupported } from "../../lib/modelSwitch";
+import { agentModelForBadge } from "../../lib/agentLabel";
 import { reasoningEffortsForModel, resolveEffort } from "../../lib/newSessionChoice";
 import { groupOptionsByLabel } from "../../lib/optionGroups";
 import type { ModelInfo, ProviderDescriptor, ReasoningEffortInfo, Tab } from "../../lib/types";
@@ -47,8 +48,11 @@ export function statusLineModelName(
   tab: Pick<Tab, "agent_session_model" | "agent_provider_resolved_model" | "agent_requested_model">,
   fallback?: string | null,
 ): string {
-  return [tab.agent_session_model, tab.agent_provider_resolved_model, tab.agent_requested_model, fallback]
-    .find((model) => model?.trim())?.trim() ?? "Unknown model";
+  return agentModelForBadge({
+    sessionModel: tab.agent_session_model,
+    providerResolvedModel: tab.agent_provider_resolved_model,
+    requestedModel: tab.agent_requested_model,
+  }) ?? (fallback?.trim() || "Unknown model");
 }
 
 export function switchTimingNote(timing: SwitchTiming): string {
@@ -85,11 +89,9 @@ export function currentModelId(
   descriptor: ProviderDescriptor | undefined,
   candidates: Array<string | null | undefined>,
 ): string | undefined {
-  for (const candidate of candidates) {
-    const model = descriptor?.available_models.find((entry) => matchesModel(entry, candidate));
-    if (model) return model.id;
-  }
-  return candidates.find((candidate) => candidate?.trim())?.trim() ?? undefined;
+  const candidate = candidates.find((candidate) => candidate?.trim())?.trim();
+  const model = descriptor?.available_models.find((entry) => matchesModel(entry, candidate));
+  return model?.id ?? candidate;
 }
 
 function isUnavailable(model: ModelInfo): boolean {

@@ -21,6 +21,7 @@ import {
   pickerHasPrimaryModels,
   planSelection,
   statusLineSwitchGate,
+  statusLineModelName,
   type PickerSelection,
   type StatusLineTabFacts,
 } from "./statusLinePickerModel";
@@ -40,7 +41,7 @@ export function TabStatusLineModelPicker({ tab, label }: { tab: Tab; label: stri
       descriptor={descriptor}
       facts={{ hasSession: Boolean(tab.pty_id) || tab.backing?.kind === "chat_backend", protected: tab.protected === true }}
       label={label}
-      modelCandidates={[tab.agent_provider_resolved_model, tab.agent_session_model, tab.agent_requested_model]}
+      modelCandidates={[statusLineModelName(tab)]}
       currentEffort={effort?.actual ?? effort?.resolved ?? effort?.requested ?? undefined}
       pendingSelection={tab.pending_model_selection ?? undefined}
     />
