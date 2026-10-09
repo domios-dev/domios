@@ -343,6 +343,7 @@ export function TabSessionChat({
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
   const [bindingRecoveryOpen, setBindingRecoveryOpen] = useState(false);
+  const [contextSlot, setContextSlot] = useState<HTMLDivElement | null>(null);
   const [answeredPromptQuestion, setAnsweredPromptQuestion] = useState<string | null>(null);
   useEffect(() => {
     if (!sessionBindingSurface.showRecoveryAction) setBindingRecoveryOpen(false);
@@ -905,6 +906,7 @@ export function TabSessionChat({
       ) : (
       <>
       {chatChannelLoading && <span role="status" className="ct-composer-lane mx-auto block text-xs text-[var(--ct-muted-fg)]">Loading chat…</span>}
+      <div ref={setContextSlot} className="ct-ctx-slot" />
       <div className="ct-composer-status w-full">
         <AgentStateIndicator
           activity={agentActivity}
@@ -942,6 +944,7 @@ export function TabSessionChat({
         clearAttachments={clearAttachments}
         handlePasteEvent={handlePasteEvent}
         inlineAttachmentSink={inlineSinkRef}
+        contextSlot={contextSlot}
         onWillSendMessage={willSendMessage}
         addOptimistic={addOptimistic}
         updateOptimistic={updateOptimistic}
