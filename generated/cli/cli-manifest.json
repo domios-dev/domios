@@ -15877,6 +15877,9 @@
                 "build",
                 "dev",
                 "qa",
+                "deploy",
+                "logs",
+                "db",
                 "shell"
               ],
               "default": "shell",

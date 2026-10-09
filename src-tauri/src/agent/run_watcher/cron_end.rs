@@ -5,6 +5,7 @@ use tauri::Manager;
 use crate::cron::store::{finish_run, CronRunStatus, CronStore, RunSession};
 use crate::multiplexer::types::TabCloseReason;
 use crate::service::cron::CronRunEnd;
+use crate::service::messenger::MessageEnvelope;
 use crate::service::ServiceContext;
 
 pub(super) struct EndedCronRun<'a> {
@@ -20,15 +21,15 @@ pub(super) struct EndedCronRun<'a> {
 
 pub(super) fn finish(svc: &ServiceContext, run: EndedCronRun<'_>) {
     let reporter = svc.clone();
-    let _ = finish_with(svc, run, move |tab_id, text| {
-        reporter.send_text(tab_id, text)
+    let _ = finish_with(svc, run, move |tab_id, envelope, text| {
+        reporter.deliver_cron_report(tab_id, envelope, text)
     });
 }
 
 /// Report delivery can wait on the recipient's turn, so it runs off the watcher's caller.
 fn finish_with<D>(svc: &ServiceContext, run: EndedCronRun<'_>, deliver: D) -> Option<JoinHandle<()>>
 where
-    D: FnOnce(&str, &str) -> Result<(), String> + Send + 'static,
+    D: FnOnce(&str, MessageEnvelope, &str) -> Result<(), String> + Send + 'static,
 {
     let cron = svc
         .app_handle

@@ -5,12 +5,7 @@ use crate::storage::{Storage, StorageConfig};
 
 #[test]
 fn tab_purpose_desk_restore_and_transport_snapshot() {
-    for purpose in [
-        ShellPurpose::Build,
-        ShellPurpose::Dev,
-        ShellPurpose::Qa,
-        ShellPurpose::Shell,
-    ] {
+    for purpose in ShellPurpose::ALL {
         let root = tempfile::tempdir().unwrap();
         let storage = Storage::open(root.path(), StorageConfig::default()).unwrap();
         let desk = StorageDeskAdapter::from_storage(storage.clone());
@@ -76,6 +71,26 @@ fn tab_purpose_rest_create_defaults_and_refuses_unknown() {
     let body: CreateShellTabBody = serde_json::from_str(r#"{"purpose":"qa"}"#).unwrap();
     assert_eq!(body.purpose, ShellPurpose::Qa);
     assert!(serde_json::from_str::<CreateShellTabBody>(r#"{"purpose":"guess"}"#).is_err());
+}
+
+#[test]
+fn shell_purpose_serde_matches_as_str_for_every_variant() {
+    for purpose in ShellPurpose::ALL {
+        assert_eq!(serde_json::to_value(purpose).unwrap(), purpose.as_str());
+        let parsed: ShellPurpose =
+            serde_json::from_value(serde_json::json!(purpose.as_str())).unwrap();
+        assert_eq!(parsed, purpose);
+    }
+    for (raw, purpose) in [
+        ("deploy", ShellPurpose::Deploy),
+        ("logs", ShellPurpose::Logs),
+        ("db", ShellPurpose::Db),
+    ] {
+        assert_eq!(
+            serde_json::from_value::<ShellPurpose>(raw.into()).unwrap(),
+            purpose
+        );
+    }
 }
 
 #[test]

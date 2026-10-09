@@ -28,8 +28,35 @@ pub enum ShellPurpose {
     Build,
     Dev,
     Qa,
+    Deploy,
+    Logs,
+    Db,
     #[default]
     Shell,
+}
+
+impl ShellPurpose {
+    pub const ALL: [Self; 7] = [
+        Self::Build,
+        Self::Dev,
+        Self::Qa,
+        Self::Deploy,
+        Self::Logs,
+        Self::Db,
+        Self::Shell,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Build => "build",
+            Self::Dev => "dev",
+            Self::Qa => "qa",
+            Self::Deploy => "deploy",
+            Self::Logs => "logs",
+            Self::Db => "db",
+            Self::Shell => "shell",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

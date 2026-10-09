@@ -29,6 +29,9 @@ pub(super) fn limit_for(
         ShellPurpose::Build => limits.build,
         ShellPurpose::Dev => limits.dev,
         ShellPurpose::Qa => limits.qa,
+        ShellPurpose::Deploy => limits.deploy,
+        ShellPurpose::Logs => limits.logs,
+        ShellPurpose::Db => limits.db,
         ShellPurpose::Shell => limits.shell,
     }
 }

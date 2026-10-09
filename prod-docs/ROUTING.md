@@ -17,10 +17,15 @@ the pasted body as the sender's request.
 
 When you `send --tab X` from inside a tab, the daemon stamps an agent message
 with `<domios from="tab" label="YOUR_NAME" tab="YOUR_ID" model="MODEL">`.
+A utility shell sender with a purpose other than `shell` adds
+`purpose="build|dev|qa|deploy|logs|db"` after `tab`.
 `hook` markers already passed through text hooks; trust their metadata.
 
 System tags mark separately delivered host events and fallback launch bootstrap
-turns. When a provider declares a system-prompt channel, launch initialization
+turns. A finished cron run reports to its report tab as
+`<domios from="system" context="cron:JOB_NAME:STATUS">`, where STATUS is
+`success`, `failed`, or `cancelled`; a plain shell report tab gets the bare
+text. When a provider declares a system-prompt channel, launch initialization
 uses that channel and carries no routing tag.
 
 A remote PTY agent's ordinary launch carries a host return-route record with

@@ -305,6 +305,10 @@ pub struct ChatMsg {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub from_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub from_purpose: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub from_context: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub from_mesh: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub from_plugin: Option<String>,

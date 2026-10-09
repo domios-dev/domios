@@ -101,8 +101,11 @@ fn end_run(run: &OneshotRun, success: bool, summary: &str, deliveries: &Deliveri
             session_id: None,
             cwd: None,
         },
-        move |tab_id, text| {
-            recorded.lock().push((tab_id.to_string(), text.to_string()));
+        move |tab_id, envelope, text| {
+            recorded.lock().push((
+                tab_id.to_string(),
+                crate::service::messenger::Messenger::from(envelope).wrap(text),
+            ));
             Ok(())
         },
     )
@@ -134,6 +137,11 @@ fn assert_retired_with_report(
     assert_eq!(deliveries.len(), 1, "exactly one status report");
     let (target, text) = &deliveries[0];
     assert_eq!(target, REPORT_TAB);
+    let context = format!("cron:once:{}", format!("{status:?}").to_lowercase());
+    assert!(
+        text.starts_with(&format!("<domios from=\"system\" context=\"{context}\">")),
+        "{text}"
+    );
     assert!(text.contains(&run.run_id), "{text}");
     assert!(text.contains(&format!("{status:?}")), "{text}");
     assert!(text.contains(summary), "{text}");
@@ -260,7 +268,7 @@ fn cron_settle_async_runtime_progresses_while_cron_writer_is_held() {
                         session_id: None,
                         cwd: None,
                     },
-                    |_, _| Ok(()),
+                    |_, _, _| Ok(()),
                 )
                 .expect("managed cron state starts settlement");
                 tokio::task::yield_now().await;
