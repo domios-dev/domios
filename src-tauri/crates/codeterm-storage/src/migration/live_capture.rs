@@ -199,7 +199,7 @@ fn parse_domain(text: &str) -> Option<ImportDomain> {
     match text {
         "desk" => Some(ImportDomain::Desk),
         "cron" => Some(ImportDomain::Cron),
-        "sentinel" => Some(ImportDomain::Sentinel),
+        "blueprint" | "sentinel" => Some(ImportDomain::Sentinel),
         _ => None,
     }
 }

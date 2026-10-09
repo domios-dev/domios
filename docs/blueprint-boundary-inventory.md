@@ -8,7 +8,7 @@ types, and existing opaque IDs retain their names. New IDs use `blueprint_`.
 | SQLite identity table | `sentinels` | `blueprints` |
 | SQLite definition tables | `sentinel_definitions`, `sentinel_heads`, `sentinel_buckets`, `sentinel_handlers`, `sentinel_handler_targets` | Corresponding `blueprint_*` tables |
 | SQLite runtime/history tables | `sentinel_runtime`, `sentinel_transitions`, `sentinel_handler_results`, `sentinel_command_results`, `sentinel_command_cleanup` | Corresponding `blueprint_*` tables |
-| SQLite foreign identity column | `sentinel_id` in all eleven child tables and `blueprint_step_journal` | `blueprint_id` |
+| SQLite foreign identity column | `sentinel_id` in all ten child tables and `blueprint_step_journal` | `blueprint_id` |
 | SQLite identity indexes | `sentinels_by_scope`, `sentinels_by_team`, `sentinels_by_scenario` | Corresponding `blueprints_*` indexes |
 | Stored handler / historical target kind | `sentinel` | `blueprint`; migration preserves references |
 | Portable `.blueprint.json` | Handler `type: sentinel`, route `sentinel:<id>`, action/identity `kind: sentinel` | Writes Blueprint vocabulary; importer accepts both |
@@ -24,6 +24,7 @@ types, and existing opaque IDs retain their names. New IDs use `blueprint_`.
 | CLI commands/flags | Blueprint CLI already canonical | History output reads `blueprint_id`, with old-key fallback |
 | Config keys | No Sentinel keys found in `codeterm-types/src/config` | No change required |
 | Desk/snapshot fields | No Sentinel fields found in desk schema or persisted multiplexer snapshots | No change required |
+| Legacy import manifest domain | `sentinel` | Writes `blueprint`; manifest parser accepts both |
 | Legacy file import | `sentinels.json`, historical backup/capture paths | Read-only source compatibility; new runtime persistence uses SQLite |
 
 One appended schema migration renames the tables and columns, rebuilds the handler
@@ -33,3 +34,9 @@ commit. Historical migrations remain byte-compatible with pre-release fixtures.
 Verification is deferred to canonical QA. Requested focused selectors cover the
 pre-rename SQLite fixture, persisted deletion through the REST alias, old-key
 portable import, and the existing Blueprint/Sentinel suites.
+
+The same migration finalizes source_kind for probe, observe, input, terminal and
+pipeline, adds the journal body_ref column, and admits typed held run closes.
+The journal retains 32 complete runs; log limits select runs, preserving all rows
+of a selected run. Result references formerly packed into summaries migrate into
+their dedicated column.

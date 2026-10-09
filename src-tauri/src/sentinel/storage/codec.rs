@@ -20,7 +20,7 @@ use crate::storage::{
 };
 
 pub(super) fn id(id: &str) -> Result<SentinelId, String> {
-    SentinelId::new(id).map_err(|error| format!("invalid sentinel identity: {error}"))
+    SentinelId::new(id).map_err(|error| format!("invalid blueprint identity: {error}"))
 }
 
 fn safe_kind(kind: &SafeKind) -> StoredSafeKind {
@@ -340,7 +340,7 @@ fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
         && job.routes.keys().all(|bucket| declared.contains(bucket))
         && job.matches.keys().all(|bucket| declared.contains(bucket));
     if !exact {
-        return Err("sentinel definition is not losslessly representable".into());
+        return Err("blueprint definition is not losslessly representable".into());
     }
     use super::super::stage_source::StageSource as DomainSource;
     let source = match &job.source {
@@ -492,7 +492,7 @@ fn head_amendment(job: &Sentinel) -> Result<Option<AmendmentRecord>, String> {
     match job.amendments.as_slice() {
         [] if job.definition_version == 1 => Ok(None),
         [head] if head.version == job.definition_version => Ok(Some(amendment(head))),
-        _ => Err("sentinel amendment lineage is not losslessly representable".into()),
+        _ => Err("blueprint amendment lineage is not losslessly representable".into()),
     }
 }
 
@@ -515,10 +515,10 @@ fn scenario(job: &Sentinel) -> Result<Option<SentinelId>, String> {
 
 pub(super) fn create(job: &Sentinel, associate: &[String]) -> Result<SentinelCreate, String> {
     if !job.transitions.is_empty() {
-        return Err("a new sentinel carries no accepted transitions".into());
+        return Err("a new blueprint carries no accepted transitions".into());
     }
     if job.definition_version != 1 || !job.amendments.is_empty() {
-        return Err("a new sentinel starts at definition version 1 without amendments".into());
+        return Err("a new blueprint starts at definition version 1 without amendments".into());
     }
     Ok(SentinelCreate {
         identity: stage_identity(job)?,

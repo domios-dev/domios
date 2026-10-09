@@ -4,9 +4,12 @@ use super::records::{
 use crate::error::{sqlite_error, StorageError};
 use crate::owner::{ReadCx, WriteCx};
 use crate::repositories::{from_sql_u64, to_sql_u64};
+use codeterm_types::blueprint_journal::{
+    JournalMarker, JournalOutcome, JournalReason, JournalState,
+};
 use rusqlite::{params, OptionalExtension};
 
-const RETAIN: i64 = 200;
+const RETAIN_RUNS: i64 = 32;
 
 fn commit(outcome: MutationOutcome) -> SentinelCommit {
     SentinelCommit {
@@ -28,11 +31,12 @@ fn append(
     ended_at_ms: Option<u64>,
     result_summary: Option<&str>,
     reason: Option<&str>,
+    body_ref: Option<&str>,
 ) -> Result<(), StorageError> {
     cx.write(
         "INSERT INTO blueprint_step_journal \
-         (blueprint_id, run_id, step_index, step_name, state, outcome, started_at_ms, ended_at_ms, result_summary, reason) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+         (blueprint_id, run_id, step_index, step_name, state, outcome, started_at_ms, ended_at_ms, result_summary, reason, body_ref) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             id,
             run_id,
@@ -45,14 +49,15 @@ fn append(
                 .map(|value| to_sql_u64("journal end", value))
                 .transpose()?,
             result_summary,
-            reason
+            reason,
+            body_ref
         ],
     )?;
     cx.write(
-        "DELETE FROM blueprint_step_journal WHERE blueprint_id = ?1 AND entry_id NOT IN \
-         (SELECT entry_id FROM blueprint_step_journal WHERE blueprint_id = ?1 \
-          ORDER BY entry_id DESC LIMIT ?2)",
-        params![id, RETAIN],
+        "DELETE FROM blueprint_step_journal WHERE blueprint_id = ?1 AND run_id NOT IN \
+         (SELECT run_id FROM blueprint_step_journal WHERE blueprint_id = ?1 \
+          GROUP BY run_id ORDER BY MAX(entry_id) DESC LIMIT ?2)",
+        params![id, RETAIN_RUNS],
     )?;
     Ok(())
 }
@@ -83,6 +88,7 @@ fn refused_claim(
         Some(now),
         Some(&format!("step {step_index} was not replayed")),
         Some(&format!("skip:{reason} at {step_name}")),
+        None,
     )?;
     Ok(commit(MutationOutcome::Fenced(Fence::Claimed)))
 }
@@ -96,16 +102,18 @@ pub(super) fn write(
     match write {
         BlueprintJournalWrite::Claim {
             run_id,
-            step_index,
+            marker,
             step_name,
             generation,
             started_at_ms,
         } => {
+            let step_index = marker.index();
+            let step_name = marker.name(&step_name).to_string();
             let eligible: bool = cx
                 .conn
                 .query_row(
                     "SELECT EXISTS (SELECT 1 FROM blueprint_runtime WHERE blueprint_id = ?1 \
-                     AND generation = ?2 AND paused = 0 AND stopped = 0)",
+                     AND generation = ?2 AND paused = 0 AND stopped = 0 AND held IS NULL)",
                     params![id, to_sql_u64("journal generation", generation)?],
                     |row| row.get(0),
                 )
@@ -129,9 +137,9 @@ pub(super) fn write(
                      AND NOT EXISTS (SELECT 1 FROM blueprint_step_journal AS resolved \
                        WHERE resolved.blueprint_id = claim.blueprint_id \
                        AND resolved.run_id = claim.run_id \
-                       AND resolved.step_index = claim.step_index \
+                       AND (resolved.step_index = claim.step_index OR (resolved.step_index = -1 AND resolved.step_name = '$run')) \
                        AND resolved.entry_id > claim.entry_id \
-                       AND resolved.state IN ('done', 'failed', 'skipped')) \
+                       AND resolved.state IN ('done', 'failed', 'skipped', 'held')) \
                      ORDER BY claim.entry_id DESC LIMIT 1",
                     [id],
                     |row| row.get(0),
@@ -164,8 +172,8 @@ pub(super) fn write(
                     .conn
                     .query_row(
                         "SELECT EXISTS (SELECT 1 FROM blueprint_step_journal \
-                     WHERE blueprint_id = ?1 AND run_id = ?2 AND step_name = '$run' \
-                     AND outcome IN ('done', 'failed', 'skipped'))",
+                     WHERE blueprint_id = ?1 AND run_id = ?2 AND step_index = -1 AND step_name = '$run' \
+                     AND state IN ('done', 'failed', 'skipped', 'held'))",
                         params![id, latest],
                         |row| row.get(0),
                     )
@@ -194,18 +202,21 @@ pub(super) fn write(
                 None,
                 None,
                 None,
+                None,
             )?;
             Ok(commit(MutationOutcome::Applied))
         }
         BlueprintJournalWrite::Finish {
             run_id,
-            step_index,
+            marker,
             state,
             outcome,
             ended_at_ms,
             result_summary,
+            body_ref,
             reason,
         } => {
+            let step_index = marker.index();
             let claim: Option<(String, i64)> = cx
                 .conn
                 .query_row(
@@ -216,9 +227,9 @@ pub(super) fn write(
                      AND NOT EXISTS (SELECT 1 FROM blueprint_step_journal AS resolved \
                        WHERE resolved.blueprint_id = claim.blueprint_id \
                        AND resolved.run_id = claim.run_id \
-                       AND resolved.step_index = claim.step_index \
+                       AND (resolved.step_index = claim.step_index OR (resolved.step_index = -1 AND resolved.step_name = '$run')) \
                        AND resolved.entry_id > claim.entry_id \
-                       AND resolved.state IN ('done', 'failed', 'skipped')) \
+                       AND resolved.state IN ('done', 'failed', 'skipped', 'held')) \
                      ORDER BY claim.entry_id DESC LIMIT 1",
                     params![id, run_id, step_index],
                     |row| Ok((row.get(0)?, row.get(1)?)),
@@ -234,29 +245,28 @@ pub(super) fn write(
                 &run_id,
                 step_index,
                 &step_name,
-                &state,
-                Some(&outcome),
+                state.as_str(),
+                Some(outcome.as_str()),
                 from_sql_u64("journal start", started_at_ms)?,
                 Some(ended_at_ms),
                 Some(&result_summary),
                 reason.as_deref(),
+                body_ref.as_deref(),
             )?;
             Ok(commit(MutationOutcome::Applied))
         }
         BlueprintJournalWrite::Decision {
             run_id,
-            step_index,
+            marker,
             step_name,
             outcome,
             at_ms,
             result_summary,
             reason,
         } => {
-            let state = if outcome.starts_with("skip:") {
-                "skipped"
-            } else {
-                "done"
-            };
+            let step_index = marker.index();
+            let step_name = marker.name(&step_name).to_string();
+            let state = if outcome.is_skip() { "skipped" } else { "done" };
             append(
                 cx,
                 id,
@@ -264,11 +274,12 @@ pub(super) fn write(
                 step_index,
                 &step_name,
                 state,
-                Some(&outcome),
+                Some(outcome.as_str()),
                 at_ms,
                 Some(at_ms),
                 result_summary.as_deref(),
                 reason.as_deref(),
+                None,
             )?;
             Ok(commit(MutationOutcome::Applied))
         }
@@ -285,13 +296,18 @@ pub(super) fn write(
                 &run_id,
                 -1,
                 "$run",
-                &state,
-                Some(&outcome),
+                state.as_str(),
+                Some(outcome.as_str()),
                 at_ms,
                 Some(at_ms),
                 None,
                 reason.as_deref(),
+                None,
             )?;
+            if state == JournalState::Held || reason == Some(JournalReason::JournalWriteFailed) {
+                let reason = reason.as_deref().unwrap_or("journal_write_failed");
+                cx.write("UPDATE blueprint_runtime SET held = ?2, last_reason = ?2 WHERE blueprint_id = ?1", params![id, reason])?;
+            }
             Ok(commit(MutationOutcome::Applied))
         }
     }
@@ -306,8 +322,10 @@ pub(super) fn log(
         .conn
         .prepare_cached(
             "SELECT entry_id, run_id, step_index, step_name, state, outcome, started_at_ms, \
-             ended_at_ms, result_summary, reason FROM blueprint_step_journal \
-             WHERE blueprint_id = ?1 ORDER BY entry_id DESC LIMIT ?2",
+             ended_at_ms, result_summary, reason, body_ref FROM blueprint_step_journal \
+             WHERE blueprint_id = ?1 AND run_id IN \
+             (SELECT run_id FROM blueprint_step_journal WHERE blueprint_id = ?1 \
+              GROUP BY run_id ORDER BY MAX(entry_id) DESC LIMIT ?2) ORDER BY entry_id DESC",
         )
         .map_err(|error| sqlite_error("read blueprint journal", error))?;
     let rows = statement
@@ -323,6 +341,7 @@ pub(super) fn log(
                 row.get::<_, Option<i64>>(7)?,
                 row.get::<_, Option<String>>(8)?,
                 row.get::<_, Option<String>>(9)?,
+                row.get::<_, Option<String>>(10)?,
             ))
         })
         .map_err(|error| sqlite_error("query blueprint journal", error))?;
@@ -339,20 +358,25 @@ pub(super) fn log(
             ended_at_ms,
             result_summary,
             reason,
+            body_ref,
         ) = row.map_err(|error| sqlite_error("read blueprint journal row", error))?;
+        JournalMarker::from_columns(step_index, &step_name)
+            .map_err(|error| StorageError::invalid("journal marker", error))?;
         entries.push(BlueprintJournalEntry {
             entry_id,
             run_id,
             step_index,
             step_name,
-            state,
-            outcome,
+            state: JournalState::parse(&state)
+                .map_err(|error| StorageError::invalid("journal state", error))?,
+            outcome: outcome.map(JournalOutcome::from),
             started_at_ms: from_sql_u64("journal start", started_at_ms)?,
             ended_at_ms: ended_at_ms
                 .map(|value| from_sql_u64("journal end", value))
                 .transpose()?,
             result_summary,
-            reason,
+            reason: reason.map(JournalReason::from),
+            body_ref,
         });
     }
     Ok(entries)

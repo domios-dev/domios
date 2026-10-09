@@ -104,6 +104,33 @@ INSERT INTO blueprint_definitions SELECT blueprint_id, version, provenance, name
     max_transitions, max_actions, replaced_version, author_tab_id, cause_transition_id,
     authored_at, created_revision, pipeline_spec, terminal_spec, session FROM blueprint_definitions_hold;
 DROP TABLE blueprint_definitions_hold;
+CREATE TEMP TABLE blueprint_journal_hold AS SELECT * FROM blueprint_step_journal;
+DROP TABLE blueprint_step_journal;
+CREATE TABLE blueprint_step_journal (
+    entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    blueprint_id TEXT NOT NULL REFERENCES blueprints(id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL CHECK (length(run_id) BETWEEN 1 AND 128),
+    step_index INTEGER NOT NULL CHECK (step_index BETWEEN -1 AND 63),
+    step_name TEXT NOT NULL CHECK (length(step_name) BETWEEN 1 AND 128),
+    state TEXT NOT NULL CHECK (state IN ('running', 'done', 'failed', 'skipped', 'held')),
+    outcome TEXT CHECK (outcome IS NULL OR length(outcome) BETWEEN 1 AND 128),
+    started_at_ms INTEGER NOT NULL CHECK (started_at_ms >= 0),
+    ended_at_ms INTEGER CHECK (ended_at_ms IS NULL OR ended_at_ms >= started_at_ms),
+    result_summary TEXT CHECK (result_summary IS NULL OR length(result_summary) <= 200),
+    reason TEXT CHECK (reason IS NULL OR length(reason) <= 200),
+    body_ref TEXT CHECK (body_ref IS NULL OR length(body_ref) <= 32768),
+    CHECK ((state = 'running') = (ended_at_ms IS NULL)),
+    CHECK (step_index != -1 OR step_name IN ('$run', '$result'))
+) STRICT;
+INSERT INTO blueprint_step_journal SELECT entry_id, blueprint_id, run_id, step_index,
+    step_name, state, outcome, started_at_ms, ended_at_ms,
+    CASE WHEN step_name = '$result' AND result_summary LIKE 'body_ref:%' THEN NULL ELSE result_summary END,
+    reason, CASE WHEN step_name = '$result' AND result_summary LIKE 'body_ref:%'
+        AND result_summary != 'body_ref:unavailable' THEN substr(result_summary, 10) ELSE NULL END
+    FROM blueprint_journal_hold;
+DROP TABLE blueprint_journal_hold;
+CREATE INDEX blueprint_step_journal_newest ON blueprint_step_journal(blueprint_id, entry_id DESC);
+
 "#;
 
 #[cfg(test)]
@@ -120,6 +147,10 @@ mod tests {
             INSERT INTO sentinels VALUES ('sentinel_old', 0, 'tab', 'workspace', NULL, '/work', 1, 'sentinel_old', 1);
             INSERT INTO sentinel_definitions (sentinel_id, version, provenance, source_kind, probe, question, interval_ms, max_transitions, max_actions, created_revision)
                 VALUES ('sentinel_old', 1, 'authored', 'probe', 'status', 'state?', 20000, 64, 256, 1);
+            INSERT INTO sentinel_definitions (sentinel_id, version, provenance, source_kind, probe, question, interval_ms, max_transitions, max_actions, created_revision, pipeline_spec)
+                VALUES ('sentinel_old', 2, 'authored', 'probe', 'blueprint-pipeline', '', 20000, 64, 256, 1, '{}');
+            INSERT INTO sentinel_definitions (sentinel_id, version, provenance, source_kind, probe, observe_kind, observe_ref, question, interval_ms, max_transitions, max_actions, created_revision, terminal_spec)
+                VALUES ('sentinel_old', 3, 'authored', 'observe', '', 'tab', 'watched', 'state?', 20000, 64, 256, 1, '{"pattern":"ready","idle_ms":null}');
             INSERT INTO sentinel_heads VALUES ('sentinel_old', 1);
             INSERT INTO sentinel_buckets VALUES ('sentinel_old', 1, 0, 'done', '^done$', 0);
             INSERT INTO sentinel_handlers (sentinel_id, version, bucket, ordinal, handler_id, kind, target_ref)
@@ -127,16 +158,36 @@ mod tests {
             INSERT INTO sentinel_handler_targets VALUES ('sentinel_old', 1, 'next', 'sentinel', 'sentinel_old', 'workspace', NULL, 'tab');
             INSERT INTO blueprint_step_journal (sentinel_id, run_id, step_index, step_name, state, started_at_ms, ended_at_ms)
                 VALUES ('sentinel_old', 'run', -1, '$run', 'done', 1000, 1001);
+            INSERT INTO blueprint_step_journal (sentinel_id, run_id, step_index, step_name, state, started_at_ms, ended_at_ms, result_summary)
+                VALUES ('sentinel_old', 'legacy-result', -1, '$result', 'done', 1000, 1001, 'body_ref:inbox/old.md');
         "#).unwrap();
         super::super::migrate(&mut conn, 12).unwrap();
         assert_eq!(
             conn.query_row(
-                "SELECT probe FROM blueprint_definitions WHERE blueprint_id = 'sentinel_old'",
+                "SELECT probe FROM blueprint_definitions WHERE blueprint_id = 'sentinel_old' AND version = 1",
                 [],
                 |row| row.get::<_, String>(0)
             )
             .unwrap(),
             "status"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT source_kind, probe FROM blueprint_definitions WHERE version = 2",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            )
+            .unwrap(),
+            ("pipeline".into(), String::new())
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT source_kind FROM blueprint_definitions WHERE version = 3",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "terminal"
         );
         assert_eq!(
             conn.query_row("SELECT kind FROM blueprint_handlers", [], |row| row
@@ -153,12 +204,21 @@ mod tests {
         );
         assert_eq!(
             conn.query_row(
-                "SELECT run_id FROM blueprint_step_journal WHERE blueprint_id = 'sentinel_old'",
+                "SELECT run_id FROM blueprint_step_journal WHERE blueprint_id = 'sentinel_old' AND step_name = '$run'",
                 [],
                 |row| row.get::<_, String>(0)
             )
             .unwrap(),
             "run"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT body_ref FROM blueprint_step_journal WHERE run_id = 'legacy-result'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "inbox/old.md"
         );
         assert_eq!(
             conn.query_row(

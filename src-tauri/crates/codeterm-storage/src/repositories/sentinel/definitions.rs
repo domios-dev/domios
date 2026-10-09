@@ -15,7 +15,7 @@ use std::collections::HashMap;
 
 fn corrupt(detail: &str) -> StorageError {
     StorageError::Corrupt {
-        detail: format!("sentinel definition: {detail}"),
+        detail: format!("blueprint definition: {detail}"),
     }
 }
 
@@ -96,7 +96,7 @@ fn source_columns(source: &StageSource) -> Result<SourceColumns, StorageError> {
         StageSource::Input(input) => SourceColumns {
             kind: SourceKind::Input,
             spec: Some(serde_json::to_string(input).map_err(|_| {
-                StorageError::invalid("sentinel input", "cannot be encoded for storage")
+                StorageError::invalid("blueprint input", "cannot be encoded for storage")
             })?),
             probe: String::new(),
             observe_kind: None,
