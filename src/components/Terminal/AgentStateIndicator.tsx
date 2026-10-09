@@ -110,7 +110,7 @@ export function AgentStateIndicator({
           title={isWorking ? "Stop the agent" : undefined}
         >
           <Square size={9} strokeWidth={0} fill="currentColor" aria-hidden />
-          Stop
+          <span className="ct-agent-stop__label">Stop</span>
         </button>
       )}
       {onRebind && !isQuestion && (

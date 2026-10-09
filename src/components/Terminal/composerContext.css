@@ -145,6 +145,89 @@ button.ct-ctx__title:hover .ct-ctx__primary {
   box-shadow: 0 0 0 2px var(--ct-bg);
 }
 
+.ct-ctx-pill {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 4px;
+  display: inline-flex;
+  max-width: calc(100% - 56px);
+  height: 32px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 0 11px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ct-glass-sheen), var(--ct-glass-bg);
+  box-shadow: var(--ct-glass-edge), var(--ct-shadow-capsule);
+  backdrop-filter: blur(var(--ct-glass-blur)) saturate(var(--ct-glass-saturate));
+  color: var(--ct-muted-fg);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    box-shadow var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
+}
+
+.ct-ctx-pill:active {
+  transform: scale(0.96);
+  transition-duration: var(--ct-duration-liquid-press);
+}
+
+.ct-ctx-pill[aria-expanded="true"] {
+  color: var(--ct-fg);
+  box-shadow: var(--ct-glass-edge), var(--ct-shadow-capsule), 0 0 0 1px color-mix(in srgb, var(--ct-fg) 18%, transparent);
+}
+
+.ct-ctx-pill__icon { color: var(--ct-ctx-plan); flex: none; }
+.ct-ctx-pill__icon[data-kind="blueprints"] { color: var(--ct-ctx-blueprints); }
+.ct-ctx-pill__icon[data-kind="crons"] { color: var(--ct-ctx-crons); }
+.ct-ctx-pill__icon[data-kind="delayed"] { color: var(--ct-ctx-delayed); }
+
+.ct-ctx-pill__title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ct-fg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ct-ctx-pill__count { flex: none; }
+
+.ct-ctx-pill__chev {
+  flex: none;
+  transition: transform var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
+}
+
+.ct-ctx-pill[aria-expanded="true"] .ct-ctx-pill__chev { transform: rotate(180deg); }
+
+.ct-ctx[data-phone] .ct-ctx__head {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.ct-ctx[data-phone] .ct-ctx__kinds { flex-wrap: wrap; margin-left: 0; }
+
+.ct-ctx[data-phone] .ct-ctx-kind {
+  gap: 6px;
+  padding: 0 10px 0 8px;
+  font-weight: 500;
+}
+
+.ct-ctx-kind__label { color: var(--ct-fg); }
+
+.ct-ctx[data-phone] .ct-ctx__strip[data-kind="delayed"] .ct-ctx-bubble:not(.ct-ctx-bubble--add) {
+  width: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-ctx-pill,
+  .ct-ctx-pill__chev {
+    transition: none;
+  }
+}
+
 .ct-ctx__reveal {
   display: grid;
   grid-template-rows: 0fr;

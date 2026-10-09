@@ -1,5 +1,5 @@
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
-import { CircleCheck, Clock3, Infinity as InfinityIcon, Map, Plus, Timer, Workflow, X } from "lucide-react";
+import { ChevronUp, CircleCheck, Clock3, Infinity as InfinityIcon, Map, Plus, Timer, Workflow, X } from "lucide-react";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { JobConfirmationDialog } from "../Jobs/JobConfirmationDialog";
 import { deleteJobConfirmation, deleteMergedJob, stopMergedJob, type JobsActionAdapter } from "../Jobs/jobActions";
@@ -8,6 +8,7 @@ import { requestOpenJob } from "../Jobs/openJobEvent";
 import { openTabJob, useTabJobs } from "../Jobs/useTabJobs";
 import { formatRelative, type DelayedMessage } from "./delayedSend";
 import { useResolvedTabActivity, useTabHasPlan } from "./useTabPlanActivity";
+import { usePhoneViewport } from "../../hooks/useSidebarViewport";
 
 export type ContextKind = "blueprints" | "crons" | "delayed";
 
@@ -28,6 +29,7 @@ type OwnedBlueprint = ReturnType<typeof useTabJobs>["blueprints"][number];
 
 const KIND_ICON = { blueprints: Workflow, crons: Clock3, delayed: Timer } as const;
 const KIND_LABEL = { blueprints: "Blueprints", crons: "Crons", delayed: "Delayed messages" } as const;
+const KIND_SHORT_LABEL = { blueprints: "Blueprints", crons: "Crons", delayed: "Delayed" } as const;
 
 const keepComposerFocus = (event: MouseEvent) => event.preventDefault();
 
@@ -98,9 +100,13 @@ function ContextHeaderBody({ tabId, workspaceId, delayed, onEditDelayed, onDelet
   const [confirming, setConfirming] = useState<MergedJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const phone = usePhoneViewport();
+  const [unfolded, setUnfolded] = useState(false);
 
   useEffect(() => {
-    if (draftActive) setRequested(null);
+    if (!draftActive) return;
+    setRequested(null);
+    setUnfolded(false);
   }, [draftActive]);
 
   const blueprintChips = chips.filter((chip) => chip.kind !== "cron");
@@ -210,8 +216,31 @@ function ContextHeaderBody({ tabId, workspaceId, delayed, onEditDelayed, onDelet
     return next ? <ContextTitle kind="delayed" prefix="Next:" primary={delayedWhen(next)} secondary={next.text} /> : null;
   };
 
-  return (
-    <div className="ct-ctx" data-testid="composer-context-header" data-open-kind={open ?? undefined}>
+  const total = kinds.reduce((sum, kind) => sum + counts[kind], 0);
+  const PillIcon = plan ? Map : KIND_ICON[kinds[0]];
+  const pill = phone && (
+    <button
+      type="button"
+      className="ct-ctx-pill"
+      data-testid="composer-context-pill"
+      aria-expanded={unfolded}
+      aria-label={unfolded ? "Hide plan and linked items" : "Show plan and linked items"}
+      onMouseDown={keepComposerFocus}
+      onClick={() => {
+        setUnfolded(!unfolded);
+        if (unfolded) setRequested(null);
+      }}
+    >
+      <PillIcon size={12} aria-hidden="true" className="ct-ctx-pill__icon" data-kind={plan ? "plan" : kinds[0]} />
+      <span className="ct-ctx-pill__title">{plan?.activity?.planTitle ?? KIND_LABEL[kinds[0]]}</span>
+      {total > 0 && <span className="ct-ctx-pill__count">+{total}</span>}
+      <ChevronUp size={12} aria-hidden="true" className="ct-ctx-pill__chev" />
+      {Object.values(alerts).some(Boolean) && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
+    </button>
+  );
+
+  const body = (
+    <>
       <div className="ct-ctx__head">
         {plan ? <PlanTitle plan={plan} /> : fallbackTitle()}
         {kinds.length > 0 && (
@@ -232,7 +261,8 @@ function ContextHeaderBody({ tabId, workspaceId, delayed, onEditDelayed, onDelet
                   onClick={() => toggle(kind)}
                 >
                   <Icon size={13} aria-hidden="true" />
-                  {counts[kind] > 1 && <span className="ct-ctx-kind__count">{counts[kind]}</span>}
+                  {phone && <span className="ct-ctx-kind__label">{KIND_SHORT_LABEL[kind]}</span>}
+                  {(phone || counts[kind] > 1) && <span className="ct-ctx-kind__count">{counts[kind]}</span>}
                   {alerts[kind] && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
                 </button>
               );
@@ -249,6 +279,17 @@ function ContextHeaderBody({ tabId, workspaceId, delayed, onEditDelayed, onDelet
           )}
         </div>
       </div>
+    </>
+  );
+
+  return (
+    <div className="ct-ctx" data-testid="composer-context-header" data-open-kind={open ?? undefined} data-phone={phone || undefined}>
+      {pill}
+      {phone ? (
+        <div className="ct-ctx__reveal" data-open={unfolded || undefined}>
+          <div className="ct-ctx__reveal-inner">{body}</div>
+        </div>
+      ) : body}
       {error && !confirming && <span role="alert" className="ct-ctx__error">{error}</span>}
       {confirming && (() => {
         const copy = deleteJobConfirmation(confirming);
