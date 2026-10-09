@@ -14,6 +14,7 @@ pub struct History {
     pub messages: Vec<ChatMsg>,
     pub active_turn: Option<String>,
     pub completed_turns: Vec<String>,
+    pub final_assistant_ids: HashSet<String>,
 }
 
 pub async fn history(client: &Client, thread: &str) -> Result<History, String> {
@@ -40,6 +41,7 @@ pub async fn history(client: &Client, thread: &str) -> Result<History, String> {
         .collect();
     let mut normalizer = Normalizer::default();
     let mut messages = Vec::new();
+    let mut final_assistant_ids = HashSet::new();
     for turn in turns {
         let turn_id = turn
             .get("id")
@@ -58,6 +60,11 @@ pub async fn history(client: &Client, thread: &str) -> Result<History, String> {
         )
         .await?;
         for entry in entries {
+            if turn["status"] == "completed" {
+                if let Some(id) = final_assistant_id(&entry) {
+                    final_assistant_ids.insert(id.to_string());
+                }
+            }
             messages.extend(normalize_entries(&mut normalizer, thread, &entry));
         }
         if turn["status"] != "inProgress" {
@@ -85,6 +92,7 @@ pub async fn history(client: &Client, thread: &str) -> Result<History, String> {
         messages,
         active_turn,
         completed_turns,
+        final_assistant_ids,
     })
 }
 
@@ -135,6 +143,13 @@ fn normalize_entries(normalizer: &mut Normalizer, thread: &str, entry: &Value) -
         method: "item/completed".into(),
         params,
     })
+}
+
+fn final_assistant_id(entry: &Value) -> Option<&str> {
+    let item = entry.get("item").unwrap_or(entry);
+    (item["type"] == "agentMessage" && item["phase"] == "final_answer")
+        .then(|| item["id"].as_str())
+        .flatten()
 }
 
 pub fn snapshot(
@@ -217,6 +232,28 @@ pub fn emit(svc: &ServiceContext, tab: &str, thread: &str, message: ChatMsg) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cron_completion_requires_final_assistant_record_from_history() {
+        let item = json!({"id":"supplied-final-id", "type":"agentMessage", "phase":"final_answer"});
+        assert_eq!(final_assistant_id(&item), item["id"].as_str());
+        assert_eq!(
+            final_assistant_id(&json!({"item":item})),
+            item["id"].as_str()
+        );
+        assert_eq!(
+            final_assistant_id(
+                &json!({"id":"commentary", "type":"agentMessage", "phase":"commentary"})
+            ),
+            None
+        );
+        assert_eq!(
+            final_assistant_id(
+                &json!({"id":"tool", "type":"commandExecution", "phase":"final_answer"})
+            ),
+            None
+        );
+    }
+
     #[test]
     fn codex_rpc_control_live_and_backfill_share_stable_item_ids() {
         let entry = json!({"turnId":"t","item":{"id":"item-id","type":"agentMessage","text":"whole"},"startedAtMs":1000});

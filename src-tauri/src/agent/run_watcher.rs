@@ -10,6 +10,7 @@ use crate::multiplexer::types::TabCloseReason;
 use crate::service::ServiceContext;
 
 mod blocking_prompt;
+mod cron_completion;
 mod cron_end;
 use blocking_prompt::{
     claim_run_end, end_on_blocking_prompt, should_end_on_blocking_prompt, tab_pending_prompt_kind,
@@ -62,6 +63,7 @@ struct RunState {
     restart_count: AtomicU32,
     last_restart_at: Mutex<Instant>,
     resume_system_prompt: Option<String>,
+    cron_completion: Mutex<Option<cron_completion::PendingCompletion>>,
 }
 
 pub struct RunWatcherRegistry {
@@ -104,6 +106,7 @@ impl RunWatcherRegistry {
             restart_count: AtomicU32::new(0),
             last_restart_at: Mutex::new(Instant::now()),
             resume_system_prompt,
+            cron_completion: Mutex::new(None),
         });
         self.runs.lock().insert(pty_id, state.clone());
         // Use tauri's runtime handle so this works even when register() is called from outside a tokio reactor (e.g. main thread spawn paths).
@@ -228,6 +231,9 @@ impl RunWatcherRegistry {
         let Some(state) = state else {
             return;
         };
+        if state.cron_completion.lock().is_some() {
+            return;
+        }
         let (idle, session_bound) = tab_completion_state(svc, &state.tab_id);
         if !can_complete_on_semantic_idle(
             state.armed.load(Ordering::Acquire),
@@ -249,6 +255,16 @@ impl RunWatcherRegistry {
     /// any other nonce claims nothing, leaving every classifier-fallback
     /// completion path (semantic idle, idle backstop, scanner) in charge.
     pub fn complete_via_stop_report(&self, svc: &ServiceContext, tab_id: &str, report_nonce: &str) {
+        if svc
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.session_binding_nonce.as_deref())
+            == Some(report_nonce)
+            && self.stop_pending_cron(svc, tab_id)
+        {
+            return;
+        }
         let Some(state) = self.claim_stop_report_run(&svc.mux, tab_id, report_nonce) else {
             return;
         };
@@ -286,6 +302,9 @@ impl RunWatcherRegistry {
     /// faster and cleaner than the 30s idle backstop. No-op for visible tabs
     /// (no registered run) and for runs already completed via report.
     pub fn complete_via_stop_hook(&self, svc: &ServiceContext, tab_id: &str) {
+        if self.stop_pending_cron(svc, tab_id) {
+            return;
+        }
         let state = self
             .runs
             .lock()
@@ -322,6 +341,7 @@ impl RunWatcherRegistry {
             restart_count: AtomicU32::new(0),
             last_restart_at: Mutex::new(Instant::now()),
             resume_system_prompt: None,
+            cron_completion: Mutex::new(None),
         });
         self.runs.lock().insert(pty_id.to_string(), state.clone());
         state
@@ -342,6 +362,9 @@ impl RunWatcherRegistry {
         let chunk = String::from_utf8_lossy(bytes);
         let signal = state.scanner.lock().feed(&chunk);
         if let Some(signal) = signal {
+            if !signal.is_error && self.stop_pending_cron(svc, &state.tab_id) {
+                return;
+            }
             if !state.completed.swap(true, Ordering::AcqRel) {
                 let summary = signal
                     .result
@@ -506,7 +529,8 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                 idle_status_is_terminal_success(&svc, &state.pty_id),
                 session_bound,
             );
-            let busy = provider_prompt_pending
+            let busy = state.cron_completion.lock().is_some()
+                || provider_prompt_pending
                 || !ready_for_success
                 || agent_screen_busy(&svc, &state.pty_id);
             if busy {
