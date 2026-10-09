@@ -72,6 +72,15 @@ impl crate::service::ServiceContext {
         tab_id: &str,
         client_token: Option<String>,
     ) -> Result<UserReservation, String> {
+        self.reserve_user_send_with_replay_only(tab_id, client_token, false)
+    }
+
+    pub(crate) fn reserve_user_send_with_replay_only(
+        &self,
+        tab_id: &str,
+        client_token: Option<String>,
+        replay_only: bool,
+    ) -> Result<UserReservation, String> {
         let authority = self.user_send_authority(tab_id)?;
         if let Some(service) = self.app_handle.try_state::<super::super::ServiceState>() {
             let weak = Arc::downgrade(service.inner());
@@ -94,7 +103,7 @@ impl crate::service::ServiceContext {
         // This short reservation is the service ordering point, before asynchronous preparation.
         self.pending_delivery_payloads
             .user_sends
-            .reserve(authority, client_token, || {
+            .reserve_with_replay_only(authority, client_token, replay_only, || {
                 self.chat_send_ledger.reserve_identity()
             })
     }
