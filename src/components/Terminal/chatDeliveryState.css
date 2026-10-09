@@ -9,25 +9,47 @@
   flex-direction: row-reverse;
 }
 
+/* Ring and fill are pseudo layers so the pulse animates only transform and opacity on the compositor. */
 .ct-delivery__dot {
+  --ct-delivery-fill: var(--ct-accent);
+  --ct-delivery-duration: 1.6s;
+  position: relative;
   width: 7px;
   height: 7px;
   border-radius: 999px;
-  background: var(--ct-accent);
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--ct-accent) 45%, transparent);
-  animation: ct-delivery-breathe 1.6s var(--ct-ease-liquid-settle, ease-in-out) infinite;
+  animation: ct-delivery-breathe var(--ct-delivery-duration) var(--ct-ease-liquid-settle, ease-in-out) infinite;
+}
+
+.ct-delivery__dot::before,
+.ct-delivery__dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.ct-delivery__dot::before {
+  background: color-mix(in srgb, var(--ct-accent) 40%, transparent);
+  animation: ct-delivery-ring var(--ct-delivery-duration) var(--ct-ease-liquid-settle, ease-in-out) infinite;
+}
+
+.ct-delivery__dot::after {
+  background: var(--ct-delivery-fill);
 }
 
 .ct-delivery[data-state="queued"] .ct-delivery__dot {
-  background: var(--ct-muted-fg);
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--ct-muted-fg) 35%, transparent);
-  animation-duration: 2.4s;
+  --ct-delivery-fill: var(--ct-muted-fg);
+  --ct-delivery-duration: 2.4s;
 }
 
 .ct-delivery[data-state="failed"] .ct-delivery__dot {
-  background: var(--ct-err);
-  box-shadow: none;
+  --ct-delivery-fill: var(--ct-err);
   animation: none;
+}
+
+.ct-delivery[data-state="failed"] .ct-delivery__dot::before {
+  animation: none;
+  opacity: 0;
 }
 
 .ct-delivery__retry {
@@ -50,10 +72,17 @@
 }
 
 @keyframes ct-delivery-breathe {
-  0%, 100% { transform: scale(0.85); opacity: 0.55; box-shadow: 0 0 0 0 color-mix(in srgb, var(--ct-accent) 40%, transparent); }
-  50% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 4px color-mix(in srgb, var(--ct-accent) 0%, transparent); }
+  0%, 100% { transform: scale(0.85); opacity: 0.55; }
+  50% { transform: scale(1); opacity: 1; }
+}
+
+/* 15/7: the old 4px box-shadow spread around the 7px dot. */
+@keyframes ct-delivery-ring {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(2.143); opacity: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .ct-delivery__dot { animation: none; opacity: 0.8; }
+  .ct-delivery__dot::before { animation: none; opacity: 0; }
 }
