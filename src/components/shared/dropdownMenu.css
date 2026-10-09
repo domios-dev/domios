@@ -7,7 +7,6 @@
   background: var(--ct-glass-sheen), var(--ct-glass-bg);
   box-shadow: var(--ct-glass-edge), var(--ct-shadow-capsule);
   backdrop-filter: blur(var(--ct-glass-blur)) saturate(var(--ct-glass-saturate));
-  -webkit-backdrop-filter: blur(var(--ct-glass-blur)) saturate(var(--ct-glass-saturate));
   transform-origin: var(--ct-menu-origin, top left);
   animation: ct-menu-in var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
   scrollbar-width: thin;
