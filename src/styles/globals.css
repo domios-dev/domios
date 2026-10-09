@@ -2833,51 +2833,31 @@ button,
 }
 
 .sidebar-team-menu {
+  --ct-menu-origin: top right;
   position: fixed;
-  z-index: 60;
   display: flex;
   min-width: 174px;
   flex-direction: column;
-  border: 1px solid var(--ct-border);
-  border-radius: 8px;
-  padding: 4px;
-  background: var(--ct-sidebar-bg);
-  box-shadow: 0 10px 28px -10px color-mix(in srgb, var(--ct-bg) 55%, transparent);
-}
-
-.sidebar-team-menu button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border: 0;
-  border-radius: 6px;
-  padding: 6px 9px;
-  background: transparent;
-  color: var(--ct-fg);
-  font-size: 12px;
-  text-align: left;
-}
-
-.sidebar-team-menu button:hover {
-  background: var(--ct-hover);
+  gap: 1px;
 }
 
 .sidebar-team-menu-label {
-  padding: 4px 9px 2px;
-  color: var(--ct-muted-fg);
-  font-size: 9px;
-  font-weight: 700;
+  padding: 7px 9px 4px;
+  color: var(--ct-muted);
+  font-size: 10px;
+  font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.sidebar-team-menu-separator {
-  height: 1px;
-  margin: 4px 2px;
-  background: var(--ct-border);
+.sidebar-team-menu [role="status"],
+.sidebar-team-menu [role="alert"] {
+  padding: 6px 9px;
+  color: var(--ct-muted-fg);
+  font-size: 11.5px;
 }
 
-.sidebar-team-menu .sidebar-team-menu-danger {
+.sidebar-team-menu [role="alert"] {
   color: var(--ct-red);
 }
 
