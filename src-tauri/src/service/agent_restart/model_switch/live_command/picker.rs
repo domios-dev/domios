@@ -7,6 +7,7 @@ pub(super) struct CommandPicker {
     target: Regex,
     declaration: ModelSwitchPicker,
     last_position: Option<usize>,
+    navigation_target: Option<(usize, usize)>,
     submitted: bool,
     steps: usize,
     injected: bool,
@@ -53,6 +54,7 @@ impl CommandPicker {
             target: target_pattern,
             declaration: declaration.clone(),
             last_position: None,
+            navigation_target: None,
             submitted: false,
             steps: 0,
             injected: false,
@@ -133,6 +135,15 @@ impl CommandPicker {
                         .saturating_sub(1)
             }
         };
+        if let Some(destination) = self.navigation_target {
+            if destination != (desired, end) {
+                return Err("the live picker target changed during navigation".into());
+            }
+            if current < desired || current > end {
+                return Ok(());
+            }
+            self.navigation_target = None;
+        }
         if self.last_position == Some(current) {
             return Ok(());
         }
@@ -141,23 +152,34 @@ impl CommandPicker {
         }
         self.last_position = Some(current);
         self.steps += 1;
-        let key = if current < desired {
-            &self.declaration.next_key
+        let (key, moves) = if current < desired {
+            (&self.declaration.next_key, desired - current)
         } else if current > end {
-            &self.declaration.previous_key
+            (&self.declaration.previous_key, current - end)
         } else {
             self.submitted = true;
-            &self.declaration.response_key
+            (&self.declaration.response_key, 1)
         };
+        let moves =
+            if !self.submitted && self.declaration.position == ModelSwitchPickerPosition::Number {
+                if moves > 32 {
+                    return Err("the live picker target is beyond the navigation limit".into());
+                }
+                self.navigation_target = Some((desired, end));
+                moves
+            } else {
+                1
+            };
         log::info!(
-            "[agent-model/timing] tab={} phase=picker_step current={} desired={} submit={} elapsed_ms={}",
+            "[agent-model/timing] tab={} phase=picker_step current={} desired={} moves={} submit={} elapsed_ms={}",
             self.tab_id,
             current,
             desired,
+            moves,
             self.submitted,
             self.started.elapsed().as_millis()
         );
-        write(key.as_bytes())
+        write(&key.as_bytes().repeat(moves))
     }
 
     pub(super) fn cancel_key(&self) -> &[u8] {

@@ -472,6 +472,7 @@ impl ServiceContext {
                 })?;
             (resolved, provider)
         };
+        let completion_boundary = self.staged_completion_boundary(&resolved_tab);
         let declared_mode = self
             .agent_registry
             .with_provider(&provider, |p| p.model_switch())
@@ -559,6 +560,11 @@ impl ServiceContext {
                     force,
                     restart_fallback,
                     previous_model,
+                    completion_boundary: completion_boundary.ok_or_else(|| {
+                        ModelSwitchError::NotSwitchable(
+                            "no verified own-turn completion boundary for staging".into(),
+                        )
+                    })?,
                 },
             );
         } else {
