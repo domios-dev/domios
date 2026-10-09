@@ -23,6 +23,17 @@ fn busy_switch_stages_for_every_host_owned_mode_without_provider_operation() {
     ] {
         let (mux, tab_id) = seeded_tab("staging-provider");
         let fixture = ServiceFixture::new(mux);
+        let _pty = fixture.bind_test_pty_session(&tab_id, SESSION, NONCE);
+        let pty_id = fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .pty_id
+            .clone()
+            .unwrap();
+        fixture.service.agent_tracker.lock().set_working(&pty_id);
         fixture.service.agent_registry.register_provider(Box::new(
             MockProvider::with_session("staging-provider", SESSION).with_model_switch(mode),
         ));

@@ -511,6 +511,9 @@ impl ServiceContext {
             declared_mode
         };
         let snap = self.snapshot_tab_for_restart(&resolved_tab)?;
+        if let Some(request) = staged {
+            request.require_mechanism(declared_mode)?;
+        }
         let session_id = self.verified_resumable_session(&snap)?;
         let effort = requested_effort.map(str::to_owned).or_else(|| {
             let saved = self
@@ -544,6 +547,7 @@ impl ServiceContext {
             })
         };
         if let Some(request) = staged {
+            request.require_snapshot(&snap)?;
             request.require_current(self)?;
         } else if !self.tab_is_idle(&snap.tab_id) {
             return self.stage_model_switch(

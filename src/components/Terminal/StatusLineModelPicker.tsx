@@ -67,21 +67,10 @@ export function StatusLineModelPicker({
   const [open, setOpen] = useState(false);
   const [applied, setApplied] = useState<PickerSelection | null>(null);
   const [applying, setApplying] = useState(false);
-  const [stagedAfterTurn, setStagedAfterTurn] = useState(false);
   const [failure, setFailure] = useState<{ message: string; selection: PickerSelection } | null>(null);
   const appliedRef = useRef<PickerSelection | null>(null);
   appliedRef.current = applied;
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const sawPendingRef = useRef(false);
-  useEffect(() => {
-    if (pendingSelection) {
-      sawPendingRef.current = true;
-    } else if (sawPendingRef.current) {
-      sawPendingRef.current = false;
-      setApplied(null);
-      setStagedAfterTurn(false);
-    }
-  }, [pendingSelection]);
   useEffect(() => {
     if (descriptor && applied && selectionReached(descriptor, applied, currentModel, currentEffort)) {
       setApplied(null);
@@ -102,10 +91,10 @@ export function StatusLineModelPicker({
       if (restart) {
         if (!api.restartAndSwitchModel) throw new Error("Restart fallback is unavailable");
         const result = await api.restartAndSwitchModel(tabId, selection.model, selection.effort);
-        setStagedAfterTurn(result?.staged === true);
+        if (result?.staged) setApplied(null);
       } else {
         const result = await api.switchModel(tabId, selection.model, selection.effort);
-        setStagedAfterTurn(result?.staged === true);
+        if (result?.staged) setApplied(null);
       }
     } catch (error) {
       setApplied(previous);
@@ -120,7 +109,7 @@ export function StatusLineModelPicker({
     : applied ?? { model: currentModel ?? "Unknown model", effort: currentEffort };
   const modelName = descriptor?.available_models.find((model) => matchesModel(model, selection.model))?.display_name
     || selection.model;
-  const afterTurn = Boolean(pendingSelection) || (stagedAfterTurn && Boolean(applied));
+  const afterTurn = Boolean(pendingSelection);
   const displayedLabel = [modelName, selection.effort, afterTurn ? "after this turn" : undefined].filter(Boolean).join(" · ");
   const harnessName = descriptor?.display_name ?? label.split(" · ")[0];
 
@@ -165,7 +154,7 @@ export function StatusLineModelPicker({
           failure={failure}
           onCommit={(selection, restart) => void commit(selection, restart)}
           onClose={() => {
-            void getTabModelApi().cancelStagedModel?.(tabId).then(() => { setApplied(null); setStagedAfterTurn(false); }).catch((error: unknown) => {
+            void getTabModelApi().cancelStagedModel?.(tabId).then(() => { setApplied(null); }).catch((error: unknown) => {
               setFailure({ message: String(error), selection });
             });
             setFailure(null); close();

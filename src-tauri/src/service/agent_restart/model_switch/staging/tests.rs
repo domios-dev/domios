@@ -21,6 +21,7 @@ fn fixture() -> (SwitchRequest, Tab) {
         effort: None,
         force: false,
         restart_fallback: false,
+        mechanism: ModelSwitchMode::Live,
         deadline: Instant::now() + STAGING_DEADLINE,
     };
     (request, tab.clone())
@@ -94,4 +95,13 @@ fn deadline_refuses_even_an_unchanged_binding() {
     let (request, tab) = fixture();
     assert!(request.matches(&tab, request.deadline - Duration::from_nanos(1)));
     assert!(!request.matches(&tab, request.deadline));
+}
+
+#[test]
+fn capability_reload_cannot_turn_a_live_request_into_a_restart() {
+    let (request, _) = fixture();
+    assert!(request.require_mechanism(ModelSwitchMode::Live).is_ok());
+    assert!(request
+        .require_mechanism(ModelSwitchMode::RestartResume)
+        .is_err());
 }
