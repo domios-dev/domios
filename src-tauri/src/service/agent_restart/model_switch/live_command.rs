@@ -16,6 +16,13 @@ mod transport;
 use picker::CommandPicker;
 use prompt::CommandPrompt;
 
+fn command_signal(
+    screens: &mut crate::pty::screen_state::ScreenState,
+    pty_id: &str,
+) -> std::sync::Arc<crate::pty::screen_state::ScreenChangeSignal> {
+    screens.subscribe_screen_changes(pty_id)
+}
+
 #[derive(Clone)]
 struct CommandTarget {
     tab_id: String,
@@ -80,6 +87,18 @@ fn planned_commands<'a>(
         plan.push((command, Some(effort)));
     }
     plan
+}
+
+fn planning_model(
+    source: crate::agent::provider::ModelSwitchConfirmationSource,
+    recorded: Option<String>,
+    observe: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    if source == crate::agent::provider::ModelSwitchConfirmationSource::SessionIdentity {
+        observe()
+    } else {
+        recorded
+    }
 }
 
 fn command_prompt_absent(
@@ -279,6 +298,25 @@ impl ServiceContext {
             model: model.to_owned(),
             display_name,
         };
+        if !target.current(self) {
+            return Err(ModelSwitchError::LiveCommandFailed(
+                "the session changed before reading its current model".into(),
+            ));
+        }
+        let previous_model = planning_model(commands.confirmation_source, previous_model, || {
+            target.cwd.as_deref().and_then(|cwd| {
+                self.agent_registry
+                    .with_provider(&target.provider, |provider| {
+                        provider.detect_session_model(cwd, &target.session_id)
+                    })
+                    .flatten()
+            })
+        });
+        if !target.current(self) {
+            return Err(ModelSwitchError::LiveCommandFailed(
+                "the session changed while reading its current model".into(),
+            ));
+        }
         let model_changed = !previous_model.as_deref().is_some_and(|previous| {
             crate::service::session_model::session_model_matches(
                 &self.agent_registry,
@@ -426,7 +464,7 @@ impl ServiceContext {
                 .len(),
         );
         let pty_id = target.pty_id.as_str();
-        let signal = self.screen_state.lock().arm_screen_change_signal(pty_id);
+        let signal = command_signal(&mut self.screen_state.lock(), pty_id);
         let transcript_signal = signal.clone();
         let mut watcher =
             notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
