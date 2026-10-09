@@ -76,6 +76,7 @@ class FakeChatServer {
   handler: ChatHandler | null = null;
   listens = 0;
   unlistens = 0;
+  statusListeners = 0;
 
   queueStart(factory: StartFactory): void {
     this.startFactories.push(factory);
@@ -85,7 +86,12 @@ class FakeChatServer {
     __setInvokeForTest: (fn: unknown) => void;
     __setListenForTest: (fn: unknown) => void;
   }): void {
-    bridge.__setListenForTest(async (_event: string, handler: ChatHandler) => {
+    bridge.__setListenForTest(async (event: string, handler: ChatHandler) => {
+      if (event === "chat-send-status") {
+        this.statusListeners += 1;
+        return () => { this.statusListeners -= 1; };
+      }
+      assert(event === "tab-chat-msg-tab", `unexpected event ${event}`);
       this.listens += 1;
       this.handler = handler;
       return () => {
@@ -95,6 +101,7 @@ class FakeChatServer {
       };
     });
     bridge.__setInvokeForTest(async (command: string, args: Record<string, unknown>) => {
+      if (command === "chat_send_status") return [];
       if (command === "chat_start") {
         const subscriptionId = String(args.subscriptionId ?? "");
         this.starts.push(subscriptionId);
@@ -228,6 +235,7 @@ async function main(): Promise<void> {
 
   assert(server.starts.length === 0, "hidden Chat must not request a snapshot");
   assert(server.listens === 0, "hidden Chat must not own a listener");
+  assert(server.statusListeners === 1, "hidden Chat retains delivery-status observation");
 
   server.queueStart(() => ({
     text: "",
@@ -429,6 +437,7 @@ async function mountThenBind(): Promise<void> {
   }
   const remaining: number = server.subscribers.size;
   assert(remaining === 0 && server.handler === null, "fresh Chat leaked its subscription");
+  assert(server.statusListeners === 0, "fresh Chat leaked its delivery-status listener");
 }
 
 main().catch((error) => {

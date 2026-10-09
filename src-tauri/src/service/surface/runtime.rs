@@ -157,6 +157,7 @@ impl SurfaceCallOutcome {
 #[async_trait::async_trait]
 pub(crate) trait SurfaceRuntime: Send + Sync {
     fn set_owner_name(&self, name: &str);
+    #[cfg(test)]
     fn state(&self) -> SurfaceState;
     /// Applies `viewport` before any frame reaches the returned stream.
     async fn connect(self: Arc<Self>, viewport: Option<ViewportRequest>) -> SurfaceEvents;
