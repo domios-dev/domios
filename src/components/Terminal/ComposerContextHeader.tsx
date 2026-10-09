@@ -98,7 +98,7 @@ export function ComposerContextHeader({ tabId, workspaceId, delayed, onEditDelay
     const stoppable = canStopJob(job);
     return (
       <span key={tabJobKey(chip)} className="ct-ctx-bubble" data-tone={stateTone(chip.state)}>
-        <button type="button" className="ct-ctx-bubble__open" onMouseDown={(event) => event.preventDefault()} onClick={() => openTabJob(job)}>
+        <button type="button" className="ct-ctx-bubble__open" onMouseDown={(event) => event.preventDefault()} onClick={() => openTabJob(job, workspaceId ? { workspaceId, tabId } : undefined)}>
           <span className="ct-ctx-bubble__dot" aria-hidden="true" />
           <span className="ct-ctx-bubble__title">{chip.title}</span>
           <span className="ct-ctx-bubble__meta">{jobStateLabel(chip.state)}</span>
@@ -127,7 +127,7 @@ export function ComposerContextHeader({ tabId, workspaceId, delayed, onEditDelay
         type="button"
         className="ct-ctx-bubble__open"
         onMouseDown={(event) => event.preventDefault()}
-        onClick={() => requestOpenJob({ workspaceId: ownerWorkspace, target: { teamId: blueprint.owner?.team_id ?? null, blueprintId: pipeline.id } })}
+        onClick={() => requestOpenJob({ workspaceId: ownerWorkspace, target: { teamId: blueprint.owner?.team_id ?? null, blueprintId: pipeline.id }, returnTo: workspaceId ? { workspaceId, tabId } : undefined })}
       >
         <span className="ct-ctx-bubble__dot" aria-hidden="true" />
         <span className="ct-ctx-bubble__title">{blueprint.name}</span>
@@ -171,7 +171,7 @@ export function ComposerContextHeader({ tabId, workspaceId, delayed, onEditDelay
   return (
     <div className="ct-ctx" data-testid="composer-context-header" data-open-kind={open ?? undefined}>
       <div className="ct-ctx__head">
-        {hasPlan ? <PlanTitle tabId={tabId} /> : fallbackTitle()}
+        {hasPlan ? <PlanTitle tabId={tabId} workspaceId={workspaceId} /> : fallbackTitle()}
         {kinds.length > 0 && (
           <div className="ct-ctx__kinds" role="group" aria-label="Linked to this tab">
             {kinds.map((kind) => {
@@ -251,8 +251,8 @@ function ContextTitle({ kind, prefix, primary, secondary, extra, onOpen }: {
   );
 }
 
-function PlanTitle({ tabId }: { tabId: string }) {
-  const { activity, onOpen } = useResolvedTabActivity(tabId);
+function PlanTitle({ tabId, workspaceId }: { tabId: string; workspaceId: string | null }) {
+  const { activity, onOpen } = useResolvedTabActivity(tabId, workspaceId);
   if (!activity) return null;
   if (activity.kind === "working") {
     return <ContextTitle kind="task" prefix="Task:" primary={activity.taskTitle} secondary={`Plan: ${activity.planTitle}`} onOpen={onOpen} />;

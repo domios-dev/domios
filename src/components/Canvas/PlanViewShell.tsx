@@ -105,9 +105,13 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
   }, [setSegment, setViewMode]);
   const openSpec = useCallback(() => selectMode("spec"), [selectMode]);
   const closeSegment = useCallback(() => {
+    if (props.workspaceTarget?.returnTo && props.onClose) {
+      props.onClose();
+      return;
+    }
     focusSelectedModeRef.current = true;
     selectMode("tasks");
-  }, [selectMode]);
+  }, [selectMode, props.workspaceTarget, props.onClose]);
 
   useEffect(() => {
     if (segment) {
@@ -185,6 +189,7 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded border cursor-pointer"
               style={{ background: "var(--ct-bg)", borderColor: "var(--ct-border)", color: "var(--ct-fg)" }}
               title="Close plan"
+              aria-label="Close plan"
             >
               <X size={14} />
             </button>

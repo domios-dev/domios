@@ -14,7 +14,7 @@ export function useTabHasPlan(tabId: string): boolean {
   return useMemo(() => findPlanIndexForTab(index, tabId, tabs).length > 0, [index, tabId, tabs]);
 }
 
-export function useResolvedTabActivity(tabId: string) {
+export function useResolvedTabActivity(tabId: string, workspaceId: string | null) {
   const tabs = useMuxSelector((s) => s.tabs, tabsRecordEqual);
   const full = useFullPlans();
   const openPlanTarget = usePlanTargetNavigation();
@@ -31,9 +31,10 @@ export function useResolvedTabActivity(tabId: string) {
     : null;
   const onOpen = () => {
     if (!activity) return;
-    openPlanTarget(activity.kind === "working"
+    const target = activity.kind === "working"
       ? { planId: activity.planId, taskId: activity.taskId }
-      : { planId: activity.planId });
+      : { planId: activity.planId };
+    openPlanTarget({ ...target, returnTo: workspaceId ? { workspaceId, tabId } : undefined });
   };
   return { activity, onOpen, renderedTask, stale: tabActiveWork?.stale ?? false };
 }
