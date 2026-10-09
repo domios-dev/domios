@@ -2,10 +2,16 @@ import { useCallback } from "react";
 import { useMuxSelector } from "../store/multiplexer";
 import type { ExtendedState } from "../store/multiplexer/tree";
 import { tabActivity } from "./tabActivity";
+import type { TabActivity } from "./tabActivity";
 import type { Tab } from "./types";
 
+function sameActivity(a: TabActivity, b: TabActivity): boolean {
+  return (Object.keys(a) as Array<keyof TabActivity>).every((key) => a[key] === b[key]);
+}
+
 export function useTabActivity(tabId: string | null | undefined, fallbackTab?: Tab | null) {
-  const tab = useMuxSelector(useCallback((state: ExtendedState) => tabId ? state.tabs[tabId] ?? null : null, [tabId]));
-  const status = useMuxSelector(useCallback((state: ExtendedState) => tabId ? state.tabStatuses[tabId] ?? null : null, [tabId]));
-  return tabActivity(tab ?? fallbackTab, status);
+  return useMuxSelector(useCallback((state: ExtendedState) => tabActivity(
+    (tabId ? state.tabs[tabId] : null) ?? fallbackTab,
+    tabId ? state.tabStatuses[tabId] : null,
+  ), [tabId, fallbackTab]), sameActivity);
 }

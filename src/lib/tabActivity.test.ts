@@ -32,6 +32,7 @@ for (const [name, tab, status, kind, active, canStop] of cases) {
 }
 
 assert.equal(tabActivity({ ...agent, agent_state: { state: "question", subtype: "permission" } }).label, "Permission needed");
+assert.equal(tabActivity({ ...agent, pending_prompt: { question: "Opaque question?", options: [] } }, "Waiting").label, "Opaque question?");
 assert.equal(tabActivity({ ...agent, agent_state: { state: "idle", status_line: "Stale", phase: "thinking" } }, "Working").label, "Working");
 assert.equal(tabActivity({ ...agent, agent_state: { state: "idle", phase: "thinking" } }, "Working").phase, "work");
 assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "streaming", status_line: " Writing " } }).label, "Writing");
