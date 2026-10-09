@@ -22,7 +22,7 @@ export function useComposerLayout(input: string, textareaRef: RefObject<HTMLText
     const maxPx = Math.max(COMPOSER_MIN_HEIGHT, Math.min(COMPOSER_MAX_HEIGHT, panelHeightPx * 0.4));
     const measured = measureComposerAutosize(textarea, shell, maxPx);
     const next = resolveComposerLayout({ contentPx: measured.contentPx, minPx: COMPOSER_MIN_HEIGHT, editorMaxPx: COMPOSER_MAX_HEIGHT,
-      panelWidthPx: bounds.width, panelHeightPx, keyboardOpen, prev: previous.current.mode });
+      panelWidthPx: bounds.width, panelHeightPx, keyboardOpen });
     textarea.style.height = `${next.editorPx}px`;
     textarea.style.overflowY = next.scrolls ? "auto" : "hidden";
     if (next.mode !== previous.current.mode || next.editorPx !== previous.current.editorPx || next.scrolls !== previous.current.scrolls) {
