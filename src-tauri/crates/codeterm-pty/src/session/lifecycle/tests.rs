@@ -13,6 +13,31 @@ mod compaction_replay;
 mod journal_repair;
 mod permission_auto_confirm;
 
+#[test]
+fn failed_resume_target_survives_compaction_without_granting_binding_authority() {
+    use super::reduce::sealed_checkpoints;
+    let (journal, _dir) = new_journal();
+    let operation = key("owned-tab", 1, "failed-resume");
+    for transition in [
+        LifecycleTransition::EpochOpened,
+        LifecycleTransition::ResumeTargetRecorded {
+            session_id: "owned-session".into(),
+        },
+        LifecycleTransition::RolledBack {
+            reason: "opaque-failure".into(),
+        },
+    ] {
+        journal.append(operation.clone(), transition).unwrap();
+    }
+    journal.compact().unwrap();
+    let load = journal.load();
+    assert!(sealed_checkpoints(&load.records).is_empty());
+    assert!(load.records.iter().any(|record| matches!(record,
+        JournalRecord::Transition { entry }
+            if matches!(&entry.transition, LifecycleTransition::ResumeTargetRecorded { session_id } if session_id == "owned-session")
+    )));
+}
+
 fn new_journal() -> (TabLifecycleJournal, TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let journal = TabLifecycleJournal::for_dir(dir.path().to_path_buf());
