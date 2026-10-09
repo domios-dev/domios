@@ -321,6 +321,28 @@ pub fn chat_start_core(
     tab_id: String,
     subscription_id: String,
 ) -> Result<ChatStartResult, String> {
+    let mut result = chat_start_inner(svc, tab_id.clone(), subscription_id)?;
+    if let Some(session_id) = result.source_session_id.as_deref() {
+        if result
+            .messages
+            .as_ref()
+            .is_some_and(|messages| messages.iter().any(|message| message.kind == "user"))
+        {
+            svc.note_session_conversation(&tab_id, session_id);
+        }
+    }
+    crate::service::tab_chat::restore_notice::append_restore_notice(
+        &tab_id,
+        result.messages.get_or_insert_default(),
+    );
+    Ok(result)
+}
+
+fn chat_start_inner(
+    svc: &ServiceState,
+    tab_id: String,
+    subscription_id: String,
+) -> Result<ChatStartResult, String> {
     if crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some() {
         return crate::service::codex_rpc::transcript::start(svc, &tab_id, subscription_id);
     }

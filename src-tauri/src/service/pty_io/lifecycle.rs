@@ -8,6 +8,8 @@ use crate::multiplexer::commands::MuxState;
 use crate::service::boot_stage::BootStage;
 use crate::service::ServiceContext;
 
+mod empty_session;
+
 #[derive(Clone)]
 pub(crate) struct RestoredLaunch {
     pub provider_id: String,
@@ -35,61 +37,25 @@ fn restored_snapshot_launch_input(
         crate::service::permission_policy::PermissionBypassAuthorization,
     >,
 ) -> RestoredSnapshotLaunchInput {
-    let mut launch_parameters = launch.launch_parameters;
-    let legacy_snapshot = !launch_parameters.captured;
-    let skip_permissions = if launch_parameters.captured {
-        launch_parameters.permission_bypass_requested && permission_bypass_authorization.is_some()
-    } else {
-        permission_bypass_authorization.is_some()
-    };
-    let provider_id = launch.provider_id;
-    let model = launch_parameters.model.clone().or(launch.model);
-    let reasoning_effort = launch_parameters
-        .resolved_reasoning_effort
-        .clone()
-        .or_else(|| launch_parameters.requested_reasoning_effort.clone());
-    let (system_prompt_capable, launch_task) =
-        crate::service::restored_launch::restored_launch_task(
-            registry,
-            &provider_id,
-            launch.role.as_deref(),
-            launch.role_profile.as_deref(),
-            &launch_parameters,
-        );
-    let params = crate::service::SpawnAgentParams {
-        agent: Some(provider_id.clone()),
-        agent_name: launch_parameters.agent_name.clone(),
-        args: launch_parameters.args.clone(),
-        cwd: launch.cwd,
-        skip_permissions: Some(skip_permissions),
-        permission_bypass_authorization,
-        model: model.clone(),
-        reasoning_effort: reasoning_effort.clone(),
-        system_prompt: system_prompt_capable.then(|| launch_task.clone()).flatten(),
-        resume_session_id: launch.session_id,
-        role: launch.role,
-        role_profile: launch.role_profile,
-        starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
-        ..Default::default()
-    };
-    launch_parameters.captured = true;
-    launch_parameters.identity_instructions =
-        system_prompt_capable.then(|| launch_task.clone()).flatten();
-    launch_parameters.model = model;
-    if launch_parameters.requested_model.is_none() {
-        launch_parameters.requested_model = params.model.clone();
-    }
-    if launch_parameters.requested_reasoning_effort.is_none() {
-        launch_parameters.requested_reasoning_effort = reasoning_effort.clone();
-    }
-    launch_parameters.resolved_reasoning_effort = reasoning_effort;
-    if legacy_snapshot {
-        launch_parameters.permission_bypass_requested = skip_permissions;
-    }
+    let input = crate::service::restored_launch::restored_fresh_launch_input(
+        registry,
+        crate::service::SpawnAgentParams {
+            agent: Some(launch.provider_id),
+            cwd: launch.cwd,
+            model: launch.model,
+            role: launch.role,
+            role_profile: launch.role_profile,
+            resume_session_id: launch.session_id,
+            skip_permissions: Some(permission_bypass_authorization.is_some()),
+            permission_bypass_authorization,
+            ..Default::default()
+        },
+        launch.launch_parameters,
+    );
     RestoredSnapshotLaunchInput {
-        params,
-        launch_parameters,
-        launch_task,
+        params: input.params,
+        launch_parameters: input.launch_parameters,
+        launch_task: input.launch_task,
         fallback_spec: None,
         origin: crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
     }
@@ -584,7 +550,7 @@ impl ServiceContext {
 
     pub(crate) fn materialize_restored_agent_for_send(&self, tab_id: &str) -> Result<(), String> {
         self.recover_missing_restored_provider(tab_id)?;
-        let (provider_id, session_id, cwd, launch_parameters, exact_session, session_cwd) = {
+        let (provider_id, mut session_id, cwd, launch_parameters, exact_session, session_cwd) = {
             let mux = self.mux.read();
             let tab = mux
                 .get_tab(tab_id)
@@ -623,8 +589,30 @@ impl ServiceContext {
                 self.agent_registry
                     .with_provider(&provider_id, |p| p.session_exists(dir, sid))
             });
+        let permission_bypass_authorization =
+            crate::service::restored_launch::restore_permission_bypass_authorization(
+                &self.app_handle,
+                &self.agent_registry,
+                tab_id,
+                &provider_id,
+                &launch_parameters,
+            )?;
         let session_valid = session_exists == Some(true);
-        if exact_session && !session_valid {
+        let permissions_preserved = launch_parameters.permission_bypass_requested
+            == permission_bypass_authorization.is_some();
+        let restored_empty = exact_session
+            && permissions_preserved
+            && !session_valid
+            && self.prepare_empty_session_restore(
+                tab_id,
+                &provider_id,
+                session_id.as_deref(),
+                session_exists,
+            );
+        if restored_empty {
+            session_id = None;
+        }
+        if exact_session && !session_valid && !restored_empty {
             let missing = if session_exists == Some(false) {
                 "session_missing: "
             } else {
@@ -640,14 +628,6 @@ impl ServiceContext {
                 tab_id
             )
         })?;
-        let permission_bypass_authorization =
-            crate::service::restored_launch::restore_permission_bypass_authorization(
-                &self.app_handle,
-                &self.agent_registry,
-                tab_id,
-                &provider_id,
-                &launch_parameters,
-            )?;
         let mut command_error = None;
         let scheduled = restore_materialization_core(
             &self.mux,
@@ -722,6 +702,9 @@ impl ServiceContext {
         }
         if scheduled?.is_none() {
             return Ok(());
+        }
+        if restored_empty {
+            self.emit_empty_restore_notice(tab_id);
         }
         self.emit_state_changed();
         Ok(())

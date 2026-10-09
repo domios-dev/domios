@@ -324,6 +324,8 @@ fn apply(
             builder.sealed_through = None;
         }
         LifecycleTransition::EpochOpened
+        | LifecycleTransition::ConversationStarted { .. }
+        | LifecycleTransition::EmptySessionReplaced { .. }
         | LifecycleTransition::RestartRequested
         | LifecycleTransition::ResumeTargetRecorded { .. }
         | LifecycleTransition::RestoreAwaitingAgentRestart { .. }
@@ -356,6 +358,14 @@ pub fn compact_records(records: &[JournalRecord]) -> Vec<JournalRecord> {
         let JournalRecord::Transition { entry } = record else {
             continue;
         };
+        if matches!(
+            entry.transition,
+            LifecycleTransition::ConversationStarted { .. }
+                | LifecycleTransition::EmptySessionReplaced { .. }
+        ) {
+            compacted.push(record.clone());
+            continue;
+        }
         if closed.contains(entry.key.tab_id.as_str()) {
             continue;
         }

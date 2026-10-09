@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -62,6 +62,7 @@ struct WriteCursor {
     /// Record count at the last refused compaction; the next attempt waits for growth past it.
     refused_at_records: Option<usize>,
     last_epoch_by_tab: HashMap<String, LifecycleEpoch>,
+    conversations: HashSet<(String, String)>,
 }
 
 /// Append-only tab lifecycle journal. One file, one monotonic sequence.
@@ -100,6 +101,19 @@ impl TabLifecycleJournal {
                 records: load.records.len(),
                 refused_at_records: None,
                 last_epoch_by_tab,
+                conversations: load
+                    .records
+                    .iter()
+                    .filter_map(|record| match record {
+                        JournalRecord::Transition { entry } => match &entry.transition {
+                            LifecycleTransition::ConversationStarted { session_id } => {
+                                Some((entry.key.tab_id.clone(), session_id.clone()))
+                            }
+                            _ => None,
+                        },
+                        _ => None,
+                    })
+                    .collect(),
             }),
         }
     }
@@ -164,6 +178,39 @@ impl TabLifecycleJournal {
 
     pub fn load(&self) -> JournalLoad {
         read_journal(&self.path)
+    }
+
+    pub fn note_conversation_started(
+        &self,
+        key: LifecycleKey,
+        session_id: &str,
+    ) -> Result<(), String> {
+        let mut cursor = self
+            .cursor
+            .lock()
+            .map_err(|_| "lifecycle journal lock poisoned")?;
+        let identity = (key.tab_id.clone(), session_id.to_string());
+        if cursor.conversations.contains(&identity) {
+            return Ok(());
+        }
+        let seq = cursor.last_seq.saturating_add(1);
+        append_line(
+            &self.path,
+            &JournalRecord::Transition {
+                entry: LifecycleEntry {
+                    seq,
+                    key,
+                    transition: LifecycleTransition::ConversationStarted {
+                        session_id: session_id.into(),
+                    },
+                    recorded_at: super::stamp::now_utc(),
+                },
+            },
+        )?;
+        cursor.last_seq = seq;
+        cursor.records += 1;
+        cursor.conversations.insert(identity);
+        Ok(())
     }
 
     /// Rewrite as one checkpoint per tab plus the transitions no checkpoint
@@ -251,8 +298,19 @@ fn write_all_records(path: &Path, records: &[JournalRecord]) -> Result<(), Strin
 /// A malformed or out-of-order line refuses itself and everything after it: a
 /// truncated tail must never silently become history.
 fn read_journal(path: &Path) -> JournalLoad {
-    let Ok(body) = fs::read_to_string(path) else {
-        return JournalLoad::empty();
+    let body = match fs::read_to_string(path) {
+        Ok(body) => body,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return JournalLoad::empty(),
+        Err(error) => {
+            return JournalLoad {
+                records: Vec::new(),
+                tail: TailStatus::Refused {
+                    line: 1,
+                    reason: format!("journal read failed: {error}"),
+                },
+                duplicate_seqs: 0,
+            }
+        }
     };
     let mut records: Vec<JournalRecord> = Vec::new();
     let mut last_seq: JournalSeq = 0;

@@ -377,6 +377,16 @@ pub(crate) fn current_binding_turn_confirmations(
     if !source_is_current_binding(mux, tab_id, source_session_id, source_binding_nonce) {
         return Vec::new();
     }
+    if messages.iter().any(|message| message.kind == "user") {
+        let key = { mux.read().lifecycle_key(tab_id) };
+        if let Some(key) = key {
+            if let Err(error) = crate::session::lifecycle::TabLifecycleJournal::shared()
+                .note_conversation_started(key, source_session_id)
+            {
+                log::warn!("[conversation-evidence] Tab {tab_id}: {error}");
+            }
+        }
+    }
     crate::service::chat_send_transaction::delivered_turn_confirmations(
         ledger,
         tab_id,
