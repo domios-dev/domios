@@ -16,8 +16,8 @@ export interface VoicePreviewData {
   mime: string;
 }
 
-const WAVEFORM_BARS = 48;
-const LIVE_WAVEFORM_BARS = 56;
+const WAVEFORM_BARS = 28;
+const LIVE_WAVEFORM_BARS = 24;
 const STOP_TRAILING_MS = 250;
 const START_WARMUP_MS = 150;
 const WARM_STREAM_IDLE_STOP_MS = 30_000;

@@ -86,15 +86,18 @@ export function VoicePreview({
         {playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" className="ml-0.5" />}
       </button>
 
-      <div className="flex h-7 flex-1 items-center gap-[1.5px] overflow-hidden">
+      <div
+        className="grid h-7 min-w-0 flex-1 items-center gap-[2px] overflow-hidden"
+        style={{ gridTemplateColumns: `repeat(${data.peaks.length}, minmax(2px, 1fr))` }}
+      >
         {data.peaks.map((h, i) => {
           const played = i / data.peaks.length <= progress;
           return (
             <span
               key={i}
-              className="w-[2px] shrink-0 rounded-[1px]"
+              className="w-full rounded-[2px]"
               style={{
-                height: `${Math.round(h * 100)}%`,
+                height: `${Math.max(14, Math.round(h * 100))}%`,
                 background: played
                   ? "var(--ct-accent, #58a6ff)"
                   : "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 55%, transparent)",
