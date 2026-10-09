@@ -55,4 +55,59 @@ test("a Worker's surface tucks under that Worker at the Worker's indent plus one
   }
 });
 
+test("an owner promoted into a Team takes its team-less surface into the Team card", async () => {
+  attachmentCollapseStore.reset();
+  const owner = tab({ id: "snake", title: "Snake", agent_type: "claude", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id });
+  const surface = tab({ id: "snake-browser", title: "Browser", backing, parent_tab_id: "snake", team_id: null });
+  const loose = tab({ id: "shell", title: "Shell" });
+  const { host, root } = await renderSidebar({ tabs: { [surface.id]: surface, [loose.id]: loose, [owner.id]: owner } });
+  try {
+    assert(host.querySelectorAll('[data-tab-id="snake-browser"]').length === 1, "the surface renders once");
+    const attachment = row(host, surface.id);
+    assert(attachment?.getAttribute("data-variant") === "attachment", "surface renders as an attachment");
+    assert(attachment.closest('[data-testid="surface-owner-block"]')?.getAttribute("data-owner-id") === "snake", "surface sits in its owner's block");
+    assert(attachment.closest('[data-testid="team-unit"]'), "surface follows its owner into the Team card");
+    assert(!attachment.closest(".sidebar-tab-tree-row"), "surface is not in the loose list");
+    assert(row(host, loose.id)?.closest(".sidebar-tab-tree-row"), "unrelated loose tabs stay loose");
+    const inset = attachmentInset(ownerRowInset("team", false));
+    assert(attachment.style.paddingLeft === `${inset}px`, "surface takes the Team card's indent");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("a team-less surface follows a Worker owner into the Team card", async () => {
+  attachmentCollapseStore.reset();
+  const orch = tab({ id: "orch", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id });
+  const worker = tab({ id: "worker", role: "Worker", parent_tab_id: "orch", team_id: TEAM.id });
+  const surface = tab({ id: "worker-browser", title: "Browser", backing, parent_tab_id: "worker", team_id: null });
+  const { host, root } = await renderSidebar({ tabs: { [orch.id]: orch, [worker.id]: worker, [surface.id]: surface } });
+  try {
+    const attachment = row(host, surface.id);
+    assert(attachment?.closest('[data-testid="surface-owner-block"]')?.getAttribute("data-owner-id") === "worker", "surface sits in the Worker's block");
+    assert(attachment.closest('[data-testid="team-unit"]'), "surface renders inside the Team card");
+    assert(!attachment.closest(".sidebar-tab-tree-row"), "surface is not in the loose list");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("a surface whose owner is not in the sidebar falls back to a plain row", async () => {
+  attachmentCollapseStore.reset();
+  const surface = tab({ id: "orphan-browser", title: "Browser", backing, parent_tab_id: "elsewhere" });
+  const other = tab({ id: "shell", title: "Shell" });
+  const { host, root } = await renderSidebar({ tabs: { [surface.id]: surface, [other.id]: other } });
+  try {
+    const plain = row(host, surface.id);
+    assert(plain, "orphaned surface still renders");
+    assert(plain.getAttribute("data-variant") == null, "orphaned surface is a plain row");
+    assert(!plain.closest('[data-testid="surface-owner-block"]'), "orphaned surface hangs under no owner");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 void run();

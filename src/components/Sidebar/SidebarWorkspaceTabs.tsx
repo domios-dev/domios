@@ -210,6 +210,12 @@ export function SidebarWorkspaceTabs({
     [allSortedTabs, tabs],
   );
   const membersByTeam = useMemo(() => groupWorkspaceTeamMembers(sortedTabs), [sortedTabs]);
+  // Workspace-wide so a surface follows its owner into a Team card even when the surface carries no team.
+  const attachmentsByOwner = useMemo(() => surfaceAttachmentsByOwner(sortedTabs), [sortedTabs]);
+  const attachedIds = useMemo(
+    () => new Set([...attachmentsByOwner.values()].flat().map((tab) => tab.id)),
+    [attachmentsByOwner],
+  );
 
   const remoteTeams = useMemo(() => {
     const map = new Map<string, Team>();
@@ -296,12 +302,9 @@ export function SidebarWorkspaceTabs({
     );
   };
 
-  const renderMemberRow = (
-    member: TeamTabMember,
-    surfaces: readonly TeamTabMember[] = [],
-  ): ReactNode => (
+  const renderMemberRow = (member: TeamTabMember): ReactNode => (
     <div key={member.tab.id} className="sidebar-team-member">
-      {renderOwnerWithAttachments(member.tab, surfaces.map((surface) => surface.tab), "team", (toggle) => (
+      {renderOwnerWithAttachments(member.tab, attachmentsByOwner.get(member.tab.id) ?? [], "team", (toggle) => (
         <SidebarSingleTabRow
           tab={member.tab}
           ownerTitle={surfaceOwnerTitle(member.tab, tabs)}
@@ -326,19 +329,22 @@ export function SidebarWorkspaceTabs({
     const origin = terminalOrigin(creatorId, creator?.title, Boolean(creator));
     return (
       <div key={member.tab.id} className="sidebar-team-member sidebar-team-terminal-member">
-        <SidebarSingleTabRow
-          tab={member.tab}
-          ownerTitle={surfaceOwnerTitle(member.tab, tabs)}
-          index={member.index}
-          activity={resolveTabTabActivity(planIndex, member.tab.id, tabs)}
-          activeWork={activeWork}
-          isClosing={closingTabIds.has(member.tab.id)}
-          isAppearing={appearingTabIds.has(member.tab.id)}
-          group="tab"
-          groupKey={ws.id}
-          pinnedIds={[]}
-          {...sharedRow}
-        />
+        {renderOwnerWithAttachments(member.tab, attachmentsByOwner.get(member.tab.id) ?? [], "team", (toggle) => (
+          <SidebarSingleTabRow
+            tab={member.tab}
+            ownerTitle={surfaceOwnerTitle(member.tab, tabs)}
+            index={member.index}
+            activity={resolveTabTabActivity(planIndex, member.tab.id, tabs)}
+            activeWork={activeWork}
+            isClosing={closingTabIds.has(member.tab.id)}
+            isAppearing={appearingTabIds.has(member.tab.id)}
+            group="tab"
+            groupKey={ws.id}
+            pinnedIds={[]}
+            attachmentToggle={toggle}
+            {...sharedRow}
+          />
+        ))}
         <div className="sidebar-team-terminal-origin">
           started by{" "}
           {origin.kind === "tab" ? (
@@ -357,10 +363,8 @@ export function SidebarWorkspaceTabs({
 
   const renderedTeamIds = new Set<string>();
   const rows: ReactNode[] = [];
-  const looseTabs = sortedTabs.filter((tab) => !effectiveTeamId(tab));
+  const looseTabs = sortedTabs.filter((tab) => !effectiveTeamId(tab) && !attachedIds.has(tab.id));
   const looseIds = new Set(looseTabs.map((tab) => tab.id));
-  const looseAttachments = surfaceAttachmentsByOwner(looseTabs);
-  const attachedIds = new Set([...looseAttachments.values()].flat().map((tab) => tab.id));
   const looseChildIds = new Set(
     looseTabs
       .filter((tab) => tab.parent_tab_id && looseIds.has(tab.parent_tab_id))
@@ -383,11 +387,11 @@ export function SidebarWorkspaceTabs({
     groupKey: string,
     pinnedIds: string[],
   ): ReactNode => {
-    const children = looseTabs.filter((candidate) => candidate.parent_tab_id === tab.id && !attachedIds.has(candidate.id));
+    const children = looseTabs.filter((candidate) => candidate.parent_tab_id === tab.id);
     const childItems = children.map((child) => `${TAB_PREFIX}${child.id}`);
     return (
       <div key={tab.id} className="sidebar-tab-tree-row">
-        {renderOwnerWithAttachments(tab, looseAttachments.get(tab.id) ?? [], "loose", (toggle) => (
+        {renderOwnerWithAttachments(tab, attachmentsByOwner.get(tab.id) ?? [], "loose", (toggle) => (
           <SidebarSingleTabRow
             tab={tab}
             ownerTitle={surfaceOwnerTitle(tab, tabs)}
@@ -415,6 +419,7 @@ export function SidebarWorkspaceTabs({
   };
 
   for (const [index, tab] of sortedTabs.entries()) {
+    if (attachedIds.has(tab.id)) continue;
     const teamId = effectiveTeamId(tab);
     if (!teamId) {
       if (!looseChildIds.has(tab.id)) {
@@ -425,8 +430,8 @@ export function SidebarWorkspaceTabs({
     if (renderedTeamIds.has(teamId)) continue;
     renderedTeamIds.add(teamId);
 
-    const members = membersByTeam.get(teamId) ?? [];
-    const { managers, terminals, workers, surfacesByOwner } = partitionTeamMembers(members);
+    const members = (membersByTeam.get(teamId) ?? []).filter((member) => !attachedIds.has(member.tab.id));
+    const { managers, terminals, workers } = partitionTeamMembers(members);
     const managerItems = managers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const workerItems = workers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const terminalItems = terminals.map((member) => `${TAB_PREFIX}${member.tab.id}`);
@@ -452,7 +457,7 @@ export function SidebarWorkspaceTabs({
         managerCount={managers.length}
         managers={
           <SortableContext items={managerItems} strategy={verticalListSortingStrategy}>
-            {managers.map((member) => renderMemberRow(member, surfacesByOwner.get(member.tab.id)))}
+            {managers.map((member) => renderMemberRow(member))}
           </SortableContext>
         }
         workerCount={workers.length}
@@ -460,7 +465,7 @@ export function SidebarWorkspaceTabs({
         workers={
           <>
             <SortableContext items={workerItems} strategy={verticalListSortingStrategy}>
-              {workers.map((member) => renderMemberRow(member, surfacesByOwner.get(member.tab.id)))}
+              {workers.map((member) => renderMemberRow(member))}
             </SortableContext>
           </>
         }
