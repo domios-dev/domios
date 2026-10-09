@@ -160,6 +160,42 @@ function parseModelVariants(stdout) {
   return result;
 }
 
+// plugins/provider-opencode/src/bindingModelSwitch.ts
+function bindingModelSwitchSource() {
+  return [
+    "let controlsWarningReported = false;",
+    "async function applyTurnModel(input, output, signal) {",
+    "  if (!output?.message || !normalizeSessionID(input?.sessionID)) return;",
+    "  const hookURL = endpoint();",
+    "  if (!hookURL) return;",
+    '  const url = hookURL.slice(0, hookURL.lastIndexOf("/hook/"));',
+    "  try {",
+    "  const response = await fetch(url, {",
+    "    headers: { authorization: `Bearer ${process.env.CODETERM_API_TOKEN}` },",
+    "    signal,",
+    "  });",
+    '  if (!response.ok) throw new Error("CodeTerm turn controls unavailable");',
+    "  const tab = await response.json();",
+    "  const nonce = process.env.CODETERM_SESSION_BINDING_NONCE;",
+    "  if (tab.id !== process.env.CODETERM_TAB_ID || tab.agent_session_id !== input.sessionID || tab.session_binding_nonce !== nonce || tab.reported_session_binding_nonce !== nonce) return;",
+    "  const requested = tab.agent_provider_resolved_model;",
+    '  if (typeof requested !== "string") return;',
+    '  const slash = requested.indexOf("/");',
+    '  if (slash <= 0 || slash === requested.length - 1) throw new Error("CodeTerm model must be provider/model");',
+    "  output.message.model = { providerID: requested.slice(0, slash), modelID: requested.slice(slash + 1) };",
+    "  const effort = tab.reasoning_effort_identity?.resolved;",
+    '  output.message.variant = effort && effort !== "default" ? effort : undefined;',
+    "  } catch (error) {",
+    "    if (!controlsWarningReported) {",
+    "      controlsWarningReported = true;",
+    '      console.warn("CodeTerm model override skipped: turn controls unavailable");',
+    "    }",
+    "  }",
+    "}",
+    ""
+  ];
+}
+
 // packages/chat-core/src/sessionChanges.ts
 function lines(text) {
   return text ? text.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n") : [];
@@ -265,7 +301,7 @@ function opencodeFileDiffs(path, edits, metadata) {
 }
 
 // plugins/provider-opencode/src/helpers.ts
-var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v6";
+var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v7";
 var CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-session-binding-v";
 var QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 var QUESTION_MENU_SELECTORS = [">", "\u276F", "\u25B6", "\u27A4", "\u2192", "\u25CF"];
@@ -826,7 +862,7 @@ function opencodeBindingPluginSource() {
     "  return null;",
     "}",
     "",
-    "async function report(sessionID, source, directory) {",
+    "async function report(sessionID, source, directory, signal) {",
     "  sessionID = normalizeSessionID(sessionID);",
     "  if (!sessionID) return false;",
     "  if (sessionID === lastReported) return true;",
@@ -841,6 +877,7 @@ function opencodeBindingPluginSource() {
     "  const delivered = await fetch(url, {",
     '    method: "POST",',
     "    headers,",
+    "    signal,",
     "    body: JSON.stringify({",
     "      provider_id: PROVIDER_ID,",
     "      session_id: sessionID,",
@@ -904,6 +941,7 @@ function opencodeBindingPluginSource() {
     "  }).catch(() => null);",
     "}",
     "",
+    ...bindingModelSwitchSource(),
     "export default async function CodeTermSessionBindingPlugin({ directory, client }) {",
     "  const resumed = normalizeSessionID(process.env.CODETERM_RESUME_SESSION_ID) || resumedSessionID(process.argv || []);",
     "  const startupBinding = (async () => {",
@@ -929,9 +967,10 @@ function opencodeBindingPluginSource() {
     "        await report(eventSessionID(event), event.type, eventDirectory(event, directory));",
     "      }",
     "    },",
-    '    async "chat.message"(input) {',
-    "      await startupBinding;",
-    '      await report(input?.sessionID, "chat.message", directory);',
+    '    async "chat.message"(input, output) {',
+    "      const signal = AbortSignal.timeout(200);",
+    '      await report(input?.sessionID, "chat.message", directory, signal);',
+    "      await applyTurnModel(input, output, signal);",
     "    },",
     '    async "tool.execute.before"(input) {',
     '      await report(input?.sessionID, "tool.execute.before", directory);',
@@ -1091,6 +1130,38 @@ var modelProviderExports = {
   readModelProviders,
   applyModelProviders: applyDomiosProviders,
   modelProviderKeyEnvName: providerKeyEnvName
+};
+
+// plugins/provider-opencode/src/modelSwitch.ts
+var modelSwitch = {
+  sessionModelTranscriptBoundary(_cwd, sessionId) {
+    const db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return null;
+    const rows = host.fs.sqliteQuery(
+      db,
+      "SELECT id, time_created FROM message WHERE session_id = ?1 ORDER BY time_created DESC, id DESC LIMIT 1",
+      [sessionId]
+    );
+    const last = rows[0];
+    return { lastEntryUuid: last?.id ?? null, lastEntryTimestamp: String(last?.time_created ?? 0), lastEntryType: null, boundaryFound: true };
+  },
+  detectSessionModelAfterBoundary(_cwd, sessionId, boundary) {
+    const db = opencodeDbPath();
+    const timestamp = Number(boundary.lastEntryTimestamp);
+    if (!boundary.boundaryFound || !Number.isFinite(timestamp) || !db || !host.fs.fileExists(db)) return null;
+    const rows = host.fs.sqliteQuery(
+      db,
+      "SELECT data FROM message WHERE session_id = ?1 AND (time_created > ?2 OR (time_created = ?2 AND id > ?3)) AND octet_length(data) <= ?4 ORDER BY time_created ASC, id ASC LIMIT 128",
+      [sessionId, timestamp, boundary.lastEntryUuid ?? "", ASSISTANT_MESSAGE_MAX_BYTES]
+    );
+    for (const row of rows) {
+      const message = safeJson(row.data);
+      if (message?.role === "assistant" && message.providerID && message.modelID && message.parentID) {
+        return `${message.providerID}/${message.modelID}`;
+      }
+    }
+    return null;
+  }
 };
 
 // plugins/provider-opencode/src/decisionModel.ts
@@ -1315,6 +1386,7 @@ function withPadPermissionConfig(command, instructions, cleanup, launchConfig = 
   return `ct_pad_dir=$(printf '%s' "${"${CODETERM_PAD_DIR:-}"}" | tr '\\\\' '/' | sed 's/"/\\\\\\"/g'); OPENCODE_CONFIG_CONTENT=${q(prefix)}; if [ -n "$ct_pad_dir" ]; then OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT,\\"$ct_pad_dir/*\\":\\"allow\\""; fi; OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT"$(printf '%s' ${q(suffix)}); export OPENCODE_CONFIG_CONTENT; CODETERM_RESUME_SESSION_ID=${q(resumeSession || "")}; export CODETERM_RESUME_SESSION_ID; ${command}${finish}`;
 }
 var plugin = {
+  ...modelSwitch,
   ...decisionModel,
   ...modelProviderExports,
   starterPromptText(prompt) {
