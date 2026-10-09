@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from "react";
+import type { ReturnTo } from "../../lib/returnTo";
 import { hostAutomationAdapter } from "../Automation/hostAdapter";
 import { pipelineModel } from "../Automation/pipelineModel";
 import { blueprintScenarioJobs } from "../Automation/scenarios";
@@ -11,9 +12,10 @@ import { useWorkspaceGraphs } from "./useWorkspaceGraphs";
 
 const NO_SOURCES: readonly string[] = [];
 
-export function openTabJob(job: MergedJob) {
+export function openTabJob(job: MergedJob, returnTo?: ReturnTo) {
   requestOpenJob({
     workspaceId: jobWorkspace(job),
+    returnTo,
     target: job.kind === "cron" ? { teamId: null, cronId: job.cron.id } : job.kind === "blueprint" ? { teamId: null, blueprintId: job.blueprint.pipeline.id } : { teamId: null, scenarioId: job.sentinel.scenario.id },
   });
 }

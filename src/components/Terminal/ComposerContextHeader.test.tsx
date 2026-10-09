@@ -116,8 +116,8 @@ async function main() {
   assert.equal(host.querySelectorAll(".ct-ctx__strip .ct-ctx-bubble").length, 5, "every bound cron gets a bubble");
   await act(async () => { bubble(host, "rust-rss-new-videos")!.click(); });
   assert.deepEqual(opened, [
-    { workspaceId: "workspace-a", target: { teamId: null, blueprintId: "blueprint-echo" } },
-    { workspaceId: "workspace-a", target: { teamId: null, cronId: "cron-rss" } },
+    { workspaceId: "workspace-a", target: { teamId: null, blueprintId: "blueprint-echo" }, returnTo: { workspaceId: "workspace-a", tabId: "tab-a" } },
+    { workspaceId: "workspace-a", target: { teamId: null, cronId: "cron-rss" }, returnTo: { workspaceId: "workspace-a", tabId: "tab-a" } },
   ], "bubbles open the exact job in Jobs");
 
   await act(async () => { host.querySelector<HTMLButtonElement>('.ct-ctx-kind[data-kind="delayed"]')!.click(); });

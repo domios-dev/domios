@@ -46,6 +46,7 @@ export function PlanSidePanel({
   const task = plan && taskRef ? findTaskByReference(plan.tasks, taskRef) : undefined;
   const key = taskRef ? taskDisplayKey({ id: taskRef, key: task?.key }) : null;
   const route = {
+    returnTo: target.returnTo,
     planId: target.planId,
     teamId: plan?.team_id ?? target.teamId,
     canonicalProjectPath: target.canonicalProjectPath,

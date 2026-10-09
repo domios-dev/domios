@@ -36,6 +36,8 @@ import { PlanSidePanelHost } from "./components/Canvas/PlanSidePanelHost";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
 import { useBlueprintRunPopups } from "./components/Automation/useBlueprintRunPopups";
 import { JobsView, type JobsTarget } from "./components/Jobs/JobsView";
+import { useReturnToChat } from "./hooks/useReturnToChat";
+import type { ReturnTo } from "./lib/returnTo";
 import { OPEN_JOB_EVENT, type OpenJobDetail } from "./components/Jobs/openJobEvent";
 import { jobsEntryFilter, jobsOpenEntry, type JobsOpenScope } from "./components/Jobs/jobsLayout";
 import { CronWorkspaceView } from "./components/Cron/CronWorkspaceView";
@@ -123,7 +125,7 @@ function AppInner() {
   const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "extensions" | "analytics">("workspace");
   const automationOpener = useRef<HTMLElement | null>(null);
   const [automationWorkspaceId, setAutomationWorkspaceId] = useState<string | null>(null);
-  const [jobsTarget, setJobsTarget] = useState<(JobsTarget & { request: number }) | null>(null);
+  const [jobsTarget, setJobsTarget] = useState<(JobsTarget & { request: number; returnTo?: ReturnTo }) | null>(null);
   const [jobsScope, setJobsScope] = useState<JobsOpenScope>("workspace");
   const [workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId] = useState<string | null>(null);
   const [pluginViewId, setPluginViewId] = useState<string | null>(null);
@@ -411,11 +413,12 @@ function AppInner() {
   const closeWorkspaceMap = useCallback(() => {
     setWorkspaceMapWorkspaceId(null);
   }, []);
+  const activateReturnTo = useReturnToChat();
   const closeWorkspaceAutomation = useCallback(() => {
     setAutomationWorkspaceId(null);
     if (automationOpener.current?.isConnected) automationOpener.current.focus();
   }, []);
-  const openWorkspaceAutomation = useCallback((workspaceId: string, target?: JobsTarget, scope: JobsOpenScope = "workspace") => {
+  const openWorkspaceAutomation = useCallback((workspaceId: string, target?: JobsTarget, scope: JobsOpenScope = "workspace", returnTo?: ReturnTo) => {
     if (document.activeElement instanceof HTMLElement) automationOpener.current = document.activeElement;
     closePluginView();
     setActiveWorkspace(workspaceId);
@@ -426,13 +429,13 @@ function AppInner() {
     setMainView("workspace");
     setAutomationWorkspaceId(workspaceId);
     setJobsScope(scope);
-    setJobsTarget((current) => target ? { ...target, request: (current?.request ?? 0) + 1 } : null);
+    setJobsTarget((current) => target ? { ...target, returnTo, request: (current?.request ?? 0) + 1 } : null);
     closeSidebarOnMobile();
   }, [closePluginView, closeSidebarOnMobile, setActiveWorkspace]);
   useEffect(() => {
     const onOpenJob = (event: Event) => {
       const detail = (event as CustomEvent<OpenJobDetail>).detail;
-      if (detail?.workspaceId) openWorkspaceAutomation(detail.workspaceId, detail.target);
+      if (detail?.workspaceId) openWorkspaceAutomation(detail.workspaceId, detail.target, "workspace", detail.returnTo);
     };
     window.addEventListener(OPEN_JOB_EVENT, onOpenJob);
     return () => window.removeEventListener(OPEN_JOB_EVENT, onOpenJob);
@@ -778,7 +781,7 @@ function AppInner() {
           )}
           {automationWorkspaceId && mainView === "workspace" && (
             <div className="absolute inset-0" style={{ zIndex: 26 }}>
-              <JobsView key={`${automationWorkspaceId}:${jobsScope}:${jobsTarget?.request ?? 0}`} workspaces={state.workspaces} teams={state.teams} tabs={state.tabs} initialFilter={jobsEntryFilter(jobsOpenEntry(automationWorkspaceId, jobsScope, jobsTarget?.teamId))} initialScenarioId={jobsTarget?.scenarioId} initialRunId={jobsTarget?.runId} initialCronId={jobsTarget?.cronId} initialBlueprintId={jobsTarget?.blueprintId} onClose={closeWorkspaceAutomation} />
+              <JobsView key={`${automationWorkspaceId}:${jobsScope}:${jobsTarget?.request ?? 0}`} workspaces={state.workspaces} teams={state.teams} tabs={state.tabs} initialFilter={jobsEntryFilter(jobsOpenEntry(automationWorkspaceId, jobsScope, jobsTarget?.teamId))} initialScenarioId={jobsTarget?.scenarioId} initialRunId={jobsTarget?.runId} initialCronId={jobsTarget?.cronId} initialBlueprintId={jobsTarget?.blueprintId} returnTo={jobsTarget?.returnTo} onReturnTo={activateReturnTo} onClose={closeWorkspaceAutomation} />
             </div>
           )}
           {workspaceMapWorkspaceId && mainView === "workspace" && (
