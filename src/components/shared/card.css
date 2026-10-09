@@ -1,6 +1,5 @@
 .ct-card {
   --ct-card-tone: var(--ct-accent);
-  max-width: 100%;
   min-width: 0;
   border: 1px solid color-mix(in srgb, var(--ct-fg) 8%, transparent);
   border-radius: 14px;
@@ -14,6 +13,19 @@
 .ct-card:focus-within {
   border-color: color-mix(in srgb, var(--ct-card-tone) 24%, transparent);
   background: color-mix(in srgb, var(--ct-card-tone) 3%, color-mix(in srgb, var(--ct-fg) 2.5%, var(--ct-bg)));
+}
+
+.ct-user-bubble {
+  border: 1px solid color-mix(in srgb, var(--ct-accent) 24%, transparent);
+  border-radius: 18px 18px 6px 18px;
+  background: color-mix(in srgb, var(--ct-accent) 13%, var(--ct-bg));
+  color: var(--ct-fg);
+}
+
+.ct-user-bubble--relayed {
+  border-color: color-mix(in srgb, var(--ct-fg) 9%, transparent);
+  border-radius: 18px 18px 18px 6px;
+  background: color-mix(in srgb, var(--ct-fg) 3%, var(--ct-bg));
 }
 
 .ct-card--quiet {

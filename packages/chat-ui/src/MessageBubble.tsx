@@ -373,16 +373,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
               {showUserTime && <MessageTime timestamp={message.timestamp} side="right" />}
               {originHeader}
               {showUserBubble && <div
-                className={`min-w-0 rounded-2xl rounded-br-sm px-4 py-2 ${userText} select-text cursor-text border ${TEXT_WRAP_CLASS}`}
-                style={{
-                  background: effectiveOrigin
-                    ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, var(--ct-surface, #161b22) 88%)"
-                    : "color-mix(in srgb, var(--ct-accent, #58a6ff) 22%, var(--ct-bg, #0d1117) 78%)",
-                  borderColor: effectiveOrigin
-                    ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 30%, transparent)"
-                    : "color-mix(in srgb, var(--ct-accent, #58a6ff) 45%, transparent)",
-                  color: "var(--ct-fg)",
-                }}
+                className={`ct-user-bubble${effectiveOrigin ? " ct-user-bubble--relayed" : ""} min-w-0 px-4 py-2 ${userText} select-text cursor-text ${TEXT_WRAP_CLASS}`}
               >
                 {userBubbleInner}
               </div>}
