@@ -1,17 +1,25 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
+import { homedir } from "node:os";
 import { readFileSync, statSync } from "node:fs";
 import type { ApiClient } from "./api-client";
 import { expect } from "./fixtures";
 import { repoRoot } from "./dev-instance";
 
 const execute = promisify(execFile);
+
+export async function deliveryLog(tabId: string) {
+  const logPath = process.env.PW_SWITCH_DEV_LOG ?? path.join(homedir(), ".codeterm-dev", "logs", "codeterm.log");
+  const result = await execute("rg", ["--fixed-strings", tabId, logPath], { timeout: 15_000, maxBuffer: 8 * 1024 * 1024 });
+  return { logPath, tabId, lines: result.stdout.split(/\r?\n/).filter(line => /chat-send|delivery-timeline/.test(line)) };
+}
 export type Model = { id: string; display_name: string; primary?: boolean; reasoning_efforts?: { id: string }[] };
 export type Descriptor = { id: string; default_model: string; model_switch: string; available_models: Model[]; reasoning_efforts: { id: string }[]; supports_permission_bypass?: boolean };
 export type Identity = { agent_session_id: string; session_binding_nonce: string; pty_id: string; agent_session_model: string; reasoning_effort_identity?: { actual?: string } };
 export type RawRecord = {
   id?: string; type?: string; role?: string; parentID?: string; modelID?: string; providerID?: string; variant?: string;
+  time?: { completed?: number }; parts?: { type?: string; text?: string }[];
   message?: { content?: unknown; model?: string; effort?: string }; effort?: string;
   payload?: { role?: string; content?: unknown; turn_id?: string; model?: string; effort?: string };
   metadata?: { retained_source?: { id?: { turn_id?: string } } };
@@ -103,9 +111,11 @@ export function turnEvidence(provider: string, evidence: Evidence, marker: strin
     }
     return { model: user._meta.modelId, effort: user._meta.reasoningEffort, raw: turn };
   }
-  const answer = rows.find(row => row.role === "assistant" && row.parentID && rows.some(user => user.id === row.parentID && JSON.stringify(user).includes(marker)));
+  const user = rows.find(row => row.role === "user" && JSON.stringify(row).includes(marker));
+  const answer = rows.find(row => row.role === "assistant" && row.parentID === user?.id && row.time?.completed &&
+    row.parts?.some(part => part.type === "text" && part.text?.includes(marker)));
   if (!answer) throw new Error(`OpenCode exact parent-linked assistant turn missing for ${marker}`);
-  return { model: `${answer.providerID}/${answer.modelID}`, effort: answer.variant, raw: [answer] };
+  return { model: `${answer.providerID}/${answer.modelID}`, effort: user?.variant, raw: [user!, answer] };
 }
 
 export function assertModel(provider: string, actual: string, target: string): void {

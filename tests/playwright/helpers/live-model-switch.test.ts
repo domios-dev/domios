@@ -54,8 +54,12 @@ test("OpenCode assistant is parent-linked to the marked user, not the newest glo
     { id: "a", role: "assistant", parentID: "foreign", modelID: "wrong", providerID: "p" },
   ]);
   assert.throws(() => turnEvidence("opencode", rows, "opaque-marker"), /exact parent-linked/);
-  rows.records.push({ id: "own-a", role: "assistant", parentID: "u", modelID: "actual", providerID: "p", variant: "low" });
+  rows.records[0].variant = "low";
+  rows.records.push({ id: "own-a", role: "assistant", parentID: "u", modelID: "actual", providerID: "p", time: { completed: 1 }, parts: [{ type: "text", text: "opaque-marker" }] });
   assert.equal(turnEvidence("opencode", rows, "opaque-marker").model, "p/actual");
+  assert.equal(turnEvidence("opencode", rows, "opaque-marker").effort, "low");
+  rows.records[2].time = {};
+  assert.throws(() => turnEvidence("opencode", rows, "opaque-marker"), /exact parent-linked/);
 });
 
 test("command wrapper classification preserves stray user text", () => {
