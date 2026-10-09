@@ -191,6 +191,49 @@
   color: var(--ct-accent);
 }
 
+.ct-spinal-pop__pulse {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 2px 10px;
+  color: var(--ct-fg);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ct-spinal-pop__beat {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ct-green);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--ct-green) 50%, transparent);
+  animation: ct-spinal-beat 1.8s var(--ct-ease-liquid-settle) infinite;
+}
+
+.ct-spinal-pop__feed {
+  max-height: 260px;
+  margin: 0 -4px 10px;
+  padding: 8px 6px;
+  overflow-y: auto;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ct-fg) 3%, transparent);
+}
+
+.ct-spinal-pop__feed h3 {
+  margin: 0 4px 6px;
+  color: var(--ct-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+@keyframes ct-spinal-beat {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ct-green) 50%, transparent); }
+  70% { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
 .ct-spinal-pop__nudge {
   margin: 0 2px 10px;
   color: var(--ct-muted-fg);
@@ -260,6 +303,7 @@
   }
 
   .ct-spinal-btn__invite,
+  .ct-spinal-pop__beat,
   .ct-spinal-graphic__pulse,
   .ct-spinal-graphic__bone,
   .ct-spinal-btn:hover .ct-spinal-vertebrae rect {
