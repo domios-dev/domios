@@ -3,6 +3,7 @@ use std::io::Write;
 
 fn declaration() -> ModelSwitchTurnCompletion {
     ModelSwitchTurnCompletion {
+        source: crate::agent::provider::ModelSwitchCompletionSource::SessionJsonl,
         event_pointer: "/params/update/sessionUpdate".into(),
         event_value: "turn_completed".into(),
         session_pointer: "/params/sessionId".into(),
@@ -89,4 +90,17 @@ fn watcher_wakes_on_own_append_and_the_matching_turn_releases() {
         .recv_timeout(std::time::Duration::from_secs(5))
         .unwrap();
     assert!(boundary.completed("own").unwrap());
+}
+
+#[test]
+fn captured_grok_busy_prompt_completes_only_on_its_matching_update() {
+    let session = "01a122fc-abe9-7281-9837-24a92a378d30";
+    let prompt = "6993c5a8-10bb-4991-843f-b5ad9a2a1ede";
+    let mut file = tempfile::NamedTempFile::new().unwrap();
+    writeln!(file, "{}", serde_json::json!({"timestamp":1791588406,"method":"session/update","params":{"sessionId":session,"update":{"sessionUpdate":"user_message_chunk"}}})).unwrap();
+    let mut boundary = RecordBoundary::capture(file.path().into(), declaration(), session).unwrap();
+    writeln!(file, "{}", serde_json::json!({"timestamp":1791588409,"method":"session/update","params":{"sessionId":session,"update":{"sessionUpdate":"agent_thought_chunk"},"_meta":{"promptId":prompt,"agentTimestampMs":1791588409737u64}}})).unwrap();
+    assert!(!boundary.completed(session).unwrap());
+    writeln!(file, "{}", serde_json::json!({"timestamp":1791588642,"method":"_x.ai/session/update","params":{"sessionId":session,"update":{"sessionUpdate":"turn_completed","prompt_id":prompt,"stop_reason":"end_turn"},"_meta":{"agentTimestampMs":1791588642873u64}}})).unwrap();
+    assert!(boundary.completed(session).unwrap());
 }

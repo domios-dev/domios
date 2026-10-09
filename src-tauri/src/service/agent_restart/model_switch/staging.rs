@@ -242,19 +242,25 @@ impl ServiceContext {
                     .and_then(|commands| commands.turn_completion)
                     .map(|declaration| {
                         (
-                            cwd.as_deref()
-                                .and_then(|cwd| provider.session_jsonl_path(cwd, &session_id)),
+                            cwd.as_deref().and_then(|cwd| {
+                                declaration.record_path(provider, cwd, &session_id)
+                            }),
                             declaration,
                         )
                     })
             })
             .flatten();
         let records = match declared {
-            Some((path, declaration)) => Some(completion_records::RecordBoundary::capture(
-                path?,
-                declaration,
-                &session_id,
-            )?),
+            Some((path, declaration)) => {
+                let path = path?;
+                let records = completion_records::RecordBoundary::capture(
+                    path.clone(),
+                    declaration.clone(),
+                    &session_id,
+                )?;
+                log::info!("[agent-model/completion] tab={tab_id} source={:?} path={} phase=boundary_captured", declaration.source, path.display());
+                Some(records)
+            }
             None => None,
         };
         Some(CompletionBoundary {
@@ -391,13 +397,17 @@ impl ServiceContext {
                             svc.staged_model_turn_started(&worker_request.tab_id);
                         }
                         match completed {
-                            Ok(true) => svc.staged_model_turn_completed(
+                            Ok(true) => {
+                                log::info!("[agent-model/completion] tab={} phase=matching_record_observed", worker_request.tab_id);
+                                svc.staged_model_turn_completed(
                                 &worker_request.tab_id,
                                 &worker_request.session_id,
                                 &worker_request.nonce,
-                            ),
+                                );
+                            }
                             Ok(false) => {}
-                            Err(_) => {
+                            Err(error) => {
+                                log::warn!("[agent-model/completion] tab={} phase=record_read_failed error={error}", worker_request.tab_id);
                                 svc.settle_staged_model_switch(worker_request, false);
                                 break;
                             }

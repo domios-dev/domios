@@ -232,9 +232,12 @@ No new sandbox host function or filesystem grant is exposed.
 Busy model changes require authenticated own-turn completion; Idle alone never
 releases a staged change. Providers without hooks may declare
 `commands.modelSwitchCommands.turnCompletion` with `eventPointer`, `eventValue`,
-`sessionPointer`, `startEventValue`, `turnPointer` and `activeTurnPointer`.
+`sessionPointer`, `startEventValue`, `turnPointer`, `activeTurnPointer` and `source`.
 Pointers use JSON Pointer syntax against records in the exact bound session's
-`sessionJsonlPath`. The host captures an append boundary, observes file events,
+`sessionJsonlPath` (`source: "session_jsonl"`) or `sessionFilePath`
+(`source: "session_file"`). Select the file that contains the declared completion
+records; chat and update files can differ. Both paths require session-root
+confinement. The host captures an append boundary, observes file events,
 and matches the completed turn id against the latest provider-authored active
 turn id. A new user record invalidates prior completion evidence. Missing,
 foreign, partial or pre-boundary records cannot release the staged operation.
