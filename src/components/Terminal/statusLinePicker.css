@@ -134,37 +134,20 @@ button.ct-status-identity:focus-visible {
   outline: 1px solid var(--ct-accent);
 }
 
-.ct-model-picker {
+.ct-menu.ct-model-picker {
+  --ct-menu-origin: bottom left;
+  --ct-menu-shift: 6px;
   position: fixed;
   z-index: 1100;
   display: flex;
   flex-direction: column;
   gap: 8px;
   max-height: min(440px, calc(100vh - 96px));
-  padding: 10px;
-  border: 1px solid var(--ct-border-default);
-  border-radius: 12px;
-  background: var(--ct-bg);
-  -webkit-backdrop-filter: blur(18px) saturate(1.2);
-  backdrop-filter: blur(18px) saturate(1.2);
-  box-shadow: var(--ct-shadow-xl);
+  padding: 8px;
   color: var(--ct-fg);
   font-family: var(--ct-font-ui);
   font-size: 12px;
   line-height: 1.35;
-  transform-origin: 16px 100%;
-  animation: ct-model-picker-rise var(--ct-duration-normal) var(--ct-ease-liquid-settle) both;
-}
-
-@keyframes ct-model-picker-rise {
-  from {
-    opacity: 0;
-    transform: translateY(6px) scaleY(0.94);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scaleY(1);
-  }
 }
 
 .ct-model-picker__head {
@@ -229,41 +212,19 @@ button.ct-status-identity:focus-visible {
   overscroll-behavior: contain;
 }
 
-.ct-model-picker__group {
-  padding: 8px 8px 3px;
-  color: var(--ct-muted-fg);
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.ct-model-picker__option {
+.ct-menu-row.ct-model-picker__option {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto 14px;
-  align-items: center;
   gap: 8px;
-  min-height: 28px;
-  padding: 0 8px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background-color var(--ct-duration-fast) ease;
 }
 
-.ct-model-picker__option:hover {
-  background: var(--ct-hover);
+.ct-menu-row.ct-model-picker__option[aria-selected="true"] {
+  background: color-mix(in srgb, var(--ct-accent) 13%, transparent);
 }
 
-.ct-model-picker__option:focus-visible {
-  outline: 1px solid var(--ct-accent);
-  outline-offset: -1px;
-}
-
-.ct-model-picker__option[aria-selected="true"] {
-  background: color-mix(in srgb, var(--ct-accent) 16%, transparent);
-}
-
-.ct-model-picker__option[aria-disabled="true"] {
-  cursor: not-allowed;
-  opacity: 0.45;
+.ct-menu-row.ct-model-picker__option[aria-selected="true"]:hover,
+.ct-menu-row.ct-model-picker__option[aria-selected="true"]:focus-visible {
+  background: color-mix(in srgb, var(--ct-accent) 18%, transparent);
 }
 
 .ct-model-picker__name {
@@ -356,9 +317,6 @@ button.ct-status-identity:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ct-model-picker {
-    animation: none;
-  }
   .ct-status-identity__text,
   .ct-status-identity__chevron,
   .ct-status-identity,

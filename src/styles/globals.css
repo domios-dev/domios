@@ -963,6 +963,16 @@ button,
   z-index: 1100;
 }
 
+.ct-peer-menu .ct-menu-row[aria-current="true"] {
+  background: color-mix(in srgb, var(--ct-accent) 13%, transparent);
+}
+
+@media (pointer: coarse) {
+  .ct-peer-menu .ct-menu-row {
+    min-height: 44px;
+  }
+}
+
 .ct-toast-inline {
   display: flex;
   align-items: center;
@@ -1045,27 +1055,6 @@ button,
 @media (prefers-reduced-motion: reduce) {
   .ct-notification-bell-ring,
   .ct-notification-dot-pop {
-    animation: none;
-  }
-}
-
-/* Top-right anchored menu pop — scales out of the trigger corner */
-.ct-menu-pop {
-  transform-origin: top right;
-  animation: ct-menu-pop 160ms var(--ct-ease-out-expo) both;
-}
-@keyframes ct-menu-pop {
-  from {
-    opacity: 0;
-    transform: translateY(-4px) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .ct-menu-pop {
     animation: none;
   }
 }
@@ -2840,15 +2829,6 @@ button,
   gap: 1px;
 }
 
-.sidebar-team-menu-label {
-  padding: 7px 9px 4px;
-  color: var(--ct-muted);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .sidebar-team-menu [role="status"],
 .sidebar-team-menu [role="alert"] {
   padding: 6px 9px;
@@ -4080,37 +4060,12 @@ button,
 
 /* ── Kebab dropdown menu ─────────────────────────────────────────────────── */
 .plan-switcher-menu {
+  --ct-menu-origin: top right;
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
   z-index: 200;
   min-width: 13rem;
-  padding: 0.25rem 0;
-  border: 1px solid var(--ct-border);
-  border-radius: 0.45rem;
-  background: var(--ct-bg);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
-}
-.plan-switcher-menu-item {
-  display: block;
-  width: 100%;
-  padding: 0.35rem 0.8rem;
-  border: none;
-  background: none;
-  font: inherit;
-  font-size: 0.78rem;
-  text-align: left;
-  color: var(--ct-fg);
-  cursor: pointer;
-  white-space: nowrap;
-}
-.plan-switcher-menu-item:hover,
-.plan-switcher-menu-item:focus-visible {
-  background: color-mix(in srgb, var(--ct-accent) 12%, var(--ct-bg));
-  outline: none;
-}
-.plan-switcher-menu-item-danger {
-  color: var(--ct-red);
 }
 
 /* ── Overflow mode: combo trigger + popover listbox ─────────────────────── */
@@ -4148,57 +4103,22 @@ button,
   min-width: 18rem;
   max-height: 20rem;
   overflow-y: auto;
-  border: 1px solid var(--ct-border);
-  border-radius: 0.5rem;
-  background: var(--ct-bg);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.2);
 }
 .plan-switcher-opt {
   position: relative;
   display: flex;
   align-items: center;
-  padding-right: 0.25rem;
-}
-.plan-switcher-opt:hover {
-  background: color-mix(in srgb, var(--ct-accent) 8%, var(--ct-bg));
+  gap: 2px;
 }
 .plan-switcher-opt-select {
   flex: 1;
-  padding: 0.45rem 0.65rem;
-  border: none;
-  background: none;
-  font: inherit;
-  font-size: 0.8rem;
-  text-align: left;
-  color: var(--ct-fg);
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.plan-switcher-opt-select:focus-visible {
-  outline: 2px solid var(--ct-accent);
-  outline-offset: -2px;
-  border-radius: 0.25rem;
 }
 .plan-switcher-opt-selected .plan-switcher-opt-select {
-  font-weight: 650;
-}
-.plan-switcher-opt-archived {
-  background: color-mix(in srgb, var(--ct-surface) 34%, var(--ct-bg));
+  background: color-mix(in srgb, var(--ct-accent) 13%, transparent);
+  font-weight: 600;
 }
 .plan-switcher-opt-archived .plan-switcher-opt-select {
-  color: color-mix(in srgb, var(--ct-fg) 82%, var(--ct-muted-fg));
-}
-.plan-switcher-sep {
-  padding: 0.4rem 0.65rem 0.2rem;
-  font-size: 0.65rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--ct-muted-fg);
-  border-top: 1px solid var(--ct-border);
-  margin-top: 0.25rem;
 }
 
 .plan-switcher-archived-dropdown {

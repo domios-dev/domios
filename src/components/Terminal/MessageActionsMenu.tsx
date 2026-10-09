@@ -36,13 +36,13 @@ function MenuItem({ label, icon: Icon, hint, done, onSelect }: {
       role="menuitem"
       tabIndex={-1}
       aria-label={label}
-      className="ct-msg-menu__item"
+      className="ct-menu-row"
       data-done={done || undefined}
       onClick={(event) => { event.stopPropagation(); onSelect(); }}
     >
-      <Icon size={13} aria-hidden />
-      <span>{label}</span>
-      {hint && <span aria-hidden className="ct-msg-menu__hint">{hint}</span>}
+      <span className="ct-menu-row__icon"><Icon size={14} aria-hidden /></span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {hint && <span aria-hidden className="ct-menu-row__shortcut">{hint}</span>}
     </button>
   );
 }
@@ -152,7 +152,7 @@ export function MessageActionsDot({ clip, touch = false, whole = false, hasParts
 
   const menu = open && (
         <div className={touch ? "ct-msg-sheet-wrap" : "ct-msg-menu-wrap"} data-side={side} data-placement={placement}>
-          <div ref={menuRef} role="menu" aria-label="Message actions" className="ct-msg-menu" onKeyDown={onMenuKey}>
+          <div ref={menuRef} role="menu" aria-label="Message actions" className="ct-menu ct-msg-menu" onKeyDown={onMenuKey}>
             {touch && <div className="ct-msg-menu__preview" role="note" aria-label="Action preview">{messageClipboard(clip).plain}</div>}
             {hasParts && <div className="ct-msg-scope" role="group" aria-label="Action target">
               <button type="button" role="menuitemradio" tabIndex={-1} aria-checked={!whole} onClick={() => { setCopied(null); onScopeChange?.(false); }}>This part</button>
@@ -160,11 +160,11 @@ export function MessageActionsDot({ clip, touch = false, whole = false, hasParts
             </div>}
             <MenuItem label={copied === "copy" ? "Copied" : "Copy"} icon={copied === "copy" ? Check : Copy} done={copied === "copy"} onSelect={() => copy("copy")} />
             {sourceDiffersFromVisible(clip) && <MenuItem label={copied === "markdown" ? "Copied as Markdown" : "Copy as Markdown"} icon={copied === "markdown" ? Check : Hash} done={copied === "markdown"} onSelect={() => copy("markdown")} />}
-            <div role="separator" className="ct-msg-menu__rule" />
+            <div role="separator" className="ct-menu-separator" />
             <MenuItem label="Ask about this" icon={MessageSquarePlus} onSelect={() => { hide(); actions.quote(clip); }} />
-            <div role="separator" className="ct-msg-menu__rule" />
+            <div role="separator" className="ct-menu-separator" />
             <MenuItem label="Select" icon={ListChecks} hint={touch ? undefined : "Shift-click"} onSelect={() => { hide(); actions.select(); }} />
-            {touch && <button type="button" role="menuitem" className="ct-msg-menu__item" onClick={() => hide(true)}>Close actions</button>}
+            {touch && <button type="button" role="menuitem" className="ct-menu-row" onClick={() => hide(true)}>Close actions</button>}
           </div>
         </div>
   );

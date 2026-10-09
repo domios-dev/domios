@@ -506,7 +506,7 @@
   color: var(--ct-muted-fg);
 }
 
-.mc-board-plan-menu {
+.ct-menu.mc-board-plan-menu {
   position: fixed;
   z-index: 60;
   display: flex;
@@ -516,33 +516,12 @@
   max-width: min(22rem, calc(100vw - 48px));
   max-height: 16rem;
   overflow-y: auto;
-  padding: var(--mc-space-1);
-  border: 1px solid var(--ct-border);
-  border-radius: var(--ct-radius-sm);
-  background: var(--ct-bg-elev, var(--ct-surface));
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--ct-bg) 45%, transparent);
 }
 
-.mc-board-plan-menuitem {
-  display: flex;
+.ct-menu-row.mc-board-plan-menuitem {
   align-items: baseline;
   gap: var(--mc-space-3);
-  min-height: 32px;
-  padding: var(--mc-space-2);
-  border: 0;
-  border-radius: var(--ct-radius-sm);
-  background: transparent;
-  font: inherit;
-  font-size: var(--mc-text-body);
-  text-align: left;
-  color: var(--ct-fg);
-  cursor: pointer;
-}
-
-.mc-board-plan-menuitem:hover,
-.mc-board-plan-menuitem:focus-visible {
-  background: color-mix(in srgb, var(--ct-accent) 12%, transparent);
-  outline: none;
+  white-space: normal;
 }
 
 .mc-board-plan-menuitem-title {

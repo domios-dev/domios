@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
@@ -161,34 +161,45 @@ export function MeshWebUiControl({
           ref={menuRef}
           data-testid="mesh-web-ui-menu"
           role="menu"
-          className="ct-portal-menu fixed w-[248px] overflow-hidden rounded-lg border border-[var(--ct-border)] shadow-lg"
-          style={{ ...pos, background: "var(--ct-surface, #1e1e2e)" }}
+          className="ct-portal-menu ct-menu fixed w-[248px]"
+          style={{
+            ...pos,
+            ...({ "--ct-menu-origin": menuAlign === "left" ? "top left" : "top right" } as CSSProperties),
+          }}
         >
-          <div className="px-3 pt-2.5 pb-1 text-[10px] uppercase tracking-wider text-[var(--ct-muted)]">
-            Web UI · {view.label}
+          <div className="ct-menu-head">
+            <div className="ct-menu-identity">
+              <span className="ct-menu-identity__icon" style={{ color: chipColor }} aria-hidden>
+                <Globe size={15} />
+              </span>
+              <span className="ct-menu-identity__text">
+                <span className="ct-menu-identity__title">Web UI</span>
+                <span className="ct-menu-identity__subtitle">{view.label}</span>
+              </span>
+            </div>
+            {view.tone !== "ready" && view.detail && (
+              <p className="px-2 pb-1.5 text-[11px] leading-snug text-[var(--ct-muted-fg)]">{view.detail}</p>
+            )}
+            {busyLabel && (
+              <div data-testid="mesh-web-ui-progress" className="flex items-center gap-1 px-2 pb-1.5 text-[10.5px] text-[var(--ct-muted-fg)]">
+                <BusyState label="" inline hideLabel className="scale-50" />
+                {busyLabel}
+              </div>
+            )}
+            {!busyLabel && message && (
+              <div data-testid="mesh-web-ui-message" className="px-2 pb-1.5 text-[10.5px] text-[var(--ct-muted-fg)]">{message}</div>
+            )}
+            {!busyLabel && error && (
+              <div data-testid="mesh-web-ui-error" className="flex items-center gap-1 px-2 pb-1.5 text-[10.5px] text-[var(--ct-red)]">
+                <AlertTriangle size={10} className="shrink-0" />
+                {error}
+              </div>
+            )}
           </div>
-          {view.tone !== "ready" && view.detail && (
-            <p className="px-3 pb-2 text-[11px] leading-snug text-[var(--ct-muted-fg)]">{view.detail}</p>
-          )}
-          {busyLabel && (
-            <div data-testid="mesh-web-ui-progress" className="flex items-center gap-1 px-3 pb-2 text-[10px] text-[var(--ct-muted-fg)]">
-              <BusyState label="" inline hideLabel className="scale-50" />
-              {busyLabel}
-            </div>
-          )}
-          {!busyLabel && message && (
-            <div data-testid="mesh-web-ui-message" className="px-3 pb-2 text-[10px] text-[var(--ct-muted-fg)]">{message}</div>
-          )}
-          {!busyLabel && error && (
-            <div data-testid="mesh-web-ui-error" className="flex items-center gap-1 px-3 pb-2 text-[10px] text-[var(--ct-red,#f85149)]">
-              <AlertTriangle size={10} className="shrink-0" />
-              {error}
-            </div>
-          )}
           {openUrl && (
             <MenuItem
               testid="mesh-web-ui-open"
-              icon={<ExternalLink size={13} />}
+              icon={<ExternalLink size={14} />}
               label="Open Web UI"
               sub="Open the authenticated Web UI"
               onClick={() => {
@@ -200,7 +211,7 @@ export function MeshWebUiControl({
           {view.canSetup && (
             <MenuItem
               testid="mesh-web-ui-setup"
-              icon={<Settings2 size={13} />}
+              icon={<Settings2 size={14} />}
               label={view.operatorBootstrap ? "Setup (operator bootstrap)" : "Set up Web UI"}
               sub={view.operatorBootstrap ? view.bootstrapCommand ?? undefined : "Configure Tailscale Serve"}
               onClick={() => void runAction("setup")}
@@ -209,7 +220,7 @@ export function MeshWebUiControl({
           {view.canRepair && (
             <MenuItem
               testid="mesh-web-ui-repair"
-              icon={<Wrench size={13} />}
+              icon={<Wrench size={14} />}
               label="Repair route"
               sub="Reconcile the desired HTTPS route"
               onClick={() => void runAction("repair")}
@@ -218,7 +229,7 @@ export function MeshWebUiControl({
           {openUrl && (
             <MenuItem
               testid="mesh-web-ui-copy-url"
-              icon={copied ? <Check size={13} className="text-[var(--ct-green,#3fb950)]" /> : <Copy size={13} />}
+              icon={copied ? <Check size={14} className="text-[var(--ct-green)]" /> : <Copy size={14} />}
               label={copied ? "Copied" : "Copy URL"}
               sub="Copy the authenticated link"
               onClick={() => void copyUrl()}
@@ -226,7 +237,7 @@ export function MeshWebUiControl({
           )}
           <MenuItem
             testid="mesh-web-ui-surface"
-            icon={<QrCode size={13} />}
+            icon={<QrCode size={14} />}
             label="Show QR code"
             sub="Open the link and QR surface"
             onClick={() => {
@@ -237,7 +248,7 @@ export function MeshWebUiControl({
           {view.canDisable && (
             <MenuItem
               testid="mesh-web-ui-disable"
-              icon={<Power size={13} />}
+              icon={<Power size={14} />}
               danger
               label="Disable Web UI"
               sub="Remove only the route this daemon owns"
@@ -266,15 +277,14 @@ function MenuItem({
       type="button"
       role="menuitem"
       data-testid={testid}
+      data-danger={danger ? "true" : undefined}
       onClick={onClick}
-      className={`flex w-full items-start gap-2.5 px-3 py-2 text-left transition-colors hover:bg-[rgba(255,255,255,0.06)] cursor-pointer bg-transparent border-none ${
-        danger ? "text-[var(--ct-red,#f85149)]" : "text-[var(--ct-fg)]"
-      }`}
+      className="ct-menu-row"
     >
-      <span className="mt-0.5 shrink-0">{icon}</span>
-      <span className="flex min-w-0 flex-col">
-        <span className="text-[12px] leading-tight">{label}</span>
-        {sub && <span className="mt-0.5 truncate font-mono text-[10px] text-[var(--ct-muted)]">{sub}</span>}
+      <span className="ct-menu-row__icon">{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{label}</span>
+        {sub && <span className="ct-menu-row__description font-mono">{sub}</span>}
       </span>
     </button>
   );

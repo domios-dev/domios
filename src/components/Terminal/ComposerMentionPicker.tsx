@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
 import {
   activeMentionQuery,
   applyComposerMention,
@@ -22,11 +22,10 @@ export function ComposerMentionPicker({
     <div
       role="listbox"
       aria-label="Mention suggestions"
-      className="absolute bottom-full left-0 right-0 mb-1 max-h-48 overflow-y-auto rounded"
+      className="ct-menu absolute bottom-full left-0 right-0 mb-1 max-h-48 overflow-y-auto"
       style={{
-        background: "color-mix(in srgb, var(--ct-bg, #0d1117) 92%, black 8%)",
-        border: "1px solid color-mix(in srgb, var(--ct-accent, #58a6ff) 30%, transparent)",
         zIndex: 10,
+        ...({ "--ct-menu-origin": "bottom left", "--ct-menu-shift": "6px" } as CSSProperties),
       }}
     >
       {mentions.map((mention, i) => {
@@ -42,16 +41,11 @@ export function ComposerMentionPicker({
             onMouseDown={(e) => e.preventDefault()}
             onMouseEnter={() => onHighlight(i)}
             onClick={() => onPick(mention)}
-            className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-xs"
-            style={{
-              background: selected ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 20%, transparent)" : "transparent",
-              color: "var(--ct-fg, #c9d1d9)",
-              border: "none",
-              cursor: "pointer",
-            }}
+            className="ct-menu-row"
+            style={selected ? { background: "color-mix(in srgb, var(--ct-accent) 13%, transparent)" } : undefined}
           >
-            <span className="font-medium" style={{ color: "var(--ct-accent, #58a6ff)" }}>{mention.token}</span>
-            <span className="min-w-0 truncate text-[var(--ct-muted-fg)]">{mention.description}</span>
+            <span className="shrink-0 font-medium text-[var(--ct-accent)]">{mention.token}</span>
+            <span className="ml-auto min-w-0 truncate text-[var(--ct-muted-fg)]">{mention.description}</span>
           </button>
         );
       })}

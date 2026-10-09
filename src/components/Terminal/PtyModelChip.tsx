@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, type CSSProperties } from "react";
 import { useComposerPopover } from "./useComposerPopover";
 import type { ProviderDescriptor } from "../../lib/types";
 import { reasoningEffortsForModel, resolveEffort } from "../../lib/newSessionChoice";
@@ -36,7 +36,8 @@ export function PtyModelChip({ tabId, provider, onError }: {
       className="rounded-full border px-3 py-1" onClick={toggle}>
       {models.find((entry) => entry.id === model)?.display_name ?? model ?? "Model unknown"}{effort ? ` · ${effort}` : ""}
     </button>
-    {open && <div ref={popoverRef} role="dialog" aria-label="Model and traits" className="absolute bottom-full z-40 mb-2 min-w-64 rounded-lg border bg-[var(--ct-surface)] p-3 shadow-lg"
+    {open && <div ref={popoverRef} role="dialog" aria-label="Model and traits" className="ct-menu absolute bottom-full z-40 mb-2"
+      style={{ minWidth: 256, padding: 12, ...({ "--ct-menu-origin": "bottom left", "--ct-menu-shift": "6px" } as CSSProperties) }}
       onKeyDown={(event) => { if (event.code === "Escape") { event.preventDefault(); close(); } }}>
       <fieldset role="radiogroup" aria-label="Model" disabled={busy || !picker.modelEnabled}><legend>Model</legend>
         {models.map((entry) => <label key={entry.id} className="flex gap-2 py-1">
