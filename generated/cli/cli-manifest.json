@@ -16265,7 +16265,7 @@
       "subcommands": [
         {
           "name": "adopt-agent",
-          "about": "Attach an already-running roleless agent tab to a Team",
+          "about": "Attach an already-running roleless agent or plain shell tab to a Team (a shell becomes a utility shell, process kept)",
           "aliases": [],
           "args": [
             {
@@ -16275,7 +16275,7 @@
               "value_name": "TAB_ID",
               "possible_values": [],
               "default": null,
-              "help": "Tab ID of the running agent",
+              "help": "Tab ID of the running agent or shell",
               "aliases": []
             },
             {

@@ -3469,9 +3469,9 @@ Team registry, 1:1 plan binding, and paired creation
 
 #### `codeterm team adopt-agent`
 
-Attach an already-running roleless agent tab to a Team
+Attach an already-running roleless agent or plain shell tab to a Team (a shell becomes a utility shell, process kept)
 
-- `<tab_id>` — Tab ID of the running agent
+- `<tab_id>` — Tab ID of the running agent or shell
 - `<team_id>` — Team ID
 
 #### `codeterm team adopt-plan`
