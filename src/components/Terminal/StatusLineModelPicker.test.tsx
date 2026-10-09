@@ -73,6 +73,35 @@ function recordSwitches() {
   return calls;
 }
 
+test("a busy apply closes the picker and cancel or Escape clears its staged request", async () => {
+  const requests: string[] = [];
+  __setTabModelApiForTest({
+    switchModel: async (_tab, model) => {
+      requests.push(model);
+      return { mode_used: "live_command", model_confirmation: "pending", staged: true };
+    },
+    cancelStagedModel: async (tab) => { requests.push(`cancel:${tab}`); },
+  });
+  const view = await mount(descriptor("live_command"));
+  try {
+    await act(async () => view.trigger()!.click());
+    await act(async () => view.option("Fast").click());
+    await act(async () => button("Apply").click());
+    assert.equal(view.picker(), null);
+    assert.match(view.trigger()!.getAttribute("aria-label")!, /Fast.*after this turn/);
+    await act(async () => view.trigger()!.click());
+    await act(async () => button("Cancel").click());
+    assert.deepEqual(requests, ["fast", "cancel:tab"]);
+    assert.equal(view.picker(), null);
+    await act(async () => view.trigger()!.click());
+    await act(async () => view.picker()!.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })));
+    assert.deepEqual(requests, ["fast", "cancel:tab", "cancel:tab"]);
+  } finally {
+    await view.unmount();
+    __setTabModelApiForTest(null);
+  }
+});
+
 test("only the model capsule is interactive and its accessible name identifies the model", async () => {
   const view = await mount(descriptor("next_turn"));
   try {

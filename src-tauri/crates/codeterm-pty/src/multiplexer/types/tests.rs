@@ -30,6 +30,7 @@ fn tab_with(id: &str, backing: TabBacking) -> Tab {
         agent_session_model: None,
         agent_session_model_identity: None,
         pending_model_switch_observation: None,
+        pending_model_selection: None,
         agent_planned_model: None,
         agent_requested_model: None,
         structured_control_active: false,

@@ -179,6 +179,7 @@ export interface TabBootStageEvent {
 }
 
 export interface Tab {
+  pending_model_selection?: { model: string; effort: string | null } | null;
   close_restore?: { command: string | null; stopped: boolean; record_id: string | null; exact_session: boolean } | null;
   shell_profile?: ShellProfile | null;
   purpose?: import("./shellCommandState").ShellPurpose;

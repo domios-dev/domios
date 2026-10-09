@@ -736,6 +736,7 @@ impl ServiceContext {
                 self.schedule_session_persist_debounced();
             }
             if became_idle {
+                self.apply_staged_model_switch_on_idle(&tab_id);
                 // The turn boundary, not a status value: the pass itself runs on the
                 // ledger thread, never here.
                 self.on_agent_turn_settled(&tab_id);

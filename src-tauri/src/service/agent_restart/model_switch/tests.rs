@@ -13,6 +13,58 @@ const PRIOR_MODEL: &str = "prior-model-a1";
 const NEXT_MODEL: &str = "next-model-b2";
 const EFFORT: &str = "effort-c3";
 
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn busy_switch_stages_for_every_host_owned_mode_without_provider_operation() {
+    for mode in [
+        ModelSwitchMode::Live,
+        ModelSwitchMode::LiveCommand,
+        ModelSwitchMode::RestartResume,
+    ] {
+        let (mux, tab_id) = seeded_tab("staging-provider");
+        let fixture = ServiceFixture::new(mux);
+        fixture.service.agent_registry.register_provider(Box::new(
+            MockProvider::with_session("staging-provider", SESSION).with_model_switch(mode),
+        ));
+        let outcome = fixture
+            .service
+            .agent_switch_model(&tab_id, NEXT_MODEL)
+            .unwrap();
+        assert_eq!(outcome.confirmation, ModelSwitchConfirmation::AfterTurn);
+        assert_eq!(outcome.mechanism, mode);
+        assert!(outcome.restart.is_none());
+        assert!(!restart_attempted(&fixture, &tab_id));
+        let replacement = fixture
+            .service
+            .agent_switch_model(&tab_id, "replacement-model")
+            .unwrap();
+        assert_eq!(replacement.confirmation, ModelSwitchConfirmation::AfterTurn);
+        assert_eq!(
+            fixture
+                .service
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .unwrap()
+                .pending_model_selection
+                .as_ref()
+                .unwrap()
+                .model,
+            "replacement-model"
+        );
+        fixture.service.cancel_staged_model_switch(&tab_id);
+        assert!(fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .pending_model_selection
+            .is_none());
+        assert!(!restart_attempted(&fixture, &tab_id));
+    }
+}
+
 #[test]
 fn live_confirmation_accepts_bare_model_alias_with_verified_binding() {
     let registry = crate::agent::registry::AgentRegistry::new();

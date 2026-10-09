@@ -639,6 +639,7 @@ fn install_leaf(
             agent_session_model: agent_session_model.clone(),
             agent_session_model_identity: None,
             pending_model_switch_observation: None,
+            pending_model_selection: None,
             agent_planned_model: agent_planned_model.clone(),
             agent_requested_model: agent_requested_model.clone(),
             structured_control_active: false,

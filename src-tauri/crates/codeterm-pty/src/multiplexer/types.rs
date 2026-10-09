@@ -523,6 +523,12 @@ pub fn latest_prior_session(lineage: &[PriorBindingNonce]) -> Option<&str> {
 
 /// A tab represents one terminal, chat backend, or transient choice surface.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingModelSelection {
+    pub model: String,
+    pub effort: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
     #[serde(default, skip_deserializing)]
     pub provider_signals: codeterm_types::agent::provider_signals::ProviderSignals,
@@ -606,6 +612,8 @@ pub struct Tab {
     pub agent_session_model_identity: Option<SessionModelIdentity>,
     #[serde(skip, default)]
     pub pending_model_switch_observation: Option<PendingModelSwitchObservation>,
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    pub pending_model_selection: Option<PendingModelSelection>,
     /// Model selected by plan/task routing before a launch-time override.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_planned_model: Option<String>,
