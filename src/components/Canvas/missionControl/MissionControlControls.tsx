@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { Check, Pause, Play, Trash2 } from "lucide-react";
 import { DropdownMenu, type DropdownMenuItem } from "../../shared/DropdownMenu";
+import { KebabGlyph } from "../../shared/RowMenuButton";
 import type {
   PlanLifecycleConfirm,
   PlanLifecycleKind,
@@ -148,13 +149,7 @@ export function MissionControlControls({
               aria-haspopup="menu"
               title={triggerLabel}
             >
-              {scope === "board" ? (
-                "⋯"
-              ) : (
-                <span aria-hidden className="text-[13px] leading-none font-bold">
-                  ⋮
-                </span>
-              )}
+              <KebabGlyph />
             </button>
           }
         />

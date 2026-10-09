@@ -6,7 +6,8 @@ import { PluginIcon } from "./PluginIcon";
 import { iconOf } from "./shared";
 import type { ChannelRecord } from "./types";
 import { DropdownMenu } from "../shared/DropdownMenu";
-import { ChevronRight, Ellipsis, Trash2 } from "lucide-react";
+import { ChevronRight, Trash2 } from "lucide-react";
+import { KebabGlyph } from "../shared/RowMenuButton";
 import type { PluginActivity } from "../../lib/types";
 import { resolvePluginActivityDisplay, type PluginActivityDisplayMap } from "../../lib/usePluginActivity";
 import { PluginActivityInline } from "./PluginActivityInline";
@@ -181,7 +182,7 @@ export function PluginList({
                             placeItems: "center",
                           }}
                         >
-                          <Ellipsis size={14} />
+                          <KebabGlyph />
                         </button>
                       }
                     />
