@@ -5,20 +5,24 @@ import { resetWarmStreamForTest } from "../Terminal/voice/useVoiceRecorder";
 import assert from "node:assert/strict";
 import { act } from "react";
 import { BROWSER_SURFACE_CHROME, BROWSER_SURFACE_TITLE } from "./browserChrome";
-import { createFakeStreamTransport } from "./fakeStreamTransport.testdata";
+import { surfaceControlStore } from "../../lib/surfaceControlStore";
+import { createFakeStreamTransport, type FakeStreamTransport } from "./fakeStreamTransport.testdata";
 import type { FrameDecoder } from "./frameFeed";
 import { StreamSurfaceView } from "./StreamSurfaceView";
+import { SNIP_IMAGE_LABEL } from "./PointAndAsk";
 import {
+  blockedNotice,
   grabSendArgs,
   needsHumanNotice,
   NEW_PROFILE_OPTION,
   profileSwitchedNotice,
-  screenshotSavedNotice,
+  SNIP_DIALOG_LABEL,
   surfaceLabel,
   type GrabSelection,
+  type SnipCapture,
   type SurfaceState,
 } from "./surfaceChromeModel";
-import { resizeArgs, SURFACE_METHOD, type ScreenshotResult, type StreamFrame } from "./surfaceStreamTransport";
+import { resizeArgs, SURFACE_METHOD, type StreamFrame } from "./surfaceStreamTransport";
 import { PREVIEW_PAUSED_TEXT } from "./SurfacePreviewPaused";
 import { FRAME_HEAL_INTERVAL_MS } from "./useSurfaceStream";
 import { changeValue, flushAsync, getByRole, queryByRole, render, resizeStages, testSuite } from "./surfaceTestDom.testdata";
@@ -28,7 +32,13 @@ const decode: FrameDecoder = async () => ({ width: 800, height: 600, image: {} a
 const state: SurfaceState = { owner: "Jev", title: "Login", url: "https://a.test/", activity: "typing", profile: "clean", profiles: [] };
 const label = surfaceLabel(state.owner, BROWSER_SURFACE_TITLE);
 
-async function mount(saved: ScreenshotResult[] = [], ownerName?: string) {
+interface MountOptions {
+  ownerName?: string;
+  surfaceTabId?: string;
+  opened?: string[];
+}
+
+async function mount({ ownerName, surfaceTabId, opened = [] }: MountOptions = {}) {
   const fake = createFakeStreamTransport();
   const view = await render(
     <StreamSurfaceView
@@ -37,11 +47,29 @@ async function mount(saved: ScreenshotResult[] = [], ownerName?: string) {
       surfaceTitle={BROWSER_SURFACE_TITLE}
       initialState={{ owner: state.owner }}
       ownerName={ownerName}
+      surfaceTabId={surfaceTabId}
       decode={decode}
-      saveScreenshot={(shot) => saved.push(shot)}
+      openExternal={(url) => opened.push(url)}
     />,
   );
   return { ...view, fake, region: () => getByRole(view.host, "region", label) };
+}
+
+const SURFACE_TAB = "surface-1";
+
+/** Owner annotations must leave the page to the agent: no input and no Take control on the way. */
+function watchControl(fake: FakeStreamTransport) {
+  const flips: boolean[] = [];
+  const unsubscribe = surfaceControlStore.subscribe(() => flips.push(surfaceControlStore.get(SURFACE_TAB)));
+  return {
+    assertUntouched(region: HTMLElement) {
+      unsubscribe();
+      assert.deepEqual(fake.callsTo(SURFACE_METHOD.input), [], "no page input");
+      assert.deepEqual(flips, [], "no control transition");
+      assert.equal(surfaceControlStore.get(SURFACE_TAB), false, "the agent keeps control");
+      assert.equal(queryByRole(region, "status", blockedNotice(state.owner)), null, "no Take control prompt");
+    },
+  };
 }
 
 suite.test("connects with the first measured viewport, then resizes and re-sends on open", async () => {
@@ -74,33 +102,133 @@ suite.test("pushed state drives the label; Take control enables navigation", asy
   await unmount();
 });
 
-suite.test("Screenshot invokes once, saves the result and shows the saved notice", async () => {
-  const saved: ScreenshotResult[] = [];
-  const { fake, region, unmount } = await mount(saved);
-  const shot = { base64: "AA==", path: "C:/data/shot-1.png" };
-  fake.respond(SURFACE_METHOD.screenshot, () => shot);
-  await resizeStages(640, 480);
-  await act(async () => getByRole(region(), "button", "Screenshot").click());
+const capture: SnipCapture = { id: "s1", width: 640, height: 480, thumbnail: "data:image/jpeg;base64,AA==" };
+const pointer = (type: string, clientX: number, clientY: number) =>
+  new PointerEvent(type, { bubbles: true, cancelable: true, clientX, clientY, button: 0, pointerId: 1 });
+const snipOverlay = (scope: ParentNode) => scope.querySelector<HTMLElement>("[data-testid='surface-snip']");
+const escape = () => new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+
+async function startSnip(options: MountOptions = {}) {
+  const view = await mount({ surfaceTabId: SURFACE_TAB, ...options });
+  view.fake.respond(SURFACE_METHOD.snipCapture, () => capture);
+  view.fake.respond(SURFACE_METHOD.snipSend, () => ({ markdown: "", delivered: true }));
+  await resizeStages(400, 300);
+  await act(async () => view.fake.emitState(state));
+  await act(async () => view.fake.emitFrame({ data: "", metadata: { deviceWidth: 1280, deviceHeight: 960, scrollOffsetX: 0, scrollOffsetY: 640 } }));
   await flushAsync();
-  assert.deepEqual(fake.callsTo(SURFACE_METHOD.screenshot).map((call) => call.args), [{ full: false }]);
-  assert.deepEqual(saved, [shot]);
-  const notice = getByRole(region(), "status", screenshotSavedNotice(shot.path));
-  assert.ok(notice);
+  const control = watchControl(view.fake);
+  await act(async () => getByRole(view.region(), "button", "Snip and ask").click());
+  return { ...view, control };
+}
+
+async function dragArea(scope: ParentNode) {
+  const overlay = snipOverlay(scope);
+  assert.ok(overlay, "the camera opens the area selection over the stream");
+  await act(async () => { overlay.dispatchEvent(pointer("pointerdown", 100, 75)); });
+  await act(async () => { overlay.dispatchEvent(pointer("pointermove", 200, 150)); });
+  assert.equal(overlay.querySelector("[data-testid='surface-snip-size']")?.textContent, "320 × 240", "the live size is in page CSS px");
+  await act(async () => { overlay.dispatchEvent(pointer("pointerup", 200, 150)); });
+  await flushAsync();
+}
+
+async function ask(host: HTMLElement, text: string) {
+  const dialog = getByRole(host, "dialog", SNIP_DIALOG_LABEL);
+  const editor = getByRole(dialog, "textbox", "Your question") as HTMLTextAreaElement;
+  await changeValue(editor as unknown as HTMLInputElement, text, "input");
+  await act(async () => { editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); });
+  await flushAsync();
+}
+
+suite.test("snip and ask works beside the agent: drag, capture in page coords, one image send", async () => {
+  const { fake, region, host, control, unmount } = await startSnip();
+  await dragArea(region());
+  assert.equal(snipOverlay(region()), null, "release finishes the selection");
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipCapture).map((call) => call.args), [{ x: 320, y: 880, w: 320, h: 240 }], "canvas rect maps to the scrolled page");
+  const dialog = getByRole(host, "dialog", SNIP_DIALOG_LABEL);
+  const chip = dialog.querySelector<HTMLElement>("[data-testid='attachment-chip']");
+  assert.equal(chip?.textContent, SNIP_IMAGE_LABEL, "the snip sits in the input as a screenshot chip");
+  assert.equal(chip?.querySelector("img")?.getAttribute("src"), capture.thumbnail);
+  assert.ok(dialog.textContent?.includes("Area 320×240 at (320, 880) · Login · https://a.test/"));
+  await ask(host, "why is this cut off?");
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipSend).map((call) => call.args), [{ id: "s1", comment: "why is this cut off?", image: true }]);
+  assert.equal(fake.callsTo(SURFACE_METHOD.snipCancel).length, 0, "a sent capture is not discarded");
+  assert.equal(queryByRole(host, "dialog"), null);
+  control.assertUntouched(region());
   await unmount();
 });
 
-suite.test("point and ask selects, sends the annotation and closes", async () => {
+suite.test("removing the screenshot chip sends the question with only the area context", async () => {
+  const { fake, region, host, control, unmount } = await startSnip();
+  await dragArea(region());
+  const dialog = getByRole(host, "dialog", SNIP_DIALOG_LABEL);
+  await act(async () => getByRole(dialog, "button", `Remove ${SNIP_IMAGE_LABEL}`).click());
+  assert.equal(dialog.querySelector("[data-testid='attachment-chip']"), null, "x removes the chip");
+  assert.ok(dialog.textContent?.includes("Area 320×240 at (320, 880)"), "the context stays");
+  await ask(host, "what is this?");
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipSend).map((call) => call.args), [{ id: "s1", comment: "what is this?", image: false }]);
+  control.assertUntouched(region());
+  await unmount();
+});
+
+suite.test("Esc cancels the selection and the composer without sending anything", async () => {
+  const { fake, region, host, control, unmount } = await startSnip();
+  await act(async () => { snipOverlay(region())!.dispatchEvent(escape()); });
+  assert.equal(snipOverlay(region()), null, "Esc leaves the selection");
+  assert.deepEqual(fake.calls.filter((call) => call.method.startsWith("snip.")), [], "nothing captured");
+  await act(async () => getByRole(region(), "button", "Snip and ask").click());
+  await dragArea(region());
+  const editor = getByRole(getByRole(host, "dialog", SNIP_DIALOG_LABEL), "textbox", "Your question");
+  await changeValue(editor as unknown as HTMLInputElement, "draft", "input");
+  await act(async () => { editor.dispatchEvent(escape()); });
+  await flushAsync();
+  assert.equal(queryByRole(host, "dialog"), null);
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipSend), [], "nothing sent");
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipCancel).map((call) => call.args), [{ id: "s1" }], "the capture is discarded");
+  control.assertUntouched(region());
+  await unmount();
+});
+
+suite.test("a click without a drag selects nothing and keeps the selection open", async () => {
+  const { fake, region, unmount } = await startSnip();
+  const overlay = snipOverlay(region())!;
+  await act(async () => { overlay.dispatchEvent(pointer("pointerdown", 50, 50)); });
+  await act(async () => { overlay.dispatchEvent(pointer("pointerup", 51, 50)); });
+  await flushAsync();
+  assert.equal(fake.callsTo(SURFACE_METHOD.snipCapture).length, 0);
+  assert.ok(snipOverlay(region()));
+  await unmount();
+});
+
+suite.test("Open in browser opens exactly the current URL once and is off for about:blank", async () => {
+  const opened: string[] = [];
+  const { fake, region, unmount } = await mount({ opened });
+  await resizeStages(640, 480);
+  await act(async () => fake.emitState(state));
+  const open = getByRole(region(), "button", "Open in browser") as HTMLButtonElement;
+  assert.ok(!open.disabled, "usable without Take control");
+  await act(async () => open.click());
+  assert.deepEqual(opened, ["https://a.test/"]);
+  await act(async () => fake.emitState({ ...state, url: "about:blank" }));
+  assert.ok(open.disabled);
+  await act(async () => open.click());
+  assert.deepEqual(opened, ["https://a.test/"], "a disabled button opens nothing");
+  assert.equal(fake.calls.filter((call) => call.method !== SURFACE_METHOD.resize).length, 0, "opening never touches the agent's page");
+  await unmount();
+});
+
+suite.test("point and ask works beside the agent: selects, sends the annotation and closes", async () => {
   const selection: GrabSelection = {
     id: "g1",
     label: "button \"Sign in\"",
     target: { tagName: "button", selector: "form > button", accessibility: { role: "button", name: "Sign in" } },
   };
-  const { fake, region, host, unmount } = await mount();
+  const { fake, region, host, unmount } = await mount({ surfaceTabId: SURFACE_TAB });
   fake.respond(SURFACE_METHOD.grabSelect, () => selection);
   await resizeStages(400, 300);
   await act(async () => fake.emitState(state));
   await act(async () => fake.emitFrame({ data: "", metadata: { deviceWidth: 1280, deviceHeight: 960 } }));
   await flushAsync();
+  const control = watchControl(fake);
   await act(async () => getByRole(region(), "button", "Pick element").click());
   await act(async () => getByRole(region(), "img").dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 200, clientY: 150 })));
   await flushAsync();
@@ -114,6 +242,7 @@ suite.test("point and ask selects, sends the annotation and closes", async () =>
   assert.deepEqual(grabSendArgs(selection, "rename this"), { id: "g1", comment: "rename this", intent: "question" });
   assert.equal(fake.callsTo(SURFACE_METHOD.grabCancel).length, 1, "sending ends the pick on the host");
   assert.equal(queryByRole(host, "dialog"), null);
+  control.assertUntouched(region());
   await unmount();
 });
 
@@ -274,7 +403,7 @@ suite.test("the paused state hides its technical text behind Details", async () 
 });
 
 suite.test("the owner tab's name labels the surface over the pushed owner", async () => {
-  const { fake, host, unmount } = await mount([], "Mira");
+  const { fake, host, unmount } = await mount({ ownerName: "Mira" });
   await resizeStages(640, 480);
   await act(async () => fake.emitState(state));
   assert.ok(getByRole(host, "region", surfaceLabel("Mira", BROWSER_SURFACE_TITLE)));

@@ -14,7 +14,8 @@ vi.mock("../../lib/webApi", () => ({
 }));
 vi.mock("../../lib/pluginBubbleCache", () => ({ invalidatePluginBubble: vi.fn() }));
 
-import { SurfaceTabView, type SurfaceTransportFactory } from "./SurfaceTabView";
+import { invoke } from "../../lib/bridge";
+import { openInSystemBrowser, SurfaceTabView, type SurfaceTransportFactory } from "./SurfaceTabView";
 import { recordSurfaceActivity, SURFACE_PULSE_MS, surfaceActivityStore } from "../../lib/surfaceActivity";
 import { surfaceControlStore } from "../../lib/surfaceControlStore";
 import type { SurfaceDeclLookup } from "../Surface/surfaceRenderPlan";
@@ -179,6 +180,13 @@ describe("surface tab view", () => {
     expect(crumbs()).toBe("Jev›Board· QA");
     await act(async () => recordSurfaceActivity({ tab_id: "surface-tab", verb: "goto" }));
     expect(crumbs()).toBe("Jev›Board");
+  });
+
+  it("opens the page in the system browser through the host open_url path", async () => {
+    vi.mocked(invoke).mockResolvedValue(undefined);
+    openInSystemBrowser("https://a.test/x");
+    expect(vi.mocked(invoke).mock.calls).toEqual([["open_url", { url: "https://a.test/x" }]]);
+    vi.mocked(invoke).mockReset();
   });
 
   it("shares Take control with the sidebar and stills the flow line", async () => {

@@ -39,17 +39,14 @@ export interface SurfaceStreamTransport {
 export const SURFACE_METHOD = {
   resize: "resize",
   input: "input",
-  screenshot: "screenshot",
   grabHover: "grab.hover",
   grabSelect: "grab.select",
   grabSend: "grab.send",
   grabCancel: "grab.cancel",
+  snipCapture: "snip.capture",
+  snipSend: "snip.send",
+  snipCancel: "snip.cancel",
 } as const;
-
-export interface ScreenshotResult {
-  base64: string;
-  path: string;
-}
 
 export function resizeArgs(viewport: StreamViewport): Record<string, unknown> {
   return { width: viewport.w, height: viewport.h, dpr: viewport.dpr };

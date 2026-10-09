@@ -1,14 +1,22 @@
 import { Heading, Image, Link, MousePointerClick, TextCursorInput, Type, type LucideIcon } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { trapDialogTab } from "../shared/dialogFocusTrap";
+import { AttachmentChip } from "../Terminal/ComposerBubbles";
 import { ComposerActions } from "../Terminal/ComposerActions";
 import { composerAttachmentHandoff } from "../Terminal/composerAttachmentHandoff";
 import { measureComposerAutosize } from "../Terminal/composerAutosize";
-import { askDialogLabel, askPlaceholder, withTranscripts, type ElementCard, type ElementKind } from "./surfaceChromeModel";
+import { askDialogLabel, askPlaceholder, SNIP_DIALOG_LABEL, snipPlaceholder, withTranscripts, type ElementCard, type ElementKind } from "./surfaceChromeModel";
+
+/** What the question is about: a picked element, or a snipped area whose image chip can be removed. */
+export type AskSubject =
+  | { kind: "element"; card: ElementCard }
+  | { kind: "area"; context: string; image: { thumbnail: string | null } | null; onRemoveImage(): void };
+
+export const SNIP_IMAGE_LABEL = "screenshot";
 
 export interface PointAndAskProps {
   owner: string;
-  card: ElementCard;
+  subject: AskSubject;
   position: { left: number; top: number };
   sending?: boolean;
   onSend(comment: string): void;
@@ -32,9 +40,28 @@ const STAGE_CANVAS = ".ct-surface-canvas";
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
+function SubjectHeader({ subject, describedId }: { subject: AskSubject; describedId: string }) {
+  if (subject.kind === "area") {
+    return (
+      <>
+        {subject.image && <AttachmentChip path={SNIP_IMAGE_LABEL} label={SNIP_IMAGE_LABEL} thumbnail={subject.image.thumbnail} onRemove={subject.onRemoveImage} />}
+        <span id={describedId} className="ct-surface-ask__context" title={subject.context}>{subject.context}</span>
+      </>
+    );
+  }
+  const { card } = subject;
+  const Icon = KIND_ICON[card.kind];
+  return (
+    <span className="ct-surface-ask__chip" title={card.path || undefined} data-kind={card.kind}>
+      <Icon size={12} strokeWidth={2.2} aria-hidden="true" />
+      <span className="ct-surface-ask__chip-name">{card.name}</span>
+    </span>
+  );
+}
+
 export function PointAndAsk({
   owner,
-  card,
+  subject,
   position,
   sending = false,
   onSend,
@@ -51,7 +78,7 @@ export function PointAndAsk({
   const hasText = draft.trim().length > 0;
   const latest = useRef({ draft, onCancel });
   latest.current = { draft, onCancel };
-  const Icon = KIND_ICON[card.kind];
+  const description = subject.kind === "element" ? subject.card.path : subject.context;
 
   useLayoutEffect(() => {
     if (editorRef.current) measureComposerAutosize(editorRef.current, null, ASK_EDITOR_MAX_PX);
@@ -107,15 +134,15 @@ export function PointAndAsk({
     <div
       ref={dialogRef}
       role="dialog"
-      aria-label={askDialogLabel(card)}
-      aria-describedby={card.path ? pathId : undefined}
+      aria-label={subject.kind === "element" ? askDialogLabel(subject.card) : SNIP_DIALOG_LABEL}
+      aria-describedby={description ? pathId : undefined}
       aria-busy={busy || undefined}
       data-sending={busy ? "true" : undefined}
       className="ct-surface-ask"
       style={{ left: position.left, top: position.top }}
       onKeyDown={onKeyDown}
     >
-      {card.path && <span id={pathId} hidden>{card.path}</span>}
+      {subject.kind === "element" && description && <span id={pathId} hidden>{description}</span>}
       <ComposerActions
         canAttach={false}
         onAttach={(paths) => void applyVoice(paths, false)}
@@ -124,19 +151,14 @@ export function PointAndAsk({
         onError={onError}
         sendDisabled={busy || !hasText}
         hasText={hasText}
-        cardHeader={
-          <span className="ct-surface-ask__chip" title={card.path || undefined} data-kind={card.kind}>
-            <Icon size={12} strokeWidth={2.2} aria-hidden="true" />
-            <span className="ct-surface-ask__chip-name">{card.name}</span>
-          </span>
-        }
+        cardHeader={<SubjectHeader subject={subject} describedId={pathId} />}
       >
         <textarea
           ref={editorRef}
           autoFocus
           rows={1}
           aria-label="Your question"
-          placeholder={askPlaceholder(owner)}
+          placeholder={subject.kind === "element" ? askPlaceholder(owner) : snipPlaceholder(owner)}
           value={draft}
           readOnly={busy}
           onChange={(event) => setDraft(event.target.value)}

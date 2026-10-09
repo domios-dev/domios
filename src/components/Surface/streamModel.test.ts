@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   backingSize,
   canvasToPage,
+  clampToDraw,
   clickInput,
   decideKey,
   decodeBase64,
@@ -15,6 +16,7 @@ import {
   modifierMask,
   requestedFrameSize,
   sameViewport,
+  stageRectToPage,
   viewportAction,
   viewportRequest,
   wheelInput,
@@ -68,6 +70,22 @@ const mappingCases: Array<[string, number, number, ReturnType<typeof letterboxRe
 for (const [name, x, y, drawRect, frameMeta, expected] of mappingCases) {
   assert.deepEqual(canvasToPage(x, y, canvasRect, drawRect, frameMeta), expected, name);
 }
+
+const fullDraw = { x: 0, y: 0, width: 400, height: 300 };
+const snipCases: Array<[string, { x: number; y: number }, { x: number; y: number }, ReturnType<typeof letterboxRect>, Parameters<typeof stageRectToPage>[3], ReturnType<typeof stageRectToPage>]> = [
+  ["canvas px scale up to page css px", { x: 100, y: 75 }, { x: 200, y: 150 }, fullDraw, meta, { x: 320, y: 240, width: 320, height: 240 }],
+  ["a drag in any direction normalises", { x: 200, y: 150 }, { x: 100, y: 75 }, fullDraw, meta, { x: 320, y: 240, width: 320, height: 240 }],
+  ["scroll offset moves the area into document coords", { x: 100, y: 75 }, { x: 200, y: 150 }, fullDraw, { ...meta, scrollOffsetX: 12, scrollOffsetY: 640 }, { x: 332, y: 880, width: 320, height: 240 }],
+  ["page scale divides before scroll adds", { x: 0, y: 0 }, { x: 200, y: 150 }, fullDraw, { ...meta, pageScaleFactor: 2, scrollOffsetY: 100 }, { x: 0, y: 100, width: 320, height: 240 }],
+  ["offsetTop is removed and never goes negative", { x: 0, y: 0 }, { x: 400, y: 150 }, fullDraw, { ...meta, offsetTop: 80 }, { x: 0, y: 0, width: 1280, height: 400 }],
+  ["the letterbox offset subtracts and drags clamp to the frame", { x: 0, y: -40 }, { x: 500, y: 400 }, { x: 50, y: 0, width: 300, height: 300 }, { ...meta, deviceWidth: 600, deviceHeight: 600 }, { x: 0, y: 0, width: 600, height: 600 }],
+  ["missing metadata maps 1:1", { x: 10.4, y: 20.6 }, { x: 110, y: 70 }, fullDraw, null, { x: 10, y: 21, width: 100, height: 49 }],
+  ["zero draw rect yields nothing", { x: 0, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 0, width: 0, height: 0 }, meta, null],
+];
+for (const [name, start, end, drawRect, frameMeta, expected] of snipCases) {
+  assert.deepEqual(stageRectToPage(start, end, drawRect, frameMeta), expected, name);
+}
+assert.deepEqual(clampToDraw({ x: -5, y: 400 }, { x: 50, y: 10, width: 300, height: 280 }), { x: 50, y: 290 });
 
 assert.deepEqual(viewportRequest({ width: 640.4, height: 480.6 }, 1.5), { w: 640, h: 481, dpr: 1.5 });
 assert.equal(viewportRequest({ width: 0, height: 480 }, 1), null, "a collapsed container requests no stream");

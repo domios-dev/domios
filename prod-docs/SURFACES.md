@@ -164,7 +164,11 @@ open; the last viewer leaving stops the frames. Authenticate with the
 one), `profiles.list` and `profiles.use { name }` (`""` or `clean` is the clean
 profile) → `{ current, profiles }`, `grab.hover { x, y }`, `grab.cancel`,
 `grab.select { x, y }` → `{ id, label, target }` and `grab.send { id, comment,
-intent: question | change | bug }` → `{ markdown, delivered }`.
+intent: question | change | bug }` → `{ markdown, delivered }`, `snip.capture
+{ x, y, w, h }` (document CSS px) → `{ id, width, height, thumbnail }` (kept in
+memory, nothing written), `snip.cancel { id }` and `snip.send { id, comment,
+image? }` → `{ markdown, delivered }` (with `image`, the PNG is saved in the
+owner's pad and attached).
 
 Refusals carry `{ ok: false, error: { code, message } }`:
 
@@ -181,4 +185,4 @@ Refusals carry `{ ok: false, error: { code, message } }`:
 | `not_a_stream_surface` | `stream` or `call` named a tab that is not a stream surface (HTTP 409) |
 | `surface_runtime_unavailable` | The declared stream runtime is not registered in core (HTTP 409) |
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

@@ -1,28 +1,30 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { TextPromptDialog } from "../shared/TextPromptDialog";
 import { useSurfaceTakeControl } from "../../lib/surfaceControlStore";
-import { frameBytes, type FrameDecoder } from "./frameFeed";
+import type { FrameDecoder } from "./frameFeed";
 import { createLatestWins, type LatestWins } from "./latestWins";
 import { PointAndAsk } from "./PointAndAsk";
 import { StreamCanvas } from "./StreamCanvas";
-import { decideKey, type PagePoint, type StreamInput } from "./streamModel";
+import { decideKey, type PagePoint, type PageRect, type StreamInput } from "./streamModel";
 import {
   addressSubmission,
   askPopoverPosition,
   blockedNotice,
+  canOpenExternally,
   CHROME_ITEM,
   elementCard,
   failureNotice,
   navigationFailureNotice,
-  fileNameFromPath,
   grabSendArgs,
   isNeedsHuman,
   needsHumanNotice,
   profileSwitchedNotice,
   resolveToolbar,
-  screenshotSavedNotice,
   selectChoice,
   sentNotice,
+  snipCaptureArgs,
+  snipContext,
+  snipSendArgs,
   surfaceLabel,
   toolbarInvocation,
   validateProfileName,
@@ -30,6 +32,7 @@ import {
   type GrabSelection,
   type NeedsHumanKind,
   type PopoverAnchor,
+  type SnipCapture,
   type SurfaceChromeSpec,
   type SurfaceState,
   type ToolbarItemSpec,
@@ -37,7 +40,7 @@ import {
 import { SurfaceFlowLine } from "./SurfaceFlowLine";
 import { SurfaceNoticeBar } from "./SurfaceNoticeBar";
 import { SurfacePreviewPaused } from "./SurfacePreviewPaused";
-import { inputArgs, SURFACE_METHOD, type ScreenshotResult, type SurfaceNotice, type SurfaceStreamTransport } from "./surfaceStreamTransport";
+import { inputArgs, SURFACE_METHOD, type SurfaceNotice, type SurfaceStreamTransport } from "./surfaceStreamTransport";
 import { SurfaceToolbar } from "./SurfaceToolbar";
 import { useSurfaceStream } from "./useSurfaceStream";
 
@@ -50,12 +53,24 @@ export interface StreamSurfaceViewProps {
   /** Shares Take control with the sidebar tether and drives the flow line. */
   surfaceTabId?: string;
   decode?: FrameDecoder;
-  saveScreenshot?(shot: ScreenshotResult): void;
+  /** Opens the page in the user's own browser; the desktop host routes it through `open_url`. */
+  openExternal?(url: string): void;
 }
 
 interface Picked {
   selection: GrabSelection;
   position: { left: number; top: number };
+}
+
+interface Snipped {
+  capture: SnipCapture;
+  rect: PageRect;
+  position: { left: number; top: number };
+  image: boolean;
+}
+
+function openInNewTab(url: string) {
+  window.open(url, "_blank", "noopener");
 }
 
 const EDITABLE_SELECTOR = "input, textarea, select, [contenteditable='true']";
@@ -64,22 +79,15 @@ interface ProfilesResult {
   current?: string | null;
 }
 
-export function downloadScreenshot(shot: ScreenshotResult) {
-  const url = URL.createObjectURL(new Blob([frameBytes(shot.base64)], { type: "image/png" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileNameFromPath(shot.path);
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
-export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialState, ownerName, surfaceTabId, decode, saveScreenshot = downloadScreenshot }: StreamSurfaceViewProps) {
+export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialState, ownerName, surfaceTabId, decode, openExternal = openInNewTab }: StreamSurfaceViewProps) {
   const stream = useSurfaceStream(transport, initialState);
   const { notice, setNotice } = stream;
   const state = withOwner(stream.state, ownerName);
   const [interactive, setInteractive] = useSurfaceTakeControl(surfaceTabId);
   const [picking, setPicking] = useState(false);
   const [picked, setPicked] = useState<Picked | null>(null);
+  const [snipping, setSnipping] = useState(false);
+  const [snipped, setSnipped] = useState<Snipped | null>(null);
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const [sending, setSending] = useState(false);
   const [naming, setNaming] = useState<ToolbarItemSpec | null>(null);
@@ -104,7 +112,7 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
   const label = surfaceLabel(state.owner, surfaceTitle);
   const needText = needKind !== dismissedNeed ? needsHumanNotice(state) : null;
   const shownNotice: SurfaceNotice | null = notice ?? (needText ? { text: needText, tone: "warn" } : null);
-  const items = resolveToolbar(chrome, { interactive, picking, state, busy });
+  const items = resolveToolbar(chrome, { interactive, picking, snipping: snipping || snipped !== null, state, busy });
   const report = (action: string, error: unknown) => setNotice({ text: failureNotice(action, error), tone: "error" });
 
   const markBusy = (id: string, on: boolean) => setBusy((current) => {
@@ -161,28 +169,60 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
     else applySelection(spec, choice.value);
   };
 
-  const takeScreenshot = (full: boolean) => {
-    runBusy<ScreenshotResult>(CHROME_ITEM.screenshot, SURFACE_METHOD.screenshot, { full })
-      .then((shot) => {
-        saveScreenshot(shot);
-        setNotice({ text: screenshotSavedNotice(shot.path) });
-      })
-      .catch((error: unknown) => report("Screenshot", error));
-  };
-
   const cancelPick = () => {
     setPicking(false);
     setPicked(null);
     transport.invoke(SURFACE_METHOD.grabCancel).catch((error: unknown) => report("Pick", error));
   };
 
+  const cancelSnip = () => {
+    setSnipping(false);
+    if (!snipped) return;
+    setSnipped(null);
+    // The core evicts stale captures anyway, so a failed discard is not worth a notice.
+    transport.invoke(SURFACE_METHOD.snipCancel, { id: snipped.capture.id }).catch(() => undefined);
+  };
+
   const onToggle = (id: string) => {
     if (id === CHROME_ITEM.pick) {
       if (picking) cancelPick();
-      else setPicking(true);
+      else {
+        cancelSnip();
+        setPicking(true);
+      }
+    } else if (id === CHROME_ITEM.snip) {
+      if (snipping || snipped) cancelSnip();
+      else {
+        if (picking) cancelPick();
+        setSnipping(true);
+      }
     } else if (id === CHROME_ITEM.takeControl) {
       setInteractive((value) => !value);
     }
+  };
+
+  const onButton = (id: string) => {
+    if (id !== CHROME_ITEM.openExternal) invokeDeclared(id);
+    else if (state.url && canOpenExternally(state.url)) openExternal(state.url);
+  };
+
+  const onSnip = (rect: PageRect, anchor: PopoverAnchor) => {
+    setSnipping(false);
+    runBusy<SnipCapture>(CHROME_ITEM.snip, SURFACE_METHOD.snipCapture, snipCaptureArgs(rect))
+      .then((capture) => setSnipped({ capture, rect, position: askPopoverPosition(anchor), image: true }))
+      .catch((error: unknown) => report("Snip", error));
+  };
+
+  const onSendSnip = (comment: string) => {
+    if (!snipped) return;
+    setSending(true);
+    transport.invoke(SURFACE_METHOD.snipSend, snipSendArgs(snipped.capture, comment, snipped.image))
+      .then(() => setNotice({ text: sentNotice(state.owner) }))
+      .catch((error: unknown) => report("Send", error))
+      .finally(() => {
+        setSending(false);
+        setSnipped(null);
+      });
   };
 
   const onPick = (point: PagePoint, anchor: PopoverAnchor) => {
@@ -225,7 +265,7 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
       <SurfaceToolbar
         label={label}
         items={items}
-        onButton={(id, modifiers) => (id === CHROME_ITEM.screenshot ? takeScreenshot(modifiers.shiftKey) : invokeDeclared(id))}
+        onButton={onButton}
         onToggle={onToggle}
         onSubmit={(id, raw) => {
           const value = addressSubmission(raw);
@@ -239,6 +279,7 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
         pageTitle={state.title}
         interactive={interactive}
         picking={picking}
+        snipping={snipping}
         frames={stream.frames}
         decode={decode}
         onViewport={stream.onViewport}
@@ -249,6 +290,8 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
         onBlocked={() => setNotice({ text: blockedNotice(state.owner) })}
         onExitInteraction={() => setInteractive(false)}
         onCancelPick={cancelPick}
+        onSnip={onSnip}
+        onCancelSnip={cancelSnip}
         onError={(error) => report("Frame", error)}
       >
         {stream.paused && <SurfacePreviewPaused notice={stream.paused} />}
@@ -256,11 +299,27 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
         {picked && (
           <PointAndAsk
             owner={state.owner}
-            card={elementCard(picked.selection)}
+            subject={{ kind: "element", card: elementCard(picked.selection) }}
             position={picked.position}
             sending={sending}
             onSend={onSend}
             onCancel={cancelPick}
+            onError={(message) => report("Voice note", new Error(message))}
+          />
+        )}
+        {snipped && (
+          <PointAndAsk
+            owner={state.owner}
+            subject={{
+              kind: "area",
+              context: snipContext(snipped.rect, state),
+              image: snipped.image ? { thumbnail: snipped.capture.thumbnail } : null,
+              onRemoveImage: () => setSnipped((current) => (current ? { ...current, image: false } : current)),
+            }}
+            position={snipped.position}
+            sending={sending}
+            onSend={onSendSnip}
+            onCancel={cancelSnip}
             onError={(message) => report("Voice note", new Error(message))}
           />
         )}

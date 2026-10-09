@@ -4,15 +4,16 @@ import { ProviderGlyph } from "../ProviderGlyph";
 import { SurfaceFlowLine } from "../Surface/SurfaceFlowLine";
 import { surfaceIconComponent } from "../Surface/surfaceIcon";
 import { createHttpSseSurfaceTransport, type HttpSseSurfaceTransportOptions } from "../Surface/httpSseSurfaceTransport";
-import { downloadScreenshot, StreamSurfaceView } from "../Surface/StreamSurfaceView";
+import { StreamSurfaceView } from "../Surface/StreamSurfaceView";
 import type { SurfaceChromeSpec } from "../Surface/surfaceChromeModel";
-import { screenshotSaveMode, surfaceRenderPlan, type SurfaceDeclLookup } from "../Surface/surfaceRenderPlan";
+import { surfaceRenderPlan, type SurfaceDeclLookup } from "../Surface/surfaceRenderPlan";
 import type { SurfaceStreamTransport } from "../Surface/surfaceStreamTransport";
+import { invoke } from "../../lib/bridge";
 import { useSurfaceActor } from "../../lib/surfaceActivity";
 import { pluginViewSurface, surfaceDisplayLabel } from "../../lib/surfaceTab";
 import type { ApiConfig, SurfaceTabBacking, Tab } from "../../lib/types";
 import { useTabProvider } from "../../lib/useTabProvider";
-import { daemonAuthToken, daemonHttpBase, IS_WEB } from "../../lib/webApi";
+import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 
 export type SurfaceTransportFactory = (options: HttpSseSurfaceTransportOptions) => SurfaceStreamTransport;
 
@@ -37,8 +38,9 @@ interface StreamBodyProps {
   createTransport: SurfaceTransportFactory;
 }
 
-// The core already wrote the file; the view's "Saved <path>" notice is the whole desktop save.
-const keepSavedPath = () => undefined;
+export const openInSystemBrowser = (url: string) => {
+  invoke("open_url", { url }).catch((error: unknown) => console.warn("[surface] open in browser failed", error));
+};
 
 function StreamSurfaceBody({ tab, api, ownerName, chrome, createTransport }: StreamBodyProps) {
   const baseUrl = daemonHttpBase(api);
@@ -52,7 +54,7 @@ function StreamSurfaceBody({ tab, api, ownerName, chrome, createTransport }: Str
       initialState={{ owner: ownerName ?? "" }}
       ownerName={ownerName}
       surfaceTabId={tab.id}
-      saveScreenshot={screenshotSaveMode(IS_WEB) === "download" ? downloadScreenshot : keepSavedPath}
+      openExternal={openInSystemBrowser}
     />
   );
 }

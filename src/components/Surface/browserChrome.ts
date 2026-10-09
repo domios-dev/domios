@@ -12,5 +12,6 @@ export const BROWSER_SURFACE_CHROME: SurfaceChromeSpec = {
   ],
   takeControl: true,
   pointAndAsk: true,
-  screenshot: true,
+  snip: true,
+  openExternal: true,
 };
