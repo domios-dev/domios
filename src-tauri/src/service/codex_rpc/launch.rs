@@ -313,6 +313,42 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
+    fn codex_rpc_launch_reproduces_os_error_123_and_resolves_long_prompt_cwd() {
+        let binary = std::env::current_exe().unwrap();
+        let command = || {
+            let mut command = std::process::Command::new(&binary);
+            crate::process_util::no_window_std(&mut command);
+            command.args(["--list", "--exact", "opaque-filter"]);
+            command
+        };
+        let error = command().current_dir("").output().unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(123));
+
+        let dir = tempfile::tempdir().unwrap();
+        let prompt = "opaque:\n<>|?*\"\n".repeat(500);
+        let spec = crate::service::spawn::SpawnTabSpec {
+            command: crate::service::spawn::TabCommand::Agent(
+                crate::service::spawn::AgentSpawnSpec {
+                    task: Some(prompt.clone()),
+                    ..Default::default()
+                },
+            ),
+            ..Default::default()
+        };
+        let (resolved, _) = ServiceContext::resolve_agent_cwd(
+            &None,
+            &Some(dir.path().to_string_lossy().into_owned()),
+        );
+        let params = spec.to_agent_launch_params(resolved).unwrap();
+        let spawn = deferred_spawn("provider", &params, Some(prompt.clone()));
+        assert_eq!(spawn.instructions.as_deref(), Some(prompt.as_str()));
+        assert_eq!(std::path::Path::new(&spawn.cwd), dir.path());
+        let output = command().current_dir(&spawn.cwd).output().unwrap();
+        assert!(output.status.success(), "{output:?}");
+    }
+
+    #[test]
+    #[cfg(windows)]
     fn codex_rpc_launch_normalizes_verbatim_workspace_before_deferral() {
         let spec = crate::service::spawn::SpawnTabSpec {
             shell: None,

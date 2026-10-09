@@ -1,5 +1,25 @@
 use super::*;
 
+#[test]
+fn codex_rpc_client_connection_failure_distinguishes_transport_from_refusal() {
+    use tokio_tungstenite::tungstenite::{http::Response, Error};
+    assert_eq!(
+        connection_error(Error::Io(std::io::ErrorKind::ConnectionRefused.into())),
+        "RPC WebSocket connection failed"
+    );
+    for kind in [
+        std::io::ErrorKind::PermissionDenied,
+        std::io::ErrorKind::InvalidInput,
+    ] {
+        assert!(connection_error(Error::Io(kind.into()))
+            .starts_with("RPC WebSocket handshake refused:"));
+    }
+    let error = connection_error(Error::Http(Box::new(
+        Response::builder().status(403).body(None).unwrap(),
+    )));
+    assert!(error.starts_with("RPC WebSocket handshake refused:"));
+}
+
 fn client() -> (Client, mpsc::Receiver<Message>) {
     let (outgoing, messages) = mpsc::channel(64);
     let (events, _) = broadcast::channel(32);
