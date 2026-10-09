@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { ProviderDescriptor } from "../../lib/types";
 import { AgentIcon } from "../AgentIcon";
-import { PairAffordance } from "../shared/PairAffordance";
+import { ListChecks, Workflow } from "lucide-react";
 import { DropdownSelect, type DropdownSelectOption } from "../shared/DropdownMenu";
 import { reasoningEffortsForModel, resolveEffort } from "../../lib/newSessionChoice";
 
@@ -145,7 +145,7 @@ export function OrchestrationPairForm({
   values,
   disabledProviderIds,
   onChange,
-  layout = "card",
+  layout = "team",
   titleField,
   pairAffordanceTestId,
   roleTestIds,
@@ -155,7 +155,7 @@ export function OrchestrationPairForm({
   values: OrchestrationPairValues;
   disabledProviderIds?: ReadonlySet<string>;
   onChange: (next: OrchestrationPairValues) => void;
-  layout?: "card" | "stack";
+  layout?: "team" | "stack";
   titleField?: ReactNode;
   pairAffordanceTestId?: string;
   roleTestIds?: {
@@ -254,13 +254,29 @@ export function OrchestrationPairForm({
 
   return (
     <div className="flex flex-col gap-3">
-      <PairAffordance
-        layout="card"
+      <div
+        className="team-roster"
+        role="list"
+        aria-label="Team"
         data-testid={pairAffordanceTestId ?? "new-session-pair-affordance"}
-        orchestrator={orchestratorRow}
-        planner={plannerRow}
-      />
+      >
+        <TeamRosterMember role="orchestrator" icon={<Workflow size={13} aria-hidden="true" />}>
+          {orchestratorRow}
+        </TeamRosterMember>
+        <TeamRosterMember role="planner" icon={<ListChecks size={13} aria-hidden="true" />}>
+          {plannerRow}
+        </TeamRosterMember>
+      </div>
       {titleField}
+    </div>
+  );
+}
+
+function TeamRosterMember({ role, icon, children }: { role: string; icon: ReactNode; children: ReactNode }) {
+  return (
+    <div className="team-roster-member" role="listitem" data-pair-role={role}>
+      <span className="team-roster-avatar">{icon}</span>
+      <div className="team-roster-body">{children}</div>
     </div>
   );
 }

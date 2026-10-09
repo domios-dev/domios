@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { IS_WEB } from "../../lib/webApi";
 import { launchProviderInstaller } from "../../lib/providerInstall";
 import type { AppConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
@@ -18,8 +17,7 @@ import {
 } from "../../lib/newSessionChoice";
 import { probeProviderInstallMap } from "../../lib/providerInstallStatus";
 import { OrchestrationPairForm, OrchestrationRoleRow } from "../Sidebar/OrchestrationPairForm";
-import { ModeCards, WorkspaceRow } from "./NewSessionPickerParts";
-import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
+import { ModeCards } from "./NewSessionPickerParts";
 import { Button } from "../shared/Button";
 import { X } from "lucide-react";
 import { createPortal } from "react-dom";
@@ -40,7 +38,7 @@ export function NewSessionPicker({
   onClose: () => void;
 }) {
   const { providers } = useAgentProviders();
-  const { spawnAgentTab, createOrchestrationPair, selectTabByTab, addNotification, createWorkspace } = useMultiplexer();
+  const { spawnAgentTab, createOrchestrationPair, selectTabByTab, addNotification } = useMultiplexer();
   const state = useMuxState();
   const { presets, loading: presetsLoading, error: presetsError } = useModelPresets();
   const visibleProviders = useMemo(
@@ -57,14 +55,9 @@ export function NewSessionPicker({
     [visibleProviders, installMap],
   );
 
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(workspaceId);
-  const [creatingWorkspace, setCreatingWorkspace] = useState(false);
-  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
-  const [newWorkspaceName, setNewWorkspaceName] = useState("");
-  const workspaces = state.workspaces;
   const selectedWorkspace = useMemo(
-    () => workspaces.find((w) => w.id === selectedWorkspaceId),
-    [workspaces, selectedWorkspaceId],
+    () => state.workspaces.find((w) => w.id === workspaceId),
+    [state.workspaces, workspaceId],
   );
 
   const hasRestoredRef = useRef(false);
@@ -117,13 +110,13 @@ export function NewSessionPicker({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || busy || folderPickerOpen) return;
+      if (event.key !== "Escape" || busy) return;
       event.preventDefault();
       onClose();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [busy, folderPickerOpen, onClose]);
+  }, [busy, onClose]);
 
   useEffect(() => {
     const priorFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -160,31 +153,6 @@ export function NewSessionPicker({
     })();
   }, [addNotification, selectTabByTab, state.active_workspace_id, workspaceId]);
 
-  const handleStartCreateWorkspace = useCallback(() => {
-    if (IS_WEB) {
-      setNewWorkspaceName("");
-      setCreatingWorkspace(true);
-      return;
-    }
-    setFolderPickerOpen(true);
-  }, []);
-  const handleSelectWorkspaceFolder = useCallback((folder: string) => {
-    setFolderPickerOpen(false);
-    void (async () => {
-      const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
-      const info = await createWorkspace(basename, folder, { activate: false });
-      if (info?.id) setSelectedWorkspaceId(info.id);
-    })();
-  }, [createWorkspace]);
-  const handleCancelCreateWorkspace = useCallback(() => setCreatingWorkspace(false), []);
-  const handleConfirmCreateWorkspace = useCallback(async () => {
-    const name = newWorkspaceName.trim();
-    if (!name) return;
-    const info = await createWorkspace(name, undefined, { activate: false });
-    setCreatingWorkspace(false);
-    if (info?.id) setSelectedWorkspaceId(info.id);
-  }, [newWorkspaceName, createWorkspace]);
-
   const finishSpawn = useCallback(async (
     runner: () => Promise<{ workspaceId: string; tabId: string } | null>,
   ) => {
@@ -220,7 +188,7 @@ export function NewSessionPicker({
     const targetCwd = selectedWorkspace?.cwd ?? workspaceCwd ?? undefined;
     await finishSpawn(() =>
       spawnAgentTab(
-        selectedWorkspaceId,
+        workspaceId,
         providerId,
         targetCwd ?? undefined,
         modelId,
@@ -228,7 +196,7 @@ export function NewSessionPicker({
         preset,
       ),
     );
-  }, [disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, selectedWorkspaceId, workspaceCwd]);
+  }, [disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, workspaceId, workspaceCwd]);
 
   const runSingleSpawn = useCallback(async () => {
     if (choice.mode !== "single") return;
@@ -243,7 +211,7 @@ export function NewSessionPicker({
     ) {
       return;
     }
-    const wsId = selectedWorkspaceId;
+    const wsId = workspaceId;
     onClose();
     void createOrchestrationPair({
       orchestratorAgent: choice.orchestratorProviderId,
@@ -266,7 +234,7 @@ export function NewSessionPicker({
           sticky: true,
         });
       });
-  }, [addNotification, choice, createOrchestrationPair, disabledProviderIds, onClose, selectTabByTab, selectedWorkspaceId]);
+  }, [addNotification, choice, createOrchestrationPair, disabledProviderIds, onClose, selectTabByTab, workspaceId]);
 
   const handleStart = useCallback(() => {
     const start = async () => {
@@ -338,10 +306,6 @@ export function NewSessionPicker({
       && !disabledProviderIds.has(choice.orchestratorProviderId)
       && !disabledProviderIds.has(choice.plannerProviderId);
 
-  const singleProviderId = choice.mode === "single" ? choice.providerId : (visibleProviders[0]?.id ?? "");
-  const orchestratorProviderId = choice.mode === "pair" ? choice.orchestratorProviderId : singleProviderId;
-  const plannerProviderId = choice.mode === "pair" ? choice.plannerProviderId : singleProviderId;
-
   return createPortal(
     <div
       data-testid="new-session-picker"
@@ -378,27 +342,7 @@ export function NewSessionPicker({
         </button>
 
         <div className="relative mb-4" role="group" aria-label="Session mode">
-          <ModeCards
-            mode={choice.mode}
-            singleProviderId={singleProviderId}
-            orchestratorProviderId={orchestratorProviderId}
-            plannerProviderId={plannerProviderId}
-            onSelect={handleModeSelect}
-          />
-        </div>
-
-        <div className="relative mb-4">
-          <WorkspaceRow
-            workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))}
-            selectedWorkspaceId={selectedWorkspaceId}
-            onSelectWorkspace={setSelectedWorkspaceId}
-            creatingWorkspace={creatingWorkspace}
-            newWorkspaceName={newWorkspaceName}
-            onNewWorkspaceNameChange={setNewWorkspaceName}
-            onStartCreateWorkspace={handleStartCreateWorkspace}
-            onConfirmCreateWorkspace={() => void handleConfirmCreateWorkspace()}
-            onCancelCreateWorkspace={handleCancelCreateWorkspace}
-          />
+          <ModeCards mode={choice.mode} onSelect={handleModeSelect} />
         </div>
 
         <div className="relative">
@@ -465,7 +409,7 @@ export function NewSessionPicker({
                 plannerModelId: values.plannerModelId || undefined,
                 plannerEffortId: values.plannerEffortId,
               })}
-              layout="card"
+              layout="team"
               pairAffordanceTestId="pair-affordance"
               roleTestIds={{
                 orchestratorProvider: "picker-provider-orchestrator",
@@ -510,16 +454,6 @@ export function NewSessionPicker({
         </div>
       </div>
 
-      {folderPickerOpen && (
-        <div className="fixed inset-0 z-[1020]">
-          <RemoteFolderPicker
-            title="Choose workspace folder"
-            initialPath={selectedWorkspace?.cwd ?? workspaceCwd}
-            onCancel={() => setFolderPickerOpen(false)}
-            onSelect={handleSelectWorkspaceFolder}
-          />
-        </div>
-      )}
     </div>,
     document.body,
   );

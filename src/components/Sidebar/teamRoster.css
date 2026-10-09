@@ -1,0 +1,87 @@
+.team-roster {
+  display: flex;
+  flex-direction: column;
+  padding: 0.3rem;
+  border: 1px solid color-mix(in srgb, var(--ct-border) 75%, transparent);
+  border-radius: var(--ct-radius-lg);
+  background: color-mix(in srgb, var(--ct-bg) 62%, transparent);
+}
+
+.team-roster-member {
+  --team-roster-pad: 0.6rem;
+  --team-roster-avatar: 1.5rem;
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--team-roster-avatar) minmax(0, 1fr);
+  gap: 0.7rem;
+  padding: var(--team-roster-pad) 0.6rem;
+  border-radius: calc(var(--ct-radius-lg) - 0.2rem);
+  transition: background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.team-roster-member:hover,
+.team-roster-member:focus-within {
+  background: color-mix(in srgb, var(--ct-hover) 55%, transparent);
+}
+
+.team-roster-member:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: calc(var(--team-roster-pad) + var(--team-roster-avatar) + 4px);
+  bottom: calc(4px - var(--team-roster-pad));
+  left: calc(0.6rem + var(--team-roster-avatar) / 2 - 0.5px);
+  width: 1px;
+  background: linear-gradient(
+    color-mix(in srgb, var(--ct-accent) 45%, transparent),
+    color-mix(in srgb, var(--ct-accent) 12%, transparent)
+  );
+  pointer-events: none;
+}
+
+.team-roster-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--team-roster-avatar);
+  height: var(--team-roster-avatar);
+  border: 1px solid color-mix(in srgb, var(--ct-accent) 32%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-accent) 12%, transparent);
+  color: color-mix(in srgb, var(--ct-accent) 85%, var(--ct-fg));
+  transition: transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell),
+    box-shadow var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.team-roster-member:hover .team-roster-avatar,
+.team-roster-member:focus-within .team-roster-avatar {
+  transform: scale(1.06);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--ct-accent) 30%, transparent);
+}
+
+.team-roster-body {
+  min-width: 0;
+}
+
+.team-roster-body .orchestration-role-row {
+  gap: 0.4rem;
+}
+
+.team-roster-body .orchestration-role-row > div:first-child {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: var(--team-roster-avatar);
+  letter-spacing: -0.01em;
+  color: var(--ct-fg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .team-roster-member,
+  .team-roster-avatar {
+    transition: none;
+  }
+
+  .team-roster-member:hover .team-roster-avatar,
+  .team-roster-member:focus-within .team-roster-avatar {
+    transform: none;
+  }
+}
