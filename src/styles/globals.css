@@ -844,8 +844,6 @@ button,
   justify-content: space-between;
   gap: 0.5rem;
   padding: 0 1rem;
-  border-bottom: 1px solid var(--ct-border);
-  background: var(--ct-titlebar-bg);
 }
 
 .ct-toolbar-title {

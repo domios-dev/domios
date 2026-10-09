@@ -179,7 +179,7 @@ export function SettingsPanel({
       role="dialog"
       aria-modal="true"
       aria-labelledby={SETTINGS_TITLE_ID}
-      className="absolute inset-0 flex flex-col overflow-hidden bg-[var(--ct-sidebar-bg)]"
+      className="absolute inset-0 flex flex-col overflow-hidden bg-[var(--ct-bg)]"
       data-testid="settings-panel"
     >
       <div className="absolute inset-0 flex flex-col pt-[var(--ct-safe-top,0px)] pb-[var(--ct-safe-bottom,0px)]">
