@@ -1,3 +1,4 @@
+import type { TabActivity } from "../../lib/tabActivity";
 
 import React from "react";
 import { ActivityDots, type ActivityDotsSize } from "./ActivityDots";
@@ -6,6 +7,7 @@ import { type BusyLabelKey, busyLabel } from "./busyStateLabels";
 type BusyPhase = "work" | "thinking" | "streaming";
 
 export interface BusyStateProps {
+  activity?: TabActivity;
   labelKey?: BusyLabelKey;
   label?: string;
   phase?: BusyPhase;
@@ -19,6 +21,7 @@ export interface BusyStateProps {
 }
 
 export function BusyState({
+  activity,
   labelKey = "generic",
   label,
   phase = "thinking",
@@ -30,12 +33,12 @@ export function BusyState({
   locale = "en",
   "data-testid": testId = "busy-state",
 }: BusyStateProps) {
-  const text = label ?? busyLabel(labelKey, locale);
+  const text = activity?.label ?? label ?? busyLabel(labelKey, locale);
   const base = inline ? "inline-flex items-baseline gap-2" : "ct-agent-row";
   return (
     <span
       className={`${base} ${className ?? ""}`.trim()}
-      data-agent-state="working"
+      data-agent-state={activity?.state ?? "working"}
       data-agent-phase={phase}
       data-testid={testId}
       role="status"
@@ -47,7 +50,7 @@ export function BusyState({
         size={dotSize}
         tone={phase === "thinking" ? "thinking" : "accent"}
         rhythm={phase}
-        active
+        active={activity?.active ?? true}
       />
       {!hideLabel && text ? <span className="ct-agent-msg">{text}</span> : null}
     </span>

@@ -1,3 +1,4 @@
+import { tabActivity } from "../../lib/tabActivity";
 import { useMemo, type ReactNode } from "react";
 import { Clock3, MonitorUp, Plus, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
@@ -434,7 +435,7 @@ export function SidebarWorkspaceTabs({
     const managerItems = managers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const workerItems = workers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const terminalItems = terminals.map((member) => `${TAB_PREFIX}${member.tab.id}`);
-    const workingLocal = workers.filter((member) => tabStatuses[member.tab.id] === "Working").length;
+    const workingLocal = workers.filter((member) => tabActivity(member.tab, tabStatuses[member.tab.id]).active).length;
     const team = teamById.get(teamId) ?? remoteTeams.get(teamId) ?? {
       id: teamId,
       name: null,

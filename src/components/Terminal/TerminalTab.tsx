@@ -1,3 +1,4 @@
+import { useTabActivity } from "../../lib/useTabActivity";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SquareTerminal, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
@@ -84,6 +85,7 @@ export const TerminalTab = memo(function TerminalTab({
   const muxState = useMuxState();
   const tabSelector = useCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
+  const agentActivity = useTabActivity(tabId);
   const managedView = managedTabPresentation(tab?.managed);
   useEffect(() => {
     const onInputWriteFailure = (event: Event) => {
@@ -478,7 +480,7 @@ export const TerminalTab = memo(function TerminalTab({
     >
       {terminalVisible && tab?.managed && (
         <div className="absolute bottom-0 inset-x-0 z-20">
-          <ManagedTabBar managed={tab.managed} onStop={stopManagedGeneration} />
+          <ManagedTabBar managed={tab.managed} activity={agentActivity} onStop={stopManagedGeneration} />
         </div>
       )}
       {/* Search bar */}

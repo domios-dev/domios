@@ -1,8 +1,8 @@
+import { tabActivity } from "../../lib/tabActivity";
 import { useCallback } from "react";
 import { ProviderGlyph } from "../ProviderGlyph";
 import { DeferredLoader } from "../shared/DeferredLoader";
 import type { BootStage, Tab } from "../../lib/types";
-import { roleKindLabel } from "../../lib/roleKind";
 import type { ChatBodyView } from "./chatBodyVisibility";
 import type { ChatUnavailableReason } from "./chatSessionAuthority";
 
@@ -24,79 +24,15 @@ const STAGE_PROGRESS: Record<BootStage, number> = {
   spawn_failed: 0,
 };
 
-export function chatSetupSubject(tab: Tab | null | undefined, providerName: string): string {
-  return roleKindLabel(tab) ?? providerName;
-}
-
-export function chatSetupStageLabel(stage: BootStage | null | undefined, subject: string): string {
-  if (!stage) return "Preparing launch…";
-  switch (stage) {
-    case "pty_starting":
-      return "Creating tab…";
-    case "pty_spawned":
-      return "Spawn accepted…";
-    case "reader_ready":
-      return "Reader attached…";
-    case "shell_ready":
-      return "Session attached…";
-    case "preparing_role_instructions":
-      return `Preparing ${subject.toLowerCase()} instructions…`;
-    case "agent_launching":
-      return "Launching provider…";
-    case "launch_written":
-      return "Waiting for provider…";
-    case "awaiting_owner_prompt":
-      return "Waiting for you";
-    case "provider_ready":
-      return "Provider ready…";
-    case "delivering_instructions":
-      return "Delivering instructions…";
-    case "agent_ready":
-      return "Ready";
-    case "pty_reattached":
-      return "Session attached…";
-    case "launch_deadline_elapsed":
-    case "launch_binding_unconfirmed":
-      return "Waiting for provider…";
-    case "spawn_failed":
-      return "Connecting to terminal…";
-  }
-  return unreachableBootStage(stage);
-}
-
-function unreachableBootStage(stage: never): never {
-  throw new Error(`Unexpected boot stage: ${stage}`);
-}
-
 export function chatSetupView(
   tab: Tab | null | undefined,
   chatSessionAttached = false,
 ): ChatBodyView {
   if (chatSessionAttached) return { kind: "none" };
-  const stage = tab?.boot_stage;
-  if (
-    stage === "spawn_failed" ||
-    stage === "launch_deadline_elapsed" ||
-    stage === "launch_binding_unconfirmed"
-  ) {
-    return { kind: "starting", label: "Starting" };
-  }
-  if (tab?.agent_booting && !stage) return { kind: "starting", label: "Starting" };
-  if (stage === "agent_ready" || stage === "pty_reattached" || !stage) return { kind: "none" };
-  switch (stage) {
-    case "pty_starting":
-    case "pty_spawned":
-    case "reader_ready":
-    case "shell_ready":
-    case "preparing_role_instructions":
-    case "agent_launching":
-    case "launch_written":
-    case "provider_ready":
-    case "delivering_instructions":
-    case "awaiting_owner_prompt":
-      return { kind: "starting", label: "Starting" };
-  }
-  return unreachableBootStage(stage);
+  const activity = tabActivity(tab);
+  return activity.launching || activity.kind === "failed"
+    ? { kind: "starting", label: activity.label }
+    : { kind: "none" };
 }
 
 const UNAVAILABLE_COPY: Record<ChatUnavailableReason, string> = {
