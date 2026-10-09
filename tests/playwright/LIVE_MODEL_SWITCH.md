@@ -65,6 +65,10 @@ Evidence comes from the bound session's provider storage:
 Every action has a 15-second failure cap. Turn and streaming waits use DOM
 or SSE events with bounded deadlines. No sleeps, injected responses, network
 intercepts or provider fakes are used. Retries are disabled.
+Scoped SSE `lagged` frames trigger exact own-tab status and delivery-ledger
+resync, adopt the supplied replay cursor and continue live frames. Resyncs are
+recorded; a current Idle snapshot cannot manufacture a past Working transition.
+Unexpected DEV boot changes remain failures outside the explicit restored leg.
 
 Artifacts live in `artifacts/model-switch-<timestamp>/`: matrix JSON, raw
 records, screenshots and traces. Each result includes DEV SHA, provider, step,

@@ -307,6 +307,7 @@ for (let run = startRun; run < startRun + repeats; run++) {
           }
           await ui.page.keyboard.press("Escape");
         } finally {
+          if (agent) await info.attach(`${providerId}-stream-resyncs.json`, { body: JSON.stringify(agent.events.resyncs, null, 2), contentType: "application/json" });
           await agent?.events.close();
         }
       }
