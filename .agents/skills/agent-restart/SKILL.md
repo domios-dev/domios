@@ -28,6 +28,9 @@ and lifecycle lineage, persists the snapshot, and resumes after relaunch. Steps:
    for its own nonce-verified idle session with no known background work.
    Claude declares this because its transcript is written per message.
 3. Wait up to `grace_secs` (default 10) for the PTY to exit cleanly.
+   A proven provider exit cancels the exit command's submit wait through the
+   existing per-PTY cycle signal, even when `/exit` writes no user transcript
+   turn. This ends shutdown without claiming message-delivery confirmation.
 4. If `--force` is set, the Tab was busy, or the timeout fires, kill the PTY.
 5. The existing Tab lifecycle detects the exit and respawns the agent
    with `--resume <session_id>` if a session id was recorded — otherwise
@@ -232,6 +235,12 @@ restart and the model restart fallback. `idle-terminate` proves the bypass ran.
 `first-composer` records the first composer observed by the launch input gate;
 hook-only resume can settle readiness without entering that gate. Never infer a
 composer timestamp from `session-bound` or `ready`.
+
+`provider-exit` records shutdown released by proven process exit rather than
+submit confirmation. `relaunch-worker`, `relaunch-pty-request`, and
+`relaunch-pty-created` split thread scheduling and launch setup from native PTY
+creation and reader/link setup before `relaunch-spawn`. Sidecar preparation runs
+in parallel with PTY creation; shell readiness follows `relaunch-spawn`.
 
 - `src-tauri/src/service/agent_restart/exit_recovery.rs` — in-place recovery of an exited agent session
 - `src-tauri/src/service/pty_io/lifecycle.rs` — restored agent materialization and PTY lifecycle
