@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { exactReply, kind } from "./oracle.mjs";
+import { exactReply, firstTurnPolicy, kind, probeReady } from "./oracle.mjs";
 import { digest, logLines, newEvidence } from "./logs.mjs";
 
 const script = fileURLToPath(import.meta.url);
@@ -167,13 +167,12 @@ function failure(record) {
   if (terminalStages.has(record.boot_stage)) return `${record.boot_stage}: ${record.boot_failure_reason ?? JSON.stringify(record.pending_prompt ?? null)}`;
   return null;
 }
-async function waitReady(events, id, signal) {
+async function waitReady(events, id, signal, policy, requireSession = false) {
   for (;;) {
     const record = await tab(id, signal);
     const reason = failure(record);
     if (reason) throw new Error(reason);
-    if (record.agent_type && record.agent_session_id &&
-        ["agent_ready", "pty_reattached"].includes(record.boot_stage)) return record;
+    if (probeReady(record, policy, requireSession)) return record;
     let event;
     do { event = await events.next(); } while (!touches(event, id));
   }
@@ -204,18 +203,28 @@ async function probe(fixture, n, observeOnly = false) {
       row.reason = failure(row.initial) ?? "Existing tab inspected; no message authorized outside Endure fixtures";
       return row;
     }
-    const ready = await waitReady(events, fixture.id, signal);
+    row.phase = "waiting_for_input_readiness";
+    const ready = await waitReady(events, fixture.id, signal, fixture.first_turn_policy, Boolean(fixture.last_session));
     row.before_probe = ready;
     if (ready.agent_type !== fixture.provider) throw new Error(`Provider identity changed: ${fixture.provider} → ${ready.agent_type}`);
-    await api(`/api/tabs/${fixture.id}/chat-raw/start`, "POST", { subscriptionId: `endure-${fixture.id}-${n}` }, signal);
-    subscribed = true;
+    if (fixture.last_session && fixture.last_session !== ready.agent_session_id) throw new Error(`Session changed before probe: ${fixture.last_session} → ${ready.agent_session_id}`);
     const before = await transcript(fixture.id, signal);
     const baseline = before.messages.length;
     const marker = `ENDURE_${fixture.provider}_${n}`;
     row.expected = marker;
     row.prompt = await paddedPrompt(fixture.id, marker);
     row.send_started_at = new Date().toISOString();
-    await api(`/api/tabs/${fixture.id}/send`, "POST", { text: row.prompt }, signal);
+    row.phase = "sending";
+    row.send_response = await api(`/api/tabs/${fixture.id}/send`, "POST", { text: row.prompt }, signal);
+    row.phase = "waiting_for_session_binding";
+    const bound = await waitReady(events, fixture.id, signal, fixture.first_turn_policy, true);
+    row.bound_session = bound.agent_session_id;
+    if (bound.agent_type !== fixture.provider || (ready.agent_session_id && ready.agent_session_id !== bound.agent_session_id)) {
+      throw new Error("Provider or session changed while establishing probe binding");
+    }
+    await api(`/api/tabs/${fixture.id}/chat-raw/start`, "POST", { subscriptionId: `endure-${fixture.id}-${n}` }, signal);
+    subscribed = true;
+    row.phase = "waiting_for_exact_reply";
     for (;;) {
       const snapshot = await transcript(fixture.id, signal);
       row.transcript = snapshot;
@@ -225,11 +234,12 @@ async function probe(fixture, n, observeOnly = false) {
         row.answer = answer;
         row.reply_ms = Math.round(performance.now() - start);
         row.after_probe = current;
-        if (row.after_probe?.agent_session_id !== ready.agent_session_id) throw new Error("Session changed during probe; reply ownership uncertain");
+        if (row.after_probe?.agent_session_id !== bound.agent_session_id) throw new Error("Session changed during probe; reply ownership uncertain");
         if (fixture.last_session && fixture.last_session !== ready.agent_session_id) {
           row.reason = `Session changed across restart: ${fixture.last_session} → ${ready.agent_session_id}`;
         } else { row.pass = true; }
         fixture.last_session = row.after_probe.agent_session_id;
+        row.phase = "answered";
         break;
       }
       if (failure(current)) throw new Error(failure(current));
@@ -267,6 +277,17 @@ async function setup() {
   result.health = await checkHealth();
   const providers = await dcJson("agent", "providers");
   result.provider_descriptors = providers;
+  const inventory = await dcJson("plugin", "list");
+  const policies = new Map();
+  for (const plugin of inventory.plugins ?? []) {
+    const directory = plugin.install_path ?? plugin.path;
+    if (!directory) continue;
+    const path = join(directory, "plugin.json");
+    if (!existsSync(path)) continue;
+    const manifest = JSON.parse(readFileSync(path, "utf8"));
+    if (manifest.id !== plugin.id) throw new Error(`Plugin inventory/manifest mismatch: ${plugin.id}`);
+    policies.set(plugin.id, { ...firstTurnPolicy(manifest), manifest_path: path });
+  }
   const workspaces = await dcJson("workspace", "list");
   if (workspaces.some((workspace) => workspace.name === "Endure")) throw new Error("Endure already exists; preserve it and review the previous fixture manifest before explicitly closing it");
   const records = await tabs();
@@ -289,7 +310,7 @@ async function setup() {
         continue;
       }
       result.coverage.push({ provider, cohort, status: "launch requested" });
-      const fixture = { provider, cohort };
+      const fixture = { provider, cohort, first_turn_policy: policies.get(provider) ?? firstTurnPolicy(null) };
       result.fixtures.push(fixture);
       save();
       try {
@@ -302,7 +323,8 @@ async function setup() {
       save();
     }
     for (let sibling = 1; sibling <= 2; sibling++) {
-      const fixture = { provider: config.general_agent.agent_provider, cohort: `general-${cohort}`, sibling };
+      const provider = config.general_agent.agent_provider;
+      const fixture = { provider, cohort: `general-${cohort}`, sibling, first_turn_policy: policies.get(provider) ?? firstTurnPolicy(null) };
       result.fixtures.push(fixture);
       save();
       try {
@@ -326,7 +348,7 @@ async function setup() {
       let record, reason, snapshot;
       try {
         await events.open();
-        record = await waitReady(events, fixture.id, signal);
+        record = await waitReady(events, fixture.id, signal, fixture.first_turn_policy);
         snapshot = await transcript(fixture.id, signal);
         if (snapshot.messages.some((message) => ["user", "assistant"].includes(kind(message)))) reason = "Fresh fixture has conversation turns before any eval probe";
         fixture.last_session = record.agent_session_id;

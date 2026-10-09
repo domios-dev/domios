@@ -5,6 +5,20 @@ export function textContent(content) {
 }
 export const kind = (message) => message.type ?? message.role;
 
+export function firstTurnPolicy(manifest) {
+  return {
+    lazy: manifest?.spawn?.sessionStartsOnFirstUserTurn === true,
+    structuralComposer: manifest?.spawn?.providerReadiness?.kind === "structural_composer",
+  };
+}
+
+export function probeReady(record, policy, requireSession = false) {
+  if (!record?.agent_type || !["agent_ready", "pty_reattached"].includes(record.boot_stage)) return false;
+  if (record.agent_session_id) return true;
+  return !requireSession && policy?.lazy === true && policy?.structuralComposer === true &&
+    record.boot_stage === "agent_ready" && Boolean(record.pty_id && record.session_binding_nonce) && !record.pending_prompt;
+}
+
 export function exactReply(messages, baseline, prompt, marker) {
   const fresh = messages.slice(baseline);
   const boundary = fresh.findIndex((message) => kind(message) === "user" && textContent(message.content).trim() === prompt);
