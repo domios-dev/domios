@@ -117,6 +117,7 @@ impl ServiceContext {
         SurfaceCallCtx {
             owner_tab_id: binding.owner_tab_id.clone(),
             data_dir: self.agent_pad_data_dir.clone(),
+            actor: None,
         }
     }
 
@@ -131,7 +132,7 @@ impl ServiceContext {
     }
 
     /// Blocking: a guarded system notice, so a bare shell owner is refused rather than typed into.
-    fn deliver_surface_annotation(&self, owner_tab_id: &str, markdown: &str) -> Result<(), String> {
+    pub(super) fn deliver_surface_annotation(&self, owner_tab_id: &str, markdown: &str) -> Result<(), String> {
         self.gateway_deliver(
             owner_tab_id,
             MessageEnvelope::codeterm_reminder(ANNOTATION_CONTEXT),
@@ -162,7 +163,7 @@ pub(crate) async fn call_surface(
         .surface_runtime(tab_id)
         .map_err(SurfaceCallFailure::Refused)?;
     if origin == CallOrigin::Agent && super::is_agent_method(method) {
-        svc.note_surface_activity(&binding.tab_id, method);
+        svc.note_surface_activity(&binding.tab_id, method, None);
     }
     let ctx = svc.surface_call_ctx(&binding);
     let outcome = runtime

@@ -20,6 +20,9 @@ pub(crate) struct SurfaceState {
     pub title: String,
     pub url: String,
     pub activity: String,
+    /// The agent driving `activity` when it is not the surface owner.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub actor: String,
     pub needs_human: String,
     pub profile: String,
     pub profiles: Vec<String>,
@@ -111,6 +114,8 @@ pub(crate) type SurfaceEvents = Pin<Box<dyn Stream<Item = SurfaceEvent> + Send>>
 pub(crate) struct SurfaceCallCtx {
     pub owner_tab_id: Option<String>,
     pub data_dir: PathBuf,
+    /// The calling agent's name when it is not the owner.
+    pub actor: Option<String>,
 }
 
 impl SurfaceCallCtx {
@@ -167,6 +172,15 @@ pub(crate) trait SurfaceRuntime: Send + Sync {
         verb: &str,
         args: &[String],
     ) -> Result<String, String>;
+    /// An agent's annotation of an element for the surface owner; `ctx.actor` is its sender.
+    async fn annotate(
+        &self,
+        ctx: &SurfaceCallCtx,
+        args: &[String],
+    ) -> Result<SurfaceCallOutcome, String> {
+        let _ = (ctx, args);
+        Err("this surface cannot annotate".into())
+    }
     fn annotation_delivered(&self, id: &str);
     /// Resume points worth persisting; `None` when the runtime has nothing to resume.
     fn resume_updates(&self) -> Option<tokio::sync::watch::Receiver<SurfaceResume>> {

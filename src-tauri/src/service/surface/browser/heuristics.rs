@@ -53,6 +53,7 @@ pub(crate) fn activity_label(verb: &str, args: &[String]) -> String {
             args.get(1..).unwrap_or_default().join(" ")
         ),
         "screenshot" => "taking a screenshot".into(),
+        "annotate" => format!("annotating {target}"),
         other => other.to_string(),
     }
 }

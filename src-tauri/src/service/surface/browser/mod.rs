@@ -361,6 +361,14 @@ impl SurfaceRuntime for BrowserRuntime {
         self.run_verb(ctx, verb, args).await
     }
 
+    async fn annotate(
+        &self,
+        ctx: &SurfaceCallCtx,
+        args: &[String],
+    ) -> Result<SurfaceCallOutcome, String> {
+        self.run_annotate(ctx, args).await
+    }
+
     fn annotation_delivered(&self, id: &str) {
         self.inbox.lock().mark_delivered(id);
     }

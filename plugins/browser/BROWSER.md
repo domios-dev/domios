@@ -14,10 +14,12 @@ Do not use it to fetch plain data an HTTP request or an API returns. Use `curl` 
 
 ## Your browser
 
-- **Ownership.** `open` gives you your own browser. It is named `<YourName>'s Browser`, the user sees it live as a tab nested under yours, and other agents cannot drive it. It closes when you close it with `close`, when your Tab closes, or when your Team closes.
+- **Ownership.** `open` gives you your own browser. It is named `<YourName>'s Browser`, the user sees it live as a tab nested under yours, and other agents in your workspace may use it too. It closes when you close it with `close`, when your Tab closes, or when your Team closes.
 - **Profiles.**
   - Default: a **clean profile**. No logins, nothing is saved.
   - A **named profile** keeps logins and cookies across restarts. It acts as the user. Use one only when the user chose it (`open --profile NAME`), and never publish, buy, delete or send messages without the user's explicit instruction.
+- **Another agent's browser.** Add `--of <agent>` (its Tab title or tab id) to any verb to act in that agent's browser instead of yours, for example `snapshot --of Snake` then `click @e4 --of Snake`. Its owner sees your name on the activity. It must already be open, you cannot `close` it, and refs come from the latest `snapshot` of that browser.
+- **Pointing an owner at something.** `annotate @eN "comment" --of <agent>` (or `annotate button "Sign in" "comment" --of <agent>`, optional `--intent question|change|bug`) sends that agent the same element card the user's point-and-ask sends, signed with your name. It only targets another agent's browser.
 - **Shared view.** The user may press *Take control* and click or type alongside you. You are not blocked and not told. Always re-read the page before acting.
 
 ## The loop: snapshot, act, re-snapshot

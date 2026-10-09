@@ -161,8 +161,15 @@ impl PageShared {
         let _ = self.notices.send(notice);
     }
 
-    pub(super) fn set_activity(&self, activity: &str) {
-        self.update(|state| state.activity = activity.to_string());
+    /// `actor` names a non-owner agent driving this activity; it clears with the activity.
+    pub(super) fn set_activity(&self, activity: &str, actor: Option<&str>) {
+        let actor = actor
+            .and_then(crate::service::surface::sanitize_actor)
+            .unwrap_or_default();
+        self.update(|state| {
+            state.activity = activity.to_string();
+            state.actor = actor;
+        });
     }
 
     /// Binds the listener to `page` once per CDP session; a relaunch brings a new session.
