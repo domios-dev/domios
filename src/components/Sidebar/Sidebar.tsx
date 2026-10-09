@@ -79,7 +79,7 @@ export function toggleWorkspacesSectionExpanded(expanded: boolean): boolean {
 
 /** Stable target for the collapse handle's aria-controls — the sidebar is a singleton region. */
 export const SIDEBAR_REGION_ID = "codeterm-sidebar";
-const SIDEBAR_COLLAPSED_WIDTH = 16;
+const SIDEBAR_COLLAPSED_WIDTH = 0;
 const SIDEBAR_COMPACT_WIDTH = 64;
 const SIDEBAR_COMPACT_SNAP = 150;
 const SIDEBAR_COLLAPSE_BELOW = 48;
@@ -99,6 +99,9 @@ interface SidebarProps {
   onOpenWorkspaceMap?: (workspaceId: string) => void;
   onOpenWorkspaceAutomation?: (workspaceId: string, target?: JobsTarget, scope?: JobsOpenScope) => void;
   teamActions?: Partial<SidebarTeamActions>;
+  onCollapsedChange?: (collapsed: boolean) => void;
+  /** Bumped by the titlebar burger to bring a collapsed sidebar back. */
+  expandRequest?: number;
 }
 
 export function Sidebar({
@@ -114,6 +117,8 @@ export function Sidebar({
   onOpenWorkspaceMap,
   onOpenWorkspaceAutomation,
   teamActions,
+  onCollapsedChange,
+  expandRequest = 0,
 }: SidebarProps) {
   const {
     createWorkspace,
@@ -405,6 +410,17 @@ export function Sidebar({
   useEffect(() => () => {
     if (peekTimer.current) clearTimeout(peekTimer.current);
   }, []);
+  const onCollapsedChangeRef = useRef(onCollapsedChange);
+  onCollapsedChangeRef.current = onCollapsedChange;
+  useEffect(() => {
+    onCollapsedChangeRef.current?.(isSidebarCollapsed);
+  }, [isSidebarCollapsed]);
+  useEffect(() => {
+    if (expandRequest === 0) return;
+    setPeeking(false);
+    setSidebarWidth(lastExpandedWidth.current);
+    setIsSidebarCollapsed(false);
+  }, [expandRequest]);
 
   const handleSidebarDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -474,7 +490,7 @@ export function Sidebar({
     : touchMode
       ? `min(85vw, ${scaledTouchSidebarWidth}px)`
       : sidebarWidth;
-  const isCompact = !touchMode && !isSidebarCollapsed && sidebarWidth < 100;
+  const isCompact = !touchMode && !isSidebarCollapsed && sidebarWidth < SIDEBAR_COMPACT_SNAP;
   const isPeeking = isSidebarCollapsed && peeking && !touchMode;
   const peekWidth = sidebarWidth >= SIDEBAR_COMPACT_SNAP ? sidebarWidth : 240;
   const prevTabIdsRef = useRef<Set<string>>(new Set());

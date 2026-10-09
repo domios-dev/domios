@@ -145,7 +145,7 @@ describe("web host picker placement", () => {
     await act(async () => sidebarHandle().dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: 220 })));
     await act(async () => document.dispatchEvent(new MouseEvent("mousemove", { clientX: 80 })));
     await act(async () => document.dispatchEvent(new MouseEvent("mouseup")));
-    expect(host.querySelector<HTMLElement>('[data-testid="sidebar"]')!.style.width).toBe("80px");
+    expect(host.querySelector<HTMLElement>('[data-testid="sidebar"]')!.parentElement!.style.width).toBe("64px");
     expect(sidebarHandle().getAttribute("aria-expanded")).toBe("true");
     expect(host.querySelector('[data-testid="general-section"]')).toBeNull();
     expect(pickerButton()).toBe(trigger);
