@@ -957,7 +957,6 @@ button,
 
 .ct-float {
   backdrop-filter: blur(var(--ct-blur-overlay));
-  -webkit-backdrop-filter: blur(var(--ct-blur-overlay));
 }
 
 .ct-portal-menu {

@@ -170,7 +170,6 @@
   border: 1px solid color-mix(in srgb, var(--ct-accent) 30%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--ct-surface) 82%, transparent);
-  -webkit-backdrop-filter: blur(var(--ct-blur-md)) saturate(1.4);
   backdrop-filter: blur(var(--ct-blur-md)) saturate(1.4);
   color: var(--ct-fg);
   font-size: 12px;
@@ -310,7 +309,6 @@
   border: 1px solid color-mix(in srgb, var(--ct-accent) 26%, transparent);
   border-radius: 14px;
   background: color-mix(in srgb, var(--ct-surface) 84%, transparent);
-  -webkit-backdrop-filter: blur(var(--ct-blur-md)) saturate(1.4);
   backdrop-filter: blur(var(--ct-blur-md)) saturate(1.4);
   box-shadow: var(--ct-shadow-lg);
   color: var(--ct-fg);
