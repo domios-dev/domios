@@ -35,14 +35,19 @@ pub(crate) fn clear_runtime_evidence(tab: &mut Tab) {
     }
 }
 
-fn apply_session_owned_actual(
+pub(crate) fn apply_session_owned_actual(
     tab: &mut Tab,
     agent_id: &str,
     session_id: &str,
+    binding_nonce: Option<&str>,
     actual: Option<String>,
 ) -> bool {
     if tab.agent_type.as_deref() != Some(agent_id)
         || tab.agent_session_id.as_deref() != Some(session_id)
+        || binding_nonce.is_some_and(|nonce| {
+            tab.session_binding_nonce.as_deref() != Some(nonce)
+                || tab.reported_session_binding_nonce.as_deref() != Some(nonce)
+        })
         || (actual.is_none() && tab.reasoning_effort_identity.is_empty())
     {
         return false;
@@ -85,13 +90,24 @@ impl ServiceContext {
                     })
             })
             .flatten();
+        self.record_session_reasoning_effort(tab_id, agent_id, session_id, None, actual);
+    }
+
+    pub(crate) fn record_session_reasoning_effort(
+        &self,
+        tab_id: &str,
+        agent_id: &str,
+        session_id: &str,
+        binding_nonce: Option<&str>,
+        actual: Option<String>,
+    ) {
         let (identity_changed, owned_actual) = {
             let mut mux = self.mux.write();
             let Some(tab) = mux.get_tab_mut(tab_id) else {
                 return;
             };
             let identity_changed =
-                apply_session_owned_actual(tab, agent_id, session_id, actual.clone());
+                apply_session_owned_actual(tab, agent_id, session_id, binding_nonce, actual);
             let owned_actual = (tab.agent_type.as_deref() == Some(agent_id)
                 && tab.agent_session_id.as_deref() == Some(session_id)
                 && tab.reasoning_effort_identity.actual_source.as_deref() == Some(SESSION_OWNED))
@@ -202,6 +218,7 @@ mod tests {
             tab,
             "claude",
             "latest-foreign-session",
+            None,
             Some("max".into()),
         ));
         assert_eq!(tab.reasoning_effort_identity.actual, None);
@@ -213,6 +230,7 @@ mod tests {
             tab,
             "claude",
             "owned-session",
+            None,
             Some("high".into()),
         ));
         assert_eq!(

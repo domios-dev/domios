@@ -64,6 +64,14 @@ pub fn request_mode(tab: &str, mode: RuntimeMode) -> Result<(), String> {
     Ok(())
 }
 
+pub(super) fn session_effort(settings: &Value) -> Option<Option<String>> {
+    match settings.get("effort")? {
+        Value::Null => Some(None),
+        Value::String(effort) if !effort.trim().is_empty() => Some(Some(effort.trim().into())),
+        _ => None,
+    }
+}
+
 pub fn observe(svc: &crate::service::ServiceContext, tab: &str, thread: &str, params: &Value) {
     let settings = params.get("threadSettings").unwrap_or(params);
     let Some(model) = settings.get("model").and_then(Value::as_str) else {
@@ -83,6 +91,9 @@ pub fn observe(svc: &crate::service::ServiceContext, tab: &str, thread: &str, pa
             Some(&nonce),
             false,
         );
+        if let Some(actual) = session_effort(settings) {
+            svc.record_session_reasoning_effort(tab, &provider, thread, Some(&nonce), actual);
+        }
     }
 }
 
@@ -213,42 +224,4 @@ impl crate::service::ServiceContext {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn codex_rpc_control_runtime_modes_and_next_turn_overrides() {
-        for (mode, policy, reviewer, sandbox) in [
-            (
-                RuntimeMode::ApprovalRequired,
-                "untrusted",
-                "user",
-                "readOnly",
-            ),
-            (
-                RuntimeMode::AutoAcceptEdits,
-                "on-request",
-                "user",
-                "workspaceWrite",
-            ),
-            (
-                RuntimeMode::Auto,
-                "on-request",
-                "auto_review",
-                "workspaceWrite",
-            ),
-            (RuntimeMode::FullAccess, "never", "user", "dangerFullAccess"),
-        ] {
-            let controls = TurnControls {
-                model: Some("selected".into()),
-                effort: Some("high".into()),
-                mode,
-            };
-            let value = controls.overrides();
-            assert_eq!(value["model"], "selected");
-            assert_eq!(value["effort"], "high");
-            assert_eq!(value["approvalPolicy"], policy);
-            assert_eq!(value["approvalsReviewer"], reviewer);
-            assert_eq!(value["sandboxPolicy"]["type"], sandbox);
-        }
-    }
-}
+mod tests;
