@@ -125,6 +125,7 @@ fn discover_models_fixture() -> Vec<ModelInfo> {
             description: None,
             available: None,
             availability: None,
+            primary: Some(true),
             featured: None,
             badge: None,
             group: Some("alpha".into()),
@@ -149,6 +150,7 @@ fn discover_models_fixture() -> Vec<ModelInfo> {
             description: Some("second".into()),
             available: None,
             availability: None,
+            primary: None,
             featured: None,
             badge: None,
             group: None,
@@ -163,6 +165,7 @@ fn discover_models_fixture() -> Vec<ModelInfo> {
             description: None,
             available: None,
             availability: Some(crate::provider::ModelAvailability::Unknown),
+            primary: None,
             featured: None,
             badge: None,
             group: None,
@@ -378,6 +381,7 @@ fn model_capability_fixture() -> Vec<ModelInfo> {
             description: Some("ready".into()),
             available: Some(true),
             availability: None,
+            primary: None,
             featured: None,
             badge: None,
             group: None,
@@ -390,6 +394,7 @@ fn model_capability_fixture() -> Vec<ModelInfo> {
             description: Some("offline".into()),
             available: Some(false),
             availability: None,
+            primary: None,
             featured: None,
             badge: None,
             group: None,
@@ -529,7 +534,7 @@ async fn discover_models_native_js_parity() {
             module.exports.default = {
                 discoverModels() {
                     return [
-                        { id: 'live-a', displayName: 'Live A', group: 'alpha', defaultReasoningEffort: 'max', reasoningEfforts: [
+                        { id: 'live-a', displayName: 'Live A', primary: true, group: 'alpha', defaultReasoningEffort: 'max', reasoningEfforts: [
                             { id: 'max', displayName: 'Max', description: 'Maximum reasoning' },
                             { id: 'ultra', displayName: 'Ultra' }
                         ] },

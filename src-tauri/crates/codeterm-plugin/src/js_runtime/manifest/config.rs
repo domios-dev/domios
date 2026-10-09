@@ -571,6 +571,8 @@ pub struct SerdeModelInfo {
     /// `unknown` here rather than collapsing into `available: false`.
     #[serde(default)]
     pub availability: Option<ModelAvailability>,
+    #[serde(default)]
+    pub primary: Option<bool>,
     /// See `ModelInfo::featured`. Marks a model to lead the picker list.
     #[serde(default)]
     pub featured: Option<bool>,
@@ -594,6 +596,7 @@ impl From<&SerdeModelInfo> for ModelInfo {
             description: s.description.clone(),
             available: s.available,
             availability: s.availability,
+            primary: s.primary,
             featured: s.featured,
             badge: s.badge.clone(),
             group: s.group.clone(),
@@ -702,6 +705,7 @@ mod tests {
             "id": "deepseek-v4-flash",
             "displayName": "DeepSeek V4 Flash",
             "featured": true,
+            "primary": true,
             "badge": "own",
             "group": "deepseek",
         }))
@@ -709,6 +713,8 @@ mod tests {
 
         let model: ModelInfo = (&parsed).into();
         assert_eq!(model.featured, Some(true));
+        assert_eq!(model.primary, Some(true));
+        assert_eq!(serde_json::to_value(&model).unwrap()["primary"], true);
         assert_eq!(model.badge.as_deref(), Some("own"));
         assert_eq!(model.group.as_deref(), Some("deepseek"));
         assert!(model.is_featured());
@@ -722,6 +728,7 @@ mod tests {
 
         let model: ModelInfo = (&parsed).into();
         assert_eq!(model.featured, None);
+        assert_eq!(model.primary, None);
         assert_eq!(model.badge, None);
         assert_eq!(model.group, None);
         assert!(!model.is_featured());

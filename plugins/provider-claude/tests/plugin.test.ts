@@ -1118,13 +1118,13 @@ for (const [label, response, expected] of [
   assert(!message.includes("secret-token"), `${label} diagnostics omit credentials`);
 }
 
-console.log("\n--- versionless Claude alias catalog ---\n");
+console.log("\n--- Claude primary alias catalog ---\n");
 {
   const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
   const manifest = JSON.parse(fs.readFileSync(
     path.join(repoRoot, "plugins", "provider-claude", "plugin.json"),
     "utf8",
-  )) as { models: Array<{ id: string; displayName: string; description?: string; available?: boolean }>; defaultModel?: string };
+  )) as { models: Array<{ id: string; displayName: string; description?: string; available?: boolean; primary?: boolean }>; defaultModel?: string };
 
   eq(
     manifest.models.map((m) => m.id),
@@ -1132,7 +1132,8 @@ console.log("\n--- versionless Claude alias catalog ---\n");
     "catalogue includes every alias accepted by the installed CLI",
   );
   eq(manifest.defaultModel, "sonnet", "default alias remains sonnet");
-  eq(manifest.models[0]?.displayName, "Claude Opus", "base alias labels remain versionless");
+  eq(manifest.models.filter((model) => model.primary).map((model) => model.id),
+    ["opus", "sonnet", "haiku", "fable"], "manifest declares the primary aliases");
   for (const m of manifest.models) {
     if (m.id === "fable") {
       // Do not advertise model availability until installed-CLI discovery proves it.

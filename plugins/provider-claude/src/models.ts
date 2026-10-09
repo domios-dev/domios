@@ -129,7 +129,9 @@ function mapAliasesToLive(aliases: ModelInfo[], live: AnthropicModel[]): ModelIn
     const mapped: ModelInfo = {
       ...alias,
       id: alias.id,
-      displayName: match && !alias.id.endsWith("[1m]")
+      displayName: match && alias.primary && liveDisplay(match)
+        ? liveDisplay(match)
+        : match && !alias.id.endsWith("[1m]")
         ? withVersion(alias.displayName, versionOf(match))
         : alias.displayName,
     };

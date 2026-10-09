@@ -847,6 +847,7 @@ export interface ModelDefaultsConfig {
 
 export interface ModelInfo {
   id: string;
+  primary?: boolean | null;
   display_name: string;
   description?: string;
   available?: boolean | null;

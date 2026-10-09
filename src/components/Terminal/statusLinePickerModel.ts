@@ -1,7 +1,7 @@
 import { modelSwitchModeSupported } from "../../lib/modelSwitch";
 import { reasoningEffortsForModel, resolveEffort } from "../../lib/newSessionChoice";
 import { groupOptionsByLabel } from "../../lib/optionGroups";
-import type { ModelInfo, ProviderDescriptor, ReasoningEffortInfo } from "../../lib/types";
+import type { ModelInfo, ProviderDescriptor, ReasoningEffortInfo, Tab } from "../../lib/types";
 
 export type SwitchTiming = "live" | "live_command" | "next_turn" | "restart_resume";
 
@@ -38,6 +38,18 @@ export type PickerPlan =
   | { action: "confirm"; selection: PickerSelection };
 
 export const PICKER_SEARCH_THRESHOLD = 8;
+
+export function pickerHasPrimaryModels(descriptor: ProviderDescriptor): boolean {
+  return descriptor.available_models.some((model) => model.primary === true);
+}
+
+export function statusLineModelName(
+  tab: Pick<Tab, "agent_session_model" | "agent_provider_resolved_model" | "agent_requested_model">,
+  fallback?: string | null,
+): string {
+  return [tab.agent_session_model, tab.agent_provider_resolved_model, tab.agent_requested_model, fallback]
+    .find((model) => model?.trim())?.trim() ?? "Unknown model";
+}
 
 export function switchTimingNote(timing: SwitchTiming): string {
   if (timing === "live_command" || timing === "live") return "Applies now";
@@ -99,8 +111,11 @@ export function pickerModelGroups(
   descriptor: ProviderDescriptor,
   currentModel: string | undefined,
   query = "",
+  showAll = false,
 ): PickerModelGroup[] {
-  const models = descriptor.available_models.filter((model) => matchesQuery(model, query));
+  const curated = pickerHasPrimaryModels(descriptor) && !showAll && !query.trim();
+  const models = descriptor.available_models.filter((model) =>
+    (!curated || model.primary === true) && matchesQuery(model, query));
   const toRow = (model: ModelInfo): PickerModelRow => ({
     id: model.id,
     label: model.display_name || model.id,
