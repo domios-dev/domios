@@ -38,6 +38,8 @@ import {
   isImeKeyEvent,
 } from "./composerComposition";
 import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
+import { failChatSendRequest, readChatSends, setChatSendDraft } from "./chatSendStore";
+import { prepareChatDelivery } from "./chatDeliveryPreparation";
 import { composeAttachmentDraft } from "./meshAttachmentHandoff";
 import { composerAttachmentHandoff } from "./composerAttachmentHandoff";
 import { ReceiverTargetMarks } from "./ReceiverTargetMark";
@@ -236,14 +238,10 @@ function ChatComposerImpl({
   const touchMode = useTouchOptimizedUi();
   const compositionGate = useRef(createCompositionGate()).current;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const currentDraftRef = useRef({ input, attachments, revision: 0 });
-  const currentDraft = currentDraftRef.current;
-  if (currentDraft.input !== input || currentDraft.attachments !== attachments) {
-    currentDraftRef.current = { input, attachments, revision: currentDraft.revision + 1 };
-  }
   const shellRef = useRef<HTMLDivElement>(null);
   const { layout: composerLayout, measure: measureComposer } = useComposerLayout(input, textareaRef, shellRef, compositionGate);
   const lastSendRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
+  const pendingDraftsRef = useRef(new Set<string>());
   const [delayedMessages, setDelayedMessages] = useState<DelayedMessage[]>([]);
   const [delayedQueueOpen, setDelayedQueueOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -381,85 +379,55 @@ function ChatComposerImpl({
   async function send(extraAttachments: string[] = []) {
     const draft = buildDraft(extraAttachments);
     if (!draft) return;
-    const submittedDraft = currentDraftRef.current;
     const { text, allAttachments, recordedVoiceAttachments, quoted } = draft;
-    const nowTs = Date.now();
     const dupKey = `${text} ${allAttachments.join("|")} ${quoted?.path ?? ""}`;
-    if (isDuplicateSend(lastSendRef.current, dupKey, nowTs)) {
-      console.warn("[chat-send] duplicate optimistic send suppressed", { tabId });
-      return;
-    }
-    lastSendRef.current = { text: dupKey, at: nowTs };
-    const placeholderId = recordedVoiceAttachments.length > 0
-      ? addOptimistic(VOICE_TRANSCRIBING_PLACEHOLDER)
-      : null;
-    let draftResult: Awaited<ReturnType<typeof composeDraft>>;
-    try {
-      draftResult = await composeDraft(text, allAttachments, recordedVoiceAttachments, quoted);
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      if (placeholderId) updateOptimistic(placeholderId, `⚠️ ${message}`);
-      else flagComposerError(message);
-      refocusComposer();
-      return;
-    }
-    const { composed: draftText, transcribeFailed } = draftResult;
-    if (placeholderId && transcribeFailed) {
-      updateOptimistic(placeholderId, VOICE_TRANSCRIBE_ERROR);
-      setInput("");
-      clearAttachments();
-      capsules.clear();
-      refocusComposer();
-      return;
-    }
-    const expansion = expandDsTasks(draftText);
-    if (expansion.kind === "error") {
-      if (placeholderId) updateOptimistic(placeholderId, `⚠️ ${expansion.message}`);
-      flagComposerError(expansion.message);
-      refocusComposer();
-      return;
-    }
-    const composed = expansion.kind === "expanded" ? expansion.text : draftText;
-    let optimisticId: string;
-    if (placeholderId) {
-      updateOptimistic(placeholderId, composed);
-      optimisticId = placeholderId;
-    } else {
-      onWillSendMessage(composed);
-      optimisticId = addOptimistic(composed);
-    }
+    const duplicate = pendingDraftsRef.current.has(dupKey)
+      || isDuplicateSend(lastSendRef.current, dupKey, Date.now());
+    const portable = capsules.toPortable(text);
+    const registry = capsules.registryRef.current;
+    setInput("");
+    if (textareaRef.current) textareaRef.current.value = "";
+    clearAttachments();
+    capsules.clear();
+    reply.clearIfSent(quoted);
+    if (duplicate) return;
+    lastSendRef.current = { text: dupKey, at: Date.now() };
+    pendingDraftsRef.current.add(dupKey);
+    onWillSendMessage(text);
+    const optimisticId = addOptimistic(recordedVoiceAttachments.length > 0
+      ? VOICE_TRANSCRIBING_PLACEHOLDER : portable || allAttachments.join(" "));
+    const deliveryDraft = { text, attachments: allAttachments, recordedVoiceAttachments, capsules: registry, reply: quoted };
+    setChatSendDraft(tabId, optimisticId, deliveryDraft);
     setComposerInvalid(false);
     refocusComposer();
+    let composed: string;
     try {
-      if (chatBackend) {
-        // plugin's sendMessage (chat_send_text → send_text_when_ready).
-        observeChatSendStatus(await sendTrackedChatMessage(tabId, optimisticId, composed));
+      const send = readChatSends(tabId).find((item) => item.id === optimisticId)
+        ?? { id: optimisticId, content: portable, sentAtMs: Date.now(), draft: deliveryDraft };
+      composed = await prepareChatDelivery(tabId, send, expandDsTasks);
+      updateOptimistic(optimisticId, composed);
+    } catch {
+      failChatSendRequest(tabId, optimisticId);
+      pendingDraftsRef.current.delete(dupKey);
+      return;
+    }
+    try {
+      const fallbackCommand = !chatBackend && allAttachments.length === 0
+        ? cliFallbackCommandPayload(composed) : null;
+      if (fallbackCommand) {
+        if (!currentPtyId) throw new Error("Tab has no PTY");
+        onOpenTerminalFallback?.();
+        await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
       } else {
-        const fallbackCommand = allAttachments.length === 0 ? cliFallbackCommandPayload(composed) : null;
-        if (fallbackCommand) {
-          // CLI fallback commands write directly to the PTY — need the id now.
-          if (!currentPtyId) throw new Error("Tab has no PTY");
-          onOpenTerminalFallback?.();
-          await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
-        } else {
-          observeChatSendStatus(await sendTrackedChatMessage(tabId, optimisticId, composed));
-        }
+        observeChatSendStatus(await sendTrackedChatMessage(tabId, optimisticId, composed));
       }
-      recall.remember(capsules.toPortable(text));
-      reply.clearIfSent(quoted);
-      if (currentDraftRef.current.revision === submittedDraft.revision
-        && textareaRef.current?.value === submittedDraft.input) {
-        setInput("");
-        clearAttachments();
-        capsules.clear();
-      }
+      recall.remember(portable);
     } catch (e) {
       console.warn("[chat-send] optimistic delivery failed", {
-        tabId,
-        messageId: optimisticId,
-        error: e instanceof Error ? e.message : String(e),
+        tabId, messageId: optimisticId, error: e instanceof Error ? e.message : String(e),
       });
     } finally {
+      pendingDraftsRef.current.delete(dupKey);
       refocusComposer();
     }
   }
