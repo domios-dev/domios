@@ -83,6 +83,7 @@ import { prepareChatDelivery } from "./chatDeliveryPreparation";
 import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
 import { MessageSelectionBar } from "./MessageSelectionBar";
 import { useChatMessageSelection } from "./useChatMessageSelection";
+import { streamingMessageId } from "./streamingMessage";
 import { jumpToMessage } from "./jumpToMessage";
 import { HelperMomentCard } from "./HelperMomentCard";
 import { helperMoments } from "../../lib/helperMoments/helperMomentsWiring";
@@ -555,7 +556,8 @@ export function TabSessionChat({
     () => enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg)),
     [enrichedMessages],
   );
-  const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef });
+  const streamingId = streamingMessageId(renderedEnrichedMessages, agentActivity.active);
+  const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef, streamingMessageId: streamingId });
   const jumpToQuoted = useCallback((messageId: string) => { jumpToMessage(scrollRef.current, messageId); }, [scrollRef]);
   const agentTimeMessageIds = useMemo(
     () => agentMessageTimeIds(renderedEnrichedMessages.map(({ msg }) => msg)),
@@ -843,6 +845,7 @@ export function TabSessionChat({
             >
               <MessageBubble
                 message={msg}
+                streaming={msg.id === streamingId}
                 userFooter={deliverySend && deliveryState(deliverySend) !== "delivered"
                   ? <ChatDeliveryState state={deliveryState(deliverySend)} onRetry={() => void retryChatDelivery(deliverySend.id)} />
                   : undefined}
