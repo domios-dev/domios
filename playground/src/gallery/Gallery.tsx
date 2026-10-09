@@ -9,7 +9,7 @@ export const specimens = Object.values(modules)
   .filter((specimen): specimen is Specimen => Boolean(specimen))
   .sort((a, b) => a.title.localeCompare(b.title));
 
-const CATEGORY_ORDER = ["Buttons", "Controls", "Voice", "Status", "Sidebar"];
+const CATEGORY_ORDER = ["Buttons", "Controls", "Composer", "Voice", "Status", "Sidebar"];
 
 function GalleryShell({ activeId, children }: { activeId?: string; children: React.ReactNode }) {
   const groups = CATEGORY_ORDER.map((category) => ({ category, entries: specimens.filter((specimen) => specimen.category === category) })).filter((group) => group.entries.length);
@@ -51,7 +51,7 @@ export function GalleryDetail({ id }: { id: string }) {
       <p className="portal-kicker">{specimen.where}</p>
       <h1>{specimen.title}</h1>
       {specimen.notes && <p className="portal-lede">{specimen.notes}</p>}
-      <section className="gallery-state-board" aria-label={`${specimen.title} states`}>
+      <section className={`gallery-state-board${specimen.stage === "wide" ? " gallery-state-board--wide" : ""}`} aria-label={`${specimen.title} states`}>
         {specimen.states.map((entry) => <button key={entry.id} className={`gallery-state-stage${entry.id === state.id ? " is-focused" : ""}`} type="button" onClick={() => setStateId(entry.id)} aria-pressed={entry.id === state.id}>
           <span className="gallery-state-label">{entry.label}</span>
           <span className="gallery-stage-instance" ref={entry.id === state.id ? stage : undefined}>{entry.render()}</span>
