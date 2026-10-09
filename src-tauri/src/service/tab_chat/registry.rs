@@ -205,16 +205,15 @@ impl JsonlSource {
 struct Entry {
     handle: TailerHandle,
     subscribers: HashSet<String>,
-    /// The agent session this tailer is bound to. A tab can roll to a new
-    /// backing session (Codex resume mints a fresh rollout); the old tailer is
-    /// then stale even though it is still alive.
     session_id: String,
+    session_binding_nonce: Option<String>,
 }
 
 impl Entry {
-    /// Reusable iff the polling thread is alive and bound to `session_id`.
-    fn usable(&self, session_id: &str) -> bool {
-        self.session_id == session_id && self.handle.is_alive()
+    fn usable(&self, session_id: &str, session_binding_nonce: Option<&str>) -> bool {
+        self.session_id == session_id
+            && self.session_binding_nonce.as_deref() == session_binding_nonce
+            && self.handle.is_alive()
     }
 }
 
@@ -241,10 +240,16 @@ impl ChatRegistry {
     /// Returns `true` only when such a tailer exists.
     /// A dead or stale-session entry is dropped (and its thread stopped) and
     /// `false` is returned so the caller spawns a fresh tailer.
-    pub fn acquire(&self, tab_id: &str, session_id: &str, subscriber_id: &str) -> bool {
+    pub fn acquire(
+        &self,
+        tab_id: &str,
+        session_id: &str,
+        session_binding_nonce: Option<&str>,
+        subscriber_id: &str,
+    ) -> bool {
         let mut g = self.inner.lock();
         match g.get(tab_id) {
-            Some(entry) if entry.usable(session_id) => {
+            Some(entry) if entry.usable(session_id, session_binding_nonce) => {
                 g.get_mut(tab_id)
                     .unwrap()
                     .subscribers
@@ -274,12 +279,13 @@ impl ChatRegistry {
         &self,
         tab_id: String,
         session_id: String,
+        session_binding_nonce: Option<String>,
         subscriber_id: String,
         handle: TailerHandle,
     ) -> bool {
         let mut g = self.inner.lock();
         match g.get(&tab_id) {
-            Some(entry) if entry.usable(&session_id) => {
+            Some(entry) if entry.usable(&session_id, session_binding_nonce.as_deref()) => {
                 g.get_mut(&tab_id)
                     .unwrap()
                     .subscribers
@@ -295,6 +301,7 @@ impl ChatRegistry {
                         handle,
                         subscribers: HashSet::from([subscriber_id]),
                         session_id,
+                        session_binding_nonce,
                     },
                 );
                 drop(g);
@@ -308,7 +315,13 @@ impl ChatRegistry {
 
     /// Replace this tab/session's pending watcher with its materialized tailer.
     /// The watcher owns the call, so dropping its handle signals without joining it.
-    pub fn replace_if_current(&self, tab_id: &str, session_id: &str, handle: TailerHandle) -> bool {
+    pub fn replace_if_current(
+        &self,
+        tab_id: &str,
+        session_id: &str,
+        session_binding_nonce: Option<&str>,
+        handle: TailerHandle,
+    ) -> bool {
         let old = {
             let mut g = self.inner.lock();
             let Some(entry) = g.get(tab_id) else {
@@ -316,7 +329,7 @@ impl ChatRegistry {
                 handle.shutdown();
                 return false;
             };
-            if entry.session_id != session_id || !entry.handle.is_alive() {
+            if !entry.usable(session_id, session_binding_nonce) {
                 drop(g);
                 handle.shutdown();
                 return false;
@@ -328,6 +341,7 @@ impl ChatRegistry {
                     handle,
                     subscribers,
                     session_id: session_id.to_string(),
+                    session_binding_nonce: session_binding_nonce.map(str::to_string),
                 },
             )
         };
@@ -475,8 +489,14 @@ mod tests {
     #[test]
     fn two_leases_release_one_subscriber_at_a_time() {
         let registry = ChatRegistry::default();
-        assert!(registry.insert("tab".into(), SID.into(), "desktop".into(), handle_at(42)));
-        assert!(registry.acquire("tab", SID, "web"));
+        assert!(registry.insert(
+            "tab".into(),
+            SID.into(),
+            None,
+            "desktop".into(),
+            handle_at(42)
+        ));
+        assert!(registry.acquire("tab", SID, None, "web"));
         assert!(registry.is_running("tab"));
 
         registry.stop("tab", "desktop");
@@ -496,8 +516,20 @@ mod tests {
     #[test]
     fn duplicate_lease_start_is_idempotent() {
         let registry = ChatRegistry::default();
-        assert!(registry.insert("tab".into(), SID.into(), "desktop".into(), handle_at(10)));
-        assert!(!registry.insert("tab".into(), SID.into(), "desktop".into(), handle_at(99)));
+        assert!(registry.insert(
+            "tab".into(),
+            SID.into(),
+            None,
+            "desktop".into(),
+            handle_at(10)
+        ));
+        assert!(!registry.insert(
+            "tab".into(),
+            SID.into(),
+            None,
+            "desktop".into(),
+            handle_at(99)
+        ));
         assert_eq!(
             registry.current_offset("tab"),
             Some(10),
@@ -511,9 +543,15 @@ mod tests {
     #[test]
     fn acquire_drops_dead_tailer_and_signals_respawn() {
         let registry = ChatRegistry::default();
-        assert!(registry.insert("tab".into(), SID.into(), "desktop".into(), dead_handle()));
+        assert!(registry.insert(
+            "tab".into(),
+            SID.into(),
+            None,
+            "desktop".into(),
+            dead_handle()
+        ));
         assert!(
-            !registry.acquire("tab", SID, "desktop"),
+            !registry.acquire("tab", SID, None, "desktop"),
             "a dead-but-registered tailer must not be reused",
         );
         assert!(
@@ -521,7 +559,13 @@ mod tests {
             "the corpse must be evicted so the caller spawns fresh",
         );
         // The fresh tailer registers cleanly.
-        assert!(registry.insert("tab".into(), SID.into(), "desktop".into(), handle_at(7)));
+        assert!(registry.insert(
+            "tab".into(),
+            SID.into(),
+            None,
+            "desktop".into(),
+            handle_at(7)
+        ));
         assert_eq!(registry.current_offset("tab"), Some(7));
     }
 
@@ -531,17 +575,19 @@ mod tests {
         assert!(registry.insert(
             "tab".into(),
             "old-sid".into(),
+            None,
             "desktop".into(),
             handle_at(5)
         ));
         assert!(
-            !registry.acquire("tab", "new-sid", "desktop"),
+            !registry.acquire("tab", "new-sid", None, "desktop"),
             "a tailer bound to a rolled-past session is stale",
         );
         assert!(!registry.is_running("tab"));
         assert!(registry.insert(
             "tab".into(),
             "new-sid".into(),
+            None,
             "desktop".into(),
             handle_at(9)
         ));
@@ -562,10 +608,16 @@ mod tests {
                 }
             }),
         );
-        assert!(registry.insert("tab".into(), "old-sid".into(), "desktop".into(), watch));
+        assert!(registry.insert(
+            "tab".into(),
+            "old-sid".into(),
+            None,
+            "desktop".into(),
+            watch
+        ));
 
         assert!(
-            !registry.acquire("tab", "new-sid", "desktop"),
+            !registry.acquire("tab", "new-sid", None, "desktop"),
             "rotation must evict the stale watch rather than reuse it",
         );
         assert!(stopped.load(Ordering::Acquire));
@@ -575,8 +627,14 @@ mod tests {
     #[test]
     fn shutdown_tab_stops_even_with_multiple_subscribers() {
         let registry = ChatRegistry::default();
-        assert!(registry.insert("tab".into(), SID.into(), "desktop".into(), handle_at(42)));
-        assert!(registry.acquire("tab", SID, "web"));
+        assert!(registry.insert(
+            "tab".into(),
+            SID.into(),
+            None,
+            "desktop".into(),
+            handle_at(42)
+        ));
+        assert!(registry.acquire("tab", SID, None, "web"));
         registry.shutdown_tab("tab");
         assert!(!registry.is_running("tab"));
     }
@@ -584,9 +642,21 @@ mod tests {
     #[test]
     fn insert_replaces_dead_tailer() {
         let registry = ChatRegistry::default();
-        assert!(registry.insert("tab".into(), SID.into(), "desktop".into(), dead_handle()));
+        assert!(registry.insert(
+            "tab".into(),
+            SID.into(),
+            None,
+            "desktop".into(),
+            dead_handle()
+        ));
         assert!(
-            registry.insert("tab".into(), SID.into(), "desktop".into(), handle_at(33)),
+            registry.insert(
+                "tab".into(),
+                SID.into(),
+                None,
+                "desktop".into(),
+                handle_at(33)
+            ),
             "a fresh tailer must replace a dead corpse rather than be discarded",
         );
         assert_eq!(registry.current_offset("tab"), Some(33));
@@ -596,18 +666,30 @@ mod tests {
     fn rapid_start_stop_churn_keeps_one_live_tailer() {
         let registry = ChatRegistry::default();
         for _ in 0..50 {
-            if !registry.acquire("tab", SID, "desktop") {
-                registry.insert("tab".into(), SID.into(), "desktop".into(), handle_at(1));
+            if !registry.acquire("tab", SID, None, "desktop") {
+                registry.insert(
+                    "tab".into(),
+                    SID.into(),
+                    None,
+                    "desktop".into(),
+                    handle_at(1),
+                );
             }
             registry.stop("tab", "desktop");
         }
         // Final mount with no matching stop leaves a single live tailer.
-        if !registry.acquire("tab", SID, "desktop") {
-            registry.insert("tab".into(), SID.into(), "desktop".into(), handle_at(1));
+        if !registry.acquire("tab", SID, None, "desktop") {
+            registry.insert(
+                "tab".into(),
+                SID.into(),
+                None,
+                "desktop".into(),
+                handle_at(1),
+            );
         }
         assert!(registry.is_running("tab"));
         assert!(
-            registry.acquire("tab", SID, "web"),
+            registry.acquire("tab", SID, None, "web"),
             "the surviving tailer is alive and reusable",
         );
     }
@@ -615,7 +697,13 @@ mod tests {
     #[test]
     fn unknown_lease_stop_is_a_noop() {
         let registry = ChatRegistry::default();
-        assert!(registry.insert("tab".into(), SID.into(), "desktop".into(), handle_at(42)));
+        assert!(registry.insert(
+            "tab".into(),
+            SID.into(),
+            None,
+            "desktop".into(),
+            handle_at(42)
+        ));
         registry.stop("tab", "never-acquired");
         assert!(registry.is_running("tab"));
         registry.stop("tab", "desktop");
@@ -640,14 +728,14 @@ mod tests {
             }),
             wake,
         );
-        assert!(registry.insert("tab".into(), SID.into(), "desktop".into(), handle));
+        assert!(registry.insert("tab".into(), SID.into(), None, "desktop".into(), handle));
         for _ in 0..50 {
             registry.stop("tab", "desktop");
-            assert!(registry.acquire("tab", SID, "desktop"));
+            assert!(registry.acquire("tab", SID, None, "desktop"));
             assert_eq!(registry.current_offset("tab"), Some(42));
             assert!(!stop.load(Ordering::Acquire));
         }
-        assert!(!registry.acquire("tab", "new-session", "desktop"));
+        assert!(!registry.acquire("tab", "new-session", None, "desktop"));
         assert!(stop.load(Ordering::Acquire));
         assert!(!registry.is_running("tab"));
     }
@@ -655,12 +743,22 @@ mod tests {
     #[test]
     fn replacement_preserves_live_leases() {
         let registry = ChatRegistry::default();
-        assert!(registry.insert("tab".into(), SID.into(), "desktop".into(), handle_at(1)));
-        assert!(registry.acquire("tab", SID, "web"));
-        assert!(registry.replace_if_current("tab", SID, handle_at(2)));
+        assert!(registry.insert(
+            "tab".into(),
+            SID.into(),
+            None,
+            "desktop".into(),
+            handle_at(1)
+        ));
+        assert!(registry.acquire("tab", SID, None, "web"));
+        assert!(registry.replace_if_current("tab", SID, None, handle_at(2)));
         registry.stop("tab", "desktop");
         assert!(registry.is_running("tab"));
         registry.stop("tab", "web");
         assert!(!registry.is_running("tab"));
     }
 }
+
+#[cfg(test)]
+#[path = "registry_binding_tests.rs"]
+mod binding_tests;

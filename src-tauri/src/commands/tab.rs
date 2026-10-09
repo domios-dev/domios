@@ -487,10 +487,12 @@ fn chat_start_inner(
             })
             .unwrap_or_default();
         let cursor = delta.cursor.clone();
-        if !svc
-            .chat_registry
-            .acquire(&tab_id, &session_id, &subscription_id)
-        {
+        if !svc.chat_registry.acquire(
+            &tab_id,
+            &session_id,
+            session_binding_nonce.as_deref(),
+            &subscription_id,
+        ) {
             let sink = crate::service::tab_chat::structured_sink::make_sink(
                 svc.app_handle.clone(),
                 svc.mux.clone(),
@@ -513,6 +515,7 @@ fn chat_start_inner(
             svc.chat_registry.insert(
                 tab_id.clone(),
                 session_id.clone(),
+                session_binding_nonce.clone(),
                 subscription_id.clone(),
                 handle,
             );
@@ -545,10 +548,12 @@ fn chat_start_inner(
             provider_id,
             session_id
         );
-        if !svc
-            .chat_registry
-            .acquire(&tab_id, &session_id, &subscription_id)
-        {
+        if !svc.chat_registry.acquire(
+            &tab_id,
+            &session_id,
+            session_binding_nonce.as_deref(),
+            &subscription_id,
+        ) {
             let sink = crate::service::tab_chat::structured_sink::make_flatten_sink(
                 svc.app_handle.clone(),
                 svc.mux.clone(),
@@ -563,6 +568,7 @@ fn chat_start_inner(
                     provider_id: provider_id.clone(),
                     cwd: cwd.clone(),
                     session_id: session_id.clone(),
+                    session_binding_nonce: session_binding_nonce.clone(),
                     poll_interval:
                         crate::service::tab_chat::store_watch::PENDING_STORE_WATCH_POLL_INTERVAL,
                 },
@@ -638,10 +644,12 @@ fn chat_start_inner(
 
     // is already running so one client's stop() cannot kill another's stream.
     let tailer_started = std::time::Instant::now();
-    if !svc
-        .chat_registry
-        .acquire(&tab_id, &session_id, &subscription_id)
-    {
+    if !svc.chat_registry.acquire(
+        &tab_id,
+        &session_id,
+        session_binding_nonce.as_deref(),
+        &subscription_id,
+    ) {
         let sink = crate::service::tab_chat::structured_sink::make_flatten_sink(
             svc.app_handle.clone(),
             svc.mux.clone(),
@@ -665,6 +673,7 @@ fn chat_start_inner(
         svc.chat_registry.insert(
             tab_id.clone(),
             session_id.clone(),
+            session_binding_nonce.clone(),
             subscription_id.clone(),
             handle,
         );
