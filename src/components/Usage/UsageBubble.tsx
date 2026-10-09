@@ -121,7 +121,7 @@ export function UsageBubble({
   };
 
   const bubbleClass = [
-    "ct-usage-bubble",
+    "ct-bar-pill ct-usage-bubble",
     worst === "warn" ? "is-warn" : "",
     worst === "danger" ? "is-danger" : "",
     isStale ? "is-stale" : "",

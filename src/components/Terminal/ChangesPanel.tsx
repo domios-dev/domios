@@ -21,7 +21,7 @@ export function ChangesButton({ tabId }: { tabId: string }) {
   const open = entry?.target.documentsTabId === tabId && entry.target.tabView === "changes";
   return <button type="button" aria-label={`Changes (+${additions} -${deletions})`} aria-expanded={open}
     title={`Changes: ${formatExact(additions)} added, ${formatExact(deletions)} removed lines`}
-    className="inline-flex items-center gap-1 rounded px-1.5 text-xs tabular-nums text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
+    className="ct-bar-pill"
     onClick={() => open ? planSidePanelStore.close() : planSidePanelStore.open({ planId: "", documentsTabId: tabId, tabView: "changes" })}>
     <FileDiff size={14} aria-hidden /><span className="text-[var(--ct-green)]">+{formatCompact(additions)}</span><span className="text-[var(--ct-red)]">-{formatCompact(deletions)}</span>
   </button>;

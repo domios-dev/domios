@@ -251,8 +251,10 @@ export function TabTopBar({
           />
         )}
         <ComposerContextMeter tabId={tabId} />
-        <DocumentsButton tabId={tabId} />
-        <ChangesButton tabId={tabId} />
+        <div className="ct-bar-pill-group">
+          <DocumentsButton tabId={tabId} />
+          <ChangesButton tabId={tabId} />
+        </div>
         {entries.length > 0 && (
           <TabActionsMenu
             entries={entries}

@@ -19,7 +19,7 @@ export function DocumentsButton({ tabId }: { tabId: string }) {
   if (!count) return null;
   const open = entry?.target.documentsTabId === tabId && entry.target.tabView !== "changes";
   return <button type="button" aria-label={`Documents (${count})`} aria-expanded={open} title={`Documents (${count})`}
-    className="inline-flex items-center gap-1 rounded px-1.5 text-xs tabular-nums text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
+    className="ct-bar-pill"
     onClick={() => open ? planSidePanelStore.close() : planSidePanelStore.open({ planId: "", documentsTabId: tabId })}>
     <FileText size={14} aria-hidden />{formatCompact(count)}
   </button>;
