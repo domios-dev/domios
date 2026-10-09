@@ -43,7 +43,10 @@ export function TabStatusLineModelPicker({ tab, label }: { tab: Tab; label: stri
       label={label}
       modelCandidates={[statusLineModelName(tab)]}
       currentEffort={effort?.actual ?? effort?.resolved ?? effort?.requested ?? undefined}
-      pendingSelection={tab.pending_model_selection ?? undefined}
+      pendingSelection={tab.pending_model_selection ?? (tab.pending_model_switch_observation ? {
+        model: tab.pending_model_switch_observation.launched_model,
+        effort: effort?.resolved ?? null,
+      } : undefined)}
     />
   );
 }

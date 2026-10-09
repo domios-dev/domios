@@ -54,6 +54,7 @@ case "${1:-all}" in
       plugins/provider-opencode/tests/plugin.test.ts
       plugins/provider-opencode/tests/file-diffs.test.ts
       plugins/provider-opencode/tests/lifecycle.test.ts
+      plugins/provider-opencode/tests/modelSwitch.test.ts
       plugins/provider-opencode/tests/opencodeConfig.test.ts
       plugins/provider-opencode/tests/modelProviders.test.ts
       plugins/provider-opencode/tests/modelVariants.test.ts
@@ -126,6 +127,7 @@ case "${1:-all}" in
       plugins/provider-opencode/tests/plugin.test.ts
       plugins/provider-opencode/tests/file-diffs.test.ts
       plugins/provider-opencode/tests/lifecycle.test.ts
+      plugins/provider-opencode/tests/modelSwitch.test.ts
       plugins/provider-opencode/tests/opencodeConfig.test.ts
       plugins/provider-opencode/tests/modelProviders.test.ts
       plugins/provider-opencode/tests/modelVariants.test.ts
