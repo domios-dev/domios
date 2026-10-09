@@ -162,7 +162,7 @@
       "--variant",
       "{effort}"
     ],
-    "modelSwitch": "live"
+    "modelSwitch": "restart_resume"
   },
   "permissions": {
     "subprocess": {
