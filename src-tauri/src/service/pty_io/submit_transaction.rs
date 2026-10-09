@@ -21,6 +21,7 @@ pub(crate) use cycle::{
 };
 use cycle::{retire_submit_cycle, CycleWait, SubmitCycle, SubmitCycleSignal};
 use evidence_watcher::watch_session_evidence;
+pub(crate) use recovery_guard::nudge_unbound_launch_draft;
 #[cfg(test)]
 use recovery_guard::{recovery_dialog_guard, recovery_session_authorized};
 #[cfg(test)]
@@ -225,6 +226,7 @@ struct PtySubmitTransport<'a> {
     /// Stream-preview turn signal fires once per transaction, at the first
     /// successful submit-key enqueue. Signal only — never gates delivery.
     turn_signaled: std::cell::Cell<bool>,
+    recovery_refusal: Cell<Option<&'static str>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -343,19 +345,7 @@ impl SubmitTransport for PtySubmitTransport<'_> {
     }
 
     fn draft_evidence_count(&self, text: &str) -> usize {
-        if text.is_empty() {
-            return 1;
-        }
-        let state = self.svc.screen_state.lock();
-        let lines = state
-            .lines_and_tail(self.pty_id, TAIL_ROWS)
-            .map(|(lines, _)| lines)
-            .unwrap_or_default();
-        let cursor_row = state
-            .cursor_input_state(self.pty_id)
-            .map(|(_, _, row, _)| row as usize)
-            .unwrap_or_else(|| lines.len().saturating_sub(1));
-        screen_echo_evidence_count(&composer_region_text(&lines, cursor_row), text)
+        composer_draft_evidence(self.svc, self.pty_id, text)
     }
 
     fn generation(&self) -> u64 {
@@ -658,6 +648,22 @@ fn injection_write_error(pty_id: &str, error: String) -> InjectionError {
             pty_id: pty_id.to_string(),
         }
     }
+}
+
+fn composer_draft_evidence(svc: &ServiceContext, pty_id: &str, text: &str) -> usize {
+    if text.is_empty() {
+        return 1;
+    }
+    let state = svc.screen_state.lock();
+    let lines = state
+        .lines_and_tail(pty_id, TAIL_ROWS)
+        .map(|(lines, _)| lines)
+        .unwrap_or_default();
+    let cursor_row = state
+        .cursor_input_state(pty_id)
+        .map(|(_, _, row, _)| row as usize)
+        .unwrap_or_else(|| lines.len().saturating_sub(1));
+    screen_echo_evidence_count(&composer_region_text(&lines, cursor_row), text)
 }
 
 fn submit_key_readiness(
@@ -1032,9 +1038,10 @@ fn submit_text_with_key_claimed_and_parts_revalidated(
         _session_evidence_watcher: RefCell::new(None),
         turn_signaled: std::cell::Cell::new(false),
         deferred_ready_seen: Cell::new(false),
+        recovery_refusal: Cell::new(None),
     };
     let mut key_guard = |allow_initial_key: bool, turn_was_started: bool| {
-        recovery_guard::submit_key_guard(&transport, allow_initial_key, turn_was_started)
+        recovery_guard::submit_key_guard(&transport, allow_initial_key, turn_was_started, text)
     };
     let run = if type_suffix_after_paste {
         runner::run_with_submit_key_and_follow_up(
@@ -1144,6 +1151,8 @@ mod submission_matrix;
 mod tests;
 #[cfg(test)]
 mod turn_signal_tests;
+#[cfg(test)]
+mod unbound_recovery_tests;
 
 #[cfg(test)]
 mod submission_reporting_tests;
