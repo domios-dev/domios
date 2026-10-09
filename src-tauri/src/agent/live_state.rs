@@ -34,7 +34,7 @@ const POLL_INTERVAL: Duration = Duration::from_millis(350);
 /// tracked tab; `recompute_agent_state` gates to agent tabs and emits only on
 /// a real change.
 pub fn start(svc: ServiceState) {
-    std::thread::spawn(move || loop {
+    codeterm_util::named_thread::spawn("agent-live-state", move || loop {
         std::thread::sleep(POLL_INTERVAL);
         let pty_ids = svc.agent_tracker.lock().all_ids();
         for pty_id in pty_ids {

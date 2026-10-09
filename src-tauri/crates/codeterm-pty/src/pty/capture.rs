@@ -197,23 +197,24 @@ impl CaptureRegistry {
         }
         let writer = CastWriter::create(&out, cols, rows, timestamp)?;
         let (tx, rx) = mpsc::channel::<CaptureMsg>();
-        let handle = std::thread::spawn(move || {
-            let mut w = writer;
-            if !prefill.is_empty() && w.write_output(0.0, &prefill).is_err() {
-                return;
-            }
-            while let Ok(msg) = rx.recv() {
-                let r = match msg {
-                    CaptureMsg::Output(t, data) => w.write_output(t, &data),
-                    CaptureMsg::Resize(t, c, r) => w.write_resize(t, c, r),
-                    CaptureMsg::Input(t, source, data) => w.write_input(t, &source, &data),
-                };
-                if r.is_err() {
-                    break;
+        let handle =
+            codeterm_util::named_thread::spawn(format!("pty-capture:{pty_id}"), move || {
+                let mut w = writer;
+                if !prefill.is_empty() && w.write_output(0.0, &prefill).is_err() {
+                    return;
                 }
-            }
-            let _ = w.finish();
-        });
+                while let Ok(msg) = rx.recv() {
+                    let r = match msg {
+                        CaptureMsg::Output(t, data) => w.write_output(t, &data),
+                        CaptureMsg::Resize(t, c, r) => w.write_resize(t, c, r),
+                        CaptureMsg::Input(t, source, data) => w.write_input(t, &source, &data),
+                    };
+                    if r.is_err() {
+                        break;
+                    }
+                }
+                let _ = w.finish();
+            });
         map.insert(
             pty_id.to_string(),
             ActiveCapture {

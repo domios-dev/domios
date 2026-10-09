@@ -55,37 +55,40 @@ where
     let summary = run.summary;
     let raw_session = run.session_id.map(str::to_string);
     let cwd = run.cwd.map(str::to_string);
-    Some(std::thread::spawn(move || {
-        let log_file = cron.lock().log_file(&job_id, &run_id);
-        if let Err(error) =
-            log_file.and_then(|path| CronStore::create_log(&path, &log_text).map(|_| ()))
-        {
-            log::error!("Failed to save cron log: {error}");
-        }
-        let session = raw_session.as_deref().map(|session_id| RunSession {
-            session_id,
-            cwd: cwd.as_deref(),
-        });
-        let fresh_transition =
-            finish_run(&cron, &job_id, &run_id, status.clone(), session).unwrap_or(false);
-        cron.lock().unregister_tab(&tab_id);
-        if fresh_transition {
-            crate::cron::notify::notify_on_consecutive_failure(&svc, &cron, &job_id);
-        }
-        let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::AgentRunEnded);
-        svc.cron_settle_run_end_with(
-            &cron,
-            wake.as_ref(),
-            CronRunEnd {
-                job_id: &job_id,
-                run_id: &run_id,
-                status,
-                summary: &summary,
-            },
-            deliver,
-        );
-        crate::api::events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
-    }))
+    Some(codeterm_util::named_thread::spawn(
+        "cron-run-end",
+        move || {
+            let log_file = cron.lock().log_file(&job_id, &run_id);
+            if let Err(error) =
+                log_file.and_then(|path| CronStore::create_log(&path, &log_text).map(|_| ()))
+            {
+                log::error!("Failed to save cron log: {error}");
+            }
+            let session = raw_session.as_deref().map(|session_id| RunSession {
+                session_id,
+                cwd: cwd.as_deref(),
+            });
+            let fresh_transition =
+                finish_run(&cron, &job_id, &run_id, status.clone(), session).unwrap_or(false);
+            cron.lock().unregister_tab(&tab_id);
+            if fresh_transition {
+                crate::cron::notify::notify_on_consecutive_failure(&svc, &cron, &job_id);
+            }
+            let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::AgentRunEnded);
+            svc.cron_settle_run_end_with(
+                &cron,
+                wake.as_ref(),
+                CronRunEnd {
+                    job_id: &job_id,
+                    run_id: &run_id,
+                    status,
+                    summary: &summary,
+                },
+                deliver,
+            );
+            crate::api::events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
+        },
+    ))
 }
 
 #[cfg(test)]
