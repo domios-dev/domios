@@ -166,7 +166,7 @@ and model/effort before close and after Undo/Recently Closed restore.
 | Failed pending launch | Hold a send during a launch that then fails before input | One `launch_ended_before_write` settlement reports `bytes_written: false`; no payload reaches this or a subsequent launch. |
 | Aider | Close, then Recently Closed restore; route input at reader_ready | Input is held until exact saved history-marker binding, then written once; original history and contextual answer appear. |
 | Grok | Close, then Recently Closed restore; route input before binding | Input is held until current-PTY PID-registry binding, then written once; original session history and contextual answer appear. |
-| Codex | Confirm low effort, close, then Undo | Original session and model remain; confirmed effort is still low. |
+| Codex | Confirm low effort, close, then Undo and complete one reply | Original session and model remain; requested/resolved effort remain low; actual effort returns to low with actual_source session-owned. |
 | Unresumable session | Restore a saved session unavailable to its provider | UI shows a restore failure with a reason; no replacement session starts. |
 
 Use a unique opaque token in the first turn and require the post-restore answer
@@ -174,3 +174,8 @@ to recall it. An accepted send or reader_ready alone is not a pass. Send one
 additional routed turn after readiness; check both turns appear exactly once.
 Unknown OpenCode versions remain blocked for direct SQLite reads; do not mark
 such a run supported merely because the database columns look familiar.
+
+For Codex, capture `dc tab inspect --tab <id> --lifecycle --json` before close,
+immediately after Undo, and after the contextual reply completes. Runtime
+effort may be unverified immediately after restore; the completed reply must
+confirm it without a model/effort change or an extra verification turn.
