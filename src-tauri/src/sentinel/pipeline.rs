@@ -1,3 +1,4 @@
+use codeterm_types::blueprint_journal::{JournalMarker, JournalReason, JournalState};
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -19,12 +20,12 @@ use codeterm_types::sentinel_input::{InputRun, InputSpec, MediaKind};
 
 struct StepResult {
     outcome: StepOutcome,
-    stored_outcome: String,
-    state: &'static str,
+    stored_outcome: JournalOutcome,
+    state: JournalState,
     summary: String,
-    reason: Option<String>,
+    reason: Option<JournalReason>,
     next_text: String,
-    decision: Option<(String, Option<String>)>,
+    decision: Option<(JournalOutcome, Option<JournalReason>)>,
     uncertain: bool,
 }
 
@@ -36,19 +37,91 @@ fn effect_after_claim<T>(claim: impl FnOnce() -> bool, effect: impl FnOnce() -> 
     }
 }
 
-pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
-    let Some(spec) = lease.job.pipeline.as_ref() else {
-        return;
-    };
-    if !super::routes::owner_live(svc, &lease.job) {
-        record_run_stop(handle, lease, "creator_gone", "skip:creator_gone");
-        return;
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RunCompletion {
+    state: JournalState,
+    reason: JournalReason,
+}
+
+impl RunCompletion {
+    fn new(state: JournalState, reason: impl Into<JournalReason>) -> Self {
+        Self {
+            state,
+            reason: reason.into(),
+        }
     }
+    fn held(reason: JournalReason) -> Self {
+        Self::new(JournalState::Held, reason)
+    }
+}
+
+fn required_journal(written: bool) -> Result<(), JournalReason> {
+    written
+        .then_some(())
+        .ok_or(JournalReason::JournalWriteFailed)
+}
+
+fn with_run_close(
+    execute: impl FnOnce() -> Result<RunCompletion, JournalReason>,
+    close: impl FnOnce(&RunCompletion),
+) {
+    let completion =
+        execute().unwrap_or_else(|reason| RunCompletion::new(JournalState::Failed, reason));
+    close(&completion);
+}
+
+pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
     let run_id = uuid::Uuid::new_v4().simple().to_string();
-    let Ok(mut state) = RunnerState::start(spec) else {
-        record_run_stop(handle, lease, "invalid_pipeline", "skip:invalid_pipeline");
-        return;
-    };
+    with_run_close(
+        || run_pipeline(handle, svc, lease, &run_id),
+        |completion| finish_run(handle, lease, &run_id, completion),
+    );
+}
+
+fn finish_run(handle: &Handle, lease: &Lease, run_id: &str, completion: &RunCompletion) {
+    let closed = write_journal(
+        handle,
+        &lease.job,
+        BlueprintJournalWrite::CloseRun {
+            run_id: run_id.into(),
+            state: completion.state,
+            outcome: completion.state.as_str().into(),
+            at_ms: now(handle),
+            reason: Some(completion.reason.clone()),
+        },
+    );
+    if completion.state == JournalState::Held
+        || completion.reason == JournalReason::JournalWriteFailed
+        || !closed
+    {
+        let _ = storage::commit(&handle.store, |store| {
+            let Some(mut job) = store.get(&lease.job.id).cloned() else {
+                return super::storage::Staged::ready(Ok(false));
+            };
+            job.machine.held = Some(completion.reason.as_str().into());
+            job.last_reason = Some(completion.reason.as_str().into());
+            store.stage_finish(&job)
+        });
+    }
+    handle.notify();
+}
+
+struct PreparedInput {
+    text: String,
+    cleanup: Option<std::sync::Arc<super::input::Cleanup>>,
+    input_source: Option<std::path::PathBuf>,
+    input_failure: Option<String>,
+    input_kind: Option<MediaKind>,
+    input_display: Option<String>,
+    input_run: Option<InputRun>,
+}
+
+fn prepare_input(
+    handle: &Handle,
+    lease: &Lease,
+    spec: &BlueprintSpec,
+    run_id: &str,
+) -> PreparedInput {
     let mut text = lease.event.as_ref().map_or_else(String::new, |event| {
         serde_json::to_string(&event.payload).unwrap_or_default()
     });
@@ -106,7 +179,53 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
     let input_display = input
         .as_ref()
         .map(|(_, source, _, _)| codeterm_types::sentinel_input::display_name(source));
-    let mut input_run = input.as_ref().map(|(_, _, _, state)| state.clone());
+    let input_run = input.as_ref().map(|(_, _, _, state)| state.clone());
+    PreparedInput {
+        text,
+        cleanup,
+        input_source,
+        input_failure,
+        input_kind,
+        input_display,
+        input_run,
+    }
+}
+
+fn run_pipeline(
+    handle: &Handle,
+    svc: &ServiceContext,
+    lease: &Lease,
+    run_id: &str,
+) -> Result<RunCompletion, JournalReason> {
+    let Some(spec) = lease.job.pipeline() else {
+        return Err(JournalReason::Other("pipeline_missing".into()));
+    };
+    if !super::routes::owner_live(svc, &lease.job) {
+        record_run_stop(handle, lease, run_id, "creator_gone", "skip:creator_gone");
+        return Ok(RunCompletion::new(JournalState::Skipped, "creator_gone"));
+    }
+    let Ok(mut state) = RunnerState::start(spec) else {
+        record_run_stop(
+            handle,
+            lease,
+            run_id,
+            "invalid_pipeline",
+            "skip:invalid_pipeline",
+        );
+        return Ok(RunCompletion::new(
+            JournalState::Skipped,
+            "invalid_pipeline",
+        ));
+    };
+    let PreparedInput {
+        mut text,
+        cleanup,
+        input_source,
+        input_failure,
+        input_kind,
+        input_display,
+        mut input_run,
+    } = prepare_input(handle, lease, spec, run_id);
     while let Some(index) = state.current_step {
         if lease.cancelled.load(Ordering::SeqCst) {
             let now = now(handle);
@@ -114,8 +233,8 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
                 handle,
                 &lease.job,
                 BlueprintJournalWrite::Decision {
-                    run_id: run_id.clone(),
-                    step_index: index as i64,
+                    run_id: run_id.to_string(),
+                    marker: JournalMarker::Step(index as u16),
                     step_name: spec.steps[index].name.clone(),
                     outcome: "skip:lease_cancelled".into(),
                     at_ms: now,
@@ -123,8 +242,7 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
                     reason: Some("skip:lease_cancelled".into()),
                 },
             );
-            close_run(handle, lease, &run_id, "skipped", "skip:lease_cancelled");
-            return;
+            return Ok(RunCompletion::new("skipped".into(), "skip:lease_cancelled"));
         }
         let step = &spec.steps[index];
         if matches!(&step.kind, StepKind::Convert { .. }) {
@@ -134,9 +252,18 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
         }
         let started = now(handle);
         let Some(result) = effect_after_claim(
-            || claim_step(handle, lease, &run_id, index as i64, &step.name, started),
             || {
-                execute_step(
+                claim_step(
+                    handle,
+                    lease,
+                    &run_id,
+                    JournalMarker::Step(index as u16),
+                    &step.name,
+                    started,
+                )
+            },
+            || {
+                run_step(
                     handle,
                     svc,
                     lease,
@@ -150,11 +277,7 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
                 )
             },
         ) else {
-            let _ = storage::commit(&handle.store, |store| {
-                store.stage_stop(&lease.job.id, "uncertain_pipeline_claim")
-            });
-            handle.notify();
-            return;
+            return Ok(RunCompletion::held(JournalReason::UncertainClaim));
         };
         if lease.cancelled.load(Ordering::SeqCst) {
             if matches!(&step.kind, StepKind::Convert { .. }) {
@@ -163,20 +286,20 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
                     handle,
                     &lease.job,
                     BlueprintJournalWrite::Finish {
-                        run_id: run_id.clone(),
-                        step_index: index as i64,
+                        run_id: run_id.to_string(),
+                        marker: JournalMarker::Step(index as u16),
                         state: "failed".into(),
                         outcome: "failed".into(),
                         ended_at_ms: now(handle),
                         result_summary: format!("conversion failed: {reason}"),
+                        body_ref: None,
                         reason: Some(reason.into()),
                     },
                 );
-                close_run(handle, lease, &run_id, "failed", reason);
+                return Ok(RunCompletion::new("failed".into(), reason));
             } else {
-                close_run(handle, lease, &run_id, "skipped", "skip:lease_cancelled");
+                return Ok(RunCompletion::new("skipped".into(), "skip:lease_cancelled"));
             }
-            return;
         }
         let ended = now(handle);
         if result.uncertain {
@@ -184,97 +307,87 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
                 handle,
                 &lease.job,
                 BlueprintJournalWrite::Decision {
-                    run_id: run_id.clone(),
-                    step_index: index as i64,
+                    run_id: run_id.to_string(),
+                    marker: JournalMarker::Step(index as u16),
                     step_name: step.name.clone(),
                     outcome: "probe_error".into(),
                     at_ms: ended,
                     result_summary: Some("command completion was unconfirmed".into()),
-                    reason: Some("effect_unconfirmed".into()),
+                    reason: Some(JournalReason::UncertainEffect),
                 },
             );
-            let _ = storage::commit(&handle.store, |store| {
-                store.stage_stop(&lease.job.id, "uncertain_pipeline_effect")
-            });
-            handle.notify();
-            return;
+            return Ok(RunCompletion::held(JournalReason::UncertainEffect));
         }
         if result.state == "failed" {
             if let (Some(run), Some(reason)) = (input_run.as_mut(), result.reason.as_ref()) {
-                let _ = run.advance(InputRun::Failed(reason.clone()));
+                let _ = run.advance(InputRun::Failed(reason.as_str().into()));
             }
         }
         let finish = BlueprintJournalWrite::Finish {
-            run_id: run_id.clone(),
-            step_index: index as i64,
+            run_id: run_id.to_string(),
+            marker: JournalMarker::Step(index as u16),
             state: result.state.into(),
-            outcome: result.stored_outcome.clone(),
+            outcome: result.stored_outcome.clone().into(),
             ended_at_ms: ended,
             result_summary: StepJournalEntry::bound_summary(&result.summary),
+            body_ref: None,
             reason: result.reason.clone(),
         };
-        if !write_journal(handle, &lease.job, finish) {
-            return;
-        }
+        required_journal(write_journal(handle, &lease.job, finish))?;
         if result.reason.as_deref() == Some("probe_owner_capacity") {
-            close_run(handle, lease, &run_id, "failed", "probe_owner_capacity");
             let _ = storage::commit(&handle.store, |store| {
                 store.stage_stop(&lease.job.id, "probe_owner_capacity")
             });
             handle.notify();
-            return;
+            return Ok(RunCompletion::new(
+                JournalState::Failed,
+                "probe_owner_capacity",
+            ));
         }
         if let Some((outcome, reason)) = result.decision {
             let decision = BlueprintJournalWrite::Decision {
-                run_id: run_id.clone(),
-                step_index: index as i64,
+                run_id: run_id.to_string(),
+                marker: JournalMarker::Step(index as u16),
                 step_name: step.name.clone(),
                 outcome,
                 at_ms: ended,
                 result_summary: None,
                 reason,
             };
-            if !write_journal(handle, &lease.job, decision) {
-                return;
-            }
+            required_journal(write_journal(handle, &lease.job, decision))?;
         }
         if matches!(&step.kind, StepKind::Command { .. }) && result.next_text == text {
             let unchanged = BlueprintJournalWrite::Decision {
-                run_id: run_id.clone(),
-                step_index: index as i64,
+                run_id: run_id.to_string(),
+                marker: JournalMarker::Step(index as u16),
                 step_name: step.name.clone(),
                 outcome: "unchanged".into(),
                 at_ms: ended,
                 result_summary: Some("step output was unchanged".into()),
                 reason: None,
             };
-            if !write_journal(handle, &lease.job, unchanged) {
-                return;
-            }
+            required_journal(write_journal(handle, &lease.job, unchanged))?;
         }
         text = result.next_text;
         let prior_index = index;
         let next = match blueprint_pipeline::advance(&state, result.outcome) {
             Ok(next) => next,
             Err(_) => {
-                close_run(handle, lease, &run_id, "failed", "runner_advance_failed");
-                return;
+                return Ok(RunCompletion::new("failed".into(), "runner_advance_failed"));
             }
         };
         if let Some(target) = next.current_step.filter(|target| *target > prior_index + 1) {
             for skipped in prior_index + 1..target {
                 let decision = BlueprintJournalWrite::Decision {
-                    run_id: run_id.clone(),
-                    step_index: skipped as i64,
+                    run_id: run_id.to_string(),
+                    marker: JournalMarker::Step(skipped as u16),
                     step_name: spec.steps[skipped].name.clone(),
                     outcome: "skip:branch".into(),
                     at_ms: ended,
                     result_summary: None,
-                    reason: Some(format!("skip:branch to {}", spec.steps[target].name)),
+                    reason: Some(format!("skip:branch to {}", spec.steps[target].name).into()),
                 };
-                if !write_journal(handle, &lease.job, decision) {
-                    return;
-                }
+                required_journal(write_journal(handle, &lease.job, decision))?;
             }
         }
         state = next;
@@ -307,50 +420,75 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
     ) {
         Ok(body) => body,
         Err(_) => {
-            if claim_step(handle, lease, &run_id, -1, "$result", now(handle)) {
+            if claim_step(
+                handle,
+                lease,
+                &run_id,
+                JournalMarker::Result,
+                "$result",
+                now(handle),
+            ) {
                 let _ = write_journal(
                     handle,
                     &lease.job,
                     BlueprintJournalWrite::Finish {
-                        run_id: run_id.clone(),
-                        step_index: -1,
+                        run_id: run_id.to_string(),
+                        marker: JournalMarker::Result,
                         state: "failed".into(),
                         outcome: "handler_failed".into(),
                         ended_at_ms: now(handle),
-                        result_summary: "body_ref:unavailable".into(),
+                        result_summary: "result body unavailable".into(),
+                        body_ref: None,
                         reason: Some("result_body_write_failed".into()),
                     },
                 );
             }
-            close_run(handle, lease, &run_id, "failed", "result_body_write_failed");
-            return;
+            return Ok(RunCompletion::new(
+                "failed".into(),
+                "result_body_write_failed",
+            ));
         }
     };
     let routes = match result_routes(svc, &lease.job, spec) {
         Ok(routes) => routes,
         Err(_) => {
-            if claim_step(handle, lease, &run_id, -1, "$result", now(handle)) {
+            if claim_step(
+                handle,
+                lease,
+                &run_id,
+                JournalMarker::Result,
+                "$result",
+                now(handle),
+            ) {
                 let _ = write_journal(
                     handle,
                     &lease.job,
                     unresolved_target_finish(&run_id, now(handle), &body_ref),
                 );
             }
-            close_run(handle, lease, &run_id, "failed", "result_target_unresolved");
-            return;
+            return Ok(RunCompletion::new(
+                "failed".into(),
+                "result_target_unresolved",
+            ));
         }
     };
     for route in routes {
         if lease.cancelled.load(Ordering::SeqCst) || !super::routes::owner_live(svc, &lease.job) {
             record_result_failure(handle, lease, &run_id, &body_ref, "result_source_fenced");
-            return;
+            return Ok(RunCompletion::new(
+                JournalState::Failed,
+                "result_source_fenced",
+            ));
         }
-        if !claim_step(handle, lease, &run_id, -1, "$result", now(handle)) {
-            let _ = storage::commit(&handle.store, |store| {
-                store.stage_stop(&lease.job.id, "uncertain_pipeline_claim")
-            });
-            handle.notify();
-            return;
+        if !claim_step(
+            handle,
+            lease,
+            &run_id,
+            JournalMarker::Result,
+            "$result",
+            now(handle),
+        ) {
+            return Ok(RunCompletion::held(JournalReason::UncertainClaim));
         }
         let result = match &route {
             Route::Notify => super::routes::notify_pipeline_result(
@@ -369,7 +507,7 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
                 body_ref.clone(),
             ),
             _ => super::routes::PipelineResultDelivery {
-                state: "failed",
+                state: JournalState::Failed,
                 reason: "unsupported_result_target",
                 body_ref: Some(body_ref.clone()),
             },
@@ -385,18 +523,15 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
         } else {
             "failed"
         };
-        let summary = result
-            .body_ref
-            .as_deref()
-            .map(|path| format!("body_ref:{path}"))
-            .unwrap_or_else(|| "body_ref:unavailable".into());
+        let summary = format!("result {}", result.state);
         let finish = BlueprintJournalWrite::Finish {
-            run_id: run_id.clone(),
-            step_index: -1,
+            run_id: run_id.to_string(),
+            marker: JournalMarker::Result,
             state: journal_state.into(),
             outcome: decision.into(),
             ended_at_ms: ended,
             result_summary: summary.clone(),
+            body_ref: result.body_ref.clone(),
             reason: Some(result.reason.into()),
         };
         if !write_journal(handle, &lease.job, finish) {
@@ -404,8 +539,8 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
                 handle,
                 &lease.job,
                 BlueprintJournalWrite::Decision {
-                    run_id: run_id.clone(),
-                    step_index: -1,
+                    run_id: run_id.to_string(),
+                    marker: JournalMarker::Result,
                     step_name: "$result".into(),
                     outcome: "handler_unconfirmed".into(),
                     at_ms: ended,
@@ -413,29 +548,24 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
                     reason: Some("result_journal_finish_failed".into()),
                 },
             );
-            close_run(
-                handle,
-                lease,
-                &run_id,
-                "failed",
-                "result_journal_finish_failed",
-            );
-            return;
+            return Err(JournalReason::JournalWriteFailed);
+        }
+        if result.state == "unconfirmed" {
+            return Ok(RunCompletion::held(JournalReason::UncertainResult));
         }
         if result.state != "delivered" {
-            close_run(handle, lease, &run_id, "failed", result.reason);
-            return;
+            return Ok(RunCompletion::new("failed".into(), result.reason));
         }
     }
-    close_run(handle, lease, &run_id, terminal_state, outcome);
     if terminal_state == "done" {
         if let Some(run) = input_run.as_mut() {
             let _ = run.advance(InputRun::Delivered);
         }
     }
+    Ok(RunCompletion::new(terminal_state.into(), outcome))
 }
 
-fn execute_step(
+fn run_step(
     handle: &Handle,
     svc: &ServiceContext,
     lease: &Lease,
@@ -479,7 +609,11 @@ fn execute_step(
                             StepOutcome::Failed
                         },
                         stored_outcome: if success { "done" } else { "failed" }.into(),
-                        state: if success { "done" } else { "failed" },
+                        state: if success {
+                            JournalState::Done
+                        } else {
+                            JournalState::Failed
+                        },
                         summary,
                         reason: (!success).then(|| "command_failed".into()),
                         next_text: output
@@ -512,8 +646,8 @@ fn execute_step(
                 };
                 StepResult {
                     outcome: step_outcome,
-                    stored_outcome: outcome,
-                    state: "done",
+                    stored_outcome: outcome.into(),
+                    state: JournalState::Done,
                     summary: "filter matched".into(),
                     reason: None,
                     next_text: previous.into(),
@@ -524,7 +658,7 @@ fn execute_step(
             Ok(_) => StepResult {
                 outcome: StepOutcome::Failed,
                 stored_outcome: "failed".into(),
-                state: "failed",
+                state: JournalState::Failed,
                 summary: "filter did not match".into(),
                 reason: Some("filter_no_match".into()),
                 next_text: previous.into(),
@@ -534,7 +668,7 @@ fn execute_step(
             Err(_) => StepResult {
                 outcome: StepOutcome::Failed,
                 stored_outcome: "failed".into(),
-                state: "failed",
+                state: JournalState::Failed,
                 summary: "filter pattern failed to compile".into(),
                 reason: Some("invalid_filter".into()),
                 next_text: previous.into(),
@@ -562,7 +696,7 @@ fn execute_step(
                 Ok(output) => StepResult {
                     outcome: StepOutcome::Done,
                     stored_outcome: "done".into(),
-                    state: "done",
+                    state: JournalState::Done,
                     summary: format!(
                         "{} {} -> {}, {} chars",
                         from.as_str(),
@@ -578,9 +712,9 @@ fn execute_step(
                 Err(reason) => StepResult {
                     outcome: StepOutcome::Failed,
                     stored_outcome: "failed".into(),
-                    state: "failed",
+                    state: JournalState::Failed,
                     summary: format!("conversion failed: {reason}"),
-                    reason: Some(reason.clone()),
+                    reason: Some(reason.clone().into()),
                     next_text: format!("Input conversion failed: {reason}"),
                     decision: None,
                     uncertain: false,
@@ -595,16 +729,16 @@ fn command_failure(failure: probe::process::ProbeFailure, previous: &str) -> Ste
     StepResult {
         outcome: StepOutcome::Failed,
         stored_outcome: "failed".into(),
-        state: "failed",
+        state: JournalState::Failed,
         summary: if uncertain {
             "command completion was unconfirmed"
         } else {
             "command probe failed"
         }
         .into(),
-        reason: Some(failure.reason()),
+        reason: Some(failure.reason().into()),
         next_text: previous.into(),
-        decision: (!uncertain).then(|| ("probe_error".into(), Some(failure.reason()))),
+        decision: (!uncertain).then(|| ("probe_error".into(), Some(failure.reason().into()))),
         uncertain,
     }
 }
@@ -613,7 +747,7 @@ fn failed_input_step(reason: &str) -> StepResult {
     StepResult {
         outcome: StepOutcome::Failed,
         stored_outcome: "failed".into(),
-        state: "failed",
+        state: JournalState::Failed,
         summary: format!("input materialization failed: {reason}"),
         reason: Some(reason.into()),
         next_text: format!("Input materialization failed: {reason}"),
@@ -637,8 +771,8 @@ fn classify_step(classification: Classification, buckets: &[String], previous: &
         Ok(verdict) if verdict.confidence >= 0.80 && buckets.contains(&verdict.bucket) => {
             StepResult {
                 outcome: StepOutcome::Bucket(verdict.bucket.clone()),
-                stored_outcome: verdict.bucket.clone(),
-                state: "done",
+                stored_outcome: verdict.bucket.clone().into(),
+                state: JournalState::Done,
                 summary: format!("classified {}", verdict.bucket),
                 reason: None,
                 next_text: previous.into(),
@@ -649,7 +783,7 @@ fn classify_step(classification: Classification, buckets: &[String], previous: &
         Ok(verdict) if verdict.confidence < 0.80 => StepResult {
             outcome: StepOutcome::Bucket("other".into()),
             stored_outcome: "other".into(),
-            state: "done",
+            state: JournalState::Done,
             summary: "classification confidence below threshold".into(),
             reason: Some("low_confidence".into()),
             next_text: previous.into(),
@@ -659,7 +793,7 @@ fn classify_step(classification: Classification, buckets: &[String], previous: &
         Ok(_) => StepResult {
             outcome: StepOutcome::Bucket("other".into()),
             stored_outcome: "other".into(),
-            state: "done",
+            state: JournalState::Done,
             summary: "no declared bucket matched".into(),
             reason: Some("other".into()),
             next_text: previous.into(),
@@ -669,7 +803,7 @@ fn classify_step(classification: Classification, buckets: &[String], previous: &
         Err(failure) => StepResult {
             outcome: StepOutcome::Bucket("other".into()),
             stored_outcome: "other".into(),
-            state: "done",
+            state: JournalState::Done,
             summary: "classification unavailable".into(),
             reason: Some("probe_error".into()),
             next_text: previous.into(),
@@ -723,22 +857,29 @@ fn record_result_failure(
     body_ref: &str,
     reason: &str,
 ) {
-    if claim_step(handle, lease, run_id, -1, "$result", now(handle)) {
+    if claim_step(
+        handle,
+        lease,
+        run_id,
+        JournalMarker::Result,
+        "$result",
+        now(handle),
+    ) {
         let _ = write_journal(
             handle,
             &lease.job,
             BlueprintJournalWrite::Finish {
                 run_id: run_id.into(),
-                step_index: -1,
+                marker: JournalMarker::Result,
                 state: "failed".into(),
                 outcome: "handler_failed".into(),
                 ended_at_ms: now(handle),
-                result_summary: format!("body_ref:{body_ref}"),
+                result_summary: "result delivery failed".into(),
+                body_ref: Some(body_ref.into()),
                 reason: Some(reason.into()),
             },
         );
     }
-    close_run(handle, lease, run_id, "failed", reason);
 }
 
 fn unresolved_target_finish(
@@ -748,11 +889,12 @@ fn unresolved_target_finish(
 ) -> BlueprintJournalWrite {
     BlueprintJournalWrite::Finish {
         run_id: run_id.into(),
-        step_index: -1,
+        marker: JournalMarker::Result,
         state: "failed".into(),
         outcome: "handler_failed".into(),
         ended_at_ms,
-        result_summary: format!("body_ref:{body_ref}"),
+        result_summary: "result target unresolved".into(),
+        body_ref: Some(body_ref.into()),
         reason: Some("result_target_unresolved".into()),
     }
 }
@@ -761,7 +903,7 @@ fn claim_step(
     handle: &Handle,
     lease: &Lease,
     run_id: &str,
-    index: i64,
+    marker: JournalMarker,
     name: &str,
     now: u64,
 ) -> bool {
@@ -770,8 +912,8 @@ fn claim_step(
         &lease.job,
         BlueprintJournalWrite::Claim {
             run_id: run_id.into(),
-            step_index: index,
-            step_name: name.into(),
+            marker,
+            step_name: marker.name(name).into(),
             generation: lease.job.revision,
             started_at_ms: now,
         },
@@ -787,30 +929,14 @@ fn write_journal(handle: &Handle, job: &Sentinel, write: BlueprintJournalWrite) 
     written
 }
 
-fn close_run(handle: &Handle, lease: &Lease, run_id: &str, state: &str, reason: &str) {
-    let now = now(handle);
-    let _ = write_journal(
-        handle,
-        &lease.job,
-        BlueprintJournalWrite::CloseRun {
-            run_id: run_id.into(),
-            state: state.into(),
-            outcome: state.into(),
-            at_ms: now,
-            reason: Some(reason.into()),
-        },
-    );
-}
-
-fn record_run_stop(handle: &Handle, lease: &Lease, reason: &str, decision: &str) {
-    let run_id = uuid::Uuid::new_v4().simple().to_string();
+fn record_run_stop(handle: &Handle, lease: &Lease, run_id: &str, reason: &str, decision: &str) {
     let now = now(handle);
     let _ = write_journal(
         handle,
         &lease.job,
         BlueprintJournalWrite::Decision {
-            run_id: run_id.clone(),
-            step_index: -1,
+            run_id: run_id.to_string(),
+            marker: JournalMarker::Run,
             step_name: "$run".into(),
             outcome: decision.into(),
             at_ms: now,
@@ -818,7 +944,6 @@ fn record_run_stop(handle: &Handle, lease: &Lease, reason: &str, decision: &str)
             reason: Some(reason.into()),
         },
     );
-    close_run(handle, lease, &run_id, "skipped", reason);
     let _ = storage::commit(&handle.store, |store| {
         store.stage_stop(&lease.job.id, reason)
     });

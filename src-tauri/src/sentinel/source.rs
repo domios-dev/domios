@@ -70,17 +70,21 @@ pub(super) fn bounded_id(id: &str) -> bool {
 /// definition. Only a cron-run source binds a run, and prompt answers require a tab source.
 pub(crate) fn validate(job: &Sentinel) -> Result<(), String> {
     super::terminal::validate(job)?;
-    let sources =
-        (!job.probe.is_empty() as u8) + (job.observe.is_some() as u8) + (job.input.is_some() as u8);
+    if job.pipeline().is_some() {
+        return Ok(());
+    }
+    let sources = (!job.probe().is_empty() as u8)
+        + (job.observe().is_some() as u8)
+        + (job.input().is_some() as u8);
     if sources != 1 {
         return Err("invalid blueprint source: exactly one of probe, observe or input".into());
     }
-    if let Some(binding) = &job.observe {
+    if let Some(binding) = &job.observe().cloned() {
         if !bounded_id(binding.id()) {
             return Err("invalid blueprint observation source".into());
         }
     }
-    if let Some(input) = &job.input {
+    if let Some(input) = &job.input().cloned() {
         codeterm_types::sentinel_input::validate(input)
             .map_err(|error| format!("invalid blueprint input: {error}"))?;
         if !job.rearm_on_change.is_empty() {
@@ -88,7 +92,7 @@ pub(crate) fn validate(job: &Sentinel) -> Result<(), String> {
         }
     }
     if let Some(run) = &job.run {
-        if !matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_)))
+        if !matches!(job.observe(), Some(TabBinding::CronRun(_)))
             || !bounded_id(&run.run_id)
             || !bounded_id(&run.tab_id)
         {
@@ -100,7 +104,7 @@ pub(crate) fn validate(job: &Sentinel) -> Result<(), String> {
         .values()
         .flatten()
         .any(|handler| matches!(handler.action, Route::RespondPrompt(_)));
-    if answers && job.observe.is_none() {
+    if answers && job.observe().is_none() {
         return Err("respond_prompt handlers require a tab observation source".into());
     }
     Ok(())
@@ -112,12 +116,12 @@ pub(crate) fn validate_tab_scope(
     tab_id: &str,
 ) -> Result<Tab, String> {
     let tab = mux.get_tab(tab_id).ok_or("observation tab not found")?;
-    let exact_cron_run = matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_)))
+    let exact_cron_run = matches!(job.observe(), Some(TabBinding::CronRun(_)))
         && job.run.as_ref().is_some_and(|run| run.tab_id == tab_id)
         && tab.audience == crate::multiplexer::types::TabAudience::UserOwnedAutomation;
     let creator_joined_team =
         job.team_id.is_none() && job.creator_tab_id == tab_id && tab.team_id.is_some();
-    if (tab.agent_type.is_none() && job.terminal.is_none())
+    if (tab.agent_type.is_none() && job.terminal().is_none())
         || (tab.team_id != job.team_id && !exact_cron_run && !creator_joined_team)
         || mux.find_workspace_for_tab(tab_id).as_deref() != Some(job.workspace_id.as_str())
     {
@@ -133,7 +137,7 @@ pub(super) fn validate_pending_cron_run_scope(
     tab_id: &str,
 ) -> Result<(), String> {
     let tab = mux.get_tab(tab_id).ok_or("observation tab not found")?;
-    if job.observe != Some(TabBinding::CronRun(cron_id.into()))
+    if job.observe().cloned() != Some(TabBinding::CronRun(cron_id.into()))
         || tab.agent_type.is_none()
         || tab.audience != crate::multiplexer::types::TabAudience::UserOwnedAutomation
         || mux.find_workspace_for_tab(tab_id).as_deref() != Some(job.workspace_id.as_str())
@@ -154,14 +158,16 @@ pub(super) fn observe(
     job: &Sentinel,
     binding: &TabBinding,
 ) -> Result<Output, ProbeFailure> {
-    if job.observe.as_ref() != Some(binding) {
-        return Err(ProbeFailure::new("sentinel_observation_binding_changed"));
+    if job.observe() != Some(binding) {
+        return Err(ProbeFailure::new("blueprint_observation_binding_changed"));
     }
     let (tab_id, run_id) = match binding {
         TabBinding::Tab(tab_id) => (tab_id.as_str(), None),
         TabBinding::CronRun(_) => {
             let Some(run) = job.run.as_ref() else {
-                return Err(ProbeFailure::new("sentinel_observation_source_unavailable"));
+                return Err(ProbeFailure::new(
+                    "blueprint_observation_source_unavailable",
+                ));
             };
             (run.tab_id.as_str(), Some(run.run_id.as_str()))
         }
@@ -170,9 +176,9 @@ pub(super) fn observe(
         let mux = svc.mux.read();
         validate_tab_scope(&mux, job, tab_id).map_err(|error| {
             if error == "observation tab not found" {
-                ProbeFailure::new("sentinel_observation_tab_removed")
+                ProbeFailure::new("blueprint_observation_tab_removed")
             } else {
-                ProbeFailure::new("sentinel_observation_scope_changed")
+                ProbeFailure::new("blueprint_observation_scope_changed")
             }
         })?
     };
@@ -194,11 +200,11 @@ pub(super) fn observe(
         run_id,
         screen.as_deref(),
     )
-    .map_err(|_| ProbeFailure::new("sentinel_observation_invalid"))?;
+    .map_err(|_| ProbeFailure::new("blueprint_observation_invalid"))?;
     let text = serde_json::to_string(&value)
-        .map_err(|_| ProbeFailure::new("sentinel_observation_encoding_failed"))?;
+        .map_err(|_| ProbeFailure::new("blueprint_observation_encoding_failed"))?;
     if text.len() > MAX_OBSERVATION_BYTES {
-        return Err(ProbeFailure::new("sentinel_observation_too_large"));
+        return Err(ProbeFailure::new("blueprint_observation_too_large"));
     }
     Ok(Output {
         bytes: text.as_bytes().to_vec(),

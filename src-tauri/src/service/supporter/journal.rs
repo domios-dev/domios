@@ -13,6 +13,7 @@ const MAX_JOURNAL_BYTES: u64 = 1_048_576;
 pub(crate) enum VerdictKind {
     Rerank,
     TabState,
+    #[serde(rename = "blueprint")]
     Sentinel,
     Heartbeat,
 }
@@ -22,7 +23,7 @@ impl VerdictKind {
         match self {
             Self::Rerank => "rerank",
             Self::TabState => "tab_state",
-            Self::Sentinel => "sentinel",
+            Self::Sentinel => "blueprint",
             Self::Heartbeat => "heartbeat",
         }
     }

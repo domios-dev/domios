@@ -126,7 +126,7 @@ fn sentinel_provenance_route_stages_share_observation_without_recipient_claim() 
     let required_keys = [
         "time",
         "kind",
-        "sentinel_id",
+        "blueprint_id",
         "tab",
         "team_id",
         "workspace_id",
@@ -160,7 +160,7 @@ fn sentinel_provenance_route_stages_share_observation_without_recipient_claim() 
         assert_eq!(row["state_hash"], job.machine.last_hash.as_deref().unwrap());
         assert_eq!(row["tab"], "creator");
         assert_eq!(row["team_id"], "team_aabbccdd");
-        assert_eq!(row["sentinel_id"], job.id);
+        assert_eq!(row["blueprint_id"], job.id);
         assert_eq!(row["workspace_id"], "workspace");
         assert_eq!(row["classification_source"], "adapter");
         assert_eq!(row["classification_reason"], "transition");
@@ -221,10 +221,10 @@ fn sentinel_provenance_rejects_foreign_scope_or_state_hash() {
         Answer::Choice("passed", 0.95),
         Arc::new(AtomicUsize::new(0)),
     );
-    for field in ["sentinel", "creator", "team", "workspace", "state_hash"] {
+    for field in ["blueprint", "creator", "team", "workspace", "state_hash"] {
         let mut foreign = job.clone();
         match field {
-            "sentinel" => foreign.id = "foreign-watch".into(),
+            "blueprint" => foreign.id = "foreign-watch".into(),
             "creator" => foreign.creator_tab_id = "foreign-creator".into(),
             "team" => foreign.team_id = Some("team_11223344".into()),
             "workspace" => foreign.workspace_id = "foreign-workspace".into(),

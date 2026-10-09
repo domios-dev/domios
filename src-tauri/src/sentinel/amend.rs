@@ -85,6 +85,7 @@ pub struct AmendmentLineage {
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct History {
+    #[serde(rename = "blueprint_id", alias = "sentinel_id")]
     pub sentinel_id: String,
     pub current_version: u64,
     pub history_truncated: bool,
@@ -179,13 +180,13 @@ pub(super) fn validate(job: &Sentinel) -> Result<(), String> {
 impl DefinitionSnapshot {
     pub fn from_job(job: &Sentinel) -> Self {
         Self {
-            terminal: job.terminal.clone(),
+            terminal: job.terminal().cloned(),
             session: job.session,
             name: job.name.clone(),
-            pipeline: job.pipeline.clone(),
-            probe: job.probe.clone(),
-            observe: job.observe.clone(),
-            input: job.input.clone(),
+            pipeline: job.pipeline().cloned(),
+            probe: job.probe().clone(),
+            observe: job.observe().cloned(),
+            input: job.input().cloned(),
             question: job.question.clone(),
             interval_ms: job.interval_ms,
             buckets: job.buckets.clone(),
@@ -218,7 +219,7 @@ impl Update {
         }
         let interval_ms = match self.every.as_deref() {
             Some(every) => super::store::duration_ms(every)?,
-            None if current.input.is_some() => current.interval_ms,
+            None if current.input().is_some() => current.interval_ms,
             None => return Err("every is required for a scheduled blueprint".into()),
         };
         machine::validate(&self.buckets, &self.matches, connected, interval_ms)?;
@@ -237,7 +238,7 @@ impl Update {
             return Err("until must name a declared bucket".into());
         }
         let used_transitions = if matches!(
-            current.observe.as_ref(),
+            current.observe(),
             Some(super::source::TabBinding::CronRun(_))
         ) {
             usize::from(current.run_transitions)
@@ -275,7 +276,7 @@ impl Update {
         let on_other = handlers::definitions(&["other".into()], BTreeMap::new(), Some(other))?
             .remove("other")
             .unwrap_or_default();
-        let input = amended_input(&current.input, self.input)?;
+        let input = amended_input(&current.input().cloned(), self.input)?;
         let mut job = current.clone();
         job.name = self.name;
         job.question = self.question;
@@ -285,7 +286,7 @@ impl Update {
         job.matches = self.matches;
         job.rearm_on_change = self.rearm_on_change;
         job.until = self.until;
-        job.input = input;
+        job.set_input(input);
         job.max_transitions = max_transitions;
         job.max_actions = max_actions;
         job.on_other = on_other;
@@ -338,10 +339,9 @@ impl Store {
         if current.creator_tab_id != update.job.creator_tab_id
             || current.workspace_id != update.job.workspace_id
             || current.team_id != update.job.team_id
-            || current.observe != update.job.observe
-            || current.probe != update.job.probe
-            || current.input.as_ref().map(|input| input.kind)
-                != update.job.input.as_ref().map(|input| input.kind)
+            || current.observe().cloned() != update.job.observe().cloned()
+            || current.probe() != update.job.probe()
+            || current.input().map(|input| input.kind) != update.job.input().map(|input| input.kind)
         {
             return Staged::ready(Err(
                 "blueprint identity and observation source are immutable".into(),
@@ -355,7 +355,7 @@ impl Store {
         };
         let mut next = current.clone();
         next.name = update.job.name;
-        next.pipeline = update.job.pipeline;
+        next.source = update.job.source;
         next.question = update.job.question;
         next.buckets = update.job.buckets;
         next.interval_ms = update.job.interval_ms;
@@ -363,7 +363,6 @@ impl Store {
         next.matches = update.job.matches;
         next.rearm_on_change = update.job.rearm_on_change;
         next.until = update.job.until;
-        next.input = update.job.input;
         next.max_transitions = update.job.max_transitions;
         next.max_actions = update.job.max_actions;
         next.on_other = update.job.on_other;
@@ -403,7 +402,7 @@ impl Store {
         };
         if let Some(capability) = next.pending_capability() {
             return Staged::ready(Err(format!(
-                "sentinel_capability_unavailable: {capability} is not executable yet"
+                "blueprint_capability_unavailable: {capability} is not executable yet"
             )));
         }
         if let Some(cancelled) = self.active.remove(&current.id) {
@@ -510,7 +509,7 @@ pub fn from_storage_history(sentinel_id: String, versions: Vec<DefinitionVersion
 }
 
 pub(crate) fn version_conflict(current_version: u64) -> String {
-    format!("sentinel_version_conflict: current_version={current_version}")
+    format!("blueprint_version_conflict: current_version={current_version}")
 }
 
 fn claimed_actions(job: &Sentinel) -> usize {

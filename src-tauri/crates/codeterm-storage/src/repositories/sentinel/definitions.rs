@@ -15,7 +15,7 @@ use std::collections::HashMap;
 
 fn corrupt(detail: &str) -> StorageError {
     StorageError::Corrupt {
-        detail: format!("sentinel definition: {detail}"),
+        detail: format!("blueprint definition: {detail}"),
     }
 }
 
@@ -79,10 +79,24 @@ fn source_columns(source: &StageSource) -> Result<SourceColumns, StorageError> {
             observe_kind: Some(observe_kind_text(observe.kind)),
             observe_ref: Some(observe.reference.clone()),
         },
+        StageSource::Terminal { binding, .. } => SourceColumns {
+            kind: SourceKind::Terminal,
+            spec: None,
+            probe: String::new(),
+            observe_kind: Some(observe_kind_text(binding.kind)),
+            observe_ref: Some(binding.reference.clone()),
+        },
+        StageSource::Pipeline(_) => SourceColumns {
+            kind: SourceKind::Pipeline,
+            spec: None,
+            probe: String::new(),
+            observe_kind: None,
+            observe_ref: None,
+        },
         StageSource::Input(input) => SourceColumns {
             kind: SourceKind::Input,
             spec: Some(serde_json::to_string(input).map_err(|_| {
-                StorageError::invalid("sentinel input", "cannot be encoded for storage")
+                StorageError::invalid("blueprint input", "cannot be encoded for storage")
             })?),
             probe: String::new(),
             observe_kind: None,
@@ -96,6 +110,8 @@ fn source_from(
     spec: Option<String>,
     probe: String,
     observe: Option<ObserveSource>,
+    terminal: Option<codeterm_types::blueprint_terminal::Config>,
+    pipeline: Option<codeterm_types::blueprint_pipeline::BlueprintSpec>,
 ) -> Result<StageSource, StorageError> {
     match SourceKind::parse(kind) {
         Some(SourceKind::Probe) if !probe.is_empty() && observe.is_none() && spec.is_none() => {
@@ -109,6 +125,16 @@ fn source_from(
             let input: InputSpec = serde_json::from_str(&spec)
                 .map_err(|_| corrupt("input source spec does not decode"))?;
             Ok(StageSource::Input(input))
+        }
+        Some(SourceKind::Terminal) if probe.is_empty() && spec.is_none() => {
+            let binding = observe.ok_or_else(|| corrupt("terminal source lacks its binding"))?;
+            let config = terminal.ok_or_else(|| corrupt("terminal source lacks its config"))?;
+            Ok(StageSource::Terminal { binding, config })
+        }
+        Some(SourceKind::Pipeline) if probe.is_empty() && observe.is_none() && spec.is_none() => {
+            pipeline
+                .map(StageSource::Pipeline)
+                .ok_or_else(|| corrupt("pipeline source lacks its spec"))
         }
         Some(_) => Err(corrupt("stage source columns disagree")),
         None if kind == "event" => Err(corrupt("event source is not readable in this build")),
@@ -169,7 +195,7 @@ fn action_columns(action: &HandlerAction) -> Result<ActionColumns<'_>, StorageEr
         HandlerAction::Stop => ActionColumns::plain("stop", None),
         HandlerAction::Send(target) => ActionColumns::plain("send", Some(target.as_str())),
         HandlerAction::Cron(target) => ActionColumns::plain("cron", Some(target.as_str())),
-        HandlerAction::Sentinel(target) => ActionColumns::plain("sentinel", Some(target.as_str())),
+        HandlerAction::Sentinel(target) => ActionColumns::plain("blueprint", Some(target.as_str())),
         HandlerAction::Command(parameters) => ActionColumns {
             command: Some(parameters.command.as_str()),
             label: Some(parameters.label.as_str()),
@@ -233,7 +259,7 @@ impl ActionRow {
             ("stop", None, None, None) => HandlerAction::Stop,
             ("send", Some(target), None, None) => HandlerAction::Send(target),
             ("cron", Some(target), None, None) => HandlerAction::Cron(target),
-            ("sentinel", Some(target), None, None) => HandlerAction::Sentinel(target),
+            ("blueprint", Some(target), None, None) => HandlerAction::Sentinel(target),
             ("respond_prompt", None, Some(safe_kind), None) => {
                 HandlerAction::RespondPrompt(safe_kind_from(&safe_kind)?)
             }
@@ -299,8 +325,7 @@ pub(super) fn insert_version(
     let created = to_sql_u64("revision", cx.revision.0)?;
     let source = source_columns(&definition.source)?;
     let pipeline_spec = definition
-        .pipeline
-        .as_ref()
+        .pipeline()
         .map(serde_json::to_string)
         .transpose()
         .map_err(|_| StorageError::invalid("pipeline", "cannot be encoded for storage"))?;
@@ -315,7 +340,7 @@ pub(super) fn insert_version(
         .map(|amendment| to_sql_u64("amendment time", amendment.authored_at))
         .transpose()?;
     cx.write(
-        "INSERT INTO sentinel_definitions (sentinel_id, version, provenance, name, source_kind, \
+        "INSERT INTO blueprint_definitions (blueprint_id, version, provenance, name, source_kind, \
          source_spec, pipeline_spec, probe, observe_kind, observe_ref, question, interval_ms, until_bucket, \
          escalation_timeout_ms, max_transitions, max_actions, replaced_version, author_tab_id, \
          cause_transition_id, authored_at, created_revision, terminal_spec, session) \
@@ -343,7 +368,7 @@ pub(super) fn insert_version(
             amendment.and_then(|amendment| amendment.cause_transition_id.as_deref()),
             authored_at,
             created,
-            definition.terminal.as_ref().map(serde_json::to_string).transpose().map_err(|_| StorageError::invalid("terminal", "cannot be encoded"))?,
+            definition.terminal().map(serde_json::to_string).transpose().map_err(|_| StorageError::invalid("terminal", "cannot be encoded"))?,
             definition.session
         ],
     )?;
@@ -387,14 +412,14 @@ fn insert_bucket(
     handlers: &[HandlerDefinition],
 ) -> Result<(), StorageError> {
     cx.write(
-        "INSERT INTO sentinel_buckets (sentinel_id, version, ordinal, bucket, match_pattern, rearm_on_change) \
+        "INSERT INTO blueprint_buckets (blueprint_id, version, ordinal, bucket, match_pattern, rearm_on_change) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![id, version, ordinal, bucket, match_pattern, rearm_on_change],
     )?;
     for (position, handler) in (0_i64..).zip(handlers) {
         let columns = action_columns(&handler.action)?;
         cx.write(
-            "INSERT INTO sentinel_handlers (sentinel_id, version, bucket, ordinal, \
+            "INSERT INTO blueprint_handlers (blueprint_id, version, bucket, ordinal, \
              handler_id, kind, target_ref, command, label, timeout_ms, safe_kind, escalate_to) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
@@ -414,7 +439,7 @@ fn insert_bucket(
         )?;
         if let Some(exact) = &handler.target {
             cx.write(
-                "INSERT INTO sentinel_handler_targets (sentinel_id, version, handler_id, \
+                "INSERT INTO blueprint_handler_targets (blueprint_id, version, handler_id, \
                  kind, target_id, workspace_id, team_id, owner_tab_id) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
@@ -439,7 +464,7 @@ pub(super) fn insert_head(
     version: u64,
 ) -> Result<(), StorageError> {
     cx.write(
-        "INSERT INTO sentinel_heads (sentinel_id, version) VALUES (?1, ?2)",
+        "INSERT INTO blueprint_heads (blueprint_id, version) VALUES (?1, ?2)",
         params![id, to_sql_u64("definition version", version)?],
     )?;
     Ok(())
@@ -447,7 +472,7 @@ pub(super) fn insert_head(
 
 pub(super) fn move_head(cx: &mut WriteCx<'_>, id: &str, version: u64) -> Result<(), StorageError> {
     cx.write(
-        "UPDATE sentinel_heads SET version = ?2 WHERE sentinel_id = ?1",
+        "UPDATE blueprint_heads SET version = ?2 WHERE blueprint_id = ?1",
         params![id, to_sql_u64("definition version", version)?],
     )?;
     Ok(())
@@ -455,7 +480,7 @@ pub(super) fn move_head(cx: &mut WriteCx<'_>, id: &str, version: u64) -> Result<
 
 pub(super) fn head_version(conn: &Connection, id: &str) -> Result<Option<u64>, StorageError> {
     let stored: Option<i64> = conn
-        .prepare_cached("SELECT version FROM sentinel_heads WHERE sentinel_id = ?1")
+        .prepare_cached("SELECT version FROM blueprint_heads WHERE blueprint_id = ?1")
         .and_then(|mut statement| statement.query_row([id], |row| row.get(0)).optional())
         .map_err(|e| sqlite_error("read sentinel head", e))?;
     stored
@@ -466,7 +491,7 @@ pub(super) fn head_version(conn: &Connection, id: &str) -> Result<Option<u64>, S
 pub(super) fn latest_version(conn: &Connection, id: &str) -> Result<u64, StorageError> {
     let latest: i64 = conn
         .prepare_cached(
-            "SELECT COALESCE(MAX(version), 0) FROM sentinel_definitions WHERE sentinel_id = ?1",
+            "SELECT COALESCE(MAX(version), 0) FROM blueprint_definitions WHERE blueprint_id = ?1",
         )
         .and_then(|mut statement| statement.query_row([id], |row| row.get(0)))
         .map_err(|e| sqlite_error("read sentinel versions", e))?;
@@ -476,9 +501,9 @@ pub(super) fn latest_version(conn: &Connection, id: &str) -> Result<u64, Storage
 /// `(max_transitions, max_actions)` of the current head version.
 pub(super) fn head_budgets(conn: &Connection, id: &str) -> Result<(u64, u64), StorageError> {
     conn.prepare_cached(
-        "SELECT CASE WHEN d.session THEN ?2 ELSE d.max_transitions END, CASE WHEN d.session THEN ?2 ELSE d.max_actions END FROM sentinel_heads h \
-         JOIN sentinel_definitions d ON d.sentinel_id = h.sentinel_id AND d.version = h.version \
-         WHERE h.sentinel_id = ?1",
+        "SELECT CASE WHEN d.session THEN ?2 ELSE d.max_transitions END, CASE WHEN d.session THEN ?2 ELSE d.max_actions END FROM blueprint_heads h \
+         JOIN blueprint_definitions d ON d.blueprint_id = h.blueprint_id AND d.version = h.version \
+         WHERE h.blueprint_id = ?1",
     )
     .and_then(|mut statement| {
         statement.query_row(params![id, codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT as i64], |row| {
@@ -504,9 +529,9 @@ pub(super) fn head_handler(
     let row = conn
         .prepare_cached(
             "SELECT hd.kind, hd.target_ref, hd.command, hd.label, hd.timeout_ms, hd.safe_kind, \
-             hd.escalate_to FROM sentinel_heads h JOIN sentinel_handlers hd \
-             ON hd.sentinel_id = h.sentinel_id AND hd.version = h.version \
-             WHERE h.sentinel_id = ?1 AND hd.bucket = ?2 AND hd.handler_id = ?3",
+             hd.escalate_to FROM blueprint_heads h JOIN blueprint_handlers hd \
+             ON hd.blueprint_id = h.blueprint_id AND hd.version = h.version \
+             WHERE h.blueprint_id = ?1 AND hd.bucket = ?2 AND hd.handler_id = ?3",
         )
         .and_then(|mut statement| {
             statement
@@ -553,7 +578,7 @@ pub(super) fn load_version(
              observe_ref, question, interval_ms, until_bucket, escalation_timeout_ms, \
              max_transitions, max_actions, replaced_version, author_tab_id, \
              cause_transition_id, authored_at, created_revision, terminal_spec, session \
-             FROM sentinel_definitions WHERE sentinel_id = ?1 AND version = ?2",
+             FROM blueprint_definitions WHERE blueprint_id = ?1 AND version = ?2",
         )
         .and_then(|mut statement| {
             statement
@@ -595,6 +620,12 @@ pub(super) fn load_version(
             serde_json::from_str(&spec).map_err(|_| corrupt("pipeline spec does not decode"))
         })
         .transpose()?;
+    let terminal = header
+        .terminal_spec
+        .map(|spec| {
+            serde_json::from_str(&spec).map_err(|_| corrupt("terminal spec does not decode"))
+        })
+        .transpose()?;
     Ok(StoredDefinition {
         version,
         provenance: provenance_from(&header.provenance)?,
@@ -607,13 +638,6 @@ pub(super) fn load_version(
             header.authored_at,
         )?,
         definition: StageDefinition {
-            terminal: header
-                .terminal_spec
-                .map(|spec| {
-                    serde_json::from_str(&spec)
-                        .map_err(|_| corrupt("terminal spec does not decode"))
-                })
-                .transpose()?,
             session: header.session,
             name: header.name,
             source: source_from(
@@ -621,8 +645,9 @@ pub(super) fn load_version(
                 header.source_spec,
                 header.probe,
                 observe,
+                terminal,
+                pipeline,
             )?,
-            pipeline,
             question: header.question,
             interval_ms: from_sql_u64("sentinel interval", header.interval_ms)?,
             until: header.until,
@@ -647,8 +672,8 @@ fn load_buckets(
     let mut buckets: Vec<BucketDefinition> = {
         let mut statement = conn
             .prepare_cached(
-                "SELECT bucket, match_pattern, rearm_on_change FROM sentinel_buckets \
-                 WHERE sentinel_id = ?1 AND version = ?2 ORDER BY ordinal",
+                "SELECT bucket, match_pattern, rearm_on_change FROM blueprint_buckets \
+                 WHERE blueprint_id = ?1 AND version = ?2 ORDER BY ordinal",
             )
             .map_err(|e| sqlite_error("read sentinel buckets", e))?;
         let rows = statement
@@ -673,8 +698,8 @@ fn load_buckets(
     let mut statement = conn
         .prepare_cached(
             "SELECT bucket, handler_id, kind, target_ref, command, label, timeout_ms, \
-             safe_kind, escalate_to FROM sentinel_handlers \
-             WHERE sentinel_id = ?1 AND version = ?2 ORDER BY bucket, ordinal",
+             safe_kind, escalate_to FROM blueprint_handlers \
+             WHERE blueprint_id = ?1 AND version = ?2 ORDER BY bucket, ordinal",
         )
         .map_err(|e| sqlite_error("read sentinel handlers", e))?;
     let rows = statement
@@ -725,7 +750,7 @@ fn load_targets(
     let mut statement = conn
         .prepare_cached(
             "SELECT handler_id, kind, target_id, workspace_id, team_id, owner_tab_id \
-             FROM sentinel_handler_targets WHERE sentinel_id = ?1 AND version = ?2",
+             FROM blueprint_handler_targets WHERE blueprint_id = ?1 AND version = ?2",
         )
         .map_err(|e| sqlite_error("read sentinel targets", e))?;
     let rows = statement
@@ -756,7 +781,7 @@ pub(super) fn load_lineage(
     let mut statement = conn
         .prepare_cached(
             "SELECT version, replaced_version, author_tab_id, cause_transition_id, authored_at \
-             FROM sentinel_definitions WHERE sentinel_id = ?1 AND version <= ?2 \
+             FROM blueprint_definitions WHERE blueprint_id = ?1 AND version <= ?2 \
              AND replaced_version IS NOT NULL ORDER BY version DESC LIMIT ?3",
         )
         .map_err(|e| sqlite_error("read sentinel lineage", e))?;
@@ -795,7 +820,7 @@ pub(super) fn load_history(
     let versions: Vec<i64> = {
         let mut statement = conn
             .prepare_cached(
-                "SELECT version FROM sentinel_definitions WHERE sentinel_id = ?1 ORDER BY version",
+                "SELECT version FROM blueprint_definitions WHERE blueprint_id = ?1 ORDER BY version",
             )
             .map_err(|e| sqlite_error("read sentinel versions", e))?;
         let rows = statement
