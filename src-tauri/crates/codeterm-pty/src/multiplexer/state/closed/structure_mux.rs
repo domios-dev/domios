@@ -132,14 +132,12 @@ impl MultiplexerState {
                     .as_ref()
                     .and_then(|state| state.record_id.as_deref())
                     != Some(record.id.as_str())
-                {
-                    if existing.agent_type != tab.agent_type
+                    && (existing.agent_type != tab.agent_type
                         || existing.agent_session_id != tab.agent_session_id
                         || existing.team_id != tab.team_id
-                        || (existing.cwd.is_some() && existing.cwd != tab.cwd)
-                    {
-                        return Err(format!("Tab identity {} is already in use", tab.id));
-                    }
+                        || (existing.cwd.is_some() && existing.cwd != tab.cwd))
+                {
+                    return Err(format!("Tab identity {} is already in use", tab.id));
                 }
             }
         }
