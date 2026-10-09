@@ -88,6 +88,7 @@ fn command_prompt() -> CommandPrompt {
         &crate::agent::provider::ModelSwitchPrompt {
             screen_regex: "^confirm {model}$".into(),
             response_keys: vec!["y".into(), "\r".into()],
+            cancel_keys: vec!["\u{1b}".into()],
         },
         &target(),
         None,
@@ -223,6 +224,7 @@ fn invalid_prompt_declarations_refuse_before_injection() {
             &crate::agent::provider::ModelSwitchPrompt {
                 screen_regex: screen_regex.into(),
                 response_keys: response_keys.into_iter().map(str::to_owned).collect(),
+                cancel_keys: vec![],
             },
             &target(),
             None
@@ -238,11 +240,13 @@ fn effort_only_plan_sends_only_effort_and_preserves_model_identity() {
             command: "/choose {model}".into(),
             confirmation: "model".into(),
             prompt: None,
+            picker: None,
         },
         effort: Some(ModelSwitchCommand {
             command: "/reason {effort}".into(),
             confirmation: "^accepted {effort}$".into(),
             prompt: None,
+            picker: None,
         }),
         transcript: source(),
     };
@@ -363,6 +367,45 @@ fn confirmation_requires_the_declared_record_and_exact_wrapped_output() {
 }
 
 #[test]
+fn formatted_command_stdout_confirms_without_waiting_for_an_assistant_turn() {
+    let declaration = codeterm_plugin::agent_claude::ClaudeProvider::new();
+    let commands =
+        crate::agent::provider::AgentProvider::model_switch_commands(&declaration).unwrap();
+    let pattern = confirmation_pattern(
+        &commands.model.confirmation,
+        "sonnet",
+        "Claude Sonnet",
+        None,
+    )
+    .unwrap();
+    let record = |text: &str| {
+        serde_json::json!({"type":"user", "message":{"content":
+        format!("<local-command-stdout>{text}</local-command-stdout>")}})
+        .to_string()
+    };
+    for text in [
+        "Set model to `Sonnet 5.5` for this session only",
+        "Set model to \u{1b}[1mSonnet 5.5\u{1b}[22m for this session only",
+    ] {
+        assert!(transcript_confirms(
+            &record(text),
+            &commands.transcript,
+            &pattern
+        ));
+    }
+    for text in [
+        "Set model to `Haiku 5.5` for this session only",
+        "Set model to `Sonnet 5.5` and saved as your default for new sessions",
+    ] {
+        assert!(!transcript_confirms(
+            &record(text),
+            &commands.transcript,
+            &pattern
+        ));
+    }
+}
+
+#[test]
 fn command_templates_reject_multiline_input_and_unresolved_placeholders() {
     assert_eq!(
         render_command("/choose {model}", "opaque-model", None).unwrap(),
@@ -399,4 +442,64 @@ fn transcript_boundary_excludes_old_confirmation() {
         &source(),
         &pattern
     ));
+}
+
+#[test]
+fn cancellation_never_touches_a_preexisting_or_different_dialog() {
+    let mut prompt = command_prompt();
+    assert!(prompt
+        .cancel("confirm m[1]", |_| panic!("unowned cancellation"))
+        .unwrap());
+    prompt.injected();
+    assert!(prompt
+        .cancel("confirm other", |_| panic!("foreign cancellation"))
+        .unwrap());
+}
+
+#[test]
+fn cancellation_is_once_and_requires_observed_clearance() {
+    let mut prompt = command_prompt();
+    prompt.injected();
+    assert!(!prompt
+        .cancel("confirm m[1]", |keys| {
+            assert_eq!(keys, b"\x1b");
+            Ok(())
+        })
+        .unwrap());
+    assert!(!prompt
+        .cancel("confirm m[1]", |_| panic!("cancellation replay"))
+        .unwrap());
+    assert!(prompt
+        .cancel("composer", |_| panic!("unexpected write"))
+        .unwrap());
+}
+
+#[test]
+fn cancelled_prompt_never_accepts_a_late_confirmation() {
+    let mut prompt = command_prompt();
+    prompt.injected();
+    assert!(!prompt.cancel("confirm m[1]", |_| Ok(())).unwrap());
+    prompt
+        .respond("confirm m[1]", |_| {
+            panic!("late confirmation after cancellation")
+        })
+        .unwrap();
+}
+
+#[test]
+fn missing_cancellation_declaration_reports_the_open_dialog() {
+    let mut declaration = crate::agent::provider::ModelSwitchPrompt {
+        screen_regex: "^confirm {model}$".into(),
+        response_keys: vec!["y".into()],
+        cancel_keys: vec![],
+    };
+    let mut prompt = CommandPrompt::new(&declaration, &target(), None).unwrap();
+    prompt.injected();
+    assert!(prompt
+        .cancel("confirm m[1]", |_| panic!("undeclared cancellation"))
+        .is_err());
+    declaration.cancel_keys = vec!["".into()];
+    assert!(CommandPrompt::new(&declaration, &target(), None).is_err());
+    declaration.cancel_keys = vec!["x".repeat(65)];
+    assert!(CommandPrompt::new(&declaration, &target(), None).is_err());
 }

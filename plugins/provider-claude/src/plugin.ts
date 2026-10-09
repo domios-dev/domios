@@ -423,7 +423,7 @@ const plugin: PluginModule = {
       try { v = JSON.parse(line); } catch (_) { continue; }
       if (!v || !v.message) continue;
       const raw = contentToText(v.message.content);
-      const fam = extractSetModelFamily(raw);
+      const fam = v.type === "user" ? extractSetModelFamily(raw) : null;
       if (fam) return fam;
       const m = v.message.model;
       if (typeof m === "string" && m && m !== "<synthetic>") {

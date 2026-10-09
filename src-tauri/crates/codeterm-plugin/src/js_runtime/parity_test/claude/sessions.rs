@@ -280,6 +280,40 @@ fn model_switch_transcript_boundary_matches_native_and_js() {
 }
 
 #[test]
+fn local_model_stdout_overrides_old_turn_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let cwd = codeterm_paths::canonical_cwd(&temp.path().to_string_lossy());
+    let evidence = temp.path().join("evidence");
+    let _env = EnvGuard::new(&[(
+        crate::session_evidence::EVIDENCE_DIR_ENV,
+        evidence.to_str().unwrap(),
+    )]);
+    let session = uuid::Uuid::new_v4().to_string();
+    let native = ClaudeProvider::new();
+    let js = super::super::find_session::claude_js_rooted_at(&temp.path().join("projects"));
+    let path = js.session_file_path(&cwd, &session).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    assert!(crate::session_evidence::record(
+        &session,
+        path.to_str().unwrap()
+    ));
+    for (kind, content, expected) in [
+        ("user", "<local-command-stdout>Set model to `Sonnet 5.5` for this session only</local-command-stdout>", "Sonnet"),
+        ("assistant", "<local-command-stdout>Set model to `Sonnet 5.5` for this session only</local-command-stdout>", "Opus"),
+        ("user", "Set model to `Sonnet 5.5` for this session only", "Opus"),
+    ] {
+        let old = serde_json::json!({"type":"assistant","message":{"model":"claude-opus-5-5"}});
+        let stdout = serde_json::json!({"type":kind,"message":{"content":content}});
+        std::fs::write(&path, format!("{old}\n{stdout}\n")).unwrap();
+        assert_eq!(native.detect_session_model(&cwd, &session).as_deref(), Some(expected));
+        assert_eq!(js.detect_session_model(&cwd, &session).as_deref(), Some(expected));
+    }
+}
+
+#[test]
 fn model_switch_uuidless_conversation_boundary_matches_native_and_js() {
     if require_plugins().is_none() {
         return;
