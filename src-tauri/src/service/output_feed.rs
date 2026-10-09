@@ -134,6 +134,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn mark_agent_turn_started(&self, tab_id: &str) -> bool {
+        self.staged_model_turn_started(tab_id);
         self.mark_agent_turn_status(tab_id, TabStatus::Working)
     }
 

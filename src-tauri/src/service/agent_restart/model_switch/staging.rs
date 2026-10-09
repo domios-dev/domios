@@ -18,9 +18,48 @@ pub(in crate::service::agent_restart) struct PendingSwitches(
         String,
         std::sync::Weak<crate::pty::screen_state::ScreenChangeSignal>,
     >,
+    std::collections::HashMap<String, (String, String, u64)>,
 );
 
 impl PendingSwitches {
+    fn completion_generation(&self, tab: &str, session: &str, nonce: &str) -> u64 {
+        self.2
+            .get(tab)
+            .filter(|(own_session, own_nonce, _)| own_session == session && own_nonce == nonce)
+            .map_or(0, |(_, _, generation)| *generation)
+    }
+
+    fn completed(&self, request: &SwitchRequest) -> bool {
+        let request = self
+            .0
+            .get(&request.tab_id)
+            .filter(|staged| staged.request.id == request.id)
+            .map_or(request, |staged| &staged.request);
+        self.completion_generation(&request.tab_id, &request.session_id, &request.nonce)
+            > request.completion_generation
+    }
+
+    fn signal_started(&mut self, tab_id: &str) {
+        if let Some(staged) = self.0.get(tab_id) {
+            let generation = self.completion_generation(
+                tab_id,
+                &staged.request.session_id,
+                &staged.request.nonce,
+            );
+            if let Some(staged) = self.0.get_mut(tab_id) {
+                staged.request.completion_generation = generation;
+            }
+        }
+    }
+
+    fn signal_completed(&mut self, tab: &str, session: &str, nonce: &str) {
+        let generation = self
+            .completion_generation(tab, session, nonce)
+            .saturating_add(1);
+        self.2
+            .insert(tab.into(), (session.into(), nonce.into(), generation));
+        self.signal_idle(tab);
+    }
     fn replace(&mut self, request: SwitchRequest, idle: Sender<()>) {
         self.0
             .insert(request.tab_id.clone(), StagedSwitch { request, idle });
@@ -42,7 +81,11 @@ impl PendingSwitches {
         if let Some(signal) = self.1.get(tab_id).and_then(std::sync::Weak::upgrade) {
             signal.mark_changed();
         }
-        if let Some(staged) = self.0.get(tab_id) {
+        if let Some(staged) = self
+            .0
+            .get(tab_id)
+            .filter(|staged| self.completed(&staged.request))
+        {
             let _ = staged.idle.send(());
         }
     }
@@ -75,6 +118,13 @@ pub(super) struct StagingParams {
     pub force: bool,
     pub restart_fallback: bool,
     pub previous_model: Option<String>,
+    pub completion_boundary: CompletionBoundary,
+}
+
+pub(super) struct CompletionBoundary {
+    session_id: String,
+    nonce: String,
+    generation: u64,
 }
 
 #[derive(Clone)]
@@ -92,6 +142,7 @@ pub(super) struct SwitchRequest {
     restart_fallback: bool,
     mechanism: ModelSwitchMode,
     deadline: Instant,
+    completion_generation: u64,
 }
 
 impl SwitchRequest {
@@ -147,6 +198,41 @@ impl SwitchRequest {
 }
 
 impl ServiceContext {
+    pub(crate) fn staged_model_turn_started(&self, tab_id: &str) {
+        self.restart_tracker
+            .lock()
+            .staged_models
+            .signal_started(tab_id);
+    }
+    pub(super) fn staged_completion_boundary(&self, tab_id: &str) -> Option<CompletionBoundary> {
+        let mux = self.mux.read();
+        let tab = mux.get_tab(tab_id)?;
+        let session_id = tab.agent_session_id.clone()?;
+        let nonce = tab.session_binding_nonce.clone()?;
+        (tab.reported_session_binding_nonce.as_ref() == Some(&nonce)).then(|| CompletionBoundary {
+            generation: self
+                .restart_tracker
+                .lock()
+                .staged_models
+                .completion_generation(tab_id, &session_id, &nonce),
+            session_id,
+            nonce,
+        })
+    }
+
+    pub(crate) fn staged_model_turn_completed(&self, tab_id: &str, session_id: &str, nonce: &str) {
+        let mux = self.mux.read();
+        if mux.get_tab(tab_id).is_some_and(|tab| {
+            tab.agent_session_id.as_deref() == Some(session_id)
+                && tab.session_binding_nonce.as_deref() == Some(nonce)
+                && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
+        }) {
+            self.restart_tracker
+                .lock()
+                .staged_models
+                .signal_completed(tab_id, session_id, nonce);
+        }
+    }
     pub(crate) fn cancel_staged_model_switch(&self, tab_id: &str) {
         let mut mux = self.mux.write();
         self.restart_tracker.lock().staged_models.cancel(tab_id);
@@ -190,6 +276,8 @@ impl ServiceContext {
             if tab.pty_id.as_deref() != Some(&snap.pty_id)
                 || tab.agent_session_id.as_deref() != Some(session_id)
                 || tab.agent_type.as_deref() != Some(&snap.provider)
+                || params.completion_boundary.session_id != session_id
+                || params.completion_boundary.nonce != nonce
             {
                 return Err(ModelSwitchError::NotSwitchable(
                     "the session changed before staging".into(),
@@ -209,6 +297,7 @@ impl ServiceContext {
                 restart_fallback: params.restart_fallback,
                 mechanism: params.mechanism,
                 deadline: Instant::now() + STAGING_DEADLINE,
+                completion_generation: params.completion_boundary.generation,
             };
             tab.pending_model_selection = Some(PendingModelSelection {
                 model: model.into(),
@@ -235,9 +324,15 @@ impl ServiceContext {
                             .saturating_duration_since(Instant::now()),
                     )
                     .is_ok();
+                let completed = svc
+                    .restart_tracker
+                    .lock()
+                    .staged_models
+                    .completed(&worker_request);
                 if idle
                     && worker_request.require_current(&svc).is_ok()
-                    && !staged_tab_idle(&svc, &worker_request.tab_id, worker_request.deadline)
+                    && (!completed
+                        || !staged_tab_idle(&svc, &worker_request.tab_id, worker_request.deadline))
                 {
                     continue;
                 }
