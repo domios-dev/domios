@@ -89,6 +89,9 @@ pub(crate) async fn hook_provider_event(
             ));
         }
         state.svc.schedule_session_model_refresh_after_stop(&tab_id);
+        state
+            .svc
+            .staged_model_turn_completed(&tab_id, &body.session_id, nonce);
     } else if turn_started && (pty_id.is_none() || !state.svc.mark_agent_turn_started(&tab_id)) {
         return Err((
             StatusCode::CONFLICT,
