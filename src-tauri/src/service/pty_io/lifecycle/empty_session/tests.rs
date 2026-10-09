@@ -203,7 +203,7 @@ fn secondary_evidence_reads_only_the_exact_transcript_and_rejects_read_errors() 
 }
 
 #[test]
-fn unreadable_or_quarantined_journal_is_unknown() {
+fn unreadable_or_malformed_journal_is_unknown() {
     let temp = tempfile::tempdir().unwrap();
     let journal = TabLifecycleJournal::for_dir(temp.path().into());
     std::fs::create_dir(journal.path()).unwrap();
@@ -230,18 +230,33 @@ fn restore_service_claims_fresh_only_for_an_empty_missing_session() {
         });
         let fixture = crate::service::test_fixture::ServiceFixture::new(state);
         let svc = &fixture.service;
+        let journal = TabLifecycleJournal::for_dir(fixture.temp.path().join("journal"));
+        let key = LifecycleKey::new(&id, LifecycleEpoch(1), "fixture-launch");
+        assert!(svc
+            .mux
+            .write()
+            .stamp_lifecycle(&id, key.epoch, &key.operation_id));
         svc.mux.write().get_tab_mut(&id).unwrap().cwd =
             Some(fixture.temp.path().to_string_lossy().into_owned());
         svc.agent_registry
             .register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
         if let Some(conversation) = evidence {
-            svc.open_lifecycle_epoch(&id).unwrap();
+            journal
+                .append(key.clone(), LifecycleTransition::EpochOpened)
+                .unwrap();
             if conversation {
-                svc.note_session_conversation(&id, &session);
+                journal
+                    .note_conversation_started(key.clone(), &session)
+                    .unwrap();
             }
         }
-        let prepared =
-            svc.prepare_empty_session_restore(&id, "claude", Some(&session), Some(false));
+        let prepared = svc.prepare_empty_session_restore_in_journal(
+            &id,
+            "claude",
+            Some(&session),
+            Some(false),
+            &journal,
+        );
         assert_eq!(prepared, evidence == Some(false));
         let claim = super::super::claim_restored_launch(
             &svc.mux,
