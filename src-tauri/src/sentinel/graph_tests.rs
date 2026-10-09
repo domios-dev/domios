@@ -56,7 +56,7 @@ fn sentinel_graph_named_scenario_has_one_root_and_reachable_internal_stage() {
         &mut store,
         &owner,
         false,
-        json!({"done":[{"id":"branch","type":"blueprint","parameters":{"target":child.id}}]}),
+        json!({"done":[{"id":"branch","type":"sentinel","parameters":{"target":child.id}}]}),
     );
     let graph = snapshot(&store, &mux, &owner);
     assert_eq!(graph.scenarios.len(), 1);
@@ -79,7 +79,7 @@ fn sentinel_graph_named_scenario_has_one_root_and_reachable_internal_stage() {
             .nodes
             .iter()
             .find(|n| n["identity"]["id"] == root.id)
-            .unwrap()["blueprint_definition"],
+            .unwrap()["sentinel_definition"],
         json!({"source":"stored_agent_definition","definition_id":root.id,"creator_tab_id":owner.creator_tab_id,"definition_version":1,"lineage":[]})
     );
 }
@@ -115,7 +115,7 @@ fn sentinel_update_snapshot_exposes_read_only_definition_version_and_lineage() {
         .nodes
         .iter()
         .find(|node| node["identity"]["id"] == root.id)
-        .unwrap()["blueprint_definition"]
+        .unwrap()["sentinel_definition"]
         .clone();
     assert_eq!(definition["definition_version"], 2);
     assert_eq!(definition["lineage"][0]["replaced_version"], 1);
@@ -149,13 +149,13 @@ fn sentinel_graph_shared_targets_keep_two_entries_and_one_execution_identity() {
         &mut store,
         &owner,
         false,
-        json!({"done":[{"id":"branch","type":"blueprint","parameters":{"target":child.id}}]}),
+        json!({"done":[{"id":"branch","type":"sentinel","parameters":{"target":child.id}}]}),
     );
     let second = create(
         &mut store,
         &owner,
         false,
-        json!({"done":[{"id":"branch","type":"blueprint","parameters":{"target":child.id}}]}),
+        json!({"done":[{"id":"branch","type":"sentinel","parameters":{"target":child.id}}]}),
     );
     let graph = snapshot(&store, &mux, &owner);
     assert_eq!(graph.scenarios.len(), 2);
@@ -478,7 +478,7 @@ fn sentinel_graph_unavailable_store_refuses_projection_and_host_stop_without_rep
         assert!(
             graph::scoped_inventory(&store, &mux, &owner.workspace_id, None)
                 .unwrap_err()
-                .starts_with("blueprint_store_")
+                .starts_with("sentinel_store_")
         );
         assert!(crate::service::sentinel::graph::host_stop(
             &mut store,
@@ -525,7 +525,7 @@ fn sentinel_graph_cycles_terminate_and_disconnected_participants_stay_excluded()
         &mut store,
         &owner,
         false,
-        json!({"done":[{"id":"branch","type":"blueprint","parameters":{"target":child.id}}]}),
+        json!({"done":[{"id":"branch","type":"sentinel","parameters":{"target":child.id}}]}),
     );
     let orphan = create(&mut store, &owner, true, json!({}));
     let mut jobs = store.list().to_vec();
@@ -612,7 +612,7 @@ fn sentinel_graph_sharing_an_independent_scenario_does_not_absorb_its_root() {
         &mut store,
         &owner,
         false,
-        json!({"done":[{"id":"share","type":"blueprint","parameters":{"target":independent.id}}]}),
+        json!({"done":[{"id":"share","type":"sentinel","parameters":{"target":independent.id}}]}),
     );
     let graph = snapshot(&store, &mux, &owner);
     assert_eq!(graph.scenarios.len(), 2);

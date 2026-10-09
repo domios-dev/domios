@@ -259,20 +259,20 @@ fn admission_refusal_status(
 }
 
 fn failure((status, message): (StatusCode, String)) -> GraphError {
-    let (status, code) = if message.starts_with("blueprint_store_unsupported_format:") {
+    let (status, code) = if message.starts_with("sentinel_store_unsupported_format:") {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            "blueprint_store_unsupported_format",
+            "sentinel_store_unsupported_format",
         )
-    } else if message.starts_with("blueprint_store_load_failed:") {
+    } else if message.starts_with("sentinel_store_load_failed:") {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            "blueprint_store_load_failed",
+            "sentinel_store_load_failed",
         )
-    } else if message.starts_with("blueprint_store_persistence_failed:") {
+    } else if message.starts_with("sentinel_store_persistence_failed:") {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            "blueprint_store_persistence_failed",
+            "sentinel_store_persistence_failed",
         )
     } else if status == StatusCode::UNAUTHORIZED {
         (status, "unauthorized")
@@ -282,7 +282,7 @@ fn failure((status, message): (StatusCode, String)) -> GraphError {
     (
         status,
         Json(
-            json!({"ok":false,"error":{"code":code,"message":message.replace("Sentinels", "Blueprints").replace("Sentinel", "Blueprint").replace("blueprints ", "blueprints ").replace("sentinel ", "blueprint ")}}),
+            json!({"ok":false,"error":{"code":code,"message":message.replace("Sentinels", "Blueprints").replace("Sentinel", "Blueprint").replace("sentinels ", "blueprints ").replace("sentinel ", "blueprint ")}}),
         ),
     )
 }
@@ -338,10 +338,10 @@ mod tests {
         assert_eq!(explicit_team(&tab.team_id).unwrap(), None);
         let (status, Json(error)) = failure((
             StatusCode::BAD_REQUEST,
-            "blueprint_store_unsupported_format: preserve definitions".into(),
+            "sentinel_store_unsupported_format: preserve definitions".into(),
         ));
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(error["error"]["code"], "blueprint_store_unsupported_format");
+        assert_eq!(error["error"]["code"], "sentinel_store_unsupported_format");
     }
 
     #[cfg(debug_assertions)]
@@ -662,40 +662,6 @@ mod tests {
 
         #[tokio::test]
         #[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
-        async fn legacy_sentinel_rest_alias_deletes_the_persisted_blueprint() {
-            let fixture = Fixture::new(None);
-            let job = fixture.create();
-            let path = format!("/api/automation/sentinels/{}", job.id);
-            let body = json!({"workspace_id":fixture.workspace,"team_id":null});
-            assert_eq!(
-                fixture
-                    .request(Method::DELETE, &path, Some("fixture-instance-bearer"), body,)
-                    .await
-                    .0,
-                StatusCode::NO_CONTENT
-            );
-            let (status, graph) = fixture
-                .request(
-                    Method::GET,
-                    &format!(
-                        "/api/automation/graph?workspace_id={}&team_id=",
-                        fixture.workspace
-                    ),
-                    Some("fixture-instance-bearer"),
-                    Value::Null,
-                )
-                .await;
-            assert_eq!(status, StatusCode::OK);
-            assert!(graph["scenarios"].as_array().unwrap().is_empty());
-            let persisted: Value = serde_json::from_slice(
-                &std::fs::read(fixture.runtime.temp.path().join("sentinels.json")).unwrap(),
-            )
-            .unwrap();
-            assert!(persisted.as_array().unwrap().is_empty());
-        }
-
-        #[tokio::test]
-        #[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
         async fn sentinel_graph_http_declared_tab_never_falls_back_after_failed_nonce_or_creator_check(
         ) {
             let fixture = Fixture::new(None);
@@ -771,7 +737,7 @@ mod tests {
                 assert!(error["error"]["code"]
                     .as_str()
                     .unwrap()
-                    .starts_with("blueprint_store_"));
+                    .starts_with("sentinel_store_"));
                 let body = json!({"workspace_id":fixture.workspace,"team_id":null});
                 assert_eq!(
                     fixture

@@ -48,7 +48,7 @@ pub(super) fn queue_fired_event(
             .iter()
             .filter(|job| {
                 !job.machine.stopped
-                    && job.observe().cloned() == Some(TabBinding::CronRun(binding.cron_id.clone()))
+                    && job.observe == Some(TabBinding::CronRun(binding.cron_id.clone()))
                     && job.team_id == binding.team_id
                     && job.workspace_id == binding.workspace_id
             })
@@ -137,7 +137,7 @@ pub(super) fn process_pending(svc: &ServiceContext, handle: &super::scheduler::H
         let Some(cron) = cron_identity(svc, &binding.cron_id) else {
             continue;
         };
-        if job.observe().cloned() != Some(TabBinding::CronRun(binding.cron_id.clone()))
+        if job.observe != Some(TabBinding::CronRun(binding.cron_id.clone()))
             || job.team_id != cron.team_id
             || job.workspace_id != cron.workspace_id
             || source::validate_pending_cron_run_scope(
@@ -196,14 +196,14 @@ pub(super) fn replacement_event(
 ) -> serde_json::Value {
     json!({
         "time": chrono::Utc::now().timestamp(),
-        "kind": "blueprint",
+        "kind": "sentinel",
         "tab": job.creator_tab_id,
         "workspace_id": job.workspace_id,
         "team_id": job.team_id,
         "action": "run_replaced",
         "reason": "run_replaced",
         "label": "other",
-        "blueprint_id": job.id,
+        "sentinel_id": job.id,
         "cron_id": binding.cron_id,
         "old_run_id": previous.run_id,
         "new_run_id": binding.run_id,
@@ -219,7 +219,7 @@ pub(super) fn reconcile_runs(svc: &ServiceContext, handle: &super::scheduler::Ha
         .iter()
         .filter_map(|job| {
             let run = job.run.as_ref()?;
-            let Some(TabBinding::CronRun(cron_id)) = job.observe() else {
+            let Some(TabBinding::CronRun(cron_id)) = job.observe.as_ref() else {
                 return None;
             };
             Some((job.clone(), cron_id.clone(), run.clone()))
@@ -345,7 +345,7 @@ impl Store {
             || current
                 .expires_at
                 .is_some_and(|at| self.clock.now_ms() >= at)
-            || current.observe().cloned() != Some(TabBinding::CronRun(cron_id.to_string()))
+            || current.observe != Some(TabBinding::CronRun(cron_id.to_string()))
         {
             return Staged::ready(Ok(RunBindOutcome::default()));
         }
@@ -423,7 +423,7 @@ impl Store {
         let Some(revision) = current.revision.checked_add(1) else {
             return Staged::ready(Err("blueprint run generation exhausted".into()));
         };
-        let cron_id = match current.observe() {
+        let cron_id = match current.observe.as_ref() {
             Some(TabBinding::CronRun(cron_id)) => cron_id.clone(),
             _ => return Staged::ready(Ok(RunBindOutcome::default())),
         };

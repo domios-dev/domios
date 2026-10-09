@@ -3,25 +3,33 @@ use serde_json::{json, Value};
 use super::{get_string_param, JsonRpcError};
 use crate::service::ServiceState;
 
+fn blueprint_message(message: &str) -> String {
+    message
+        .replace("Sentinels", "Blueprints")
+        .replace("Sentinel", "Blueprint")
+        .replace("sentinels ", "blueprints ")
+        .replace("sentinel ", "blueprint ")
+}
+
 fn error(message: impl Into<String>) -> JsonRpcError {
     let message = message.into();
     let version_conflict = message
-        .strip_prefix("blueprint_version_conflict: current_version=")
+        .strip_prefix("sentinel_version_conflict: current_version=")
         .and_then(|version| version.parse::<u64>().ok());
     let code = if version_conflict.is_some() {
-        "blueprint_version_conflict"
-    } else if message.starts_with("blueprint_store_unsupported_format:") {
-        "blueprint_store_unsupported_format"
-    } else if message.starts_with("blueprint_store_load_failed:") {
-        "blueprint_store_load_failed"
-    } else if message.starts_with("blueprint_store_persistence_failed:") {
-        "blueprint_store_persistence_failed"
+        "sentinel_version_conflict"
+    } else if message.starts_with("sentinel_store_unsupported_format:") {
+        "sentinel_store_unsupported_format"
+    } else if message.starts_with("sentinel_store_load_failed:") {
+        "sentinel_store_load_failed"
+    } else if message.starts_with("sentinel_store_persistence_failed:") {
+        "sentinel_store_persistence_failed"
     } else {
-        "blueprint_refused"
+        "sentinel_refused"
     };
     JsonRpcError {
         code: -32602,
-        message,
+        message: blueprint_message(&message),
         data: Some(match version_conflict {
             Some(current_version) => json!({
                 "code": code,
@@ -163,7 +171,7 @@ pub(super) fn dispatch(
             let id = get_string_param(params, "id")?;
             let job = svc.sentinel_show(&caller, &id).map_err(error)?;
             let mut value = serde_json::to_value(&job).map_err(|e| error(e.to_string()))?;
-            if let Some(spec) = &job.pipeline().cloned() {
+            if let Some(spec) = &job.pipeline {
                 let entries = svc.blueprint_log(&caller, &id, 200).map_err(error)?;
                 add_pipeline_show(&mut value, spec, &entries);
             }
@@ -338,7 +346,21 @@ fn add_pipeline_show(
         .iter()
         .enumerate()
         .map(|(index, step)| {
-            let accepted = step.kind.outcomes().unwrap_or_default().into_iter().collect::<Vec<_>>();
+            let accepted = match &step.kind {
+                StepKind::Command { .. } | StepKind::Convert { .. } => {
+                    vec!["done".to_string(), "failed".to_string()]
+                }
+                StepKind::Ask { buckets, .. } => buckets
+                    .iter()
+                    .cloned()
+                    .chain(std::iter::once("other".into()))
+                    .collect(),
+                StepKind::Filter { bucket, .. } => bucket
+                    .iter()
+                    .cloned()
+                    .chain(["done".into(), "failed".into()])
+                    .collect(),
+            };
             let outcome = run_entries.iter().find(|entry| {
                 entry.step_index == index as i64
                     && entry.outcome.as_ref().is_some_and(|outcome| accepted.contains(outcome))
@@ -368,7 +390,13 @@ fn add_pipeline_show(
 }
 
 fn step_kind_name(kind: &codeterm_types::blueprint_pipeline::StepKind) -> &'static str {
-    kind.name()
+    use codeterm_types::blueprint_pipeline::StepKind;
+    match kind {
+        StepKind::Command { .. } => "command",
+        StepKind::Convert { .. } => "convert",
+        StepKind::Ask { .. } => "ask",
+        StepKind::Filter { .. } => "filter",
+    }
 }
 
 fn stored_definition(value: Value) -> Result<Value, JsonRpcError> {
@@ -393,23 +421,23 @@ mod tests {
         let stored = stored_definition(public.clone()).unwrap();
         assert_eq!(stored["id"], "sentinel_existing");
         assert_eq!(stored["probe"], public["probe"]);
-        assert_eq!(stored["routes"]["done"], "blueprint:sentinel_child");
-        assert_eq!(stored["handlers"]["done"][0]["type"], "blueprint");
+        assert_eq!(stored["routes"]["done"], "sentinel:sentinel_child");
+        assert_eq!(stored["handlers"]["done"][0]["type"], "sentinel");
         assert_eq!(exposed_definition(stored), public);
         let persisted = json!({"routes":{"done":[{"id":"join","action":{"kind":"sentinel","target":"sentinel_child"},"target":{"kind":"sentinel","id":"sentinel_child"}}]}});
         let exposed = exposed_definition(persisted.clone());
         assert_eq!(exposed["routes"]["done"][0]["action"]["kind"], "blueprint");
-        assert_eq!(exposed["routes"]["done"][0]["target"]["kind"], "blueprint");
-        assert_eq!(stored_definition(persisted).unwrap(), exposed);
+        assert_eq!(exposed["routes"]["done"][0]["target"]["kind"], "sentinel");
+        assert_eq!(stored_definition(exposed).unwrap(), persisted);
     }
 
     #[test]
-    fn blueprint_handlers_accept_legacy_public_names() {
-        assert!(stored_definition(json!({"routes":{"done":"sentinel:child"}} )).is_ok());
+    fn blueprint_handlers_refuse_removed_public_names() {
+        assert!(stored_definition(json!({"routes":{"done":"sentinel:child"}})).is_err());
         assert!(stored_definition(
             json!({"handlers":{"done":[{"type":"sentinel","parameters":{"target":"child"}}]}})
         )
-        .is_ok());
+        .is_err());
     }
 
     #[test]
@@ -417,7 +445,7 @@ mod tests {
         let error = error(crate::sentinel::amend::version_conflict(9));
         assert_eq!(
             error.data.as_ref().unwrap()["code"],
-            "blueprint_version_conflict"
+            "sentinel_version_conflict"
         );
         assert_eq!(error.data.as_ref().unwrap()["current_version"], 9);
     }

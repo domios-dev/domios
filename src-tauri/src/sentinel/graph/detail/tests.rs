@@ -69,10 +69,7 @@ fn opened_solo_definition_requires_its_exact_creation_scope() {
 #[test]
 fn definition_text_is_redacted_bounded_and_explicitly_truncated() {
     let mut job = job();
-    job.set_probe(format!(
-        "password=credential-fixture\n{}",
-        "\u{03bb}".repeat(3000)
-    ));
+    job.probe = format!("password=credential-fixture\n{}", "\u{03bb}".repeat(3000));
     if let Route::Command(command) = &mut job.routes.get_mut("done").unwrap()[0].action {
         command.command = format!(
             "{}\nhttps://user:pass@example.test/?token=credential-fixture",
@@ -105,14 +102,14 @@ fn origin_and_next_check_do_not_infer_missing_evidence() {
     job.machine.paused = true;
     assert!(detail(&job, "workspace", Some("team"))["next_check_at_ms"].is_null());
     job.machine.paused = false;
-    job.set_observe(Some(TabBinding::CronRun("cron".into())));
+    job.observe = Some(TabBinding::CronRun("cron".into()));
     let value = detail(&job, "workspace", Some("team"));
     assert_eq!(
         value["observe_target"],
         json!({"kind":"cron_run","id":"cron"})
     );
     assert!(value["next_check_at_ms"].is_null());
-    job.set_observe(Some(TabBinding::Tab("watched".into())));
+    job.observe = Some(TabBinding::Tab("watched".into()));
     assert_eq!(
         detail(&job, "workspace", Some("team"))["observe_target"],
         json!({"kind":"tab","id":"watched"})

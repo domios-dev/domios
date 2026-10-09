@@ -428,7 +428,7 @@ fn pipeline_journals(
 ) -> Result<BTreeMap<String, Vec<BlueprintJournalEntry>>, String> {
     let ids = jobs
         .iter()
-        .filter(|job| job.pipeline().is_some())
+        .filter(|job| job.pipeline.is_some())
         .map(|job| job.id.clone())
         .collect::<Vec<_>>();
     if ids.is_empty() {

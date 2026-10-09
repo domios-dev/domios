@@ -65,8 +65,13 @@ pub(in crate::sentinel) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>
     }
     let mut ids = std::collections::BTreeSet::new();
     for job in &jobs {
-        if job.pipeline().is_none() {
+        if job.pipeline.is_none() {
             machine::validate(&job.buckets, &job.matches, true, job.interval_ms)?;
+        }
+        if job.pipeline.is_some() != (job.probe == PIPELINE_SOURCE)
+            || (job.pipeline.is_some() && (job.observe.is_some() || job.input.is_some()))
+        {
+            return Err("invalid stored pipeline source".into());
         }
         if job
             .rearm_on_change
@@ -86,7 +91,7 @@ pub(in crate::sentinel) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>
             || job.transitions.len() > MAX_LIFETIME_TRANSITIONS
             || (!job.session && job.run_transitions > job.max_transitions)
             || (!job.session
-                && !matches!(job.observe(), Some(TabBinding::CronRun(_)))
+                && !matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_)))
                 && job.transitions.len() > usize::from(job.max_transitions))
             || job
                 .transitions
@@ -147,7 +152,7 @@ pub(in crate::sentinel) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>
         }
         for handler in job.routes.values().flatten() {
             let expected_kind_id = match &handler.action {
-                Route::Sentinel(id) => Some(("blueprint", id)),
+                Route::Sentinel(id) => Some(("sentinel", id)),
                 Route::Send(id) => Some(("worker", id)),
                 Route::Cron(id) => Some(("cron", id)),
                 Route::Notify
@@ -166,7 +171,7 @@ pub(in crate::sentinel) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>
                 if expected_kind_id != Some((target.kind.as_str(), &target.id))
                     || target.workspace_id != job.workspace_id
                     || target.team_id != job.team_id
-                    || (target.kind == "blueprint"
+                    || (target.kind == "sentinel"
                         && target.owner_tab_id.as_deref() != Some(&job.creator_tab_id))
                 {
                     return Err("invalid stored exact handler target scope".into());
@@ -180,8 +185,8 @@ pub(in crate::sentinel) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>
         {
             return Err("invalid blueprint identity or scope".into());
         }
-        if job.probe().len() > 8192
-            || (job.pipeline().is_none() && job.question.trim().is_empty())
+        if job.probe.len() > 8192
+            || (job.pipeline.is_none() && job.question.trim().is_empty())
             || job.question.len() > 4096
         {
             return Err("invalid blueprint probe or question".into());
@@ -228,7 +233,7 @@ impl Store {
             terminal: None,
             session: false,
             name: Some(spec.name.clone()),
-            probe: None,
+            probe: Some(PIPELINE_SOURCE.into()),
             observe: None,
             input: None,
             question: String::new(),
@@ -265,7 +270,7 @@ impl Store {
         pipeline: Option<codeterm_types::blueprint_pipeline::BlueprintSpec>,
     ) -> Result<Sentinel, String> {
         if self.admission_closed {
-            return Err("blueprint_shutdown_admission_closed".into());
+            return Err("sentinel_shutdown_admission_closed".into());
         }
         self.ensure_available()?;
         let Owner {
@@ -278,32 +283,28 @@ impl Store {
             "Blueprint graph name is required; use --name ci-green-watch or --name build-done-notify".to_string()
         })?;
         codeterm_types::automation_name::validate_sentinel_name(name)?;
-        let (probe, observe, input) = if pipeline.is_some() {
-            (String::new(), None, None)
-        } else {
-            match (params.probe, params.observe, params.input) {
-                (Some(probe), None, None) if !probe.trim().is_empty() && probe.len() <= 8192 => {
-                    (probe, None, None)
-                }
-                (Some(_), None, None) => {
-                    return Err("--probe must be nonempty and bounded to 8192 bytes".into());
-                }
-                (None, Some(binding), None) if source::bounded_id(binding.id()) => {
-                    (String::new(), Some(binding), None)
-                }
-                (None, Some(_), None) => {
-                    return Err("--observe: use tab:<id> or cron-run:<id>".into());
-                }
-                (None, None, Some(input)) => {
-                    codeterm_types::sentinel_input::validate(&input)
-                        .map_err(|error| format!("--input: {error}"))?;
-                    if !params.rearm_on_change.is_empty() {
-                        return Err("--rearm-on-change requires a probe source".into());
-                    }
-                    (String::new(), None, Some(input))
-                }
-                _ => return Err("provide exactly one of --probe, --observe or --input".into()),
+        let (probe, observe, input) = match (params.probe, params.observe, params.input) {
+            (Some(probe), None, None) if !probe.trim().is_empty() && probe.len() <= 8192 => {
+                (probe, None, None)
             }
+            (Some(_), None, None) => {
+                return Err("--probe must be nonempty and bounded to 8192 bytes".into());
+            }
+            (None, Some(binding), None) if source::bounded_id(binding.id()) => {
+                (String::new(), Some(binding), None)
+            }
+            (None, Some(_), None) => {
+                return Err("--observe: use tab:<id> or cron-run:<id>".into());
+            }
+            (None, None, Some(input)) => {
+                codeterm_types::sentinel_input::validate(&input)
+                    .map_err(|error| format!("--input: {error}"))?;
+                if !params.rearm_on_change.is_empty() {
+                    return Err("--rearm-on-change requires a probe source".into());
+                }
+                (String::new(), None, Some(input))
+            }
+            _ => return Err("provide exactly one of --probe, --observe or --input".into()),
         };
         let interval_ms = duration_ms(&params.every)?;
         if pipeline.is_none() {
@@ -364,17 +365,11 @@ impl Store {
             .transpose()?
             .map(|duration| now.saturating_add(duration));
         let id = format!(
-            "blueprint_{}",
+            "sentinel_{}",
             &uuid::Uuid::new_v4().simple().to_string()[..12]
         );
         let job = Sentinel {
-            source: super::super::stage_source::StageSource::from_parts(
-                probe,
-                observe,
-                input,
-                params.terminal,
-                pipeline,
-            )?,
+            terminal: params.terminal,
             session: params.session,
             causal_run: None,
             id: id.clone(),
@@ -382,6 +377,7 @@ impl Store {
             creator_tab_id: creator,
             workspace_id: workspace,
             cwd,
+            probe,
             question: params.question,
             buckets: params.buckets,
             interval_ms,
@@ -399,11 +395,14 @@ impl Store {
             revision: 0,
             agent_authored: false,
             name: params.name,
+            pipeline,
             scenario_id: if params.paused { None } else { Some(id) },
             max_transitions,
             max_actions,
             transitions: Vec::new(),
             run_transitions: 0,
+            observe,
+            input,
             run: None,
             on_other,
             escalation_timeout_ms: params.escalation_timeout_ms,

@@ -63,7 +63,7 @@ fn blueprint_import_persists_stopped_and_visible_in_scratch_team() {
             let value = if key == "timeout" {
                 "1h"
             } else if description.ends_with(".probe") {
-                original.probe().as_str()
+                original.probe.as_str()
             } else if description.ends_with(".question") {
                 original.question.as_str()
             } else if description.ends_with(".matches.done") {

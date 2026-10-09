@@ -22,10 +22,10 @@ fn text(input: &str, limit: usize) -> (String, bool) {
 }
 
 pub(super) fn definition(job: &Sentinel) -> Value {
-    if job.pipeline().is_some() {
+    if job.pipeline.is_some() {
         return json!({"unavailable":"pipeline_definition_not_representable_in_v1"});
     }
-    let (probe, probe_truncated) = text(&job.probe(), MAX_TEXT_BYTES);
+    let (probe, probe_truncated) = text(&job.probe, MAX_TEXT_BYTES);
     let (question, question_truncated) = text(&job.question, MAX_TEXT_BYTES);
     if question_truncated || job.buckets.len() > MAX_BUCKETS {
         return json!({"unavailable":"definition_exceeds_v1_bounds"});
@@ -62,7 +62,7 @@ pub(super) fn definition(job: &Sentinel) -> Value {
             }
         }
     }
-    let definition = json!({"probe":(!job.probe().is_empty()).then_some(probe),"probe_truncated":probe_truncated,"decision_kind":if job.matches.is_empty() {"agent"} else {"pattern"},"command_language":if cfg!(windows) {"powershell"} else {"bash"},"language":if cfg!(windows) {"powershell"} else {"bash"},
+    let definition = json!({"probe":(!job.probe.is_empty()).then_some(probe),"probe_truncated":probe_truncated,"language":if cfg!(windows) {"powershell"} else {"bash"},
         "question":question,"buckets":buckets,"commands":commands});
     if definition.to_string().len() > MAX_DEFINITION_BYTES {
         json!({"unavailable":"definition_exceeds_v1_bounds"})
@@ -103,8 +103,8 @@ pub(super) fn project(
                 .is_some_and(|decision| decision.decided_by == DecidedBy::Adapter)
         })
     });
-    let scheduled = job.pipeline().is_none()
-        && job.input().is_none()
+    let scheduled = job.pipeline.is_none()
+        && job.input.is_none()
         && !executing
         && !job.machine.paused
         && !job.machine.stopped
@@ -113,14 +113,14 @@ pub(super) fn project(
             .expires_at
             .is_none_or(|at| now_ms < at && job.next_run < at)
         && !(matches!(
-            job.observe().cloned(),
+            job.observe,
             Some(crate::sentinel::source::TabBinding::CronRun(_))
         ) && job.run.is_none());
     json!({"version":1,"scope":{"workspace_id":job.workspace_id,"team_id":job.team_id,"node_id":job.id},
         "origin":if job.agent_authored {"agent"} else {"unknown"},
         "creator":if job.creator_tab_id.is_empty() {Value::Null} else {json!({"tab_id":job.creator_tab_id,"name":creator_name})},
         "team":job.team_id.as_ref().map(|id| json!({"id":id,"name":team_name})),
-        "observe_target":if job.input().is_some() {None} else {job.observe()},"next_check_at_ms":scheduled.then_some(job.next_run),
+        "observe_target":if job.input.is_some() {None} else {job.observe.as_ref()},"next_check_at_ms":scheduled.then_some(job.next_run),
         "definition":if exact_scope {definition(job)} else {json!({"unavailable":"team_view_required"})},
         "decisions":{"history_complete":history_complete,"adapter_used":adapter_used}})
 }

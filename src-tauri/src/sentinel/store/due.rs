@@ -88,10 +88,10 @@ pub(super) fn plan_due(
         if job.machine.paused {
             continue;
         }
-        if matches!(job.observe(), Some(TabBinding::CronRun(_))) && job.run.is_none() {
+        if matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_))) && job.run.is_none() {
             continue;
         }
-        if job.pipeline().is_some_and(|pipeline| {
+        if job.pipeline.as_ref().is_some_and(|pipeline| {
             matches!(
                 &pipeline.trigger,
                 codeterm_types::blueprint_pipeline::Trigger::Event { .. }
@@ -99,16 +99,16 @@ pub(super) fn plan_due(
         }) {
             continue;
         }
-        let input_trigger = job.pipeline().is_some_and(|pipeline| {
+        let input_trigger = job.pipeline.as_ref().is_some_and(|pipeline| {
             matches!(
                 &pipeline.trigger,
                 codeterm_types::blueprint_pipeline::Trigger::Input { .. }
             )
         });
-        let text_event = job.terminal().is_some() || job.input().is_some();
+        let text_event = job.terminal.is_some() || job.input.is_some();
         let due_now = if text_event {
             wake_pending.contains(&job.id)
-                || (job.input().is_some()
+                || (job.input.is_some()
                     && job.next_run != codeterm_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS
                     && job.next_run <= now)
         } else if input_trigger {
@@ -153,7 +153,7 @@ pub(in crate::sentinel) fn transition_budget_spent(job: &Sentinel) -> bool {
     if job.transitions.len() >= MAX_LIFETIME_TRANSITIONS {
         return true;
     }
-    if matches!(job.observe(), Some(TabBinding::CronRun(_))) {
+    if matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_))) {
         job.run.is_some() && job.run_transitions >= job.max_transitions
     } else {
         job.transitions.len() >= usize::from(job.max_transitions)

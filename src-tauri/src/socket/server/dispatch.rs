@@ -11,10 +11,6 @@ pub(super) fn dispatch(
     _output_buf: &OutputBufferState,
     svc: &ServiceState,
 ) -> Result<serde_json::Value, JsonRpcError> {
-    let canonical_method = method
-        .strip_prefix("sentinel.")
-        .map(|suffix| format!("blueprint.{suffix}"));
-    let method = canonical_method.as_deref().unwrap_or(method);
     // System methods are tiny — handle inline.
     match method {
         "plugin.refresh_installed" => {

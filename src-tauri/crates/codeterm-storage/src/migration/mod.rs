@@ -59,7 +59,7 @@ impl ImportDomain {
         match self {
             ImportDomain::Desk => "desk",
             ImportDomain::Cron => "cron",
-            ImportDomain::Sentinel => "blueprint",
+            ImportDomain::Sentinel => "sentinel",
         }
     }
 }
@@ -704,7 +704,7 @@ impl Tamper {
                          VALUES ('fk-missing', 'fk-missing', 0, 'success')"
                     }
                     ImportDomain::Sentinel => {
-                        "INSERT INTO blueprint_definitions (blueprint_id, version, provenance, probe, question, interval_ms, max_transitions, max_actions, created_revision) \
+                        "INSERT INTO sentinel_definitions (sentinel_id, version, provenance, probe, question, interval_ms, max_transitions, max_actions, created_revision) \
                          VALUES ('fk-missing', 1, 'imported', 'probe', 'question', 1, 1, 1, 1)"
                     }
                 };

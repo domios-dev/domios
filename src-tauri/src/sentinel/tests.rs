@@ -609,7 +609,7 @@ fn sentinel_probe_unconfirmed_cleanup_stops_watch_without_classification() {
     assert_eq!(stopped.machine.last_hash, None);
     assert_eq!(stopped.machine.last_bucket, None);
     assert!(
-        matches!(store.lock().due(), Err(error) if error.starts_with("blueprint_store_load_failed:"))
+        matches!(store.lock().due(), Err(error) if error.starts_with("sentinel_store_load_failed:"))
     );
     assert!(lease.cancelled.load(std::sync::atomic::Ordering::SeqCst));
     crate::persisted_state::release_hold(&state_path);
@@ -703,42 +703,4 @@ fn sentinel_create_patterns_and_routes_are_validated_before_admission() {
         )
         .unwrap();
     assert_eq!(job.routes["passed"][0].action, Route::Stop);
-}
-
-#[test]
-fn blueprint_route_catalog_equals_enum_and_scenario_root_ignores_author_transport() {
-    let routes = [
-        Route::Notify,
-        Route::Send("tab".into()),
-        Route::Cron("cron".into()),
-        Route::Stop,
-        Route::Sentinel("blueprint_child".into()),
-        Route::Command(super::command::Parameters {
-            command: "status".into(),
-            label: "status".into(),
-            timeout_ms: 1000,
-        }),
-        Route::RespondPrompt(SafeKind::Permission),
-        Route::Escalate(EscalateTarget::Creator),
-    ];
-    assert_eq!(
-        routes.iter().map(Route::name).collect::<BTreeSet<_>>(),
-        Route::DESCRIPTORS
-            .iter()
-            .map(|descriptor| descriptor.name)
-            .collect()
-    );
-    let dir = tempfile::tempdir().unwrap();
-    let mut store = super::store::Store::new(
-        dir.path().join("jobs.json"),
-        crate::cron::clock::MockClock::starting_at(1000),
-    );
-    let mut job = create(&mut store, "team");
-    job.scenario_id = Some(job.id.clone());
-    job.agent_authored = false;
-    assert!(job.is_scenario_root());
-    job.agent_authored = true;
-    assert!(job.is_scenario_root());
-    job.scenario_id = Some("blueprint_parent".into());
-    assert!(!job.is_scenario_root());
 }

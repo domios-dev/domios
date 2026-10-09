@@ -1,92 +1,73 @@
 use serde::Serialize;
 
 const SOURCE: &str = include_str!("../../../../prod-docs/BLUEPRINT-RECIPES.md");
+const REQUIRED: &[&str] = &[
+    "team-watch",
+    "wait-for-build",
+    "retry-until-pass",
+    "prompt-responder",
+    "cron-run-watch",
+    "launch-prompt-gate",
+    "all-finished",
+    "voice-note-to-text",
+];
+
 #[derive(Clone, Debug, Serialize)]
 pub(super) struct Recipe {
     pub name: String,
     pub summary: String,
     pub handlers: String,
     pub command: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub spec: Option<serde_json::Value>,
 }
 
 pub(super) fn recipes() -> Result<Vec<Recipe>, String> {
-    parse_catalog(SOURCE)
-}
-
-fn parse_catalog(source: &str) -> Result<Vec<Recipe>, String> {
     let mut recipes = Vec::new();
-    let mut names = std::collections::BTreeSet::new();
-    let mut remaining = source;
-    while let Some((_, tail)) = remaining.split_once("<!-- blueprint-") {
-        let (pipeline, tail) = if let Some(tail) = tail.strip_prefix("pipeline-recipe:") {
-            (true, tail)
-        } else if let Some(tail) = tail.strip_prefix("recipe:") {
-            (false, tail)
-        } else {
-            remaining = tail;
-            continue;
-        };
+    let mut remaining = SOURCE;
+    while let Some((_, tail)) = remaining.split_once("<!-- blueprint-recipe:") {
         let (header, after_header) = tail
             .split_once("-->")
             .ok_or("recipe block needs a closing marker")?;
         let name = header.trim();
-        let closing = if pipeline {
-            "<!-- /blueprint-pipeline-recipe -->"
-        } else {
-            "<!-- /blueprint-recipe -->"
-        };
         let (body, rest) = after_header
-            .split_once(closing)
+            .split_once("<!-- /blueprint-recipe -->")
             .ok_or_else(|| format!("recipe `{name}` needs an end marker"))?;
         let summary = body
             .lines()
             .find_map(|line| line.trim().strip_prefix("**Purpose:** "))
             .ok_or_else(|| format!("recipe `{name}` needs a purpose"))?;
-        let handlers = if pipeline {
-            String::new()
-        } else {
-            fenced(body, "json")
-                .ok_or_else(|| format!("recipe `{name}` needs handlers JSON"))?
-                .into()
-        };
-        let spec = if pipeline {
-            Some(
-                serde_yaml::from_str(
-                    fenced(body, "yaml")
-                        .ok_or_else(|| format!("recipe `{name}` needs a YAML specification"))?,
-                )
-                .map_err(|e| format!("recipe `{name}`: {e}"))?,
-            )
-        } else {
-            None
-        };
+        let handlers =
+            fenced(body, "json").ok_or_else(|| format!("recipe `{name}` needs handlers JSON"))?;
         let command = fenced(body, "bash")
             .ok_or_else(|| format!("recipe `{name}` needs a create command"))?;
-        if name.is_empty() || !names.insert(name.to_string()) || !command.contains("--dry-run") {
+        if name.is_empty() || command.is_empty() || !command.contains("--dry-run") {
             return Err(format!(
-                "recipe `{name}` has a duplicate name or incomplete dry-run skeleton"
+                "recipe `{name}` has an incomplete dry-run skeleton"
             ));
         }
         recipes.push(Recipe {
             name: name.into(),
             summary: summary.into(),
-            handlers,
+            handlers: handlers.into(),
             command: command.into(),
-            spec,
         });
         remaining = rest;
     }
+    for required in REQUIRED {
+        if recipes
+            .iter()
+            .filter(|recipe| recipe.name == *required)
+            .count()
+            != 1
+        {
+            return Err(format!(
+                "recipe catalog must contain `{required}` exactly once"
+            ));
+        }
+    }
+    if recipes.len() != REQUIRED.len() {
+        return Err("recipe catalog contains an unexpected recipe".into());
+    }
     Ok(recipes)
-}
-
-pub(super) fn pipeline_spec(name: &str) -> Result<serde_json::Value, String> {
-    recipes()?
-        .into_iter()
-        .find(|recipe| recipe.name == name)
-        .and_then(|recipe| recipe.spec)
-        .ok_or_else(|| format!("unknown pipeline recipe `{name}`"))
 }
 
 fn fenced<'a>(body: &'a str, language: &str) -> Option<&'a str> {
@@ -116,16 +97,6 @@ pub(super) fn print(json_mode: bool, name: Option<&str>) {
         if json_mode {
             crate::cmd::print::print_json(&serde_json::to_value(recipe).unwrap_or_default());
         } else {
-            if let Some(spec) = &recipe.spec {
-                println!(
-                    "Recipe: {}\n{}\n\nSpecification:\n{}\n\nDry-run command:\n{}",
-                    recipe.name,
-                    recipe.summary,
-                    serde_yaml::to_string(spec).unwrap_or_default(),
-                    recipe.command
-                );
-                return;
-            }
             println!("Recipe: {}\n{}\n\nHandlers JSON (save as handlers.json):\n{}\n\nDry-run command:\n{}", recipe.name, recipe.summary, recipe.handlers, recipe.command);
         }
         return;
@@ -134,7 +105,7 @@ pub(super) fn print(json_mode: bool, name: Option<&str>) {
         crate::cmd::print::print_json(&serde_json::to_value(recipes).unwrap_or_default());
     } else {
         for recipe in recipes {
-            println!("{} â€” {}", recipe.name, recipe.summary);
+            println!("{} — {}", recipe.name, recipe.summary);
         }
         println!("\nPrint a ready handlers file and --dry-run command with `codeterm blueprint recipe <name>`.");
     }
@@ -146,26 +117,10 @@ mod tests {
     use serde_json::Value;
 
     #[test]
-    fn blueprint_recipe_catalog_includes_echo_and_both_definition_kinds() {
-        let recipes = recipes().unwrap();
-        assert!(recipes.iter().any(|recipe| recipe.spec.is_none()));
-        let echo = recipes.iter().find(|recipe| recipe.name == "echo").unwrap();
-        assert_eq!(
-            echo.spec.as_ref().unwrap()["steps"][0]["kind"]["kind"],
-            "command"
-        );
-        assert_eq!(pipeline_spec("echo").unwrap(), *echo.spec.as_ref().unwrap());
-    }
-
-    #[test]
     fn every_recipe_contains_handlers_and_a_dry_run_create_command() {
         use clap::Parser;
 
-        for recipe in recipes()
-            .unwrap()
-            .into_iter()
-            .filter(|recipe| recipe.spec.is_none())
-        {
+        for recipe in recipes().unwrap() {
             let handlers: Value = serde_json::from_str(&recipe.handlers).unwrap();
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("handlers.json");

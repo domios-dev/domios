@@ -49,7 +49,7 @@ fn blueprint_export_redacts_local_references_secrets_and_runtime() {
         "name":"Portable watcher", "probe":"cat /private/probe/file --token secret-token-value", "question":"State?", "buckets":["done"], "matches":{"done":"done"}, "timeout":"1h",
         "handlers":{"done":[
             {"id":"private-handler-id", "type":"send", "parameters":{"target":"private-tab-id"}},
-            {"id":"next", "type":"blueprint", "parameters":{"target":"sentinel_private_child"}},
+            {"id":"next", "type":"sentinel", "parameters":{"target":"sentinel_private_child"}},
             {"id":"cron", "type":"cron", "parameters":{"target":"private-cron-name"}}
         ], "other":[{"id":"agent", "type":"escalate", "parameters":{"target":"agent:private-agent-id"}}]}, "escalation_timeout_ms": 1000
     })).unwrap(), owner("private-team-id"), false).unwrap();
@@ -91,7 +91,7 @@ fn blueprint_recipe_round_trip_into_another_team_preserves_definition() {
     let recipe = Recipe::parse(&serde_json::to_string(&export(&job).unwrap()).unwrap()).unwrap();
     assert_eq!(
         recipe.definition.get("create").is_some(),
-        job.pipeline().is_none()
+        job.pipeline.is_none()
     );
     let bound = recipe.bind(&bindings(&recipe, &definition(&job))).unwrap();
     let imported = store
@@ -137,37 +137,11 @@ fn blueprint_pipeline_export_round_trip_preserves_trigger_steps_and_result() {
     }
     assert_eq!(
         recipe.definition.get("create").is_some(),
-        job.pipeline().is_none()
+        job.pipeline.is_none()
     );
     let bound = recipe.bind(&bindings(&recipe, &definition(&job))).unwrap();
     assert_eq!(
         bound["spec"],
-        serde_json::to_value(job.pipeline().cloned().unwrap()).unwrap()
+        serde_json::to_value(job.pipeline.unwrap()).unwrap()
     );
-}
-
-#[test]
-fn blueprint_import_accepts_legacy_export_handler_keys() {
-    let recipe = Recipe::parse(r#"{"schema_version":1,"placeholders":{},"definition":{"create":{"name":"Legacy export","probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h","handlers":{"done":[{"id":"next","type":"sentinel","parameters":{"target":"sentinel_child"}}]}}}}"#).unwrap();
-    let bound =
-        crate::sentinel::public_definition::stored_definition(recipe.bind(&[]).unwrap()).unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::new(
-        dir.path().join("jobs.json"),
-        crate::cron::clock::MockClock::starting_at(1000),
-    );
-    let job = store
-        .prepare(
-            serde_json::from_value(bound["create"].clone()).unwrap(),
-            owner("team"),
-            false,
-        )
-        .unwrap();
-    assert_eq!(
-        job.routes["done"][0].action,
-        Route::Sentinel("sentinel_child".into())
-    );
-    assert!(job.id.starts_with("blueprint_"));
-    let public = definition(&job);
-    assert_eq!(public["create"]["handlers"]["done"][0]["type"], "blueprint");
 }

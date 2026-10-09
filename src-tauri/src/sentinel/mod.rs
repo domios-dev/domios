@@ -19,7 +19,6 @@ pub(crate) mod run_binding;
 pub(crate) mod scheduler;
 mod session;
 pub(crate) mod source;
-pub(crate) mod stage_source;
 pub(crate) mod storage;
 pub(crate) mod store;
 pub(crate) mod terminal;

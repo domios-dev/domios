@@ -163,22 +163,6 @@ pub fn create_router(state: AppState) -> Router {
             axum::routing::delete(super::automation_graph_routes::delete),
         )
         .route(
-            "/api/automation/sentinels/{id}/stop",
-            post(super::automation_graph_routes::stop),
-        )
-        .route(
-            "/api/automation/sentinels/{id}",
-            axum::routing::delete(super::automation_graph_routes::delete),
-        )
-        .route(
-            "/api/sentinels/{id}/stop",
-            post(super::automation_graph_routes::stop),
-        )
-        .route(
-            "/api/sentinels/{id}",
-            axum::routing::delete(super::automation_graph_routes::delete),
-        )
-        .route(
             "/api/graph/events/{subscription_id}",
             post(super::automation_graph_routes::event_ingress)
                 .layer(axum::extract::DefaultBodyLimit::max(64 * 1024)),

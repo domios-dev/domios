@@ -26,9 +26,9 @@ impl Handle {
     pub(crate) fn terminal_output(&self, tab_id: &str, generation: Option<u64>, bytes: &[u8]) {
         let store = self.store.lock();
         if !store.list().iter().any(|job| {
-            job.terminal().is_some()
+            job.terminal.is_some()
                 && !job.machine.stopped
-                && matches!(&job.observe().cloned(), Some(source::TabBinding::Tab(id)) if id == tab_id)
+                && matches!(&job.observe, Some(source::TabBinding::Tab(id)) if id == tab_id)
         }) {
             return;
         }
@@ -37,7 +37,7 @@ impl Handle {
         for job in store.list().iter().filter(|job| {
             !job.machine.stopped
                 && !job.machine.paused
-                && matches!(&job.observe().cloned(), Some(source::TabBinding::Tab(id)) if id == tab_id)
+                && matches!(&job.observe, Some(source::TabBinding::Tab(id)) if id == tab_id)
         }) {
             inbox.feed(job, generation, bytes, now);
         }
@@ -70,9 +70,9 @@ impl Handle {
             .lock()
             .list()
             .iter()
-            .filter(|job| job.terminal().is_some() && !job.machine.stopped)
+            .filter(|job| job.terminal.is_some() && !job.machine.stopped)
             .filter_map(|job| {
-                let Some(source::TabBinding::Tab(tab)) = &job.observe().cloned() else {
+                let Some(source::TabBinding::Tab(tab)) = &job.observe else {
                     return None;
                 };
                 Some((

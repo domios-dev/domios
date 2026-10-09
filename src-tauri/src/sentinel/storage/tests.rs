@@ -36,8 +36,8 @@ const LEGACY: &str = r#"[
   "buckets":["done","failed","waiting"],"interval_ms":20000,
   "routes":{
    "done":[
-    {"id":"join","action":{"kind":"blueprint","target":"sentinel_child"},
-     "target":{"kind":"blueprint","id":"sentinel_child","workspace_id":"workspace","team_id":"team","owner_tab_id":"creator"}},
+    {"id":"join","action":{"kind":"sentinel","target":"sentinel_child"},
+     "target":{"kind":"sentinel","id":"sentinel_child","workspace_id":"workspace","team_id":"team","owner_tab_id":"creator"}},
     {"id":"build","action":{"kind":"command","target":{"command":"make check","label":"Check","timeout_ms":1000}},"target":null},
     {"id":"tell","action":{"kind":"send","target":"worker-tab"},
      "target":{"kind":"worker","id":"worker-tab","workspace_id":"workspace","team_id":"team","owner_tab_id":null}}],
@@ -202,7 +202,7 @@ fn stored(storage: &Storage, id: &str) -> StoredSentinel {
 }
 
 fn values(jobs: &[Sentinel]) -> Value {
-    serde_json::to_value(jobs).expect("serializable blueprints")
+    serde_json::to_value(jobs).expect("serializable sentinels")
 }
 
 fn statuses(store: &Mutex<Store>, id: &str) -> Vec<Status> {
@@ -224,7 +224,7 @@ fn import_legacy(storage: &Storage) -> Vec<Sentinel> {
     let records = legacy_import(LEGACY).expect("legacy decode");
     let committed = done(storage.sentinels().import(records));
     assert_eq!(committed.value.outcome, MutationOutcome::Applied);
-    serde_json::from_str(LEGACY).expect("fixture blueprints")
+    serde_json::from_str(LEGACY).expect("fixture sentinels")
 }
 
 #[test]
@@ -453,7 +453,7 @@ fn storage_sentinel_two_parents_activate_child_once_and_survive_reopen() {
     let clock = MockClock::starting_at(1000);
     let store = typed(&storage, &clock);
     let child = create(&store, Some("team"), true, json!({}));
-    let join = json!({"done":[{"id":"join","type":"blueprint","parameters":{"target":child.id}}]});
+    let join = json!({"done":[{"id":"join","type":"sentinel","parameters":{"target":child.id}}]});
     let first = create(&store, Some("team"), false, join.clone());
     let second = create(&store, Some("team"), false, join);
     let leases = due(&store);
