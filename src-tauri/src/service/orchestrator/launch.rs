@@ -449,7 +449,6 @@ pub(crate) fn launch_agent_in_background_with_env(
     let structured_startup_text = startup_turn_text.clone();
     let public_send_key = public_send::arm(&svc, &tab_id, &agent_cmd, startup_turn_text);
     // thread spawns: callers get the tab id immediately and may send right away.
-    mark_tab_agent_launch_started(&svc.mux, &tab_id);
     let authenticated = svc
         .mux
         .read()
@@ -457,6 +456,7 @@ pub(crate) fn launch_agent_in_background_with_env(
         .is_some_and(|tab| tab.launch_session_authenticated());
     let reserved_nonce = (!authenticated)
         .then(|| generation::reserve_binding_nonce(&svc, &tab_id, resume_session_id.as_deref()));
+    mark_tab_agent_launch_started(&svc.mux, &tab_id);
     crate::service::boot_wait::notify_boot_changed();
     std::thread::spawn(move || {
         let public_send_guard = public_send::guard(&svc, &tab_id, public_send_key);

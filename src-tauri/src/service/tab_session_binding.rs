@@ -117,21 +117,22 @@ impl ServiceContext {
     /// Rotate the per-launch binding nonce before a provider command is
     /// written. This is the launch boundary, so it opens the operation.
     pub fn rotate_session_binding_nonce(&self, tab_id: &str) -> String {
-        self.rotate_session_binding_nonce_with_resume_target(tab_id, None)
+        self.rotate_session_binding_nonce_with_resume_target(tab_id, None, false)
     }
 
-    pub(crate) fn rotate_session_binding_nonce_for_resume(
+    pub(crate) fn reserve_agent_launch_binding_nonce(
         &self,
         tab_id: &str,
-        session_id: &str,
+        resume_target: Option<&str>,
     ) -> String {
-        self.rotate_session_binding_nonce_with_resume_target(tab_id, Some(session_id))
+        self.rotate_session_binding_nonce_with_resume_target(tab_id, resume_target, true)
     }
 
     fn rotate_session_binding_nonce_with_resume_target(
         &self,
         tab_id: &str,
         resume_target: Option<&str>,
+        launch_starting: bool,
     ) -> String {
         self.invalidate_guarded_agent_input(tab_id);
         self.open_lifecycle_epoch(tab_id);
@@ -141,6 +142,15 @@ impl ServiceContext {
             tab.session_binding_nonce = Some(nonce.clone());
             tab.reported_session_binding_nonce = None;
             tab.provider_signals = Default::default();
+            if launch_starting {
+                tab.restored_from_snapshot = false;
+                tab.agent_booting = true;
+                crate::service::boot_stage::apply_boot_stage(
+                    tab,
+                    codeterm_types::pty::BootStage::PtyStarting,
+                    None,
+                );
+            }
             if let Some(session_id) = resume_target {
                 tab.remember_resume_binding_nonce(session_id);
             }

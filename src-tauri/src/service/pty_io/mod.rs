@@ -15,6 +15,8 @@ pub(crate) mod submit_transaction;
 pub(crate) mod tab_env;
 
 pub(crate) use actions::{await_action_deadline, execute_ordered_actions, OrderedPtyAction};
+#[cfg(test)]
+pub(crate) use lifecycle::claim_restored_launch;
 pub(crate) use lifecycle::claim_restored_pty_boot;
 pub(crate) use send::build_spawn_dispatch;
 pub(crate) use send::delivery_is_unknown;
