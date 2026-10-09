@@ -71,7 +71,10 @@ def route_calls(text: str):
         i = pos
 
 registered = set()
-routes_text = routes_rs.read_text(encoding="utf-8").split("#[cfg(test)]", 1)[0]
+routes_text = "\n".join(
+    source.read_text(encoding="utf-8").split("#[cfg(test)]", 1)[0]
+    for source in (routes_rs, routes_rs.with_name("memory_router.rs"))
+)
 for call in route_calls(routes_text):
     m = re.match(r'\s*"([^"]+)"\s*,\s*(.*)\s*$', call, re.S)
     if not m:

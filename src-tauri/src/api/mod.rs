@@ -30,6 +30,7 @@ pub mod inbound_webhook;
 pub(crate) mod local_preview_routes;
 pub mod logs_routes;
 pub mod mem_routes;
+mod memory_router;
 pub mod mesh_attachment;
 pub mod mesh_inventory;
 pub mod mesh_routes;
