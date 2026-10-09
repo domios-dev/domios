@@ -60,6 +60,10 @@ export function StatusLineModelPicker({
   const currentModel = currentModelId(descriptor, modelCandidates);
   const [open, setOpen] = useState(false);
   const [applied, setApplied] = useState<PickerSelection | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [failure, setFailure] = useState<{ message: string; selection: PickerSelection } | null>(null);
+  const appliedRef = useRef<PickerSelection | null>(null);
+  appliedRef.current = applied;
   const triggerRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (descriptor && applied && selectionReached(descriptor, applied, currentModel, currentEffort)) {
@@ -70,6 +74,28 @@ export function StatusLineModelPicker({
     setOpen(false);
     triggerRef.current?.focus({ preventScroll: true });
   }, []);
+  const commit = useCallback(async (selection: PickerSelection, restart: boolean) => {
+    const previous = appliedRef.current;
+    setApplied(selection);
+    setApplying(true);
+    setFailure(null);
+    close();
+    try {
+      const api = getTabModelApi();
+      if (restart) {
+        if (!api.restartAndSwitchModel) throw new Error("Restart fallback is unavailable");
+        await api.restartAndSwitchModel(tabId, selection.model, selection.effort);
+      } else {
+        await api.switchModel(tabId, selection.model, selection.effort);
+      }
+    } catch (error) {
+      setApplied(previous);
+      setFailure({ message: error instanceof Error ? error.message : String(error), selection });
+      setOpen(true);
+    } finally {
+      setApplying(false);
+    }
+  }, [close, tabId]);
 
   if (!gate.interactive || !descriptor) {
     return (
@@ -98,21 +124,18 @@ export function StatusLineModelPicker({
         <span className="ct-status-identity__text">{displayedLabel}</span>
         <ChevronDown size={12} strokeWidth={2.25} aria-hidden className="ct-status-identity__chevron" />
       </button>
+      {applying && <span className="ct-status-identity__pending" role="status">Applying…</span>}
       {open && (
         <ModelPickerPopover
-          tabId={tabId}
           descriptor={descriptor}
           gate={gate}
           triggerRef={triggerRef}
           currentModel={applied?.model ?? currentModel}
           currentEffort={applied ? applied.effort : currentEffort}
-          onApplying={(selection) => {
-            const previous = applied;
-            setApplied(selection);
-            return () => setApplied(previous);
-          }}
-          onApplied={close}
-          onClose={close}
+          busy={applying}
+          failure={failure}
+          onCommit={(selection, restart) => void commit(selection, restart)}
+          onClose={() => { setFailure(null); close(); }}
         />
       )}
     </span>
@@ -131,24 +154,24 @@ function selectionReached(
 }
 
 function ModelPickerPopover({
-  tabId,
   descriptor,
   gate,
   triggerRef,
   currentModel,
   currentEffort,
-  onApplying,
-  onApplied,
+  busy,
+  failure,
+  onCommit,
   onClose,
 }: {
-  tabId: string;
   descriptor: ProviderDescriptor;
   gate: Extract<ReturnType<typeof statusLineSwitchGate>, { interactive: true }>;
   triggerRef: RefObject<HTMLButtonElement | null>;
   currentModel: string | undefined;
   currentEffort: string | undefined;
-  onApplying: (selection: PickerSelection) => () => void;
-  onApplied: (selection: PickerSelection) => void;
+  busy: boolean;
+  failure: { message: string; selection: PickerSelection } | null;
+  onCommit: (selection: PickerSelection, restart: boolean) => void;
   onClose: () => void;
 }) {
   const titleId = useId();
@@ -156,14 +179,12 @@ function ModelPickerPopover({
   const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [staged, setStaged] = useState<PickerSelection | null>(
-    currentModel ? { model: currentModel, effort: currentEffort } : null,
+    failure?.selection ?? (currentModel ? { model: currentModel, effort: currentEffort } : null),
   );
   const [confirming, setConfirming] = useState<PickerSelection | null>(null);
   const [restartFallback, setRestartFallback] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const applyingRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(failure?.message ?? null);
   const [anchor, setAnchor] = useState<{ left: number; bottom: number } | null>(null);
   const searchable = pickerNeedsSearch(descriptor);
   const groups = pickerModelGroups(descriptor, staged?.model, query);
@@ -201,28 +222,9 @@ function ModelPickerPopover({
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [onClose, triggerRef]);
 
-  async function apply(selection: PickerSelection, restart = false) {
-    if (applyingRef.current) return;
-    applyingRef.current = true;
-    setBusy(true);
-    setError(null);
-    const rollback = onApplying(selection);
-    try {
-      const api = getTabModelApi();
-      if (restart) {
-        if (!api.restartAndSwitchModel) throw new Error("Restart fallback is unavailable");
-        await api.restartAndSwitchModel(tabId, selection.model, selection.effort);
-      } else {
-        await api.switchModel(tabId, selection.model, selection.effort);
-      }
-      onApplied(selection);
-    } catch (failure) {
-      rollback();
-      setError(failure instanceof Error ? failure.message : String(failure));
-    } finally {
-      applyingRef.current = false;
-      setBusy(false);
-    }
+  function apply(selection: PickerSelection, restart = false) {
+    if (busy) return;
+    onCommit(selection, restart);
   }
 
   function choose(next: PickerSelection) {
@@ -236,7 +238,7 @@ function ModelPickerPopover({
     if (busy || !staged) return;
     const plan = planSelection(gate, { model: currentModel, effort: currentEffort }, staged);
     if (plan.action === "confirm") setConfirming(plan.selection);
-    if (plan.action === "apply") void apply(plan.selection);
+    if (plan.action === "apply") apply(plan.selection);
   }
 
   function chooseModel(model: string) {
@@ -371,7 +373,7 @@ function ModelPickerPopover({
             <button type="button" className={UI_BUTTON.ghost} onClick={() => { setConfirming(null); setStaged(currentModel ? { model: currentModel, effort: currentEffort } : null); }}>
               Keep current
             </button>
-            <button type="button" className={UI_BUTTON.primary} disabled={busy} onClick={() => void apply(confirming, restartFallback)}>
+            <button type="button" className={UI_BUTTON.primary} disabled={busy} onClick={() => apply(confirming, restartFallback)}>
               Restart and switch
             </button>
           </div>
