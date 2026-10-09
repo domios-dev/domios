@@ -7,6 +7,8 @@ import type { Plan, Task } from "../types";
 import { competitionForTask } from "./competitionForTask";
 import { loopForTask } from "./loopForTask";
 import { TaskExecutionBadges } from "./TaskExecutionBadges";
+import { SelectionAsk } from "../../shared/SelectionAsk";
+import { askOwner, askSubject } from "./PlanSidePanel";
 
 export interface TaskSegmentPanelProps {
   panelId: string;
@@ -65,7 +67,7 @@ export function TaskSegmentPanel({
               className="plan-detail-header-badges"
             />
           </header>
-          <div className="plan-task-segment__body plan-detail-selectable">
+          <SelectionAsk className="plan-task-segment__body plan-detail-selectable" subject={askSubject(plan, task, key)} owner={askOwner(plan, tabs)} onJump={(id) => onOpenTab?.(id)}>
             <DetailContent
               kind="task"
               planId={plan.id}
@@ -77,7 +79,7 @@ export function TaskSegmentPanel({
               onOpenTask={onOpenTask}
               onSectionClick={(args: SectionNavArgs) => onOpenSection?.(args.variant === "spec" ? "spec" : "plan")}
             />
-          </div>
+          </SelectionAsk>
         </>
       ) : (
         <p data-testid="plan-task-segment-missing" className="plan-task-segment__note">

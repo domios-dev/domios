@@ -23,6 +23,8 @@
 @import "../components/Sidebar/spinalCord.css";
 @import "../components/Settings/logs.css";
 @import "../components/Usage/spend.css";
+@import "../components/Canvas/canvasRender/detailContent.css";
+@import "../components/shared/selectionAsk.css";
 @import "../components/Canvas/missionControl/missionControl.css";
 @import "../components/Surface/surface.css";
 @import "../components/Sidebar/surfaceTether.css";
@@ -1276,13 +1278,19 @@ button,
 .plan-task-segment__key {
   flex: 0 0 auto;
   padding: 2px 8px;
-  border: 1px solid var(--ct-border-subtle);
   border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-fg) 6%, transparent);
   font-family: var(--ct-font-mono, ui-monospace, monospace);
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-weight: 600;
+  letter-spacing: 0.03em;
   color: var(--ct-muted-fg);
+}
+.plan-side-panel__header > .plan-task-segment__key {
+  margin-top: 4px;
+}
+.plan-side-panel__header > .plan-side-panel__title {
+  padding-top: 3px;
 }
 .plan-task-segment__title {
   flex: 1 1 12rem;
@@ -1336,7 +1344,7 @@ button,
 .plan-side-panel__header {
   display: flex;
   flex-shrink: 0;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   min-width: 0;
   padding: 10px 12px 10px 16px;
@@ -1348,10 +1356,10 @@ button,
   overflow: hidden;
   font-family: var(--ct-font-ui);
   font-size: var(--ct-font-size-md, 15px);
-  font-weight: 700;
+  font-weight: 650;
+  line-height: 1.35;
   color: var(--ct-fg);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .plan-side-panel__action {
   display: flex;
