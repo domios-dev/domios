@@ -13,6 +13,7 @@ export type Specimen = {
   where: string;
   states: SpecimenState[];
   motion?: "animated" | "static";
+  stage?: "wide";
   notes?: string;
 };
 

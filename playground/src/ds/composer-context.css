@@ -1,0 +1,342 @@
+.ds-ctx {
+  font-family: var(--ct-font-ui);
+  --ds-ctx-plan: var(--ct-accent);
+  --ds-ctx-task: var(--ct-green);
+  --ds-ctx-blueprints: color-mix(in srgb, var(--ct-accent) 62%, var(--ct-fg));
+  --ds-ctx-crons: var(--ct-yellow);
+  --ds-ctx-delayed: var(--ct-green);
+  display: flex;
+  flex-direction: column;
+  padding-inline: var(--ct-space-3);
+}
+
+.ds-ctx__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 28px;
+  padding: 2px 8px 8px;
+  border-bottom: 1px solid var(--ct-border-subtle);
+  font-size: 13px;
+  color: var(--ct-muted-fg);
+}
+
+.ds-ctx__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  text-align: left;
+}
+
+button.ds-ctx__title {
+  cursor: pointer;
+}
+
+button.ds-ctx__title:hover .ds-ctx__primary {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+}
+
+.ds-ctx__title-icon {
+  flex: none;
+  margin-right: 3px;
+  color: var(--ds-ctx-plan);
+}
+
+.ds-ctx__title[data-kind="task"] .ds-ctx__title-icon { color: var(--ds-ctx-task); }
+.ds-ctx__title[data-kind="blueprints"] .ds-ctx__title-icon { color: var(--ds-ctx-blueprints); }
+.ds-ctx__title[data-kind="crons"] .ds-ctx__title-icon { color: var(--ds-ctx-crons); }
+.ds-ctx__title[data-kind="delayed"] .ds-ctx__title-icon { color: var(--ds-ctx-delayed); }
+
+.ds-ctx__primary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ct-fg);
+  font-weight: 600;
+}
+
+.ds-ctx__secondary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: color-mix(in srgb, var(--ct-muted-fg) 80%, transparent);
+}
+
+.ds-ctx__extra {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ds-ctx-plan) 14%, transparent);
+  color: var(--ds-ctx-plan);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ds-ctx__kinds {
+  display: flex;
+  flex: none;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.ds-ctx-kind {
+  --ds-ctx-kind: var(--ds-ctx-blueprints);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--ct-border-subtle);
+  border-radius: 999px;
+  background: var(--ct-surface);
+  color: var(--ds-ctx-kind);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    box-shadow var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
+}
+
+.ds-ctx-kind[data-kind="crons"] { --ds-ctx-kind: var(--ds-ctx-crons); }
+.ds-ctx-kind[data-kind="delayed"] { --ds-ctx-kind: var(--ds-ctx-delayed); }
+
+.ds-ctx-kind:hover { transform: scale(1.05); }
+
+.ds-ctx-kind:active {
+  transform: scale(0.94, 0.9);
+  transition-duration: var(--ct-duration-liquid-press);
+}
+
+.ds-ctx-kind[data-open] {
+  background: color-mix(in srgb, var(--ds-ctx-kind) 9%, var(--ct-surface));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ds-ctx-kind) 32%, transparent);
+}
+
+.ds-ctx-kind__count {
+  color: var(--ct-muted-fg);
+}
+
+.ds-ctx-kind[data-open] .ds-ctx-kind__count {
+  color: var(--ct-fg);
+}
+
+.ds-ctx-kind__alert {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ct-warn);
+  box-shadow: 0 0 0 2px var(--ct-bg);
+}
+
+.ds-ctx__reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
+    opacity var(--ct-duration-normal) var(--ct-ease-liquid-settle);
+}
+
+.ds-ctx__reveal[data-open] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.ds-ctx__reveal-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ds-ctx__strip {
+  --ds-ctx-kind: var(--ds-ctx-blueprints);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 8px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ds-ctx-kind) 16%, transparent);
+  background: color-mix(in srgb, var(--ds-ctx-kind) 3%, transparent);
+  transform-origin: top center;
+  transform: translateY(-6px) scaleY(0.94);
+  transition: transform var(--ct-duration-liquid-toggle) var(--ct-ease-hover-swell);
+}
+
+.ds-ctx__strip[data-kind="crons"] { --ds-ctx-kind: var(--ds-ctx-crons); }
+.ds-ctx__strip[data-kind="delayed"] { --ds-ctx-kind: var(--ds-ctx-delayed); }
+
+.ds-ctx__strip[data-kind="blueprints"] {
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--ds-ctx-kind) 4.5%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--ds-ctx-kind) 4.5%, transparent) 1px, transparent 1px),
+    linear-gradient(color-mix(in srgb, var(--ds-ctx-kind) 2%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--ds-ctx-kind) 2%, transparent) 1px, transparent 1px);
+  background-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px;
+}
+
+.ds-ctx__strip[data-kind="crons"] {
+  background-image: radial-gradient(color-mix(in srgb, var(--ds-ctx-kind) 9%, transparent) 0.8px, transparent 1.2px);
+  background-size: 18px 18px;
+}
+
+.ds-ctx__strip[data-kind="delayed"] {
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--ds-ctx-kind) 3%, transparent) 0 1px,
+    transparent 1px 16px
+  );
+}
+
+.ds-ctx__reveal[data-open] .ds-ctx__strip {
+  transform: none;
+}
+
+.ds-ctx-bubble {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, var(--ds-ctx-kind) 12%, var(--ct-border-subtle));
+  border-radius: 999px;
+  background: var(--ct-surface);
+  color: var(--ct-fg);
+  font-size: 12px;
+  transition: background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.ds-ctx-bubble:hover {
+  background: color-mix(in srgb, var(--ct-fg) 5%, var(--ct-surface));
+}
+
+.ds-ctx-bubble[data-tone="waiting"] {
+  border-color: color-mix(in srgb, var(--ct-warn) 40%, transparent);
+}
+
+.ds-ctx-bubble__open {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ds-ctx-bubble__open:has(+ .ds-ctx-bubble__dismiss) {
+  padding-right: 4px;
+}
+
+.ds-ctx-bubble__dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ct-muted-fg);
+}
+
+.ds-ctx-bubble[data-tone="active"] .ds-ctx-bubble__dot { background: var(--ds-ctx-kind); }
+.ds-ctx-bubble[data-tone="waiting"] .ds-ctx-bubble__dot { background: var(--ct-warn); }
+.ds-ctx-bubble[data-tone="stopped"] .ds-ctx-bubble__dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--ct-muted-fg);
+}
+
+.ds-ctx-bubble[data-tone="stopped"] .ds-ctx-bubble__title { color: var(--ct-muted-fg); }
+
+.ds-ctx-bubble__title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ds-ctx-bubble__title--text {
+  max-width: 15rem;
+}
+
+.ds-ctx-bubble__meta {
+  flex: none;
+  color: var(--ct-muted-fg);
+  font: 500 11px var(--ct-font-mono);
+  white-space: nowrap;
+}
+
+.ds-ctx-bubble__stash {
+  flex: none;
+  color: var(--ct-magenta);
+}
+
+.ds-ctx-bubble[data-tone="stashed"] {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--ct-magenta) 30%, transparent);
+}
+
+.ds-ctx-bubble__dismiss {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 4px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+}
+
+.ds-ctx-bubble__dismiss:hover {
+  background: color-mix(in srgb, var(--ct-fg) 9%, transparent);
+  color: var(--ct-fg);
+}
+
+.ds-ctx-bubble--add {
+  gap: 5px;
+  padding: 0 10px;
+  border-style: dashed;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+}
+
+.ds-ctx__error {
+  padding: 4px 8px 0;
+  color: var(--ct-err);
+  font-size: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-ctx__reveal,
+  .ds-ctx__strip,
+  .ds-ctx-kind,
+  .ds-ctx-bubble {
+    transition: none;
+  }
+
+  .ds-ctx__strip,
+  .ds-ctx-kind:hover,
+  .ds-ctx-kind:active {
+    transform: none;
+  }
+}
+

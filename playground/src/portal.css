@@ -147,3 +147,7 @@
   transition: color 0.15s ease, border-color 0.15s ease;
 }
 .portal-back:hover { color: var(--ct-fg); border-color: #3a4350; }
+.gallery-stage-instance:has(> .gallery-specimen-fill) { grid-template-columns:minmax(0, 1fr); }
+.gallery-specimen-fill { width:100%; min-width:0; }
+.gallery-specimen-fill--narrow { width:min(100%, 18rem); }
+.gallery-state-board--wide { grid-template-columns:repeat(auto-fit, minmax(min(100%, 440px), 1fr)); }
