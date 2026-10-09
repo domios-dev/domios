@@ -133,18 +133,14 @@ export function SpinalCordButton({ api }: { api: ApiConfig | undefined }) {
           style={{ top: anchor.top, left: anchor.left, width: POPOVER_WIDTH }}
         >
           <div className="ct-spinal-pop__head">
-            {connected ? (
-              <button type="button" className="ct-spinal-pop__badge ct-spinal-pop__settings" data-testid="spinal-cord-settings" aria-label="Spinal Cord settings" title="Settings" onClick={openSettings}>
-                <Vertebrae />
-                <Settings size={15} aria-hidden="true" />
-              </button>
-            ) : (
-              <span className="ct-spinal-pop__badge"><Vertebrae /></span>
-            )}
+            <span className="ct-spinal-pop__badge"><Vertebrae /></span>
             <span className="min-w-0">
               <span className="ct-spinal-pop__title">Spinal Cord</span>
               <span className="ct-spinal-pop__subtitle">{connected ? "Connected · your agents have reflexes" : "The reflexes between your agents"}</span>
             </span>
+            <button type="button" className="ct-spinal-pop__settings" data-testid="spinal-cord-settings" aria-label="Spinal Cord settings" title="Settings" onClick={openSettings}>
+              <Settings size={15} aria-hidden="true" />
+            </button>
           </div>
           {connected && api ? (
             <>
