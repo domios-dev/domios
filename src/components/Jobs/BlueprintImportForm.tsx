@@ -1,6 +1,7 @@
-import { useId, useState } from "react";
+import { useId, useState, type CSSProperties } from "react";
+import { FileUp } from "lucide-react";
 import { blueprintSharingApi, parseBlueprintRecipe, type BlueprintRecipe, type BlueprintSharingApi } from "../Automation/blueprintSharing";
-import { AUTOMATION_TOOL } from "../Automation/styles";
+import { AUTOMATION_LABEL, AUTOMATION_PRIMARY, AUTOMATION_TONE, AUTOMATION_TOOL } from "../Automation/styles";
 
 export interface BlueprintCreator {
   id: string;
@@ -38,24 +39,32 @@ export function BlueprintImportForm({ creators, onCreated, onCancel, api = bluep
     } catch (error) { setError(String(error)); }
     finally { setBusy(false); }
   };
-  return <form aria-label="Import Blueprint" className="space-y-3 rounded-lg border border-[var(--ct-border)] p-4" onSubmit={(event) => { event.preventDefault(); void create(); }}>
-    <h3 className="font-semibold">Import Blueprint</h3>
-    <label className="block" htmlFor={`${prefix}-file`}>Blueprint recipe file</label>
-    <input id={`${prefix}-file`} type="file" accept=".blueprint.json,application/json" disabled={busy} onChange={(event) => void read(event.currentTarget.files?.[0])} />
-    <label className="block" htmlFor={`${prefix}-creator`}>Creator in destination Team</label>
-    <select id={`${prefix}-creator`} value={caller} required disabled={busy} onChange={(event) => setCaller(event.currentTarget.value)}>
-      <option value="">Choose a Team tab</option>
-      {creators.map((creator) => <option key={creator.id} value={creator.id}>{creator.label}</option>)}
-    </select>
-    {recipe && Object.entries(recipe.placeholders).map(([key, description]) => <div key={key}>
-      <label className="block" htmlFor={`${prefix}-${key}`}>{key}: {description}</label>
-      <input id={`${prefix}-${key}`} className="w-full rounded border border-[var(--ct-border)] bg-[var(--ct-bg)] px-2 py-1" value={bindings[key] ?? ""} required disabled={busy} onChange={(event) => { const value = event.currentTarget.value; setBindings((current) => ({ ...current, [key]: value })); }} />
-    </div>)}
-    {error && <p role="alert">{error}</p>}
-    <p className="text-xs text-[var(--ct-muted-fg)]">The imported Blueprint starts stopped.</p>
-    <div className="flex gap-2">
-      <button type="submit" className={AUTOMATION_TOOL} disabled={busy || !recipe || !creators.some((creator) => creator.id === caller)}>Create stopped Blueprint</button>
-      <button type="button" className={AUTOMATION_TOOL} disabled={busy} onClick={onCancel}>Cancel import</button>
+  return <form aria-label="Import Blueprint" className="ct-card" style={{ "--ct-card-tone": AUTOMATION_TONE.blueprint } as CSSProperties} onSubmit={(event) => { event.preventDefault(); void create(); }}>
+    <div className="ct-card__head">
+      <span className="ct-card__icon" aria-hidden="true"><FileUp size={14} /></span>
+      <h3 className="ct-detail__heading">Import Blueprint</h3>
+    </div>
+    <div className="ct-card__body ct-job-section__body">
+      <div className="flex flex-col gap-1.5">
+        <label className={AUTOMATION_LABEL} htmlFor={`${prefix}-file`}>Blueprint recipe file</label>
+        <input id={`${prefix}-file`} type="file" accept=".blueprint.json,application/json" disabled={busy} onChange={(event) => void read(event.currentTarget.files?.[0])} />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <label className={AUTOMATION_LABEL} htmlFor={`${prefix}-creator`}>Creator in destination Team</label>
+        <select id={`${prefix}-creator`} className="ct-field" value={caller} required disabled={busy} onChange={(event) => setCaller(event.currentTarget.value)}>
+          <option value="">Choose a Team tab</option>
+          {creators.map((creator) => <option key={creator.id} value={creator.id}>{creator.label}</option>)}
+        </select>
+      </div>
+      {recipe && Object.entries(recipe.placeholders).map(([key, description]) => <div key={key} className="flex flex-col gap-1.5">
+        <label className={AUTOMATION_LABEL} htmlFor={`${prefix}-${key}`}>{key}: {description}</label>
+        <input id={`${prefix}-${key}`} className="ct-field w-full" value={bindings[key] ?? ""} required disabled={busy} onChange={(event) => { const value = event.currentTarget.value; setBindings((current) => ({ ...current, [key]: value })); }} />
+      </div>)}
+      {error && <p role="alert" className="ct-job-note">{error}</p>}
+      <div className="ct-job-actions">
+        <button type="submit" className={AUTOMATION_PRIMARY} disabled={busy || !recipe || !creators.some((creator) => creator.id === caller)}>Create stopped Blueprint</button>
+        <button type="button" className={AUTOMATION_TOOL} disabled={busy} onClick={onCancel}>Cancel import</button>
+      </div>
     </div>
   </form>;
 }

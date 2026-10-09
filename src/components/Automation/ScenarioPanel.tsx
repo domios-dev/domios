@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { List, Square } from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { List, Network, Square } from "lucide-react";
 import { BackPill } from "../shared/BackPill";
 import { BlueprintExportButton } from "./BlueprintExportButton";
 import { BlueprintCanvas, type CanvasReplay } from "./BlueprintCanvas";
@@ -14,7 +14,7 @@ import { graphRuns } from "./blueprintRunModel";
 import { usePresence, type PresenceMotion } from "../Canvas/usePresence";
 import { automationState, scopedAutomationGraph } from "./model";
 import { blueprintTitle } from "./scenarios";
-import { AUTOMATION_TOOL, stateTone } from "./styles";
+import { AUTOMATION_TONE, AUTOMATION_TOOL, stateTone } from "./styles";
 import { ALL_JOBS_SCOPE, automationKey, type AutomationGraph, type AutomationIdentity, type AutomationScenario, type AutomationScope } from "./types";
 import { useBlueprintReplay } from "./useBlueprintReplay";
 import { BlueprintReplayStatus } from "./BlueprintReplayStatus";
@@ -130,14 +130,15 @@ export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBac
   }}>
     <div className="ct-jobs-header flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5 pl-4 pr-3">
       <BackPill label={backLabel} onBack={onBack} />
-      <Heading className="min-w-0 flex-[1_1_12rem] truncate text-[length:var(--ct-font-size-md)] font-semibold text-[var(--ct-fg)]">{title}</Heading>
+      <span className="ct-card__icon" style={{ "--ct-card-tone": AUTOMATION_TONE.blueprint } as CSSProperties}><Network size={14} aria-hidden="true" /></span>
+      <Heading className="min-w-0 flex-[1_1_12rem] break-words text-[length:var(--ct-font-size-md)] font-semibold text-[var(--ct-fg)]">{title}</Heading>
       {state_ && <span className="flex items-center gap-1.5 text-xs text-[var(--ct-muted-fg)]"><span className={`h-1.5 w-1.5 rounded-full ${stateTone(state_)}`} aria-hidden="true" />{state_}{cadence ? ` · ${cadence}` : ""}</span>}
       <BlueprintExportButton workspaceId={scope.workspace_id} teamId={scenario.root.team_id} id={scenario.root.id} />
       {root && <button type="button" className={AUTOMATION_TOOL} disabled={!root.stop.allowed || state.failed || state.stopping !== null} onClick={() => void state.stop(root.identity)}>{state.stopping ? "Stopping…" : "Stop Blueprint"}</button>}
       <button type="button" className={AUTOMATION_TOOL} aria-expanded={runsOpen} aria-controls="blueprint-run-log" onClick={() => setRunsOpen(!runsOpen)}><List size={14} aria-hidden="true" />Runs</button>
     </div>
     {children}
-    {state.stopFailed && <p role="alert" className="px-4 py-2">Blueprint stop failed.</p>}
+    {state.stopFailed && <p role="alert" className="ct-job-note px-4 py-2">Blueprint stop failed.</p>}
     {graph && model && layout && <div ref={body.ref} className={`relative flex min-w-0 flex-col ${fill ? "min-h-0 flex-1" : "h-[min(44rem,78vh)] min-h-[28rem]"}`}>
       {model.stages.length === 0 && <p role="alert" className="px-4 py-3">The Blueprint root is unavailable.</p>}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col" style={{ marginRight: panelWidth }}>

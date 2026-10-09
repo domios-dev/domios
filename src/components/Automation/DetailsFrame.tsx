@@ -5,7 +5,7 @@ import type { PresenceState } from "../Canvas/usePresence";
 import { AUTOMATION_LABEL } from "./styles";
 
 export function Facts({ children }: { children: ReactNode }) {
-  return <dl className="grid grid-cols-[minmax(6.5rem,auto)_1fr] gap-x-4 gap-y-1.5 break-words [&>dt]:text-[var(--ct-muted-fg)] [&>dd]:min-w-0 [&>dd]:text-[var(--ct-fg)]">{children}</dl>;
+  return <dl className="ct-detail__lane break-words">{children}</dl>;
 }
 
 export function Disclosure({ title, children }: { title: string; children: ReactNode }) {
@@ -13,7 +13,7 @@ export function Disclosure({ title, children }: { title: string; children: React
   const region = useId();
   return <section className="min-w-0">
     <button type="button" className={`${AUTOMATION_LABEL} -mx-1 inline-flex items-center gap-1 rounded px-1 py-0.5 hover:text-[var(--ct-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]`} aria-expanded={open} aria-controls={region} onClick={() => setOpen(!open)}>
-      <ChevronRight size={12} className={`transition-transform motion-reduce:transition-none ${open ? "rotate-90" : ""}`} aria-hidden="true" />{title}
+      <ChevronRight size={12} className={`transition-transform duration-[var(--ct-duration-liquid-hover)] ease-[var(--ct-ease-liquid-settle)] motion-reduce:transition-none ${open ? "rotate-90" : ""}`} aria-hidden="true" />{title}
     </button>
     <div id={region} hidden={!open} className="mt-2">{children}</div>
   </section>;
@@ -40,6 +40,6 @@ export function DetailsFrame({ label, title, onClose, children, focusWhenLost = 
       <div className="min-w-0 flex-1">{title}</div>
       <button type="button" className="plan-side-panel__action" aria-label="Close details" title="Close details (Esc)" onClick={onClose}><X size={15} aria-hidden="true" /></button>
     </header>
-    <div className="plan-side-panel__body px-4 py-4">{children}</div>
+    <div className="plan-side-panel__body"><div className="ct-detail">{children}</div></div>
   </aside>;
 }

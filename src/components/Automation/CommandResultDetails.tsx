@@ -74,7 +74,7 @@ export function CommandResultFacts({ handlerId, handler, result }: { handlerId: 
   const timeout = count(timeoutMs) && timeoutMs > 0 ? `${timeoutMs} ms` : COMMAND_VALUE.notRecorded;
   const outcome = result === undefined ? [] : outcomeFacts(result?.command_result);
   const facts: Array<[string, string]> = [[COMMAND_FACT.label, label], ...outcome.slice(0, 4), [COMMAND_FACT.timeout, timeout], ...outcome.slice(4)];
-  return <dl aria-label={commandResultLabel(handlerId)} className="mt-1.5 grid basis-full grid-cols-[minmax(6.5rem,auto)_1fr] gap-x-4 gap-y-1 break-words text-xs [&>dd]:min-w-0 [&>dd]:text-[var(--ct-fg)] [&>dt]:text-[var(--ct-muted-fg)]">
+  return <dl aria-label={commandResultLabel(handlerId)} className="ct-detail__lane basis-full break-words">
     {facts.map(([term, value]) => <Fragment key={term}><dt>{term}</dt><dd className={term === COMMAND_FACT.label ? "font-medium" : undefined}>{value}</dd></Fragment>)}
   </dl>;
 }
