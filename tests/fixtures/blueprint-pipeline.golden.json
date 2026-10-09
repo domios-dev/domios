@@ -105,7 +105,7 @@
     {
       "identity": {
         "id": "blueprint-echo",
-        "kind": "sentinel",
+        "kind": "blueprint",
         "owner_tab_id": "creator",
         "team_id": "team",
         "workspace_id": "workspace"
@@ -125,7 +125,7 @@
       "name": "Echo pipeline",
       "root": {
         "id": "blueprint-echo",
-        "kind": "sentinel",
+        "kind": "blueprint",
         "owner_tab_id": "creator",
         "team_id": "team",
         "workspace_id": "workspace"

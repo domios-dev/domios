@@ -71,7 +71,7 @@ pub(super) fn text_output(
     deadline: Instant,
 ) -> Result<super::probe::Output, String> {
     use std::io::Read;
-    let spec = job.input.as_ref().ok_or("input source missing")?;
+    let spec = job.input().ok_or("input source missing")?;
     let run_id = uuid::Uuid::new_v4().simple().to_string();
     let data_dir = crate::paths::data_dir();
     let run_dir = codeterm_types::sentinel_input::run_dir(&data_dir, &job.id, &run_id)?;

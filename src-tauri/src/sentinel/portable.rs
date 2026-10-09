@@ -12,7 +12,7 @@ use super::{
 pub fn export(job: &Sentinel) -> Result<Recipe, String> {
     let mut placeholders = BTreeMap::new();
     let mut definition = definition(job);
-    if job.pipeline.is_none() {
+    if job.pipeline().is_none() {
         definition["create"]["timeout"] = json!("{{timeout}}");
         placeholders.insert(
             "timeout".into(),
@@ -30,7 +30,7 @@ pub fn export(job: &Sentinel) -> Result<Recipe, String> {
 }
 
 fn definition(job: &Sentinel) -> Value {
-    if let Some(pipeline) = &job.pipeline {
+    if let Some(pipeline) = &job.pipeline().cloned() {
         json!({"spec": pipeline})
     } else {
         let mut handlers = BTreeMap::new();
@@ -45,11 +45,11 @@ fn definition(job: &Sentinel) -> Value {
         }
         json!({"create": {
             "name": job.name,
-            "terminal": job.terminal,
+            "terminal": job.terminal().cloned(),
             "session": job.session,
-            "probe": if job.probe.is_empty() { None } else { Some(&job.probe) },
-            "observe": job.observe,
-            "input": job.input,
+            "probe": if job.probe().is_empty() { None } else { Some(job.probe()) },
+            "observe": job.observe().cloned(),
+            "input": job.input().cloned(),
             "question": job.question,
             "buckets": job.buckets,
             "every": format!("{}s", job.interval_ms / 1000),

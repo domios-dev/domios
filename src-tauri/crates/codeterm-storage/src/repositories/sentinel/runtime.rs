@@ -30,16 +30,16 @@ pub(super) fn activate_target(
 
 /// Child tables in an order that satisfies every foreign key while deleting.
 const OWNED_TABLES: &[&str] = &[
-    "sentinel_command_cleanup",
-    "sentinel_command_results",
-    "sentinel_handler_results",
-    "sentinel_transitions",
-    "sentinel_handler_targets",
-    "sentinel_handlers",
-    "sentinel_buckets",
-    "sentinel_heads",
-    "sentinel_definitions",
-    "sentinel_runtime",
+    "blueprint_command_cleanup",
+    "blueprint_command_results",
+    "blueprint_handler_results",
+    "blueprint_transitions",
+    "blueprint_handler_targets",
+    "blueprint_handlers",
+    "blueprint_buckets",
+    "blueprint_heads",
+    "blueprint_definitions",
+    "blueprint_runtime",
 ];
 
 pub(super) fn handler_status_text(status: HandlerStatus) -> &'static str {
@@ -88,7 +88,7 @@ pub(super) fn command_status_from(text: &str) -> Result<CommandStatus, StorageEr
 
 pub(super) fn corrupt(detail: &str) -> StorageError {
     StorageError::Corrupt {
-        detail: format!("sentinel runtime: {detail}"),
+        detail: format!("blueprint runtime: {detail}"),
     }
 }
 
@@ -107,7 +107,7 @@ fn live(conn: &Connection, id: &str) -> Result<Option<Live>, StorageError> {
     let row = conn
         .prepare_cached(
             "SELECT generation, paused, stopped, last_hash, last_bucket, run_id, run_tab_id, run_transitions \
-             FROM sentinel_runtime WHERE sentinel_id = ?1",
+             FROM blueprint_runtime WHERE blueprint_id = ?1",
         )
         .and_then(|mut statement| {
             statement
@@ -155,9 +155,9 @@ fn live(conn: &Connection, id: &str) -> Result<Option<Live>, StorageError> {
 fn observes_cron_run(conn: &Connection, id: &str, cron_id: &str) -> Result<bool, StorageError> {
     let observed = conn
         .prepare_cached(
-            "SELECT d.observe_kind, d.observe_ref FROM sentinel_heads h \
-             JOIN sentinel_definitions d ON d.sentinel_id = h.sentinel_id \
-             AND d.version = h.version WHERE h.sentinel_id = ?1",
+            "SELECT d.observe_kind, d.observe_ref FROM blueprint_heads h \
+             JOIN blueprint_definitions d ON d.blueprint_id = h.blueprint_id \
+             AND d.version = h.version WHERE h.blueprint_id = ?1",
         )
         .and_then(|mut statement| {
             statement
@@ -192,20 +192,20 @@ fn scalar(conn: &Connection, sql: &str, id: &str) -> Result<i64, StorageError> {
 }
 
 fn exists(conn: &Connection, id: &str) -> Result<bool, StorageError> {
-    Ok(scalar(conn, "SELECT COUNT(*) FROM sentinels WHERE id = ?1", id)? > 0)
+    Ok(scalar(conn, "SELECT COUNT(*) FROM blueprints WHERE id = ?1", id)? > 0)
 }
 
 fn record_count(conn: &Connection) -> Result<usize, StorageError> {
     let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM sentinels", [], |row| row.get(0))
-        .map_err(|e| sqlite_error("count sentinels", e))?;
+        .query_row("SELECT COUNT(*) FROM blueprints", [], |row| row.get(0))
+        .map_err(|e| sqlite_error("count blueprints", e))?;
     usize::try_from(count).map_err(|_| corrupt("negative sentinel count"))
 }
 
 /// `(transition_id, terminal)` of the newest accepted transition.
 fn last_transition(conn: &Connection, id: &str) -> Result<Option<(String, bool)>, StorageError> {
     conn.prepare_cached(
-        "SELECT transition_id, terminal FROM sentinel_transitions WHERE sentinel_id = ?1 \
+        "SELECT transition_id, terminal FROM blueprint_transitions WHERE blueprint_id = ?1 \
          ORDER BY ordinal DESC LIMIT 1",
     )
     .and_then(|mut statement| {
@@ -222,7 +222,7 @@ fn transition_bucket(
     transition: &str,
 ) -> Result<Option<String>, StorageError> {
     conn.prepare_cached(
-        "SELECT bucket FROM sentinel_transitions WHERE sentinel_id = ?1 AND transition_id = ?2",
+        "SELECT bucket FROM blueprint_transitions WHERE blueprint_id = ?1 AND transition_id = ?2",
     )
     .and_then(|mut statement| {
         statement
@@ -240,8 +240,8 @@ fn result_exists(
 ) -> Result<bool, StorageError> {
     let found: Option<i64> = conn
         .prepare_cached(
-            "SELECT ordinal FROM sentinel_handler_results \
-             WHERE sentinel_id = ?1 AND transition_id = ?2 AND handler_id = ?3",
+            "SELECT ordinal FROM blueprint_handler_results \
+             WHERE blueprint_id = ?1 AND transition_id = ?2 AND handler_id = ?3",
         )
         .and_then(|mut statement| {
             statement
@@ -254,8 +254,8 @@ fn result_exists(
 
 fn next_result_ordinal(conn: &Connection, id: &str, transition: &str) -> Result<i64, StorageError> {
     conn.prepare_cached(
-        "SELECT COALESCE(MAX(ordinal), -1) + 1 FROM sentinel_handler_results \
-         WHERE sentinel_id = ?1 AND transition_id = ?2",
+        "SELECT COALESCE(MAX(ordinal), -1) + 1 FROM blueprint_handler_results \
+         WHERE blueprint_id = ?1 AND transition_id = ?2",
     )
     .and_then(|mut statement| statement.query_row(params![id, transition], |row| row.get(0)))
     .map_err(|e| sqlite_error("read sentinel result order", e))
@@ -265,7 +265,7 @@ fn next_result_ordinal(conn: &Connection, id: &str, transition: &str) -> Result<
 fn touch(cx: &mut WriteCx<'_>, id: &str) -> Result<(), StorageError> {
     let revision = to_sql_u64("revision", cx.revision.0)?;
     cx.write(
-        "UPDATE sentinels SET revision = ?2 WHERE id = ?1",
+        "UPDATE blueprints SET revision = ?2 WHERE id = ?1",
         params![id, revision],
     )?;
     Ok(())
@@ -308,9 +308,9 @@ fn insert_identity(
 ) -> Result<(), StorageError> {
     let revision = to_sql_u64("revision", cx.revision.0)?;
     cx.write(
-        "INSERT INTO sentinels (id, ordinal, creator_tab_id, workspace_id, team_id, cwd, \
+        "INSERT INTO blueprints (id, ordinal, creator_tab_id, workspace_id, team_id, cwd, \
          agent_authored, scenario_id, revision) \
-         VALUES (?1, (SELECT COALESCE(MAX(ordinal), -1) + 1 FROM sentinels), \
+         VALUES (?1, (SELECT COALESCE(MAX(ordinal), -1) + 1 FROM blueprints), \
          ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             identity.id.as_str(),
@@ -340,7 +340,7 @@ fn insert_runtime(
         .map(|run| to_sql_u64("run bound time", run.bound_at))
         .transpose()?;
     cx.write(
-        "INSERT INTO sentinel_runtime (sentinel_id, generation, next_run, expires_at, paused, \
+        "INSERT INTO blueprint_runtime (blueprint_id, generation, next_run, expires_at, paused, \
          stopped, last_hash, last_bucket, last_reason, held, run_id, run_tab_id, run_bound_at, run_transitions, causal_run_json) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
@@ -370,8 +370,8 @@ fn write_outcome(
     outcome: &RuntimeOutcome,
 ) -> Result<(), StorageError> {
     cx.write(
-        "UPDATE sentinel_runtime SET last_hash = ?2, last_bucket = ?3, stopped = ?4, \
-         last_reason = ?5, held = ?6, run_transitions = ?7 WHERE sentinel_id = ?1",
+        "UPDATE blueprint_runtime SET last_hash = ?2, last_bucket = ?3, stopped = ?4, \
+         last_reason = ?5, held = ?6, run_transitions = ?7 WHERE blueprint_id = ?1",
         params![
             id,
             outcome.last_hash,
@@ -396,7 +396,7 @@ fn insert_transition(
         .map(|version| to_sql_u64("definition version", version))
         .transpose()?;
     cx.write(
-        "INSERT INTO sentinel_transitions (sentinel_id, ordinal, transition_id, bucket, \
+        "INSERT INTO blueprint_transitions (blueprint_id, ordinal, transition_id, bucket, \
          accepted_at, terminal, definition_version, decision_json, causal_run_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             id,
@@ -425,7 +425,7 @@ fn insert_result(
         .map(|at| to_sql_u64("claim time", at))
         .transpose()?;
     cx.write(
-        "INSERT INTO sentinel_handler_results (sentinel_id, transition_id, ordinal, handler_id, \
+        "INSERT INTO blueprint_handler_results (blueprint_id, transition_id, ordinal, handler_id, \
          status, claim_id, execution_id, accepted_at, reason) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
@@ -471,7 +471,7 @@ fn insert_command(
     let (out_total, out_retained, out_truncated) = capture_columns(command.stdout.as_ref())?;
     let (err_total, err_retained, err_truncated) = capture_columns(command.stderr.as_ref())?;
     cx.write(
-        "INSERT INTO sentinel_command_results (sentinel_id, transition_id, handler_id, status, \
+        "INSERT INTO blueprint_command_results (blueprint_id, transition_id, handler_id, status, \
          exit_code, resources_confirmed, stdout_total, stdout_retained, stdout_truncated, \
          stderr_total, stderr_retained, stderr_truncated, started_at, finished_at, \
          primary_failure) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
@@ -495,7 +495,7 @@ fn insert_command(
     )?;
     for (ordinal, error) in (0_i64..).zip(&command.cleanup) {
         cx.write(
-            "INSERT INTO sentinel_command_cleanup (sentinel_id, transition_id, handler_id, \
+            "INSERT INTO blueprint_command_cleanup (blueprint_id, transition_id, handler_id, \
              ordinal, error) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![id, transition, handler, ordinal, error],
         )?;
@@ -510,10 +510,10 @@ fn replace_command(
     handler: &str,
     command: Option<&CommandResultRecord>,
 ) -> Result<(), StorageError> {
-    for table in ["sentinel_command_cleanup", "sentinel_command_results"] {
+    for table in ["blueprint_command_cleanup", "blueprint_command_results"] {
         cx.write(
             &format!(
-                "DELETE FROM {table} WHERE sentinel_id = ?1 AND transition_id = ?2 \
+                "DELETE FROM {table} WHERE blueprint_id = ?1 AND transition_id = ?2 \
                  AND handler_id = ?3"
             ),
             params![id, transition, handler],
@@ -584,7 +584,7 @@ pub(super) fn create(
         let revision = to_sql_u64("revision", cx.revision.0)?;
         for child in &create.associate {
             let joined = cx.write(
-                "UPDATE sentinels SET scenario_id = ?2, revision = ?3 WHERE id = ?1 \
+                "UPDATE blueprints SET scenario_id = ?2, revision = ?3 WHERE id = ?1 \
                  AND scenario_id IS NULL AND creator_tab_id = ?4 AND workspace_id = ?5 \
                  AND team_id IS ?6",
                 params![
@@ -638,7 +638,7 @@ pub(crate) fn import(
     for record in &records {
         if let Some(scenario) = &record.scenario_id {
             cx.write(
-                "UPDATE sentinels SET scenario_id = ?2, revision = ?3 WHERE id = ?1",
+                "UPDATE blueprints SET scenario_id = ?2, revision = ?3 WHERE id = ?1",
                 params![record.identity.id.as_str(), scenario.as_str(), revision],
             )?;
         }
@@ -689,8 +689,7 @@ pub(super) fn update_definition(
     let next = definitions::latest_version(cx.conn, id)? + 1;
     let input_due_at = update
         .definition
-        .pipeline
-        .as_ref()
+        .pipeline()
         .is_some_and(|pipeline| {
             matches!(
                 &pipeline.trigger,
@@ -716,12 +715,12 @@ pub(super) fn update_definition(
     definitions::move_head(cx, id, next)?;
     let advanced = if let Some(next_run) = input_due_at {
         cx.write(
-            "UPDATE sentinel_runtime SET generation = generation + 1, next_run = ?2 WHERE sentinel_id = ?1",
+            "UPDATE blueprint_runtime SET generation = generation + 1, next_run = ?2 WHERE blueprint_id = ?1",
             params![id, to_sql_u64("input amendment due time", next_run)?],
         )?
     } else {
         cx.write(
-            "UPDATE sentinel_runtime SET generation = generation + 1 WHERE sentinel_id = ?1",
+            "UPDATE blueprint_runtime SET generation = generation + 1 WHERE blueprint_id = ?1",
             [id],
         )?
     };
@@ -773,9 +772,9 @@ pub(super) fn set_run_binding(
         )
     });
     let changed = cx.write(
-        "UPDATE sentinel_runtime SET generation = ?2, next_run = ?3, last_hash = NULL, \
+        "UPDATE blueprint_runtime SET generation = ?2, next_run = ?3, last_hash = NULL, \
          last_bucket = NULL, last_reason = ?4, held = NULL, run_id = ?5, run_tab_id = ?6, \
-         run_bound_at = ?7, run_transitions = 0 WHERE sentinel_id = ?1 AND generation = ?8",
+         run_bound_at = ?7, run_transitions = 0 WHERE blueprint_id = ?1 AND generation = ?8",
         params![
             id,
             to_sql_u64("run generation", generation)?,
@@ -798,8 +797,8 @@ pub(super) fn set_run_binding(
 
 fn stop_row(cx: &mut WriteCx<'_>, id: &str, reason: &str) -> Result<bool, StorageError> {
     let changed = cx.write(
-        "UPDATE sentinel_runtime SET stopped = 1, generation = generation + 1, \
-         last_reason = ?2 WHERE sentinel_id = ?1",
+        "UPDATE blueprint_runtime SET stopped = 1, generation = generation + 1, \
+         last_reason = ?2 WHERE blueprint_id = ?1",
         params![id, reason],
     )?;
     if changed == 1 {
@@ -832,13 +831,13 @@ pub(crate) fn remove_team_rows(
     let ids: Vec<String> = {
         let mut statement = cx
             .conn
-            .prepare_cached("SELECT id FROM sentinels WHERE team_id = ?1 ORDER BY ordinal")
-            .map_err(|e| sqlite_error("read Team sentinels", e))?;
+            .prepare_cached("SELECT id FROM blueprints WHERE team_id = ?1 ORDER BY ordinal")
+            .map_err(|e| sqlite_error("read Team blueprints", e))?;
         let rows = statement
             .query_map([team], |row| row.get(0))
-            .map_err(|e| sqlite_error("read Team sentinels", e))?;
+            .map_err(|e| sqlite_error("read Team blueprints", e))?;
         rows.collect::<Result<_, _>>()
-            .map_err(|e| sqlite_error("read Team sentinels", e))?
+            .map_err(|e| sqlite_error("read Team blueprints", e))?
     };
     if ids.is_empty() {
         return Ok(Vec::new());
@@ -846,13 +845,13 @@ pub(crate) fn remove_team_rows(
     for table in OWNED_TABLES {
         cx.write(
             &format!(
-                "DELETE FROM {table} WHERE sentinel_id IN \
-                 (SELECT id FROM sentinels WHERE team_id = ?1)"
+                "DELETE FROM {table} WHERE blueprint_id IN \
+                 (SELECT id FROM blueprints WHERE team_id = ?1)"
             ),
             [team],
         )?;
     }
-    cx.write("DELETE FROM sentinels WHERE team_id = ?1", [team])?;
+    cx.write("DELETE FROM blueprints WHERE team_id = ?1", [team])?;
     Ok(ids.into_iter().map(SentinelId::trusted).collect())
 }
 
@@ -866,15 +865,15 @@ pub(super) fn delete_scenario(
         let mut statement = cx
             .conn
             .prepare_cached(
-                "SELECT id FROM sentinels WHERE workspace_id = ?1 AND team_id IS ?2 \
+                "SELECT id FROM blueprints WHERE workspace_id = ?1 AND team_id IS ?2 \
              AND (id = ?3 OR scenario_id = ?3) ORDER BY ordinal",
             )
-            .map_err(|e| sqlite_error("read scenario sentinels", e))?;
+            .map_err(|e| sqlite_error("read scenario blueprints", e))?;
         let rows = statement
             .query_map(params![workspace, team, id.as_str()], |row| row.get(0))
-            .map_err(|e| sqlite_error("read scenario sentinels", e))?;
+            .map_err(|e| sqlite_error("read scenario blueprints", e))?;
         rows.collect::<Result<_, _>>()
-            .map_err(|e| sqlite_error("read scenario sentinels", e))?
+            .map_err(|e| sqlite_error("read scenario blueprints", e))?
     };
     if ids.is_empty() {
         return Ok(SentinelCommit::fenced(Fence::Missing, None));
@@ -882,15 +881,15 @@ pub(super) fn delete_scenario(
     for table in OWNED_TABLES {
         cx.write(
             &format!(
-                "DELETE FROM {table} WHERE sentinel_id IN \
-                 (SELECT id FROM sentinels WHERE workspace_id = ?1 AND team_id IS ?2 \
+                "DELETE FROM {table} WHERE blueprint_id IN \
+                 (SELECT id FROM blueprints WHERE workspace_id = ?1 AND team_id IS ?2 \
                   AND (id = ?3 OR scenario_id = ?3))"
             ),
             params![workspace, team, id.as_str()],
         )?;
     }
     cx.write(
-        "DELETE FROM sentinels WHERE workspace_id = ?1 AND team_id IS ?2 \
+        "DELETE FROM blueprints WHERE workspace_id = ?1 AND team_id IS ?2 \
          AND (id = ?3 OR scenario_id = ?3)",
         params![workspace, team, id.as_str()],
     )?;
@@ -927,7 +926,7 @@ pub(super) fn schedule(
         match update {
             ScheduleUpdate::Advance { id, next_run } => {
                 let changed = cx.write(
-                    "UPDATE sentinel_runtime SET next_run = ?2 WHERE sentinel_id = ?1",
+                    "UPDATE blueprint_runtime SET next_run = ?2 WHERE blueprint_id = ?1",
                     params![id.as_str(), to_sql_u64("next run", next_run)?],
                 )?;
                 if changed == 1 {
@@ -993,7 +992,7 @@ pub(super) fn accept_transition(
     } else {
         let accepted = scalar(
             cx.conn,
-            "SELECT COUNT(*) FROM sentinel_transitions WHERE sentinel_id = ?1",
+            "SELECT COUNT(*) FROM blueprint_transitions WHERE blueprint_id = ?1",
             id,
         )?;
         let (max_transitions, _) = definitions::head_budgets(cx.conn, id)?;
@@ -1010,7 +1009,7 @@ pub(super) fn accept_transition(
     }
     let ordinal = scalar(
         cx.conn,
-        "SELECT COALESCE(MAX(ordinal), -1) + 1 FROM sentinel_transitions WHERE sentinel_id = ?1",
+        "SELECT COALESCE(MAX(ordinal), -1) + 1 FROM blueprint_transitions WHERE blueprint_id = ?1",
         id,
     )?;
     let version = definitions::head_version(cx.conn, id)?;
@@ -1041,8 +1040,8 @@ pub(super) fn claim_handler(
     }
     let claimed = scalar(
         cx.conn,
-        "SELECT COUNT(*) FROM sentinel_handler_results \
-         WHERE sentinel_id = ?1 AND claim_id IS NOT NULL",
+        "SELECT COUNT(*) FROM blueprint_handler_results \
+         WHERE blueprint_id = ?1 AND claim_id IS NOT NULL",
         id,
     )?;
     let (_, max_actions) = definitions::head_budgets(cx.conn, id)?;
@@ -1066,7 +1065,7 @@ pub(super) fn finish_handler_result(
     let found: Option<i64> = cx
         .conn
         .prepare_cached(
-            "SELECT ordinal FROM sentinel_handler_results WHERE sentinel_id = ?1 \
+            "SELECT ordinal FROM blueprint_handler_results WHERE blueprint_id = ?1 \
              AND transition_id = ?2 AND handler_id = ?3 AND claim_id IS ?4",
         )
         .and_then(|mut statement| {
@@ -1082,8 +1081,8 @@ pub(super) fn finish_handler_result(
         return fenced(cx.conn, Fence::NotClaimed, id);
     }
     cx.write(
-        "UPDATE sentinel_handler_results SET status = ?4, execution_id = ?5, reason = ?6 \
-         WHERE sentinel_id = ?1 AND transition_id = ?2 AND handler_id = ?3",
+        "UPDATE blueprint_handler_results SET status = ?4, execution_id = ?5, reason = ?6 \
+         WHERE blueprint_id = ?1 AND transition_id = ?2 AND handler_id = ?3",
         params![
             id,
             transition,

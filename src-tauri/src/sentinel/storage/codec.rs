@@ -20,7 +20,7 @@ use crate::storage::{
 };
 
 pub(super) fn id(id: &str) -> Result<SentinelId, String> {
-    SentinelId::new(id).map_err(|error| format!("invalid sentinel identity: {error}"))
+    SentinelId::new(id).map_err(|error| format!("invalid blueprint identity: {error}"))
 }
 
 fn safe_kind(kind: &SafeKind) -> StoredSafeKind {
@@ -340,13 +340,18 @@ fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
         && job.routes.keys().all(|bucket| declared.contains(bucket))
         && job.matches.keys().all(|bucket| declared.contains(bucket));
     if !exact {
-        return Err("sentinel definition is not losslessly representable".into());
+        return Err("blueprint definition is not losslessly representable".into());
     }
-    let source = match (&job.probe, &job.observe, &job.input) {
-        (probe, None, None) if !probe.is_empty() => StageSource::Probe(probe.clone()),
-        (probe, Some(binding), None) if probe.is_empty() => StageSource::Observe(observe(binding)),
-        (probe, None, Some(input)) if probe.is_empty() => StageSource::Input(input.clone()),
-        _ => return Err("sentinel definition is not losslessly representable".into()),
+    use super::super::stage_source::StageSource as DomainSource;
+    let source = match &job.source {
+        DomainSource::Probe(probe) => StageSource::Probe(probe.clone()),
+        DomainSource::Observe(binding) => StageSource::Observe(observe(binding)),
+        DomainSource::Input(input) => StageSource::Input(input.clone()),
+        DomainSource::Terminal { binding, config } => StageSource::Terminal {
+            binding: observe(binding),
+            config: config.clone(),
+        },
+        DomainSource::Pipeline(spec) => StageSource::Pipeline(spec.clone()),
     };
     let buckets = job
         .buckets
@@ -359,11 +364,9 @@ fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
         })
         .collect();
     Ok(StageDefinition {
-        terminal: job.terminal.clone(),
         session: job.session,
         name: job.name.clone(),
         source,
-        pipeline: job.pipeline.clone(),
         question: job.question.clone(),
         interval_ms: job.interval_ms,
         until: job.until.clone(),
@@ -391,10 +394,16 @@ pub(super) fn update_definition(
 
 pub(super) fn history_version(stored: StoredDefinition) -> DefinitionVersion {
     let definition = stored.definition;
+    let terminal = definition.terminal().cloned();
+    let pipeline = definition.pipeline().cloned();
     let (probe, observe, input) = match definition.source {
         StageSource::Probe(command) => (command, None, None),
         StageSource::Observe(source) => (String::new(), Some(domain_observe(source)), None),
+        StageSource::Terminal { binding, .. } => {
+            (String::new(), Some(domain_observe(binding)), None)
+        }
         StageSource::Input(input) => (String::new(), None, Some(input)),
+        StageSource::Pipeline(_) => (String::new(), None, None),
     };
     let mut buckets = Vec::with_capacity(definition.buckets.len());
     let mut routes = BTreeMap::new();
@@ -427,10 +436,10 @@ pub(super) fn history_version(stored: StoredDefinition) -> DefinitionVersion {
         }
         .into(),
         definition: DefinitionSnapshot {
-            terminal: definition.terminal,
+            terminal,
             session: definition.session,
             name: definition.name,
-            pipeline: definition.pipeline,
+            pipeline,
             probe,
             observe,
             input,
@@ -483,7 +492,7 @@ fn head_amendment(job: &Sentinel) -> Result<Option<AmendmentRecord>, String> {
     match job.amendments.as_slice() {
         [] if job.definition_version == 1 => Ok(None),
         [head] if head.version == job.definition_version => Ok(Some(amendment(head))),
-        _ => Err("sentinel amendment lineage is not losslessly representable".into()),
+        _ => Err("blueprint amendment lineage is not losslessly representable".into()),
     }
 }
 
@@ -506,10 +515,10 @@ fn scenario(job: &Sentinel) -> Result<Option<SentinelId>, String> {
 
 pub(super) fn create(job: &Sentinel, associate: &[String]) -> Result<SentinelCreate, String> {
     if !job.transitions.is_empty() {
-        return Err("a new sentinel carries no accepted transitions".into());
+        return Err("a new blueprint carries no accepted transitions".into());
     }
     if job.definition_version != 1 || !job.amendments.is_empty() {
-        return Err("a new sentinel starts at definition version 1 without amendments".into());
+        return Err("a new blueprint starts at definition version 1 without amendments".into());
     }
     Ok(SentinelCreate {
         identity: stage_identity(job)?,
@@ -561,10 +570,16 @@ pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
     let record = stored.record.clone();
     let definition_version = record.definition.version;
     let definition = record.definition.definition;
+    let terminal = definition.terminal().cloned();
+    let pipeline = definition.pipeline().cloned();
     let (probe, observe, input) = match definition.source {
         StageSource::Probe(command) => (command, None, None),
         StageSource::Observe(source) => (String::new(), Some(domain_observe(source)), None),
+        StageSource::Terminal { binding, .. } => {
+            (String::new(), Some(domain_observe(binding)), None)
+        }
         StageSource::Input(input) => (String::new(), None, Some(input)),
+        StageSource::Pipeline(_) => (String::new(), None, None),
     };
     let mut buckets = Vec::with_capacity(definition.buckets.len());
     let mut routes = BTreeMap::new();
@@ -583,7 +598,10 @@ pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
     }
     let runtime = record.runtime;
     Sentinel {
-        terminal: definition.terminal,
+        source: super::super::stage_source::StageSource::from_parts(
+            probe, observe, input, terminal, pipeline,
+        )
+        .expect("stored source was validated"),
         session: definition.session,
         causal_run: runtime
             .causal_run_json
@@ -594,7 +612,6 @@ pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
         creator_tab_id: record.identity.scope.creator_tab_id,
         workspace_id: record.identity.scope.workspace_id,
         cwd: record.identity.cwd,
-        probe,
         question: definition.question,
         buckets,
         interval_ms: definition.interval_ms,
@@ -624,8 +641,6 @@ pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
             .into_iter()
             .map(domain_transition)
             .collect(),
-        observe,
-        input,
         run: runtime.run.map(|run| RunBinding {
             run_id: run.run_id,
             tab_id: run.tab_id,
@@ -637,7 +652,6 @@ pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
             .map(domain_handler)
             .collect(),
         escalation_timeout_ms: definition.escalation_timeout_ms,
-        pipeline: definition.pipeline,
         definition_version,
         amendments: record
             .amendments

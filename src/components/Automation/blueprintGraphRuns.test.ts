@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { decisionGraph, fixtureGraph } from "./fixtures.testdata";
-import { graphRuns, replayFrame } from "./runLogModel";
+import { graphRuns } from "./blueprintRunModel";
+import { blueprintModel, nodeKeys, wireId } from "./blueprintModel";
+import { automationKey } from "./types";
 
 const graph = fixtureGraph();
 graph.nodes = graph.nodes.map((node, index) => index ? node : {
@@ -22,16 +24,13 @@ const conversationGraph = { ...graph, nodes: graph.nodes.map((node) => ({ ...nod
 assert.deepEqual(graphRuns(conversationGraph).map((run) => run.conversation), [counts, counts, counts]);
 assert.deepEqual(runs.map((run) => run.at), [30, 20, 10]);
 assert.deepEqual(runs[0].events.map((event) => event.at), [31, 32]);
-assert.deepEqual(edgesOf(runs[0]), ["edge-b"]);
-assert.deepEqual(edgesOf(runs[1]), ["edge-a"]);
+assert.deepEqual(edgesOf(runs[0]), [wireId(nodeKeys(automationKey(graph.nodes[0].identity)).decision, "bucket:branch-b", nodeKeys(automationKey(graph.nodes[0].identity)).action("branch-b", "handler-c"))]);
+assert.deepEqual(edgesOf(runs[1]), [wireId(nodeKeys(automationKey(graph.nodes[0].identity)).decision, "bucket:branch-a", nodeKeys(automationKey(graph.nodes[0].identity)).action("branch-a", "handler-a"))]);
 assert.equal(runs[0].events[0].target, "Worker A");
 assert.equal(runs[2].events[0].edgeId, null);
 const amended = { ...graph, nodes: [{ ...graph.nodes[0], history: [{ ...graph.nodes[0].history![1], routes_current: false }] }] };
 assert.deepEqual(edgesOf(graphRuns(amended)[0]), []);
-assert.equal(replayFrame(["first", "second"], 0, false).active, "first");
-assert.equal(replayFrame(["first", "second"], 850, false).active, "second");
-assert.equal(replayFrame(["first", "second"], 1700, false).active, null);
-assert.deepEqual(replayFrame(["first", "second"], 450, true), { highlighted: ["first", "second"], active: null, progress: 0 });
+for (const run of runs) for (const edge of edgesOf(run)) assert.ok(blueprintModel(graph).wires.some((wire) => wire.id === edge));
 console.log("Run ordering and exact route replay passed");
 
 const linked = decisionGraph();

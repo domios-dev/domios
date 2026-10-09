@@ -11,7 +11,7 @@ pub const MAX_HANDLERS: usize = 64;
 pub const DEFAULT_TRANSITIONS: u16 = 64;
 pub const DEFAULT_ACTIONS: u16 = 256;
 pub const ESCALATION_RATE_WINDOW_MS: u64 = 300_000;
-pub const ESCALATION_RATE_LIMITED: &str = "sentinel_escalation_rate_limited";
+pub const ESCALATION_RATE_LIMITED: &str = "blueprint_escalation_rate_limited";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -78,9 +78,10 @@ impl Definition {
             match (self.kind.as_str(), parameters.target) {
                 ("notify", None) => Route::Notify,
                 ("stop", None) => Route::Stop,
-                (kind @ ("sentinel" | "send" | "cron" | "respond_prompt"), Some(target)) => {
-                    Route::parse(&format!("{kind}:{target}"))?
-                }
+                (
+                    kind @ ("blueprint" | "sentinel" | "send" | "cron" | "respond_prompt"),
+                    Some(target),
+                ) => Route::parse(&format!("{kind}:{target}"))?,
                 ("escalate", Some(target)) => Route::parse(&format!("escalate:{target}"))?,
                 _ => return Err("handler type or parameters are invalid".into()),
             }
@@ -152,7 +153,7 @@ fn generated_id(bucket: &str, action: &Route, ordinal: usize) -> String {
         Route::Stop => ("stop", None, None),
         Route::Send(target) => ("send", Some(target.as_str()), None),
         Route::Cron(target) => ("cron", Some(target.as_str()), None),
-        Route::Sentinel(target) => ("sentinel", Some(target.as_str()), None),
+        Route::Sentinel(target) => ("blueprint", Some(target.as_str()), None),
         Route::RespondPrompt(kind) => ("respond_prompt", Some(kind.as_str()), None),
         Route::Escalate(super::machine::EscalateTarget::Creator) => {
             ("escalate", Some("creator"), None)
@@ -357,8 +358,8 @@ mod tests {
     #[test]
     fn explicit_handler_reason_survives_status_recording() {
         for (status, reason) in [
-            (Status::Unconfirmed, "sentinel_prompt_answer_held"),
-            (Status::Failed, "sentinel_prompt_identity_changed"),
+            (Status::Unconfirmed, "blueprint_prompt_answer_held"),
+            (Status::Failed, "blueprint_prompt_identity_changed"),
         ] {
             let mut record = ResultRecord {
                 handler_id: "handler".into(),
@@ -493,7 +494,7 @@ impl Store {
         };
         let mut accepted = job.clone();
         if matches!(
-            current.observe.as_ref(),
+            current.observe(),
             Some(super::source::TabBinding::CronRun(_))
         ) && current.run.is_some()
         {

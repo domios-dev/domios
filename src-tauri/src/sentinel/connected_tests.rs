@@ -119,7 +119,7 @@ fn sentinel_connected_hash_gate_shared_budget_and_journal() {
     assert_eq!(
         entries
             .iter()
-            .filter(|v| v["reason"] == "budget_exhausted" && v["kind"] == "sentinel")
+            .filter(|v| v["reason"] == "budget_exhausted" && v["kind"] == "blueprint")
             .count(),
         1
     );
