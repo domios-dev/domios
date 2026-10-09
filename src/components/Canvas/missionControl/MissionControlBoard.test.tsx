@@ -330,7 +330,7 @@ describe("mission control board panels", () => {
     const boardRule = boardCss.match(/\.mc-board\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
     expect(boardRule).toContain("background: var(--ct-bg);");
     expect(boardRule).not.toMatch(/background(?:-color)?\s*:\s*transparent/);
-    expect(cssRule(boardCss, ".mc-board .mc-board-panel")).toContain("background: var(--ct-surface);");
+    expect(cssRule(boardCss, ".mc-board .mc-board-panel")).toContain("background: color-mix(in srgb, var(--ct-fg) 3%, var(--ct-bg));");
 
     const appSource = readFileSync("src/App.tsx", "utf8");
     expect(appSource).toContain(
