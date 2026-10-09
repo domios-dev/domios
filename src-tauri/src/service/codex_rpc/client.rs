@@ -23,6 +23,31 @@ pub enum ClientError {
 
 type Reply = Result<Value, ClientError>;
 
+fn connection_error(error: tokio_tungstenite::tungstenite::Error) -> String {
+    use std::io::ErrorKind;
+    use tokio_tungstenite::tungstenite::Error;
+    match error {
+        Error::ConnectionClosed | Error::AlreadyClosed => "RPC WebSocket connection failed".into(),
+        Error::Io(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::ConnectionRefused
+                    | ErrorKind::ConnectionReset
+                    | ErrorKind::ConnectionAborted
+                    | ErrorKind::NotConnected
+                    | ErrorKind::BrokenPipe
+                    | ErrorKind::TimedOut
+                    | ErrorKind::UnexpectedEof
+                    | ErrorKind::Interrupted
+                    | ErrorKind::WouldBlock
+            ) =>
+        {
+            "RPC WebSocket connection failed".into()
+        }
+        other => format!("RPC WebSocket handshake refused: {other}"),
+    }
+}
+
 struct State {
     closed: Option<String>,
     pending: HashMap<RequestId, oneshot::Sender<Reply>>,
@@ -89,7 +114,7 @@ impl Client {
         )
         .await
         .map_err(|_| "RPC WebSocket readiness deadline")?
-        .map_err(|_| "RPC WebSocket connection failed")?;
+        .map_err(connection_error)?;
         let (mut writer, mut reader) = socket.split();
         let (outgoing, mut messages) = mpsc::channel(64);
         let epoch = self.0.epoch.fetch_add(1, Ordering::AcqRel) + 1;
