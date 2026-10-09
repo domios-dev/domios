@@ -10,6 +10,55 @@ use crate::multiplexer::types::{
 use codeterm_util::lock_hold::TimedRwLock;
 use std::sync::Arc;
 
+#[test]
+#[cfg_attr(not(windows), ignore = "mock Tauri fixture requires desktop runtime")]
+fn restored_structured_prompt_server_is_registered_by_the_shared_launch_builder() {
+    let (state, tab_id) = MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(state);
+    let launches = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("structured-restore-fixture")
+            .with_structured_prompt_launch_log(launches.clone()),
+    ));
+    let cwd = fixture.temp.path().to_string_lossy().into_owned();
+    let launch = RestoredLaunch {
+        provider_id: "structured-restore-fixture".into(),
+        session_id: Some("owned-restored-session".into()),
+        cwd: Some(cwd.clone()),
+        model: None,
+        launch_parameters: RestorableLaunchParameters::default(),
+        role: None,
+        role_profile: None,
+    };
+    let input = restored_snapshot_launch_input(&fixture.service.agent_registry, launch, None, None);
+    assert!(input.params.structured_prompt_server.is_none());
+    assert!(crate::service::structured_endpoint::sse(&tab_id).is_none());
+
+    let command = super::restored_snapshot_launch_command_for_service(
+        &fixture.service,
+        &tab_id,
+        "structured-restore-fixture",
+        &input,
+    );
+
+    let endpoint = crate::service::structured_endpoint::sse(&tab_id);
+    crate::service::structured_prompt::clear_tab(&tab_id);
+    assert!(!command.is_empty());
+    let launches = launches.lock();
+    assert_eq!(launches.len(), 1);
+    assert_eq!(
+        launches[0].session_id.as_deref(),
+        Some("owned-restored-session")
+    );
+    let server = launches[0].structured_prompt_server.as_ref().unwrap();
+    assert_eq!(server.hostname, "127.0.0.1");
+    assert_ne!(server.port, 0);
+    assert_eq!(
+        endpoint,
+        Some((format!("http://127.0.0.1:{}", server.port), cwd))
+    );
+}
+
 fn restored_worker(
     historical_task: Option<&str>,
 ) -> (MuxState, String, String, String, Option<String>) {
