@@ -164,7 +164,7 @@ async function run() {
   assert(!tabPointer?.querySelector('[data-testid="raw-command-disclosure"]'), "collapsed Tab card hides its detail disclosure");
   assert(!reportPointer?.querySelector('[data-testid="raw-command-disclosure"]'), "collapsed report card hides its detail disclosure");
   const systemPointer = host.querySelector<HTMLElement>('[data-testid="chat-system-event"]');
-  const systemPointerTitle = systemPointer?.querySelector("button > span");
+  const systemPointerTitle = systemPointer?.querySelector(".ct-chat-card__title");
   const systemPointerToggle = systemPointer?.querySelector<HTMLButtonElement>("button");
   assert(systemPointer?.parentElement?.getAttribute("role") === "status", "parsed System remains a status message");
   assert(systemPointerTitle?.textContent === "System", "duplicate System context is omitted from the event title");
@@ -177,9 +177,9 @@ async function run() {
   assert(host.textContent?.includes("opaque-unmarked-dom-15.md"), "unmarked pointer remains ordinary message content");
   assert(!systemPointer?.querySelector('[data-testid="inbound-show-tab"]'), "System event has no agent focus action");
   const system = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="chat-system-event"]'))
-    .find((event) => event.querySelector("button > span")?.textContent === "System · lifecycle");
+    .find((event) => event.querySelector(".ct-chat-card__title")?.textContent === "System · lifecycle");
   const systemToggle = system?.querySelector<HTMLButtonElement>("button");
-  assert(system?.querySelector("button > span")?.textContent === "System · lifecycle", "distinct System context remains visible");
+  assert(system?.querySelector(".ct-chat-card__title")?.textContent === "System · lifecycle", "distinct System context remains visible");
   assert(systemToggle?.getAttribute("aria-expanded") === "false", "system event should start collapsed");
   assert(!system?.textContent?.includes("Internal lifecycle detail"), "collapsed system event should hide its body");
   await act(async () => systemToggle?.click());

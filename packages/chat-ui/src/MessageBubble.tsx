@@ -24,6 +24,7 @@ import { ReminderCard } from "./codeterm/ReminderCard";
 import { InboundReportCard, parseInboundReport } from "./codeterm/InboundReportCard";
 import { InboundMessageCard } from "./codeterm/InboundMessageCard";
 import { CompactMessageContent } from "./codeterm/CompactMessageContent";
+import { ChatNoticeCard } from "./ChatNoticeCard";
 import { MessageTime } from "./MessageTime";
 import type { PeerNameResolver, TabNameResolver } from "./codeterm/templates";
 import { ChevronIcon, PRE_WRAP_CLASS } from "./CodeBlock";
@@ -217,79 +218,22 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
     const effectiveOrigin = origin ?? structuredInbound?.origin;
     const inboundKind = structuredInbound?.kind;
 
-    if (effectiveOrigin?.kind === "system_prompt") {
+    if (effectiveOrigin?.kind === "system_prompt" || effectiveOrigin?.kind === "system") {
+      const prompt = effectiveOrigin.kind === "system_prompt";
       return (
-        <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto">
-          <div
-            data-testid="chat-system-prompt-card"
-            className="max-w-full min-w-0 rounded-md border"
-            style={{
-              background: "color-mix(in srgb, var(--ct-surface, #161b22) 92%, var(--ct-green, #3fb950) 8%)",
-              borderColor: "color-mix(in srgb, var(--ct-green, #3fb950) 32%, transparent)",
-              color: "var(--ct-fg)",
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => setExpandedPersistent(!expanded)}
-              className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:brightness-110"
-              style={{ color: "var(--ct-fg)" }}
-            >
-              <Info size={14} strokeWidth={2} style={{ color: "var(--ct-green, #3fb950)" }} />
-              <span className="min-w-0 flex-1">
-                <span className="block text-xs font-medium">System prompt</span>
-                <span className="block truncate text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
-                  This is the shell system prompt.
-                </span>
-              </span>
-              <ChevronIcon expanded={expanded} className="opacity-60" />
-            </button>
-            {expanded && (
-              <div
-                className={`border-t px-3 py-2 ${userText} ${TEXT_WRAP_CLASS}`}
-                style={{ borderColor: "color-mix(in srgb, var(--ct-green, #3fb950) 22%, transparent)" }}
-              >
-                <CompactMessageContent text={message.content} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    if (effectiveOrigin?.kind === "system") {
-      const title = systemOriginLabel(effectiveOrigin.context);
-      return (
-        <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto" role="status">
-          <div
-            data-testid="chat-system-event"
-            className="max-w-full min-w-0 rounded-md border"
-            style={{
-              background: "color-mix(in srgb, var(--ct-surface, #161b22) 94%, var(--ct-accent, #58a6ff) 6%)",
-              borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 28%, transparent)",
-              color: "var(--ct-fg)",
-            }}
-          >
-            <button
-              type="button"
-              aria-expanded={expanded}
-              onClick={() => setExpandedPersistent(!expanded)}
-              className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:brightness-110"
-            >
-              <Info size={14} aria-hidden="true" />
-              <span className="min-w-0 flex-1 truncate text-xs font-medium">{title}</span>
-              <ChevronIcon expanded={expanded} className="opacity-60" />
-            </button>
-            {expanded && (
-              <div
-                className={`border-t px-3 py-2 ${userText} ${TEXT_WRAP_CLASS}`}
-                style={{ borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 20%, transparent)" }}
-              >
-                <CompactMessageContent text={message.content} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
-              </div>
-            )}
-          </div>
-        </div>
+        <ChatNoticeCard
+          testId={prompt ? "chat-system-prompt-card" : "chat-system-event"}
+          role={prompt ? undefined : "status"}
+          tone={prompt ? "var(--ct-green)" : undefined}
+          icon={<Info size={14} strokeWidth={2} aria-hidden="true" />}
+          title={prompt ? "System prompt" : systemOriginLabel(effectiveOrigin.context)}
+          subtitle={prompt ? "This is the shell system prompt." : undefined}
+          expanded={expanded}
+          onToggle={() => setExpandedPersistent(!expanded)}
+          bodyClassName={`${userText} ${TEXT_WRAP_CLASS}`}
+        >
+          <CompactMessageContent text={message.content} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
+        </ChatNoticeCard>
       );
     }
 
