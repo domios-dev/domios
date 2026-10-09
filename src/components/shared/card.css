@@ -9,8 +9,8 @@
     background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
 
-.ct-card:hover,
-.ct-card:focus-within {
+.ct-card:not(.ct-card--static):hover,
+.ct-card:not(.ct-card--static):focus-within {
   border-color: color-mix(in srgb, var(--ct-card-tone) 24%, transparent);
   background: color-mix(in srgb, var(--ct-card-tone) 3%, color-mix(in srgb, var(--ct-fg) 2.5%, var(--ct-bg)));
 }
@@ -69,7 +69,7 @@ button.ct-card__head {
   transition: transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
 }
 
-.ct-card:hover .ct-card__icon {
+.ct-card:not(.ct-card--static):hover .ct-card__icon {
   transform: scale(1.06);
 }
 
@@ -158,7 +158,7 @@ button.ct-card__head {
     transition: none;
   }
 
-  .ct-card:hover .ct-card__icon {
+  .ct-card:not(.ct-card--static):hover .ct-card__icon {
     transform: none;
   }
 }

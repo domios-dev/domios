@@ -10,7 +10,7 @@ export const CRON_DANGER_TONE = { "--ct-bar-pill-tone": "var(--ct-red)" } as CSS
 
 export function CronCard({ label, icon, aside, children, bodyless = false }: { label: string; icon: ReactNode; aside?: ReactNode; children: ReactNode; bodyless?: boolean }) {
   const headingId = useId();
-  return <section className="ct-card ct-job-section" aria-labelledby={headingId} style={{ "--ct-card-tone": AUTOMATION_TONE.cron } as CSSProperties}>
+  return <section className="ct-card ct-card--static ct-job-section" aria-labelledby={headingId} style={{ "--ct-card-tone": AUTOMATION_TONE.cron } as CSSProperties}>
     <div className="ct-card__head">
       <span className="ct-card__icon" aria-hidden="true">{icon}</span>
       <h3 id={headingId} className="ct-detail__heading">{label}</h3>
