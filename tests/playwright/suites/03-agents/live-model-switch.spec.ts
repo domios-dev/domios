@@ -101,7 +101,7 @@ for (let run = startRun; run < startRun + repeats; run++) {
             }
             const marker = `SWITCH_ACK_${run}_${providerId}_${Date.now()}_${turnIndex++}`;
             const before = await readChat(api, target.tabId);
-            const text = `Reply with only the token on the next line, with no punctuation or tools:\n${marker}`;
+            const text = `Reply with only this token, no punctuation or tools: ${marker}`;
             await send(text);
             await expect(target.chat.getByRole("article", { name: "assistant message" }).filter({ hasText: marker })).toHaveCount(1, { timeout: 180_000 });
             await expect(target.chat.locator('[data-agent-state="idle"]')).toHaveCount(1, { timeout: 180_000 });
@@ -215,7 +215,7 @@ for (let run = startRun; run < startRun + repeats; run++) {
               if (row) Object.assign(row, { verdict: "fail", detail });
               else rows.push({ run, sha, provider: providerId, step, verdict: "fail", detail });
               const screenshot = info.outputPath(`${providerId}-${step}.png`);
-              await ui.page.screenshot({ path: screenshot });
+              await ui.page.screenshot({ path: screenshot, timeout: 15_000 });
               await info.attach(`${providerId}-${step}.png`, { path: screenshot, contentType: "image/png" });
               const failureState = { detail, identity: await identity(api, target.tabId), chat: await readChat(api, target.tabId) };
               writeFileSync(info.outputPath(`${providerId}-${step}-failure.json`), JSON.stringify(failureState, null, 2));
@@ -301,7 +301,7 @@ for (let run = startRun; run < startRun + repeats; run++) {
           console.log(`[switch-failure] ${providerId}/${step}: ${detail}`);
           failures.push(`${providerId}/${step}: ${detail}`);
           rows.push({ run, sha, provider: providerId, step, verdict: "fail", detail });
-          await info.attach(`${providerId}-${step}.png`, { body: await ui.page.screenshot(), contentType: "image/png" });
+          await info.attach(`${providerId}-${step}.png`, { body: await ui.page.screenshot({ timeout: 15_000 }), contentType: "image/png" });
           if (agent) await info.attach(`${providerId}-${step}-identity.json`, { body: JSON.stringify(await identity(api, agent.tabId)), contentType: "application/json" });
           if (agent) {
             const current = await identity(api, agent.tabId);
