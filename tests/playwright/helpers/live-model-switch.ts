@@ -20,8 +20,8 @@ export type Identity = { agent_session_id: string; session_binding_nonce: string
 export type RawRecord = {
   id?: string; type?: string; role?: string; parentID?: string; modelID?: string; providerID?: string; variant?: string;
   time?: { completed?: number }; parts?: { type?: string; text?: string }[];
-  message?: { content?: unknown; model?: string; effort?: string }; effort?: string;
-  payload?: { role?: string; content?: unknown; turn_id?: string; model?: string; effort?: string };
+  message?: { content?: unknown; model?: string; effort?: string; stop_reason?: string }; effort?: string;
+  payload?: { role?: string; content?: unknown; turn_id?: string; model?: string; effort?: string; type?: string; last_agent_message?: string };
   metadata?: { retained_source?: { id?: { turn_id?: string } } };
   params?: { sessionId?: string; update?: { sessionUpdate?: string; content?: unknown; prompt_id?: string;
     _meta?: { modelId?: string; reasoningEffort?: string }; usage?: { modelUsage?: Record<string, unknown> } };
@@ -70,9 +70,9 @@ export async function identity(api: ApiClient, tabId: string): Promise<Identity>
   return tab;
 }
 
-export async function records(provider: string, session: string): Promise<Evidence> {
-  const meta = await dc<{ transcript_path?: string; transcriptPath?: string; file_path?: string; filePath?: string }>("sessions", "get", session);
-  const file = meta.transcript_path ?? meta.transcriptPath ?? meta.file_path ?? meta.filePath;
+export async function records(provider: string, session: string, knownPath?: string): Promise<Evidence> {
+  const meta = knownPath ? undefined : await dc<{ transcript_path?: string; transcriptPath?: string; file_path?: string; filePath?: string }>("sessions", "get", session);
+  const file = knownPath ?? meta?.transcript_path ?? meta?.transcriptPath ?? meta?.file_path ?? meta?.filePath;
   const result = await execute("python", [path.join(__dirname, "live-switch-records.py"), provider, session, file ?? ""],
     { timeout: 15_000, maxBuffer: 16 * 1024 * 1024 });
   return JSON.parse(result.stdout);
