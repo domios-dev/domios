@@ -1,6 +1,7 @@
 // Run: npx tsx src/components/Surface/StreamSurfaceView.test.tsx
 
 import "./surfaceDomGlobals.testdata";
+import { resetWarmStreamForTest } from "../Terminal/voice/useVoiceRecorder";
 import assert from "node:assert/strict";
 import { act } from "react";
 import { BROWSER_SURFACE_CHROME, BROWSER_SURFACE_TITLE } from "./browserChrome";
@@ -89,7 +90,11 @@ suite.test("Screenshot invokes once, saves the result and shows the saved notice
 });
 
 suite.test("point and ask selects, sends the annotation and closes", async () => {
-  const selection: GrabSelection = { id: "g1", label: "button Sign in", target: { selector: "form > button" } };
+  const selection: GrabSelection = {
+    id: "g1",
+    label: "button \"Sign in\"",
+    target: { tagName: "button", selector: "form > button", accessibility: { role: "button", name: "Sign in" } },
+  };
   const { fake, region, host, unmount } = await mount();
   fake.respond(SURFACE_METHOD.grabSelect, () => selection);
   await resizeStages(400, 300);
@@ -100,11 +105,13 @@ suite.test("point and ask selects, sends the annotation and closes", async () =>
   await act(async () => getByRole(region(), "img").dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 200, clientY: 150 })));
   await flushAsync();
   assert.equal(fake.callsTo(SURFACE_METHOD.grabSelect).length, 1);
-  const dialog = getByRole(host, "dialog", "Ask about element");
-  (getByRole(dialog, "textbox", "Your question or request") as HTMLTextAreaElement).value = "rename this";
-  await act(async () => getByRole(dialog, "button", "Send").click());
+  const dialog = getByRole(host, "dialog", "Ask about Button «Sign in»");
+  const editor = getByRole(dialog, "textbox", "Your question") as HTMLTextAreaElement;
+  await changeValue(editor as unknown as HTMLInputElement, "rename this", "input");
+  await act(async () => { editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); });
   await flushAsync();
-  assert.deepEqual(fake.callsTo(SURFACE_METHOD.grabSend).map((call) => call.args), [grabSendArgs(selection, "rename this", "question")]);
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.grabSend).map((call) => call.args), [{ id: "g1", comment: "rename this", intent: "question" }]);
+  assert.deepEqual(grabSendArgs(selection, "rename this"), { id: "g1", comment: "rename this", intent: "question" });
   assert.equal(fake.callsTo(SURFACE_METHOD.grabCancel).length, 1, "sending ends the pick on the host");
   assert.equal(queryByRole(host, "dialog"), null);
   await unmount();
@@ -274,4 +281,5 @@ suite.test("the owner tab's name labels the surface over the pushed owner", asyn
   await unmount();
 });
 
-void suite.run();
+// The composer mic keeps a 30s warm-stream timer that would hold the process open.
+void suite.run().then(resetWarmStreamForTest);
