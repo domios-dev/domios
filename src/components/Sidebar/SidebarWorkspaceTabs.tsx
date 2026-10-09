@@ -20,7 +20,7 @@ import { SortableContext, verticalListSortingStrategy, TAB_PREFIX } from "./sort
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { persistTabRename, SidebarSingleTabRow } from "./SidebarPlanPeerPair";
 import { CursorTooltip } from "../shared/CursorTooltip";
-import { TabItem } from "./TabItem";
+import { TabItem, type TabStartedBy } from "./TabItem";
 import { remoteTeamIdentity } from "./remoteOwnership";
 import { useWorkspaceCrons } from "../../hooks/useWorkspaceCrons";
 import { cronSelectionStore } from "../Cron/cronSelectionStore";
@@ -302,7 +302,16 @@ export function SidebarWorkspaceTabs({
     );
   };
 
-  const renderMemberRow = (member: TeamTabMember): ReactNode => (
+  const startedByOf = (tab: Tab): TabStartedBy => {
+    const creatorId = tab.spawned_by_tab_id ?? null;
+    const creator = creatorId ? tabs[creatorId] : null;
+    const origin = terminalOrigin(creatorId, creator?.title, Boolean(creator));
+    if (origin.kind === "tab") return { id: origin.id, label: origin.label, onOpen: () => onActivateTab(origin.id) };
+    if (origin.kind === "closed") return { id: origin.id, label: "a closed tab" };
+    return { id: null, label: "an unknown tab" };
+  };
+
+  const renderMemberRow = (member: TeamTabMember, startedBy?: TabStartedBy): ReactNode => (
     <div key={member.tab.id} className="sidebar-team-member">
       {renderOwnerWithAttachments(member.tab, attachmentsByOwner.get(member.tab.id) ?? [], "team", (toggle) => (
         <SidebarSingleTabRow
@@ -317,49 +326,14 @@ export function SidebarWorkspaceTabs({
           groupKey={ws.id}
           pinnedIds={[]}
           attachmentToggle={toggle}
+          startedBy={startedBy}
           {...sharedRow}
         />
       ))}
     </div>
   );
 
-  const renderTerminalRow = (member: TeamTabMember): ReactNode => {
-    const creatorId = member.tab.spawned_by_tab_id ?? null;
-    const creator = creatorId ? tabs[creatorId] : null;
-    const origin = terminalOrigin(creatorId, creator?.title, Boolean(creator));
-    return (
-      <div key={member.tab.id} className="sidebar-team-member sidebar-team-terminal-member">
-        {renderOwnerWithAttachments(member.tab, attachmentsByOwner.get(member.tab.id) ?? [], "team", (toggle) => (
-          <SidebarSingleTabRow
-            tab={member.tab}
-            ownerTitle={surfaceOwnerTitle(member.tab, tabs)}
-            index={member.index}
-            activity={resolveTabTabActivity(planIndex, member.tab.id, tabs)}
-            activeWork={activeWork}
-            isClosing={closingTabIds.has(member.tab.id)}
-            isAppearing={appearingTabIds.has(member.tab.id)}
-            group="tab"
-            groupKey={ws.id}
-            pinnedIds={[]}
-            attachmentToggle={toggle}
-            {...sharedRow}
-          />
-        ))}
-        <div className="sidebar-team-terminal-origin">
-          started by{" "}
-          {origin.kind === "tab" ? (
-            <button type="button" onClick={() => onActivateTab(origin.id)}>
-              {origin.label}
-            </button>
-          ) : origin.kind === "closed" ? (
-            <span title={`Tab ${origin.id}`}>a closed tab</span>
-          ) : (
-            <span>an unknown tab</span>
-          )}
-        </div>
-      </div>
-    );
-  };
+  const renderTerminalRow = (member: TeamTabMember): ReactNode => renderMemberRow(member, startedByOf(member.tab));
 
   const renderedTeamIds = new Set<string>();
   const rows: ReactNode[] = [];

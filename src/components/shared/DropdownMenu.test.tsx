@@ -76,7 +76,8 @@ async function main() {
   if (quickSpawn?.getAttribute("aria-haspopup") !== "menu") throw new Error("submenu trigger should expose menu semantics");
   await act(async () => quickSpawn.click());
   const submenu = document.querySelector('[role="menu"]');
-  if (!submenu?.textContent?.includes("Spawns a default Worker")) throw new Error("submenu should explain the default Worker behavior");
+  if (!submenu?.getAttribute("aria-description")?.includes("Spawns a default Worker")) throw new Error("submenu should announce the default Worker behavior");
+  if (submenu.textContent?.includes("Spawns a default Worker")) throw new Error("submenu description stays out of the visible menu");
   if (submenu.textContent.includes("Rename")) throw new Error("submenu should replace root actions in the same popup");
   const codex = Array.from(submenu.querySelectorAll('button[role="menuitem"]'))
     .find((button) => button.textContent?.includes("Codex")) as HTMLButtonElement | undefined;

@@ -49,9 +49,9 @@ function menuIcon(icon: TabMenuIcon): ReactNode {
   if (icon === null) return undefined;
   if (typeof icon === "string") {
     const Glyph = GLYPHS[icon];
-    return <Glyph size={11} strokeWidth={2} />;
+    return <Glyph size={14} strokeWidth={1.9} />;
   }
-  return <PluginIcon plugin={{ icon_svg: icon.svg, icon_color: icon.color }} size={11} />;
+  return <PluginIcon plugin={{ icon_svg: icon.svg, icon_color: icon.color }} size={14} />;
 }
 
 function bind(action: TabMenuAction | null, onAction: ActionHandler): (() => void) | undefined {
@@ -77,7 +77,7 @@ function leafEntry(entry: TabMenuLeafEntry, onAction: ActionHandler): DropdownMe
         label: entry.label,
         icon: entry.selected === undefined
           ? menuIcon(entry.icon)
-          : entry.selected ? <Check size={11} strokeWidth={2} /> : <span className="w-3 h-3" />,
+          : entry.selected ? <Check size={14} strokeWidth={2} /> : <span className="w-3.5 h-3.5" />,
         selected: entry.selected,
         disabled: entry.disabled,
         unavailable: entry.unavailable,
@@ -106,11 +106,17 @@ function submenuEntry(entry: TabMenuSubmenuEntry, onAction: ActionHandler): Drop
   };
 }
 
-function TabMenuSessionHeader({ entry, onAction }: { entry: TabMenuHeaderEntry; onAction: ActionHandler }) {
+export interface TabMenuIdentity {
+  icon: ReactNode;
+  title: string;
+  subtitle?: string | null;
+}
+
+function TabMenuSession({ entry, onAction }: { entry: TabMenuHeaderEntry; onAction: ActionHandler }) {
   const { sessionId, copyAction } = entry;
   return (
-    <div className="mx-1 mb-1 flex min-w-48 items-center gap-1 border-b border-[var(--ct-border)] px-2 pb-1.5 pt-0.5">
-      <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-[var(--ct-muted-fg)]" title={sessionId ?? "Session ID is not available yet"}>
+    <div className="ct-menu-session">
+      <span className="ct-menu-session__id" title={sessionId ?? "Session ID is not available yet"}>
         {sessionId ?? "ID not available yet"}
       </span>
       <button
@@ -124,10 +130,28 @@ function TabMenuSessionHeader({ entry, onAction }: { entry: TabMenuHeaderEntry; 
           event.stopPropagation();
           if (copyAction) onAction(copyAction);
         }}
-        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] disabled:cursor-not-allowed disabled:opacity-35"
+        className="ct-menu-session__copy"
       >
         <Copy size={12} />
       </button>
+    </div>
+  );
+}
+
+function TabMenuHead({ identity, session, onAction }: { identity?: TabMenuIdentity; session?: TabMenuHeaderEntry; onAction: ActionHandler }) {
+  if (!identity && !session) return null;
+  return (
+    <div className="ct-menu-head" data-testid="tab-menu-head">
+      {identity && (
+        <div className="ct-menu-identity">
+          <span className="ct-menu-identity__icon" aria-hidden>{identity.icon}</span>
+          <span className="ct-menu-identity__text">
+            <span className="ct-menu-identity__title">{identity.title}</span>
+            {identity.subtitle && <span className="ct-menu-identity__subtitle" data-testid="tab-menu-identity-subtitle">{identity.subtitle}</span>}
+          </span>
+        </div>
+      )}
+      {session && <TabMenuSession entry={session} onAction={onAction} />}
     </div>
   );
 }
@@ -138,11 +162,12 @@ interface TabMenuProps {
   trigger: ReactNode;
   className?: string;
   menuTestId?: string;
+  identity?: TabMenuIdentity;
   contextMenuTargetRef?: RefObject<HTMLElement | null>;
   onOpenChange?: (open: boolean) => void;
 }
 
-export function TabMenu({ entries, onAction, ...menu }: TabMenuProps) {
+export function TabMenu({ entries, onAction, identity, ...menu }: TabMenuProps) {
   const header = entries.find((entry): entry is TabMenuHeaderEntry => entry.kind === "header");
   const items = entries.flatMap((entry): DropdownMenuEntry[] => {
     if (entry.kind === "header") return [];
@@ -153,7 +178,7 @@ export function TabMenu({ entries, onAction, ...menu }: TabMenuProps) {
       {...menu}
       items={items}
       menuLabel={TAB_MENU_LABELS.menu}
-      header={header ? <TabMenuSessionHeader entry={header} onAction={onAction} /> : undefined}
+      header={<TabMenuHead identity={identity} session={header} onAction={onAction} />}
     />
   );
 }

@@ -5,7 +5,7 @@ import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
 import type { TabTabActivity } from "../Canvas/tabTabActivity";
 import { resolvePlanPeerPair } from "../shared/PairAffordance";
 import { SortableRow, TAB_PREFIX } from "./sortable";
-import { TabItem, type AttachmentToggle } from "./TabItem";
+import { TabItem, type AttachmentToggle, type TabStartedBy } from "./TabItem";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import type { DeclaredAttentionLevel } from "./declaredAttention";
 
@@ -57,6 +57,7 @@ export interface SidebarTabItemRowProps {
   insetPx?: number;
   ownerBadgeTab?: Tab | null;
   attachmentToggle?: AttachmentToggle | null;
+  startedBy?: TabStartedBy | null;
   onActivateTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
   onRenameTab: (tabId: string, title: string) => void;
@@ -88,6 +89,7 @@ function SidebarTabItemRow({
   insetPx,
   ownerBadgeTab,
   attachmentToggle,
+  startedBy,
   onActivateTab,
   onCloseTab,
   onRenameTab,
@@ -127,6 +129,7 @@ function SidebarTabItemRow({
       insetPx={insetPx}
       ownerBadgeTab={ownerBadgeTab}
       attachmentToggle={attachmentToggle}
+      startedBy={startedBy}
     />
   );
 }
