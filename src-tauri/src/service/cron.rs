@@ -805,6 +805,20 @@ impl ServiceContext {
                     "Only the owning Tab or a human caller may complete cron run {run_id}"
                 ));
             }
+            if self
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .is_some_and(|tab| tab.agent_type.is_some())
+            {
+                self.run_watcher.request_cron_completion(
+                    self,
+                    &tab_id,
+                    run_id,
+                    summary.unwrap_or("(no summary provided)"),
+                )?;
+                return Ok(None);
+            }
             let (pty_id, session_id, run_cwd) = {
                 let mux = self.mux.read();
                 let tab = mux.get_tab(&tab_id);

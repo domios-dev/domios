@@ -456,6 +456,7 @@ fn cron_run_not_failed_before_own_launch_issued() {
         restart_count: AtomicU32::new(0),
         last_restart_at: Mutex::new(Instant::now()),
         resume_system_prompt: None,
+        cron_completion: Mutex::new(None),
     });
     fixture
         .service
@@ -645,6 +646,7 @@ fn dead_cron_run_is_reaped_on_process_exit() {
         restart_count: AtomicU32::new(0),
         last_restart_at: parking_lot::Mutex::new(std::time::Instant::now()),
         resume_system_prompt: None,
+        cron_completion: Mutex::new(None),
     });
     fixture
         .service
@@ -736,6 +738,7 @@ fn dream_deadline_hook_finalizes_diary_on_hard_timeout() {
         restart_count: AtomicU32::new(0),
         last_restart_at: parking_lot::Mutex::new(std::time::Instant::now()),
         resume_system_prompt: None,
+        cron_completion: Mutex::new(None),
     };
 
     end_on_hard_timeout(svc, &run, 1800);
@@ -824,6 +827,7 @@ fn run_watcher_mem_worker_ends_on_pending_provider_prompt() {
         restart_count: AtomicU32::new(0),
         last_restart_at: Mutex::new(Instant::now()),
         resume_system_prompt: None,
+        cron_completion: Mutex::new(None),
     });
     svc.run_watcher
         .runs
@@ -1005,6 +1009,7 @@ fn run_watcher_mem_worker_ends_on_unanswered_folder_trust() {
         restart_count: AtomicU32::new(0),
         last_restart_at: Mutex::new(Instant::now()),
         resume_system_prompt: None,
+        cron_completion: Mutex::new(None),
     });
     svc.run_watcher
         .runs
@@ -1105,6 +1110,7 @@ fn run_watcher_blocking_prompt_end_is_idempotent_with_hard_timeout() {
         restart_count: AtomicU32::new(0),
         last_restart_at: Mutex::new(Instant::now()),
         resume_system_prompt: None,
+        cron_completion: Mutex::new(None),
     };
 
     assert!(claim_run_end(&run));
