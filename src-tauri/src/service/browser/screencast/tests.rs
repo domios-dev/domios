@@ -148,6 +148,33 @@ async fn browser_screencast_backlogged_viewer_gets_latest_frame_only() {
     assert!(delivery.frame.still);
 }
 
+#[test]
+fn browser_screencast_capture_hold_drops_frames_sized_unlike_the_viewport() {
+    let hub = FrameHub::new(params(1280));
+    let (driver, _commands) = mpsc::unbounded_channel();
+    let generation = hub.bind(driver);
+    let page = FrameMetadata::still(params(1280).viewport, 1.0);
+    let zoomed = FrameMetadata {
+        device_width: 420.0,
+        device_height: 180.0,
+        ..page.clone()
+    };
+    let hold = hub.hold_for_capture();
+    assert!(!hub.publish(generation, vec![1], zoomed.clone(), false));
+    assert!(hub.publish(generation, vec![2], page.clone(), false));
+    assert!(
+        hub.publish(generation, vec![3], zoomed.clone(), true),
+        "a still is ours, never re-rendered"
+    );
+    assert_eq!(hub.latest().unwrap().jpeg, vec![3]);
+    drop(hold);
+    assert!(
+        hub.publish(generation, vec![4], zoomed, false),
+        "the guard ends with the capture"
+    );
+    assert_eq!(hub.latest().unwrap().jpeg, vec![4]);
+}
+
 #[tokio::test]
 async fn browser_screencast_closed_hub_ends_subscriptions() {
     let hub = FrameHub::new(params(1280));
