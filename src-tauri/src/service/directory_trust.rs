@@ -529,7 +529,7 @@ impl ServiceContext {
         let tab_id = tab_id.to_string();
         let pty_id = pty_id.to_string();
         let agent_type = agent_type.to_string();
-        std::thread::spawn(move || loop {
+        codeterm_util::named_thread::spawn(format!("launch-onboarding:{tab_id}"), move || loop {
             service.respond_to_launch_onboarding_until_clear(&tab_id, &pty_id, &agent_type);
             let mut workers = LAUNCH_ONBOARDING_WORKERS.lock();
             if workers.get(&tab_id).copied().unwrap_or(false) {

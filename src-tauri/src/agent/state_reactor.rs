@@ -116,7 +116,7 @@ fn keys_to_writes(keys: &[String]) -> Vec<Vec<u8>> {
 /// Start the background reactor loop on its own thread: sweeps tracked tabs,
 /// dedupes per parked episode, and executes verdicts off the async runtime.
 pub fn start(svc: ServiceState) {
-    std::thread::spawn(move || {
+    codeterm_util::named_thread::spawn("agent-state-reactor", move || {
         // Tabs already reacted-to this parked episode — prevents re-firing every tick at the same prompt.
         let mut reacted: HashSet<String> = HashSet::new();
         loop {

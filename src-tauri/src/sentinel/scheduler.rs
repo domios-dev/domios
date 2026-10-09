@@ -193,7 +193,7 @@ pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::St
     let wake = handle.wake.clone();
     let probe_owner = Arc::downgrade(&handle.probe_owner);
     drop(handle);
-    std::thread::spawn(move || {
+    codeterm_util::named_thread::spawn("blueprint-scheduler", move || {
         let (generation, wake_condvar) = &*wake;
         let mut unavailable_incident: Option<String> = None;
         loop {

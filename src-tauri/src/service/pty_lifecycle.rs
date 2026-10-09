@@ -147,12 +147,15 @@ async fn backend_read_loop(
     let feed_svc = svc.clone();
     let feed_pty_id = pty_id.clone();
     let feed_task = tokio::task::spawn_blocking(move || {
+        let _role = codeterm_util::named_thread::Scope::enter(&format!("pty-feed:{feed_pty_id}"));
         process_pty_feed(feed_rx, feed_svc, feed_pty_id, generation, rd_trace)
     });
     loop {
         // Blocking read in a dedicated thread — same pattern as read_pty.
         let read_started = std::time::Instant::now();
+        let read_role = format!("pty-read:{pty_id}");
         let result = tokio::task::spawn_blocking(move || {
+            let _role = codeterm_util::named_thread::Scope::enter(&read_role);
             let mut buf = vec![0u8; 8192];
             let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
             if n == 0 {

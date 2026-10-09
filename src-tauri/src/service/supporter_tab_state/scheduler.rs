@@ -223,7 +223,11 @@ fn run(shared: Arc<Shared>) {
                 shared.ready.wait(&mut queue);
             }
         };
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job.work));
+        let result = {
+            let _role =
+                codeterm_util::named_thread::Scope::enter(&format!("tab-observer:{}", job.tab));
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(job.work))
+        };
         if let Some(completion) = job.completion {
             let completed = match &result {
                 Ok(verdict) => verdict.clone(),

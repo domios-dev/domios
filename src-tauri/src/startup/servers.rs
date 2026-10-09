@@ -23,7 +23,7 @@ fn should_materialize_restored_backend(
 pub(crate) const FRONTEND_READINESS_DEADLINE_ELAPSED: &str = "frontend_readiness_deadline_elapsed";
 
 fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_generation: u64) {
-    std::thread::spawn(move || {
+    codeterm_util::named_thread::spawn("restore-pty-backends", move || {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         materialize_restored_backends(
             || super::wait_for_frontend_ready_until(frontend_readiness_generation, deadline),
@@ -282,7 +282,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
 
     {
         let svc = service_state.clone();
-        std::thread::spawn(move || loop {
+        codeterm_util::named_thread::spawn("memory-file-sync", move || loop {
             let cfg = crate::config::memory_config();
             let sleep_secs = if cfg.file_sync_enabled {
                 cfg.file_sync_interval_minutes.max(5) * 60
@@ -391,8 +391,9 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
             }
             std::env::set_var("CODETERM_API_PORT", port.to_string());
             let control = states.rest_api.clone();
-            std::thread::spawn(move || {
+            codeterm_util::named_thread::spawn("rest-api", move || {
                 let rt = tokio::runtime::Builder::new_multi_thread()
+                    .thread_name("rest-api-worker")
                     .worker_threads(4)
                     .enable_all()
                     .build()
@@ -417,7 +418,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
             let frontend_ready_deadline =
                 std::time::Instant::now() + std::time::Duration::from_secs(30);
 
-            std::thread::spawn(move || {
+            codeterm_util::named_thread::spawn("general-agent-startup", move || {
                 if !super::wait_for_frontend_ready_until(
                     frontend_readiness_generation,
                     frontend_ready_deadline,
