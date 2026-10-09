@@ -1,0 +1,16 @@
+.ct-sidebar-panel {
+  border-right: 1px solid var(--ct-border);
+  background: var(--ct-sidebar-bg);
+}
+
+@media not all and (max-width: 640px) {
+  .ct-sidebar-panel[data-collapsed="false"] {
+    z-index: 2;
+    width: calc(100% - 0.5rem) !important;
+    height: calc(100% - 1rem);
+    margin: 0.5rem 0 0.5rem 0.5rem;
+    border-right: 0;
+    border-radius: 1.25rem;
+    box-shadow: var(--ct-shadow-capsule);
+  }
+}
