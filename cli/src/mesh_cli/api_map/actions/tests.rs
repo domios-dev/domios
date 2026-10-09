@@ -157,6 +157,18 @@ fn agent_restart_mesh_preserves_explicit_tab() {
 }
 
 #[test]
+fn agent_restart_fresh_parses_and_reaches_remote_api() {
+    let action = parse_action(&["restart", "--tab", "restored-tab", "--fresh", "--force"]);
+    let (method, path, body) = agent_to_api(&action);
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/tabs/restored-tab/agent/restart");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&body.unwrap()).unwrap(),
+        serde_json::json!({"force": true, "grace_secs": 10, "fresh": true})
+    );
+}
+
+#[test]
 fn agent_restart_mesh_preserves_explicit_provider_and_history() {
     for history in [false, true] {
         let mut args = vec![

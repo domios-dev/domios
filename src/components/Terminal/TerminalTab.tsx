@@ -40,6 +40,7 @@ import { getResizeClientId } from "../../lib/resizeOwner";
 import { shouldShowDropOverlay } from "./dropOverlay";
 import { terminalOwnsLivePty, terminalRenderEnabled } from "./terminalOwnership";
 import { TabBootOverlay, tabBootOverlayView } from "./bootOverlay";
+import { useStartNewSession } from "./useStartNewSession";
 import { TerminalViewControls } from "./TerminalViewControls";
 import { shouldOfferScrollToBottom } from "../../hooks/terminal/terminalFollowState";
 import { TERMINAL_INPUT_WRITE_FAILED_EVENT } from "../../hooks/terminal/terminalInputWrite";
@@ -419,6 +420,7 @@ export const TerminalTab = memo(function TerminalTab({
   const terminalKeyBar = <TerminalKeyBar onSendKey={writePty} className="w-full" />;
   const failureKey = `${tab?.boot_stage ?? ""}:${tab?.boot_failure_reason ?? ""}`;
   const bootOverlay = tabBootOverlayView(tab, keptFailureKey === failureKey);
+  const newSessionAction = useStartNewSession(tabId);
   const retryAgent = useCallback(() => {
     invoke("restart_agent_tab", { tabId }).catch((e) =>
       console.warn("restart_agent_tab failed:", e),
@@ -746,6 +748,7 @@ export const TerminalTab = memo(function TerminalTab({
         overlayVisible={shell.overlayVisible}
         onRetry={retryAgent}
         onStartFreshAgent={startFreshAgent}
+        {...newSessionAction}
         onKeepShell={keepShell}
       />
 

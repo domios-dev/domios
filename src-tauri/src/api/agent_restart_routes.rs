@@ -21,6 +21,8 @@ pub(crate) struct AgentRestartBody {
     provider: Option<String>,
     #[serde(default)]
     handoff_history: bool,
+    #[serde(default)]
+    fresh: bool,
 }
 
 fn default_grace_secs() -> u64 {
@@ -74,15 +76,19 @@ pub(crate) async fn agent_restart_handler(
         grace_secs: default_grace_secs(),
         provider: None,
         handoff_history: false,
+        fresh: false,
     });
     let svc = state.svc.clone();
     let attempt = tokio::task::spawn_blocking(move || {
         svc.agent_restart_observed_with_options(
             &tab_id,
-            body.force,
-            body.grace_secs,
-            body.provider,
-            body.handoff_history,
+            crate::service::agent_restart::RestartOptions {
+                force: body.force,
+                grace_secs: body.grace_secs,
+                target_provider: body.provider,
+                handoff_history: body.handoff_history,
+                fresh: body.fresh,
+            },
         )
     })
     .await;

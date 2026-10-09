@@ -210,7 +210,7 @@ fn require_restored_launch_command(command: &str, session_id: Option<&str>) -> R
     }
     Err(match session_id {
         Some(session) => format!(
-            "restored_session_unavailable: The provider cannot resume saved session {session}"
+            "restored_session_unavailable: Saved session {session} exists, but the provider cannot resume it"
         ),
         None => "restored_session_unavailable: The provider cannot build a launch command".into(),
     })
@@ -613,20 +613,24 @@ impl ServiceContext {
             resume_enabled,
             session_id.as_deref(),
         );
-        let session_valid = resume_session_id
+        let session_exists = resume_session_id
             .zip(if exact_session {
                 session_cwd.as_deref()
             } else {
                 cwd.as_deref()
             })
-            .map(|(sid, dir)| {
+            .and_then(|(sid, dir)| {
                 self.agent_registry
                     .with_provider(&provider_id, |p| p.session_exists(dir, sid))
-                    .unwrap_or(false)
-            })
-            .unwrap_or(false);
+            });
+        let session_valid = session_exists == Some(true);
         if exact_session && !session_valid {
-            let reason = format!("restored_session_unavailable: The exact saved session for Tab {tab_id} is unavailable; restore will not launch another session");
+            let missing = if session_exists == Some(false) {
+                "session_missing: "
+            } else {
+                ""
+            };
+            let reason = format!("restored_session_unavailable: {missing}The exact saved session for Tab {tab_id} is unavailable; restore will not launch another session");
             self.refuse_restored_launch(tab_id, &reason);
             return Err(reason);
         }

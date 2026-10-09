@@ -52,24 +52,39 @@ impl ServiceContext {
         )
         .map_err(AgentRestartError::BadRequest)?
         .is_some();
-        let session_id = super::exit_recovery::select_recovery_session(
-            &tab.prior_session_binding_nonces,
-            &super::exit_recovery::verified_session_ids(
-                &crate::session::lifecycle::TabLifecycleJournal::shared()
-                    .load()
-                    .records,
-                &tab.id,
-            ),
-        )
-        .ok()
-        .filter(|session_id| {
-            super::exit_recovery::recovery_provider(
-                &self.agent_registry,
-                tab.cwd.as_deref(),
-                session_id,
+        let exact_session = tab
+            .close_restore
+            .as_ref()
+            .is_some_and(|state| state.exact_session);
+        let session_id = if exact_session {
+            let exists =
+                self.restart_session_exists(&tab, provider, tab.agent_session_id.as_deref());
+            if exists != Some(true) {
+                return Err(AgentRestartError::BadRequest(
+                    "the exact restored session is unavailable; use agent restart --fresh to explicitly start a new session".into(),
+                ));
+            }
+            tab.agent_session_id.clone()
+        } else {
+            super::exit_recovery::select_recovery_session(
+                &tab.prior_session_binding_nonces,
+                &super::exit_recovery::verified_session_ids(
+                    &crate::session::lifecycle::TabLifecycleJournal::shared()
+                        .load()
+                        .records,
+                    &tab.id,
+                ),
             )
-            .is_ok_and(|owner| owner == provider)
-        });
+            .ok()
+            .filter(|session_id| {
+                super::exit_recovery::recovery_provider(
+                    &self.agent_registry,
+                    tab.cwd.as_deref(),
+                    session_id,
+                )
+                .is_ok_and(|owner| owner == provider)
+            })
+        };
         Ok(Some(TabRestartSnapshot {
             tab_id: tab.id.clone(),
             pty_id: tab.pty_id.clone().unwrap_or_default(),
