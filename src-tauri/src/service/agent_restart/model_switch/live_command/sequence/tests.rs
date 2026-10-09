@@ -129,6 +129,34 @@ fn command_records() -> String {
         .join("\n")
 }
 
+#[test]
+fn captured_model_and_effort_records_need_no_idle_delay_when_idle_is_observed() {
+    let records: Vec<serde_json::Value> = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../plugins/provider-claude/tests/fixtures/model-switch/live-command-records.json"
+    )))
+    .unwrap();
+    let bytes = records
+        .iter()
+        .map(serde_json::Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let signal = ScreenChangeSignal::default();
+    let generation = signal.generation();
+    let mut observations = 0;
+    wait_for_idle(&signal, Instant::now() + Duration::from_secs(1), || {
+        observations += 1;
+        post_command_idle(declared_transcript().has_foreign_user_turn(&bytes)?, true)
+    })
+    .unwrap();
+    assert_eq!(observations, 1);
+    assert_eq!(signal.generation(), generation);
+    assert_eq!(
+        run_fixture_sequence(&bytes, &declared_transcript()).unwrap(),
+        ["/model", "/effort high"]
+    );
+}
+
 fn run_fixture_sequence(
     bytes: &str,
     source: &ModelSwitchTranscript,

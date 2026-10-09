@@ -1,5 +1,76 @@
 use super::*;
 
+#[test]
+fn command_prompt_ownership_is_bound_to_pty_and_nonce_and_released_on_exit() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.pty_id = Some("own-pty".into());
+    tab.session_binding_nonce = Some("own-nonce".into());
+    tab.reported_session_binding_nonce = Some("own-nonce".into());
+    let owner = ("own-pty".into(), "own-nonce".into());
+    assert!(command_prompt_owner_matches(Some(&owner), tab));
+    assert!(!command_prompt_owner_matches(None, tab));
+    tab.pty_id = Some("other-pty".into());
+    assert!(!command_prompt_owner_matches(Some(&owner), tab));
+    tab.pty_id = Some("own-pty".into());
+    tab.reported_session_binding_nonce = Some("stale-nonce".into());
+    assert!(!command_prompt_owner_matches(Some(&owner), tab));
+    let tracker = new_restart_tracker();
+    tracker.lock().in_progress.insert(tab_id.clone());
+    tracker.lock().command_ptys.insert(tab_id.clone(), owner);
+    drop(RestartClaim {
+        tracker: tracker.clone(),
+        tab_id: tab_id.clone(),
+    });
+    assert!(!tracker.lock().in_progress.contains(&tab_id));
+    assert!(!tracker.lock().command_ptys.contains_key(&tab_id));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn command_prompt_ownership_suppresses_picker_until_operation_exits() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.pty_id = Some("own-pty".into());
+    tab.session_binding_nonce = Some("own-nonce".into());
+    tab.reported_session_binding_nonce = Some("own-nonce".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let tracker = fixture.service.restart_tracker.clone();
+    tracker.lock().in_progress.insert(tab_id.clone());
+    tracker
+        .lock()
+        .command_ptys
+        .insert(tab_id.clone(), ("own-pty".into(), "own-nonce".into()));
+    let claim = RestartClaim {
+        tracker,
+        tab_id: tab_id.clone(),
+    };
+    let prompt = serde_json::from_value(serde_json::json!({"question":"opaque picker", "options":[{"label":"target", "value":"4"}]})).unwrap();
+    let decision = crate::agent::prompt::PromptDecision::NewPrompt {
+        tab_id: tab_id.clone(),
+        prompt,
+    };
+    fixture.service.apply_prompt_decision(&decision);
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .pending_prompt
+        .is_none());
+    drop(claim);
+    fixture.service.apply_prompt_decision(&decision);
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .pending_prompt
+        .is_some());
+}
+
 fn fresh_tracker() -> RestartTracker {
     new_restart_tracker()
 }
