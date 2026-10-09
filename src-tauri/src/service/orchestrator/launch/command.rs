@@ -2,6 +2,8 @@ use super::{AgentRegistry, ServiceContext};
 use crate::agent::provider::AgentLaunchParams;
 use crate::service::orchestrator::types::SpawnAgentParams;
 
+mod selection_args;
+
 pub(crate) fn build_agent_command(
     agent_cmd: &str,
     params: &SpawnAgentParams,
@@ -88,7 +90,6 @@ fn build_agent_command_inner(
     registry: &AgentRegistry,
     launch_marker: Option<&str>,
 ) -> String {
-    let mut args: Vec<String> = params.args.clone().unwrap_or_default();
     let resolved_model = params
         .model
         .as_deref()
@@ -122,7 +123,24 @@ fn build_agent_command_inner(
         });
     let mut resolved_params = params.clone();
     resolved_params.model = resolved_model.clone();
+    let model_arguments = params.model.as_deref().and_then(|model| {
+        registry.with_provider(agent_cmd, |provider| provider.model_launch_args(model))
+    });
+    resolved_params.args = selection_args::without_managed_arguments(
+        params.args.as_deref(),
+        model_arguments.as_deref().unwrap_or_default(),
+    );
+    let mut args = resolved_params.args.clone().unwrap_or_default();
     if let Some((service, tab_id)) = notice_context {
+        if let Some(session) = params
+            .resume_session_id
+            .as_deref()
+            .filter(|_| !params.fork_session)
+        {
+            crate::service::launch_session_detection::register_resume_launch_marker(
+                tab_id, session,
+            );
+        }
         if let Some(command) = crate::service::codex_rpc::launch::defer(
             service,
             tab_id,

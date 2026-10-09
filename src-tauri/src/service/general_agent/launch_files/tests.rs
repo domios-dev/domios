@@ -150,3 +150,50 @@ fn general_agent_comparison_ordinary_restore_defers_fresh_and_resumed_structured
         codex_rpc::launch::clear_tab(&tab);
     }
 }
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn restored_general_sibling_and_main_share_typed_model_rpc_admission() {
+    let (fixture, main, provider) = fixture();
+    let svc = &fixture.service;
+    let sibling = {
+        let mut mux = svc.mux.write();
+        let workspace = mux.find_workspace_for_tab(&main).unwrap();
+        let sibling = mux.create_tab(&workspace).unwrap();
+        let tab = mux.get_tab_mut(&sibling).unwrap();
+        tab.role = Some(crate::multiplexer::types::AgentRole::Manager);
+        tab.role_profile = Some("general_agent".into());
+        sibling
+    };
+    for tab in [&main, &sibling] {
+        let input = crate::service::restored_launch::restored_fresh_launch_input(
+            &svc.agent_registry,
+            crate::service::SpawnAgentParams {
+                agent: Some(provider.clone()),
+                cwd: Some("general-home".into()),
+                resume_session_id: Some("owned-general-session".into()),
+                role: Some("Manager".into()),
+                role_profile: Some("general_agent".into()),
+                ..Default::default()
+            },
+            crate::multiplexer::types::RestorableLaunchParameters {
+                captured: true,
+                model: Some("gpt-6.1-sol".into()),
+                args: Some(vec!["--model".into(), "gpt-6.1-sol".into()]),
+                identity_instructions: Some("opaque-general-contract".into()),
+                ..Default::default()
+            },
+        );
+        assert!(input.command(svc, tab).is_some());
+        let deferred = codex_rpc::launch::deferred_params(tab)
+            .expect("restored General model arguments must not disable RPC");
+        assert!(deferred.args.is_none());
+        assert_eq!(deferred.model.as_deref(), Some("gpt-6.1-sol"));
+        assert_eq!(
+            deferred.resume_session_id.as_deref(),
+            Some("owned-general-session")
+        );
+        assert_eq!(deferred.role_profile.as_deref(), Some("general_agent"));
+        codex_rpc::launch::clear_tab(tab);
+    }
+}
