@@ -5,6 +5,13 @@ use std::time::{Duration, Instant};
 
 const STOP_CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(10);
 
+fn stop_is_complete(decision: &StopDecision) -> bool {
+    matches!(
+        decision,
+        StopDecision::NoAgent | StopDecision::NotWorking(_)
+    )
+}
+
 async fn stopped_after_status_event(
     svc: crate::service::ServiceContext,
     tab_id: String,
@@ -25,20 +32,16 @@ async fn stopped_after_status_event(
         if !changed {
             let check_svc = svc.clone();
             let check_tab = tab_id.clone();
-            return matches!(
-                tokio::task::spawn_blocking(move || check_svc.stop_decision(&check_tab)).await,
-                Ok(StopDecision::NoAgent)
-                    | Ok(StopDecision::NotWorking(
-                        codeterm_types::pty::TabStatus::Dead
-                    ))
-            );
+            return tokio::task::spawn_blocking(move || check_svc.stop_decision(&check_tab))
+                .await
+                .is_ok_and(|decision| stop_is_complete(&decision));
         }
         generation = signal.generation();
         let check_svc = svc.clone();
         let check_tab = tab_id.clone();
         match tokio::task::spawn_blocking(move || check_svc.stop_decision(&check_tab)).await {
-            Ok(StopDecision::Interrupt { .. }) => {}
-            Ok(StopDecision::NoAgent | StopDecision::NotWorking(_)) => return true,
+            Ok(decision) if stop_is_complete(&decision) => return true,
+            Ok(_) => {}
             Err(_) => return false,
         }
     }
@@ -283,7 +286,25 @@ pub(crate) async fn stop_agent_turn(
 
 #[cfg(test)]
 mod tests {
-    use super::{stop_sequence_steps, StopSequenceStep};
+    use super::{stop_is_complete, stop_sequence_steps, StopSequenceStep};
+
+    #[test]
+    fn final_stop_snapshot_confirms_idle_without_a_terminal_event() {
+        use crate::agent::status::TabStatus;
+        use crate::service::tab_stop::StopDecision;
+
+        for decision in [
+            StopDecision::NoAgent,
+            StopDecision::NotWorking(TabStatus::Idle),
+            StopDecision::NotWorking(TabStatus::Dead),
+        ] {
+            assert!(stop_is_complete(&decision));
+        }
+        assert!(!stop_is_complete(&StopDecision::Interrupt {
+            agent_id: "opaque-provider".into(),
+            session_id: Some("own-session".into()),
+        }));
+    }
 
     #[test]
     fn stop_sequence_writes_each_key_with_the_declared_screen_gap() {
