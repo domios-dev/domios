@@ -116,7 +116,7 @@ fn sentinel_schema_v4_migration_upgrades_an_empty_previous_schema_root_in_place(
     assert_eq!(user_version(&upgraded), user_version(&initialized));
     let expected: [(&str, &[&str]); 3] = [
         (
-            "sentinel_definitions",
+            "blueprint_definitions",
             &[
                 "observe_kind",
                 "observe_ref",
@@ -126,9 +126,9 @@ fn sentinel_schema_v4_migration_upgrades_an_empty_previous_schema_root_in_place(
                 "replaced_version",
             ],
         ),
-        ("sentinel_handlers", &["safe_kind", "escalate_to"]),
+        ("blueprint_handlers", &["safe_kind", "escalate_to"]),
         (
-            "sentinel_runtime",
+            "blueprint_runtime",
             &["run_id", "run_tab_id", "run_bound_at", "held"],
         ),
     ];
@@ -139,7 +139,7 @@ fn sentinel_schema_v4_migration_upgrades_an_empty_previous_schema_root_in_place(
             assert!(present.contains(*column), "{table}.{column}");
         }
     }
-    assert!(columns(&upgraded, "sentinel_buckets").contains("rearm_on_change"));
+    assert!(columns(&upgraded, "blueprint_buckets").contains("rearm_on_change"));
 }
 
 #[test]
@@ -250,10 +250,10 @@ fn blueprint_terminal_session_definition_and_budgets_survive_typed_reload() {
     let clock = MockClock::starting_at(1_000);
     let store = typed(&storage, &clock);
     let mut job = fixture(FRESH);
-    job.terminal = Some(codeterm_types::blueprint_terminal::Config {
+    job.set_terminal(Some(codeterm_types::blueprint_terminal::Config {
         pattern: Some("ready".into()),
         idle_ms: Some(200),
-    });
+    }));
     job.session = true;
     job.max_transitions = 1;
     job.max_actions = 1;
@@ -262,7 +262,7 @@ fn blueprint_terminal_session_definition_and_budgets_survive_typed_reload() {
     job.routes = std::collections::BTreeMap::from([("trust".into(), vec![])]);
     crate::sentinel::store::validate(vec![job.clone()]).expect("valid terminal session fixture");
     let inserted = commit(&store, |store| store.stage_insert(job.clone())).unwrap();
-    assert_eq!(inserted.terminal, job.terminal);
+    assert_eq!(inserted.terminal().cloned(), job.terminal().cloned());
     for index in 0..3 {
         let live = store.lock().get(&job.id).unwrap().clone();
         let staged =
@@ -278,7 +278,7 @@ fn blueprint_terminal_session_definition_and_budgets_survive_typed_reload() {
     let storage = open(root.path());
     let store = typed(&storage, &clock);
     let live = store.lock().get(&job.id).unwrap().clone();
-    assert_eq!(live.terminal, job.terminal);
+    assert_eq!(live.terminal().cloned(), job.terminal().cloned());
     assert!(live.session);
     assert_eq!(live.transitions.len(), 3);
     assert!(!super::super::super::store::transition_budget_spent(&live));
@@ -414,7 +414,7 @@ fn sentinel_schema_v4_prompt_response_requires_observed_tab_on_both_backends() {
         let error =
             commit(store, |current| current.stage_insert(shell_answer.clone())).unwrap_err();
         assert!(
-            error.starts_with("sentinel_capability_unavailable"),
+            error.starts_with("blueprint_capability_unavailable"),
             "{error}"
         );
         assert!(store.lock().get(&shell_answer.id).is_none());
@@ -422,8 +422,8 @@ fn sentinel_schema_v4_prompt_response_requires_observed_tab_on_both_backends() {
     }
 
     let mut answering = base.clone();
-    answering.probe.clear();
-    answering.observe = Some(TabBinding::Tab("observed-agent".into()));
+
+    answering.set_observe(Some(TabBinding::Tab("observed-agent".into())));
     answering.routes.insert(
         "done".into(),
         vec![Handler {

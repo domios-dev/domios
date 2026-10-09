@@ -468,9 +468,9 @@ fn sentinel_handlers_unsupported_and_corrupt_stores_preserve_bytes_and_refuse_wo
         );
         let error = store.ensure_available().unwrap_err();
         assert!(error.starts_with(if raw.contains("routes") {
-            "sentinel_store_unsupported_format:"
+            "blueprint_store_unsupported_format:"
         } else {
-            "sentinel_store_load_failed:"
+            "blueprint_store_load_failed:"
         }));
         assert!(store
             .create(
@@ -498,7 +498,7 @@ fn sentinel_handlers_io_failure_and_corruption_after_load_hold_the_original_path
     assert!(unavailable
         .ensure_available()
         .unwrap_err()
-        .starts_with("sentinel_store_load_failed:"));
+        .starts_with("blueprint_store_load_failed:"));
     assert!(unavailable.due().is_err());
     assert!(path.is_dir());
     std::fs::remove_dir(&path).unwrap();
@@ -647,7 +647,7 @@ fn sentinel_causal_run_json_activation_and_downstream_accept_survive_reopen() {
         .unwrap();
     let mut parent_definition = definition();
     parent_definition["handlers"] =
-        json!({"done":[{"id":"child","type":"sentinel","parameters":{"target":child.id}}]});
+        json!({"done":[{"id":"child","type":"blueprint","parameters":{"target":child.id}}]});
     let parent = store
         .create(
             serde_json::from_value(parent_definition).unwrap(),

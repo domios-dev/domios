@@ -15,8 +15,16 @@ use super::{
     store::{Lease, Sentinel, Store},
     wake,
 };
+mod advance;
+pub(super) use advance::advance;
 mod events;
 mod probe_failure;
+mod record;
+pub use record::record;
+#[cfg(test)]
+pub(super) use record::record_unconfirmed_failure_with;
+pub(super) use record::resolve_probe_result;
+use record::{record_failure, record_input_unavailable, record_unconfirmed_failure};
 mod text;
 
 use crate::cron::clock::SharedClock;
@@ -459,218 +467,8 @@ fn expire_escalations(store: &Arc<Mutex<Store>>, svc: &ServiceState) {
     }
 }
 
-pub fn record(
-    runtime: &supporter::SupporterRuntime,
-    job: &Sentinel,
-    outcome: &machine::Outcome,
-    stage: Stage,
-) -> std::io::Result<()> {
-    if !outcome.evidence.matches(job) {
-        log::warn!("[blueprint] journal refusal: observation scope or state hash mismatch");
-        return Err(known_pre_effect_journal_refusal(
-            "blueprint observation scope or state hash mismatch",
-        ));
-    }
-    let route_stage = matches!(
-        stage,
-        Stage::RouteClaim | Stage::RouteCompleted | Stage::RouteFailed
-    );
-    if route_stage
-        && (!machine::TransitionReason::parse(outcome.reason)
-            .is_some_and(machine::TransitionReason::routes_handlers)
-            || outcome.route.is_none()
-            || outcome.verdict.is_none())
-    {
-        log::warn!(
-            "[blueprint] journal refusal: route stage missing a routable transition reason, route, or verdict; reason={}",
-            outcome.reason
-        );
-        return Err(known_pre_effect_journal_refusal(
-            "blueprint route stage requires a confident transition",
-        ));
-    }
-    let action = match stage {
-        Stage::Decision => "decision",
-        Stage::RouteClaim => "route_claim",
-        Stage::RouteCompleted => outcome
-            .route
-            .as_ref()
-            .map(routes::action_name)
-            .unwrap_or("skip"),
-        Stage::EscalationExpired => "escalation_expired",
-        Stage::RouteFailed | Stage::Skip => "skip",
-    };
-    let reason = match stage {
-        Stage::RouteFailed => "route_failed",
-        Stage::EscalationExpired => "escalation_expired",
-        _ => outcome.reason,
-    };
-    let route_target = match &outcome.route {
-        Some(machine::Route::Notify) => Some(job.creator_tab_id.as_str()),
-        Some(
-            machine::Route::Send(target)
-            | machine::Route::Cron(target)
-            | machine::Route::Sentinel(target),
-        ) => Some(target.as_str()),
-        Some(machine::Route::Escalate(machine::EscalateTarget::Creator)) => {
-            Some(job.creator_tab_id.as_str())
-        }
-        Some(machine::Route::Escalate(machine::EscalateTarget::Agent(target))) => {
-            Some(target.as_str())
-        }
-        _ => None,
-    };
-    runtime.sentinel_event(json!({
-        "time": chrono::Utc::now().timestamp(), "kind": "sentinel", "sentinel_id": job.id,
-        "tab": job.creator_tab_id, "team_id": job.team_id, "workspace_id": job.workspace_id,
-        "state_hash": outcome.evidence.state_hash,
-        "evaluation_id": outcome.evidence.evaluation_id,
-        "observation_id": outcome.evidence.observation_id,
-        "classification_source": outcome.evidence.source,
-        "classification_reason": outcome.reason,
-        "label": outcome.verdict.as_ref().map(|v| supporter::criteria_hash(v.bucket.as_bytes())),
-        "confidence": outcome.verdict.as_ref().map(|v| v.confidence), "action": action, "reason": reason,
-        "stage": stage.name(), "route_status": stage.route_status(),
-        "route": outcome.route.as_ref().map(routes::action_name), "route_target": route_target,
-        "requested_by": outcome.route.as_ref().is_some_and(|route| matches!(route, machine::Route::RespondPrompt(_))).then_some(job.id.as_str()),
-        "recipient_receipt": null,
-        "asked": supporter::sentinel_questions(&job.id, &job.buckets, outcome.verdict.as_ref().map(|v| v.bucket.as_str()), outcome.reason),
-    }))
-}
-
-fn record_input_unavailable(handle: &Handle, svc: &ServiceState, lease: &Lease) {
-    let mut job = lease.job.clone();
-    job.last_reason = Some("input_runtime_unavailable".into());
-    if storage::commit(&handle.store, |store| store.stage_finish(&job)).unwrap_or(false) {
-        let _ = journal(
-            svc,
-            &job,
-            &machine::Outcome {
-                evidence: Evidence::new(Scope::from(&lease.job), None),
-                reason: "input_runtime_unavailable",
-                verdict: None,
-                route: None,
-                handlers: Vec::new(),
-            },
-            Stage::Skip,
-        );
-    }
-}
-
-fn record_failure(
-    handle: &Handle,
-    svc: &ServiceState,
-    lease: &Lease,
-    failure: &probe::process::ProbeFailure,
-    stored_reason: Option<String>,
-) {
-    let mut job = lease.job.clone();
-    let removed_tab = failure.reason() == "sentinel_observation_tab_removed";
-    job.last_reason = Some(if removed_tab {
-        "observed_tab_removed".into()
-    } else {
-        stored_reason.unwrap_or_else(|| failure.reason())
-    });
-    let recorded = if removed_tab {
-        storage::commit(&handle.store, |store| {
-            store.stage_stop(&job.id, "observed_tab_removed")
-        })
-        .map(|_| true)
-    } else {
-        storage::commit(&handle.store, |store| store.stage_finish(&job))
-    };
-    if recorded.unwrap_or(false) {
-        let _ = journal(
-            svc,
-            &job,
-            &machine::Outcome {
-                evidence: Evidence::new(Scope::from(&lease.job), None),
-                reason: failure.primary,
-                verdict: None,
-                route: None,
-                handlers: Vec::new(),
-            },
-            Stage::Skip,
-        );
-    }
-}
-
-fn record_unconfirmed_failure(
-    handle: &Handle,
-    svc: &ServiceState,
-    lease: &Lease,
-    failure: &probe::process::ProbeFailure,
-) {
-    let result =
-        record_unconfirmed_failure_with(&handle.store, &lease.job, failure, |job, out, stage| {
-            journal(svc, job, out, stage)
-        });
-    if let Some(error) = result.persistence_error {
-        log::error!(
-            "[blueprint] probe stop persistence failed: {error}; resource failure: {}",
-            failure.reason()
-        );
-    }
-    if let Some(error) = result.journal_error {
-        log::error!(
-            "[blueprint] unconfirmed probe skip journal failed: {error}; resource failure: {}",
-            failure.reason()
-        );
-    }
-    handle.notify();
-}
-
-pub(super) struct UnconfirmedRecordResult {
-    pub persistence_error: Option<String>,
-    pub journal_error: Option<String>,
-}
-
-pub(super) fn record_unconfirmed_failure_with(
-    store: &Arc<Mutex<Store>>,
-    job: &Sentinel,
-    failure: &probe::process::ProbeFailure,
-    mut write_journal: impl FnMut(&Sentinel, &machine::Outcome, Stage) -> std::io::Result<()>,
-) -> UnconfirmedRecordResult {
-    let reason = failure.reason();
-    let (stopped, persistence_error) =
-        match storage::commit(store, |current| current.stage_stop(&job.id, &reason)) {
-            Ok(stopped) => (Some(stopped), None),
-            Err(error) => (store.lock().get(&job.id).cloned(), Some(error)),
-        };
-    let journal_error = stopped.and_then(|stopped| {
-        let outcome = machine::Outcome {
-            evidence: Evidence::new(Scope::from(job), None),
-            reason: failure.primary,
-            verdict: None,
-            route: None,
-            handlers: Vec::new(),
-        };
-        write_journal(&stopped, &outcome, Stage::Skip)
-            .err()
-            .map(|error| error.to_string())
-    });
-    UnconfirmedRecordResult {
-        persistence_error,
-        journal_error,
-    }
-}
-
-pub(super) fn resolve_probe_result<T>(
-    result: Result<T, probe::process::ProbeFailure>,
-    on_failure: impl FnOnce(probe::process::ProbeFailure),
-    on_success: impl FnOnce(T) -> T,
-) -> Option<T> {
-    match result {
-        Ok(output) => Some(on_success(output)),
-        Err(failure) => {
-            on_failure(failure);
-            None
-        }
-    }
-}
-
 pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
-    if lease.job.pipeline.is_some() {
+    if lease.job.pipeline().is_some() {
         super::pipeline::tick(handle, svc, lease);
         return;
     }
@@ -689,7 +487,7 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
         });
         return;
     }
-    if lease.job.input.as_ref().is_some_and(|input| {
+    if lease.job.input().is_some_and(|input| {
         input.kind != codeterm_types::sentinel_input::MediaKind::Text || input.convert_to.is_some()
     }) {
         record_input_unavailable(handle, svc, lease);
@@ -703,7 +501,7 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
             .map(|at| Duration::from_millis(at.saturating_sub(now)))
             .unwrap_or(probe::PROBE_RUNTIME)
     };
-    let observed = if lease.job.input.is_some() || lease.job.terminal.is_some() {
+    let observed = if lease.job.input().is_some() || lease.job.terminal().is_some() {
         let text = handle.inbox.lock().take(&lease.job.id);
         match text {
             Some(text) => Ok(probe::Output {
@@ -713,17 +511,17 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
                 exit_code: Some(0),
                 ..probe::Output::default()
             }),
-            None if lease.job.input.is_some() => {
+            None if lease.job.input().is_some() => {
                 super::input::text_output(&lease.job, std::time::Instant::now() + remaining)
                     .map_err(|_| probe::process::ProbeFailure::new("input_text_unavailable"))
             }
             None => return,
         }
-    } else if let Some(binding) = &lease.job.observe {
+    } else if let Some(binding) = &lease.job.observe().cloned() {
         source::observe(svc, &lease.job, binding)
     } else {
         probe::run_with_environment(
-            &lease.job.probe,
+            &lease.job.probe(),
             Path::new(&lease.job.cwd),
             remaining,
             &handle.probe_owner,
@@ -733,7 +531,7 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
     let output = resolve_probe_result(
         observed,
         |reason| {
-            let decision = if lease.job.observe.is_none() {
+            let decision = if lease.job.observe().is_none() {
                 probe_failure::decide(lease.job.last_reason.as_deref(), &reason)
             } else if reason.is_unconfirmed() {
                 probe_failure::Decision::StopResources
@@ -867,227 +665,6 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
         },
         |job, outcome, stage| journal(svc, job, outcome, stage),
     );
-}
-
-pub(super) fn advance(
-    store: &Arc<Mutex<Store>>,
-    lease: &Lease,
-    output: &probe::Output,
-    classify: impl FnOnce() -> super::provenance::Classification,
-    mut claim: impl FnMut(
-        &Sentinel,
-        &str,
-        &super::handlers::Handler,
-    ) -> Result<Option<super::handlers::ResultRecord>, String>,
-    mut execute: impl FnMut(
-        &Sentinel,
-        &str,
-        &super::handlers::Handler,
-        &machine::Verdict,
-    ) -> Result<super::handlers::Effect, String>,
-    mut write_journal: impl FnMut(&Sentinel, &machine::Outcome, Stage) -> std::io::Result<()>,
-) {
-    use super::handlers::Status;
-    if lease.cancelled.load(Ordering::SeqCst) {
-        return;
-    }
-    let current = store.lock().get(&lease.job.id).cloned();
-    if !current.is_some_and(|job| {
-        job.same_owner(&lease.job)
-            && job.revision == lease.job.revision
-            && job.machine.last_hash == lease.job.machine.last_hash
-            && job.machine.last_bucket == lease.job.machine.last_bucket
-            && !job.machine.stopped
-            && !job.machine.paused
-    }) {
-        return;
-    }
-    let mut job = lease.job.clone();
-    if job.terminal.is_some() || job.input.is_some() {
-        job.machine.last_hash = None;
-        job.machine.last_bucket = None;
-    }
-    let scope = Scope::from(&job);
-    let outcome = machine::evaluate_with_other_rearm(
-        &mut job.machine,
-        &output.bytes,
-        &job.buckets,
-        &job.routes,
-        &job.rearm_on_change,
-        &job.on_other,
-        job.until.as_deref(),
-        scope,
-        classify,
-    );
-    job.last_reason = Some(outcome.reason.into());
-    let transition_bucket = match outcome.reason {
-        "transition" | "rearm_on_change" => outcome
-            .verdict
-            .as_ref()
-            .map(|verdict| verdict.bucket.as_str()),
-        "other" | "low_confidence" if !outcome.handlers.is_empty() => Some("other"),
-        _ => None,
-    };
-    let committed = if let Some(bucket) = transition_bucket {
-        storage::commit(store, |current| {
-            current.stage_accept_decision(&job, bucket, &outcome.evidence)
-        })
-    } else {
-        storage::commit(store, |current| current.stage_finish(&job))
-    };
-    if !matches!(committed, Ok(true)) {
-        return;
-    }
-    if write_journal(&job, &outcome, Stage::Decision).is_err() {
-        let _ = storage::commit(store, |current| {
-            current.stage_skip_remaining(
-                &job.id,
-                &outcome.evidence.evaluation_id,
-                &outcome.handlers,
-            )
-        });
-        return;
-    }
-    for (index, handler) in outcome.handlers.iter().enumerate() {
-        let transition = &outcome.evidence.evaluation_id;
-        let permitted = !lease.cancelled.load(Ordering::SeqCst)
-            && store.lock().action_permitted(&job, transition);
-        if !permitted {
-            let _ = storage::commit(store, |current| {
-                current.stage_skip_remaining(&job.id, transition, &outcome.handlers[index..])
-            });
-            return;
-        }
-        let accepted = match claim(&job, transition, handler) {
-            Ok(Some(claim)) => claim,
-            Err(error) if error == super::handlers::ESCALATION_RATE_LIMITED => {
-                let mut limited = outcome.clone();
-                limited.reason = "escalation_rate_limited";
-                limited.route = Some(handler.action.clone());
-                let _ = write_journal(&job, &limited, Stage::Skip);
-                if storage::commit(store, |current| {
-                    current.stage_skip_remaining(&job.id, transition, std::slice::from_ref(handler))
-                })
-                .is_err()
-                {
-                    return;
-                }
-                continue;
-            }
-            _ => {
-                let _ = storage::commit(store, |current| {
-                    current.stage_skip_remaining(&job.id, transition, &outcome.handlers[index..])
-                });
-                return;
-            }
-        };
-        let mut handler_outcome = outcome.clone();
-        handler_outcome.route = Some(handler.action.clone());
-        if let Err(error) = write_journal(&job, &handler_outcome, Stage::RouteClaim) {
-            if !journal_refusal_prevented_effect(&error) {
-                log::error!("[blueprint] route claim journal outcome is uncertain: {error}");
-                let uncertain = super::handlers::Effect {
-                    status: Status::Unconfirmed,
-                    execution_id: None,
-                    command_result: None,
-                    reason: Some("route_claim_journal_unconfirmed".into()),
-                };
-                if let Err(persist_error) = storage::commit(store, |current| {
-                    current.stage_finish_handler_result(&job.id, transition, &accepted, uncertain)
-                }) {
-                    log::error!(
-                        "[blueprint] uncertain route claim persistence failed: {persist_error}"
-                    );
-                }
-                return;
-            }
-            let failure = super::handlers::Effect {
-                status: Status::Failed,
-                execution_id: None,
-                command_result: None,
-                reason: Some("journal_route_claim_failed".into()),
-            };
-            if let Err(error) = storage::commit(store, |current| {
-                current.stage_finish_handler_result(&job.id, transition, &accepted, failure)
-            }) {
-                log::error!("[blueprint] failed route claim result persistence failed: {error}");
-            }
-            let _ = write_journal(&job, &handler_outcome, Stage::RouteFailed);
-            let _ = storage::commit(store, |current| {
-                current.stage_skip_remaining(&job.id, transition, &outcome.handlers[index + 1..])
-            });
-            return;
-        }
-        if lease.cancelled.load(Ordering::SeqCst)
-            || !store.lock().action_permitted(&job, transition)
-        {
-            let failure = super::handlers::Effect {
-                status: Status::Unconfirmed,
-                execution_id: None,
-                command_result: None,
-                reason: Some("route_claim_fenced".into()),
-            };
-            let _ = storage::commit(store, |current| {
-                current.stage_finish_handler_result(&job.id, transition, &accepted, failure)
-            });
-            let _ = write_journal(&job, &handler_outcome, Stage::RouteFailed);
-            let _ = storage::commit(store, |current| {
-                current.stage_skip_remaining(&job.id, transition, &outcome.handlers[index + 1..])
-            });
-            return;
-        }
-        let Some(verdict) = outcome.verdict.as_ref() else {
-            let failure = super::handlers::Effect {
-                status: Status::Failed,
-                execution_id: None,
-                command_result: None,
-                reason: Some("route_verdict_missing".into()),
-            };
-            let _ = storage::commit(store, |current| {
-                current.stage_finish_handler_result(&job.id, transition, &accepted, failure)
-            });
-            let _ = write_journal(&job, &handler_outcome, Stage::RouteFailed);
-            return;
-        };
-        let result = execute(&job, transition, handler, verdict);
-        let stage = if matches!(
-            &result,
-            Ok(super::handlers::Effect {
-                status: Status::Completed | Status::Noop,
-                ..
-            })
-        ) {
-            Stage::RouteCompleted
-        } else {
-            Stage::RouteFailed
-        };
-        let effect = result.unwrap_or_else(|_| super::handlers::Effect {
-            status: Status::Failed,
-            execution_id: None,
-            command_result: None,
-            reason: Some("handler_execution_failed".into()),
-        });
-        let unsafe_continuation = effect
-            .command_result
-            .as_ref()
-            .is_some_and(|result| !result.resources_confirmed);
-        if let Err(error) = storage::commit(store, |current| {
-            current.stage_finish_handler_result(&job.id, transition, &accepted, effect)
-        }) {
-            log::error!("[blueprint] handler result persistence failed: {error}");
-            return;
-        }
-        let _ = write_journal(&job, &handler_outcome, stage);
-        if unsafe_continuation {
-            let _ = storage::commit(store, |current| {
-                current.stage_stop(&job.id, "command_resources_unconfirmed")
-            });
-            let _ = storage::commit(store, |current| {
-                current.stage_skip_remaining(&job.id, transition, &outcome.handlers[index + 1..])
-            });
-            return;
-        }
-    }
 }
 
 #[cfg(test)]
