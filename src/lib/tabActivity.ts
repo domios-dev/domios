@@ -55,7 +55,8 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
   const subtype = state === "question" && matchingLive ? live?.subtype : undefined;
   const phase = matchingLive && (live?.phase === "thinking" || live?.phase === "streaming") ? live.phase : "work";
   const label = utility && !launching && kind !== "failed" ? shellStateLabel(shell)
-    : (matchingLive ? live?.status_line?.trim() : null)
+    : (kind === "waiting-on-user" ? tab?.pending_prompt?.question?.trim() : null)
+      || (matchingLive ? live?.status_line?.trim() : null)
       || (kind === "failed" ? "Launch failed" : kind === "starting" ? "Starting…"
         : kind === "working" ? "Working" : kind === "waiting-on-user" ? questionLabels[subtype ?? "unknown"]
           : quiet ? "Session quiet — rebind to continue" : "");
