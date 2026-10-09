@@ -16,6 +16,7 @@ pub struct StoreWatchConfig {
     pub provider_id: String,
     pub cwd: String,
     pub session_id: String,
+    pub session_binding_nonce: Option<String>,
     pub poll_interval: Duration,
 }
 
@@ -24,6 +25,7 @@ pub struct PendingStoreWatch {
     handle: TailerHandle,
     tab_id: String,
     session_id: String,
+    session_binding_nonce: Option<String>,
     promotion_authority: Arc<AtomicBool>,
 }
 
@@ -33,9 +35,16 @@ impl PendingStoreWatch {
             handle,
             tab_id,
             session_id,
+            session_binding_nonce,
             promotion_authority,
         } = self;
-        let registered = chat_registry.insert(tab_id, session_id, subscription_id, handle);
+        let registered = chat_registry.insert(
+            tab_id,
+            session_id,
+            session_binding_nonce,
+            subscription_id,
+            handle,
+        );
         if registered {
             promotion_authority.store(true, Ordering::Release);
         }
@@ -68,6 +77,7 @@ fn spawn_store_watch_inner(
     let watcher_authority = promotion_authority.clone();
     let tab_id = cfg.tab_id.clone();
     let session_id = cfg.session_id.clone();
+    let session_binding_nonce = cfg.session_binding_nonce.clone();
     let join = thread::Builder::new()
         .name(format!("chat-store-{}", cfg.tab_id))
         .spawn(move || {
@@ -108,7 +118,12 @@ fn spawn_store_watch_inner(
                         agent_registry.clone(),
                         sink.clone(),
                     );
-                    chat_registry.replace_if_current(&cfg.tab_id, &cfg.session_id, tailer);
+                    chat_registry.replace_if_current(
+                        &cfg.tab_id,
+                        &cfg.session_id,
+                        cfg.session_binding_nonce.as_deref(),
+                        tailer,
+                    );
                     return;
                 }
                 thread::sleep(cfg.poll_interval);
@@ -120,6 +135,7 @@ fn spawn_store_watch_inner(
         handle: TailerHandle::new(stop_flag, Arc::new(AtomicU64::new(0)), join),
         tab_id,
         session_id,
+        session_binding_nonce,
         promotion_authority,
     }
 }
