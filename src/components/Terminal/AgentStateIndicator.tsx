@@ -47,6 +47,14 @@ export function AgentStateIndicator({
     : null;
   const identity = [providerName?.trim(), model?.trim(), actualEffort].filter(Boolean).join(" · ");
   const text = [identity, status].filter(Boolean).join(" · ");
+  const dots = (
+    <ActivityDots
+      size="small"
+      tone={isWorking ? (phase === "thinking" ? "thinking" : "accent") : "muted"}
+      rhythm={phase}
+      active={activity.active}
+    />
+  );
 
   return (
     <div
@@ -60,12 +68,6 @@ export function AgentStateIndicator({
       aria-live="polite"
       aria-label={text ? `Agent ${text}` : "Agent idle"}
     >
-      <ActivityDots
-        size="small"
-        tone={isWorking ? (phase === "thinking" ? "thinking" : "accent") : "muted"}
-        rhythm={phase}
-        active={activity.active}
-      />
       {renderIdentity && identity ? (
         <>
           <span
@@ -74,22 +76,26 @@ export function AgentStateIndicator({
           >
             {renderIdentity(identity)}
           </span>
+          {dots}
           <span
             className="ct-agent-msg min-w-0 flex-1 truncate text-sm font-medium tracking-tight"
             style={{ fontFamily: "var(--ct-font-mono)" }}
             title={status || undefined}
           >
-            {status ? `· ${compactStatusMessage(status)}` : ""}
+            {status ? compactStatusMessage(status) : ""}
           </span>
         </>
       ) : (
-        <span
-          className="ct-agent-msg min-w-0 flex-1 truncate text-sm font-medium tracking-tight"
-          style={{ fontFamily: "var(--ct-font-mono)" }}
-          title={text || undefined}
-        >
-          {compactStatusMessage(text)}
-        </span>
+        <>
+          {dots}
+          <span
+            className="ct-agent-msg min-w-0 flex-1 truncate text-sm font-medium tracking-tight"
+            style={{ fontFamily: "var(--ct-font-mono)" }}
+            title={text || undefined}
+          >
+            {compactStatusMessage(text)}
+          </span>
+        </>
       )}
       {onStop && (!isQuiet && !isQuestion) && (
         <button
@@ -99,7 +105,7 @@ export function AgentStateIndicator({
           disabled={!isWorking}
           aria-hidden={!isWorking || undefined}
           tabIndex={isWorking ? undefined : -1}
-          className={`ct-agent-stop shrink-0 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium${isWorking ? "" : " invisible"}`}
+          className={`ct-agent-stop shrink-0 inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-medium${isWorking ? "" : " invisible"}`}
           aria-label="Stop the agent"
           title={isWorking ? "Stop the agent" : undefined}
         >

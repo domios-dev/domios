@@ -8,6 +8,7 @@ import { getTabModelApi } from "../Sidebar/tabModelApi";
 import { BusySpinner } from "../shared/BusyState";
 import { Segmented } from "../shared/Segmented";
 import { UI_BUTTON } from "../shared/design";
+import { ProviderGlyph } from "../ProviderGlyph";
 import {
   currentModelId,
   effortAfterModelChange,
@@ -112,13 +113,18 @@ export function StatusLineModelPicker({
   const afterTurn = Boolean(pendingSelection);
   const displayedLabel = [modelName, selection.effort, afterTurn ? "after this turn" : undefined].filter(Boolean).join(" · ");
   const harnessName = descriptor?.display_name ?? label.split(" · ")[0];
+  const glyph = descriptor ? (
+    <span aria-hidden="true" className="ct-status-identity__glyph" data-testid="status-harness-glyph" title={harnessName}>
+      <ProviderGlyph iconSvg={descriptor.icon_svg} iconColor={descriptor.icon_color} iconHint={descriptor.icon_hint} />
+    </span>
+  ) : null;
 
   if (!gate.interactive || !descriptor) {
     return (
       <span className="ct-status-identity-wrap">
-        <span className="ct-status-harness">{harnessName}</span>
-        <span className="ct-status-identity ct-status-identity--static" title={gate.interactive ? undefined : gate.reason}>
-          {displayedLabel}
+        <span className="ct-status-identity ct-status-identity--static" title={gate.interactive ? harnessName : gate.reason}>
+          {glyph}
+          <span className="ct-status-identity__text">{displayedLabel}</span>
         </span>
       </span>
     );
@@ -126,7 +132,6 @@ export function StatusLineModelPicker({
 
   return (
     <span className="ct-status-identity-wrap">
-      <span className="ct-status-harness">{harnessName}</span>
       <button
         ref={triggerRef}
         type="button"
@@ -138,6 +143,7 @@ export function StatusLineModelPicker({
         data-testid="status-model-trigger"
         onClick={() => setOpen((value) => !value)}
       >
+        {glyph}
         <span className="ct-status-identity__text">{displayedLabel}</span>
         <ChevronDown size={12} strokeWidth={2.25} aria-hidden className="ct-status-identity__chevron" />
       </button>

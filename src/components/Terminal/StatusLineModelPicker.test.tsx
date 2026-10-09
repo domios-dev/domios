@@ -110,18 +110,18 @@ test("a busy apply closes the picker and cancel or Escape clears its staged requ
   }
 });
 
-test("only the model capsule is interactive and its accessible name identifies the model", async () => {
+test("only the model capsule is interactive and the harness rides inside it as a decorative glyph", async () => {
   const view = await mount(descriptor("next_turn"));
   try {
     const trigger = view.trigger()!;
     assert.equal(view.host.querySelectorAll("button").length, 1);
-    assert.equal(trigger.textContent, "Deep · high");
+    assert.equal(trigger.querySelector(".ct-status-identity__text")?.textContent, "Deep · high");
     assert.equal(trigger.getAttribute("aria-label"), "Change model, currently Deep · high");
-    const harness = Array.from(view.host.querySelectorAll("span")).find((entry) => entry.textContent === "Vendor");
-    assert.ok(harness);
-    assert.equal(harness.closest("button"), null);
-    assert.equal(harness.getAttribute("role"), null);
-    assert.equal(harness.hasAttribute("tabindex"), false);
+    const glyph = trigger.querySelector('[data-testid="status-harness-glyph"]');
+    assert.ok(glyph);
+    assert.equal(glyph.getAttribute("aria-hidden"), "true");
+    assert.equal(glyph.getAttribute("title"), "Vendor");
+    assert.equal(Array.from(view.host.querySelectorAll("span")).some((entry) => entry.textContent === "Vendor"), false);
   } finally {
     await view.unmount();
   }

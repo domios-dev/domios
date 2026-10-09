@@ -7,15 +7,10 @@
   flex: 0 1 auto;
 }
 
-.ct-status-harness {
-  flex: 0 0 auto;
-  color: var(--ct-muted-fg);
-}
-
 .ct-status-identity {
   display: inline-flex;
   align-items: baseline;
-  gap: 3px;
+  gap: 5px;
   min-width: 0;
   max-width: 100%;
   margin: -2px 0;
@@ -45,6 +40,14 @@ button.ct-status-identity {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.ct-status-identity__glyph {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-self: center;
+  font-size: 12px;
+  line-height: 0;
 }
 
 .ct-status-identity__text {
