@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { X } from "lucide-react";
 import { PluginView } from "../Extensions/PluginView";
 import { ProviderGlyph } from "../ProviderGlyph";
 import { SurfaceFlowLine } from "../Surface/SurfaceFlowLine";
@@ -23,7 +22,6 @@ interface SurfaceTabViewProps {
   /** The owner's tab, for its provider glyph in the breadcrumb. */
   ownerTab?: Tab | null;
   onFocusOwner?: () => void;
-  onClose: () => void;
   api?: ApiConfig;
   isVisible: boolean;
   decl: SurfaceDeclLookup;
@@ -96,7 +94,6 @@ export function SurfaceTabView({
   ownerName,
   ownerTab = null,
   onFocusOwner,
-  onClose,
   api,
   isVisible,
   decl,
@@ -107,7 +104,7 @@ export function SurfaceTabView({
   const SurfaceGlyph = surfaceIconComponent(decl.status === "ready" ? decl.declared : null, { pluginId: backing.plugin_id, surfaceId: backing.surface_id });
   return (
     <section aria-label={label} className="flex h-full w-full flex-col bg-[var(--ct-bg)]">
-      <header className="flex h-8 shrink-0 items-center gap-2 border-b border-[var(--ct-border)] px-3 text-xs text-[var(--ct-fg)]">
+      <header className="flex h-8 shrink-0 items-center gap-2 bg-[var(--ct-titlebar-bg)] px-3 text-xs text-[var(--ct-fg)]">
         <nav aria-label="Surface breadcrumb" data-testid="surface-breadcrumb" className="flex min-w-0 flex-1 items-center gap-1.5">
           {ownerName && (
             <>
@@ -120,14 +117,6 @@ export function SurfaceTabView({
             <span className="min-w-0 truncate font-medium">{ownerName ? tab.title : label}</span>
           </span>
         </nav>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label={`Close ${label}`}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded border-0 bg-transparent text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] cursor-pointer"
-        >
-          <X size={13} aria-hidden="true" />
-        </button>
       </header>
       {plan.kind === "view" && <SurfaceFlowLine surfaceTabId={tab.id} />}
       <div className="relative min-h-0 flex-1" aria-busy={plan.kind === "pending"}>
