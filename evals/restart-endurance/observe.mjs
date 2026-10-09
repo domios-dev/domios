@@ -245,7 +245,11 @@ async function checkHealth() {
   if (Number(health.instance?.api_port) !== 7686 || health.instance?.name) throw new Error("Health does not identify default DEV 7686");
   const head = await command(["-c", "git rev-parse HEAD"]);
   const build = health.build_sha ?? health.build;
-  if (!build || !head.startsWith(build)) throw new Error(`DEV build ${build} does not match canonical HEAD ${head}; build once before the eval`);
+  if (!build) throw new Error("DEV health reports no build SHA");
+  if (!head.startsWith(build)) {
+    const backend = await command(["-c", `git merge-base --is-ancestor ${build} HEAD && git diff --name-only ${build} HEAD -- src-tauri cli plugins packages/plugin-sdk || echo NOT_ANCESTOR`]);
+    if (backend.trim()) throw new Error(`DEV build ${build} differs from HEAD ${head} in backend or plugin files; build once before the eval`);
+  }
   return health;
 }
 
