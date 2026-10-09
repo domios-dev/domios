@@ -323,7 +323,10 @@ mod restored_fresh_launch_tests {
         .command(&fixture.service, "tab-restored-resume")
         .expect("restored resume command");
         assert!(!resumed.contains("--launch-marker"));
-        assert_eq!(registered_launch_marker("tab-restored-resume"), None);
+        assert_eq!(
+            registered_launch_marker("tab-restored-resume").as_deref(),
+            Some("session-restored")
+        );
     }
 }
 
