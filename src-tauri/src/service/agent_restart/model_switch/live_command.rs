@@ -361,7 +361,7 @@ impl ServiceContext {
             ));
         }
         let deadline = Instant::now() + Duration::from_secs(MODEL_OBSERVE_TIMEOUT_SECS);
-        let sequence = sequence::CommandSequence::new(self, &target, deadline);
+        let sequence = sequence::CommandSequence::new(self, &target, deadline, &commands.transcript);
         for (index, (command, command_effort)) in
             planned_commands(&commands, model_changed, effort, current_effort.as_deref())
                 .into_iter()

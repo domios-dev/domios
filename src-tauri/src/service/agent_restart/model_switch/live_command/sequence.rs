@@ -9,6 +9,7 @@ pub(super) struct CommandSequence {
     signal: Arc<ScreenChangeSignal>,
     anchor: Option<SendEvidenceAnchor>,
     deadline: Instant,
+    transcript: ModelSwitchTranscript,
 }
 
 fn post_command_idle(foreign_turn: bool, idle: bool) -> Result<bool, String> {
@@ -49,7 +50,12 @@ fn wait_for_idle(
 }
 
 impl CommandSequence {
-    pub(super) fn new(svc: &ServiceContext, target: &CommandTarget, deadline: Instant) -> Self {
+    pub(super) fn new(
+        svc: &ServiceContext,
+        target: &CommandTarget,
+        deadline: Instant,
+        transcript: &ModelSwitchTranscript,
+    ) -> Self {
         let signal = command_signal(&mut svc.screen_state.lock(), &target.pty_id);
         svc.restart_tracker
             .lock()
@@ -62,6 +68,7 @@ impl CommandSequence {
             signal,
             anchor: svc.chat_send_anchor(&target.tab_id).anchor,
             deadline,
+            transcript: transcript.clone(),
         }
     }
 
@@ -76,7 +83,7 @@ impl CommandSequence {
             }
             let anchor = self.anchor.as_ref().ok_or_else(||
                 "the next command cannot distinguish foreign activity without an own-session turn boundary".to_owned())?;
-            let foreign_turn = !crate::service::chat_send_evidence::window_user_turns(&svc.agent_registry, anchor).is_empty();
+            let foreign_turn = crate::service::chat_send_evidence::window_has_foreign_user_turn(&svc.agent_registry, anchor, &self.transcript)?;
             let snapshot = crate::service::status_reconciliation::snapshot_with_reconciled_status_until(
                 &svc.mux, &svc.agent_tracker, &svc.agent_registry, self.deadline,
             );

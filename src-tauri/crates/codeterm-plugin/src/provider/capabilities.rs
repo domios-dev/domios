@@ -161,6 +161,8 @@ pub struct ModelSwitchTranscript {
     pub content_path: Vec<String>,
     pub prefix: String,
     pub suffix: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ignored_content_regexes: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
