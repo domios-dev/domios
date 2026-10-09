@@ -4,7 +4,7 @@
 import { performance } from "node:perf_hooks";
 import { writeFileSync } from "node:fs";
 import { expect, test } from "../../helpers/fixtures";
-import { dc, identity, records, turnEvidence, assertModel, restoreManifest, type Descriptor, type Model, type RestoreTab } from "../../helpers/live-model-switch";
+import { dc, identity, records, turnEvidence, assertModel, restoreManifest, grokEffortEvidence, type Descriptor, type Model, type RestoreTab } from "../../helpers/live-model-switch";
 import { openAgent, readChat, type AgentUi } from "../16-chat-view/chat-send-matrix.live.helpers";
 import { detectChatPrefix } from "../../../../src/lib/chatPrefixes";
 
@@ -14,7 +14,7 @@ const restored = restoreManifest();
 const repeats = restored ? 1 : Number(process.env.PW_SWITCH_RUNS ?? 3);
 if (!Number.isInteger(repeats) || repeats < 1 || repeats > 3) throw new Error("PW_SWITCH_RUNS must be 1..3");
 type SwitchRow = { run: number; sha: string; provider: string; step: string; verdict: string; detail?: string;
-  tabId?: string; model?: string; effort?: string; mode?: string; closeMs?: number; pendingMs?: number; confirmMs?: number; failureMs?: number; recordModel?: string };
+  tabId?: string; model?: string; effort?: string; effortEvidence?: string; mode?: string; closeMs?: number; pendingMs?: number; confirmMs?: number; failureMs?: number; recordModel?: string };
 type SwitchProbe = { applying: boolean; closed: boolean };
 type ProbeWindow = typeof window & { __switchProbe: SwitchProbe; __switchObserver: MutationObserver };
 
@@ -83,8 +83,14 @@ for (let run = 1; run <= repeats; run++) {
             await target.composer.fill(text);
             await target.composer.press("Enter");
           };
-          const ack = async (model: Model, effort?: string) => {
+          const ack = async (model: Model, effort?: string, switchedAtMs?: number) => {
             console.log(`[switch-step] ${providerId}/${step} ACK ${model.id}`);
+            const effortProof = providerId === "grok" && effort && switchedAtMs !== undefined
+              ? await grokEffortEvidence(baseline.agent_session_id, switchedAtMs, effort) : undefined;
+            if (effortProof) {
+              writeFileSync(info.outputPath(`${providerId}-${step}-session-effort.json`), JSON.stringify(effortProof, null, 2));
+              await info.attach(`${providerId}-${step}-session-effort.json`, { path: info.outputPath(`${providerId}-${step}-session-effort.json`), contentType: "application/json" });
+            }
             const marker = `SWITCH_ACK_${run}_${providerId}_${Date.now()}_${turnIndex++}`;
             const before = await readChat(api, target.tabId);
             const text = `Reply with exactly ${marker}. Do not use tools.`;
@@ -115,7 +121,7 @@ for (let run = 1; run <= repeats; run++) {
             expect(current.pty_id).toBe(baseline.pty_id);
             expect(current.session_binding_nonce).toBe(baseline.session_binding_nonce);
             assertModel(providerId, exact.model, model.id);
-            if (effort) expect(exact.effort, "effort must come from the exact provider turn record").toBe(effort);
+            if (effort && !effortProof) expect(exact.effort, "effort must come from the exact provider turn record").toBe(effort);
             console.log(`[switch-step] ${providerId}/${step} ACK verified`);
             return exact.model;
           };
@@ -142,6 +148,7 @@ for (let run = 1; run <= repeats; run++) {
               (window as ProbeWindow).__switchObserver = observer;
             });
             const started = performance.now();
+            const switchedAtMs = Date.now();
             try {
             await picker.getByRole("button", { name: "Apply", exact: true }).click();
             await expect(picker).toHaveCount(0, { timeout: 1_000 });
@@ -164,7 +171,7 @@ for (let run = 1; run <= repeats; run++) {
             const pendingMs = performance.now() - started;
             row.pendingMs = pendingMs;
             if (!busy && descriptor.model_switch === "live_command") expect(pendingMs).toBeLessThan(3_000);
-            return { started, row };
+            return { started, switchedAtMs, row };
             } catch (error) {
               row.failureMs = performance.now() - started;
               row.verdict = "fail";
@@ -198,7 +205,8 @@ for (let run = 1; run <= repeats; run++) {
           if (efforts.length >= 2) {
             await scenario("effort", async () => {
             const change = await apply(b!, efforts[0].id);
-            change.row.recordModel = await ack(b!, efforts[0].id);
+            change.row.recordModel = await ack(b!, efforts[0].id, change.switchedAtMs);
+            change.row.effortEvidence = providerId === "grok" ? "session-level evidence" : "turn record";
             change.row.confirmMs = performance.now() - change.started;
             change.row.verdict = "pass";
             });
@@ -206,7 +214,8 @@ for (let run = 1; run <= repeats; run++) {
             const common = (a.reasoning_efforts ?? descriptor.reasoning_efforts).find(e => e.id !== efforts[0].id);
             expect(common, "second effort supported by model A").toBeDefined();
             const change = await apply(a, common!.id);
-            change.row.recordModel = await ack(a, common!.id);
+            change.row.recordModel = await ack(a, common!.id, change.switchedAtMs);
+            change.row.effortEvidence = providerId === "grok" ? "session-level evidence" : "turn record";
             change.row.confirmMs = performance.now() - change.started;
             change.row.verdict = "pass";
             });

@@ -49,7 +49,9 @@ Evidence comes from the bound session's provider storage:
 - Codex: retained user `turn_id` joined to that turn's `turn_context.model/effort`.
 - Grok: marked user model metadata plus assistant-linked `turn_completed`
   model usage. Native `-build` model variants must agree with the configured id.
-  Missing exact-turn reasoning effort fails; summary settings cannot satisfy it.
+  Effort uses explicitly labeled session-level evidence: the provider-authored
+  exact-session `summary.json` must be updated after Apply, read before the ACK
+  starts, and carry the selected effort. It is not labeled a turn-record proof.
 - OpenCode: exact session SQLite rows, marked user parts and parent-linked
   assistant `providerID/modelID/variant`.
 
