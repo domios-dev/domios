@@ -168,6 +168,43 @@ fn effort_tail_uses_only_the_exact_session_record() {
 }
 
 #[test]
+fn effort_tail_uses_newer_confirmed_command_then_newer_turn_metadata() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let prior = serde_json::json!({"type":"assistant","message":{"metadata":{"effort":"low"}}});
+    let command = serde_json::json!({"type":"user","message":{"content":"<local-command-stdout>Set effort level to medium (saved as your default for new sessions): Balanced approach with standard implementation and testing</local-command-stdout>"}});
+    let mut records = vec![prior.clone(), command.clone()];
+    let write = |records: &[serde_json::Value]| {
+        std::fs::write(
+            file.path(),
+            records
+                .iter()
+                .map(serde_json::Value::to_string)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+        .unwrap()
+    };
+    write(&records);
+    assert_eq!(
+        scan_effort_tail(file.path(), 64 * 1024).as_deref(),
+        Some("medium")
+    );
+    records.push(serde_json::json!({"type":"assistant","message":{"metadata":{"effort":"high"}}}));
+    write(&records);
+    assert_eq!(
+        scan_effort_tail(file.path(), 64 * 1024).as_deref(),
+        Some("high")
+    );
+    let mut ordinary = command;
+    ordinary["type"] = serde_json::json!("assistant");
+    write(&[prior, ordinary]);
+    assert_eq!(
+        scan_effort_tail(file.path(), 64 * 1024).as_deref(),
+        Some("low")
+    );
+}
+
+#[test]
 fn rich_tail_emits_canonical_tool_fields() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("session.jsonl");

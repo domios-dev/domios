@@ -443,11 +443,20 @@ const plugin: PluginModule = {
     const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
     if (!contents) return null;
     const supported: Record<string, boolean> = { low: true, medium: true, high: true, xhigh: true, max: true };
+    const commands = manifest()?.commands?.modelSwitchCommands;
+    const declarationJson = commands?.transcript ? JSON.stringify(commands.transcript) : null;
+    const confirmation = commands?.effort?.confirmation;
+    const confirmations = confirmation ? Object.keys(supported).map(effort => ({
+      effort, pattern: new RegExp(confirmation.replace("{effort}", effort).replace("(?i)", ""), "i"),
+    })) : [];
     const lines = contents.split("\n");
     for (let i = lines.length - 1; i >= 0; i--) {
       if (!lines[i]) continue;
       let value: Record<string, unknown>;
       try { value = JSON.parse(lines[i]) as Record<string, unknown>; } catch (_) { continue; }
+      const stdout = declarationJson ? host.commandTranscriptStdout(lines[i], declarationJson) : null;
+      const confirmed = stdout ? confirmations.find(confirmation => confirmation.pattern.test(stdout)) : null;
+      if (confirmed) return confirmed.effort;
       const message = value.message && typeof value.message === "object"
         ? value.message as Record<string, unknown>
         : null;
