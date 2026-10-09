@@ -144,6 +144,19 @@ pub struct ModelSwitchCommands {
     pub confirmation_source: ModelSwitchConfirmationSource,
     #[serde(default)]
     pub transcript: ModelSwitchTranscript,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_completion: Option<ModelSwitchTurnCompletion>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModelSwitchTurnCompletion {
+    pub event_pointer: String,
+    pub event_value: String,
+    pub session_pointer: String,
+    pub start_event_value: String,
+    pub turn_pointer: String,
+    pub active_turn_pointer: String,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
