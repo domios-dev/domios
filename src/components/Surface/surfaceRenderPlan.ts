@@ -18,6 +18,7 @@ export type SurfaceDeclLookup =
 export type SurfaceRenderPlan =
   | { kind: "pending" }
   | { kind: "view" }
+  | { kind: "unavailable"; error?: string }
   | { kind: "stream"; runtime: string; chrome: SurfaceChromeSpec; live: boolean }
   | { kind: "unsupported"; message: string };
 
@@ -97,8 +98,9 @@ export function parseChromeSpec(value: unknown): SurfaceChromeSpec | null {
 
 export function surfaceRenderPlan(lookup: SurfaceDeclLookup, visible: boolean): SurfaceRenderPlan {
   if (lookup.status === "loading") return { kind: "pending" };
-  // Without the declaration the tab keeps the Phase 1 behaviour: every surface had a view.
-  if (lookup.status === "failed" || !lookup.declared) return { kind: "view" };
+  // Without a declaration the renderer is unknown and the plugin's view route 404s, so neither can be mounted.
+  if (lookup.status === "failed") return { kind: "unavailable", error: lookup.error };
+  if (!lookup.declared) return { kind: "unavailable" };
   const { renderer, runtime, chrome } = lookup.declared;
   if (renderer === "view") return { kind: "view" };
   if (renderer !== "stream") return { kind: "unsupported", message: `This surface uses the "${renderer}" renderer, which this Domios cannot show.` };
