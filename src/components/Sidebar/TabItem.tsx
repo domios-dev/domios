@@ -247,14 +247,11 @@ function RemoteIdentityLine({ tab }: { tab: Tab }) {
   );
 }
 
-function ManagedByChip({ label }: { label: string | null }) {
+function MeshDot({ label }: { label: string | null }) {
   if (!label) return null;
   return (
-    <span data-testid="remote-managed-by" className="sidebar-managed-chip">
-      <span className="sidebar-managed-chip__label">{label}</span>
-      <span className="sidebar-managed-chip__dot">
-        <Network size={9} strokeWidth={2.25} aria-hidden="true" />
-      </span>
+    <span data-testid="remote-managed-by" className="sidebar-mesh-dot" role="img" aria-label={label} title={label}>
+      <Network size={9} strokeWidth={2.25} aria-hidden="true" />
     </span>
   );
 }
@@ -345,6 +342,8 @@ function TabItemInner({
     ? (isGeneralAgent ? "General Agent" : roleShieldLabel(tab))
     : null;
   const managedBy = managedTabPresentation(tab.managed).label ?? managedByLabel(tab);
+  const meshIdentity = remoteIdentity(tab);
+  const meshLabel = managedByLabel(tab) ?? (meshIdentity ? `on ${meshIdentity.peer}` : null);
   const localSubtitle = tab.remote_peer_id ? null : roleShield;
   const isSubTab =
     !anchorsTeam(tab) && (Boolean(tab.parent_tab_id) || (tab.depth ?? 0) > 0);
@@ -496,7 +495,6 @@ function TabItemInner({
             <TabWorkingActivity activity={tabState} />
           )}
           {shellRunning && <TabWorkingActivity activity={tabState} label={`${displayTitle} working`} />}
-          {!attachment && <ManagedByChip label={managedBy} />}
         </span>
         <span className={`sidebar-tab-body__trailing ${touchMode ? "gap-2.5" : "gap-2"}`}>
           {tab?.connected_services?.includes("telegram") && (
@@ -579,7 +577,8 @@ function TabItemInner({
       >
         {accessibleTitle} tab status {tabState.status}
       </span>}
-      <div className={`shrink-0 relative z-[1] flex items-center justify-end ${touchMode ? "" : `sidebar-tab-end ${tabText}`} ${utilityShell ? "" : "min-w-5"}`}>
+      <div className={`shrink-0 relative z-[1] flex min-w-5 items-center justify-end ${touchMode ? "" : `sidebar-tab-end ${tabText}`}`}>
+        {!attachment && !touchMode && <MeshDot label={meshLabel} />}
         {attachmentToggle && attachmentToggle.count > 0 && <AttachmentToggleButton toggle={attachmentToggle} />}
         {menuEntries.length > 0 && (
           <TabMenu

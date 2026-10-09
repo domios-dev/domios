@@ -43,78 +43,29 @@
   min-height: 1lh;
 }
 
-.sidebar-managed-chip {
-  position: relative;
+.sidebar-mesh-dot {
   display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  margin-left: auto;
-  height: 16px;
-}
-
-.sidebar-managed-chip__dot {
-  position: relative;
-  z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   width: 16px;
   height: 16px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
   border: 1px solid color-mix(in srgb, var(--ct-accent) 32%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--ct-accent) 12%, transparent);
   color: color-mix(in srgb, var(--ct-accent) 85%, var(--ct-fg));
-  transition: transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell),
-    background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
-    box-shadow var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+  transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    transform var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
 
-.sidebar-managed-chip__label {
-  position: absolute;
-  top: 0;
-  right: 0;
-  display: flex;
-  align-items: center;
-  max-width: min(14rem, 70cqw);
-  height: 16px;
-  padding: 0 21px 0 8px;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--ct-accent) 26%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--ct-bg) 72%, transparent);
-  backdrop-filter: blur(14px) saturate(1.6);
-  -webkit-backdrop-filter: blur(14px) saturate(1.6);
-  box-shadow: var(--ct-shadow-sm);
-  color: var(--ct-fg);
-  font-size: 10px;
-  line-height: 1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.sidebar-tab:hover .sidebar-mesh-dot,
+.sidebar-tab:focus-within .sidebar-mesh-dot {
   opacity: 0;
-  clip-path: inset(0 0 0 calc(100% - 16px) round 999px);
-  pointer-events: none;
-  transition: clip-path var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
-    opacity var(--ct-duration-fast) ease;
-}
-
-.sidebar-managed-chip:hover .sidebar-managed-chip__label {
-  opacity: 1;
-  clip-path: inset(0 0 0 0 round 999px);
-}
-
-.sidebar-managed-chip:hover .sidebar-managed-chip__dot {
-  transform: scale(1.08);
-  background: color-mix(in srgb, var(--ct-accent) 22%, transparent);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--ct-accent) 35%, transparent);
+  transform: scale(0.8);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-managed-chip__dot,
-  .sidebar-managed-chip__label {
+  .sidebar-mesh-dot {
     transition: none;
-  }
-
-  .sidebar-managed-chip:hover .sidebar-managed-chip__dot {
-    transform: none;
   }
 }
