@@ -11,6 +11,23 @@ use crate::service::delivery_error::{DeliveryError, PayloadTooLarge, SendOrigin}
 
 use super::AppState;
 
+fn chat_admission_rejection(tab_id: &str, detail: String) -> SendRejection {
+    if detail.starts_with("admission_unknown:") {
+        SendRejection {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            body: serde_json::json!({
+                "ok": false, "admission": "unknown", "safe_to_resend": false,
+                "error": { "code": "admission_unknown", "tab": tab_id, "message": detail },
+            }),
+        }
+    } else {
+        SendRejection::from(DeliveryError::TabBusyRefused {
+            tab: tab_id.to_string(),
+            detail,
+        })
+    }
+}
+
 pub async fn chat_send_text(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -40,15 +57,20 @@ pub async fn chat_send_text(
         Some(
             state
                 .svc
-                .reserve_user_send(&tab_id, body.client_token.clone())
-                .map_err(|detail| {
-                    SendRejection::from(DeliveryError::TabBusyRefused {
-                        tab: tab_id.clone(),
-                        detail,
-                    })
-                })?,
+                .reserve_user_send_with_replay_only(
+                    &tab_id,
+                    body.client_token.clone(),
+                    body.replay_only,
+                )
+                .map_err(|detail| chat_admission_rejection(&tab_id, detail))?,
         )
     } else {
+        if body.replay_only {
+            return Err(chat_admission_rejection(
+                &tab_id,
+                "admission_unknown: replay admission is unavailable for this backing".into(),
+            ));
+        }
         None
     };
     let svc = state.svc.clone();
@@ -67,22 +89,7 @@ pub async fn chat_send_text(
     })
     .await
     .map_err(|_| SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "chat send task failed")))?
-    .map_err(|detail| {
-        if detail.starts_with("admission_unknown:") {
-            SendRejection {
-                status: StatusCode::SERVICE_UNAVAILABLE,
-                body: serde_json::json!({
-                    "ok": false, "admission": "unknown", "safe_to_resend": false,
-                    "error": { "code": "admission_unknown", "tab": tab_id, "message": detail },
-                }),
-            }
-        } else {
-            SendRejection::from(DeliveryError::TabBusyRefused {
-                tab: tab_id,
-                detail,
-            })
-        }
-    })?;
+    .map_err(|detail| chat_admission_rejection(&tab_id, detail))?;
     Ok(Json(result))
 }
 
@@ -276,11 +283,11 @@ pub(crate) struct SendTextBody {
     /// `source_peer` so a local send can't forge report framing.
     #[serde(default)]
     pub(crate) kind: Option<String>,
-    /// Opaque client correlation token. Echoed verbatim onto the committed
-    /// user turn's ChatSendStatus (`correlationId`) so the optimistic bubble
-    /// reconciles by identity. Never interpreted; never gates delivery.
+    /// Same-tab admission token, echoed as `correlationId` on the send status.
     #[serde(default)]
     pub(crate) client_token: Option<String>,
+    #[serde(default, alias = "replayOnly")]
+    pub(crate) replay_only: bool,
 }
 
 #[derive(Deserialize)]
@@ -1037,5 +1044,31 @@ mod payload_preflight_tests {
         ];
         assert_eq!(route_payload_bytes(None, Some(&batch)), 8);
         assert_eq!(route_payload_bytes(Some("ab"), Some(&batch)), 10);
+    }
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+
+    #[test]
+    fn replay_mode_is_explicit_and_defaults_to_fresh_admission() {
+        let fresh: SendTextBody =
+            serde_json::from_value(serde_json::json!({"text": "opaque"})).unwrap();
+        assert!(!fresh.replay_only);
+        for field in ["replayOnly", "replay_only"] {
+            let replay: SendTextBody =
+                serde_json::from_value(serde_json::json!({(field): true})).unwrap();
+            assert!(replay.replay_only);
+        }
+    }
+
+    #[test]
+    fn unknown_replay_admission_is_never_reported_safe_to_resend() {
+        let rejection =
+            chat_admission_rejection("opaque-tab", "admission_unknown: opaque detail".into());
+        assert_eq!(rejection.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(rejection.body["safe_to_resend"], false);
+        assert_eq!(rejection.body["error"]["code"], "admission_unknown");
     }
 }

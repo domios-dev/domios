@@ -881,6 +881,7 @@ pub async fn chat_send_text(
     tab_id: String,
     text: String,
     client_token: Option<String>,
+    replay_only: Option<bool>,
 ) -> Result<crate::service::agent_pad::ChatSendResult, String> {
     // Agent without knowing its tab id — parity with the REST send route.
     let tab_id = svc.mux.read().resolve_tab_id(&tab_id).unwrap_or(tab_id);
@@ -888,8 +889,17 @@ pub async fn chat_send_text(
     let run_stages =
         crate::chatpipeline::is_user_turn_send(false, false, svc.tab_has_agent(&tab_id));
     let reservation = if svc.tab_chat_backing(&tab_id).is_none() {
-        Some(svc.reserve_user_send(&tab_id, client_token.clone())?)
+        Some(svc.reserve_user_send_with_replay_only(
+            &tab_id,
+            client_token.clone(),
+            replay_only.unwrap_or(false),
+        )?)
     } else {
+        if replay_only.unwrap_or(false) {
+            return Err(
+                "admission_unknown: replay admission is unavailable for this backing".into(),
+            );
+        }
         None
     };
     let svc = svc.inner().clone();
