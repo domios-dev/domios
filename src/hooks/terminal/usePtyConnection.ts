@@ -255,6 +255,9 @@ export function usePtyConnection({
       const TRANSIENT_RETRY_BASE_MS = 500;
       const TRANSIENT_RETRY_MAX_MS = 8_000;
       let transientRetryMs = TRANSIENT_RETRY_BASE_MS;
+      // read_pty long-polls and cannot be cancelled; an unmounted loop must not stay parked on it holding the terminal.
+      let stopReading = () => {};
+      const readingStopped = new Promise<null>((resolve) => { stopReading = () => resolve(null); });
 
       const waitForDrain = (): Promise<void> => {
         if (!readPaused) return Promise.resolve();
@@ -338,9 +341,11 @@ export function usePtyConnection({
       const readLoop = async () => {
         while (reading) {
           try {
-            if (readPaused) await waitForDrain();
+            if (readPaused) await Promise.race([waitForDrain(), readingStopped]);
+            if (!reading || disposed) break;
 
-            const data = await invoke<number[]>("read_pty", { ptyId: predictedId });
+            const data = await Promise.race([invoke<number[]>("read_pty", { ptyId: predictedId }), readingStopped]);
+            if (!reading || disposed) break;
             transientRetryMs = TRANSIENT_RETRY_BASE_MS;
 
             const truncatedFrom = takePtyTruncation(predictedId);
@@ -424,6 +429,7 @@ export function usePtyConnection({
       reportConnectionReady();
       cleanupFns.push(() => {
         reading = false;
+        stopReading();
         unsubscribeOutputStream?.();
         pendingWriteChunks = [];
         pendingWriteLength = 0;
