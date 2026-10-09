@@ -178,6 +178,23 @@ impl ServiceContext {
         session_id: Option<&str>,
         session_exists: Option<bool>,
     ) -> bool {
+        self.prepare_empty_session_restore_in_journal(
+            tab_id,
+            provider_id,
+            session_id,
+            session_exists,
+            TabLifecycleJournal::shared(),
+        )
+    }
+
+    fn prepare_empty_session_restore_in_journal(
+        &self,
+        tab_id: &str,
+        provider_id: &str,
+        session_id: Option<&str>,
+        session_exists: Option<bool>,
+        journal_store: &TabLifecycleJournal,
+    ) -> bool {
         let Some(session_id) = session_id else {
             return false;
         };
@@ -198,7 +215,6 @@ impl ServiceContext {
         let Some(cwd) = cwd else {
             return false;
         };
-        let journal_store = TabLifecycleJournal::shared();
         let journal = journal_store.load();
         let journal_evidence = journal_conversation(&journal, tab_id, session_id);
         let journal_evidence = if journal_evidence != Some(true)
@@ -233,6 +249,10 @@ impl ServiceContext {
         {
             return false;
         }
+        let key = { self.mux.read().lifecycle_key(tab_id) };
+        let Some(key) = key.or_else(|| self.open_lifecycle_epoch(tab_id)) else {
+            return false;
+        };
         {
             let mut mux = self.mux.write();
             let Some(tab) = mux.get_tab_mut(tab_id) else {
@@ -242,16 +262,19 @@ impl ServiceContext {
                 || tab.agent_session_id.as_deref() != Some(session_id)
                 || tab.agent_booting
                 || !tab.restored_from_snapshot
+                || tab.lifecycle_epoch != Some(key.epoch)
+                || tab.lifecycle_operation_id.as_deref() != Some(key.operation_id.as_str())
             {
                 return false;
             }
             clear_empty_session(tab);
         }
-        self.record_lifecycle(tab_id, LifecycleTransition::RolledBack {
+        crate::service::tab_lifecycle::append(journal_store, key.clone(), LifecycleTransition::RolledBack {
             reason: format!("empty unavailable session {session_id}; restoring fresh with recorded settings"),
         });
-        self.record_lifecycle(
-            tab_id,
+        crate::service::tab_lifecycle::append(
+            journal_store,
+            key,
             LifecycleTransition::EmptySessionReplaced {
                 session_id: session_id.into(),
             },
