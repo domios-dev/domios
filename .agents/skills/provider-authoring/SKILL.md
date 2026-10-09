@@ -492,3 +492,10 @@ Moved out of the embedded `codeterm docs` pages because they describe Domios's o
 Session manifests may declare `sessions.rootEnvironment: {variable, subdir}` for read-only inherited account homes. Empty/unset falls back to `rootDir`; the selected directory still requires sandbox read and environment permission. This does not grant write access or install integrations in that home. Credentials may declare `fileEnvironment` with the same shape; both default and selected credential paths remain denied to plugin reads.
 
 For a model-free control handshake, declare `spawn.capabilityProbe: "stream_json_initialize"`. The host owns process containment, isolation, decoding and bounded project/binary cache; no new sandbox host function is exposed. This capability uses `capability_probe_enabled`, default false, and explicit `POST /api/tabs/{id}/agent/capabilities/refresh`. Native and JS providers must agree on the declaration. Supported initialize data feeds cached slash suggestions, model aliases and subscription/mode display. Never send a user turn or usage request from a capability probe.
+
+`host.commandTranscriptStdout(recordJson, declarationJson)` exposes the shared
+pure Rust command-record parser to JS providers. It returns only declared
+stdout from caller-supplied JSON (1 MiB record and 24 KiB declaration bounds),
+with no filesystem, network, environment or subprocess access. The guard,
+confirmation reader and native/JS model-label detection share that parser;
+shared command fixtures cover native/QuickJS parity.

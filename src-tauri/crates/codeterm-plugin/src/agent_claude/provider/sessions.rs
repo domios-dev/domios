@@ -523,22 +523,16 @@ fn scan_tail(path: &Path, tail_bytes: u64) -> Option<String> {
     if start > 0 && !lines.is_empty() {
         lines.remove(0);
     }
-    for line in lines.iter().rev() {
-        if line.is_empty() {
-            continue;
-        }
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
-            continue;
-        };
+    let source = super::schemas::model_switch_commands().transcript;
+    for v in source
+        .records(&lines.join("\n"))
+        .filter_map(Result::ok)
+        .rev()
+    {
         // /model X writes "Set model to X" before the next assistant turn.
-        if let Some(content) = v
-            .get("message")
-            .and_then(|m| m.get("content"))
-            .filter(|_| v["type"].as_str() == Some("user"))
-        {
-            let raw = content_to_text(content);
-            if let Some(fam) = extract_set_model_family(&raw) {
-                return Some(fam);
+        if let Some(stdout) = source.record_stdout(&v) {
+            if let Some(family) = set_model_family(&stdout) {
+                return Some(family);
             }
         }
         // Last assistant turn carries the authoritative model id.
@@ -555,22 +549,14 @@ fn scan_tail(path: &Path, tail_bytes: u64) -> Option<String> {
     None
 }
 
-fn content_to_text(c: &serde_json::Value) -> String {
-    match c {
-        serde_json::Value::String(s) => s.clone(),
-        serde_json::Value::Array(arr) => arr
-            .iter()
-            .filter_map(|c| c.get("text").and_then(|t| t.as_str()))
-            .collect::<Vec<_>>()
-            .join(" "),
-        _ => String::new(),
-    }
+#[cfg(test)]
+fn extract_set_model_family(raw: &str) -> Option<String> {
+    let source = super::schemas::model_switch_commands().transcript;
+    set_model_family(source.stdout(raw)?)
 }
 
-fn extract_set_model_family(raw: &str) -> Option<String> {
-    let after = raw
-        .strip_prefix("<local-command-stdout>Set model to ")?
-        .strip_suffix("</local-command-stdout>")?;
+fn set_model_family(stdout: &str) -> Option<String> {
+    let after = stdout.strip_prefix("Set model to ")?;
     let cleaned = strip_ansi(after);
     let family: String = cleaned
         .trim_start()

@@ -116,11 +116,17 @@ fn declared_transcript() -> ModelSwitchTranscript {
 }
 
 fn command_records() -> String {
-    [
-        "<local-command-caveat>Local command protocol caveat</local-command-caveat>",
-        "<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args></command-args>",
-        "<local-command-stdout>Set model to Haiku 5.5 for this session only</local-command-stdout>",
-    ].iter().map(|content| serde_json::json!({"type":"user", "message":{"content":content}}).to_string()).collect::<Vec<_>>().join("\n")
+    let cases: Vec<serde_json::Value> = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../plugins/provider-claude/tests/fixtures/model-switch/command-transcript.json"
+    )))
+    .unwrap();
+    cases
+        .iter()
+        .filter(|case| case["foreign"] == false)
+        .map(|case| case["record"].to_string())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn run_fixture_sequence(
@@ -140,8 +146,7 @@ fn run_fixture_sequence(
         &ScreenChangeSignal::default(),
         Instant::now() + Duration::from_secs(2),
         || {
-            let foreign =
-                crate::service::chat_send_evidence::jsonl_has_foreign_user_turn(bytes, source)?;
+            let foreign = source.has_foreign_user_turn(bytes)?;
             post_command_idle(foreign, true)
         },
     )?;
@@ -187,7 +192,7 @@ fn command_wrappers_do_not_hide_extra_prompt_text_or_attachments() {
         serde_json::json!("<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args>other-model</command-args>"),
     ] {
         let bytes = serde_json::json!({"type":"user","message":{"content":content}}).to_string();
-        assert!(crate::service::chat_send_evidence::jsonl_has_foreign_user_turn(&bytes, &source).unwrap());
+        assert!(source.has_foreign_user_turn(&bytes).unwrap());
     }
 }
 
@@ -202,13 +207,8 @@ fn command_exclusions_follow_an_opaque_provider_declaration() {
     };
     for content in ["[output]done[/output]", "opaque-caveat"] {
         let bytes = serde_json::json!({"type":"prompt-record","body":content}).to_string();
-        assert!(
-            !crate::service::chat_send_evidence::jsonl_has_foreign_user_turn(&bytes, &source)
-                .unwrap()
-        );
+        assert!(!source.has_foreign_user_turn(&bytes).unwrap());
     }
     let bytes = serde_json::json!({"type":"prompt-record","body":"real prompt"}).to_string();
-    assert!(
-        crate::service::chat_send_evidence::jsonl_has_foreign_user_turn(&bytes, &source).unwrap()
-    );
+    assert!(source.has_foreign_user_turn(&bytes).unwrap());
 }
