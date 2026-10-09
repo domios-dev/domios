@@ -66,6 +66,8 @@ Each command's `--help` has the flags; the Docs column has the depth.
 
 Plans, tasks, Teams: `codeterm plan --help` / `codeterm task --help` / `codeterm team --help`, with the full rules in `codeterm docs PLAN-EDITING` and `codeterm docs ORCHESTRATION`. Orchestrator, Planner and Worker launches carry their own flag contract.
 
+The owner's explicit `codeterm agent restart --tab <ID> --fresh` starts a new session in the same tab with its recorded model and effort. An existing exact restored session is refused; a live agent requires `--force`. Restore never makes this choice automatically.
+
 ## Mesh (remote peers)
 
 Flat peer model: paired = trusted. Most tab/agent/workspace commands accept `--mesh PEER` = "run against that peer's daemon". Flow: `mesh peers` → `tab list --mesh PEER` → act on remote ids. A peer's General Agent is always `--tab main --mesh PEER`; remote agents don't auto-reply — say "report back" explicitly. Pairing: `mesh connect|approve|reject|disconnect`; disconnect revokes the peer (only the local owner lifts it with `mesh unrevoke <instance-id>`). Make this machine discoverable to a NEW device with `mesh broadcast` (requires `mesh online`; tell the user when you toggle it). Visibility: `mesh offline` / `mesh online` (hot-reload, Tailscale untouched). Mesh spawn requires peer `--cwd`; it sends locally read `--task-file` contents.

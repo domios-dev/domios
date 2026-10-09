@@ -10,6 +10,7 @@ export type TabBootOverlayView =
       reason: string | null;
       canRetry: boolean;
       canStartFreshAgent: boolean;
+      canStartNewSession: boolean;
       canKeepShell: boolean;
     };
 
@@ -32,6 +33,7 @@ export function tabBootOverlayView(
       reason: failure.reason,
       canRetry: failure.actions.retry,
       canStartFreshAgent: failure.actions.startFreshAgent,
+      canStartNewSession: failure.actions.startNewSession,
       canKeepShell: failure.actions.keepShell,
     };
   }
@@ -63,6 +65,9 @@ interface TabBootOverlayProps {
   overlayVisible: boolean;
   onRetry: () => void;
   onStartFreshAgent: () => void;
+  onStartNewSession: () => void;
+  startingNewSession?: boolean;
+  actionError?: string | null;
   onKeepShell: () => void;
 }
 
@@ -72,6 +77,9 @@ export function TabBootOverlay({
   overlayVisible,
   onRetry,
   onStartFreshAgent,
+  onStartNewSession,
+  startingNewSession = false,
+  actionError,
   onKeepShell,
 }: TabBootOverlayProps) {
   if (!overlayVisible && view.kind === "none") return null;
@@ -105,6 +113,17 @@ export function TabBootOverlay({
             </div>
           )}
           <div className="mt-2 flex flex-wrap justify-center gap-2">
+            {view.canStartNewSession && (
+              <button
+                type="button"
+                className="rounded-md bg-[var(--ct-accent)] px-2 py-1 text-xs font-medium text-[var(--ct-bg)]"
+                aria-label="Start new session"
+                disabled={startingNewSession}
+                onClick={onStartNewSession}
+              >
+                {startingNewSession ? "Starting…" : "Start new session"}
+              </button>
+            )}
             {view.canRetry && (
               <button
                 type="button"
@@ -140,6 +159,7 @@ export function TabBootOverlay({
               </button>
             )}
           </div>
+          {actionError && <div role="alert" className="mt-1 text-xs">{actionError}</div>}
         </div>
       ) : (
         view.kind === "starting" && (

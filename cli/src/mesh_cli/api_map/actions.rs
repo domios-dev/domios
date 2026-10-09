@@ -910,6 +910,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             tab: Some(tab),
             provider,
             handoff_history,
+            fresh,
             force,
             grace_secs,
         } if !tab.trim().is_empty() => (
@@ -921,6 +922,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
                     grace_secs: *grace_secs,
                     provider: provider.as_deref(),
                     handoff_history: *handoff_history,
+                    fresh: *fresh,
                 })
                 .to_string(),
             ),

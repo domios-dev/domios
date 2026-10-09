@@ -6,6 +6,8 @@ pub(crate) struct RestartRequest<'a> {
     pub provider: Option<&'a str>,
     #[serde(skip_serializing_if = "is_false")]
     pub handoff_history: bool,
+    #[serde(skip_serializing_if = "is_false")]
+    pub fresh: bool,
 }
 
 fn is_false(value: &bool) -> bool {
