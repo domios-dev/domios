@@ -226,16 +226,19 @@ export function navigationFailureNotice(target: string | undefined, error: unkno
   return target ? `Could not open ${target}` : "Navigation failed";
 }
 
-export const ASK_INTENTS = [
-  { value: "question", label: "Question" },
-  { value: "change", label: "Change" },
-  { value: "bug", label: "Bug" },
-] as const;
-export type AskIntent = (typeof ASK_INTENTS)[number]["value"];
+export type AskIntent = "question" | "change" | "bug";
+
+export interface GrabAccessibility {
+  role?: string | null;
+  name?: string | null;
+}
 
 export interface GrabTarget {
   react?: string | null;
   selector?: string | null;
+  tagName?: string | null;
+  text?: string | null;
+  accessibility?: GrabAccessibility | null;
 }
 
 export interface GrabSelection {
@@ -244,22 +247,101 @@ export interface GrabSelection {
   target: GrabTarget;
 }
 
+export type ElementKind = "link" | "button" | "image" | "heading" | "input" | "text";
+
 export interface ElementCard {
-  label: string;
-  meta: string;
+  kind: ElementKind;
+  name: string;
+  path: string;
+}
+
+export const ELEMENT_NAME_MAX = 28;
+
+const KIND_WORD: Record<ElementKind, string> = { link: "Link", button: "Button", image: "Image", heading: "Heading", input: "Field", text: "Text" };
+
+const ROLE_KIND: Readonly<Record<string, ElementKind>> = {
+  link: "link",
+  button: "button",
+  menuitem: "button",
+  tab: "button",
+  image: "image",
+  img: "image",
+  figure: "image",
+  heading: "heading",
+  textbox: "input",
+  searchbox: "input",
+  combobox: "input",
+  listbox: "input",
+  checkbox: "input",
+  radio: "input",
+  switch: "input",
+  slider: "input",
+  spinbutton: "input",
+};
+
+const TAG_KIND: Readonly<Record<string, ElementKind>> = {
+  a: "link",
+  button: "button",
+  img: "image",
+  svg: "image",
+  picture: "image",
+  video: "image",
+  canvas: "image",
+  h1: "heading",
+  h2: "heading",
+  h3: "heading",
+  h4: "heading",
+  h5: "heading",
+  h6: "heading",
+  input: "input",
+  textarea: "input",
+  select: "input",
+};
+
+const NAMELESS_ROLES = new Set(["", "generic", "none", "presentation", "statictext", "inlinetextbox", "paragraph", "rootwebarea", "labeltext"]);
+
+const squash = (value: string | null | undefined) => (value ?? "").replace(/\s+/g, " ").trim();
+
+function quoted(word: string, excerpt: string): string {
+  const budget = Math.max(6, ELEMENT_NAME_MAX - word.length - 3);
+  const cut = excerpt.length > budget ? `${excerpt.slice(0, budget - 1).trimEnd()}…` : excerpt;
+  return `${word} «${cut}»`;
+}
+
+function truncate(value: string): string {
+  return value.length > ELEMENT_NAME_MAX ? `${value.slice(0, ELEMENT_NAME_MAX - 1).trimEnd()}…` : value;
 }
 
 export function elementCard(selection: GrabSelection): ElementCard {
-  const meta = [selection.target.react, selection.target.selector].filter((part): part is string => Boolean(part)).join(" · ");
-  return { label: selection.label, meta };
+  const { target } = selection;
+  const path = [target.react, target.selector].filter((part): part is string => Boolean(part)).join(" · ");
+  const tag = squash(target.tagName).toLowerCase();
+  const role = squash(target.accessibility?.role).toLowerCase();
+  const kind = ROLE_KIND[role] ?? TAG_KIND[tag] ?? "text";
+  const accessibleName = squash(target.accessibility?.name);
+  if (accessibleName && !NAMELESS_ROLES.has(role)) {
+    const word = ROLE_KIND[role] ? KIND_WORD[kind] : role.charAt(0).toUpperCase() + role.slice(1);
+    return { kind, name: quoted(word, accessibleName), path };
+  }
+  const text = squash(target.text) || accessibleName;
+  if (text) return { kind, name: quoted(KIND_WORD[kind], text), path };
+  return { kind, name: truncate(tag || squash(selection.label) || "element"), path };
+}
+
+export function askDialogLabel(card: ElementCard): string {
+  return `Ask about ${card.name}`;
 }
 
 export function askPlaceholder(owner: string): string {
-  return `Ask ${owner} about this…`;
+  return `Ask ${owner}…`;
 }
 
-export function grabSendArgs(selection: GrabSelection, comment: string, intent: AskIntent): { id: string; comment: string; intent: AskIntent } {
+export function grabSendArgs(selection: GrabSelection, comment: string, intent: AskIntent = "question"): { id: string; comment: string; intent: AskIntent } {
   return { id: selection.id, comment: comment.trim(), intent };
+}
+
+export function withTranscripts(comment: string, transcripts: readonly string[]): string {
+  return [comment, ...transcripts].map((part) => part.trim()).filter(Boolean).join("\n\n");
 }
 
 export interface PopoverAnchor {

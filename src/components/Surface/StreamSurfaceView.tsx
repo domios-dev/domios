@@ -27,7 +27,6 @@ import {
   toolbarInvocation,
   validateProfileName,
   withOwner,
-  type AskIntent,
   type GrabSelection,
   type NeedsHumanKind,
   type PopoverAnchor,
@@ -192,10 +191,10 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
       .catch((error: unknown) => report("Pick", error));
   };
 
-  const onSend = (comment: string, intent: AskIntent) => {
+  const onSend = (comment: string) => {
     if (!picked) return;
     setSending(true);
-    transport.invoke(SURFACE_METHOD.grabSend, grabSendArgs(picked.selection, comment, intent))
+    transport.invoke(SURFACE_METHOD.grabSend, grabSendArgs(picked.selection, comment))
       .then(() => setNotice({ text: sentNotice(state.owner) }))
       .catch((error: unknown) => report("Send", error))
       .finally(() => {
@@ -262,6 +261,7 @@ export function StreamSurfaceView({ transport, chrome, surfaceTitle, initialStat
             sending={sending}
             onSend={onSend}
             onCancel={cancelPick}
+            onError={(message) => report("Voice note", new Error(message))}
           />
         )}
       </StreamCanvas>

@@ -6,6 +6,7 @@ import {
   addressSubmission,
   askPopoverPosition,
   CHROME_ITEM,
+  ELEMENT_NAME_MAX,
   elementCard,
   fileNameFromPath,
   grabSendArgs,
@@ -24,6 +25,8 @@ import {
   toolbarInvocation,
   validateProfileName,
   withOwner,
+  withTranscripts,
+  type GrabTarget,
   type SurfaceState,
   type ToolbarItemSpec,
 } from "./surfaceChromeModel";
@@ -116,9 +119,34 @@ const fileCases: Array<[string, string]> = [
 ];
 for (const [path, expected] of fileCases) assert.equal(fileNameFromPath(path), expected, path);
 
-assert.deepEqual(elementCard({ id: "g1", label: "button “Sign in”", target: { react: "LoginForm", selector: "form > button" } }), { label: "button “Sign in”", meta: "LoginForm · form > button" });
-assert.deepEqual(elementCard({ id: "g1", label: "div", target: { selector: "main" } }), { label: "div", meta: "main" });
-assert.deepEqual(grabSendArgs({ id: "g7", label: "x", target: {} }, "  why?  ", "bug"), { id: "g7", comment: "why?", intent: "bug" });
+const friendly = (target: GrabTarget, label = "") => elementCard({ id: "g1", label, target });
+const friendlyCases: Array<[string, GrabTarget, string, string]> = [
+  ["a link uses its accessible name", { tagName: "a", accessibility: { role: "link", name: "snake." } }, "link", "Link «snake.»"],
+  ["a button uses its accessible name", { tagName: "button", text: "Play now", accessibility: { role: "button", name: "Play" } }, "button", "Button «Play»"],
+  ["an image uses its alt name", { tagName: "img", accessibility: { role: "image", name: "logo" } }, "image", "Image «logo»"],
+  ["the legacy img role is an image", { tagName: "img", accessibility: { role: "img", name: "logo" } }, "image", "Image «logo»"],
+  ["a heading names its level-free role", { tagName: "h2", accessibility: { role: "heading", name: "Pricing" } }, "heading", "Heading «Pricing»"],
+  ["a text field is a field", { tagName: "input", accessibility: { role: "textbox", name: "Email" } }, "input", "Field «Email»"],
+  ["a landmark keeps its own role", { tagName: "nav", accessibility: { role: "navigation", name: "Main" } }, "text", "Navigation «Main»"],
+  ["a generic node falls back to its visible text", { tagName: "span", text: "s", accessibility: { role: "generic", name: "" } }, "text", "Text «s»"],
+  ["visible text keeps the tag's kind", { tagName: "a", text: "  Read   more " }, "link", "Link «Read more»"],
+  ["no name and no text is the tag", { tagName: "DIV", accessibility: { role: "generic" } }, "text", "div"],
+];
+for (const [name, target, kind, expected] of friendlyCases) {
+  const card = friendly(target);
+  assert.equal(card.name, expected, name);
+  assert.equal(card.kind, kind, name);
+}
+const long = friendly({ tagName: "button", accessibility: { role: "button", name: "Continue to the very long checkout page" } }).name;
+assert.ok(long.length <= ELEMENT_NAME_MAX, `${long} fits the chip`);
+assert.ok(long.startsWith("Button «Continue") && long.endsWith("…»"), long);
+assert.ok(friendly({ tagName: "custom-very-long-element-name-here" }).name.endsWith("…"));
+assert.deepEqual(friendly({ react: "LoginForm", selector: "form > button" }, "button Sign in"), { kind: "text", name: "button Sign in", path: "LoginForm · form > button" }, "a legacy card keeps the host label");
+assert.equal(friendly({ tagName: "main", selector: "html > body > main" }).path, "html > body > main");
+assert.deepEqual(grabSendArgs({ id: "g7", label: "x", target: {} }, "  why?  "), { id: "g7", comment: "why?", intent: "question" }, "the backend contract defaults to a question");
+assert.deepEqual(grabSendArgs({ id: "g7", label: "x", target: {} }, "why?", "bug"), { id: "g7", comment: "why?", intent: "bug" });
+assert.equal(withTranscripts("  look here ", ["  make it blue ", ""]), "look here\n\nmake it blue");
+assert.equal(withTranscripts("", ["only voice"]), "only voice");
 
 const popoverCases: Array<[string, { x: number; y: number; width: number; height: number }, { left: number; top: number }]> = [
   ["opens beside the click", { x: 100, y: 50, width: 1000, height: 800 }, { left: 112, top: 62 }],
