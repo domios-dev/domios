@@ -13,13 +13,16 @@ if (providers.some(id => !["claude", "codex", "opencode", "grok"].includes(id)))
 const restored = restoreManifest();
 const repeats = restored ? 1 : Number(process.env.PW_SWITCH_RUNS ?? 3);
 if (!Number.isInteger(repeats) || repeats < 1 || repeats > 3) throw new Error("PW_SWITCH_RUNS must be 1..3");
+const startRun = Number(process.env.PW_SWITCH_RUN_NUMBER ?? 1);
+if (!Number.isInteger(startRun) || startRun < 1 || startRun + repeats > 4) throw new Error("Invalid matrix run range");
+if (process.env.PW_SWITCH_WORKSPACE && repeats !== 1) throw new Error("A prepared scratch workspace may serve exactly one matrix");
 type SwitchRow = { run: number; sha: string; provider: string; step: string; verdict: string; detail?: string;
   tabId?: string; model?: string; effort?: string; effortEvidence?: string; mode?: string; closeMs?: number; pendingMs?: number; confirmMs?: number; failureMs?: number; recordModel?: string };
 type SwitchProbe = { applying: boolean; closed: boolean };
 type ProbeWindow = typeof window & { __switchProbe: SwitchProbe; __switchObserver: MutationObserver };
 
 test.describe.configure({ mode: "default" });
-for (let run = 1; run <= repeats; run++) {
+for (let run = startRun; run < startRun + repeats; run++) {
   test(`@live @model-switch matrix run ${run}${restored ? " restored" : ""}`, async ({ api, ui }, info) => {
     test.setTimeout(3_600_000);
     expect(process.env.PW_TARGET, "attach-only DEV required; no lifecycle/reset").toBe("dev");
@@ -28,7 +31,7 @@ for (let run = 1; run <= repeats; run++) {
     const descriptors = await dc<Descriptor[]>("agent", "providers");
     const originalWorkspace = (await api.workspaces()).find(ws => ws.is_active)?.id;
     const workspaceName = `SwitchQA-${Date.now()}-${run}`;
-    let workspace = restored?.workspace;
+    let workspace = restored?.workspace ?? process.env.PW_SWITCH_WORKSPACE;
     const rows: SwitchRow[] = [];
     const failures: string[] = [];
     const retained: RestoreTab[] = [];
@@ -39,10 +42,11 @@ for (let run = 1; run <= repeats; run++) {
     expect(workspace, "dedicated scratch workspace created").toBeTruthy();
     if (!workspace) throw new Error("scratch workspace missing");
     const workspaceId = workspace;
-    if (restored) {
+    if (restored || process.env.PW_SWITCH_WORKSPACE) {
       const scratch = (await api.workspaces()).find(ws => ws.id === workspaceId);
       expect(scratch?.name, "restore may only touch a dedicated scratch workspace").toMatch(/^SwitchQA-/);
-      for (const prior of restored.tabs) expect(scratch?.tab_ids).toContain(prior.tabId);
+      if (restored) for (const prior of restored.tabs) expect(scratch?.tab_ids).toContain(prior.tabId);
+      else expect(scratch?.tab_ids, "prepared scratch workspace must be empty before the matrix").toEqual([]);
     }
     try {
       for (const providerId of providers) {
@@ -271,7 +275,7 @@ for (let run = 1; run <= repeats; run++) {
       writeFileSync(info.outputPath("matrix.json"), JSON.stringify(summary, null, 2));
       await info.attach("matrix.json", { path: info.outputPath("matrix.json"), contentType: "application/json" });
       console.log(JSON.stringify(summary));
-      if (run === repeats && !restored && process.env.PW_SWITCH_KEEP === "1") {
+      if (run === startRun + repeats - 1 && !restored && process.env.PW_SWITCH_KEEP === "1") {
         writeFileSync(info.outputPath("restore-manifest.json"), JSON.stringify(summary, null, 2));
       } else await dc("workspace", "close", workspaceId, "--force");
       if (originalWorkspace && originalWorkspace !== workspace) await api.focusWorkspace(originalWorkspace);
