@@ -139,7 +139,7 @@ export function ComposerContextHeader({ tabId, workspaceId, delayed, onEditDelay
       <ContextBubble
         key={tabJobKey(chip)}
         tone={stateTone(chip.state)}
-        onOpen={() => openTabJob(job)}
+        onOpen={() => openTabJob(job, workspaceId ? { workspaceId, tabId } : undefined)}
         dismissLabel={stoppable ? `Stop ${chip.title}` : `Delete ${chip.title}`}
         dismissTitle={stoppable ? "Stop" : "Delete"}
         onDismiss={() => {
@@ -157,7 +157,7 @@ export function ComposerContextHeader({ tabId, workspaceId, delayed, onEditDelay
     <ContextBubble
       key={`blueprint:${blueprint.id}`}
       tone={stateTone(blueprint.state)}
-      onOpen={() => requestOpenJob({ workspaceId: ownerWorkspace, target: { teamId: blueprint.owner?.team_id ?? null, blueprintId: pipeline.id } })}
+      onOpen={() => requestOpenJob({ workspaceId: ownerWorkspace, target: { teamId: blueprint.owner?.team_id ?? null, blueprintId: pipeline.id }, returnTo: workspaceId ? { workspaceId, tabId } : undefined })}
     >
       <StateBody title={blueprint.name} state={blueprint.state} />
     </ContextBubble>
@@ -203,7 +203,7 @@ export function ComposerContextHeader({ tabId, workspaceId, delayed, onEditDelay
   return (
     <div className="ct-ctx" data-testid="composer-context-header" data-open-kind={open ?? undefined}>
       <div className="ct-ctx__head">
-        {hasPlan ? <PlanTitle tabId={tabId} /> : fallbackTitle()}
+        {hasPlan ? <PlanTitle tabId={tabId} workspaceId={workspaceId} /> : fallbackTitle()}
         {kinds.length > 0 && (
           <div className="ct-ctx__kinds" role="group" aria-label="Linked to this tab">
             {kinds.map((kind) => {
@@ -283,8 +283,8 @@ function ContextTitle({ kind, prefix, primary, secondary, extra, onOpen }: {
   );
 }
 
-function PlanTitle({ tabId }: { tabId: string }) {
-  const { activity, onOpen } = useResolvedTabActivity(tabId);
+function PlanTitle({ tabId, workspaceId }: { tabId: string; workspaceId: string | null }) {
+  const { activity, onOpen } = useResolvedTabActivity(tabId, workspaceId);
   if (!activity) return null;
   if (activity.kind === "working") {
     return <ContextTitle kind="task" prefix="Task:" primary={activity.taskTitle} secondary={`Plan: ${activity.planTitle}`} onOpen={onOpen} />;

@@ -1,3 +1,5 @@
+import { returnToOrigin } from "../../lib/returnTo";
+import { useReturnToChat } from "../../hooks/useReturnToChat";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { listen } from "../../lib/bridge";
@@ -22,7 +24,7 @@ import { nextWorld, worldThresholds, type World } from "./worlds";
 import { assignedTaskIdsForTab } from "./planOpenFocus";
 import { filterPlansForCanvas } from "./planTabMatch";
 import { useCanvasPlans, usePlanDataContextKey } from "./PlansProvider";
-import { useCanvasWorkspaceTarget } from "./canvasFocusStore";
+import { canvasFocusStore, useCanvasWorkspaceTarget } from "./canvasFocusStore";
 import { isTagFilterActive, taskMatchesTagFilter, toggleTagFilter, type TagFilterSelection } from "./tagModel";
 import type { PlanGhostModel } from "./canvasView/models";
 import type { Plan, Section, TagFacet } from "./types";
@@ -916,6 +918,12 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focus
   const projectPath = activeWs?.cwd ?? null;
   const planDataContextKey = usePlanDataContextKey();
   const workspaceTarget = useCanvasWorkspaceTarget();
+  const activateReturnTo = useReturnToChat();
+  const close = () => {
+    if (returnToOrigin(mode === "workspace" ? workspaceTarget : null, activateReturnTo)) return;
+    if (onClose) onClose();
+    else canvasFocusStore.closeWorkspace();
+  };
   const requestedPlanId = planId ?? (mode === "workspace" ? workspaceTarget?.planId : undefined);
   const teamId = mode === "workspace" ? workspaceTarget?.teamId : undefined;
   const scopeWorkspaceId =
@@ -990,7 +998,7 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focus
       teams={state.teams}
       projectPath={projectPath}
       workspaceTarget={mode === "workspace" ? workspaceTarget : null}
-      onClose={onClose}
+      onClose={onClose || (mode === "workspace" && workspaceTarget?.returnTo) ? close : undefined}
       onOpenTab={onOpenTab}
       notifications={state.notifications}
       onSelectTab={selectTabByTab}
