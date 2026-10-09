@@ -1,13 +1,13 @@
 import { useState } from "react";
-import { Check, Copy, MessageSquarePlus, Quote, X } from "lucide-react";
+import { Check, Copy, MessageSquarePlus, X } from "lucide-react";
 
-/** The floating bar of a message selection: count, Copy, Quote into composer, Ask about these, Clear. */
-export function MessageSelectionBar({ count, partial = false, onCopy, onQuote, onAsk, onClear }: {
+/** The floating bar of a message selection: count, Copy, Ask about these (as a quote), Clear. */
+export function MessageSelectionBar({ count, partial = false, onCopy, onQuote, onClear }: {
   count: number;
   partial?: boolean;
   onCopy: () => void;
   onQuote: () => void;
-  onAsk: () => void;
+  onAsk?: () => void;
   onClear: () => void;
 }) {
   const [copiedCount, setCopiedCount] = useState<number | null>(null);
@@ -23,8 +23,7 @@ export function MessageSelectionBar({ count, partial = false, onCopy, onQuote, o
         {copied ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
         {copied ? "Copied" : "Copy"}
       </button>
-      <button type="button" onClick={onQuote}><Quote size={13} aria-hidden />Quote</button>
-      <button type="button" onClick={onAsk}><MessageSquarePlus size={13} aria-hidden />Ask about these</button>
+      <button type="button" onClick={onQuote}><MessageSquarePlus size={13} aria-hidden />Ask about these</button>
       <button type="button" className="ct-msg-selection-bar__clear" aria-label="Clear selection" title="Clear selection (Esc)" onClick={onClear}>
         <X size={13} aria-hidden />
       </button>

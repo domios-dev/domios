@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentType, type KeyboardEvent } from "react";
-import { Check, Copy, Hash, ListChecks, MessageSquarePlus, Quote } from "lucide-react";
+import { Check, Copy, Hash, ListChecks, MessageSquarePlus } from "lucide-react";
 import { messageClipboard, messageMarkdownClipboard, sourceDiffersFromVisible, type ClipMessage } from "@codeterm/chat-core";
 import { writeClipboardFlavours } from "@codeterm/chat-ui";
 import { createPortal } from "react-dom";
@@ -161,8 +161,7 @@ export function MessageActionsDot({ clip, touch = false, whole = false, hasParts
             <MenuItem label={copied === "copy" ? "Copied" : "Copy"} icon={copied === "copy" ? Check : Copy} done={copied === "copy"} onSelect={() => copy("copy")} />
             {sourceDiffersFromVisible(clip) && <MenuItem label={copied === "markdown" ? "Copied as Markdown" : "Copy as Markdown"} icon={copied === "markdown" ? Check : Hash} done={copied === "markdown"} onSelect={() => copy("markdown")} />}
             <div role="separator" className="ct-msg-menu__rule" />
-            <MenuItem label="Quote into composer" icon={Quote} onSelect={() => { hide(); actions.quote(clip); }} />
-            <MenuItem label="Ask about this" icon={MessageSquarePlus} onSelect={() => { hide(); actions.ask(clip); }} />
+            <MenuItem label="Ask about this" icon={MessageSquarePlus} onSelect={() => { hide(); actions.quote(clip); }} />
             <div role="separator" className="ct-msg-menu__rule" />
             <MenuItem label="Select" icon={ListChecks} hint={touch ? undefined : "Shift-click"} onSelect={() => { hide(); actions.select(); }} />
             {touch && <button type="button" role="menuitem" className="ct-msg-menu__item" onClick={() => hide(true)}>Close actions</button>}

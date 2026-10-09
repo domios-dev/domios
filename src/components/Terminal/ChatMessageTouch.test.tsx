@@ -62,11 +62,10 @@ it("opens the touched part with a preview and copies only its source", async () 
   await act(async () => item("Copy").click());
   expect(written[DOMIOS_TEXT_MIME]).toBe("Second **part**.");
 });
-it("quotes and asks only about the held part", async () => {
-  await render(); await hold(); await act(async () => item("Quote into composer").click());
+it("asks about only the held part as a quote", async () => {
+  await render(); await hold(); await act(async () => item("Ask about this").click());
   expect(composerReplyStore.take("touch")?.content).toBe("Fermi:\n> Second **part**.");
-  await hold(); await act(async () => item("Ask about this").click());
-  expect(composerInsertionStore.take("touch")[0]?.content).toBe("### Fermi\n\nSecond **part**.");
+  expect(composerInsertionStore.take("touch")).toEqual([]);
 });
 it("keeps the sheet open after release, focus loss and compatibility events until a later outside tap", async () => {
   await render();
