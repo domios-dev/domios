@@ -531,6 +531,25 @@ mod tests {
     }
 
     #[test]
+    fn dead_launch_claim_yields_to_frontend_shell() {
+        let ownership = PtyOwnership::default();
+        let callbacks = RecordingCallbacks::default();
+        callbacks.run(&ownership, "dead-launch", true, "agent");
+        let exited = callbacks.0.lock().unwrap().links["dead-launch"].clone();
+        callbacks.0.lock().unwrap().live.remove(&exited);
+        assert_eq!(ownership.launch_claim("dead-launch"), Some(exited.clone()));
+
+        callbacks.run(&ownership, "dead-launch", false, "shell");
+
+        let state = callbacks.0.lock().unwrap();
+        let shell = state.links["dead-launch"].clone();
+        assert_ne!(shell, exited);
+        assert_eq!(state.live, HashSet::from([shell.clone()]));
+        assert!(state.readers.contains(&shell));
+        assert_eq!(ownership.launch_claim("dead-launch"), None);
+    }
+
+    #[test]
     fn stale_launch_claim_is_replaced_without_reentrant_locking() {
         let ownership = PtyOwnership::default();
         let callbacks = RecordingCallbacks::default();

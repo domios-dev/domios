@@ -216,6 +216,12 @@ bash scripts/test-capped.test.sh [case]
 **Windows: ConPTY test isolation**
 A test process launched from a Domios tab inherits `CODETERM_CONPTY_DIR` and would sideload the installed host into the user's install. `scripts/test-capped.sh` unsets it and exports `CODETERM_CONPTY_TEST_ISOLATION=1`; `pty-fork/src/win/psuedocon.rs` refuses the variable while that marker is set, and production never sets it. Verify: `./build.sh test-one pty-fork test_isolation_marker_refuses_ambient_production_dir`.
 
+When a fixture requires an exited PTY before attaching its replacement, use
+`begin_kill(...).wait_bounded(...)`, dropping the manager lock before waiting.
+`kill()` only queues reaping, so its return does not establish that precondition.
+Keep the existing failure deadline and ownership assertions; cover dead-claim
+selection separately with pure callbacks on every platform.
+
 **Windows: cargo test target isolation**
 Running the Rust test wrapper against the app crate while a dev build occupies the same
 `target/` directory fails with `Os error 5` — tauri-build cannot overwrite the
