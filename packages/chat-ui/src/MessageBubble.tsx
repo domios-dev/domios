@@ -21,6 +21,7 @@ import { ReplyQuote } from "./ReplyQuote";
 import { ThoughtLine } from "./toolcard/ThoughtLine";
 import { ShellCommandItem } from "./ShellCommandItem";
 import { ReminderCard } from "./codeterm/ReminderCard";
+import { AutomationCard } from "./codeterm/AutomationCard";
 import { InboundReportCard, parseInboundReport } from "./codeterm/InboundReportCard";
 import { InboundMessageCard } from "./codeterm/InboundMessageCard";
 import { CompactMessageContent } from "./codeterm/CompactMessageContent";
@@ -92,6 +93,8 @@ interface MessageBubbleProps {
   /** `shell_command` decoration — surface the command's terminal output. */
   onJumpToShellCommand?: (message: ChatMessage) => void;
   onStopReminder?: (id: string) => void;
+  /** Opens the Jobs view for a cron or blueprint delivery card. */
+  onOpenJobs?: () => void;
   /** Scroll to a quoted message; a user bubble's reply block calls it with the quoted id. */
   onJumpToMessage?: (messageId: string) => void;
 }
@@ -138,7 +141,7 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, showTimestamp = false, userFooter, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onJumpToMessage }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, showTimestamp = false, userFooter, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onOpenJobs, onJumpToMessage }: MessageBubbleProps) {
   recordBubbleRender(message.id);
   const isInboundCommunication = origin?.kind === "tab" || origin?.kind === "pebble" || origin?.kind === "plugin" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh" || message.inboundKind === "pebble" || message.inboundKind === "plugin";
   const isCoordinationReport = message.inboundKind === "report" && parseCoordinationReport(message.content) != null;
@@ -234,6 +237,19 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
         >
           <CompactMessageContent text={message.content} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
         </ChatNoticeCard>
+      );
+    }
+
+    if (effectiveOrigin?.kind === "automation") {
+      const tabSender = effectiveOrigin.source === "utility" || effectiveOrigin.report;
+      return (
+        <AutomationCard
+          origin={effectiveOrigin}
+          onOpen={tabSender ? onOriginClick : onOpenJobs}
+          openLabel={tabSender ? "Open tab" : "Open job"}
+        >
+          <CompactMessageContent text={message.content} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
+        </AutomationCard>
       );
     }
 

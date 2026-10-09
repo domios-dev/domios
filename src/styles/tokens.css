@@ -89,6 +89,13 @@
   --ct-tone-blueprint: color-mix(in srgb, var(--ct-accent) 62%, var(--ct-fg));
   --ct-tone-cron: var(--ct-yellow);
   --ct-tone-delayed: var(--ct-green);
+  --ct-tone-build: color-mix(in srgb, var(--ct-red) 45%, var(--ct-yellow));
+  --ct-tone-dev: var(--ct-cyan);
+  --ct-tone-qa: var(--ct-magenta);
+  --ct-tone-deploy: color-mix(in srgb, var(--ct-blue) 55%, var(--ct-magenta));
+  --ct-tone-logs: var(--ct-muted-fg);
+  --ct-tone-db: color-mix(in srgb, var(--ct-cyan) 55%, var(--ct-green));
+  --ct-tone-shell: var(--ct-muted-fg);
 
   /* Frosted glass surfaces (menus, popovers) */
   --ct-glass-blur: 40px;

@@ -1,7 +1,12 @@
 import { isPtyBacked } from "./surfaceTab";
 import type { Tab } from "./types";
 
-export type ShellPurpose = "build" | "dev" | "qa" | "shell";
+export const SHELL_PURPOSES = ["build", "dev", "qa", "deploy", "logs", "db", "shell"] as const;
+export type ShellPurpose = (typeof SHELL_PURPOSES)[number];
+
+export function isShellPurpose(value: string | undefined): value is ShellPurpose {
+  return SHELL_PURPOSES.includes(value as ShellPurpose);
+}
 export interface ShellCommandState {
   activity: "unknown" | "running" | "idle";
   last_exit_code: number | null;

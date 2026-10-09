@@ -407,6 +407,10 @@ export function TabSessionChat({
     );
   }, [currentPtyId, showComposerError, tabId, tab?.managed]);
 
+  const openJobs = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:jobs" } }));
+  }, []);
+
   const handleStopReminder = useCallback(async (id: string) => {
     try {
       await invoke("delayed_send_delete", { id });
@@ -850,6 +854,7 @@ export function TabSessionChat({
                 answeredInteractiveIds={answeredInteractiveIds}
                 onRerunShellCommand={handleRerunShellCommand}
                 onStopReminder={handleStopReminder}
+                onOpenJobs={openJobs}
                 onJumpToShellCommand={onOpenTerminalFallback ? handleJumpToShellCommand : undefined}
                 originAvatar={originProps?.originAvatar}
                 onOriginClick={originProps?.onOriginClick}

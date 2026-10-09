@@ -1,5 +1,5 @@
 import { tabActivity } from "../../lib/tabActivity";
-import { Bug, Check, Circle, Server, Terminal, X } from "lucide-react";
+import { Bug, Check, Circle, Database, Rocket, ScrollText, Server, Terminal, X } from "lucide-react";
 import { DynamicIcon, type IconName } from "lucide-react/dynamic";
 import { type RefObject, useEffect, useRef } from "react";
 import { BuildShellIcon } from "./BuildShellIcon";
@@ -7,8 +7,8 @@ import { BusyState } from "./BusyState";
 import type { Tab } from "../../lib/types";
 import { shellPurposeLabel, type ShellPurpose } from "../../lib/shellCommandState";
 
-const purposeIcons = { dev: Server, qa: Bug, shell: Terminal };
-const defaultNames = { build: "hammer", dev: "server", qa: "bug", shell: "terminal" };
+const purposeIcons = { dev: Server, qa: Bug, deploy: Rocket, logs: ScrollText, db: Database, shell: Terminal };
+const defaultNames = { build: "hammer", dev: "server", qa: "bug", deploy: "rocket", logs: "scroll-text", db: "database", shell: "terminal" };
 
 function useBugWiggle(iconRef: RefObject<SVGSVGElement | null>, active: boolean) {
   useEffect(() => {
