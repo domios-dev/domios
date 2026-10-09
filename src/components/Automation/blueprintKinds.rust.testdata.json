@@ -1,0 +1,8 @@
+{
+  "step_source": "src-tauri/crates/codeterm-types/src/blueprint_pipeline.rs:StepKind",
+  "route_source": "src-tauri/src/sentinel/machine.rs:Route",
+  "trigger_source": "src-tauri/crates/codeterm-types/src/blueprint_pipeline.rs:Trigger",
+  "steps": ["command", "ask", "filter", "convert"],
+  "routes": ["notify", "send", "cron", "sentinel", "stop", "command", "respond_prompt", "escalate"],
+  "triggers": ["schedule", "event", "input"]
+}
