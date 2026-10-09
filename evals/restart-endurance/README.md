@@ -119,7 +119,31 @@ running daemon:
 bash -n evals/restart-endurance/run.sh
 node --check evals/restart-endurance/observe.mjs
 node --test evals/restart-endurance/oracle.test.mjs
+node --test evals/restart-endurance/logs.test.mjs
 ```
+
+Exercise the failed pre-restart log capture offline, using a saved trial and
+the readable DEV log directory:
+
+```bash
+bash evals/restart-endurance/run.sh --dry-run \
+  --out target-check/evals/endure-dry-run \
+  --from-results /absolute/path/to/endure-trial/results.json \
+  --log-dir "$HOME/.codeterm-dev/logs"
+```
+
+This branch runs before loading the DEV library. It makes no CLI or API call,
+executes no notice hook or lifecycle command, creates no tabs and sends no
+messages. It exercises the same log reader, baseline hashing and evidence
+filter used immediately before the restart and on completion. It writes a
+separate `dry-run.json` receipt and `dry-run-evidence.log`, retaining round-0
+failures from the input manifest. It cannot resume or rewrite the original
+trial. Its proof covers log capture, not a successful live restart.
+
+The large-log regression uses 250,000 lines and rotated logs. Appending each
+line avoids JavaScript's function-argument limit; spreading an entire file
+into `push` previously produced `Maximum call stack size exceeded` before
+DEV was stopped. This failure was argument-stack exhaustion, not recursion.
 
 After a real merge, the canonical live gate is the invocation above, with a
 working bounded notice hook and the exact `dev-prebuilt` lifecycle authorization.
