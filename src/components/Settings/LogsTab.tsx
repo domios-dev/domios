@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "../../lib/bridge";
-import { RefreshCw, Trash2, ScrollText } from "lucide-react";
+import { RefreshCw, Trash2 } from "lucide-react";
 import { BusySpinner } from "../shared/BusyState";
 import type { AppConfig } from "../../lib/types";
 import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
-import { SettingsCard } from "./shared";
 import { LogsFilterBar } from "./LogsFilterBar";
 import { LogsListRow } from "./LogsListRow";
 
@@ -18,10 +17,10 @@ export const RANGE_OPTIONS: { key: RangeKey; label: string; ms: number | null }[
   { key: "7d", label: "7d", ms: 7 * 86_400_000 },
   { key: "all", label: "All", ms: null },
 ];
-export const LEVEL_TONE: Record<string, "green" | "amber" | "red" | "muted"> = {
-  info: "green",
-  warn: "amber",
-  error: "red",
+export const LEVEL_COLOR: Record<LogLevel, string> = {
+  info: "var(--ct-accent)",
+  warn: "var(--ct-yellow)",
+  error: "var(--ct-red)",
 };
 
 export interface AppLog {
@@ -174,42 +173,29 @@ export function LogsTab({ config }: { config: AppConfig }) {
   }, [apiBase, authHeaders, refresh]);
 
   return (
-    <SettingsCard
-      icon={<ScrollText size={16} />}
-      title="App Logs"
-      description="Diagnostics from the daemon, mesh, agents, and integrations. Filter by level, source, or time range. Updates live."
-      headerRight={
-        <button
-          data-testid="settings-logs-refresh"
-          onClick={refresh}
-          disabled={loading}
-          className="flex items-center gap-1 px-2 h-7 rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors text-[11px] disabled:opacity-50"
-          title="Refresh"
-        >
-          <BusySpinner icon={RefreshCw} size={12} spinning={loading} />
-          <span>Refresh</span>
+    <section className="ct-logs" aria-label="App logs">
+      <div className="ct-jobs-header ct-logs__toolbar">
+        <LogsFilterBar
+          levels={levels}
+          onToggleLevel={toggleLevel}
+          source={source}
+          onSourceChange={setSource}
+          sources={sourcesList}
+          range={range}
+          onRangeChange={setRange}
+        />
+        <button type="button" className="ct-bar-pill" data-testid="settings-logs-refresh" onClick={refresh} disabled={loading} aria-label="Refresh logs" title="Refresh">
+          <BusySpinner icon={RefreshCw} size={13} spinning={loading} />
         </button>
-      }
-    >
-      <LogsFilterBar
-        levels={levels}
-        onToggleLevel={toggleLevel}
-        source={source}
-        onSourceChange={setSource}
-        sources={sourcesList}
-        range={range}
-        onRangeChange={setRange}
-      />
+      </div>
 
       {error && (
-        <div className="text-[10px] text-[var(--ct-red)]" data-testid="settings-logs-error" role="alert">Failed to load logs: {error}</div>
+        <p className="ct-logs__error" data-testid="settings-logs-error" role="alert">Failed to load logs: {error}</p>
       )}
 
-      <div className="max-h-[440px] overflow-y-auto rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 divide-y divide-[var(--ct-border)]" data-testid="settings-logs-list">
+      <div className="ct-logs__list" data-testid="settings-logs-list">
         {visible.length === 0 ? (
-          <div className="px-3 py-8 text-center text-[11px] text-[var(--ct-muted-fg)]" data-testid="settings-logs-empty">
-            No logs match the current filters.
-          </div>
+          <p className="ct-logs__empty" data-testid="settings-logs-empty">No logs match the current filters.</p>
         ) : (
           visible.map((r) => (
             <LogsListRow
@@ -222,18 +208,13 @@ export function LogsTab({ config }: { config: AppConfig }) {
         )}
       </div>
 
-      <div className="flex items-center justify-between gap-3 text-[10px] text-[var(--ct-muted-fg)]">
-        <span>{`Showing ${visible.length} of ${logs.length} logs`}</span>
-        <button
-          data-testid="settings-logs-clear-old"
-          onClick={clearOld}
-          className="inline-flex items-center gap-1 text-[var(--ct-muted-fg)] hover:text-[var(--ct-red)] transition-colors"
-          title="Delete logs older than 7 days"
-        >
-          <Trash2 size={11} />
-          <span>Clear logs older than 7d</span>
+      <footer className="ct-logs__footer">
+        <span>{`${visible.length} of ${logs.length} logs · updates live`}</span>
+        <button type="button" className="ct-bar-pill" data-testid="settings-logs-clear-old" onClick={clearOld} title="Delete logs older than 7 days">
+          <Trash2 size={12} aria-hidden="true" />
+          Clear older than 7d
         </button>
-      </div>
-    </SettingsCard>
+      </footer>
+    </section>
   );
 }
