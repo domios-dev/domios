@@ -104,10 +104,10 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
     const selection = status.adapter ? selectionLabel(status.adapter, status.model) : null;
     setAnnouncement(
       removed.active && !status.adapter
-        ? `${removed.name} removed. The Supporter stopped with no automatic fallback.`
+        ? `${removed.name} removed. The Spinal Cord stopped with no automatic fallback.`
         : selectionUnchanged
-          ? `${removed.name} removed. The current Supporter is unchanged.`
-          : `${removed.name} removed. Current Supporter: ${selection ?? "none selected"}.`,
+          ? `${removed.name} removed. The current Spinal Cord is unchanged.`
+          : `${removed.name} removed. Current Spinal Cord: ${selection ?? "none selected"}.`,
     );
     focusAfterRemoval(removedAdapter, status.adapter);
   }, [status, controls.statusFailed, reconciling, rows, selectionLabel, focusAfterRemoval]);
@@ -143,7 +143,7 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
   return (
     <SettingsCard
       icon={<Sparkles size={16} />}
-      title="Supporter Agent"
+      title="Spinal Cord"
       headerRight={
         <div className="flex items-center gap-1.5">
           <SettingsPill tone={controls.statusFailed ? "amber" : currentReadiness === "Ready" ? "green" : "muted"}>
@@ -155,8 +155,8 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
             className="!h-7 !w-7 !min-h-7 !p-0"
             disabled={controls.busy}
             onClick={() => void controls.refreshStatus()}
-            aria-label="Refresh Supporter status and models"
-            title="Refresh Supporter status and models"
+            aria-label="Refresh Spinal Cord status and models"
+            title="Refresh Spinal Cord status and models"
           >
             <RefreshCw size={13} aria-hidden="true" />
           </Button>
@@ -179,10 +179,10 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
           <p className="text-xs text-[var(--ct-muted-fg)]">
             {controls.statusFailed
               ? "Last-known selection: none. Refresh status before relying on this state."
-              : "The Supporter is stopped. Deterministic behavior is available."}
+              : "The Spinal Cord is stopped. Deterministic behavior is available."}
           </p>
         )}
-        <section aria-label="Supporter connections" className="flex flex-col">
+        <section aria-label="Spinal Cord connections" className="flex flex-col">
           {orderedRows.length ? (
             orderedRows.map((row) => {
               const selectedReadiness = selected?.adapter === row.adapter && status ? readiness(status, row) : null;
@@ -198,10 +198,10 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
                     const current = selection?.adapter ? selectionLabel(selection.adapter, selection.model) : null;
                     setAnnouncement(
                       row.active && !selection?.adapter
-                        ? `${nameFor(row)} removed. The Supporter stopped with no automatic fallback.`
+                        ? `${nameFor(row)} removed. The Spinal Cord stopped with no automatic fallback.`
                         : unchanged
-                          ? `${nameFor(row)} removed. The current Supporter is unchanged.`
-                          : `${nameFor(row)} removed. Current Supporter: ${current ?? "none selected"}.`,
+                          ? `${nameFor(row)} removed. The current Spinal Cord is unchanged.`
+                          : `${nameFor(row)} removed. Current Spinal Cord: ${current ?? "none selected"}.`,
                     );
                     focusAfterRemoval(row.adapter, selection?.adapter ?? null);
                   }}
@@ -219,7 +219,7 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
                 >
                   {selected?.adapter === row.adapter && status && (
                     <>
-                      <span role="status" aria-label="Supporter activity" title={supporterActivity(status.calls_last_hour, status.calls_last_day).title}>
+                      <span role="status" aria-label="Spinal Cord activity" title={supporterActivity(status.calls_last_hour, status.calls_last_day).title}>
                         {supporterActivity(status.calls_last_hour, status.calls_last_day).text}
                       </span>
                       {supporterIsPriced(row.pricing) && <SupporterSpendSummary spend={status.spend} />}

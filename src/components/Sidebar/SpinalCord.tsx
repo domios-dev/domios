@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Bot, Brain, Check, Loader2, Radar, Route } from "lucide-react";
+import { Activity, Bot, Brain, Check, Loader2, Radar } from "lucide-react";
 import type { ApiConfig } from "../../lib/types";
 import { useAskGeneral } from "../../help/useAskGeneral";
 import { BusySpinner } from "../shared/BusyState";
 import { useSupporterResource } from "../Supporter/useSupporterResource";
 import { clampFloatingPosition } from "../shared/floatingPosition";
 
-const ASK_PROMPT = "Tell me about Domios's Spinal Cord: what it does for me day to day (memory recall that answers first, noticing stuck tabs, routing context between my agents), why it is worth turning on, and what connecting it takes. Keep it short and convincing, then offer to set it up for me yourself. If I say yes, connect it. Answer in my native language, the one I usually write to you in.";
+const ASK_PROMPT = "Tell me about Domios's Spinal Cord (the Supporter Agent): what it does for me day to day (memory recall that answers first, noticing a stuck tab, quiet team heartbeats that wake the Orchestrator only when something changed), why it is worth turning on, and what connecting it takes. Keep it short and convincing, then offer to set it up for me yourself. If I say yes, connect it. Answer in my native language, the one I usually write to you in.";
 
 const POPOVER_WIDTH = 304;
 
@@ -22,13 +22,13 @@ function Vertebrae({ className }: { className?: string }) {
 }
 
 const AGENTS = ["General", "Team", "Workers"] as const;
-const SENSES = ["Memory", "Context", "Signals"] as const;
+const SENSES = ["Memory", "Tab health", "Heartbeats"] as const;
 const ROWS = [22, 70, 118] as const;
 const BONES = [10, 32, 54, 76, 98, 120] as const;
 
 function SpinalGraphic() {
   return (
-    <svg className="ct-spinal-graphic" viewBox="0 0 280 152" role="img" aria-label="Signals from your agents travel along the spinal cord to memory, context and signals">
+    <svg className="ct-spinal-graphic" viewBox="0 0 280 152" role="img" aria-label="Signals from your agents travel along the spinal cord to memory, tab health and team heartbeats">
       {ROWS.map((y, index) => {
         const spineY = BONES[index * 2 + 1] + 6;
         const inbound = `M58 ${y} C 96 ${y}, 104 ${spineY}, 131 ${spineY}`;
@@ -131,7 +131,7 @@ export function SpinalCordButton({ api }: { api: ApiConfig | undefined }) {
           <ul className="ct-spinal-pop__points">
             <li><Brain size={14} aria-hidden="true" />Memory recall that answers first</li>
             <li><Radar size={14} aria-hidden="true" />Notices a tab that got stuck</li>
-            <li><Route size={14} aria-hidden="true" />Moves context between your agents</li>
+            <li><Activity size={14} aria-hidden="true" />Keeps team heartbeats quiet until something changes</li>
           </ul>
           <p className="ct-spinal-pop__nudge">{connected ? "Curious what it has been doing? Ask your General." : "Want it? Ask your General — he explains it and can connect it all for you."}</p>
           <button type="button" className="ct-spinal-pop__ask" data-ask-state={state} disabled={state === "sending"} onClick={() => void ask(ASK_PROMPT)}>

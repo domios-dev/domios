@@ -232,7 +232,7 @@ export function SupporterConnectionRow({ row, controls, stale, unavailableReason
         >
           <p>
             {row.active
-              ? `${name} is the current Supporter. Removing this connection${row.token.present ? " and its stored token" : ""} will stop the Supporter; there is no automatic fallback.`
+              ? `${name} is the current Spinal Cord. Removing this connection${row.token.present ? " and its stored token" : ""} will stop the Spinal Cord; there is no automatic fallback.`
               : `Remove ${name} connection${row.token.present ? " and its stored token" : ""}?`}
           </p>
           {removing && <p role="status">Removal request pending. Escape will not cancel the server request.</p>}
