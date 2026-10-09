@@ -1,0 +1,97 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import path from "node:path";
+import { readFileSync } from "node:fs";
+import type { ApiClient } from "./api-client";
+import { expect } from "./fixtures";
+import { repoRoot } from "./dev-instance";
+
+const execute = promisify(execFile);
+export type Model = { id: string; display_name: string; primary?: boolean; reasoning_efforts?: { id: string }[] };
+export type Descriptor = { id: string; default_model: string; model_switch: string; available_models: Model[]; reasoning_efforts: { id: string }[]; supports_permission_bypass?: boolean };
+export type Identity = { agent_session_id: string; session_binding_nonce: string; pty_id: string; agent_session_model: string; agent_reasoning_effort?: string };
+export type RawRecord = {
+  id?: string; type?: string; role?: string; parentID?: string; modelID?: string; providerID?: string; variant?: string;
+  message?: { content?: unknown; model?: string; effort?: string }; effort?: string;
+  payload?: { role?: string; content?: unknown; turn_id?: string; model?: string; effort?: string };
+  metadata?: { retained_source?: { id?: { turn_id?: string } } };
+  params?: { sessionId?: string; update?: { sessionUpdate?: string; content?: unknown; prompt_id?: string;
+    _meta?: { modelId?: string; reasoningEffort?: string }; usage?: { modelUsage?: Record<string, unknown> } };
+    _meta?: { promptId?: string } };
+};
+export type Evidence = { path: string; session: string; records: RawRecord[] };
+export type RestoreTab = { provider: string; tabId: string; session: string; nonce: string; pty: string; a: string; b: string };
+export type RestoreManifest = { workspace: string; tabs: RestoreTab[] };
+
+export async function dc<T>(...args: string[]): Promise<T> {
+  const shell = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "bash";
+  const result = await execute(shell, [path.join(__dirname, "live-switch-dc.sh"), ...args, "--json"],
+    { cwd: repoRoot(), timeout: 180_000, maxBuffer: 8 * 1024 * 1024 });
+  return JSON.parse(result.stdout);
+}
+
+export async function identity(api: ApiClient, tabId: string): Promise<Identity> {
+  const state = await api.get<{ tabs: Record<string, Identity> }>("/mux/state");
+  const tab = state.tabs[tabId];
+  expect(tab, `scratch tab ${tabId} still exists`).toBeDefined();
+  return tab;
+}
+
+export async function records(provider: string, session: string): Promise<Evidence> {
+  const meta = await dc<{ transcript_path?: string; transcriptPath?: string; file_path?: string; filePath?: string }>("sessions", "get", session);
+  const file = meta.transcript_path ?? meta.transcriptPath ?? meta.file_path ?? meta.filePath;
+  const result = await execute("python", [path.join(__dirname, "live-switch-records.py"), provider, session, file ?? ""],
+    { timeout: 15_000, maxBuffer: 16 * 1024 * 1024 });
+  return JSON.parse(result.stdout);
+}
+
+export function turnEvidence(provider: string, evidence: Evidence, marker: string): { model: string; effort?: string; raw: RawRecord[] } {
+  const rows = evidence.records;
+  if (provider === "claude") {
+    const start = rows.findIndex(row => row.type === "user" && JSON.stringify(row.message?.content).includes(marker));
+    if (start < 0) throw new Error(`No exact user record ${marker} in ${evidence.path}`);
+    const end = rows.findIndex((row, i) => i > start && row.type === "user");
+    const turn = rows.slice(start, end < 0 ? undefined : end);
+    const answer = turn.find(row => row.type === "assistant" && row.message?.model);
+    if (!answer?.message?.model) throw new Error(`No assistant model record after ${marker}`);
+    return { model: answer.message.model, effort: answer.message.effort ?? answer.effort, raw: turn };
+  }
+  if (provider === "codex") {
+    const user = rows.find(row => row.type === "response_item" && row.payload?.role === "user" && JSON.stringify(row.payload.content).includes(marker));
+    const turnId = user?.metadata?.retained_source?.id?.turn_id;
+    if (!turnId) throw new Error(`No exact Codex retained user turn ${marker}`);
+    const turn = rows.filter(row => row.payload?.turn_id === turnId || row.metadata?.retained_source?.id?.turn_id === turnId);
+    const context = turn.find(row => row.type === "turn_context");
+    if (!context?.payload?.model) throw new Error(`No Codex turn_context after ${marker}`);
+    return { model: context.payload.model, effort: context.payload.effort, raw: turn };
+  }
+  if (provider === "grok") {
+    const start = rows.findIndex(row => row.params?.update?.sessionUpdate === "user_message_chunk" && JSON.stringify(row).includes(marker));
+    if (start < 0) throw new Error(`No exact Grok user record ${marker}`);
+    const end = rows.findIndex((row, i) => i > start && row.params?.update?.sessionUpdate === "user_message_chunk");
+    const turn = rows.slice(start, end < 0 ? undefined : end);
+    const user = rows[start].params!.update!;
+    const answer = turn.find(row => row.params?.update?.sessionUpdate === "agent_message_chunk");
+    const completed = turn.find(row => row.params?.update?.sessionUpdate === "turn_completed" && row.params.update.prompt_id === answer?.params?._meta?.promptId);
+    const actualModels = Object.keys(completed?.params?.update?.usage?.modelUsage ?? {});
+    if (!user._meta?.modelId || !answer || rows[start].params?.sessionId !== evidence.session || !actualModels.length ||
+        actualModels.some(model => model !== user._meta!.modelId && model !== `${user._meta!.modelId}-build`)) {
+      throw new Error(`No Grok turn model and assistant append after ${marker}`);
+    }
+    return { model: user._meta.modelId, effort: user._meta.reasoningEffort, raw: turn };
+  }
+  const answer = rows.find(row => row.role === "assistant" && row.parentID && rows.some(user => user.id === row.parentID && JSON.stringify(user).includes(marker)));
+  if (!answer) throw new Error(`OpenCode exact parent-linked assistant turn missing for ${marker}`);
+  return { model: `${answer.providerID}/${answer.modelID}`, effort: answer.variant, raw: [answer] };
+}
+
+export function assertModel(provider: string, actual: string, target: string): void {
+  if (provider === "claude" && !target.startsWith("claude-")) {
+    expect(actual, `resolved Claude alias ${target} in exact assistant record`).toMatch(new RegExp(`^claude-${target}-`));
+  } else expect(actual, "exact turn-record model").toBe(target);
+}
+
+export function restoreManifest(): RestoreManifest | undefined {
+  const file = process.env.PW_SWITCH_RESTORE;
+  return file ? JSON.parse(readFileSync(file, "utf8")) : undefined;
+}

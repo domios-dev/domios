@@ -27,6 +27,7 @@
 - [tests/playwright/suites/03-agents/agents.spec.ts](../../tests/playwright/suites/03-agents/agents.spec.ts) - agents covers its Playwright acceptance contract.
 - [tests/playwright/suites/03-agents/composer-draft-isolation.spec.ts](../../tests/playwright/suites/03-agents/composer-draft-isolation.spec.ts) - Fresh tabs never inherit another tab's unsent composer draft.
 - [tests/playwright/suites/03-agents/cross-tab-chat.spec.ts](../../tests/playwright/suites/03-agents/cross-tab-chat.spec.ts) - cross tab chat covers its Playwright acceptance contract.
+- [tests/playwright/suites/03-agents/live-model-switch.spec.ts](../../tests/playwright/suites/03-agents/live-model-switch.spec.ts) - Status-line model and effort switching on real DEV provider tabs.
 - [tests/playwright/suites/03-agents/stub-replay.spec.ts](../../tests/playwright/suites/03-agents/stub-replay.spec.ts) - stub agent replayer drives the REAL spawn/detection/parse pipeline.
 - [tests/playwright/suites/03-agents/tab-model-switch.spec.ts](../../tests/playwright/suites/03-agents/tab-model-switch.spec.ts) - the sidebar row's kebab switches a running agent's model in session.
 
