@@ -367,7 +367,8 @@
   opacity: 1;
 }
 
-.ct-surface-ask[data-sending="true"] .ct-composer-voice-bubble > svg {
+.ct-surface-ask[data-sending="true"] .ct-composer-voice-bubble > svg,
+.ct-surface-ask[data-sending="true"] .ct-composer-voice-bubble > .ct-send-glyph {
   opacity: 0;
 }
 

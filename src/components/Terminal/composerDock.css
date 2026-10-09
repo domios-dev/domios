@@ -44,8 +44,32 @@
   box-shadow: none;
 }
 .ct-composer-action-shell, .ct-voice-lock-pill, .ct-composer-voice-bubble { overflow: visible; }
+.ct-send-bloom,
+.ct-send-glyph {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.ct-send-bloom {
+  background: color-mix(in srgb, var(--ct-accent) 78%, var(--ct-bg));
+  clip-path: circle(0% at 50% 50%);
+  transition: clip-path var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
+}
+.ct-send-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity var(--ct-duration-normal) var(--ct-ease-liquid-settle),
+    transform var(--ct-duration-smooth) var(--ct-ease-hover-swell);
+}
+.ct-send-glyph--mic { color: var(--ct-fg); }
+.ct-send-glyph--send { color: var(--ct-on-accent); opacity: 0; transform: scale(0.6); }
+[data-send="true"] > .ct-send-bloom { clip-path: circle(72% at 50% 50%); }
+[data-send="true"] > .ct-send-glyph--mic { opacity: 0; transform: scale(0.8); }
+[data-send="true"] > .ct-send-glyph--send { opacity: 1; transform: none; transition-delay: 60ms; }
 @media (prefers-reduced-motion: reduce) {
-  .ct-composer-dock, .ct-composer-card { transition: none; }
+  .ct-composer-dock, .ct-composer-card, .ct-send-bloom, .ct-send-glyph { transition: none; }
 }
 
 .ct-composer-readonly, .ct-composer-status { padding-inline: var(--ct-composer-gutter-x); }
