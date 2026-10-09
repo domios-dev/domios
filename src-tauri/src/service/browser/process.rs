@@ -232,6 +232,8 @@ async fn supervise(
     let kill_requested = async move {
         let _ = kill.wait_for(|kill| *kill).await;
     };
+    // Child::wait closes its stdin; the supervisor keeps the pipe alive until exit.
+    let _stdin = child.stdin.take();
     let status = tokio::select! {
         status = child.wait() => status.ok(),
         () = kill_requested => {
