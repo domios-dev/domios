@@ -5,7 +5,8 @@ pub fn clean_terminal_output(raw: &str) -> String {
 }
 
 pub fn clean_terminal_output_sized(raw: &str, rows: u16, cols: u16) -> String {
-    let rows = rows.max(1);
+    // vt100 wrap scrolling underflows on a one-row grid.
+    let rows = rows.max(2);
     let cols = cols.max(1);
     // The finite capture must retain every scrolled row; vt100 allocates history lazily.
     let mut parser = vt100::Parser::new(rows, cols, usize::MAX);
