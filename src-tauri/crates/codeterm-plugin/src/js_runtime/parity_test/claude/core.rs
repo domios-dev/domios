@@ -937,4 +937,10 @@ fn retired_precompact_export_cleanup_native_js_parity() {
     for event in ["PermissionRequest", "Notification", "Stop", "SessionStart"] {
         assert_eq!(installed["hooks"][event].as_array().unwrap().len(), 1);
     }
+    let native_stop = &native["hooks"]["Stop"][0]["hooks"][0]["command"];
+    let js_stop = &installed["hooks"]["Stop"][0]["hooks"][0]["command"];
+    assert_eq!(native_stop, js_stop);
+    let command = js_stop.as_str().unwrap();
+    assert!(command.contains("--data-binary \"@-\""));
+    assert!(command.contains("CODETERM_SESSION_BINDING_NONCE"));
 }

@@ -44,6 +44,7 @@ impl ServiceContext {
             }
         };
         let screen_us = stage.elapsed().as_micros();
+        super::pty_frame_timing::parsed(pty_id, data.len(), accepted);
         if !accepted {
             let status = self.agent_tracker.lock().get_status(pty_id);
             return (status, status);

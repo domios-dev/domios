@@ -171,13 +171,14 @@ impl CommandPicker {
                 1
             };
         log::info!(
-            "[agent-model/timing] tab={} phase=picker_step current={} desired={} moves={} submit={} elapsed_ms={}",
+            "[agent-model/timing] tab={} phase=picker_step current={} desired={} moves={} submit={} elapsed_ms={} at_ms={}",
             self.tab_id,
             current,
             desired,
             moves,
             self.submitted,
-            self.started.elapsed().as_millis()
+            self.started.elapsed().as_millis(),
+            crate::service::pty_frame_timing::unix_ms()
         );
         write(&key.as_bytes().repeat(moves))
     }

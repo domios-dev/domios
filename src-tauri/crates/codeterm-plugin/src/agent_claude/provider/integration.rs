@@ -77,6 +77,14 @@ fn is_current_session_start_hook(hook_entry: &Json) -> bool {
     })
 }
 
+fn is_current_stop_hook(hook_entry: &Json) -> bool {
+    is_current_codeterm_hook(hook_entry)
+        && entry_has_command(hook_entry, |command| {
+            command.contains("CODETERM_SESSION_BINDING_NONCE")
+                && command.contains("--data-binary \"@-\"")
+        })
+}
+
 fn is_current_hook_command(command: &str) -> bool {
     let executable = if cfg!(windows) { "curl.exe " } else { "curl " };
     command.starts_with(executable)
@@ -212,7 +220,7 @@ pub(crate) fn check_integration_at(path: &std::path::Path) -> Json {
     let stop_hook = json
         .pointer("/hooks/Stop")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().any(is_current_codeterm_hook))
+        .map(|arr| arr.iter().any(is_current_stop_hook))
         .unwrap_or(false);
     let precompact_hook = owned_precompact_hook(&json);
     let session_start_hook = json
@@ -312,7 +320,7 @@ fn hook_entry(binding: &HookEventBinding) -> Option<Json> {
             "matcher": "",
             "hooks": [{
                 "type": "command",
-                "command": hook_command("/api/tabs/$CODETERM_TAB_ID/hook/stop", "{}", "", false),
+                "command": hook_command("/api/tabs/$CODETERM_TAB_ID/hook/stop", "", nonce_h, true),
                 "timeout": 5000,
                 "_source": CODETERM_HOOK_MARKER
             }]
