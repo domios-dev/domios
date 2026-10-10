@@ -233,6 +233,11 @@ async function probe(fixture, n, observeOnly = false) {
     if (fixture.has_answer && fixture.last_session !== ready.agent_session_id) throw new Error(`Session changed before probe: ${fixture.last_session} → ${ready.agent_session_id}`);
     const before = await snapshotAfterEvent(events, () => transcript(fixture.id, signal));
     const baseline = before.messages.length;
+    row.transcript_baseline = baseline;
+    if (ready.agent_session_id) {
+      try { row.record_boundary = recordBoundary(fixture.provider, ready.cwd, ready.agent_session_id); }
+      catch (error) { row.record_boundary_error = error.message; }
+    }
     const marker = `ENDURE_${fixture.provider}_${n}`;
     row.expected = marker;
     const payload = await paddedPrompt(fixture.id, marker);
@@ -248,6 +253,13 @@ async function probe(fixture, n, observeOnly = false) {
     if (bound.agent_type !== fixture.provider || (ready.agent_session_id && ready.agent_session_id !== bound.agent_session_id)) {
       throw new Error("Provider or session changed while establishing probe binding");
     }
+    if (!ready.agent_session_id) {
+      try {
+        row.record_boundary = recordBoundary(fixture.provider, bound.cwd, bound.agent_session_id);
+        row.record_boundary.bytes = 0;
+        row.record_boundary.message_ids = [];
+      } catch (error) { row.record_boundary_error = error.message; }
+    }
     await api(`/api/tabs/${fixture.id}/chat-raw/start`, "POST", { subscriptionId: `endure-${fixture.id}-${n}` }, signal);
     subscribed = true;
     row.phase = "waiting_for_exact_reply";
@@ -256,8 +268,15 @@ async function probe(fixture, n, observeOnly = false) {
       row.transcript = snapshot;
       const answer = exactReply(snapshot.messages, baseline, row.prompt, marker, fixture.provider === "grok");
       const current = await snapshotAfterEvent(events, () => tab(fixture.id, signal));
-      if (answer && current?.status === "idle") {
+      let completedRecord;
+      if (answer && row.record_boundary) {
+        try { completedRecord = nextTurnModel(row.record_boundary, marker); }
+        catch (error) { row.completed_record_error = error.message; }
+      }
+      if (answer && (current?.status === "idle" || completedRecord?.turn_completed)) {
         row.answer = answer;
+        row.completion_source = completedRecord?.turn_completed ? "own_session_completed_turn" : "idle_status";
+        row.completed_record = completedRecord;
         row.reply_ms = Math.round(performance.now() - start);
         row.after_probe = current;
         if (row.after_probe?.agent_session_id !== bound.agent_session_id) throw new Error("Session changed during probe; reply ownership uncertain");
