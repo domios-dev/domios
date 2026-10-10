@@ -372,6 +372,10 @@ standalone user alert before work continues. State the impact, affected tasks,
 cleanup performed, and active fallback; never bury the failure inside a later
 technical status or silently retry it.
 
+## Debug instrumentation
+
+Instrument suspected failure paths with `log::debug!`/`log::trace!` early, before a bug is reported, and keep it: debug builds (every DEV) log it, and release builds strip it at compile time (`log` feature `release_max_level_info` in `src-tauri/Cargo.toml`; Cargo unifies it across crates). Never use `info!` or higher for temporary diagnostics, and never ship a prod-visible debug path; frontend debug output sits behind `if (import.meta.env.DEV)`, which Vite compiles out of production bundles; never a bare `console.log` in shipped code.
+
 ## Code style
 
 SOLID + DRY non-negotiable. **Default: NO comments** — names + types + structure carry meaning. Only comment WHY (non-obvious invariant, OS quirk, deliberate workaround), never WHAT. **Hard limit: 2 lines per comment, strictly.** No multi-line narrative comment blocks — if a WHY needs more than 2 lines, the code needs a better name or a smaller function, not more prose. Giant explanatory comment blocks are forbidden and get removed on sight. (Applies to inline `//` comments; license/file headers and public-API doc comments are exempt but must still stay terse.) Detailed Rust + TypeScript guidance and architecture guardrails: **`.agents/skills/style/SKILL.md`**.
