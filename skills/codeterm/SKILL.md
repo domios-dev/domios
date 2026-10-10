@@ -50,6 +50,10 @@ a configured preset; omit both to use the plugin's default. If no entry is tagge
 `shell`, no shell plugin is installed — don't assume one (e.g. never hardcode a
 specific shell id).
 
+## Pairing across API ports
+
+Use `codeterm mesh connect <instance-id-or-name> --addr <ip:port>` when UDP discovery cannot reach a different API port. This reads and records the answering identity, refuses an ID mismatch, and sends the ordinary request. The receiving owner still approves with `codeterm mesh approve <request-id>`. Paired means trusted; a manual sighting never grants access. See `codeterm docs MESH` for listener readiness and identity binding.
+
 ## References
 
 Specialized reference docs alongside this skill:
@@ -66,4 +70,4 @@ Specialized reference docs alongside this skill:
 
 The always-on protocol (English-in-mem, search-before-answering, "remember" → save now, no fabrication, no guessed ids) lives in `~/.claude/rules/codeterm.md` and fires regardless of which skill is loaded. Don't replay it here.
 
-<!-- revision: 69 -->
+<!-- revision: 70 -->

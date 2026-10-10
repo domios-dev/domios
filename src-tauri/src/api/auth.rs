@@ -52,6 +52,7 @@ pub(crate) const PUBLIC_PATHS: &[&str] = &[
     "/api/health",
     "/api/mesh/ping",
     "/api/mesh/pair/request",
+    "/api/mesh/pair/identity",
     "/api/mesh/pair/accept",
     "/api/mesh/pair/confirm",
     "/api/mesh/pair/reject",
@@ -631,6 +632,9 @@ mod tests {
             assert!(PUBLIC_PATHS.iter().any(|pp| pp == p));
         }
         assert!(!PUBLIC_PATHS.contains(&"/api/providers"));
+        assert!(!PUBLIC_PATHS.contains(&"/api/mesh/connect"));
+        assert!(!PUBLIC_PATHS.contains(&"/api/mesh/approve"));
+        assert!(!PUBLIC_PATHS.contains(&"/api/mesh/peers/add-manual"));
     }
 
     #[test]

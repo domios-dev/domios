@@ -175,10 +175,11 @@ Custom themes are `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/
 | GET | `/api/mesh/status` | — | Mesh identity, peers, discovery status |
 | GET | `/api/mesh/peers` | — | List peers (paired + discovered) |
 | POST | `/api/mesh/discover` | — | Run discovery, return discovered peers |
-| POST | `/api/mesh/connect` | `{instance_id}` | Pair with a discovered peer (crypto server-side) |
+| POST | `/api/mesh/connect` | `{instance_id, addr?}` | Initiate owner-approved pairing; optional literal IP:port reads and registers the peer identity first |
 | POST | `/api/mesh/approve` | `{request_id}` | Accept an incoming pairing request |
 | POST | `/api/mesh/reject` | `{request_id}` | Reject and block an incoming pairing request |
 | POST | `/api/mesh/disconnect` | `{instance_id}` | Unpair from a paired peer (notifies remote side) |
+| POST | `/api/mesh/pair/identity` | `{address, nonce}` | Public discovery-only endpoint: signed identity, key, dev flag and ready addresses bound to a UUID challenge and literal IP:port; grants no trust |
 | POST | `/api/mesh/pair/request` | `PairingRequest` | Inbound pairing request; returns `{ok, instance_id}` so a manual target is promoted before acceptance |
 | POST | `/api/mesh/pair/accept` | `PairingAccept` | Inbound acceptance for a pairing request |
 | POST | `/api/mesh/pair/confirm` | `PairingConfirm` | Inbound pairing confirmation |
@@ -194,7 +195,7 @@ Custom themes are `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/
 | GET | `/api/mesh/relay-asset/{peer}/{*path}` | `?token=<LOCAL>` | Read-only, `plugins/{id}/ui/*`-scoped byte proxy for a peer's plugin-UI iframe. |
 | DELETE | `/api/mesh/peers/{id}` | — | Remove a peer (internal, disconnect broadcast) |
 | POST | `/api/mesh/refresh` | — | Refresh local addresses and announce to peers |
-| POST | `/api/mesh/peers/add-manual` | `{address, port}` | Inject a `Manual` discovered peer by Tailscale IP/port (no mDNS/UDP scan). Returns `{ok, instance_id}` and emits `mesh-state-changed`. |
+| POST | `/api/mesh/peers/add-manual` | `{address, port}` | Read the signed identity at IP/port and register a `Manual` sighting through shared discovery (no pairing). Returns `{ok, instance_id}` and emits `mesh-state-changed`. |
 | POST | `/api/mesh/peers/approve/{id}` | — | Path-style alias for `POST /api/mesh/approve` (`request_id` in URL). |
 | POST | `/api/mesh/peers/reject/{id}` | — | Path-style alias for `POST /api/mesh/reject`. |
 | POST | `/api/mesh/peers/disconnect/{id}` | — | Path-style alias for `POST /api/mesh/disconnect` (`instance_id` in URL). |
@@ -219,4 +220,4 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 51 -->
+<!-- revision: 52 -->
