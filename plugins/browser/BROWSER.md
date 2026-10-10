@@ -18,7 +18,6 @@ Do not use it to fetch plain data an HTTP request or an API returns. Use `curl` 
 - **Profiles.**
   - Default: a **clean profile**. No logins, nothing is saved.
   - A **named profile** keeps logins and cookies across restarts. It acts as the user. Use one only when the user chose it (`open --profile NAME`), and never publish, buy, delete or send messages without the user's explicit instruction.
-- **One profile across tabs.** Tabs using the same named profile share cookies and logins, with independent pages and controls. Closing one browser leaves the others open.
 - **Another agent's browser.** Add `--of <agent>` (its Tab title or tab id) to any verb to act in that agent's browser instead of yours, for example `snapshot --of Snake` then `click @e4 --of Snake`. Its owner sees your name on the activity. It must already be open, you cannot `close` it, and refs come from the latest `snapshot` of that browser.
 - **Pointing an owner at something.** `annotate @eN "comment" --of <agent>` (or `annotate button "Sign in" "comment" --of <agent>`, optional `--intent question|change|bug`) sends that agent the same element card the user's point-and-ask sends, signed with your name. It only targets another agent's browser.
 - **Shared view.** The user may press *Take control* and click or type alongside you. You are not blocked and not told. Always re-read the page before acting.
