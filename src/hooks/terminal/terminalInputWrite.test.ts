@@ -1,7 +1,7 @@
 import "../../components/Terminal/ChatComposer.composition.harness";
 import { afterEach, describe, expect, finish, it } from "../../test/standaloneTest";
 import { __setInvokeForTest } from "../../lib/bridge";
-import { terminalInputTarget, TERMINAL_INPUT_WRITE_FAILED_EVENT, writeTerminalInput } from "./terminalInputWrite";
+import { terminalInputTarget, TERMINAL_INPUT_WRITE_FAILED_EVENT, TERMINAL_INPUT_WRITE_SUCCEEDED_EVENT, writeTerminalInput } from "./terminalInputWrite";
 
 type Call = { command: string; args?: Record<string, unknown> };
 
@@ -104,6 +104,21 @@ describe("terminal input transport", () => {
       ]);
     } finally {
       window.removeEventListener(TERMINAL_INPUT_WRITE_FAILED_EVENT, listener);
+    }
+  });
+
+  it("publishes success for the routed target only after a nonempty write succeeds", async () => {
+    captureWrites();
+    const successes: string[] = [];
+    const listener = (event: Event) => successes.push((event as CustomEvent<{ targetId: string }>).detail.targetId);
+    window.addEventListener(TERMINAL_INPUT_WRITE_SUCCEEDED_EVENT, listener);
+    try {
+      await writeTerminalInput("mesh:success/tab", "pty", "");
+      expect(successes).toEqual([]);
+      await writeTerminalInput("mesh:success/tab", "pty", "key");
+      expect(successes).toEqual(["mesh:success/tab"]);
+    } finally {
+      window.removeEventListener(TERMINAL_INPUT_WRITE_SUCCEEDED_EVENT, listener);
     }
   });
 

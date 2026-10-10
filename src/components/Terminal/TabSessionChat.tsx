@@ -92,6 +92,7 @@ import { latestAnswerText } from "../../lib/helperMoments/helperBlocks";
 import { isGeneralAgent } from "../../lib/roleKind";
 
 interface Props {
+  inputStatus?: ReactNode;
   tabId: string;
   api?: ApiConfig;
   onError?: (msg: string) => void;
@@ -168,6 +169,7 @@ function OriginPluginAvatar({ pluginId, iconSvg }: { pluginId: string; iconSvg?:
 }
 
 export function TabSessionChat({
+  inputStatus,
   tabId,
   api,
   onError,
@@ -948,6 +950,7 @@ export function TabSessionChat({
       </div>
       {deliveryPlansSink}
       {tab?.managed && <ManagedTabBar managed={tab.managed} activity={agentActivity} onStop={handleStopAgent} />}
+      {inputStatus && <div className="ct-composer-lane mx-auto w-full">{inputStatus}</div>}
       {!managedTabPresentation(tab?.managed).locked && <ChatComposer
         tabId={tabId}
         tabProvider={tabProvider}

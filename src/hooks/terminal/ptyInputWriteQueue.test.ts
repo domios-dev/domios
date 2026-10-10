@@ -44,6 +44,7 @@ describe("PTY input write queue", () => {
   it("reports a failed batch and continues with later queued keys", async () => {
     const writes: string[] = [];
     const failures: Array<{ ptyId: string; dataLength: number }> = [];
+    const outcomes: string[] = [];
     let releaseFirst!: () => void;
     let startedFirst!: () => void;
     const firstStarted = new Promise<void>((resolve) => {
@@ -59,7 +60,10 @@ describe("PTY input write queue", () => {
         await releaseWrite;
         throw new Error("route unavailable");
       }
-    }, (ptyId, dataLength) => failures.push({ ptyId, dataLength }));
+    }, (ptyId, dataLength) => {
+      failures.push({ ptyId, dataLength });
+      outcomes.push(`failed:${ptyId}`);
+    }, (ptyId) => outcomes.push(`succeeded:${ptyId}`));
 
     const drained = queue.enqueue("pty-a", "a");
     await firstStarted;
@@ -69,6 +73,7 @@ describe("PTY input write queue", () => {
 
     expect(writes).toEqual(["a", "b"]);
     expect(failures).toEqual([{ ptyId: "pty-a", dataLength: 1 }]);
+    expect(outcomes).toEqual(["failed:pty-a", "succeeded:pty-a"]);
   });
 
   it("keeps burst and spaced keys ordered across writes", async () => {
