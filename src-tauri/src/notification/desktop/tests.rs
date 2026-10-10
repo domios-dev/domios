@@ -271,7 +271,7 @@ mod no_inference {
     ];
 
     /// Reviewed production callers; new paths need an explicit notice source.
-    const EXPLICIT_CREATORS: [&str; 28] = [
+    const EXPLICIT_CREATORS: [&str; 29] = [
         "api/mesh_routes/introduction.rs",
         "api/mesh_routes/pairing.rs",
         "api/notification_routes.rs",
