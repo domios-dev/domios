@@ -4,17 +4,22 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { exactReply, firstTurnPolicy, kind, probeReady } from "./oracle.mjs";
 import { digest, logLines, newEvidence } from "./logs.mjs";
+import { recordBoundary, nextTurnModel } from "./records.mjs";
+import { snapshotAfterEvent } from "./snapshots.mjs";
+import { restoreReady, reconcileReadiness } from "./readiness.mjs";
 
 const script = fileURLToPath(import.meta.url);
 const root = resolve(dirname(script), "../..");
 const [mode, output, roundArgument] = process.argv.slice(2);
 const round = Number(roundArgument ?? 0);
 const out = resolve(output);
-const API = "http://127.0.0.1:7686";
+const port = Number(process.env.CODETERM_API_PORT);
+const instance = process.env.CODETERM_INSTANCE || "";
+const API = `http://127.0.0.1:${port}`;
 const deadlineMs = 120_000;
 const dataDir = process.env.CODETERM_DEV_DATA_DIR;
-if (process.env.CODETERM_API_PORT !== "7686" || process.env.CODETERM_INSTANCE || !dataDir) {
-  throw new Error("Run through the default DEV lib dev_run wrapper");
+if (!dataDir || !((port === 7686 && !instance) || (port === 7697 && instance === "aiderqa"))) {
+  throw new Error("Run through the selected DEV lib dev_run wrapper");
 }
 const headers = {
   Authorization: `Bearer ${process.env.CODETERM_API_TOKEN}`,
@@ -31,7 +36,7 @@ function save() {
   const cell = (value) => String(value ?? "—").replaceAll("|", "\\|").replaceAll("\n", " ");
   const lines = ["# Restart endurance", "", `Started: ${result.started_at}`, "",
     `Build: ${result.health?.build_sha ?? result.health?.build ?? "unknown"}`, "",
-    "General siblings use the sidebar API and reside in General, as required by that API.", "",
+    `Selected instance: ${instance || "default"} on ${port}.`, "",
     "## Coverage", "", ...result.coverage.map((entry) => `- ${cell(entry.provider)}: ${cell(entry.status)} ${cell(entry.reason ?? "")}`), ""];
   if (result.fatal) lines.push(`Harness stopped: ${cell(result.fatal)}`, "");
   for (const entry of result.rounds) {
@@ -50,24 +55,24 @@ function save() {
       lines.push("```", "");
     }
   }
+  if (result.model_switches?.length) {
+    lines.push("## Model switches", "", "| Provider | Tab | Requested | Persisted | Same session | Answer | Verdict |", "| --- | --- | --- | --- | --- | --- | --- |");
+    for (const row of result.model_switches) lines.push(`| ${[
+      row.provider, row.id, row.requested_model, row.persisted?.model,
+      row.session_before === row.session_after ? "yes" : "no", row.probe?.answer,
+      row.pass ? "PASS" : `FAIL: ${row.reason ?? "Persisted next-turn model did not match"}`,
+    ].map(cell).join(" | ")} |`);
+  }
   writeFileSync(join(out, "results.md"), `${lines.join("\n")}\n`);
 }
 
 async function api(path, method = "GET", body, signal = AbortSignal.timeout(30_000)) {
-  const until = Date.now() + deadlineMs;
-  for (;;) {
-    const response = await fetch(`${API}${path}`, {
-      method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal,
-    });
-    const text = await response.text();
-    // A read-only snapshot answers 503 while restore settles; retry only idempotent GETs.
-    if (response.status === 503 && method === "GET" && Date.now() < until) {
-      await new Promise((resolveDelay) => setTimeout(resolveDelay, 1_000));
-      continue;
-    }
-    if (!response.ok) throw new Error(`${method} ${path}: HTTP ${response.status} ${text}`);
-    return text ? JSON.parse(text) : null;
-  }
+  const response = await fetch(`${API}${path}`, {
+    method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal,
+  });
+  const text = await response.text();
+  if (!response.ok) throw Object.assign(new Error(`${method} ${path}: HTTP ${response.status} ${text}`), { status: response.status });
+  return text ? JSON.parse(text) : null;
 }
 
 async function command(args) {
@@ -167,24 +172,44 @@ function failure(record) {
   if (terminalStages.has(record.boot_stage)) return `${record.boot_stage}: ${record.boot_failure_reason ?? JSON.stringify(record.pending_prompt ?? null)}`;
   return null;
 }
-async function waitReady(events, id, signal, policy, requireSession = false) {
+async function waitReady(events, id, signal, policy, requireSession = false, requireLaunch = false) {
   for (;;) {
-    const record = await tab(id, signal);
+    const record = await snapshotAfterEvent(events, () => tab(id, signal));
     const reason = failure(record);
     if (reason) throw new Error(reason);
-    if (probeReady(record, policy, requireSession)) return record;
+    if (probeReady(record, policy, requireSession) && (!requireLaunch || record.boot_stage === "agent_ready")) return record;
     let event;
     do { event = await events.next(); } while (!touches(event, id));
   }
+}
+async function observeFresh(fixture) {
+  const signal = AbortSignal.timeout(deadlineMs), events = new Events(signal);
+  const row = { ...fixture, pass: false };
+  try {
+    await events.open();
+    row.before_probe = await waitReady(events, fixture.id, signal, fixture.first_turn_policy);
+    row.transcript = await snapshotAfterEvent(events, () => transcript(fixture.id, signal));
+    row.pass = !row.transcript.messages.some((message) => ["user", "assistant"].includes(kind(message)));
+    fixture.empty_session_id = row.pass ? row.before_probe.agent_session_id : null;
+    fixture.last_session = row.pass ? null : row.before_probe.agent_session_id;
+    row.reason = row.pass ? "No user or assistant turn before restart" : "Fresh fixture already has turns";
+  } catch (error) {
+    row.reason = error.message;
+    row.before_probe = await tab(fixture.id).catch(() => null);
+    row.lifecycle = await dcJson("tab", "inspect", "--tab", fixture.id, "--lifecycle").catch(() => null);
+    row.log_evidence = logLines(join(dataDir, "logs")).filter((line) => line.includes(fixture.id));
+  } finally { events.close(); }
+  return row;
 }
 async function transcript(id, signal) {
   return api(`/api/tabs/${id}/chat`, "GET", undefined, signal);
 }
 async function paddedPrompt(id, marker) {
   const pad = await dc("--as-tab", id, "pad", "path");
-  const path = join(pad, `endure-${marker}.txt`);
+  const relativePath = `endure-${marker}.txt`;
+  const path = join(pad, relativePath);
   writeFileSync(path, `Reply with exactly ${marker}`, "utf8");
-  return readFileSync(path, "utf8");
+  return { prompt: readFileSync(path, "utf8"), relativePath };
 }
 
 async function probe(fixture, n, observeOnly = false) {
@@ -198,47 +223,70 @@ async function probe(fixture, n, observeOnly = false) {
   let subscribed = false;
   try {
     await events.open();
-    row.initial = await tab(fixture.id, signal);
+    row.initial = await snapshotAfterEvent(events, () => tab(fixture.id, signal));
     if (observeOnly) {
       row.before_probe = row.initial;
       row.reason = failure(row.initial) ?? "Existing tab inspected; no message authorized outside Endure fixtures";
       return row;
     }
     row.phase = "waiting_for_input_readiness";
-    const ready = await waitReady(events, fixture.id, signal, fixture.first_turn_policy, Boolean(fixture.last_session));
+    const ready = await waitReady(events, fixture.id, signal, fixture.first_turn_policy, Boolean(fixture.has_answer));
     row.before_probe = ready;
     if (ready.agent_type !== fixture.provider) throw new Error(`Provider identity changed: ${fixture.provider} → ${ready.agent_type}`);
-    if (fixture.last_session && fixture.last_session !== ready.agent_session_id) throw new Error(`Session changed before probe: ${fixture.last_session} → ${ready.agent_session_id}`);
-    const before = await transcript(fixture.id, signal);
+    if (fixture.has_answer && fixture.last_session !== ready.agent_session_id) throw new Error(`Session changed before probe: ${fixture.last_session} → ${ready.agent_session_id}`);
+    const before = await snapshotAfterEvent(events, () => transcript(fixture.id, signal));
     const baseline = before.messages.length;
+    row.transcript_baseline = baseline;
+    if (ready.agent_session_id) {
+      try { row.record_boundary = recordBoundary(fixture.provider, ready.cwd, ready.agent_session_id); }
+      catch (error) { row.record_boundary_error = error.message; }
+    }
     const marker = `ENDURE_${fixture.provider}_${n}`;
     row.expected = marker;
-    row.prompt = await paddedPrompt(fixture.id, marker);
+    const payload = await paddedPrompt(fixture.id, marker);
+    row.prompt = payload.prompt;
+    row.prompt_file = payload.relativePath;
     row.send_started_at = new Date().toISOString();
     row.phase = "sending";
-    row.send_response = await api(`/api/tabs/${fixture.id}/send`, "POST", { text: row.prompt }, signal);
+    row.send_response = await dcJson("--as-tab", fixture.id, "send", "--tab", fixture.id,
+      "--require-agent", "--from-pad", payload.relativePath);
     row.phase = "waiting_for_session_binding";
     const bound = await waitReady(events, fixture.id, signal, fixture.first_turn_policy, true);
     row.bound_session = bound.agent_session_id;
     if (bound.agent_type !== fixture.provider || (ready.agent_session_id && ready.agent_session_id !== bound.agent_session_id)) {
       throw new Error("Provider or session changed while establishing probe binding");
     }
+    if (!ready.agent_session_id) {
+      try {
+        row.record_boundary = recordBoundary(fixture.provider, bound.cwd, bound.agent_session_id);
+        row.record_boundary.bytes = 0;
+        row.record_boundary.message_ids = [];
+      } catch (error) { row.record_boundary_error = error.message; }
+    }
     await api(`/api/tabs/${fixture.id}/chat-raw/start`, "POST", { subscriptionId: `endure-${fixture.id}-${n}` }, signal);
     subscribed = true;
     row.phase = "waiting_for_exact_reply";
     for (;;) {
-      const snapshot = await transcript(fixture.id, signal);
+      const snapshot = await snapshotAfterEvent(events, () => transcript(fixture.id, signal));
       row.transcript = snapshot;
-      const answer = exactReply(snapshot.messages, baseline, row.prompt, marker);
-      const current = await tab(fixture.id, signal);
-      if (answer && current?.status === "idle") {
+      const answer = exactReply(snapshot.messages, baseline, row.prompt, marker, fixture.provider === "grok");
+      const current = await snapshotAfterEvent(events, () => tab(fixture.id, signal));
+      let completedRecord;
+      if (answer && row.record_boundary) {
+        try { completedRecord = nextTurnModel(row.record_boundary, marker); }
+        catch (error) { row.completed_record_error = error.message; }
+      }
+      if (answer && (current?.status === "idle" || completedRecord?.turn_completed)) {
         row.answer = answer;
+        row.completion_source = completedRecord?.turn_completed ? "own_session_completed_turn" : "idle_status";
+        row.completed_record = completedRecord;
         row.reply_ms = Math.round(performance.now() - start);
         row.after_probe = current;
         if (row.after_probe?.agent_session_id !== bound.agent_session_id) throw new Error("Session changed during probe; reply ownership uncertain");
-        if (fixture.last_session && fixture.last_session !== ready.agent_session_id) {
+        if (fixture.has_answer && fixture.last_session !== ready.agent_session_id) {
           row.reason = `Session changed across restart: ${fixture.last_session} → ${ready.agent_session_id}`;
         } else { row.pass = true; }
+        fixture.has_answer = true;
         fixture.last_session = row.after_probe.agent_session_id;
         row.phase = "answered";
         break;
@@ -266,7 +314,7 @@ async function probe(fixture, n, observeOnly = false) {
 
 async function checkHealth() {
   const health = await api("/api/health");
-  if (Number(health.instance?.api_port) !== 7686 || health.instance?.name) throw new Error("Health does not identify default DEV 7686");
+  if (Number(health.instance?.api_port) !== port || (health.instance?.name || "") !== instance) throw new Error("Health does not identify selected DEV instance");
   const head = await command(["-c", "git rev-parse HEAD"]);
   const build = health.build_sha ?? health.build;
   if (!build) throw new Error("DEV health reports no build SHA");
@@ -279,14 +327,17 @@ async function checkHealth() {
 
 async function setup() {
   result.health = await checkHealth();
-  const modelOverrides = JSON.parse(process.env.ENDURE_MODEL_OVERRIDES ?? "{}");
+  const modelOverrides = { ...(instance ? { opencode: "deepseek/deepseek-flash" } : {}),
+    ...JSON.parse(process.env.ENDURE_MODEL_OVERRIDES ?? "{}") };
   result.model_overrides = modelOverrides;
   const providers = await dcJson("agent", "providers");
   result.provider_descriptors = providers;
   const inventory = await dcJson("plugin", "list");
   const policies = new Map();
   for (const plugin of inventory.plugins ?? []) {
-    const directory = plugin.install_path ?? plugin.path;
+    const directory = plugin.install_path || plugin.path ||
+      (plugin.state === "bundled" && plugin.source?.kind === "system_channel"
+        ? join(root, "plugins", plugin.source.path) : null);
     if (!directory) continue;
     const path = join(directory, "plugin.json");
     if (!existsSync(path)) continue;
@@ -295,7 +346,8 @@ async function setup() {
     policies.set(plugin.id, { ...firstTurnPolicy(manifest), manifest_path: path });
   }
   const workspaces = await dcJson("workspace", "list");
-  if (workspaces.some((workspace) => workspace.name === "Endure")) throw new Error("Endure already exists; preserve it and review the previous fixture manifest before explicitly closing it");
+  const workspaceName = process.env.ENDURE_WORKSPACE_NAME || "Endure";
+  if (workspaces.some((workspace) => workspace.name === workspaceName)) throw new Error(`${workspaceName} already exists; preserve it and review the previous fixture manifest before explicitly closing it`);
   const records = await tabs();
   const watched = new Set(workspaces.filter((workspace) => ["General", "Rcqa"].includes(workspace.name)).map((workspace) => workspace.id));
   result.existing = records.filter((record) => watched.has(record.workspace_id)).map((record) => ({
@@ -303,15 +355,20 @@ async function setup() {
   }));
   const config = await dcJson("config", "get");
   const general = records.find((record) => record.protected && record.role_profile === "general_agent") ?? records.find((record) => record.protected && record.agent_type);
-  if (!general || !config.general_agent?.first_run_complete) throw new Error("General must have completed Get started; eval does not change global setup");
-  const workspace = await dcJson("workspace", "create", "Endure", "--provision");
+  if (!instance && (!general || !config.general_agent?.first_run_complete)) throw new Error("General must have completed Get started; eval does not change global setup");
+  const workspace = await dcJson("workspace", "create", workspaceName, "--provision");
   result.workspace = workspace;
   save();
   for (const cohort of ["fresh", "used"]) {
-    for (const provider of ["codex", "claude", "opencode", "grok", "aider"]) {
+    for (const provider of (instance ? ["codex", "claude", "opencode", "grok"] : ["codex", "claude", "opencode", "grok", "aider"])) {
+      if (provider === "grok" && process.env.ENDURE_DEFER_GROK === "1") {
+        result.coverage.push({ provider, cohort, status: "deferred owner login" });
+        save();
+        continue;
+      }
       const descriptor = providers.find((candidate) => candidate.id === provider);
       if (!descriptor || descriptor.availability === "unavailable" || descriptor.cli_status?.installed === false) {
-        result.coverage.push({ provider, cohort, status: provider === "aider" ? "optional unavailable" : "required unavailable", reason: descriptor ? JSON.stringify(descriptor.cli_status ?? descriptor.availability) : "not registered" });
+        result.coverage.push({ provider, cohort, status: ["aider", "grok"].includes(provider) ? "optional unavailable" : "required unavailable", reason: descriptor ? JSON.stringify(descriptor.cli_status ?? descriptor.availability) : "not registered" });
         save();
         continue;
       }
@@ -329,7 +386,7 @@ async function setup() {
       } catch (error) { fixture.spawn_error = error.message; }
       save();
     }
-    for (let sibling = 1; sibling <= 2; sibling++) {
+    for (let sibling = 1; sibling <= (instance ? 0 : 2); sibling++) {
       const provider = config.general_agent.agent_provider;
       const fixture = { provider, cohort: `general-${cohort}`, sibling, first_turn_policy: policies.get(provider) ?? firstTurnPolicy(null) };
       result.fixtures.push(fixture);
@@ -356,7 +413,7 @@ async function setup() {
       try {
         await events.open();
         record = await waitReady(events, fixture.id, signal, fixture.first_turn_policy);
-        snapshot = await transcript(fixture.id, signal);
+        snapshot = await snapshotAfterEvent(events, () => transcript(fixture.id, signal));
         const hasTurns = snapshot.messages.some((message) => ["user", "assistant"].includes(kind(message)));
         if (hasTurns) reason = "Fresh fixture has conversation turns before any eval probe";
         fixture.empty_session_id = hasTurns ? null : record.agent_session_id;
@@ -379,7 +436,10 @@ function captureLogs(n) {
 
 async function runRound(n) {
   const health = await checkHealth();
-  const restored = await tabs();
+  const entry = { round: n, health, rows: [], started_at: result.round_started_at,
+    health_observed_at: new Date().toISOString() };
+  result.rounds.push(entry);
+  save();
   let workspace;
   const readiness = [];
   for (const fixture of result.fixtures.filter((fixture) => fixture.id)) {
@@ -387,38 +447,64 @@ async function runRound(n) {
     const events = new Events(signal);
     try {
       await events.open();
-      const record = restored.find((record) => record.id === fixture.id);
+      const record = await snapshotAfterEvent(events, () => tab(fixture.id, signal));
       if (record && workspace !== record.workspace_id) {
         await dc("workspace", "focus", record.workspace_id);
         workspace = record.workspace_id;
       }
       await dc("tab", "focus", "--tab", fixture.id);
-      readiness.push(await waitReady(events, fixture.id, signal, fixture.first_turn_policy));
+      readiness.push(await waitReady(events, fixture.id, signal, fixture.first_turn_policy, Boolean(fixture.has_answer), true));
     } catch (error) {
       readiness.push({ id: fixture.id, readiness_error: error.message });
     } finally { events.close(); }
   }
-  const entry = { round: n, health, rows: [], started_at: result.round_started_at };
   entry.initial_readiness = readiness.map((record) => ({ ...record }));
-  const settled = await tabs();
-  for (let index = 0; index < readiness.length; index++) {
-    if (!readiness[index].readiness_error) continue;
-    const fixture = result.fixtures.find((fixture) => fixture.id === readiness[index].id);
-    const record = settled.find((record) => record.id === fixture?.id);
-    if (probeReady(record, fixture?.first_turn_policy)) {
-      readiness[index] = { ...record, recovered_readiness_error: readiness[index].readiness_error };
+  const signal = AbortSignal.timeout(deadlineMs);
+  const events = new Events(signal);
+  try {
+    await events.open();
+    const settled = await snapshotAfterEvent(events, () => tabs(signal));
+    entry.restore_readiness = reconcileReadiness(readiness, settled, result.fixtures);
+    entry.materialized_pty_count = settled.filter((record) => record.pty_id).length;
+    entry.restore_ready_at = new Date().toISOString();
+    const unresolved = result.fixtures.filter((fixture) => fixture.id).filter((fixture) => {
+      const observed = entry.restore_readiness.find((record) => record.id === fixture.id);
+      const current = settled.find((record) => record.id === fixture.id);
+      return observed?.readiness_error || failure(current) || !restoreReady(current, fixture);
+    });
+    if (unresolved.length) throw new Error(`Restore barrier unresolved: ${unresolved.map((fixture) => fixture.id).join(", ")}`);
+    entry.all_ready_at = entry.restore_ready_at;
+    entry.stop_to_health_ms = Date.parse(entry.health_observed_at) - Date.parse(entry.started_at);
+    entry.stop_to_all_ready_ms = Date.parse(entry.all_ready_at) - Date.parse(entry.started_at);
+    save();
+  } catch (error) {
+    entry.barrier_error = error.message;
+    const lines = captureLogs(n);
+    for (const fixture of result.fixtures) {
+      const record = fixture.id ? await tab(fixture.id).catch(() => null) : null;
+      const observed = entry.restore_readiness?.find((record) => record.id === fixture.id);
+      entry.rows.push({ ...fixture, pass: false, previous_session: fixture.last_session,
+        phase: "restore_readiness_failed", before_probe: record,
+        reason: observed?.readiness_error || failure(record) || `Not probed: restore barrier failed: ${error.message}`,
+        lifecycle: fixture.id ? await dcJson("tab", "inspect", "--tab", fixture.id, "--lifecycle").catch(() => null) : null,
+        log_evidence: fixture.id ? lines.filter((line) => line.includes(fixture.id)) : [] });
     }
-  }
-  entry.materialized_pty_count = settled.filter((record) => record.pty_id).length;
-  entry.restore_ready_at = new Date().toISOString();
-  entry.restore_readiness = readiness;
-  result.rounds.push(entry);
-  save();
-  for (const fixture of result.fixtures) {
-    const failedReadiness = readiness.find((record) => record.id === fixture.id)?.readiness_error;
-    entry.rows.push(failedReadiness
-      ? { id: fixture.id, cohort: fixture.cohort, provider: fixture.provider, pass: false, reason: failedReadiness, phase: "restore_readiness_failed" }
-      : await probe(fixture, n));
+    save();
+    throw error;
+  } finally { events.close(); }
+  const probeFixture = async (fixture) => {
+    entry.rows.push(await probe(fixture, n));
+    save();
+  };
+  if (instance) await Promise.all(result.fixtures.map(probeFixture));
+  else for (const fixture of result.fixtures) await probeFixture(fixture);
+  for (const row of entry.rows.filter((row) => instance && !row.pass && row.id)) {
+    const began = performance.now();
+    row.failure_health = await checkHealth().catch((error) => ({ error: error.message }));
+    row.failure_health_ms = Math.round(performance.now() - began);
+    row.serial_retry = row.provider === "grok" && row.send_started_at
+      ? { pass: false, observed_only: true, reason: "One prompt per Grok fixture per round is authorized; submitted probe is retained without a second prompt" }
+      : await probe(result.fixtures.find((fixture) => fixture.id === row.id), `${n}_retry`);
     save();
   }
   for (const fixture of result.existing) {
@@ -445,6 +531,80 @@ async function runRound(n) {
 async function main() {
   mkdirSync(out, { recursive: true });
   if (mode === "setup") await setup();
+  else if (mode === "repair-setup") {
+    if (!result.setup_complete || result.rounds.some((entry) => entry.round > 0)) throw new Error("Repair setup only before restart 1");
+    const [provider, adoptFreshId] = roundArgument.split(":");
+    if (!["claude", "codex", "opencode", "grok"].includes(provider)) throw new Error("Unknown setup provider");
+    const inventory = await dcJson("plugin", "list");
+    const plugin = inventory.plugins.find((plugin) => plugin.id === provider);
+    if (!plugin) throw new Error(`Provider plugin absent: ${provider}`);
+    const directory = plugin.install_path || plugin.path ||
+      (plugin.state === "bundled" && plugin.source?.kind === "system_channel" ? join(root, "plugins", plugin.source.path) : null);
+    const manifestPath = join(directory, "plugin.json");
+    const policy = { ...firstTurnPolicy(JSON.parse(readFileSync(manifestPath, "utf8"))), manifest_path: manifestPath };
+    const entry = result.rounds.find((entry) => entry.round === 0);
+    for (const cohort of ["fresh", "used"]) {
+      let fixture = result.fixtures.find((candidate) => candidate.provider === provider && candidate.cohort === cohort);
+      if (!fixture) {
+        fixture = { provider, cohort, requested_model: result.model_overrides?.[provider] };
+        result.fixtures.push(fixture);
+      }
+      fixture.first_turn_policy = policy;
+      if (!fixture.id && cohort === "fresh" && adoptFreshId) {
+        const record = await tab(adoptFreshId);
+        if (!record || record.agent_type !== provider || record.workspace_id !== result.workspace.id || record.cwd !== result.workspace.cwd)
+          throw new Error("Explicit adoption does not match the owned fixture workspace/provider/cwd");
+        fixture.id = adoptFreshId;
+      }
+      save();
+      if (!fixture.id) {
+        try {
+          const spawned = await dcJson("agent", "spawn", provider, "--workspace", result.workspace.id,
+            "--cwd", result.workspace.cwd, "--title", `${provider}${cohort === "fresh" ? "F" : "U"}`,
+            "--description", `Restart endurance ${cohort} fixture`, "--non-user-facing",
+            ...(fixture.requested_model ? ["--model", fixture.requested_model] : []));
+          fixture.id = spawned.tab_id;
+          if (!fixture.id) throw new Error("Spawn did not return tab_id");
+          delete fixture.spawn_error;
+        } catch (error) { fixture.spawn_error = error.message; }
+        save();
+      }
+      const row = !fixture.id ? {...fixture, pass: false, reason: fixture.spawn_error}
+        : cohort === "fresh" ? await observeFresh(fixture)
+        : fixture.has_answer ? { ...fixture, pass: true, reason: "Existing completed seed retained; no extra turn sent" }
+        : await probe(fixture, 0);
+      const original = entry.rows.find((candidate) => candidate.provider === provider && candidate.cohort === cohort);
+      if (original) (original.setup_recoveries ??= []).push({ ...row, observed_at: new Date().toISOString() });
+      else entry.rows.push(row);
+      result.coverage = result.coverage.filter((candidate) => candidate.provider !== provider || candidate.cohort !== cohort);
+      result.coverage.push({ provider, cohort, status: row.pass ? "setup ready" : "setup failed", reason: row.pass ? undefined : row.reason });
+      save();
+    }
+  }
+  else if (mode === "switch") {
+    const [provider, ...modelParts] = roundArgument.split(":");
+    const model = modelParts.join(":");
+    const fixture = result.fixtures.find((fixture) => fixture.provider === provider && fixture.cohort === "used");
+    if (!fixture?.has_answer) throw new Error(`No answered used fixture for ${provider}`);
+    const before = await tab(fixture.id);
+    const row = { provider, id: fixture.id, requested_model: model, session_before: before.agent_session_id, started_at: new Date().toISOString() };
+    result.model_switches ??= [];
+    result.model_switches.push(row);
+    save();
+    try {
+      const boundary = recordBoundary(provider, before.cwd, before.agent_session_id);
+      row.response = await dcJson("agent", "model", "--tab", fixture.id, model);
+      row.probe = await probe(fixture, "switch");
+      row.persisted = nextTurnModel(boundary, row.probe.expected);
+      row.session_after = row.probe.after_probe?.agent_session_id;
+      row.pass = row.probe.pass && row.session_before === row.session_after && Boolean(row.persisted)
+        && (row.persisted.model === model || (provider === "claude" && row.persisted.model.toLowerCase().includes(model.toLowerCase())));
+    } catch (error) { row.pass = false; row.reason = error.message; }
+    row.finished_at = new Date().toISOString();
+    save();
+    console.log(JSON.stringify(row));
+  }
+  else if (mode === "health") { console.log(JSON.stringify(await checkHealth())); }
   else if (mode === "before") {
     await checkHealth();
     result.round_started_at = new Date().toISOString();

@@ -19,7 +19,7 @@ export function probeReady(record, policy, requireSession = false) {
     record.boot_stage === "agent_ready" && Boolean(record.pty_id && record.session_binding_nonce) && !record.pending_prompt;
 }
 
-export function exactReply(messages, baseline, prompt, marker) {
+export function exactReply(messages, baseline, prompt, marker, allowPrefix = false) {
   const fresh = messages.slice(baseline);
   const boundary = fresh.findIndex((message) => kind(message) === "user" && textContent(message.content).trim() === prompt);
   if (boundary < 0) return null;
@@ -28,5 +28,5 @@ export function exactReply(messages, baseline, prompt, marker) {
   const turn = nextUser < 0 ? following : following.slice(0, nextUser);
   const answer = turn.filter((message) => kind(message) === "assistant")
     .map((message) => textContent(message.content).trim()).filter(Boolean).join("\n");
-  return answer === marker ? answer : null;
+  return answer === marker || (allowPrefix && answer.startsWith(marker)) ? answer : null;
 }

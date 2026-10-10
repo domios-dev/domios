@@ -24,6 +24,28 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-claude/src/preTrust.ts
+function claudeProjectKey(canonical, windows) {
+  if (!windows) return canonical;
+  return canonical.replace(/\\/g, "/").replace(/^\/\/\?\/UNC\//, "//").replace(/^\/\/\?\//, "").replace(/^[a-z]:/, (drive) => drive.toUpperCase());
+}
+function claudeTrustRecord(host2, cwd, grant) {
+  const root = host2.envGet("CLAUDE_CONFIG_DIR") || host2.homeDir();
+  const canonical = host2.canonicalPath(cwd);
+  if (!root) return { status: "skipped", reason: "configuration root unavailable" };
+  if (!canonical) return { status: "skipped", reason: "launch cwd cannot be resolved" };
+  const windows = host2.platform() === "windows";
+  const absoluteRoot = windows ? /^(?:[a-z]:[\\/]|[\\/]{2})/i.test(root) : root.startsWith("/");
+  if (!absoluteRoot) return { status: "skipped", reason: "configuration root unavailable" };
+  const key = claudeProjectKey(canonical, windows);
+  const path = root.replace(/[\\/]$/, "") + "/.claude.json";
+  try {
+    return JSON.parse(host2.jsonBooleanRecord(path, JSON.stringify(["projects", key, "hasTrustDialogAccepted"]), grant));
+  } catch {
+    return { status: "failed", reason: "record capability failed" };
+  }
+}
+
 // plugins/provider-shared/updatePrompt.ts
 function updatePromptSafeChoice(prompt) {
   if (prompt.options.length < 2 || !prompt.options.some(([label2]) => /\bupdate\b/i.test(label2))) {
@@ -1240,6 +1262,34 @@ var MOVE_UP = "aw==";
 function frameContent(line) {
   return line.replace(FRAME_EDGES, "");
 }
+function liveDialogRows(screen) {
+  const rawRows = String(screen || "").split("\n");
+  const rows = rawRows.map(frameContent);
+  let anchor = -1;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (isFooter(rows[i])) {
+      anchor = i;
+      break;
+    }
+  }
+  if (anchor < 0) {
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (isTrustOption(optionRow(rows[i]).label)) {
+        anchor = i;
+        break;
+      }
+    }
+  }
+  if (anchor < 0 || rawRows.slice(anchor + 1).some((row) => /^[❯>]|^[─━]{3,}$/.test(row.trim()))) return null;
+  let start = 0;
+  for (let i = anchor - 1; i >= 0; i--) {
+    if (isFooter(rows[i])) {
+      start = i + 1;
+      break;
+    }
+  }
+  return rows.slice(start);
+}
 function isPathRow(row) {
   return /^(?:\/[^ ]|~[\/\\]|\\\\|[A-Za-z]:[\\\/])/.test(row);
 }
@@ -1259,7 +1309,8 @@ function leadsWith(label, word) {
   return new RegExp("^" + word + "(?:$|[, .])", "i").test(label);
 }
 function claudeFolderTrustResponse(screen) {
-  const rows = String(screen || "").split("\n").map(frameContent);
+  const rows = liveDialogRows(screen);
+  if (!rows) return null;
   const header = findTrustHeader(rows);
   if (header && rows.slice(header.end + 1).some((row) => pointerLabel(row) !== null)) {
     if (hasUntitledLeadingPath(rows, header.start)) return [];
@@ -1296,7 +1347,8 @@ function answer(options, hasPath) {
   return [yes > focused ? MOVE_DOWN : MOVE_UP];
 }
 function claudeFolderTrustPrompt(screen) {
-  const rows = String(screen || "").split("\n").map(frameContent);
+  const rows = liveDialogRows(screen);
+  if (!rows) return null;
   const prompt = pathlessPrompt(rows);
   if (!prompt || prompt.hasPath) return null;
   const options = prompt.choices.options;
@@ -1308,7 +1360,8 @@ function claudeFolderTrustPrompt(screen) {
   };
 }
 function claudeFolderTrustHighlightedOptionIndex(screen) {
-  const rows = String(screen || "").split("\n").map(frameContent);
+  const rows = liveDialogRows(screen);
+  if (!rows) return null;
   const prompt = pathlessPrompt(rows);
   if (!prompt || prompt.hasPath || prompt.choices.options.length !== 2) return null;
   if (prompt.choices.options.filter((option) => option.focused).length !== 1 || !hasFolderTrustPromptChoices(prompt.choices.options)) return null;
@@ -1331,7 +1384,7 @@ function hasUntitledLeadingPath(rows, headerStart) {
   return path >= 0 && !leadingRows.slice(0, path).some((row) => row.endsWith(":"));
 }
 function findTrustHeader(rows) {
-  for (let start = 0; start < rows.length; start++) {
+  for (let start = rows.length - 1; start >= 0; start--) {
     const header = trustHeader(rows, start);
     if (header) return header;
   }
@@ -1363,7 +1416,13 @@ function isFooter(row) {
   return footer.indexOf("enter") !== -1 && footer.indexOf("esc") !== -1;
 }
 function choiceRows(rows, trustEnd) {
-  const footer = rows.findIndex((row, index) => index > trustEnd && isFooter(row));
+  let footer = -1;
+  for (let i = rows.length - 1; i > trustEnd; i--) {
+    if (isFooter(rows[i])) {
+      footer = i;
+      break;
+    }
+  }
   if (footer < 0) return null;
   const start = rows.findIndex(
     (row, index) => index > trustEnd && index < footer && isTrustOption(optionRow(row).label)
@@ -2252,6 +2311,12 @@ var plugin = {
   },
   buildPromptResponse(optionIndex, screen) {
     return buildClaudePromptResponse(optionIndex, String(screen || ""));
+  },
+  preTrustDirectory(path) {
+    return claudeTrustRecord(host, path, true);
+  },
+  isDirectoryTrusted(path) {
+    return claudeTrustRecord(host, path, false).status === "already_trusted";
   },
   directoryTrustPromptResponse(screen) {
     return claudeFolderTrustResponse(screen);

@@ -38,3 +38,10 @@ test("sessionless input refuses undeclared laziness, absent composer capability 
   assert.equal(probeReady({ ...record, pending_prompt: {} }, { lazy: true, structuralComposer: true }), false);
   assert.equal(probeReady({ ...record, boot_stage: "agent_launching" }, { lazy: true, structuralComposer: true }), false);
 });
+
+test("declared prefix matching keeps the own-turn boundary and tolerates an output suffix", () => {
+  const suffixed = { type: "assistant", content: `${marker}<|eos|>` };
+  assert.equal(exactReply([user, suffixed], 0, prompt, marker), null);
+  assert.equal(exactReply([user, suffixed], 0, prompt, marker, true), suffixed.content);
+  assert.equal(exactReply([suffixed], 0, prompt, marker, true), null);
+});

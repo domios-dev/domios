@@ -1,3 +1,58 @@
+# macOS named-instance trial
+
+This lane also supports the authorized aiderqa instance on port 7697. Keep the
+application checkout on the Orchestrator-approved scored build while running
+the trial. Start only that DEV:
+
+```bash
+CODETERM_INSTANCE=aiderqa CODETERM_API_PORT=7697 ./build.sh dev --wait
+CODETERM_INSTANCE=aiderqa CODETERM_API_PORT=7697 bash evals/restart-endurance/run.sh \
+  --out target-check/evals/endure-mac-trial-1 --notice-hook /absolute/path/to/notice.sh
+```
+
+Named trials create only fresh/used provider fixtures in Endure. They require
+Claude, Codex and OpenCode, use deepseek/deepseek-flash for OpenCode, and include
+Grok when installed. They leave General siblings and setup alone. Empty fresh
+sessions may acquire a new session id at the first restart; continuity becomes
+mandatory after the fixture completes its first answer.
+Set ENDURE_WORKSPACE_NAME to a distinct workspace name for a scored trial after
+a setup rehearsal; prior fixtures and their evidence remain preserved.
+
+Every restart waits for all created fixtures to reach agent_ready, then probes
+concurrently with one 120-second answer deadline per tab. A parallel failure
+retains its verdict, timestamps and health latency; one serial retry is recorded
+separately. Grok answers allow a marker prefix to tolerate its output suffix;
+a submitted Grok probe is never sent again in the same round.
+
+When owner login is pending, setup can defer Grok with ENDURE_DEFER_GROK=1.
+After credentials are available, repair-setup OUTPUT_DIR PROVIDER observes an
+existing fresh fixture and seeds an unanswered used fixture, spawning missing
+fixtures through the normal path. Original failures remain in results.json and
+recovery observations are appended. An explicit PROVIDER:FRESH_TAB argument can
+journal an interrupted fixture creation after checking its provider, workspace
+and cwd. It never approves trust dialogs or restarts failed agents.
+
+Use --continue-from-setup only after reviewing a completed setup with no restart
+round or fatal error. The runner refuses to replay an incomplete trial.
+
+After round 3, discover alternate models with dc agent models PROVIDER, then run
+these observers through the named DEV library:
+
+```bash
+source evals/_lib/lib.sh
+dev_run node evals/restart-endurance/observe.mjs switch OUTPUT_DIR PROVIDER:MODEL
+```
+
+Switch proof requires the same session and the next completed answer's persisted
+provider model, read from the exact session's Claude JSONL, Codex rollout,
+OpenCode SQLite assistant row, or Grok updates.jsonl. The model observer appends
+model_switches to results.json. Node with node:sqlite support is required.
+
+The external notice hook uses the assigned Orchestrator's return route. When the
+Orchestrator requests no progress messages, retain the notice locally instead.
+Keep all authored messages in the caller's AgentPad. Stop only
+aiderqa after evidence collection; retain the worktree and trial artifacts.
+
 # Restart endurance (live LLM eval)
 
 Run only in the canonical checkout, in one Team-bound QA utility shell, under
@@ -18,7 +73,9 @@ resolved to the actual invoking Bash executable on Windows.
 
 Repeat `--model provider=model` to pin fixture models from the provider's
 catalogue. Both fresh and used fixtures receive the same override; omitted
-providers keep their configured default. The manifest records the overrides.
+providers keep their configured default, except named macOS trials default
+OpenCode to deepseek/deepseek-flash. Explicit overrides also apply when creating
+missing fixtures with repair-setup. The manifest records the effective overrides.
 
 ## Preconditions and coordination
 
@@ -84,13 +141,16 @@ is bounded at 30 seconds by the runner and must not ask an interactive question.
    that never reached send from a sent turn awaiting binding or an answer.
 4. Announces and performs three provenance-checked DEV restarts. After each,
    focuses each fixture in its workspace to materialize lazy PTYs, waits for every
-   fixture's launch readiness, then probes fixtures serially with the round
-   marker. A final authoritative snapshot can reconcile a missed readiness
-   event; the original stream gap remains in the result. Unresolved readiness
-   failures receive neither another wait nor a probe.
+   fixture's agent_ready launch stage, then probes default-instance fixtures
+   serially or named macOS fixtures concurrently with the round marker.
+   A final authoritative snapshot can reconcile a missed readiness event;
+   the original stream gap remains in the result. Unresolved readiness failures
+   stop the all-fixture barrier and receive neither another wait nor a probe.
    Waits use an SSE subscription established before sending, a single
    120-second failure deadline per observation, and event-triggered snapshot
-   reads. There are no fixed-delay warmups or probe retries. Sends read their
+   reads. There are no fixed-delay warmups. Default-instance probes are not
+   retried; named macOS failures retain one separately recorded serial retry,
+   except a submitted Grok prompt is never replayed. Sends read their
    authored prompt from the target tab's private pad and use the user send API,
    avoiding an agent reply-route wrapper around the exact-answer request.
 5. Records identity, boot stage, failure reason/prompt, session before/after,
@@ -105,9 +165,11 @@ exact assistant answer within that user turn. History, typed echo, thinking,
 tool output, extra answer text, and replies to subsequent user turns cannot
 satisfy it. `reply_ms` includes restore readiness and send time; `elapsed_ms`
 also includes the failure path, while lifecycle inspection follows afterward.
-The probe also waits for the tab's reported idle status before starting the
-next restart. The oracle proves the observed transcript answer; it does not derive provider
-completion from screen text or automatically answer authentication prompts.
+The probe also requires reported idle status or an explicit completed-turn
+record after its pre-send boundary in the exact bound provider session before
+starting the next restart. Stale working status remains in the evidence.
+The oracle does not derive provider completion from screen text or automatically
+answer authentication prompts.
 
 ## Artifacts and exit codes
 

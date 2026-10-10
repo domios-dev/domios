@@ -491,12 +491,12 @@ fn directory_trust_occurrence_is_claimed_once_until_prompt_clear() {
         "focus-on-exit",
         &occurrence,
         &LEDGER,
-        |_| answer(b"j\r"),
+        |_| answer(b"j"),
     );
     assert_eq!(
         first,
         TrustDecision::Answer {
-            step: b"j\r".to_vec()
+            step: b"j".to_vec()
         }
     );
 
@@ -506,7 +506,7 @@ fn directory_trust_occurrence_is_claimed_once_until_prompt_clear() {
         "focus-on-trust",
         &occurrence,
         &LEDGER,
-        |_| answer(b"j\r"),
+        |_| answer(b"j"),
     );
     assert_eq!(
         redrawn,
@@ -528,10 +528,10 @@ fn directory_trust_occurrence_is_claimed_once_until_prompt_clear() {
             "same prompt after a classified clear",
             &occurrence,
             &LEDGER,
-            |_| answer(b"j\r"),
+            |_| answer(b"j"),
         ),
         TrustDecision::Answer {
-            step: b"j\r".to_vec()
+            step: b"j".to_vec()
         },
         "a reappearing prompt after a visible clear is a new occurrence"
     );
@@ -560,7 +560,7 @@ fn deterministic_and_model_trust_responders_racing_claim_once() {
             "redrawn trust screen",
             &deterministic_occurrence,
             &LEDGER,
-            |_| answer(b"j\r"),
+            |_| answer(b"j"),
         )
     });
     let model_barrier = barrier.clone();
@@ -577,7 +577,7 @@ fn deterministic_and_model_trust_responders_racing_claim_once() {
     assert_eq!(
         matches!(decision, TrustDecision::Answer { .. }) as usize + model_claimed as usize,
         1,
-        "only one responder owns the full provider-declared key sequence"
+        "only one responder owns the provider-declared trust transaction"
     );
     if model_claimed {
         super::finish_model_trust_step(&tab_id, &occurrence, true);
@@ -589,7 +589,7 @@ fn deterministic_and_model_trust_responders_racing_claim_once() {
             "another redraw",
             &occurrence,
             &LEDGER,
-            |_| answer(b"j\r"),
+            |_| answer(b"j"),
         ),
         TrustDecision::Waiting
     );
@@ -601,7 +601,7 @@ fn deterministic_and_model_trust_responders_racing_claim_once() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn fresh_team_directory_trust_answers_one_full_sequence_under_race() {
+fn fresh_team_directory_trust_answers_one_transaction_under_race() {
     let (mut mux, tab_id) = state_with_tab(Some("/repo/fresh-team"), None);
     let tab = mux.get_tab_mut(&tab_id).expect("team tab");
     tab.agent_type = Some("claude".into());
@@ -645,7 +645,7 @@ fn fresh_team_directory_trust_answers_one_full_sequence_under_race() {
         decisions
             .iter()
             .filter(|decision| {
-                matches!(decision, &TrustDecision::Answer { step } if step.as_slice() == b"j\r")
+                matches!(decision, &TrustDecision::Answer { step } if step.as_slice() == b"j")
             })
             .count(),
         1
@@ -660,7 +660,7 @@ fn fresh_team_directory_trust_answers_one_full_sequence_under_race() {
     assert_eq!(
         crate::service::output::prompt_step_dispatch_count_for_test("pty-fresh-team-trust"),
         1,
-        "the Team tab receives one whole Down+Enter key sequence"
+        "the Team tab receives one folder trust transaction"
     );
 }
 

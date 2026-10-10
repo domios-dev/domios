@@ -21,6 +21,7 @@ pub mod graph_events;
 pub mod graph_nodes;
 pub mod host_traits;
 pub mod js_runtime;
+pub(crate) mod json_boolean_record;
 pub mod jsonl_window;
 pub mod model_catalog;
 pub mod model_providers;

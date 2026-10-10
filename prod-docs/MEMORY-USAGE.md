@@ -39,6 +39,8 @@ codeterm mem archive <id> --reason "<why>"           # reversible; use mem resto
 codeterm mem delete <id>
 codeterm mem forget <area>                          # batch delete by area
 codeterm mem history <id>                           # full audit trail of one item
+codeterm mem area merge <from> --into <to> [--dry-run] # reversible area move; preview counts per kind
+codeterm mem restore <id> [--version <history-row>] # undo an area merge or restore an item/body
 codeterm mem taxonomy [--workspace <ws>]            # {area -> {kind -> count}}
 codeterm mem tail [--follow] [--limit N]            # recent writes, newest first (default 20)
 codeterm mem stats                                  # counts by kind + blob sizes
@@ -156,4 +158,4 @@ The Memory tab reads this directly.
 
 Memory preserves the body you save; later edits retain history.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

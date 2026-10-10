@@ -163,6 +163,19 @@ the lesser, and refuses once the night's merge cap is reached: then stop
 merging and log `MERGED: ... cap reached`. Different angles: `codeterm mem
 graph relate --from <a> --rel similar_to --to <b>`. When in doubt, keep both.
 
+For the preface's AREA MERGE CANDIDATES, judge the sample titles and read
+items when needed. Only if both areas mean the same topic, fold the smaller
+item count into the larger (ties: keep either):
+
+    codeterm mem area merge <smaller> --into <larger> --dry-run
+    codeterm mem area merge <smaller> --into <larger>
+
+At most 3 area merges per run; the server also enforces this cap. Leave
+unsure pairs alone. Scope stays intact. Each item has one audited change;
+`codeterm mem restore <id> --version <history-row>` undoes its area merge.
+The server saves a summary diary entry. Include one `AREA_MERGED:` summary
+line per completed area merge in this run's diary too, using returned counts.
+
 Log `DEDUP: aliases=N duplicates=M` and
 `MERGED: <lesser> -> <keeper> (<why>); ...`, or `MERGED: none`.
 
@@ -262,6 +275,7 @@ Body shape (the frontend parses these tags):
     ORPHANS_BEFORE / ORPHANS / ORPHANS_AFTER: ...
     DEDUP: ...
     MERGED: ...
+    AREA_MERGED: ...
     REPAIR: ...
     VECTOR_HYGIENE: ...
     MAINTENANCE: ...

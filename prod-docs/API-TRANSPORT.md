@@ -129,18 +129,19 @@ dispatch. No grace mode: update CLIs on all mesh peers with the daemon
 | `mem.delete` | `{id}` | Delete a mem item by id. |
 | `mem.purge_precompact` | `{id, apply?, verified_deleted?, vacuum?}` | Local purge, preview by default; partial errors retain the report. |
 | `mem.forget` | `{area}` | Batch-delete every item in an area. |
-| `mem.update` | `{id, title?, summary?, area?, tags?, body?, importance?, pinned?, changed_by?}` | Partial update; also used for pin/unpin (`pinned: true/false`). |
+| `mem.update` | `{id, title?, summary?, area?, tags?, body?, importance?, pinned?, changed_by?}` | Partial update; `pinned` pins/unpins. |
 | `mem.pinned` | `{limit?}` | List pinned items |
-| `mem.append` | `{id, text, changed_by?}` | Append text to an item's body (non-destructive) |
-| `mem.restore` | `{id, version?, changed_by?}` | Restore a prior body, or an archived or merged item's kind (`codeterm docs API-MEMORY`). |
+| `mem.append` | `{id, text, changed_by?}` | Append to body. |
+| `mem.restore` | `{id, version?, changed_by?}` | Restore area, body or archived kind (API-MEMORY). |
 | `mem.merge` | `{keeper, lesser, body?, conflict?, changed_by?, worker_id?}` | Archive the lesser into the keeper; reversible. |
 | `mem.wake_up` | `{budget?, l0_only?, no_l0?, explain?, workspace?}` | L0+L1 wake-up context text. |
 | `mem.learn` | `{text, kind?, tags?}` | Capture a quick learning. |
 | `mem.learn_promote` | `{id}` | Promote a learning to a fact. |
-| `mem.sync` | `{path?}` | Trigger file sync for source-tracked items (Librarian). |
+| `mem.sync` | `{path?}` | Sync source files (Librarian). |
 | `mem.reembed` | `{scope?}` | Re-embed mem items and/or graph entities. |
-| `mem.extract_pending` | `{limit?}` | Re-queue extraction workers for un-extracted items. |
+| `mem.extract_pending` | `{limit?}` | Queue un-extracted items. |
 | `mem.history` | `{id}` | Full audit trail for one item. |
+| `mem.area_merge` | `{from, into, dry_run?, worker_id?}` | Reversible area move (API-MEMORY). |
 | `mem.taxonomy` | `{workspace?}` | `{area -> {kind -> count}}` breakdown. |
 | `mem.tail` | `{since?, limit?}` | Recent mem writes, newest first. |
 | `mem.calibration.log` | `{since?, limit?, count?}` | Calibration audit log (importance/archive changes). |
@@ -235,4 +236,4 @@ launch without a registered session remains the distinct
 `plan_binding_session_unregistered` error on both transports. Pending status
 never authorizes the mutation.
 
-<!-- revision: 49 -->
+<!-- revision: 50 -->
