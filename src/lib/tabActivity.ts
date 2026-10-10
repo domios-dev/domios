@@ -58,7 +58,7 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
   const state = quiet ? "quiet" : kind === "working" ? "working" : kind === "waiting-on-user" ? "question" : "idle";
   const matchingLive = kind !== "starting" && kind !== "failed" && live?.state === state;
   const subtype = state === "question" && matchingLive ? live?.subtype : undefined;
-  const phase = matchingLive && (live?.phase === "thinking" || live?.phase === "streaming") ? live.phase : "work";
+  const phase = kind === "working" && matchingLive && (live?.phase === "thinking" || live?.phase === "streaming") ? live.phase : "work";
   const question = kind === "waiting-on-user" ? tab?.pending_prompt?.question?.trim() : null;
   const label = question || (utility && !launching && kind !== "failed" ? shellStateLabel(shell)
     : (matchingLive ? live?.status_line?.trim() : null)

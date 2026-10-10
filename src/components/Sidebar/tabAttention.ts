@@ -1,4 +1,5 @@
 import type { Notification, Tab, TabStatus } from "../../lib/types";
+import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { tabActivity } from "../../lib/tabActivity";
 import { isAnswerUndeliverable } from "../../lib/notificationAnswer";
 
@@ -65,4 +66,13 @@ export function tabStatusMark(title: string, attention: TabAttention | null | un
   if (attention.showMark && !active) return { kind: "attention", label: tabAttentionLabel(title, attention), level: attention.kind };
   if (attention.starting) return { kind: "starting", label: `${title} ${attention.starting === "connecting" ? "waiting to connect" : "starting"}` };
   return null;
+}
+
+export function tabStartingLabel(tab: Tab): string {
+  const attention = tabAttention(tab, null, []);
+  return tabStatusMark(displayTitleForTab(tab), {
+    ...attention,
+    showMark: false,
+    starting: tab.boot_stage === "launch_binding_unconfirmed" ? "connecting" : "starting",
+  })!.label;
 }

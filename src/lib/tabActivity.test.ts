@@ -55,6 +55,9 @@ assert.equal(tabActivity({ ...agent, agent_state: { state: "question", subtype: 
 const pending = { question: "question-token", options: [] };
 assert.equal(tabActivity({ ...agent, pending_prompt: pending }, "Waiting").label, pending.question);
 assert.equal(tabActivity({ ...agent, agent_state: { state: "idle", phase: "thinking" } }, "Working").phase, "work");
+assert.equal(tabActivity({ ...agent, agent_state: { state: "question", phase: "thinking" } }).phase, "work");
+assert.equal(tabActivity({ ...agent, boot_stage: "agent_launching", agent_state: { state: "working", phase: "thinking" } }).phase, "work");
+assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "thinking" } }).phase, "thinking");
 assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "streaming", status_line: " Writing " } }).label, "Writing");
 assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "streaming" } }).phase, "streaming");
 console.log(`tab activity: ${cases.length} table cases, ${startingStages.length} boot stages and working-count checks passed`);

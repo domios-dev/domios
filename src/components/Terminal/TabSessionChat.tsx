@@ -924,6 +924,7 @@ export function TabSessionChat({
       <div ref={setContextSlot} className="ct-ctx-slot" />
       <div className="ct-composer-status w-full">
         <AgentStateIndicator
+          tab={tab}
           activity={agentActivity}
           showActivity={setupView.kind === "none" && !chatChannelLoading}
           providerName={provider?.displayName ?? tabProvider}
