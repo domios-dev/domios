@@ -1178,3 +1178,6 @@ mod launch_session_detection_tests;
 mod manual_update_prompt_tests;
 #[path = "output/trust_candidate.rs"]
 mod trust_candidate;
+
+#[cfg(test)]
+pub(super) use prompt_steps::record_prompt_step_dispatch_for_test;

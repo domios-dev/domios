@@ -191,9 +191,8 @@ fn unattended_launch_prompt_jev_chooses_among_declared_trust_options() {
             "the first classified key identifies the provider-declared option"
         );
         assert_eq!(
-            steps.concat(),
-            target.step,
-            "the target contains the entire provider-declared key sequence"
+            steps[0], target.step,
+            "the target contains only the next classifier step"
         );
         let DecisionQuestion::Choice { options } =
             safe_choice::safe_choice_question(&metadata_for(&target)).expect("choice question")
@@ -224,7 +223,7 @@ fn unattended_launch_prompt_jev_chooses_among_declared_trust_options() {
             UnattendedRoute::Model
         );
     }
-    assert_eq!(trust_target(NO_FIRST).step, b"j\r");
+    assert_eq!(trust_target(NO_FIRST).step, b"j");
     assert_eq!(trust_target(YES_FOCUSED).step, b"\r");
     assert_eq!(
         trust_target(NO_FIRST).choice,
@@ -661,7 +660,7 @@ fn sentinel_respond_prompt_preapproved_folder_trust_uses_declared_target() {
         })
         .expect("declared affirmative option");
     assert_eq!(target.prompt.options[affirmative].value, target.choice);
-    assert_eq!(target.step, b"j\r");
+    assert_eq!(target.step, b"j");
 
     let expected = serde_json::json!({
         "kind": codeterm_types::pty::PromptKind::DirectoryTrust,

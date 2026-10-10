@@ -26,9 +26,6 @@ pub(super) fn provider_target(provider: &dyn AgentProvider, screen: &str) -> Opt
         return None;
     }
     let choice = prompt.options[index].value.clone();
-    let step = crate::service::directory_trust::full_directory_trust_key(
-        provider, &prompt, screen, &step,
-    )?;
     let frame_key = crate::service::directory_trust::directory_trust_occurrence(&prompt);
     (unique_choice(&prompt, &choice) && !step.is_empty()).then_some(Target {
         kind: Kind::DirectoryTrust,
@@ -269,6 +266,48 @@ impl ServiceContext {
             self.resolve_unattended_gate(snapshot, gate);
             return;
         };
+        if target.kind == Kind::DirectoryTrust && *choice == target.choice {
+            let occurrence = target.frame_key.clone();
+            if !crate::service::directory_trust::claim_model_trust_step(
+                &snapshot.tab_id,
+                &occurrence,
+            ) {
+                return;
+            }
+            let pty = self
+                .mux
+                .read()
+                .get_tab(&snapshot.tab_id)
+                .and_then(|tab| tab.pty_id.clone());
+            let Some(pty) = pty else {
+                crate::service::directory_trust::finish_model_trust_step(
+                    &snapshot.tab_id,
+                    &occurrence,
+                    false,
+                );
+                return;
+            };
+            let service = self.clone();
+            let tab = snapshot.tab_id.clone();
+            let expected = target.clone();
+            let screen = snapshot.screen_text.clone();
+            self.queue_directory_trust_answer(
+                &snapshot.tab_id,
+                &pty,
+                &snapshot.agent_type,
+                &occurrence,
+                move || {
+                    service.model_safe_response_target(&tab, &screen).as_ref() == Some(&expected)
+                        && service.begin_automatic_prompt_answer(
+                            &tab,
+                            "directory_trust",
+                            expected.frame_key,
+                            None,
+                        )
+                },
+            );
+            return;
+        }
         let kind = target.kind.prompt_kind();
         let identity = codeterm_types::pty::PromptIdentity::new(kind, &target.prompt);
         let chain_fingerprint = self.prompt_chain_fingerprint(kind, &target.prompt);
