@@ -277,6 +277,22 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
         return;
     }
 
+    if let Commands::Paste {
+        action: super::PasteAction::Get { .. },
+    } = &cli.command
+    {
+        let (method, path, _) = api_map::cli_command_to_api(&cli.command);
+        let answer = relay::mesh_relay_invoke_with_peer(target, &method, &path, None, cli.json);
+        let data = if cli.json {
+            relay::with_answering_peer(answer.data, answer.peer.as_ref())
+        } else {
+            relay::announce_answering_peer(target, answer.peer.as_ref());
+            answer.data
+        };
+        print!("{}", crate::cmd::paste::render_paste(&data, cli.json));
+        return;
+    }
+
     let (method, path, body) = api_map::cli_command_to_api(&cli.command);
     if method == api_map::UNSUPPORTED_OVER_MESH {
         crate::cmd::print::fail(2, path.to_string());
