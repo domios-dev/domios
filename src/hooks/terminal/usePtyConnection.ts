@@ -174,8 +174,8 @@ export function usePtyConnection({
 
   const writePty = useCallback((data: string) => {
     const id = connectedPtyRef.current;
-    if (id) void writeTerminalInput(id, data);
-  }, [connectedPtyRef]);
+    if (id) void writeTerminalInput(tabId, id, data);
+  }, [tabId, connectedPtyRef]);
 
   useEffect(() => {
     const term = termRef.current;
