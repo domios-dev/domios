@@ -236,10 +236,10 @@ well as the immediate environment before declaring recovery complete.
 
 - **2026-10-10: web capture cannot click an existing fixture row** — its
   workspace is inactive, so the row is hidden. Copy the fixture inventory's
-  `workspace_id` into the shared capture manifest's machine or fixture entry.
+  `workspace_id` into that fixture's optional manifest `workspaceId` field.
   The shared selector activates that workspace through its visible Select
   workspace UI control, observes the selected state, then clicks the visible
-  row. Missing inventory or hidden controls fail explicitly; never force-click.
+  row. Hidden controls fail explicitly; never force-click.
   Verify the selected workspace and exact fixture before retrying in a fresh
   evidence directory, preserving the failed run.
 
