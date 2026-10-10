@@ -8,7 +8,6 @@ use std::{
     path::Path,
     sync::{mpsc, OnceLock},
 };
-use tauri::Manager;
 struct Watch {
     identity: (String, String),
     _watcher: Option<RecommendedWatcher>,
@@ -37,28 +36,12 @@ pub(crate) fn ensure(svc: &ServiceContext, tab: &str) {
         cancel(tab);
         return;
     };
-    let enabled = svc
-        .app_handle
-        .try_state::<crate::config::ConfigState>()
-        .is_some_and(|config| {
-            config.lock().agents.get(&provider).is_some_and(|config| {
-                [
-                    "background_work_guard",
-                    "structured_signals",
-                    "capability_probe_enabled",
-                ]
-                .iter()
-                .any(|key| config.extra.get(*key).and_then(toml::Value::as_bool) == Some(true))
-            })
-        });
-    if !enabled
-        || !svc
-            .agent_registry
-            .with_provider(&provider, |provider| {
-                provider.tracks_background_work() || provider.auth_status_probe().is_some()
-            })
-            .unwrap_or(false)
+    if !svc
+        .agent_registry
+        .with_provider(&provider, |provider| provider.supports_chat_ui())
+        .unwrap_or(false)
     {
+        log::debug!("[provider-access] no session capability tab={tab}");
         cancel(tab);
         return;
     }

@@ -117,4 +117,8 @@ does an offer to turn a surface on, which must be sent again.
 The rest of the configuration file: `codeterm docs CONFIG`. Bridge and integration
 settings: `codeterm docs INTEGRATIONS`.
 
-<!-- revision: 10 -->
+## Provider access incidents
+
+Provider access refusals from a tab's own session are incidents even when optional structured-signal settings are disabled. The notification has severity `error` and level `action_needed`, names the tab, role, machine and provider, and asks for `/login` in that tab (or `claude setup-token` for Claude). It opens once per access-loss transition and resolves after a successful provider turn. Existing notification surface and channel settings decide where it is carried. They apply to plain tabs as well as role tabs. Detection uses typed session-record error codes or HTTP status, including OAuth org-disabled and refresh failures; terminal text and message prose cannot establish an incident. The tab remains in an auth-required attention state while access is lost.
+
+<!-- revision: 11 -->

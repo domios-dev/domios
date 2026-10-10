@@ -642,6 +642,30 @@ impl NotificationStore {
         }
     }
 
+    pub(crate) fn set_condition(&mut self, id: &str, condition: TabCondition) {
+        if let Some(notification) = self.notifications.iter_mut().find(|n| n.id == id) {
+            notification.condition = Some(condition);
+            self.sync_persisted();
+        }
+    }
+
+    pub(crate) fn resolve_id(&mut self, id: &str) -> bool {
+        let Some(notification) = self
+            .notifications
+            .iter_mut()
+            .find(|n| n.id == id && !n.resolved)
+        else {
+            return false;
+        };
+        notification.resolved = true;
+        notification.read = true;
+        notification.actions = None;
+        self.close_push_slot_for(id);
+        self.deliveries.release(id);
+        self.sync_persisted();
+        true
+    }
+
     pub fn mark_read(&mut self, id: &str) -> bool {
         if let Some(n) = self.notifications.iter_mut().find(|n| n.id == id) {
             n.read = true;
