@@ -5,6 +5,8 @@ import { PtyInputWriteQueue } from "./ptyInputWriteQueue";
 
 export const TERMINAL_INPUT_WRITE_FAILED_EVENT = "codeterm-terminal-input-write-failed";
 
+export const TERMINAL_INPUT_WRITE_SUCCEEDED_EVENT = "codeterm-terminal-input-write-succeeded";
+
 const queue = new PtyInputWriteQueue(
   (targetId, data, raw) => {
     const remote = parseCompositeTabId(targetId);
@@ -28,6 +30,9 @@ const queue = new PtyInputWriteQueue(
       new CustomEvent(TERMINAL_INPUT_WRITE_FAILED_EVENT, { detail: { targetId } }),
     );
   },
+  (targetId) => window.dispatchEvent(
+    new CustomEvent(TERMINAL_INPUT_WRITE_SUCCEEDED_EVENT, { detail: { targetId } }),
+  ),
 );
 
 export function terminalInputTarget(tabId: string, ptyId: string): string {
