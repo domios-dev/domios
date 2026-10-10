@@ -113,4 +113,48 @@ it("HTTP 400 reaches the terminal error sink and failed output channel without b
   }
 });
 
+it("peer switch aborts an aggregate opened on self before opening composite relay output", async () => {
+  stubBrowser();
+  const api = await import("./webApi");
+  const output = await import("./outputStream");
+  api.clearRelayTarget();
+  const requests: Array<{ url: URL; signal: AbortSignal }> = [];
+  let opened!: () => void;
+  const localOpened = new Promise<void>((resolve) => { opened = resolve; });
+  vi.stubGlobal("fetch", async (input: unknown, init: RequestInit) => {
+    const url = new URL(String(input));
+    const signal = init.signal!;
+    requests.push({ url, signal });
+    const response = new Response(new ReadableStream({ start(controller) {
+      signal.addEventListener("abort", () => controller.error(new DOMException("Stopped", "AbortError")), { once: true });
+    } }));
+    if (url.pathname === "/api/output/stream") opened();
+    return response;
+  });
+  const sink = { onOutput() {}, onTruncated() {}, onEnded() {} };
+  const stopLocal = output.subscribeTabOutput("local-tab", sink);
+  let stopRemote: (() => void) | undefined;
+  try {
+    await localOpened;
+    stopLocal();
+    const peerId = "928b06dd-0631-43e2-9252-3c6573b54b8d";
+    api.setRelayTarget(peerId, "Windows");
+    output.resetOutputStream();
+    assert.equal(requests[0].signal.aborted, true);
+    stopRemote = output.subscribeTabOutput("183546de", sink);
+    await Promise.resolve();
+    assert.equal(requests.length, 2);
+    assert.equal(requests[1].url.pathname, "/api/mesh/relay-stream");
+    assert.equal(requests[1].url.searchParams.get("tab"), `mesh:${peerId}/183546de`);
+    assert.equal(requests[1].signal.aborted, false);
+    assert.equal(requests.filter((request) => !request.signal.aborted).length, 1);
+  } finally {
+    stopLocal();
+    stopRemote?.();
+    output.resetOutputStream();
+    api.clearRelayTarget();
+    vi.unstubAllGlobals();
+  }
+});
+
 finish();
