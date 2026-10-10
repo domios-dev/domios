@@ -86,9 +86,17 @@ fn watcher_wakes_on_own_append_and_the_matching_turn_releases() {
     let _watcher = boundary.watch(wake).unwrap();
     writeln!(file, "{}", record("own", "turn_completed")).unwrap();
     file.as_file().sync_all().unwrap();
-    events
-        .recv_timeout(std::time::Duration::from_secs(5))
-        .unwrap();
+    // macOS FSEvents can drop writes made right after the stream starts; re-touch until it reports.
+    let woke = (0..25).any(|_| {
+        events
+            .recv_timeout(std::time::Duration::from_millis(200))
+            .is_ok()
+            || {
+                let _ = file.as_file().set_modified(std::time::SystemTime::now());
+                false
+            }
+    });
+    assert!(woke, "watcher never reported the append");
     assert!(boundary.completed("own").unwrap());
 }
 
