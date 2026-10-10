@@ -13,6 +13,7 @@ if [ "${1:-}" = --dry-run ]; then
   node "$ROOT/evals/restart-endurance/dry-run.mjs" "$@"
   exit
 fi
+node "$ROOT/evals/restart-endurance/target.mjs" "${CODETERM_INSTANCE:-}" "${CODETERM_API_PORT:-}"
 unset CODETERM_CLI_PATH
 source "$ROOT/evals/_lib/lib.sh"
 ENDURE_BASH="${BASH:-bash}"
@@ -43,13 +44,8 @@ export ENDURE_MODEL_OVERRIDES
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 NOTICE_HOOK="$(cd "$(dirname "$NOTICE_HOOK")" && pwd)/$(basename "$NOTICE_HOOK")"
-dev_assert_restart_target 1
-if [ -n "$EVAL_LIB_RESOLVED_INSTANCE" ]; then
-  [ "$EVAL_LIB_RESOLVED_INSTANCE" = aiderqa ] && [ "$EVAL_LIB_DEV_API_PORT" = 7697 ] || {
-    echo 'This named-instance trial is restricted to aiderqa on 7697.' >&2
-    exit 2
-  }
-fi
+node "$ROOT/evals/restart-endurance/target.mjs" "$EVAL_LIB_RESOLVED_INSTANCE" "$EVAL_LIB_DEV_API_PORT"
+dev_assert_restart_target 0
 cd "$ROOT"
 if [ -f "$OUT/complete" ]; then
   cat "$OUT/results.md"
