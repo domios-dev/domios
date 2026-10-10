@@ -72,7 +72,7 @@ qa_zero_tests() {
     }
     tolower($0) ~ /no test files found/ { other_zero=1 }
     /^# tests[[:space:]]+0[[:space:]]*$/ { other_zero=1 }
-    tolower($0) ~ /(^|[^0-9])0 tests?([^0-9]|$)/ {
+    tolower($0) ~ /(^|[^0-9.])0 tests?([^0-9]|$)/ {
       if ($0 ~ /^running 0 tests?[[:space:]]*$/) cargo_empty_target=1
       else other_zero=1
     }
