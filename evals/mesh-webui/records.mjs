@@ -16,12 +16,14 @@ export async function dc(args) {
 const MAX_EXPORT_BYTES = 16 * 1024 * 1024;
 export function nativePasteReceipt(output) {
   const candidates = stripVTControlCharacters(String(output)).match(/\{[^{}]*\}/g) ?? [];
-  const receipts = candidates.flatMap(candidate => {
-    try { const value = JSON.parse(candidate); return value.kind === 'phaseb_native_paste' ? [value] : []; }
-    catch { return []; }
-  });
-  assert.equal(receipts.length, 1, 'Exactly one native paste receipt required');
-  const receipt = receipts[0];
+  const fields = {id:[],bytes:[],sha:[]};
+  for (const line of stripVTControlCharacters(String(output)).split(/\r?\n/)) {
+    const match = /^B3R:(id|bytes|sha)=(.*)$/.exec(line.trim());
+    if (match) fields[match[1]].push(match[2]);
+  }
+  for (const [key, values] of Object.entries(fields)) assert.equal(values.length, 1, `Exactly one native receipt ${key} required`);
+  assert.match(fields.bytes[0], /^[1-9][0-9]*$/);
+  const receipt = {kind:'phaseb_native_paste',paste_id:fields.id[0],bytes:Number(fields.bytes[0]),sha256:fields.sha[0]};
   assert.match(receipt.paste_id, /^paste:[a-zA-Z0-9_-]+$/);
   assert.match(receipt.sha256, /^[a-f0-9]{64}$/);
   assert.ok(Number.isSafeInteger(receipt.bytes) && receipt.bytes > 0 && receipt.bytes <= MAX_EXPORT_BYTES);
@@ -49,7 +51,9 @@ spec=json.loads(base64.b64decode(${JSON.stringify(spec)}))
 transfer=namespace['export_to_file'](spec)
 result=subprocess.run(['C:/Program Files/Git/bin/bash.exe','-lc',${JSON.stringify(bridge)},'phaseb-native-export',transfer['path']],capture_output=True,text=True,check=True,timeout=20)
 paste=json.loads(result.stdout)
-print(json.dumps(dict(kind='phaseb_native_paste',paste_id=paste['id'],bytes=transfer['bytes'],sha256=transfer['sha256'])))
+receipt=['B3R:id='+paste['id'],'B3R:bytes='+str(transfer['bytes']),'B3R:sha='+transfer['sha256']]
+assert all(len(line)<80 for line in receipt), 'Native receipt line exceeds fixed framing width'
+for line in receipt: print(line)
 path=pathlib.Path(transfer['path'])
 path.unlink()
 path.parent.rmdir()`;
