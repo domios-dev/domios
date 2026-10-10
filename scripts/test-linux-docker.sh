@@ -19,6 +19,8 @@ docker run --rm \
   -w /work \
   "$IMAGE" bash -c '
     set -euo pipefail
+    # The bind-mounted checkout is owned by the host user; without this git refuses it and build SHAs fall back to unknown.
+    git config --global --add safe.directory /work
     mkdir -p dist
     node scripts/prepare-embed-stub.js
     mkdir -p src-tauri/bundled-cli
