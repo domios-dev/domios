@@ -83,7 +83,7 @@ impl ListenerPublication {
 
 pub(crate) fn additional_bind(
     config: &crate::config::schema::ApiConfig,
-    named_dev: bool,
+    dev_build: bool,
 ) -> Result<Option<SocketAddr>, String> {
     let Some(host) = &config.mesh_tailnet_host else {
         return Ok(None);
@@ -92,9 +92,9 @@ pub(crate) fn additional_bind(
         .parse()
         .map_err(|_| "mesh_tailnet_host must be a numeric tailnet IPv4 address")?;
     let octets = ip.octets();
-    if !named_dev || octets[0] != 100 || !(64..=127).contains(&octets[1]) {
+    if !dev_build || octets[0] != 100 || !(64..=127).contains(&octets[1]) {
         return Err(
-            "mesh_tailnet_host requires a named development instance and a 100.64.0.0/10 address"
+            "mesh_tailnet_host requires a development build and a 100.64.0.0/10 address"
                 .into(),
         );
     }
