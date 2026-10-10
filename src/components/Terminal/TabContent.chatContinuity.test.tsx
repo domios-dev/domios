@@ -36,6 +36,8 @@ function setupDom(): Window {
     "Node",
     "Event",
     "CustomEvent",
+    "localStorage",
+    "sessionStorage",
   ] as const) {
     Object.defineProperty(globalThis, key, {
       configurable: true,
@@ -162,7 +164,10 @@ class FakeBridge {
       };
     });
     bridge.__setInvokeForTest(async (command: string, args: Record<string, unknown> = {}) => {
-      if (command === "list_agent_providers") return [descriptor];
+      if (command === "list_agent_providers") {
+        const { webJson } = await import("../../lib/webApi");
+        return webJson("GET", "/api/agents/providers");
+      }
       if (command === "plugin_manager_snapshot") {
         return { plugins: [], channels: [], diff: [], marketplace: [] };
       }
@@ -220,7 +225,25 @@ async function main(): Promise<void> {
   const require = createRequire(__filename);
   require.extensions[".css"] = () => {};
   const { TabContent } = await import("./TabContent");
-  setAgentDescriptors([descriptor]);
+  setAgentDescriptors([]);
+  const { useAgentProviderCachePublisher } = await import("../../hooks/useAgentProviders");
+  const { setRelayTarget, invalidateWebRequestContext } = await import("../../lib/webApi");
+  const catalogRequests: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    catalogRequests.push(String(input));
+    if (String(input).endsWith("/api/mesh/relay-to")) {
+      const call = JSON.parse(String(init?.body));
+      assert(call.target_peer_id === "owning-peer", "catalog requested from wrong peer");
+      assert(call.path === "/api/agents/providers", "catalog used wrong relay route");
+      return new Response(JSON.stringify({ ok: true, status: 200, data: [descriptor], error: null }));
+    }
+    return new Response("[]");
+  };
+  function CatalogPublisher() {
+    useAgentProviderCachePublisher();
+    return null;
+  }
   __resetPluginSnapshotStoreForTest();
 
   const server = new FakeBridge();
@@ -236,6 +259,7 @@ async function main(): Promise<void> {
       root.render(
         <MuxStateStoreContext.Provider value={store}>
           <MultiplexerActionsContext.Provider value={muxActions()}>
+            <CatalogPublisher />
             <TabContent
               tab={state.tabs["tab-live"]}
               isFocused
@@ -252,6 +276,20 @@ async function main(): Promise<void> {
   };
 
   await render();
+  assert(!host.querySelector('[data-testid="tab-mode-switch"]'), "gateway catalog invented a peer capability");
+  assert(host.querySelector('[data-testid="provider-capability-state"]'), "missing descriptor is invisible");
+  await act(async () => {
+    invalidateWebRequestContext();
+    window.dispatchEvent(new CustomEvent("codeterm-peer-switch-reset"));
+  });
+  setRelayTarget("owning-peer", "Owning peer");
+  invalidateWebRequestContext();
+  await act(async () => {
+    window.dispatchEvent(new CustomEvent("codeterm-peer-switch-rebind"));
+  });
+  await flush();
+  assert(catalogRequests.some((url) => url.endsWith("/api/mesh/relay-to")), "peer switch did not refresh catalog");
+  assert(!host.querySelector('[data-testid="provider-capability-state"]'), "resolved descriptor retained missing state");
   const switchBeforeRefresh = host.querySelector('[data-testid="tab-mode-switch"]');
   assert(switchBeforeRefresh, "bound provider did not expose the Terminal/Chat switch");
   assert(
@@ -292,12 +330,22 @@ async function main(): Promise<void> {
     "same-authority refresh did not retain Chat mode",
   );
 
+  const terminalControl = host.querySelector<HTMLElement>('[data-testid="tab-mode-switch"] [data-value="terminal"]');
+  assert(terminalControl, "remote descriptor did not expose Terminal selection");
+  await act(async () => terminalControl.click());
+  await flush();
+  assert(terminalControl.getAttribute("aria-selected") === "true", "Terminal selection was not retained");
+  const frame = host.querySelector<HTMLElement>('[data-testid="terminal-frame"]');
+  assert(frame?.getAttribute("data-terminal-visible") === "true", "remote terminal frame stayed inactive");
+  assert(frame.style.visibility === "visible", "remote terminal frame stayed hidden");
+
   await act(async () => {
     root.unmount();
   });
   await flush();
   bridgeModule.__setInvokeForTest(null);
   bridgeModule.__setListenForTest(null);
+  globalThis.fetch = originalFetch;
   await hookWindow.happyDOM.abort();
   hookWindow.close();
   assert(Number(server.subscribers.size) === 0, "unmount retained the Chat subscription");

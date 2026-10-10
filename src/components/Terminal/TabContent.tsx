@@ -53,7 +53,7 @@ export function TabContent({
   api,
 }: TabContentProps) {
   const descriptor = useAgentDescriptor(tab?.agent_type);
-  const { providers } = useAgentProviders();
+  const { providers, loading, error } = useAgentProviders();
   const headerTabMenu = useHeaderTabMenu(tab, workspaceId, descriptor);
   useLayoutEffect(() => {
     if (tab?.close_restore?.record_id) {
@@ -135,6 +135,11 @@ export function TabContent({
           tabMenu={headerTabMenu ?? undefined}
           isActive={isVisible}
         />
+        {!isChatBackend && tab.agent_type && !descriptor && (
+          <div role="status" data-testid="provider-capability-state" className="px-2 py-1 text-xs">
+            {loading ? "Loading agent capabilities…" : error ?? `Agent capabilities unavailable for ${tab.agent_type}`}
+          </div>
+        )}
         <div className="relative min-h-0 flex-1" style={{ background: theme.background }}>
           {body}
         </div>
