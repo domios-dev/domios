@@ -40,4 +40,6 @@ test('HTTP SSE adapter stays on aiderqa gateway and rejects target relay refusal
   assert.equal(JSON.parse(calls[1].options.body).target_peer_id, 'bbbbbb');
   const denied = devStreamClient({ port: 7697, token: 'opaque', peer: 'bbbbbb', fetcher: async () => ({ ok: true, json: async () => ({ ok: false, status: 403, data: {} }) }) });
   await assert.rejects(denied.fetchState(signal), /refused/);
+  const incomplete = devStreamClient({ port: 7697, token: 'opaque', peer: 'bbbbbb', fetcher: async () => ({ ok: true, json: async () => ({ ok: true, data: {} }) }) });
+  await assert.rejects(incomplete.fetchState(signal), /refused/);
 });
