@@ -25,8 +25,8 @@ mod startup_model_refresh_tests {
     }
 }
 
-mod restored_effort;
 mod next_turn_confirmation;
+mod restored_effort;
 
 mod model_refresh_tests {
     use std::collections::{HashMap, HashSet};
@@ -129,8 +129,8 @@ mod model_refresh_tests {
                 .contains(session_id)
                 .then(|| PathBuf::from(format!("{session_id}.jsonl")))
         }
-        fn session_exists(&self, _: &str, session_id: &str) -> bool {
-            self.sessions.contains(session_id)
+        fn session_exists(&self, _: &str, session_id: &str) -> Option<bool> {
+            Some(self.sessions.contains(session_id))
         }
         fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
             None

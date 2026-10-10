@@ -200,7 +200,7 @@ fn detection_and_existence_negatives_round_trip() {
     assert_eq!(j.detect_session_id(bogus_cwd, &[], None), None);
     assert_eq!(j.detect_active_session(bogus_cwd, "current"), None);
     // No meta.json/store.db under a random session dir → exists=false, birth=None.
-    assert!(!j.session_exists(bogus_cwd, CURSOR_UUID));
+    assert!(j.session_exists(bogus_cwd, CURSOR_UUID) != Some(true));
     assert!(j.session_created_at(bogus_cwd, CURSOR_UUID).is_none());
     // enumerateSessions yields a well-formed list, every entry tagged as a cursor session.
     assert!(j

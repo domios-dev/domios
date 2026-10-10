@@ -51,6 +51,14 @@ impl AgentProvider for ResumeFirstTurnNative {
         None
     }
 
+    fn session_exists(&self, _: &str, session_id: &str) -> Option<bool> {
+        match session_id {
+            "owned" => Some(true),
+            "absent" => Some(false),
+            _ => None,
+        }
+    }
+
     fn session_starts_on_first_user_turn(&self) -> bool {
         true
     }
@@ -92,5 +100,26 @@ fn lazy_session_start_capability_native_js_parity() {
                 "{id} manifest declares lazy session start"
             );
         }
+    }
+}
+
+#[test]
+fn session_exists_native_js_parity_preserves_unknown() {
+    let manifest_json =
+        r#"{"id":"resume-first-turn-fixture","version":"0.1.0","displayName":"Presence Fixture"}"#;
+    let manifest = super::super::PluginManifest::from_json_str(manifest_json).unwrap();
+    let vm = super::super::PluginVm::from_source_with(
+        "resume-first-turn-fixture",
+        "module.exports.default = { sessionExists(cwd, id) { if (id === 'owned') return true; if (id === 'absent') return false; if (id === 'throw') throw new Error('unreadable'); if (id === 'invalid') return {}; return null; } };".into(),
+        Some(manifest_json.into()),
+    ).unwrap();
+    let js = JsProvider::new(manifest, std::sync::Arc::new(vm));
+    let native = ResumeFirstTurnNative;
+    for id in ["owned", "absent", "unreadable", "throw", "invalid"] {
+        assert_eq!(
+            js.session_exists("/own", id),
+            native.session_exists("/own", id),
+            "{id}"
+        );
     }
 }

@@ -10,6 +10,16 @@ pub(crate) fn restored_resume_session_id(
     session_id.filter(|_| resume_sessions_enabled)
 }
 
+pub(crate) fn restored_session_target(tab: &crate::multiplexer::types::Tab) -> Option<&str> {
+    tab.agent_session_id.as_deref().or_else(|| {
+        crate::multiplexer::types::latest_prior_session(&tab.prior_session_binding_nonces)
+    })
+}
+
+pub(crate) fn restored_session_resumable(presence: Option<bool>) -> bool {
+    presence != Some(false)
+}
+
 pub(crate) struct RestorableLaunchCapture<'a> {
     pub provider_id: &'a str,
     pub requested_model: Option<String>,
@@ -260,6 +270,31 @@ impl RestoredFreshLaunchInput {
 #[cfg(test)]
 mod tests {
     use super::{capture_tab_launch_parameters, RestorableLaunchCapture};
+
+    #[test]
+    fn restored_target_uses_only_newest_own_lineage() {
+        use crate::multiplexer::types::PriorBindingNonce;
+        let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.prior_session_binding_nonces.push(PriorBindingNonce {
+            session_id: Some("old-own-session".into()),
+            resume_target_session_id: None,
+            nonce: "old".into(),
+        });
+        assert_eq!(super::restored_session_target(tab), Some("old-own-session"));
+        tab.agent_session_id = Some("current-own-session".into());
+        assert_eq!(
+            super::restored_session_target(tab),
+            Some("current-own-session")
+        );
+        tab.agent_session_id = None;
+        tab.prior_session_binding_nonces.push(PriorBindingNonce {
+            session_id: None,
+            resume_target_session_id: None,
+            nonce: "unbound-fresh-launch".into(),
+        });
+        assert_eq!(super::restored_session_target(tab), None);
+    }
 
     #[test]
     fn capture_keeps_worker_identity_without_assignment() {

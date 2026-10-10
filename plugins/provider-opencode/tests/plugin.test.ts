@@ -235,13 +235,12 @@ console.log("\n--- restored session lookup follows the configured session store 
   const p = loadOpencodeWithHost(ocHost({
     platform: () => "windows",
     envGet: (name: string) => name === "OPENCODE_DB" ? dbPath : null,
-    fs: {
-      fileExists: (candidate: string) => candidate === dbPath,
-      sqliteQuery: (db: string, sql: string, params: unknown[]) => {
-        queries.push({ db, sql, params });
-        const sessionId = params[0];
-        return sessions.has(String(sessionId)) ? [{ id: sessionId }] : [];
-      },
+    fs: { fileExists: (candidate: string) => candidate === dbPath },
+    sqliteQueryAllJson: (db: string, sql: string, paramsJson: string) => {
+      const params = JSON.parse(paramsJson) as unknown[];
+      queries.push({ db, sql, params });
+      const sessionId = params[0];
+      return JSON.stringify(sessions.has(String(sessionId)) ? [{ id: sessionId }] : []);
     },
   }));
   eq(p.sessionExists("/work/proj", savedSession), true, "saved session exists in OPENCODE_DB");

@@ -46,16 +46,16 @@ fn session_ownership_uses_only_provider_declared_records() {
         "module.exports.default = {{ sessionFilePath(cwd, id) {{ return id === 'owned' ? {path_json} : null; }} }};"
     );
     let provider = load(MIN_MANIFEST, &script);
-    assert!(provider.session_exists("/work", "owned"));
-    assert!(!provider.session_exists("/work", "foreign"));
+    assert!(provider.session_exists("/work", "owned") == Some(true));
+    assert!(provider.session_exists("/work", "foreign") != Some(true));
     let undeclared = load(MIN_MANIFEST, "module.exports.default = {};");
-    assert!(!undeclared.session_exists("/work", "owned"));
+    assert!(undeclared.session_exists("/work", "owned") != Some(true));
     let indexed = load(
         MIN_MANIFEST,
         "module.exports.default = { sessionExists(cwd, id) { return id === 'indexed'; }, sessionFilePath() { return null; } };",
     );
-    assert!(indexed.session_exists("/work", "indexed"));
-    assert!(!indexed.session_exists("/work", "foreign"));
+    assert!(indexed.session_exists("/work", "indexed") == Some(true));
+    assert!(indexed.session_exists("/work", "foreign") != Some(true));
 }
 
 #[test]

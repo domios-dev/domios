@@ -1110,11 +1110,11 @@ mod tests {
         }
 
         assert!(
-            p.session_exists(&cwd, "session-real"),
+            p.session_exists(&cwd, "session-real") == Some(true),
             "existing JSONL should be detected"
         );
         assert!(
-            !p.session_exists(&cwd, "session-bogus-uuid-xxx"),
+            p.session_exists(&cwd, "session-bogus-uuid-xxx") != Some(true),
             "missing JSONL must report false"
         );
 

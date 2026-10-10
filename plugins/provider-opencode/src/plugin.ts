@@ -458,16 +458,16 @@ const plugin: PluginModule = {
     return this.checkIntegration!();
   },
 
-  sessionExists(_cwd: string, sessionId: string): boolean {
+  sessionExists(_cwd: string, sessionId: string): boolean | null {
     const db = opencodeDbPath();
-    if (!db || !host.fs.fileExists(db)) return false;
-    const rows = host.fs.sqliteQuery<{ id: string }>(
-      db,
-      "SELECT id FROM session WHERE id = ?1 LIMIT 1",
-      [sessionId]
-    );
-    return rows.some((row) => row.id === sessionId);
+    if (!db) return null;
+    const raw = host.sqliteQueryAllJson(db, "SELECT id FROM session WHERE id = ?1 LIMIT 1", JSON.stringify([sessionId]));
+    if (raw === null) return null;
+    const rows = safeJson(raw);
+    if (!Array.isArray(rows)) return null;
+    return rows.some((row) => row?.id === sessionId);
   },
+
 
   // opencode keeps every session in one sqlite log, so the source carries the
   // session id: the reader must not charge a sibling's tokens to this tab.

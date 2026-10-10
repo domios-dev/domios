@@ -383,8 +383,8 @@ fn sqlite_backed_session_capabilities() {
     let j = opencode();
 
     // sessionExists: present id → true, missing id → false.
-    assert!(j.session_exists("/work/proj", SES_ID));
-    assert!(!j.session_exists("/work/proj", "ses_missing"));
+    assert!(j.session_exists("/work/proj", SES_ID) == Some(true));
+    assert_eq!(j.session_exists("/work/proj", "ses_missing"), Some(false));
 
     // sessionCreatedMs → SystemTime at the recorded birth instant.
     let born = j
