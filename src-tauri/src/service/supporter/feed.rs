@@ -121,7 +121,10 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
             | "budget_exhausted" | "model_deadline" | "model_failed" | "adapter_disconnected" | "invalid_answer"),
     });
     if let Some(title) = value["tab_title"].as_str() {
-        entry["tab_title"] = json!(super::narrative::scrub(title, super::narrative::MAX_NAME_CHARS));
+        entry["tab_title"] = json!(super::narrative::scrub(
+            title,
+            super::narrative::MAX_NAME_CHARS
+        ));
     }
     entry["decision_point"] = json!(allowed(
         &value["decision_point"],

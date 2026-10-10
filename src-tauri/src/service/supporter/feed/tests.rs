@@ -297,5 +297,8 @@ fn supporter_feed_tab_title_is_scrubbed_capped_and_optional() {
     assert!(!title.contains("sk-private-subject"));
     assert!(title.chars().count() <= narrative::MAX_NAME_CHARS);
     value["tab_title"] = json!("supplied-title\nsecond-line");
-    assert_eq!(entry(&value).unwrap()["tab_title"], "supplied-title second-line");
+    assert_eq!(
+        entry(&value).unwrap()["tab_title"],
+        "supplied-title second-line"
+    );
 }
