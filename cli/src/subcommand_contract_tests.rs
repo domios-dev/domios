@@ -639,6 +639,8 @@ fn team_non_pair_actions_keep_meshrpc_path() {
             "team_1",
             "--provider",
             "provider-neutral",
+            "--brief-file",
+            "brief.json",
         ],
     ] {
         let command = Cli::try_parse_from(argv.clone())

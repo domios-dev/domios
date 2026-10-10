@@ -57,15 +57,21 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
             team_id,
             provider,
             model,
-        } => client.call_detailed(
-            "team.add_member",
-            Some(cartographer_params(
-                team_id,
-                provider,
-                model,
-                caller_tab_id.as_deref(),
-            )),
-        ),
+            brief_file,
+        } => crate::cmd::agent::resolve_spawn_task(None, brief_file, None, &mut std::io::stdin())
+            .map_err(SocketCallError::Transport)
+            .and_then(|brief| {
+                client.call_detailed(
+                    "team.add_member",
+                    Some(cartographer_params(
+                        team_id,
+                        provider,
+                        model,
+                        caller_tab_id.as_deref(),
+                        brief,
+                    )),
+                )
+            }),
         TeamAction::Pair { .. } => unreachable!("pair returns before the socket verbs"),
     };
     match result {
@@ -227,6 +233,7 @@ fn cartographer_params(
     provider: String,
     model: Option<String>,
     caller_tab_id: Option<&str>,
+    brief: Option<String>,
 ) -> Value {
     let mut params = json!({
         "team_id": team_id,
@@ -235,6 +242,9 @@ fn cartographer_params(
     });
     if let Some(model) = model {
         params["model"] = json!(model);
+    }
+    if let Some(brief) = brief {
+        params["brief"] = json!(brief);
     }
     if let Some(caller_tab_id) = caller_tab_id.filter(|tab_id| !tab_id.trim().is_empty()) {
         params["caller_tab_id"] = json!(caller_tab_id);
@@ -494,6 +504,7 @@ mod tests {
                 "provider-neutral".into(),
                 Some("model-1".into()),
                 Some("manager-tab"),
+                Some("opaque-owner-brief\n`$()`".into()),
             ),
             json!({
                 "team_id": "team_a",
@@ -501,6 +512,7 @@ mod tests {
                 "role": "cartographer",
                 "model": "model-1",
                 "caller_tab_id": "manager-tab",
+                "brief": "opaque-owner-brief\n`$()`",
             })
         );
     }
