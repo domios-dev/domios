@@ -62,7 +62,7 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
 const bindingPluginSource = opencodeBindingPluginSource();
 assert(isCurrentOpencodeBindingPluginSource(bindingPluginSource), "generated binding plugin is current");
 const previousBindingPluginSource = bindingPluginSource.replace(
-  "codeterm-opencode-session-binding-v7",
+  "codeterm-opencode-session-binding-v8",
   "codeterm-opencode-session-binding-v3",
 );
 assert(ownsOpencodeBindingPluginSource(previousBindingPluginSource), "older CodeTerm binding versions remain owned");
@@ -849,7 +849,7 @@ console.log("\n--- captured full-TUI resume screen matches provider readiness fi
   assert(foreignFile.checkIntegration().plugin_file_owned === false, "foreign plugin files are not refreshable as ours");
   const cur = loadOpencodeWithHost(
     withBody(
-      "// codeterm-opencode-session-binding-v7\n" +
+      "// codeterm-opencode-session-binding-v8\n" +
       "const base = process.env.CODETERM_API_URL;\n" +
       "const token = process.env.CODETERM_API_TOKEN;\n" +
       "const nonce = process.env.CODETERM_SESSION_BINDING_NONCE;\n" +
