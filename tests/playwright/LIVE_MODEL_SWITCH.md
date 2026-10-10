@@ -39,6 +39,10 @@ and a different primary model, or another catalogue model. No model
 ids are hardcoded. Restart/resume modes fail with their explicit descriptor
 value; this acceptance path requires live or next-turn switching.
 
+The busy payload requests 120 numbered sentences to limit provider time and quota.
+Apply must still happen while the exact marked turn is working; payload length
+and elapsed time never substitute for that observation or completed-record proof.
+
 Each matrix creates a provisioned `SwitchQA-*` workspace and one fresh tab per
 provider through `evals/_lib/lib.sh` and `dc`. Composer sends and status-line
 Apply use the real UI. All selectors are scoped to the created tab. The suite
