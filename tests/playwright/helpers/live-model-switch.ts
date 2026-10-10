@@ -12,7 +12,7 @@ const execute = promisify(execFile);
 export async function deliveryLog(tabId: string) {
   const logPath = process.env.PW_SWITCH_DEV_LOG ?? path.join(homedir(), ".codeterm-dev", "logs", "codeterm.log");
   const result = await execute("rg", ["--fixed-strings", tabId, logPath], { timeout: 15_000, maxBuffer: 8 * 1024 * 1024 });
-  return { logPath, tabId, lines: result.stdout.split(/\r?\n/).filter(line => /chat-send|delivery-timeline|\[agent-model\/timing\]/.test(line)) };
+  return { logPath, tabId, lines: result.stdout.split(/\r?\n/).filter(line => /chat-send|delivery-timeline|\[agent-model\/(timing|frame|completion)\]/.test(line)) };
 }
 export type Model = { id: string; display_name: string; primary?: boolean; reasoning_efforts?: { id: string }[] };
 export type Descriptor = { id: string; default_model: string; model_switch: string; available_models: Model[]; reasoning_efforts: { id: string }[]; supports_permission_bypass?: boolean };
