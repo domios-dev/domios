@@ -141,6 +141,7 @@ fn target() -> CommandTarget {
         binding_nonce: "nonce".into(),
         cwd: None,
         model: "m[1]".into(),
+        readiness: None,
         display_name: "Display".into(),
     }
 }
@@ -299,6 +300,7 @@ fn invalid_prompt_declarations_refuse_before_injection() {
 fn effort_only_plan_sends_only_effort_and_preserves_model_identity() {
     let commands = crate::agent::provider::ModelSwitchCommands {
         turn_completion: None,
+        ready_input_regex: None,
         confirmation_source: Default::default(),
         model: ModelSwitchCommand {
             command: "/choose {model}".into(),
