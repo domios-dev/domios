@@ -184,6 +184,7 @@
     "stopKey": "\u001b",
     "modelSwitch": "live_command",
     "modelSwitchCommands": {
+      "readyInputRegex": "^\\s*❯\\s*$",
       "transcript": {
         "recordType": "user",
         "contentPath": [

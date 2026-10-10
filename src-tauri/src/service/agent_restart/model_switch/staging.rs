@@ -10,6 +10,8 @@ mod completion_records;
 pub(in crate::service::agent_restart) struct StagedSwitch {
     pub(super) request: SwitchRequest,
     pub(super) idle: Sender<()>,
+    claimed: bool,
+    warned: bool,
 }
 
 #[derive(Default)]
@@ -62,10 +64,16 @@ impl PendingSwitches {
         self.signal_idle(tab);
     }
     fn replace(&mut self, request: SwitchRequest, idle: Sender<()>) {
-        if let Some(previous) = self
-            .0
-            .insert(request.tab_id.clone(), StagedSwitch { request, idle })
-        {
+        self.signal_idle(&request.tab_id);
+        if let Some(previous) = self.0.insert(
+            request.tab_id.clone(),
+            StagedSwitch {
+                request,
+                idle,
+                claimed: false,
+                warned: false,
+            },
+        ) {
             let _ = previous.idle.send(());
         }
     }
@@ -79,6 +87,7 @@ impl PendingSwitches {
     }
 
     fn cancel(&mut self, tab_id: &str) {
+        self.signal_idle(tab_id);
         if let Some(previous) = self.0.remove(tab_id) {
             let _ = previous.idle.send(());
         }
@@ -108,15 +117,44 @@ impl PendingSwitches {
     }
 
     fn claim(&mut self, request: &SwitchRequest) -> bool {
-        if !self
+        let Some(staged) = self
+            .0
+            .get_mut(&request.tab_id)
+            .filter(|staged| staged.request.id == request.id && !staged.claimed)
+        else {
+            return false;
+        };
+        staged.claimed = true;
+        true
+    }
+
+    fn finish(&mut self, request: &SwitchRequest) {
+        if self
             .0
             .get(&request.tab_id)
-            .is_some_and(|staged| staged.request.id == request.id)
+            .is_some_and(|staged| staged.request.id == request.id && staged.claimed)
         {
-            return false;
+            self.0.remove(&request.tab_id);
         }
-        self.0.remove(&request.tab_id);
+    }
+
+    fn release(&mut self, request: &SwitchRequest) -> bool {
+        let Some(staged) = self
+            .0
+            .get_mut(&request.tab_id)
+            .filter(|staged| staged.request.id == request.id && staged.claimed)
+        else {
+            return false;
+        };
+        staged.claimed = false;
         true
+    }
+
+    fn warn_once(&mut self, request: &SwitchRequest) -> bool {
+        self.0
+            .get_mut(&request.tab_id)
+            .filter(|staged| staged.request.id == request.id)
+            .is_none_or(|staged| !std::mem::replace(&mut staged.warned, true))
     }
 }
 
@@ -378,6 +416,7 @@ impl ServiceContext {
             .name("model-switch-idle".into())
             .spawn(move || {
                 let _watcher = watcher;
+                let frames = StagedFrames::new(&svc, &worker_request.pty_id);
                 loop {
                     let current = svc
                         .restart_tracker
@@ -434,16 +473,30 @@ impl ServiceContext {
                     if idle
                         && worker_request.require_current(&svc).is_ok()
                         && (!completed
-                            || !staged_tab_idle(
-                                &svc,
-                                &worker_request.tab_id,
-                                worker_request.deadline,
-                            ))
+                            || (!svc.agent_registry.with_provider(&worker_request.provider, |provider| {
+                                worker_request.mechanism == ModelSwitchMode::LiveCommand
+                                    && provider.model_switch_commands().is_some_and(|commands| commands.ready_input_regex.is_some())
+                            }).unwrap_or(false)
+                                && !staged_tab_idle(&svc, &worker_request.tab_id, worker_request.deadline)))
                     {
                         continue;
                     }
-                    svc.settle_staged_model_switch(worker_request, idle);
-                    break;
+                    let generation = frames.signal.generation();
+                    if svc.settle_staged_model_switch(worker_request.clone(), idle) {
+                        break;
+                    }
+                    {
+                        let mut tracker = svc.restart_tracker.lock();
+                        if !tracker.staged_models.0.get(&worker_request.tab_id)
+                            .is_some_and(|staged| staged.request.id == worker_request.id) { break; }
+                        tracker.staged_models.observe_command_idle(&worker_request.tab_id, &frames.signal);
+                    }
+                    log::info!("[agent-model/completion] tab={} request={} phase=staged_retry_wait", worker_request.tab_id, worker_request.id);
+                    if !frames.signal.wait_after(generation, worker_request.deadline.saturating_duration_since(Instant::now())) {
+                        svc.settle_staged_model_switch(worker_request, false);
+                        break;
+                    }
+                    let _ = record_wake.send(());
                 }
             })
         {
@@ -476,7 +529,7 @@ impl ServiceContext {
         })
     }
 
-    fn settle_staged_model_switch(&self, request: SwitchRequest, idle: bool) {
+    fn settle_staged_model_switch(&self, request: SwitchRequest, idle: bool) -> bool {
         log::info!(
             "[agent-model/completion] tab={} request={} phase=staged_claim_begin idle={} at_ms={}",
             request.tab_id,
@@ -488,7 +541,7 @@ impl ServiceContext {
             let mut tracker = self.restart_tracker.lock();
             if !tracker.staged_models.claim(&request) {
                 log::info!("[agent-model/completion] tab={} request={} phase=staged_claim refused=true at_ms={}", request.tab_id, request.id, crate::service::pty_frame_timing::unix_ms());
-                return;
+                return true;
             }
         }
         log::info!(
@@ -513,9 +566,17 @@ impl ServiceContext {
                 )
             })
         };
-        {
+        let retry = matches!(result, Err(ModelSwitchError::InputNotReady(_)))
+            && request.require_current(self).is_ok();
+        let warn = {
             let mut mux = self.mux.write();
-            let tracker = self.restart_tracker.lock();
+            let mut tracker = self.restart_tracker.lock();
+            let warn = tracker.staged_models.warn_once(&request);
+            if retry {
+                tracker.staged_models.release(&request);
+            } else {
+                tracker.staged_models.finish(&request);
+            }
             if let Some(tab) = mux.get_tab_mut(&request.tab_id) {
                 finish_staged_selection(
                     &request,
@@ -524,25 +585,51 @@ impl ServiceContext {
                     result.as_ref().ok(),
                 );
             }
-        }
+            warn
+        };
         if let Err(error) = result {
-            log::warn!(
-                "[agent-model/completion] tab={} request={} phase=staged_refused error={error}",
-                request.tab_id,
-                request.id
-            );
-            self.create_notification_ext(
-                "Model switch refused".into(),
-                Some(format!("Tab {}: {error}", request.tab_id)),
-                Some("warning"),
-                None,
-                Some(false),
-                Default::default(),
-                Default::default(),
-                None,
-            );
+            log::warn!("[agent-model/completion] tab={} request={} phase=staged_refused retry={} error={error}", request.tab_id, request.id, retry);
+            if warn {
+                self.create_notification_ext(
+                    "Model switch pending".into(),
+                    Some(format!("Tab {}: {error}", request.tab_id)),
+                    Some("warning"),
+                    None,
+                    Some(false),
+                    Default::default(),
+                    Default::default(),
+                    None,
+                );
+            }
         }
         self.emit_state_changed();
+        !retry
+    }
+}
+
+struct StagedFrames {
+    svc: ServiceContext,
+    pty_id: String,
+    signal: std::sync::Arc<crate::pty::screen_state::ScreenChangeSignal>,
+}
+
+impl StagedFrames {
+    fn new(svc: &ServiceContext, pty_id: &str) -> Self {
+        let signal = svc.screen_state.lock().subscribe_screen_changes(pty_id);
+        Self {
+            svc: svc.clone(),
+            pty_id: pty_id.into(),
+            signal,
+        }
+    }
+}
+
+impl Drop for StagedFrames {
+    fn drop(&mut self) {
+        self.svc
+            .screen_state
+            .lock()
+            .unsubscribe_screen_changes(&self.pty_id, &self.signal);
     }
 }
 

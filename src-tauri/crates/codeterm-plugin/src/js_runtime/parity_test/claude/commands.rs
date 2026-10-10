@@ -143,6 +143,16 @@ fn in_tab_command_surface_native_js_parity() {
         crate::provider::ModelSwitchMode::LiveCommand
     );
     assert_eq!(n.model_switch_commands(), j.model_switch_commands());
+    let frame = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../plugins/provider-claude/tests/fixtures/model-switch/confirmed-ready-frame.txt"
+    ));
+    for commands in [n.model_switch_commands(), j.model_switch_commands()] {
+        let declared = commands.unwrap().ready_input_regex.unwrap();
+        let pattern = regex::Regex::new(&declared).unwrap();
+        let row = frame.lines().find(|row| pattern.is_match(row)).unwrap();
+        assert!(!pattern.is_match(&format!("{row}opaque-user-input")));
+    }
 }
 
 #[test]

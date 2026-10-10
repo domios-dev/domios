@@ -11,6 +11,7 @@ const MAX_CONFIRMATION_BYTES: u64 = 1024 * 1024;
 
 mod picker;
 mod prompt;
+mod readiness;
 mod sequence;
 mod session_identity;
 mod transport;
@@ -34,6 +35,7 @@ struct CommandTarget {
     cwd: Option<String>,
     model: String,
     display_name: String,
+    readiness: Option<std::sync::Arc<readiness::CommandReadiness>>,
 }
 
 impl CommandTarget {
@@ -231,12 +233,47 @@ fn execute_command(
 
 impl ServiceContext {
     fn command_tab_idle(&self, target: &CommandTarget) -> bool {
-        let mux = self.mux.read();
-        mux.get_tab(&target.tab_id).is_some_and(|tab| {
-            target.matches(tab)
-                && tab.pending_prompt.is_none()
-                && self.resolved_tab_status(tab) == Some(codeterm_types::pty::TabStatus::Idle)
-        })
+        self.command_input_ready(target).0
+    }
+
+    fn command_input_ready(&self, target: &CommandTarget) -> (bool, String) {
+        let (current, status) = {
+            let mux = self.mux.read();
+            let Some(tab) = mux.get_tab(&target.tab_id) else {
+                return (false, "missing".into());
+            };
+            (
+                target.matches(tab) && tab.pending_prompt.is_none(),
+                self.resolved_tab_status(tab),
+            )
+        };
+        let observed = format!("{status:?}");
+        if !current {
+            return (false, observed);
+        }
+        let frame = target.readiness.as_ref().and_then(|_| {
+            let screens = self.screen_state.lock();
+            screens
+                .get_screen_rows(&target.pty_id)
+                .map(|rows| rows.join("\n"))
+                .zip(screens.composer_input_state(&target.pty_id))
+        });
+        let no_dialog = frame.as_ref().is_none_or(|(screen, _)| {
+            self.agent_registry
+                .with_provider(&target.provider, |provider| {
+                    provider.parse_prompt(screen).is_none()
+                })
+                .unwrap_or(false)
+        });
+        let ready = no_dialog
+            && readiness::input_ready(
+                target.readiness.as_deref(),
+                frame
+                    .as_ref()
+                    .map(|(screen, input)| (screen.as_str(), input)),
+                status == Some(codeterm_types::pty::TabStatus::Idle),
+            );
+        (ready, observed)
     }
 
     pub(super) fn switch_model_by_command(
@@ -245,6 +282,7 @@ impl ServiceContext {
         session_id: &str,
         model: &str,
         effort: Option<&str>,
+        after_turn: bool,
     ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
         let _claim = {
             let mut tracker = self.restart_tracker.lock();
@@ -307,7 +345,7 @@ impl ServiceContext {
             confirmation_pattern(&command.confirmation, model, &display_name, Some(effort))
                 .map_err(ModelSwitchError::LiveCommandFailed)?;
         }
-        let target = CommandTarget {
+        let mut target = CommandTarget {
             tab_id: snap.tab_id.clone(),
             pty_id: snap.pty_id.clone(),
             provider: snap.provider.clone(),
@@ -316,6 +354,7 @@ impl ServiceContext {
             cwd: snap.cwd.clone(),
             model: model.to_owned(),
             display_name,
+            readiness: None,
         };
         if !target.current(self) {
             return Err(ModelSwitchError::LiveCommandFailed(
@@ -393,17 +432,29 @@ impl ServiceContext {
             ));
         }
         let deadline = Instant::now() + Duration::from_secs(MODEL_OBSERVE_TIMEOUT_SECS);
+        let readiness = readiness::CommandReadiness::from_declaration(&commands, &target)?;
         let sequence =
             sequence::CommandSequence::new(self, &target, deadline, &commands.transcript);
+        if after_turn {
+            target.readiness = readiness.clone();
+            sequence.wait_for_idle(self, &target, true)?;
+        }
         for (index, (command, command_effort)) in
             planned_commands(&commands, model_changed, effort, current_effort.as_deref())
                 .into_iter()
                 .enumerate()
         {
             if index > 0 {
-                sequence.wait_for_idle(self, &target)?;
+                target.readiness = readiness.clone();
+                sequence.wait_for_idle(self, &target, false)?;
             }
-            self.run_declared_model_command(&target, command_effort, command, &commands, deadline)?;
+            self.run_declared_model_command(&target, command_effort, command, &commands, deadline)
+                .map_err(|error| match error {
+                    ModelSwitchError::InputNotReady(reason) if index > 0 => {
+                        ModelSwitchError::LiveCommandFailed(reason)
+                    }
+                    error => error,
+                })?;
             if !target.current(self) {
                 return Err(ModelSwitchError::LiveCommandFailed(
                     "the command session identity changed".into(),
@@ -580,12 +631,15 @@ impl ServiceContext {
         });
         let mut prompt_error = None;
         let injected = std::cell::Cell::new(false);
+        let not_ready = std::cell::Cell::new(false);
         let result = execute_command(
             || {
-                binding_current()
+                let ready = binding_current()
                     && self.command_tab_idle(target)
                     && command_prompt_absent(self, target, prompt_pattern.as_ref())
-                    && picker_absent
+                    && picker_absent;
+                not_ready.set(!ready);
+                ready
             },
             || {
                 let _claim = crate::service::pty_io::submit_transaction::claim_submit_cycle(pty_id);
@@ -752,7 +806,13 @@ impl ServiceContext {
                 self.pty.lock().rearm_guarded_input(pty_id)
             },
         )
-        .map_err(ModelSwitchError::LiveCommandFailed)
+        .map_err(|error| {
+            if not_ready.get() && !injected.get() {
+                ModelSwitchError::InputNotReady(error)
+            } else {
+                ModelSwitchError::LiveCommandFailed(error)
+            }
+        })
     }
 }
 
