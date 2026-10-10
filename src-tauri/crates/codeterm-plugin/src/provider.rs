@@ -64,6 +64,15 @@ pub struct PermissionHookCapability {
 
 pub use crate::directory_trust::DirectoryTrustPromptResponse;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", content = "reason", rename_all = "snake_case")]
+pub enum PreTrustOutcome {
+    AlreadyTrusted,
+    Granted,
+    Skipped(String),
+    Failed(String),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DirectoryTrustState {

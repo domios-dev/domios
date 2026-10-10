@@ -1,3 +1,4 @@
+import { claudeTrustRecord } from "./preTrust";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
 // plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
 import type {
@@ -312,6 +313,14 @@ const plugin: PluginModule = {
 
   buildPromptResponse(optionIndex: number, screen?: string): string[] {
     return buildClaudePromptResponse(optionIndex, String(screen || ""));
+  },
+
+  preTrustDirectory(path: string) {
+    return claudeTrustRecord(host, path, true);
+  },
+
+  isDirectoryTrusted(path: string): boolean {
+    return claudeTrustRecord(host, path, false).status === "already_trusted";
   },
 
   directoryTrustPromptResponse(screen: string): string[] | null {
