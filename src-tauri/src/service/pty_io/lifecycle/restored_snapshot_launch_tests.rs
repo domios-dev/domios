@@ -128,7 +128,6 @@ fn restored_materialization_preserves_worker_identity_without_assignment_replay(
             Some("fixture-session"),
             Some("fixture-cwd"),
             true,
-            false,
             || Ok(historical_task.clone()),
             |_, _| panic!("restored fixture must not fail"),
             |launch, restored_task| {
@@ -212,7 +211,6 @@ fn restored_team_member_resume_carries_bypass_only_when_granted() {
             Some("fixture-session"),
             Some("fixture-cwd"),
             true,
-            false,
             || Ok(None),
             |_, _| panic!("restored fixture must not fail"),
             |launch, restored_task| {

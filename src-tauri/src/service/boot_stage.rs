@@ -191,7 +191,7 @@ fn apply_late_readiness(tab: &mut Tab, evidence: &crate::service::ProviderSessio
     true
 }
 
-fn commit_boot_stage_transition(
+pub(crate) fn commit_boot_stage_transition(
     mux: &crate::MuxState,
     tab_id: &str,
     transition: impl FnOnce(&mut Tab) -> bool,
