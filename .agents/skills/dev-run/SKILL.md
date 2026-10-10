@@ -234,6 +234,15 @@ well as the immediate environment before declaring recovery complete.
   Select that fixture on the intended peer before retrying in a fresh evidence
   directory; retain the failed run.
 
+- **2026-10-10: web capture cannot click an existing fixture row** — its
+  workspace is inactive, so the row is hidden. Copy the fixture inventory's
+  `workspace_id` into the shared capture manifest's machine or fixture entry.
+  The shared selector activates that workspace through its visible Select
+  workspace UI control, observes the selected state, then clicks the visible
+  row. Missing inventory or hidden controls fail explicitly; never force-click.
+  Verify the selected workspace and exact fixture before retrying in a fresh
+  evidence directory, preserving the failed run.
+
 ### macOS
 
 - **`build.sh dev` hangs during link, then SIGKILL** — usually not enough RAM (linker eats a lot). Close other heavy apps, retry. If it repeats, `./build.sh clean && ./build.sh dev`.
@@ -276,4 +285,4 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

@@ -3,6 +3,7 @@
   "mac": {
     "origin": "http://100.96.252.97:7697",
     "peerId": "REPLACE_EXACT_PEER_ID",
+    "workspace_id": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
     "tokenSecret": "REPLACE_MAC_SECRET_STORE_ENTRY_NAME",
     "tabs": [
       {
@@ -71,6 +72,7 @@
   "windows": {
     "origin": "http://100.84.159.37:7686",
     "peerId": "REPLACE_EXACT_PEER_ID",
+    "workspace_id": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
     "tokenSecret": "REPLACE_MAC_SECRET_STORE_ENTRY_NAME",
     "tabs": [
       {

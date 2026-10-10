@@ -5,6 +5,7 @@ import {validateManifest,validateOutput} from './model.mjs';
 import {gatewayToken} from './secrets.mjs';
 import * as rawTerminal from './terminal-capture.mjs';
 import {readSelectedTab} from './provenance.mjs';
+import {activateAndSelectFixture,fixtureWorkspaceId} from './workspace-selection.mjs';
 const rc = '/Users/kandrey/Developer/codeterm-worktrees/rc-mac';
 const require = createRequire(path.join(rc, 'package.json'));
 export const STEP_MS = 30_000;
@@ -60,9 +61,12 @@ export async function switchPeer(page, peerIdOrNull) {
   delete page.__b2SelectedTabId;
   return receipt;
 }
-export async function selectTab(page, tabId, {mode = 'chat'} = {}) {
-  const tab = page.locator(`[data-testid="tab-item"][data-tab-id="${tabId}"]`);
-  await tab.click();
+export async function selectTab(page, tabId, {mode = 'chat', workspaceId} = {}) {
+  if (!workspaceId) {
+    const peerId = await page.evaluate(() => localStorage.getItem(`codeterm-web-relay-peer:${location.origin}`));
+    workspaceId = fixtureWorkspaceId(page.__b2Manifest, page.__b2Gateway, peerId, tabId);
+  }
+  const tab = await activateAndSelectFixture(page, {workspaceId,tabId}, waitDom);
   await waitDom(page, {selector:`[data-testid="terminal-tab"][data-tab-id="${tabId}"]`});
   const toggle = page.locator(`[data-testid="tab-mode-switch"][data-tab-id="${tabId}"] [data-value="${mode}"]`);
   if (await toggle.count()) await toggle.click();
@@ -147,6 +151,8 @@ export async function createHarness(manifest, outDir) {
     const evaluate = page.evaluate.bind(page);
     page.evaluate = (...args) => deadline(evaluate(...args), 'Browser protocol evaluate');
     page.__b2Out = outDir;
+    page.__b2Manifest = manifest;
+    page.__b2Gateway = machineKey;
     await page.goto(machine.origin, {waitUntil:'domcontentloaded'});
     await page.getByTestId('peer-picker-button').waitFor({state:'visible'});
     return {page,context,provenance:{gateway:machineKey,origin:machine.origin}};
