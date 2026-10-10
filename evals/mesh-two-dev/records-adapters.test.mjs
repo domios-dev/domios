@@ -22,8 +22,8 @@ test('Claude sidechains and OpenCode parts do not inflate chat turn counts', () 
   assert.equal(summary.models[0].model, 'cheap');
   assert.throws(() => summarizeRecords([...rows, rows[1]], { provider: 'opencode', tabId: 't', sessionId: 'own' }), /Duplicate/);
 });
-test('unknown providers require explicit record schema; no guessed Grok evidence', () => {
-  const binding = { provider: 'grok', tabId: 't', sessionId: 'own' }, rows = [{ sid: 'own', role: 'user', id: 'u', model: 'cheap' }];
+test('unknown providers require explicit record schema', () => {
+  const binding = { provider: 'fixture-provider', tabId: 't', sessionId: 'own' }, rows = [{ sid: 'own', role: 'user', id: 'u', model: 'cheap' }];
   assert.throws(() => summarizeRecords(rows, binding), /schema/);
   assert.equal(summarizeRecords(rows, binding, { sessionPath: ['sid'], rolePath: ['role'], idPath: ['id'], modelPath: ['model'] }).turns.length, 1);
 });
