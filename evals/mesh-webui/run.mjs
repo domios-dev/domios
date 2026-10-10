@@ -3,9 +3,10 @@ import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHarness,switchPeer,selectTab,capture,observe,activity,waitDom,deadline,captureTerminalView} from './browser.mjs';
-import {validateManifest,validateOutput,cheap,claim,matrix,convergence} from './model.mjs';
+import {validateManifest,validateOutput,cheap,claim,matrix,convergence,checks} from './model.mjs';
 import {snapshot} from './records.mjs';
-const pad = path.dirname(fileURLToPath(import.meta.url));
+const pad = process.env.CODETERM_PAD_DIR;
+assert.ok(pad, 'B2 authored provider prompts require the calling agent pad');
 const manifest = validateManifest(JSON.parse(await readFile(process.argv[2],'utf8')));
 const out = validateOutput(process.argv[3]);
 const directionFilter=process.env.B2_DIRECTION;
@@ -20,6 +21,8 @@ async function persist(name,value) {
   return name;
 }
 async function resolvedId(page, tab, targetPeer) {
+  assert.notEqual(tab.doNotTouch, true, 'Protected fixture cannot be selected');
+  await selectTab(page,tab.tabId,{workspaceId:tab.workspaceId});
   const candidates = [tab.tabId,`mesh:${targetPeer}/${tab.tabId}`];
   const ids = await page.locator('[data-testid="tab-item"]').evaluateAll(nodes=>nodes.map(e=>e.getAttribute('data-tab-id')));
   const matches = candidates.filter(id=>ids.includes(id));
@@ -171,7 +174,7 @@ async function provider(page,home,direction,machine,tab) {
     assert.ok(delta.some(r=>r.cancelled === true),'Own-session cancellation record missing');
     return {providerRecord:after.evidence};
   });
-  await check(page,direction,tab,'model-switch',async()=>{
+  if (!manifest.notInScopeChecks?.includes('model-switch')) await check(page,direction,tab,'model-switch',async()=>{
     assert.ok(tab.switchModel&&tab.switchModel!==actual,'Distinct permitted cheap model required');
     assert.ok(cheap(tab.provider,tab.switchModel));
     await page.getByTestId('status-model-trigger').click();
@@ -229,20 +232,45 @@ async function runDirection(gateway,machine,direction) {
   for(const terminal of manifest[machine].terminals ?? []) {
     await captureTerminalView(page,await resolvedId(page,terminal,manifest[machine].peerId),`${direction}-terminal-${terminal.tabId}`);
   }
-  for(const tab of manifest[gateway].tabs.filter(t=>t.provider===providerFilter)) {
+  for(const tab of manifest[machine].tabs.filter(t=>t.provider===providerFilter && !t.doNotTouch)) {
     await check(page,direction,tab,'gateway-return',async()=>{
       await switchPeer(page,null);assert.equal(new URL(page.url()).origin,manifest[gateway].origin);
-      await selectTab(page,tab.tabId);return {gateway,origin:manifest[gateway].origin};
+      const returned = manifest[gateway].tabs.find(t=>t.provider===providerFilter && !t.doNotTouch)
+        ?? manifest[gateway].shells?.find(t=>!t.doNotTouch);
+      assert.ok(returned,'Gateway needs an authorized return fixture');
+      await selectTab(page,returned.tabId,{mode:returned.provider ? 'chat' : 'terminal',workspaceId:returned.workspaceId});
+      return {gateway,origin:manifest[gateway].origin,returnedTabId:returned.tabId};
     });
   }
 }
+async function policyReceipt(tab, name, status, reason) {
+  await mkdir(out,{recursive:true});
+  const receipt={provider:tab.provider,check:name,view:'web UI',direction:directionFilter,status,
+    tab_id:tab.tabId,session_id:tab.sessionId,expected:'Only permitted in-scope fixtures receive actions',
+    observed:reason,steps:[],owner_task:status==='NOT_IN_SCOPE' ? 'task_m2rx0n' : 'task_n6bp2e'};
+  receipt.evidence=await persist(`${++serial}-policy-${name}.json`,receipt);
+  rows.push(receipt);
+  await writeFile(path.join(out,'receipts.json'),JSON.stringify(rows,null,2));
+}
 try {
-  harness=await createHarness(manifest,out);
-  const run=async()=>{
-    if(directionFilter==='mac-web-to-windows') await runDirection('mac','windows',directionFilter);
-    else await runDirection('windows','mac',directionFilter);
-  };
-  await deadline(run(),'Entire B2 live run',550_000);
+  const machine=directionFilter==='mac-web-to-windows' ? 'windows' : 'mac';
+  const target=manifest[machine].tabs.find(tab=>tab.provider===providerFilter);
+  assert.ok(target,'Selected provider fixture is required');
+  for(const name of checks.filter(name=>manifest.notInScopeChecks?.includes(name))) {
+    await policyReceipt(target,name,'NOT_IN_SCOPE','Owner delegated model-switch to task_m2rx0n');
+  }
+  if(target.doNotTouch) {
+    for(const name of checks.filter(name=>!manifest.notInScopeChecks?.includes(name))) {
+      await policyReceipt(target,name,'BLOCKED','Windows OpenCode fixture is DO_NOT_TOUCH/task_n6bp2e; no browser, focus, native read or input attempted');
+    }
+  } else {
+    harness=await createHarness(manifest,out);
+    const run=async()=>{
+      if(directionFilter==='mac-web-to-windows') await runDirection('mac','windows',directionFilter);
+      else await runDirection('windows','mac',directionFilter);
+    };
+    await deadline(run(),'Entire B2 live run',550_000);
+  }
 } catch(error) {
   await mkdir(out,{recursive:true});
   await persist('run-failure.json',{status:'FAIL',error:String(error.stack??error),rows});
