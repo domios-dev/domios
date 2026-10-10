@@ -1,0 +1,4 @@
+[
+  { "instance": "aiderqa", "port": 7697 },
+  { "instance": "endureqa", "port": 7699 }
+]

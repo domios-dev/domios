@@ -1,16 +1,18 @@
 # macOS named-instance trial
 
-This lane also supports the authorized aiderqa instance on port 7697. Keep the
+This harness accepts exactly aiderqa:7697 and endureqa:7699. Default DEV 7686,
+PROD 7685, unknown names, and mismatched pairs are refused. Keep the
 application checkout on the Orchestrator-approved scored build while running
 the trial. Start only that DEV:
 
 ```bash
-CODETERM_INSTANCE=aiderqa CODETERM_API_PORT=7697 ./build.sh dev --wait
-CODETERM_INSTANCE=aiderqa CODETERM_API_PORT=7697 bash evals/restart-endurance/run.sh \
-  --out target-check/evals/endure-mac-trial-1 --notice-hook /absolute/path/to/notice.sh
+CODETERM_INSTANCE=endureqa CODETERM_API_PORT=7699 ./build.sh dev --wait
+CODETERM_INSTANCE=endureqa CODETERM_API_PORT=7699 bash evals/restart-endurance/run.sh \
+  --out target-check/evals/endure-mac-scored-3 --notice-hook /absolute/path/to/notice.sh
 ```
 
-Named trials create only fresh/used provider fixtures in Endure. They require
+Named trials create only fresh/used provider fixtures in the selected instance.
+Use ENDURE_WORKSPACE_NAME=EndureScored3 for the next trial. They require
 Claude, Codex and OpenCode, use deepseek/deepseek-flash for OpenCode, and include
 Grok when installed. They leave General siblings and setup alone. Empty fresh
 sessions may acquire a new session id at the first restart; continuity becomes
@@ -54,13 +56,13 @@ model_switches to results.json. Node with node:sqlite support is required.
 The external notice hook uses the assigned Orchestrator's return route. When the
 Orchestrator requests no progress messages, retain the notice locally instead.
 Keep all authored messages in the caller's AgentPad. Stop only
-aiderqa after evidence collection; retain the worktree and trial artifacts.
+the selected named instance after evidence collection; retain the worktree and trial artifacts.
 
 # Restart endurance (live LLM eval)
 
 Run only in the canonical checkout, in one Team-bound QA utility shell, under
 the Orchestrator's serialized QA authority. This spends provider tokens and
-restarts the shared DEV instance three times. Production port 7685 is never a
+restarts the selected named DEV instance three times. Production port 7685 is never a
 restart target. No application source or global configuration is changed.
 
 ```bash
@@ -82,8 +84,9 @@ missing fixtures with repair-setup. The manifest records the effective overrides
 
 ## Preconditions and coordination
 
-DEV 7686 must already be healthy, built from canonical HEAD, and have a completed
-General Agent setup. If necessary, the Orchestrator first runs the authorized
+The selected allowlisted named DEV must already be healthy and built from
+canonical HEAD. General Agent setup is not required. If necessary, the
+Orchestrator first runs the authorized
 `./build.sh dev --wait --wait-build` in its Team-bound utility shell. The eval
 checks health identity and build SHA before fixture creation and each round.
 
