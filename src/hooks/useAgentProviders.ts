@@ -30,7 +30,8 @@ export function visibleAgentProviders(
 }
 
 export function agentProvidersFromResponse(result: unknown): ProviderDescriptor[] {
-  return Array.isArray(result) ? (result as ProviderDescriptor[]) : [];
+  if (!Array.isArray(result)) throw new Error("Invalid agent provider catalog response");
+  return result as ProviderDescriptor[];
 }
 
 export async function fetchAgentProviders(): Promise<ProviderDescriptor[]> {
