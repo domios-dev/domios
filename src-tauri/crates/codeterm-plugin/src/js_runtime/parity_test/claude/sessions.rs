@@ -10,7 +10,7 @@ fn completed_numbered_answer_events_native_js_parity() {
         return;
     }
     let (native, js) = pair();
-    let captured = include_str!("../../../../../../../../plugins/provider-claude/tests/fixtures/tab-state/completed-numbered-answer-dev67.txt");
+    let captured = include_str!("../../../../../../../plugins/provider-claude/tests/fixtures/tab-state/completed-numbered-answer-dev67.txt");
     for (screen, permission) in [
         (captured, false),
         (

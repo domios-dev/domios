@@ -246,8 +246,9 @@ Next-turn hooks read `GET /api/tabs/{id}/turn-controls?session_id=...` with the
 instance token and `x-codeterm-binding-nonce`. The exact-session response contains
 `model` and `effort`, preferring a staged selection over resolved launch values.
 It does not change actual identity or confirm a switch. Binding and controls
-requests need independent failure deadlines; a controls failure must refuse the
-hook rather than silently persist a turn on the previous model.
+requests need independent failure deadlines. Unavailable or mismatched controls
+must preserve the user message and current model, warn once quietly, and leave
+the selection pending for a subsequent turn; hooks must never block the message.
 
 `parseUsage` snapshots carry `billing_mode` (`subscription`, `api`, `unknown`)
 and `limits_reported` (boolean). Unknown is the default. Subscription snapshots
