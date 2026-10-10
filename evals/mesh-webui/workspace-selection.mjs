@@ -14,6 +14,7 @@ export async function activateAndSelectFixture(page, { workspaceId, tabId }, wai
     const workspaceSelector = `[data-testid="workspace-card"][data-workspace-id="${workspaceId}"]`;
     const workspace = page.locator(workspaceSelector);
     if (!await workspace.count()) {
+      await waitDom(page, { selector: `${workspaceSelector}, [data-testid="workspace-card-more"]` });
       const more = page.getByTestId('workspace-card-more');
       if (await more.count() && await more.isVisible()) await more.click();
     }
