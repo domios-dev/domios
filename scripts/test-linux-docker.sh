@@ -9,8 +9,11 @@ IMAGE=codeterm-test-linux
 
 docker build -q -t "$IMAGE" -f "$ROOT/docker/test-linux.dockerfile" "$ROOT/docker" >/dev/null
 
+GIT_COMMON="$(cd "$ROOT" && cd "$(git rev-parse --git-common-dir)" && pwd)"
+# A linked worktree keeps its git dir outside ROOT; mount it at the same path so git resolves inside.
 docker run --rm \
   -v "$ROOT:/work" \
+  -v "$GIT_COMMON:$GIT_COMMON:ro" \
   -v codeterm-linux-cargo-registry:/root/.cargo/registry \
   -v codeterm-linux-target:/work/src-tauri/target \
   -v codeterm-linux-cli-target:/work/cli/target \
@@ -19,8 +22,8 @@ docker run --rm \
   -w /work \
   "$IMAGE" bash -c '
     set -euo pipefail
-    # The bind-mounted checkout is owned by the host user; without this git refuses it and build SHAs fall back to unknown.
-    git config --global --add safe.directory /work
+    # Host-owned mounts are otherwise refused by git, and the CLI build SHA falls back to unknown.
+    git -C / config --global --add safe.directory "*"
     mkdir -p dist
     node scripts/prepare-embed-stub.js
     mkdir -p src-tauri/bundled-cli

@@ -213,6 +213,7 @@ fn matches_restore_observation(
         && tab.cwd.as_deref() == cwd
 }
 
+#[cfg(test)]
 pub(crate) fn claim_restored_launch(
     mux: &MuxState,
     tab_id: &str,
@@ -288,6 +289,7 @@ fn claim_restored_tab(
     Ok(Some(launch))
 }
 
+#[cfg(test)]
 pub(crate) fn restore_and_schedule_launch<F>(
     mux: &MuxState,
     tab_id: &str,

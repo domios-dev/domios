@@ -532,29 +532,6 @@ impl ServiceContext {
         Ok(digest)
     }
 
-    pub(crate) fn resolve_pending_delivery(
-        &self,
-        tab_id: &str,
-    ) -> Result<Option<String>, pending_delivery_payloads::PayloadStoreError> {
-        use crate::multiplexer::types::PendingDeliveryChannel;
-        let pending = self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .and_then(|tab| tab.pending_delivery.clone());
-        match pending {
-            Some(record)
-                if record.state().needs_delivery()
-                    && record.channel == PendingDeliveryChannel::InteractiveInput =>
-            {
-                self.pending_delivery_payloads
-                    .resolve(&record.content_digest)
-                    .map(Some)
-            }
-            _ => Ok(None),
-        }
-    }
-
     pub(crate) fn reconcile_pending_delivery(
         &self,
         tab_id: &str,
