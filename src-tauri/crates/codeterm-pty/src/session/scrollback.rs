@@ -2,9 +2,10 @@
 //! Additive files: restore skips missing/corrupt sidecars, so disabling
 //! capture needs zero migration in either direction.
 
-use std::collections::HashSet;
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::store::SessionStore;
 
@@ -12,6 +13,28 @@ pub const DEFAULT_SCROLLBACK_TAIL_BYTES: usize = 64 * 1024;
 
 const SIDECAR_HEADER: &str = "CTSCROLLBACK1";
 const SIDECAR_SUFFIX: &str = ".scrollback";
+
+#[derive(Default)]
+pub(crate) struct ScrollbackWriteCache {
+    hashes: HashMap<PathBuf, [u8; 32]>,
+}
+
+impl ScrollbackWriteCache {
+    fn save(
+        &mut self,
+        path: &Path,
+        payload: &[u8],
+        write: impl FnOnce() -> Result<(), String>,
+    ) -> Result<(), String> {
+        let hash = Sha256::digest(payload).into();
+        if self.hashes.get(path) == Some(&hash) {
+            return Ok(());
+        }
+        write()?;
+        self.hashes.insert(path.to_path_buf(), hash);
+        Ok(())
+    }
+}
 
 impl SessionStore {
     fn scrollback_dir(&self) -> PathBuf {
@@ -36,13 +59,15 @@ impl SessionStore {
             return Ok(());
         }
         let dir = self.scrollback_dir();
-        fs::create_dir_all(&dir).map_err(|e| format!("create {}: {}", dir.display(), e))?;
         let path = self.scrollback_path(tab_id);
         let tmp = dir.join(format!("{}.tmp", sidecar_file_name(tab_id)));
         let mut payload = format!("{} {}\n", SIDECAR_HEADER, tail.len()).into_bytes();
         payload.extend_from_slice(tail);
-        fs::write(&tmp, &payload).map_err(|e| format!("write {}: {}", tmp.display(), e))?;
-        fs::rename(&tmp, &path).map_err(|e| format!("rename → {}: {}", path.display(), e))
+        self.scrollback_writes.lock().save(&path, &payload, || {
+            fs::create_dir_all(&dir).map_err(|e| format!("create {}: {}", dir.display(), e))?;
+            fs::write(&tmp, &payload).map_err(|e| format!("write {}: {}", tmp.display(), e))?;
+            fs::rename(&tmp, &path).map_err(|e| format!("rename → {}: {}", path.display(), e))
+        })
     }
 
     /// Bounded tail for this tab, or `None` when the sidecar is missing or
@@ -53,7 +78,10 @@ impl SessionStore {
     }
 
     pub fn delete_scrollback_tail(&self, tab_id: &str) {
-        let _ = fs::remove_file(self.scrollback_path(tab_id));
+        let path = self.scrollback_path(tab_id);
+        let mut writes = self.scrollback_writes.lock();
+        writes.hashes.remove(&path);
+        let _ = fs::remove_file(path);
     }
 
     /// Remove sidecars whose tab is no longer a live scrollback-eligible tab,
@@ -63,6 +91,11 @@ impl SessionStore {
             .iter()
             .map(|id| sidecar_file_name(id))
             .collect();
+        let mut writes = self.scrollback_writes.lock();
+        writes.hashes.retain(|path, _| {
+            path.file_name()
+                .is_some_and(|name| keep.contains(name.to_string_lossy().as_ref()))
+        });
         let Ok(entries) = fs::read_dir(self.scrollback_dir()) else {
             return;
         };
@@ -105,6 +138,68 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = SessionStore::for_test_dir(dir.path().to_path_buf());
         (store, dir)
+    }
+
+    #[test]
+    fn scrollback_cache_writes_changed_bytes_and_retries_failures() {
+        let mut cache = ScrollbackWriteCache::default();
+        let path = Path::new("tab-a.scrollback");
+        let mut writes = 0;
+        for payload in [b"first".as_slice(), b"first", b"changed"] {
+            cache
+                .save(path, payload, || {
+                    writes += 1;
+                    Ok(())
+                })
+                .unwrap();
+        }
+        assert_eq!(writes, 2);
+        assert!(cache
+            .save(path, b"retry", || {
+                writes += 1;
+                Err("write failed".into())
+            })
+            .is_err());
+        cache
+            .save(path, b"retry", || {
+                writes += 1;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(writes, 4);
+        cache
+            .save(Path::new("tab-b.scrollback"), b"retry", || {
+                writes += 1;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(writes, 5);
+    }
+
+    #[test]
+    fn scrollback_save_skips_unchanged_and_retries_failed_replace() {
+        let (store, _dir) = fresh_store();
+        store.save_scrollback_tail("tab-a", b"first", 64).unwrap();
+        let tmp = store.scrollback_dir().join("tab-a.scrollback.tmp");
+        fs::create_dir(&tmp).unwrap();
+        store.save_scrollback_tail("tab-a", b"first", 64).unwrap();
+        assert!(store.save_scrollback_tail("tab-a", b"changed", 64).is_err());
+        assert_eq!(store.load_scrollback_tail("tab-a").unwrap(), b"first");
+        fs::remove_dir(&tmp).unwrap();
+        store.save_scrollback_tail("tab-a", b"changed", 64).unwrap();
+        assert_eq!(store.load_scrollback_tail("tab-a").unwrap(), b"changed");
+    }
+
+    #[test]
+    fn scrollback_deleted_or_pruned_tail_is_written_again() {
+        let (store, _dir) = fresh_store();
+        store.save_scrollback_tail("tab-a", b"same", 64).unwrap();
+        store.delete_scrollback_tail("tab-a");
+        store.save_scrollback_tail("tab-a", b"same", 64).unwrap();
+        assert_eq!(store.load_scrollback_tail("tab-a").unwrap(), b"same");
+        store.prune_scrollback_tails(&HashSet::new());
+        store.save_scrollback_tail("tab-a", b"same", 64).unwrap();
+        assert_eq!(store.load_scrollback_tail("tab-a").unwrap(), b"same");
     }
 
     #[test]
