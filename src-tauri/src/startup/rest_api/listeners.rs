@@ -94,8 +94,7 @@ pub(crate) fn additional_bind(
     let octets = ip.octets();
     if !dev_build || octets[0] != 100 || !(64..=127).contains(&octets[1]) {
         return Err(
-            "mesh_tailnet_host requires a development build and a 100.64.0.0/10 address"
-                .into(),
+            "mesh_tailnet_host requires a development build and a 100.64.0.0/10 address".into(),
         );
     }
     if !crate::config::canonical_api_bind_addr(config)?
