@@ -3,6 +3,7 @@ import hashlib
 import json
 import sqlite3
 import sys
+import tempfile
 from pathlib import Path
 
 LIMIT = 16 * 1024 * 1024
@@ -142,6 +143,17 @@ def export(spec):
     else:
         raise ValueError('Unsupported provider')
     return dict(provider=provider, session_id=sid, records=records, sources=sources, session_model=session_model)
+
+
+def export_to_file(spec):
+    payload = json.dumps(export(spec), ensure_ascii=False).encode('utf-8')
+    if len(payload) > LIMIT:
+        raise ValueError('Native export exceeds fixed 16MiB transfer bound')
+    directory = Path(tempfile.mkdtemp(prefix='phaseb-native-'))
+    destination = directory / 'native.json'
+    destination.write_bytes(payload)
+    return dict(path=str(destination), bytes=len(payload),
+                sha256=hashlib.sha256(payload).hexdigest())
 
 
 if __name__ == '__main__':

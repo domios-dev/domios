@@ -55,3 +55,23 @@ export function fixtureWorkspaceId(manifest, gateway, peerId, tabId) {
   }
   return ids[0];
 }
+
+export function readFixtureModeState({ tabId, roots = [...document.querySelectorAll('[data-testid="terminal-tab"]')], controls = [...document.querySelectorAll('[data-testid="tab-mode-switch"]')] }) {
+  const visible = node => node.checkVisibility({ checkVisibilityCSS: true, checkOpacity: true })
+    && [...node.getClientRects()].some(rect => rect.width > 0 && rect.height > 0);
+  const exact = roots.filter(node => node.getAttribute('data-tab-id') === tabId);
+  return {
+    tabId,
+    visibleRootIds: roots.filter(visible).map(node => node.getAttribute('data-tab-id')),
+    targetRoots: exact.map(node => ({ visible: visible(node),
+      terminalFrames: [...node.querySelectorAll('[data-testid="terminal-frame"]')].map(frame => ({
+        visible: visible(frame), terminalVisible: frame.getAttribute('data-terminal-visible'),
+      })) })),
+    modeControls: controls.filter(node => node.getAttribute('data-tab-id') === tabId).map(node => ({
+      visible: visible(node), options: [...node.querySelectorAll('[data-value]')].map(option => ({
+        value: option.getAttribute('data-value'), selected: option.getAttribute('data-selected'),
+        pressed: option.getAttribute('aria-pressed'), ariaSelected: option.getAttribute('aria-selected'), visible: visible(option),
+      })),
+    })),
+  };
+}

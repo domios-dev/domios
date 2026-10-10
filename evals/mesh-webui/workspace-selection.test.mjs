@@ -102,3 +102,28 @@ test('overflow prerequisite waits for inventory hydration before inspecting its 
   await activateAndSelectFixture(f.page, { workspaceId: '05799f42', tabId: '6c8da59e' }, f.waitDom);
   assert.deepEqual(f.clicks, ['inventory-ready', 'more', '05799f42', 'activation-confirmed', '6c8da59e']);
 });
+
+
+function modeNode(id, visible, children = [], attrs = {}) {
+  return { getAttribute: key => key === 'data-tab-id' ? id : attrs[key] ?? null,
+    checkVisibility: () => visible, getClientRects: () => [{width:80,height:24}],
+    querySelectorAll: () => children };
+}
+test('mode diagnostics scope bare target and preserve unrelated visible root evidence', async () => {
+  const {readFixtureModeState} = await import('./workspace-selection.mjs');
+  const frame = modeNode(null,false,[],{'data-terminal-visible':'false'});
+  const state = readFixtureModeState({tabId:'target',roots:[modeNode('foreign',true),modeNode('target',true,[frame])],controls:[]});
+  assert.deepEqual(state.visibleRootIds,['foreign','target']);
+  assert.equal(state.targetRoots.length,1);
+  assert.equal(state.targetRoots[0].terminalFrames[0].terminalVisible,'false');
+  assert.deepEqual(state.modeControls,[]);
+});
+test('mode diagnostics expose exact hidden and duplicate roots and selected controls', async () => {
+  const {readFixtureModeState} = await import('./workspace-selection.mjs');
+  const option=modeNode(null,true,[],{'data-value':'chat','data-selected':'true'});
+  const state=readFixtureModeState({tabId:'target',roots:[modeNode('target',false),modeNode('target',true)],
+    controls:[modeNode('foreign',true),modeNode('target',true,[option])]});
+  assert.deepEqual(state.targetRoots.map(root=>root.visible),[false,true]);
+  assert.equal(state.modeControls.length,1);
+  assert.equal(state.modeControls[0].options[0].selected,'true');
+});
