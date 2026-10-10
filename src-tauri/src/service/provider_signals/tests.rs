@@ -149,7 +149,24 @@ fn provider_access_recovery_resolves_the_action_needed_notification() {
         store.notification(&id).unwrap().severity,
         NotificationSeverity::Error
     );
-    assert!(store.resolve_id(&id));
+    store.set_condition(
+        &id,
+        crate::notification::dedupe::TabCondition::ProviderAccessLost,
+    );
+    assert_eq!(
+        store.resolve_tab_condition(
+            "foreign",
+            crate::notification::dedupe::TabCondition::ProviderAccessLost
+        ),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        store.resolve_tab_condition(
+            "own",
+            crate::notification::dedupe::TabCondition::ProviderAccessLost
+        ),
+        vec![id.clone()]
+    );
     assert!(store.notification(&id).unwrap().resolved);
     assert!(store.notification(&id).unwrap().read);
     assert!(!store.resolve_id(&id));

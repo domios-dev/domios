@@ -1,5 +1,5 @@
 use super::ServiceContext;
-use crate::notification::push::NotifyLevel;
+use crate::notification::{dedupe::TabCondition, push::NotifyLevel};
 use crate::service::message_gateway::{DeliveryClass, MessageBody, MessageOrigin, OutboundMessage};
 use crate::service::messenger::MessageEnvelope;
 use crate::service::notification::{NotificationOrigin, PushIntent};
@@ -48,8 +48,8 @@ pub(super) fn incident(
     transition: IncidentTransition,
 ) {
     let context = {
-        let mut mux = svc.mux.write();
-        let Some(tab) = mux.get_tab_mut(tab_id).filter(|tab| {
+        let mux = svc.mux.read();
+        let Some(tab) = mux.get_tab(tab_id).filter(|tab| {
             tab.agent_session_id.as_deref() == Some(session)
                 && tab.session_binding_nonce.as_deref() == Some(nonce)
         }) else {
@@ -73,17 +73,15 @@ pub(super) fn incident(
                 .as_ref()
                 .and_then(|binding| binding.plan_id.clone()),
             tab.agent_type.clone().unwrap_or_default(),
-            tab.provider_signals.access_incident.take(),
         )
     };
-    let (title, role, role_tab, parent, plan, provider, previous_notice) = context;
-    if let Some(id) = previous_notice {
-        let resolved = svc.notif.lock().resolve_id(&id);
-        if resolved {
-            svc.announce_resolved(&[id]);
-        }
-    }
+    let (title, role, role_tab, parent, plan, provider) = context;
     if transition != IncidentTransition::Enter {
+        let resolved = svc
+            .notif
+            .lock()
+            .resolve_tab_condition(tab_id, TabCondition::ProviderAccessLost);
+        svc.announce_resolved(&resolved);
         log::debug!("[provider-access] recovered tab={tab_id}");
         return;
     }
@@ -102,19 +100,14 @@ pub(super) fn incident(
         intent(tab_id, nonce),
         None,
     );
-    let retained = {
-        let mut mux = svc.mux.write();
-        if let Some(tab) = mux.get_tab_mut(tab_id).filter(|tab| {
-            tab.agent_session_id.as_deref() == Some(session)
-                && tab.session_binding_nonce.as_deref() == Some(nonce)
-                && tab.provider_signals.access_lost()
-        }) {
-            tab.provider_signals.access_incident = Some(id.clone());
-            true
-        } else {
-            false
-        }
-    };
+    svc.notif
+        .lock()
+        .set_condition(&id, TabCondition::ProviderAccessLost);
+    let retained = svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
+        tab.agent_session_id.as_deref() == Some(session)
+            && tab.session_binding_nonce.as_deref() == Some(nonce)
+            && tab.provider_signals.access_lost()
+    });
     if !retained {
         let resolved = svc.notif.lock().resolve_id(&id);
         if resolved {

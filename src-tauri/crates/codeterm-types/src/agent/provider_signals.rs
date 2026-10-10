@@ -49,8 +49,6 @@ pub struct ProviderSignals {
     pub background: super::background_work::BackgroundRoster,
     #[serde(skip)]
     pub auth_probe_pending: bool,
-    #[serde(default)]
-    pub access_incident: Option<String>,
     pub auth: Option<AuthStatus>,
     pub api_error: Option<ApiErrorKind>,
     pub permission_mode: Option<PermissionMode>,

@@ -642,6 +642,13 @@ impl NotificationStore {
         }
     }
 
+    pub(crate) fn set_condition(&mut self, id: &str, condition: TabCondition) {
+        if let Some(notification) = self.notifications.iter_mut().find(|n| n.id == id) {
+            notification.condition = Some(condition);
+            self.sync_persisted();
+        }
+    }
+
     pub(crate) fn resolve_id(&mut self, id: &str) -> bool {
         let Some(notification) = self
             .notifications

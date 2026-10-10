@@ -129,7 +129,24 @@ pub(crate) fn apply(
                 .then_some(tab.provider_signals.api_error)
                 .flatten(),
             refresh_needed,
-            incident_transition(previous.access_lost(), tab.provider_signals.access_lost()),
+            match incident_transition(previous.access_lost(), tab.provider_signals.access_lost()) {
+                IncidentTransition::Unchanged
+                    if !tab.provider_signals.access_lost()
+                        && records.iter().any(|record| {
+                            record
+                                .provider_session_id
+                                .as_deref()
+                                .is_none_or(|id| id == session)
+                                && record
+                                    .provider_observations
+                                    .as_ref()
+                                    .is_some_and(|observation| observation.clears_api_error)
+                        }) =>
+                {
+                    IncidentTransition::Recover
+                }
+                transition => transition,
+            },
         )
     };
     if transition != IncidentTransition::Unchanged {
