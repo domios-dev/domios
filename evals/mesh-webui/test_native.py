@@ -3,7 +3,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
-from native import export, cancelled
+from native import export, cancelled, export_to_file
 
 
 class NativeTests(unittest.TestCase):
@@ -19,6 +19,24 @@ class NativeTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(''.join(json.dumps(r) + '\n' for r in rows))
         return str(path)
+
+    def test_large_native_export_file_preserves_unicode_and_exact_record(self):
+        text = 'λ界' * 40000
+        path = self.file('large-own.jsonl', [
+            {'sessionId': 'own', 'type': 'user', 'message': {'content': text}}])
+        spec = {'provider': 'claude', 'session_id': 'own', 'path': path}
+        transfer = export_to_file(spec)
+        destination = Path(transfer['path'])
+        try:
+            payload = destination.read_bytes()
+            self.assertGreater(len(payload), 65536)
+            self.assertEqual(len(payload), transfer['bytes'])
+            self.assertEqual(json.loads(payload)['records'][0]['text'], text)
+            self.assertEqual(json.loads(payload)['session_id'], 'own')
+            self.assertEqual(__import__('hashlib').sha256(payload).hexdigest(), transfer['sha256'])
+        finally:
+            destination.unlink()
+            destination.parent.rmdir()
 
     def test_claude_excludes_foreign_and_sidechain(self):
         path = self.file('own.jsonl', [

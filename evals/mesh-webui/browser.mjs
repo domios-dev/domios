@@ -6,7 +6,7 @@ import {validateManifest,validateOutput} from './model.mjs';
 import {gatewayToken} from './secrets.mjs';
 import * as rawTerminal from './terminal-capture.mjs';
 import {readSelectedTab} from './provenance.mjs';
-import {activateAndSelectFixture,fixtureWorkspaceId} from './workspace-selection.mjs';
+import {activateAndSelectFixture,fixtureWorkspaceId,readFixtureModeState} from './workspace-selection.mjs';
 const rc = '/Users/dev/Developer/codeterm-worktrees/rc-mac';
 const require = createRequire(path.join(rc, 'package.json'));
 export const STEP_MS = 30_000;
@@ -69,12 +69,23 @@ export async function selectTab(page, tabId, {mode = 'chat', workspaceId} = {}) 
   }
   const tab = await activateAndSelectFixture(page, {workspaceId,tabId}, waitDom);
   await waitDom(page, {selector:`[data-testid="terminal-tab"][data-tab-id="${tabId}"]`});
+  const before = await page.evaluate(readFixtureModeState, {tabId});
   const toggle = page.locator(`[data-testid="tab-mode-switch"][data-tab-id="${tabId}"] [data-value="${mode}"]`);
-  if (await toggle.count()) await toggle.click();
+  const toggleCount = await toggle.count();
+  if (toggleCount) await toggle.click();
   const selector = mode === 'terminal'
     ? `[data-testid="terminal-tab"][data-tab-id="${tabId}"] [data-testid="terminal-frame"][data-terminal-visible="true"]`
     : `[data-testid="tab-session-chat"][data-tab-id="${tabId}"]`;
-  await waitDom(page, {selector});
+  try {
+    await waitDom(page, {selector});
+  } catch (cause) {
+    let after;
+    try { after = await deadline(page.evaluate(readFixtureModeState, {tabId}), 'Selection failure state', 5000); }
+    catch (error) { after = {error:String(error)}; }
+    const state = {tabId,mode,selector,toggleCount,before,after};
+    await writeFile(path.join(page.__b2Out,'selection-failure.json'),JSON.stringify(state,null,2));
+    throw new Error(`Fixture mode selection failed: ${JSON.stringify(state)}`, {cause});
+  }
   page.__b2SelectedTabId = tabId;
   return tab;
 }
