@@ -1,5 +1,6 @@
 //! REST surface for plugin surface tabs: list, open and close them, and stream or call a stream surface.
 
+use crate::api::stream_census::{track, StreamGuard, StreamKind};
 use axum::extract::{Path, Query, State as AxumState};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::{http::HeaderMap, http::StatusCode, Json};
@@ -136,7 +137,10 @@ pub(crate) async fn stream(
         let (name, data) = sse_payload(&event);
         Ok(Event::default().event(name).data(data))
     });
-    Ok(Sse::new(events).keep_alive(KeepAlive::default()))
+    Ok(
+        Sse::new(track(events, StreamGuard::local(StreamKind::Surface)))
+            .keep_alive(KeepAlive::default()),
+    )
 }
 
 #[derive(Deserialize)]
