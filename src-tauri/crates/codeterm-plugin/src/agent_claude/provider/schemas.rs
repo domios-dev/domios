@@ -17,7 +17,12 @@ pub(crate) fn manifest_defaults() -> crate::model_catalog::RegisteredDefaults {
         let manifest: crate::js_runtime::PluginManifest =
             serde_json::from_str(BUNDLED_MANIFEST).expect("bundled Claude manifest parses");
         crate::model_catalog::RegisteredDefaults {
-            models: manifest.models.iter().map(ModelInfo::from).collect(),
+            models: manifest
+                .models
+                .iter()
+                .map(ModelInfo::from)
+                .map(super::model_capabilities::hydrate)
+                .collect(),
             default: manifest.default_model,
         }
     })
@@ -43,10 +48,26 @@ pub(crate) fn reasoning_effort_launch_args_format() -> Vec<String> {
     manifest.commands.reasoning_effort_launch_args_format
 }
 
+pub(super) fn model_switch_commands() -> provider::ModelSwitchCommands {
+    let manifest: crate::js_runtime::PluginManifest =
+        serde_json::from_str(BUNDLED_MANIFEST).expect("bundled Claude manifest parses");
+    manifest
+        .commands
+        .model_switch_commands
+        .expect("bundled Claude manifest declares live model commands")
+}
+
 pub(super) fn launch_permissions() -> Option<provider::LaunchPermissionCapability> {
     let manifest: crate::js_runtime::PluginManifest =
         serde_json::from_str(BUNDLED_MANIFEST).expect("bundled Claude manifest parses");
     manifest.spawn.launch_permissions
+}
+
+pub(super) fn fork_session_args() -> Option<Vec<String>> {
+    serde_json::from_str::<crate::js_runtime::PluginManifest>(BUNDLED_MANIFEST)
+        .ok()?
+        .spawn
+        .fork_session_args
 }
 
 /// Resolved list — registered defaults unless the user dropped
@@ -124,6 +145,7 @@ pub(super) fn notifications_schema() -> Vec<SettingField> {
 
 pub(super) fn settings_schema() -> Vec<SettingField> {
     vec![
+        provider::structured_signals_section(),
         provider::session_resume_section(
             "Automatically resume Claude Code sessions when CodeTerm restarts.",
             "--dangerously-skip-permissions",
@@ -450,4 +472,11 @@ mod tests {
             _ => panic!("expected Section as top-level notifications field"),
         }
     }
+}
+
+pub(super) fn capability_probe() -> Option<crate::provider::CapabilityProbe> {
+    serde_json::from_str::<crate::js_runtime::PluginManifest>(BUNDLED_MANIFEST)
+        .ok()?
+        .spawn
+        .capability_probe
 }

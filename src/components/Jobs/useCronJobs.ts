@@ -7,8 +7,8 @@ export interface CronJobsState {
   failed: boolean;
 }
 
-/** Same `cron_list` read as the sidebar, but a failed or malformed read stays unavailable instead of empty. */
-export function useCronJobs(workspaceId: string) {
+/** Same `cron_list` read as the sidebar, but a failed or malformed read stays unavailable instead of empty; a null workspace reads every Cron on this machine. */
+export function useCronJobs(workspaceId: string | null) {
   const [state, setState] = useState<CronJobsState>({ jobs: null, failed: false });
   const sequence = useRef(0);
   const active = useRef(true);
@@ -16,7 +16,7 @@ export function useCronJobs(workspaceId: string) {
   const refresh = useCallback(async () => {
     const read = ++sequence.current;
     try {
-      const next = await invoke<CronJob[]>("cron_list", { workspaceId });
+      const next = await invoke<CronJob[]>("cron_list", workspaceId === null ? {} : { workspaceId });
       if (!active.current || read !== sequence.current) return;
       setState(Array.isArray(next) ? { jobs: next, failed: false } : (current) => ({ jobs: current.jobs, failed: true }));
     } catch {

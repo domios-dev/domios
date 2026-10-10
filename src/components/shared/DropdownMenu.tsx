@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { clampFloatingPosition } from "./floatingPosition";
@@ -9,8 +9,8 @@ const MENU_ITEM_SELECTOR =
   '[role="menuitem"]:not(:disabled), [role="menuitemradio"]:not(:disabled), [role="menuitemcheckbox"]:not(:disabled)';
 const MENU_NAVIGATION_KEYS = new Set(["ArrowDown", "ArrowUp", "Home", "End"]);
 const TRIGGER_FOCUSABLE = 'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
-const ROW_HEIGHT = 28;
-const DESCRIPTION_HEIGHT = 18;
+const ROW_HEIGHT = 31;
+const DESCRIPTION_HEIGHT = 16;
 const SEPARATOR_HEIGHT = 9;
 const GROUP_HEADER_HEIGHT = 24;
 
@@ -121,6 +121,11 @@ function estimateMenuHeight(
   return rows + 8 + chrome;
 }
 
+function menuOrigin(top: number, trigger: HTMLElement | null, source: "trigger" | "context"): CSSProperties {
+  const above = source === "trigger" && trigger !== null && top < trigger.getBoundingClientRect().top;
+  return { "--ct-menu-origin": above ? "bottom left" : "top left", "--ct-menu-shift": above ? "6px" : "-6px" } as CSSProperties;
+}
+
 type PendingFocus = { kind: "submenu" } | { kind: "parent"; key: string };
 
 interface DropdownMenuProps {
@@ -161,6 +166,8 @@ export function DropdownMenu({
   const triggerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [submenuKey, setSubmenuKey] = useState<string | null>(null);
+  const [pageDirection, setPageDirection] = useState<"forward" | "back" | null>(null);
+  const [pageWidth, setPageWidth] = useState<number | null>(null);
   const ownerRef = useRef(Symbol("dropdown"));
   const openSourceRef = useRef<"trigger" | "context">("trigger");
   const contextPointRef = useRef({ x: 0, y: 0 });
@@ -172,7 +179,7 @@ export function DropdownMenu({
   const visibleEntries = activeSubmenu?.items ?? items;
   const contentHeight = estimateMenuHeight(
     visibleEntries,
-    inSubmenu ? 54 : header ? 42 : 0,
+    (inSubmenu ? 38 : header ? 84 : 0) + 10,
     collapsedGroups,
   );
 
@@ -221,6 +228,8 @@ export function DropdownMenu({
     focusOnOpenRef.current = focusFirstItem;
     pendingFocusRef.current = null;
     setSubmenuKey(null);
+    setPageDirection(null);
+    setPageWidth(null);
     setPos(calcPos());
     setOpen(true);
   }, [announceOpen, calcPos, open]);
@@ -245,12 +254,15 @@ export function DropdownMenu({
 
   const enterSubmenu = useCallback((key: string) => {
     pendingFocusRef.current = { kind: "submenu" };
+    setPageWidth((width) => width ?? menuRef.current?.offsetWidth ?? null);
+    setPageDirection("forward");
     setSubmenuKey(key);
   }, []);
 
   const leaveSubmenu = useCallback(() => {
     if (submenuKey === null) return;
     pendingFocusRef.current = { kind: "parent", key: submenuKey };
+    setPageDirection("back");
     setSubmenuKey(null);
   }, [submenuKey]);
 
@@ -330,6 +342,8 @@ export function DropdownMenu({
       pendingFocusRef.current = null;
       contextPointRef.current = { x: event.clientX, y: event.clientY };
       setSubmenuKey(null);
+      setPageDirection(null);
+      setPageWidth(null);
       setPos(contextPos(event.clientX, event.clientY));
       setOpen(true);
     };
@@ -431,37 +445,37 @@ export function DropdownMenu({
               event.preventDefault();
               moveFocus(event.key);
             }}
-            className="ct-portal-menu fixed w-max min-w-[140px] max-w-[calc(100vw-0.5rem)] border border-[rgba(255,255,255,0.12)] rounded-md shadow-lg py-1 ct-float backdrop-blur-xl"
+            aria-description={activeSubmenu?.description}
+            className="ct-portal-menu ct-menu fixed w-max max-w-[calc(100vw-0.5rem)]"
             style={{
               top: pos.top,
               left: pos.left,
+              width: inSubmenu && pageWidth ? pageWidth : undefined,
               maxHeight: maxHeight ? Math.min(pos.maxHeight, maxHeight) : pos.maxHeight,
               overflowY: "auto",
-              background: "var(--ct-surface, #1e1e2e)",
+              ...menuOrigin(pos.top, triggerRef.current, openSourceRef.current),
             }}
           >
+            <div key={submenuKey ?? "root"} className="ct-menu-page" data-direction={pageDirection ?? undefined}>
             {activeSubmenu ? (
-              <div className="border-b border-[var(--ct-border)] px-1 pb-1 pt-0.5">
+              <div className="ct-menu-head">
                 <button
                   type="button"
                   role="menuitem"
                   data-menu-back=""
-                  className="flex w-full items-center gap-1.5 rounded-sm px-2 py-1 text-left text-[11px] text-[var(--ct-fg)] hover:bg-[rgba(255,255,255,0.08)]"
+                  className="ct-menu-row ct-menu-back"
                   onClick={(e) => {
                     e.stopPropagation();
                     leaveSubmenu();
                   }}
                 >
-                  <ChevronLeft aria-hidden size={11} />
-                  {activeSubmenu.label}
+                  <span className="ct-menu-row__icon"><ChevronLeft aria-hidden size={14} /></span>
+                  <span className="min-w-0 flex-1 truncate">{activeSubmenu.label}</span>
                 </button>
-                {activeSubmenu.description && (
-                  <div className="px-2 pb-1 text-[10px] text-[var(--ct-muted-fg)]">{activeSubmenu.description}</div>
-                )}
               </div>
             ) : header}
             {visibleEntries.map((entry, i) => isSeparator(entry) ? (
-              <div key={`separator:${entry.key}`} role="separator" className="mx-2 my-1 border-t border-[var(--ct-border)]" />
+              <div key={`separator:${entry.key}`} role="separator" className="ct-menu-separator" />
             ) : isGroup(entry) ? (
               <div key={`group:${groupKeyOf(entry)}`} role="group" aria-label={entry.label || undefined}>
                 {entry.label && (
@@ -474,11 +488,11 @@ export function DropdownMenu({
                       e.stopPropagation();
                       toggleGroup(groupKeyOf(entry));
                     }}
-                    className="flex w-[calc(100%-0.25rem)] items-center gap-1 mx-0.5 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-[var(--ct-muted-fg)] hover:bg-[rgba(255,255,255,0.08)] rounded-sm"
+                    className="ct-menu-group-label"
                   >
                     {collapsedGroups.has(groupKeyOf(entry))
-                      ? <ChevronRight aria-hidden size={11} />
-                      : <ChevronDown aria-hidden size={11} />}
+                      ? <ChevronRight aria-hidden size={12} />
+                      : <ChevronDown aria-hidden size={12} />}
                     <span className="truncate">{entry.label}</span>
                   </button>
                 )}
@@ -499,6 +513,7 @@ export function DropdownMenu({
                 onActivate={() => activate(entry)}
               />
             ))}
+            </div>
           </div>
         </>,
         document.body
@@ -516,7 +531,6 @@ function DropdownMenuRow({
   descriptionId: string;
   onActivate: () => void;
 }) {
-  const inert = item.disabled || item.unavailable;
   return (
     <button
       type="button"
@@ -535,15 +549,9 @@ function DropdownMenuRow({
         e.stopPropagation();
         onActivate();
       }}
-      className={`flex items-center gap-2 w-[calc(100%-0.25rem)] px-3 py-1.5 text-[11px] whitespace-nowrap overflow-hidden text-ellipsis transition-colors rounded-sm mx-0.5 ${
-        inert
-          ? "text-[var(--ct-muted-fg)] opacity-50 cursor-not-allowed"
-          : item.danger
-            ? "text-[var(--ct-muted-fg)] hover:bg-[rgba(239,68,68,0.15)] hover:text-[var(--ct-red)]"
-            : "text-[var(--ct-fg)] hover:bg-[rgba(255,255,255,0.08)]"
-      }`}
+      className="ct-menu-row"
     >
-      {item.icon && <span className="shrink-0 w-3 h-3 flex items-center justify-center">{item.icon}</span>}
+      {item.icon && <span className="ct-menu-row__icon">{item.icon}</span>}
       <span className="min-w-0 flex-1 text-left">
         <span className="flex min-w-0 items-center gap-1.5">
           <span className="truncate">{item.label}</span>
@@ -558,14 +566,14 @@ function DropdownMenuRow({
           )}
         </span>
         {item.description && (
-          <span id={descriptionId} className="mt-0.5 block max-w-56 whitespace-normal text-[10px] leading-snug text-[var(--ct-muted-fg)]">
+          <span id={descriptionId} className="ct-menu-row__description">
             {item.description}
           </span>
         )}
       </span>
-      {item.shortcut && <kbd className="shrink-0 font-mono text-[9px] text-[var(--ct-muted)]">{item.shortcut}</kbd>}
-      {item.checked === true && <Check aria-hidden size={11} className="shrink-0 text-[var(--ct-accent)]" />}
-      {item.submenu && <ChevronRight aria-hidden size={11} className="shrink-0 text-[var(--ct-muted-fg)]" />}
+      {item.shortcut && <kbd className="ct-menu-row__shortcut">{item.shortcut}</kbd>}
+      {item.checked === true && <Check aria-hidden size={14} className="ct-menu-row__check shrink-0" />}
+      {item.submenu && <ChevronRight aria-hidden size={14} className="ct-menu-row__chevron" />}
     </button>
   );
 }
@@ -599,6 +607,7 @@ export function DropdownSelect({
   placeholder,
   leading,
   prefix,
+  "aria-label": ariaLabel,
   menuMaxHeight,
   className,
   "data-testid": testId,
@@ -613,6 +622,7 @@ export function DropdownSelect({
   /** Static label shown before the value so the control names itself, e.g.
    *  "Effort" → "Effort Medium". */
   prefix?: string;
+  "aria-label"?: string;
   /** Pixel cap on the open menu; longer lists scroll internally. */
   menuMaxHeight?: number;
   className?: string;
@@ -625,7 +635,7 @@ export function DropdownSelect({
     label: o.suffix ? `${o.label}${o.suffix}` : o.label,
     badge: o.badge,
     disabled: o.disabled,
-    icon: o.value === value ? <Check size={12} /> : <span className="w-3 h-3" />,
+    icon: o.value === value ? <Check size={14} /> : <span className="w-3.5 h-3.5" />,
     onClick: () => onChange(o.value),
     "data-testid": testId ? `${testId}-option-${o.value}` : undefined,
   });
@@ -645,7 +655,7 @@ export function DropdownSelect({
       data-value={value}
       disabled={disabled}
       aria-haspopup="listbox"
-      aria-label={prefix ? `${prefix}: ${label}` : undefined}
+      aria-label={ariaLabel ?? (prefix ? `${prefix}: ${label}` : undefined)}
       className={`flex items-center gap-1.5 w-full min-w-0 px-2 py-1.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] text-[12px] text-[var(--ct-fg)] outline-none disabled:opacity-40 ${className ?? ""}`}
     >
       {leading}

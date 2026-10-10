@@ -2,6 +2,9 @@ use super::*;
 use crate::agent::provider::{AgentProvider, ComposerCursorPosition};
 use crate::agent::test_provider::MockProvider;
 
+#[path = "tests/reserved_nonce.rs"]
+mod reserved_nonce;
+
 #[test]
 fn trust_frame_is_never_composer_evidence() {
     let input = codeterm_pty::pty::screen_state::ComposerInputState {
@@ -192,6 +195,22 @@ fn launch_gate_allows_unknown_provider_state_with_readiness_evidence() {
 }
 
 #[test]
+fn authenticated_resume_accepts_binding_while_busy_without_composer_evidence() {
+    assert_eq!(
+        decide_launch_input(
+            LaunchInputObservation {
+                session_bound: true,
+                composer_ready: false,
+                provider_busy: true,
+                ..input_observation()
+            },
+            LaunchInputMode::Standard,
+        ),
+        Ok(Some(LaunchInputEvidence::SessionBinding)),
+    );
+}
+
+#[test]
 fn launch_gate_refuses_provider_and_pending_prompt_dialogs() {
     for state in [
         TabState::UpdatePrompt,
@@ -240,17 +259,26 @@ fn launch_gate_waits_for_trust_dialog_when_composer_frame_precedes_it_in_untrust
     assert!(directory_trust_blocks_input(
         DirectoryTrustState::Untrusted,
         false,
-        false
+        false,
+        false,
     ));
     assert!(directory_trust_blocks_input(
         DirectoryTrustState::Untrusted,
         true,
-        true
+        true,
+        true,
     ));
     assert!(!directory_trust_blocks_input(
         DirectoryTrustState::Untrusted,
         false,
-        true
+        true,
+        false,
+    ));
+    assert!(directory_trust_blocks_input(
+        DirectoryTrustState::Untrusted,
+        true,
+        false,
+        true,
     ));
     assert_eq!(
         decide_launch_input(
@@ -269,9 +297,75 @@ fn launch_gate_waits_for_trust_dialog_when_composer_frame_precedes_it_in_untrust
 }
 
 #[test]
+fn lazy_structural_composer_resolves_absent_trust_prompt_without_clearing_unknown_prompts() {
+    use codeterm_plugin::provider::DirectoryTrustState;
+
+    let checkpoint = directory_trust_checkpoint_reached(
+        LaunchInputMode::LazySessionStart,
+        true,
+        true,
+        false,
+        false,
+    );
+    assert!(checkpoint);
+    assert!(!directory_trust_blocks_input(
+        DirectoryTrustState::Untrusted,
+        false,
+        false,
+        checkpoint,
+    ));
+    assert_eq!(
+        decide_launch_input(
+            LaunchInputObservation {
+                directory_trust_pending: false,
+                ..input_observation()
+            },
+            LaunchInputMode::LazySessionStart,
+        ),
+        Ok(Some(LaunchInputEvidence::ProviderComposer)),
+        "composer readiness lets launch continue to first-turn session binding",
+    );
+
+    assert!(!directory_trust_checkpoint_reached(
+        LaunchInputMode::LazySessionStart,
+        true,
+        true,
+        true,
+        false,
+    ));
+    assert!(!directory_trust_checkpoint_reached(
+        LaunchInputMode::LazySessionStart,
+        true,
+        true,
+        false,
+        true,
+    ));
+    assert!(!directory_trust_checkpoint_reached(
+        LaunchInputMode::Standard,
+        true,
+        true,
+        false,
+        false,
+    ));
+    assert_eq!(
+        decide_launch_input(
+            LaunchInputObservation {
+                pending_prompt: true,
+                directory_trust_pending: false,
+                ..input_observation()
+            },
+            LaunchInputMode::LazySessionStart,
+        ),
+        Ok(None),
+        "an unclassified pending prompt still holds lazy readiness",
+    );
+}
+
+#[test]
 fn launch_gate_trusted_folder_stays_first_frame_ready() {
     assert!(!directory_trust_blocks_input(
         codeterm_plugin::provider::DirectoryTrustState::Trusted,
+        false,
         false,
         false,
     ));
@@ -287,7 +381,7 @@ fn launch_gate_does_not_stall_when_predicted_dialog_never_appears() {
         codeterm_plugin::provider::DirectoryTrustState::Trusted,
         codeterm_plugin::provider::DirectoryTrustState::Unknown,
     ] {
-        assert!(!directory_trust_blocks_input(state, false, false));
+        assert!(!directory_trust_blocks_input(state, false, false, false));
     }
     assert_eq!(
         decide_launch_input(input_observation(), LaunchInputMode::Standard),
@@ -805,143 +899,220 @@ fn lazy_session_spawn_with_modal_or_dead_provider_still_fails_at_deadline() {
     );
 }
 
-fn diagnostic_fixture(
-    provider: Box<dyn AgentProvider>,
-) -> (crate::service::test_fixture::ServiceFixture, LaunchAttempt) {
-    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
-    let attempt = LaunchAttempt {
-        tab_id,
-        pty_id: uuid::Uuid::new_v4().to_string(),
-        binding_nonce: uuid::Uuid::new_v4().to_string(),
-    };
-    let tab = mux.get_tab_mut(&attempt.tab_id).unwrap();
-    tab.agent_type = Some(provider.id().to_string());
-    tab.pty_id = Some(attempt.pty_id.clone());
-    tab.session_binding_nonce = Some(attempt.binding_nonce.clone());
-    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    fixture.service.agent_registry.register_provider(provider);
-    (fixture, attempt)
-}
-
-fn capture_gate_diagnostic(
-    fixture: &crate::service::test_fixture::ServiceFixture,
-    attempt: &LaunchAttempt,
-    provider: &str,
-    mode: LaunchInputMode,
-) -> (Result<LaunchInputEvidence, LaunchInputRefusal>, serde_json::Value) {
-    let mut snapshots = Vec::new();
-    let result = fixture.service.await_launch_input_readiness_observed(
-        attempt, provider, std::time::Duration::ZERO, mode,
-        |snapshot| snapshots.push(serde_json::to_value(snapshot).unwrap()),
-    );
-    assert_eq!(snapshots.len(), 1, "every terminal path records one final observation");
-    (result, snapshots.pop().unwrap())
-}
-
 #[test]
-#[cfg_attr(not(windows), ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime")]
-fn diagnostic_success_keeps_actual_inputs_and_unchecked_process_unknown() {
-    let (fixture, attempt) = diagnostic_fixture(Box::new(MockProvider::new("opaque-gate")));
-    {
-        let mut mux = fixture.service.mux.write();
-        let tab = mux.get_tab_mut(&attempt.tab_id).unwrap();
-        tab.agent_session_id = Some("opaque-own-session".into());
-        tab.reported_session_binding_nonce = Some(attempt.binding_nonce.clone());
+fn structured_chat_serves_rows_without_a_session_id() {
+    use codeterm_plugin::provider::AgentProvider;
+    use codeterm_types::agent::chat_types::StructuredChat;
+
+    struct SessionlessChatProvider;
+    impl AgentProvider for SessionlessChatProvider {
+        fn id(&self) -> &str {
+            "sessionless-chat"
+        }
+        fn display_name(&self) -> &str {
+            "Sessionless Chat"
+        }
+        fn build_launch_command(
+            &self,
+            _params: &codeterm_plugin::provider::AgentLaunchParams,
+        ) -> String {
+            String::new()
+        }
+        fn readiness_strategy(&self) -> codeterm_plugin::provider::ReadinessStrategy {
+            codeterm_plugin::provider::ReadinessStrategy::PollShellPrompt {
+                timeout: std::time::Duration::from_secs(1),
+            }
+        }
+        fn task_delivery(&self) -> codeterm_plugin::provider::TaskDelivery {
+            codeterm_plugin::provider::TaskDelivery::PtyInput
+        }
+        fn detect_from_title(&self, _title: &str) -> bool {
+            false
+        }
+        fn detect_from_output(&self, _text: &str) -> bool {
+            false
+        }
+        fn session_file_path(&self, _cwd: &str, _session_id: &str) -> Option<std::path::PathBuf> {
+            None
+        }
+        fn detect_session_id(
+            &self,
+            _cwd: &str,
+            _exclude: &[String],
+            _max_age: Option<std::time::Duration>,
+        ) -> Option<String> {
+            None
+        }
+        fn build_resume_command(
+            &self,
+            _session_id: &str,
+            _skip_permissions: bool,
+        ) -> Option<String> {
+            None
+        }
+        fn uses_structured_chat(&self) -> bool {
+            true
+        }
+        fn read_structured_chat(
+            &self,
+            _cwd: &str,
+            _session_id: &str,
+            _cursor: Option<&str>,
+        ) -> StructuredChat {
+            StructuredChat {
+                messages: vec![codeterm_types::agent::chat_types::ChatMsg {
+                    id: "hist_0".into(),
+                    kind: "user".into(),
+                    content: "hello".into(),
+                    ..Default::default()
+                }],
+                cursor: Some("1".into()),
+                done: Some(false),
+            }
+        }
     }
-    let (result, snapshot) = capture_gate_diagnostic(&fixture, &attempt, "opaque-gate", LaunchInputMode::Standard);
-    assert_eq!(result, Ok(LaunchInputEvidence::SessionBinding));
-    assert_eq!(snapshot["outcome"], "session_binding");
-    assert_eq!(snapshot["tab_id"], attempt.tab_id);
-    assert_eq!(snapshot["pty_id"], attempt.pty_id);
-    assert_eq!(snapshot["binding_nonce"], attempt.binding_nonce);
-    assert_eq!(snapshot["mode"], "standard");
-    assert_eq!(snapshot["decision_inputs"]["value"]["session_bound"], true);
-    assert_eq!(snapshot["decision_inputs"]["value"]["composer_ready"], false);
-    assert_eq!(snapshot["process_gate_allows"]["value"], true);
-    assert_eq!(snapshot["provider_process_alive"]["evaluation"], "not_evaluated");
-    assert_eq!(snapshot["classification"], serde_json::json!({"evaluation": "observed", "value": null}));
+
+    let provider = SessionlessChatProvider;
+    assert!(provider.uses_structured_chat());
+    assert!(provider.supports_chat_ui());
+    let chat = provider.read_structured_chat("/cwd", "", None);
+    assert_eq!(chat.messages.len(), 1);
+    assert_eq!(chat.messages[0].content, "hello");
+    assert_eq!(chat.cursor.as_deref(), Some("1"));
 }
 
 #[test]
-#[cfg_attr(not(windows), ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime")]
-fn diagnostic_refusal_excludes_classifier_content() {
-    use codeterm_plugin::tab_state::{Surface, TabStateAction};
-    let secret = "opaque-classifier-content-1a37";
-    let mut classification = launch_classification(TabState::WaitingOnAuth).unwrap();
-    classification.action = Some(TabStateAction {
-        surface: Some(Surface { kind: "opaque-kind".into(), payload: serde_json::json!({"text": secret}) }),
-        ..Default::default()
-    });
-    let (fixture, attempt) = diagnostic_fixture(Box::new(MockProvider::new("opaque-gate").with_tab_state(classification)));
-    let (result, snapshot) = capture_gate_diagnostic(&fixture, &attempt, "opaque-gate", LaunchInputMode::Standard);
-    assert_eq!(result, Err(LaunchInputRefusal::ProviderDialog(TabState::WaitingOnAuth)));
-    assert_eq!(snapshot["outcome"], "provider_dialog");
-    assert_eq!(snapshot["classification"]["value"], serde_json::json!({"state": "waiting_on_auth", "confidence": 1.0}));
-    let encoded = serde_json::to_string(&snapshot).unwrap();
-    assert!(!encoded.contains(secret));
-    assert!(!encoded.contains("opaque-kind"));
-    assert!(encoded.len() < 4096);
-}
-
-#[test]
-#[cfg_attr(not(windows), ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime")]
-fn diagnostic_lazy_deadline_preserves_negative_process_and_input_evidence() {
-    let (fixture, attempt) = diagnostic_fixture(Box::new(MockProvider::new("opaque-gate")));
-    let (result, snapshot) = capture_gate_diagnostic(&fixture, &attempt, "opaque-gate", LaunchInputMode::LazySessionStart);
-    assert_eq!(result, Err(LaunchInputRefusal::Deadline));
-    assert_eq!(snapshot["outcome"], "deadline");
-    assert_eq!(snapshot["provider_process_alive"]["value"], false);
-    assert_eq!(snapshot["terminal_input_ready"]["value"], false);
-    assert_eq!(snapshot["provider_tui"]["value"], false);
-    assert_eq!(snapshot["tui_evidence"]["value"], false);
-    assert_eq!(snapshot["directory_trust_state"]["value"], "unknown");
-    assert_eq!(snapshot["event_generation"], 0);
-    assert_eq!(snapshot["deadline_ms"], 0);
-    assert!(snapshot["elapsed_ms"].is_u64());
-}
-
-#[test]
-#[cfg_attr(not(windows), ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime")]
-fn diagnostic_superseded_attempt_never_claims_evaluated_readiness() {
-    let (fixture, mut attempt) = diagnostic_fixture(Box::new(MockProvider::new("opaque-gate")));
-    attempt.binding_nonce = "opaque-old-nonce".into();
-    let (result, snapshot) = capture_gate_diagnostic(&fixture, &attempt, "opaque-gate", LaunchInputMode::Standard);
-    assert_eq!(result, Err(LaunchInputRefusal::AttemptSuperseded));
-    assert_eq!(snapshot["binding_nonce"], "opaque-old-nonce");
-    assert_eq!(snapshot["outcome"], "attempt_superseded");
-    assert_eq!(snapshot["session_bound"]["evaluation"], "not_evaluated");
-    assert_eq!(snapshot["composer_ready"]["evaluation"], "not_evaluated");
-    assert_eq!(snapshot["decision_inputs"]["evaluation"], "not_evaluated");
-}
-
-#[test]
-#[cfg_attr(not(windows), ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime")]
-fn diagnostic_onboarding_deadline_records_unknown_unevaluated_predicates() {
-    let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
-    let screen = include_str!("../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
-    assert!(provider.launch_onboarding_response(screen).is_some(), "onboarding precondition must be recognized");
-    let (fixture, attempt) = diagnostic_fixture(Box::new(provider));
-    fixture.service.mux.write().get_tab_mut(&attempt.tab_id).unwrap().role = Some(codeterm_types::agent::roles::AgentRole::Worker);
-    let observed_screen = {
-        let mut screens = fixture.service.screen_state.lock();
-        screens.resize(&attempt.pty_id, 180, 40);
-        let frame = screen.lines().collect::<Vec<_>>().join("\r\n");
-        screens.process(&attempt.pty_id, frame.as_bytes());
-        screens.get_screen_text(&attempt.pty_id).unwrap()
-    };
-    assert!(
-        fixture.service.agent_registry.with_provider("claude", |provider| {
-            provider.launch_onboarding_response(&observed_screen).is_some()
-        }).unwrap(),
-        "the actual gate frame must satisfy the onboarding precondition",
+fn onboarding_auto_answer_defaults_to_delegated_only() {
+    let mock = MockProvider::new("no-onboarding-policy");
+    assert_eq!(
+        mock.onboarding_auto_answer(),
+        codeterm_plugin::provider::OnboardingAutoAnswer::DelegatedOnly
     );
-    let (result, snapshot) = capture_gate_diagnostic(&fixture, &attempt, "claude", LaunchInputMode::Standard);
-    assert_eq!(result, Err(LaunchInputRefusal::Deadline));
-    assert_eq!(snapshot["onboarding_wait"], true);
-    assert_eq!(snapshot["pending_prompt"]["value"], false);
-    assert_eq!(snapshot["composer_ready"]["evaluation"], "not_evaluated");
-    assert_eq!(snapshot["terminal_input_ready"]["evaluation"], "not_evaluated");
-    assert_eq!(snapshot["classification"]["evaluation"], "not_evaluated");
-    assert_eq!(snapshot["decision_inputs"]["evaluation"], "not_evaluated");
-    assert!(!serde_json::to_string(&snapshot).unwrap().contains(screen.trim()));
+    assert!(!mock.onboarding_auto_answer().answers_for_owner_launch());
 }
+
+#[test]
+fn composer_evidence_wins_at_the_deadline_without_elapsed_success() {
+    let mut observation = input_observation();
+    observation.composer_ready = true;
+    assert_eq!(
+        decide_launch_input_at_deadline(observation, LaunchInputMode::Standard, true, true, false),
+        Ok(Some(LaunchInputEvidence::ProviderComposer))
+    );
+    let mut missing = input_observation();
+    missing.composer_ready = false;
+    assert_eq!(
+        decide_launch_input_at_deadline(missing, LaunchInputMode::Standard, true, true, false),
+        Err(LaunchInputRefusal::Deadline)
+    );
+    let mut modal = input_observation();
+    modal.classification = launch_classification(TabState::ClarifyingQuestion);
+    modal.active_interactive_prompt = true;
+    modal.composer_ready = true;
+    assert_eq!(
+        decide_launch_input_at_deadline(modal, LaunchInputMode::Standard, true, true, false),
+        Err(LaunchInputRefusal::ProviderDialog(
+            TabState::ClarifyingQuestion
+        ))
+    );
+}
+
+#[test]
+fn prompt_line_composer_is_ready_on_the_last_nonblank_row() {
+    let ready = codeterm_pty::pty::screen_state::ComposerInputState {
+        alternate_screen: false,
+        cursor_visible: true,
+        cursor_row: 5,
+        rows: 24,
+        cols: 80,
+        inverse_caret_row: None,
+        nonblank_inverse_cells: 0,
+        sole_nonblank_inverse_row: None,
+        last_nonblank_row: Some(5),
+    };
+    assert!(launch_composer_input_ready(
+        &ready,
+        ComposerCursorPosition::PromptLine,
+        None,
+        0
+    ));
+    assert!(launch_composer_input_ready_for_frame(
+        &ready,
+        ComposerCursorPosition::PromptLine,
+        None,
+        0,
+        false,
+    ));
+}
+
+#[test]
+fn prompt_line_composer_rejects_hidden_cursor_or_cursor_above_the_prompt_line() {
+    let hidden = codeterm_pty::pty::screen_state::ComposerInputState {
+        cursor_visible: false,
+        cursor_row: 5,
+        last_nonblank_row: Some(5),
+        ..codeterm_pty::pty::screen_state::ComposerInputState {
+            alternate_screen: false,
+            cursor_visible: true,
+            cursor_row: 5,
+            rows: 24,
+            cols: 80,
+            inverse_caret_row: None,
+            nonblank_inverse_cells: 0,
+            sole_nonblank_inverse_row: None,
+            last_nonblank_row: Some(5),
+        }
+    };
+    assert!(!launch_composer_input_ready(
+        &hidden,
+        ComposerCursorPosition::PromptLine,
+        None,
+        0
+    ));
+    let above = codeterm_pty::pty::screen_state::ComposerInputState {
+        cursor_row: 3,
+        ..hidden
+    };
+    assert!(!launch_composer_input_ready(
+        &above,
+        ComposerCursorPosition::PromptLine,
+        None,
+        0
+    ));
+    let unknown_bottom = codeterm_pty::pty::screen_state::ComposerInputState {
+        cursor_row: 5,
+        last_nonblank_row: None,
+        ..above
+    };
+    assert!(!launch_composer_input_ready(
+        &unknown_bottom,
+        ComposerCursorPosition::PromptLine,
+        None,
+        0
+    ));
+}
+
+#[test]
+fn prompt_line_composer_is_never_composer_evidence_on_a_trust_frame() {
+    let input = codeterm_pty::pty::screen_state::ComposerInputState {
+        alternate_screen: false,
+        cursor_visible: true,
+        cursor_row: 5,
+        rows: 24,
+        cols: 80,
+        inverse_caret_row: None,
+        nonblank_inverse_cells: 0,
+        sole_nonblank_inverse_row: None,
+        last_nonblank_row: Some(5),
+    };
+    assert!(!launch_composer_input_ready_for_frame(
+        &input,
+        ComposerCursorPosition::PromptLine,
+        None,
+        0,
+        true,
+    ));
+}
+
+#[path = "tests/diagnostics.rs"]
+mod diagnostics;

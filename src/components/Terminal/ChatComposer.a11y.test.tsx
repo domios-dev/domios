@@ -143,28 +143,33 @@ test("composer shell declares a visible keyboard-focus style", async () => {
   await teardown(h);
 });
 
-test("a rejected /model query sets aria-invalid, and editing clears it", async () => {
-  const h = await renderComposer("tab-a11y-invalid");
+test("a rejected send clears the composer without marking it invalid; the bubble owns the failure", async () => {
+  const h = await renderComposer("mesh:");
   assert(
     h.el.getAttribute("aria-invalid") === "false",
     "an untouched composer must not announce itself as invalid",
   );
 
-  await type(h, "/model this-model-does-not-exist");
+  await type(h, "fixture message");
   await fire(h.el, enterKeydown());
   await flush();
 
-  assert(
-    h.el.getAttribute("aria-invalid") === "true",
-    "a rejected /model query must be announced via aria-invalid",
-  );
-
-  await type(h, "/model this-model-does-not-exist ");
+  assert((h.el as HTMLTextAreaElement).value === "", "send always clears the composer");
   assert(
     h.el.getAttribute("aria-invalid") === "false",
-    "editing the field again must clear the invalid announcement",
+    "a send failure is reported on its bubble, not on the empty composer",
   );
 
+  await teardown(h);
+});
+
+test("typing @ offers the @ds-tasks mention as a named suggestion option", async () => {
+  const h = await renderComposer("tab-a11y-mention");
+  await type(h, "show me @ds");
+  const listbox = h.host.querySelector('[role="listbox"][aria-label="Mention suggestions"]');
+  assert(listbox, "mention suggestions must render as a named listbox");
+  const option = listbox.querySelector('[role="option"][aria-label="@ds-tasks"]');
+  assert(option, "the @ds-tasks suggestion must expose its accessible name");
   await teardown(h);
 });
 

@@ -265,7 +265,19 @@ async function mountSession(
 
 async function runChatSessionHookTests(): Promise<void> {
   setupHookDom();
-  const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
+  const { __setInvokeForTest, __setListenForTest: setListenForTest } = await import("../../lib/bridge");
+  let statusListeners = 0;
+  const __setListenForTest: typeof setListenForTest = (listener) => {
+    if (listener == null) { setListenForTest(null); return; }
+    setListenForTest(async (event, handler) => {
+      if (event === "chat-send-status") {
+        statusListeners += 1;
+        return () => { statusListeners -= 1; };
+      }
+      assert(event.startsWith("tab-chat-msg-"), `unexpected event ${event}`);
+      return listener(event, handler);
+    });
+  };
   const { fireResync } = await import("../../lib/resync");
 
   {
@@ -722,6 +734,7 @@ async function runChatSessionHookTests(): Promise<void> {
   }
   __setInvokeForTest(null);
   __setListenForTest(null);
+  assert(statusListeners === 0, "delivery-status listeners are released on unmount");
 }
 
 void runChatSessionHookTests()

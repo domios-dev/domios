@@ -321,9 +321,70 @@ pub fn chat_start_core(
     tab_id: String,
     subscription_id: String,
 ) -> Result<ChatStartResult, String> {
+    let mut result = chat_start_inner(svc, tab_id.clone(), subscription_id)?;
+    if let Some(session_id) = result.source_session_id.as_deref() {
+        if result
+            .messages
+            .as_ref()
+            .is_some_and(|messages| messages.iter().any(|message| message.kind == "user"))
+        {
+            svc.note_session_conversation(&tab_id, session_id);
+        }
+    }
+    crate::service::tab_chat::restore_notice::append_restore_notice(
+        &tab_id,
+        result.messages.get_or_insert_default(),
+    );
+    Ok(result)
+}
+
+fn chat_start_inner(
+    svc: &ServiceState,
+    tab_id: String,
+    subscription_id: String,
+) -> Result<ChatStartResult, String> {
+    if crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some() {
+        return crate::service::codex_rpc::transcript::start(svc, &tab_id, subscription_id);
+    }
     let started = std::time::Instant::now();
     let initial_authority = tab_chat_authority(svc, &tab_id);
-    if svc.tab_chat_backing(&tab_id).is_some() {
+    if crate::service::structured_endpoint::sse(&tab_id).is_some() && initial_authority.0.is_some()
+    {
+        let archives = svc
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .map(|tab| tab.context_epoch_archives.clone())
+            .unwrap_or_default();
+        let mut messages =
+            super::context_epochs::materialize_archived_context_epochs(svc, &archives);
+        messages.extend(crate::service::structured_prompt::snapshot::read(
+            svc, &tab_id,
+        )?);
+        let start = messages
+            .len()
+            .saturating_sub(crate::service::structured_prompt::snapshot::RETAINED_ROWS);
+        messages.drain(..start);
+        if tab_chat_authority(svc, &tab_id) != initial_authority {
+            return Err("Transcript binding changed during attach".into());
+        }
+        return Ok(ChatStartResult {
+            text: String::new(),
+            start_offset: 0,
+            offset: 0,
+            pending: false,
+            source_missing: false,
+            messages: Some(prepend_pending_greeting(svc, &tab_id, messages)),
+            cursor: None,
+            source_session_id: initial_authority.0,
+            session_binding_nonce: initial_authority.1,
+            subscription_id: None,
+        });
+    }
+    if let Some((plugin_id, _)) = svc.tab_chat_backing(&tab_id) {
+        if svc.chatbackend_registry.get(&plugin_id).is_none() {
+            return Err(crate::service::tab_transport_chat::removed_chatbackend_error(&plugin_id));
+        }
         let (messages, _total) =
             crate::service::tab_chat::tab_chat_snapshot(svc, &tab_id, 0).unwrap_or_default();
         return Ok(ChatStartResult {
@@ -426,10 +487,12 @@ pub fn chat_start_core(
             })
             .unwrap_or_default();
         let cursor = delta.cursor.clone();
-        if !svc
-            .chat_registry
-            .acquire(&tab_id, &session_id, &subscription_id)
-        {
+        if !svc.chat_registry.acquire(
+            &tab_id,
+            &session_id,
+            session_binding_nonce.as_deref(),
+            &subscription_id,
+        ) {
             let sink = crate::service::tab_chat::structured_sink::make_sink(
                 svc.app_handle.clone(),
                 svc.mux.clone(),
@@ -452,6 +515,7 @@ pub fn chat_start_core(
             svc.chat_registry.insert(
                 tab_id.clone(),
                 session_id.clone(),
+                session_binding_nonce.clone(),
                 subscription_id.clone(),
                 handle,
             );
@@ -484,10 +548,12 @@ pub fn chat_start_core(
             provider_id,
             session_id
         );
-        if !svc
-            .chat_registry
-            .acquire(&tab_id, &session_id, &subscription_id)
-        {
+        if !svc.chat_registry.acquire(
+            &tab_id,
+            &session_id,
+            session_binding_nonce.as_deref(),
+            &subscription_id,
+        ) {
             let sink = crate::service::tab_chat::structured_sink::make_flatten_sink(
                 svc.app_handle.clone(),
                 svc.mux.clone(),
@@ -502,6 +568,7 @@ pub fn chat_start_core(
                     provider_id: provider_id.clone(),
                     cwd: cwd.clone(),
                     session_id: session_id.clone(),
+                    session_binding_nonce: session_binding_nonce.clone(),
                     poll_interval:
                         crate::service::tab_chat::store_watch::PENDING_STORE_WATCH_POLL_INTERVAL,
                 },
@@ -540,6 +607,32 @@ pub fn chat_start_core(
         &snap,
     );
     let read_ms = read_started.elapsed().as_millis();
+    if let Some(nonce) = session_binding_nonce.as_deref() {
+        if snap.truncated() {
+            crate::service::background_work::incomplete_snapshot(svc, &tab_id, &session_id, nonce);
+        }
+        crate::service::provider_signals::apply(
+            svc,
+            &tab_id,
+            &session_id,
+            nonce,
+            &snap.runtime_observations,
+        );
+        crate::service::background_work::apply(
+            svc,
+            &tab_id,
+            &session_id,
+            nonce,
+            &snap.runtime_observations,
+        );
+    }
+    crate::api::hook_routes::context_feed::apply_snapshot(
+        svc,
+        &tab_id,
+        &session_id,
+        session_binding_nonce.as_deref(),
+        snap.context_usage.as_ref(),
+    );
     // Resume at the parsed end, not the file size: a held-back partial record
     // must be consumed once by the tailer rather than skipped.
     let (total, tailer_start_offset, bytes_read) = (snap.total, snap.end_offset, snap.bytes_read);
@@ -551,10 +644,12 @@ pub fn chat_start_core(
 
     // is already running so one client's stop() cannot kill another's stream.
     let tailer_started = std::time::Instant::now();
-    if !svc
-        .chat_registry
-        .acquire(&tab_id, &session_id, &subscription_id)
-    {
+    if !svc.chat_registry.acquire(
+        &tab_id,
+        &session_id,
+        session_binding_nonce.as_deref(),
+        &subscription_id,
+    ) {
         let sink = crate::service::tab_chat::structured_sink::make_flatten_sink(
             svc.app_handle.clone(),
             svc.mux.clone(),
@@ -563,21 +658,22 @@ pub fn chat_start_core(
             session_binding_nonce.clone(),
             Some(svc.chat_send_ledger.clone()),
         );
-        let handle = crate::service::tab_chat::spawn_tailer(
+        let handle = crate::service::tab_chat::tailer::spawn_sourced_tailer(
             crate::service::tab_chat::TailConfig {
                 tab_id: tab_id.clone(),
                 provider_id: provider_id.clone(),
                 cwd: cwd.clone(),
                 session_id: session_id.clone(),
                 start_offset: tailer_start_offset,
-                poll_interval: crate::service::tab_chat::live_chat_poll_interval(),
             },
+            Some(svc.chat_registry.jsonl_source(&tab_id)),
             svc.agent_registry.clone(),
             sink,
         );
         svc.chat_registry.insert(
             tab_id.clone(),
             session_id.clone(),
+            session_binding_nonce.clone(),
             subscription_id.clone(),
             handle,
         );
@@ -716,6 +812,9 @@ pub fn chat_backfill_core(
     tab_id: String,
     before_offset: u64,
 ) -> Result<ChatBackfillResult, String> {
+    if crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some() {
+        return crate::service::codex_rpc::transcript::backfill(svc, &tab_id, before_offset);
+    }
     let (provider_id, cwd, session_id, session_binding_nonce) = {
         let m = svc.mux.write();
         let tab = m.get_tab(&tab_id).ok_or("Tab not found")?;
@@ -813,23 +912,41 @@ pub async fn chat_send_text(
     tab_id: String,
     text: String,
     client_token: Option<String>,
+    replay_only: Option<bool>,
 ) -> Result<crate::service::agent_pad::ChatSendResult, String> {
     // Agent without knowing its tab id — parity with the REST send route.
     let tab_id = svc.mux.read().resolve_tab_id(&tab_id).unwrap_or(tab_id);
+    svc.require_managed_send_allowed(&tab_id, None)?;
     let run_stages =
         crate::chatpipeline::is_user_turn_send(false, false, svc.tab_has_agent(&tab_id));
-    let (text, pad_file) = svc.prepare_chat_send_text(&tab_id, text, run_stages)?;
-    let submit_claim = svc.claim_chat_submit_cycle(&tab_id);
-    // Anchor capture reads the session file and may enter a plugin VM.
+    let reservation = if svc.tab_chat_backing(&tab_id).is_none() {
+        Some(svc.reserve_user_send_with_replay_only(
+            &tab_id,
+            client_token.clone(),
+            replay_only.unwrap_or(false),
+        )?)
+    } else {
+        if replay_only.unwrap_or(false) {
+            return Err(
+                "admission_unknown: replay admission is unavailable for this backing".into(),
+            );
+        }
+        None
+    };
     let svc = svc.inner().clone();
-    let status = tokio::task::spawn_blocking(move || {
-        svc.start_chat_send(&tab_id, text, submit_claim, client_token)
+    tokio::task::spawn_blocking(move || {
+        if let Some(reservation) = reservation {
+            svc.prepare_and_admit_user_send(reservation, text, run_stages)
+        } else {
+            let (text, pad_file) = svc.prepare_chat_send_text(&tab_id, text, run_stages)?;
+            let status = svc.start_chat_send(&tab_id, text, None, client_token)?;
+            Ok(crate::service::agent_pad::ChatSendResult::new(
+                status, pad_file,
+            ))
+        }
     })
     .await
-    .map_err(|e| e.to_string())??;
-    Ok(crate::service::agent_pad::ChatSendResult::new(
-        status, pad_file,
-    ))
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -929,256 +1046,4 @@ pub async fn chatbackend_switch_model(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::backfill_window_slice;
-    use crate::service::tab_chat::session_window::{
-        self, SNAPSHOT_ANCHOR_STRIDE_BYTES, SNAPSHOT_CAP_BYTES, SNAPSHOT_WINDOW_BYTES,
-    };
-    use std::sync::Arc;
-
-    fn workspace_plugins_root() -> std::path::PathBuf {
-        std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/..")).join("plugins")
-    }
-
-    fn claude_registry() -> Arc<crate::agent::registry::AgentRegistry> {
-        let plugin_js = std::fs::read_to_string(
-            workspace_plugins_root()
-                .join("provider-claude")
-                .join("plugin.js"),
-        )
-        .expect("read claude plugin.js");
-        let manifest_json = r#"{
-            "id": "claude",
-            "version": "0.1.0",
-            "displayName": "Claude Code",
-            "spawn": {
-                "readinessStrategy": {"kind": "fixed_delay", "durationMs": 0},
-                "taskDelivery": "pty_input",
-                "verifySubmit": {"kind": "none"}
-            },
-            "sessions": {
-                "rootDir": "~/.claude/projects",
-                "cwdEncoding": "dash_encoded",
-                "fileExtension": "jsonl"
-            }
-        }"#;
-        let manifest: crate::plugin::js_runtime::PluginManifest =
-            serde_json::from_str(manifest_json).expect("parse claude manifest");
-        let vm = crate::plugin::js_runtime::PluginVm::from_source_with(
-            "claude",
-            plugin_js,
-            Some(manifest_json.to_string()),
-        )
-        .expect("init claude VM");
-        let provider = crate::plugin::js_runtime::JsProvider::new(manifest, Arc::new(vm));
-        let registry = crate::agent::registry::AgentRegistry::new();
-        registry.register_provider(Box::new(provider));
-        Arc::new(registry)
-    }
-
-    #[test]
-    fn large_jsonl_tail_window_returns_normalized_history() {
-        if !workspace_plugins_root().join("provider-claude").exists() {
-            return;
-        }
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("dante.jsonl");
-        let compact = serde_json::json!({
-            "type": "user",
-            "uuid": "compact-user",
-            "isVisibleInTranscriptOnly": true,
-            "isCompactSummary": true,
-            "message": {
-                "role": "user",
-                "content": "This session is being continued from a previous conversation.\n\nSummary:\n- Dante context"
-            }
-        });
-        let task = serde_json::json!({
-            "type": "user",
-            "uuid": "task-user",
-            "origin": {"kind": "task-notification"},
-            "message": {
-                "role": "user",
-                "content": "<task-notification>\n<status>completed</status>\n</task-notification>"
-            }
-        });
-        let normal = serde_json::json!({
-            "type": "user",
-            "uuid": "normal-user",
-            "message": {"role": "user", "content": "real user message"}
-        });
-        std::fs::write(&path, format!("{}\n{}\n{}\n", compact, task, normal)).unwrap();
-
-        let snap = session_window::snapshot(&claude_registry(), "claude", &path);
-        assert!(!snap.truncated());
-        let msgs = snap.messages;
-
-        assert_eq!(msgs.len(), 3);
-        assert_eq!(msgs[0].kind, "system");
-        assert_eq!(msgs[0].system_subtype.as_deref(), Some("compact_summary"));
-        assert_eq!(
-            msgs[0].timeline_marker,
-            Some(crate::agent::chat_types::ChatTimelineMarker::ContextCompaction)
-        );
-        assert!(msgs[0].collapsed);
-        assert_eq!(msgs[1].kind, "status");
-        assert_eq!(msgs[1].content, "Task completed");
-        assert_eq!(msgs[1].system_subtype.as_deref(), Some("task_notification"));
-        assert_eq!(msgs[2].kind, "user");
-        assert_eq!(msgs[2].content, "real user message");
-    }
-
-    #[test]
-    fn backfill_paging_is_lossless_and_line_aligned() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("session.jsonl");
-        let lines: Vec<String> = (0..600)
-            .map(|i| format!("{{\"type\":\"user\",\"uuid\":\"u{i}\",\"message\":{{\"role\":\"user\",\"content\":\"line {i} {}\"}}}}", "x".repeat(40)))
-            .collect();
-        let body = format!("{}\n", lines.join("\n"));
-        std::fs::write(&path, &body).unwrap();
-        let total = std::fs::metadata(&path).unwrap().len();
-
-        // Page backward in small windows; every page must start on a line start
-        // and end exactly where the previous page began.
-        let mut cursor = total;
-        let mut pages_reversed: Vec<String> = Vec::new();
-        while cursor > 0 {
-            let (text, aligned_start) = backfill_window_slice(&path, cursor, 4096).unwrap();
-            assert!(aligned_start < cursor, "every page makes progress");
-            if aligned_start > 0 {
-                assert_eq!(
-                    body.as_bytes()[aligned_start as usize - 1],
-                    b'\n',
-                    "aligned start sits on a line start",
-                );
-            }
-            pages_reversed.push(text);
-            cursor = aligned_start;
-        }
-        let reassembled: String = pages_reversed
-            .iter()
-            .rev()
-            .cloned()
-            .collect::<Vec<_>>()
-            .join("");
-        assert_eq!(
-            reassembled, body,
-            "concatenated pages reproduce the file losslessly"
-        );
-        assert!(
-            pages_reversed.len() > 10,
-            "fixture actually exercised many pages"
-        );
-    }
-
-    #[test]
-    fn backfill_window_clamps_at_eof() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("tiny.jsonl");
-        std::fs::write(&path, "{\"a\":1}\n{\"b\":2}\n").unwrap();
-        let total = std::fs::metadata(&path).unwrap().len();
-
-        // Requesting far past EOF clamps to the file.
-        let (text, start) = backfill_window_slice(&path, total + 10_000, 1 << 20).unwrap();
-        assert_eq!(start, 0);
-        assert_eq!(text.as_bytes(), std::fs::read(&path).unwrap().as_slice());
-
-        // A zero-progress request (before_offset 0) yields an empty window.
-        let (text, start) = backfill_window_slice(&path, 0, 4096).unwrap();
-        assert!(text.is_empty());
-        assert_eq!(start, 0);
-    }
-
-    /// Backfill pages parse through the tab's own provider parser via the
-    /// bounded session_window range — the same normalized shape as chat_start.
-    #[test]
-    fn backfill_range_parses_with_provider_parser() {
-        if !workspace_plugins_root().join("provider-claude").exists() {
-            return;
-        }
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("bf.jsonl");
-        std::fs::write(
-            &path,
-            concat!(
-                "{\"type\":\"user\",\"uuid\":\"bf-1\",\"message\":{\"role\":\"user\",\"content\":\"older question\"}}\n",
-                "{\"type\":\"assistant\",\"uuid\":\"bf-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"older answer\"}]}}\n",
-            ),
-        )
-        .unwrap();
-        let total = std::fs::metadata(&path).unwrap().len();
-
-        let (rich, _end) =
-            session_window::parse_window(&claude_registry(), "claude", &path, 0, total);
-        let msgs: Vec<crate::agent::chat_types::ChatMsg> = rich
-            .iter()
-            .enumerate()
-            .flat_map(|(i, r)| crate::service::tab_chat::rich_to_chat_msgs(r, i))
-            .collect();
-        assert_eq!(msgs.len(), 2, "provider parser normalizes the page");
-        assert_eq!(msgs[0].kind, "user");
-        assert_eq!(msgs[0].content, "older question");
-        assert_eq!(msgs[1].kind, "assistant");
-        assert_eq!(msgs[1].content, "older answer");
-    }
-
-    /// The production regression, against the real claude plugin: a session file
-    /// past the snapshot cap must be read as a bounded tail, not whole.
-    #[test]
-    fn oversized_claude_session_snapshots_a_bounded_tail() {
-        if !workspace_plugins_root().join("provider-claude").exists() {
-            return;
-        }
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("huge.jsonl");
-        let filler = serde_json::json!({
-            "type": "user",
-            "uuid": "filler",
-            "message": {"role": "user", "content": "f".repeat(4096)}
-        })
-        .to_string();
-        let tail_marker = serde_json::json!({
-            "type": "user",
-            "uuid": "tail-user",
-            "message": {"role": "user", "content": "the last message"}
-        })
-        .to_string();
-
-        {
-            use std::io::Write;
-            let mut f = std::io::BufWriter::new(std::fs::File::create(&path).unwrap());
-            let mut written = 0u64;
-            while written <= SNAPSHOT_CAP_BYTES + SNAPSHOT_WINDOW_BYTES {
-                writeln!(f, "{filler}").unwrap();
-                written += filler.len() as u64 + 1;
-            }
-            writeln!(f, "{tail_marker}").unwrap();
-            f.flush().unwrap();
-        }
-        let total = std::fs::metadata(&path).unwrap().len();
-        assert!(total > SNAPSHOT_CAP_BYTES);
-
-        let snap = session_window::snapshot(&claude_registry(), "claude", &path);
-        assert!(
-            snap.truncated(),
-            "oversized session must use the tail window"
-        );
-        assert!(
-            snap.bytes_read <= SNAPSHOT_WINDOW_BYTES + SNAPSHOT_ANCHOR_STRIDE_BYTES,
-            "read {} bytes",
-            snap.bytes_read
-        );
-        assert_eq!(snap.total, total, "tailer must resume at file length");
-        assert_eq!(
-            snap.start_offset + snap.bytes_read,
-            total,
-            "window must end exactly at EOF"
-        );
-        let last = snap.messages.last().expect("tail window has messages");
-        assert_eq!(last.kind, "user");
-        assert_eq!(last.content, "the last message");
-        // Every record in the window parsed — no partial leading line survived.
-        assert!(snap.messages.iter().all(|m| m.kind == "user"));
-    }
-}
+mod tests;

@@ -14,7 +14,7 @@ Stable docs describe lasting product behavior and invariants through UI surfaces
 
 The capability map describes product vectors, capabilities, entry points, invariants, status, and relationships. The core essence describes core parts, clients, and message routing. The vision says why the product capabilities exist. The map is generated from the capability map and core essence; it is a navigation aid, not an architecture blueprint, and the architecture is never reshaped to fit it. The decision journal records why the map changed and is append-only.
 
-Detailed contracts have one authoritative home: [memory](memory.md) owns durable knowledge, recall and hygiene; [orchestration](orchestration.md) owns roles, task authority and continuity; [permissions](permissions.md) separates execution access, operator authority, plugin grants and folder trust; the [Supporter Agent](supporter-agent.md) owns model judgment and its bounded relationship to deterministic action.
+Detailed contracts have one authoritative home: [memory](memory.md) owns durable knowledge, recall and hygiene; [orchestration](orchestration.md) owns roles, task authority and continuity; [permissions](permissions.md) separates execution access, operator authority, plugin grants and folder trust; the [Supporter Agent](supporter-agent.md) owns model judgment and its bounded relationship to deterministic action; [Blueprints](sentinels.md) own recurring-action graphs, their escalation and their improvement; [interface conventions](interface.md) own the shared vocabulary of every visible surface.
 
 ## When to edit a stable doc
 

@@ -109,7 +109,9 @@ fn seed_precedes_first_live_read_and_keeps_stream_offsets_monotonic() {
     output_buf.lock().append(pty_id, b"fresh banner\r\n");
     let buffer = output_buf.lock();
     let (all, total) = buffer.read_since(pty_id, 0);
-    assert_eq!(all.as_slice(), b"prior history\r\nfresh banner\r\n");
+    let mut expected = super::shell_scrollback_replay(prior);
+    expected.extend_from_slice(b"fresh banner\r\n");
+    assert_eq!(all, expected);
     assert_eq!(total, all.len() as u64);
 }
 

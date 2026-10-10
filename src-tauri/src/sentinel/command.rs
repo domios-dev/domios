@@ -119,6 +119,7 @@ pub(super) fn execute_with(
     launch: impl FnOnce(Duration) -> Result<probe::Output, ProbeFailure>,
 ) -> Effect {
     let execution_id = uuid::Uuid::new_v4().to_string();
+    crate::flow_trace::record(&execution_id, "blueprint.started", "", "", "command", None);
     let started_at = clock();
     let result = parameters
         .validate()
@@ -168,6 +169,7 @@ pub(super) fn execute_with(
         },
         execution_id: Some(execution_id),
         command_result: Some(metadata),
+        reason: None,
     }
 }
 

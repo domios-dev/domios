@@ -161,7 +161,8 @@ fn headers(tab_id: &str, suffix: &str) -> HeaderMap {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn worker_transfer_role_endpoint_accepts_only_source_manager_headers_and_returns_typed_commit_outcome() {
+fn worker_transfer_role_endpoint_accepts_only_source_manager_headers_and_returns_typed_commit_outcome(
+) {
     let fixture = RouteFixture::new();
     let before_plan = fixture
         .service

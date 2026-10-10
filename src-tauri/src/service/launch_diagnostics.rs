@@ -1,5 +1,18 @@
 const TAIL_BYTES: usize = 4096;
 
+pub(crate) fn log_rpc_sidecar(tab: &str) {
+    if let Some(diagnostics) = super::codex_rpc::diagnostics::for_tab(tab) {
+        log::info!(
+            "[launch] tab={tab} structured_control={}",
+            serde_json::to_string(&diagnostics).unwrap_or_default()
+        );
+    }
+}
+
+mod account_home_diagnostic;
+mod failure_screen;
+pub(crate) use failure_screen::log_failure_screen;
+
 #[derive(Debug, PartialEq, Eq)]
 struct LaunchEnvironmentSummary {
     api_target: String,
@@ -71,6 +84,7 @@ pub(crate) fn log_launch_environment(
         "CODETERM_API_TOKEN",
         "CODETERM_SESSION_BINDING_NONCE",
         "CODEX_HOME",
+        "CLAUDE_CONFIG_DIR",
         "PATH",
         "ComSpec",
     ]
@@ -81,6 +95,7 @@ pub(crate) fn log_launch_environment(
             .map(|value| (name.to_string(), value))
     })
     .collect();
+    account_home_diagnostic::schedule(tab_id, launch_env, &inherited_env);
     let cli_path = launch_env
         .get("CODETERM_CLI_PATH")
         .map(|path| std::ffi::OsString::from(path.as_str()))

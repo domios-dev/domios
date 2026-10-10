@@ -1,19 +1,23 @@
 import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke, IS_WEB } from "./lib/bridge";
 import { buildTeamActions } from "./lib/teamActions";
+import { selectAiHelperTab } from "./lib/aiHelperFocus";
 import { getCurrentTabUiMode } from "./lib/clientTabUiMode";
 import { pruneOrphanComposerDrafts } from "./lib/composerDraftGc";
 import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { TabContent } from "./components/Terminal/TabContent";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
-import type { SectionId } from "./components/Settings/sections";
-import { GuideNavigationProvider } from "@codeterm/chat-ui";
+import { isSettingsLinkId, type SettingsLinkId } from "./components/Settings/sections";
+import { ChatBlockHostProvider, GuideNavigationProvider } from "@codeterm/chat-ui";
+import { appChatBlockHost } from "./lib/chatBlocks/appChatBlockHost";
+import { AppChatBlockServices } from "./lib/chatBlocks/AppChatBlockServices";
 import { GUIDE_SECTIONS, guideRequest, type GuideRequest } from "./help/guideNavigation";
 import type { AgentLevelChoice } from "./lib/types";
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
 import { MeshPanel } from "./components/MeshPanel/MeshPanel";
 import { ExtensionsView } from "./components/Extensions/ExtensionsView";
+import { AnalyticsSupporterSection } from "./components/Supporter/AnalyticsSupporterSection";
 import { PluginView } from "./components/Extensions/PluginView";
 import { ANALYTICS_PLUGIN_ID, isAnalyticsAvailable } from "./components/Titlebar/analyticsTrayLogic";
 import { usePluginSnapshotStore } from "./lib/pluginSnapshotStore";
@@ -28,13 +32,19 @@ import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { CanvasView } from "./components/Canvas/CanvasView";
 import { EssenceMapCanvas } from "./components/Canvas/EssenceMapCanvas";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
+import { usePlanPeerContext } from "./components/Canvas/usePlanPeerContext";
 import { PlanSidePanelHost } from "./components/Canvas/PlanSidePanelHost";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
-import { WorkspaceAutomationView } from "./components/Automation/WorkspaceAutomationView";
-import type { JobsTarget } from "./components/Jobs/JobsView";
+import { useBlueprintRunPopups } from "./components/Automation/useBlueprintRunPopups";
+import { JobsView, type JobsTarget } from "./components/Jobs/JobsView";
+import { useReturnToChat } from "./hooks/useReturnToChat";
+import type { ReturnTo } from "./lib/returnTo";
+import { OPEN_JOB_EVENT, type OpenJobDetail } from "./components/Jobs/openJobEvent";
+import { jobsEntryFilter, jobsOpenEntry, type JobsOpenScope } from "./components/Jobs/jobsLayout";
 import { CronWorkspaceView } from "./components/Cron/CronWorkspaceView";
 import { cronSelectionStore, useCronSelection } from "./components/Cron/cronSelectionStore";
 import { useConfig } from "./hooks/useConfig";
+import { useHelperMomentsHost } from "./lib/helperMoments/helperMomentsWiring";
 import { useNotificationSound } from "./hooks/useNotificationSound";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useSidebarViewport } from "./hooks/useSidebarViewport";
@@ -102,6 +112,8 @@ function AppInner() {
     closeOnPhone: closeSidebarOnMobile,
     phone: phoneViewport,
   } = useSidebarViewport();
+  const [sidebarRailCollapsed, setSidebarRailCollapsed] = useState(false);
+  const [sidebarExpandRequest, setSidebarExpandRequest] = useState(0);
 
   const viewLayerStyle = (active: boolean): React.CSSProperties => ({
     zIndex: active ? 2 : 0,
@@ -116,12 +128,13 @@ function AppInner() {
   const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "extensions" | "analytics">("workspace");
   const automationOpener = useRef<HTMLElement | null>(null);
   const [automationWorkspaceId, setAutomationWorkspaceId] = useState<string | null>(null);
-  const [jobsTarget, setJobsTarget] = useState<(JobsTarget & { request: number }) | null>(null);
+  const [jobsTarget, setJobsTarget] = useState<(JobsTarget & { request: number; returnTo?: ReturnTo }) | null>(null);
+  const [jobsScope, setJobsScope] = useState<JobsOpenScope>("workspace");
   const [workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId] = useState<string | null>(null);
   const [pluginViewId, setPluginViewId] = useState<string | null>(null);
   const [pluginViewCwd, setPluginViewCwd] = useState<string | null>(null);
   const [pluginViewOwner, setPluginViewOwner] = useState<PluginViewScope | null>(null);
-  const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
+  const [settingsSection, setSettingsSection] = useState<SettingsLinkId | undefined>(undefined);
   const [requestedGuide, setRequestedGuide] = useState<GuideRequest | undefined>(undefined);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
   // Lazy-mount panels: mount once on first open, stay mounted for instant switching.
@@ -209,6 +222,7 @@ function AppInner() {
     closeTab,
     reopenClosed,
     setFocusedTab,
+    setActiveTab,
     selectTabByTab,
     setTabPty,
     setActiveWorkspace,
@@ -218,9 +232,13 @@ function AppInner() {
     clearNotifications,
     answerNotification,
     dismissToast,
+    upsertToast,
     spawnClaudeTab,
   } = useMultiplexer();
   const state = useMuxState();
+  useHelperMomentsHost(state.tabs, configLoading ? null : config.integrations?.telegram_enabled ?? false);
+  const peerContext = usePlanPeerContext();
+  useBlueprintRunPopups(state.workspaces, peerContext.generation, state.toasts, upsertToast);
   const navigateToNotificationTab = useCallback(
     (tabId: string, workspaceId: string | null) => {
       if (workspaceId) {
@@ -282,8 +300,11 @@ function AppInner() {
         setPluginViewId(panel.slice("view:".length));
       } else if (panel === "extensions") {
         setExtensionsOpen(true);
-      } else if (panel === "memory" && import.meta.env.DEV && import.meta.env.VITE_CODETERM_TEST === "1") {
-        setMemoryInitial(detail?.memoryState);
+      } else if (panel?.startsWith("settings:") && isSettingsLinkId(panel.slice("settings:".length))) {
+        setSettingsSection(panel.slice("settings:".length) as SettingsLinkId);
+        setSettingsOpen(true);
+      } else if (panel === "memory") {
+        if (import.meta.env.DEV && import.meta.env.VITE_CODETERM_TEST === "1") setMemoryInitial(detail?.memoryState);
         setMemoryOpen(true);
       }
     };
@@ -294,14 +315,16 @@ function AppInner() {
   // dismiss any covering Extensions/glance overlay and focus the new tab.
   useEffect(() => {
     const onFocusTab = (e: Event) => {
-      const tabId = (e as CustomEvent<{ tabId?: string }>).detail?.tabId;
+      const detail = (e as CustomEvent<{ tabId?: string; workspaceId?: string }>).detail;
+      const tabId = detail?.tabId;
       if (!tabId) return;
       setExtensionsOpen(false);
-      setFocusedTab(tabId);
+      if (detail.workspaceId) selectAiHelperTab(detail.workspaceId, tabId, setActiveTab, setFocusedTab);
+      else setFocusedTab(tabId);
     };
     window.addEventListener("codeterm:focus-tab", onFocusTab);
     return () => window.removeEventListener("codeterm:focus-tab", onFocusTab);
-  }, [setExtensionsOpen, setFocusedTab]);
+  }, [setActiveTab, setExtensionsOpen, setFocusedTab]);
 
   const handleBackToMemory = useCallback(() => {
     const ret = navigationStore.get();
@@ -394,11 +417,12 @@ function AppInner() {
   const closeWorkspaceMap = useCallback(() => {
     setWorkspaceMapWorkspaceId(null);
   }, []);
+  const activateReturnTo = useReturnToChat();
   const closeWorkspaceAutomation = useCallback(() => {
     setAutomationWorkspaceId(null);
     if (automationOpener.current?.isConnected) automationOpener.current.focus();
   }, []);
-  const openWorkspaceAutomation = useCallback((workspaceId: string, target?: JobsTarget) => {
+  const openWorkspaceAutomation = useCallback((workspaceId: string, target?: JobsTarget, scope: JobsOpenScope = "workspace", returnTo?: ReturnTo) => {
     if (document.activeElement instanceof HTMLElement) automationOpener.current = document.activeElement;
     closePluginView();
     setActiveWorkspace(workspaceId);
@@ -408,9 +432,18 @@ function AppInner() {
     setWorkspaceMapWorkspaceId(null);
     setMainView("workspace");
     setAutomationWorkspaceId(workspaceId);
-    setJobsTarget((current) => target ? { ...target, request: (current?.request ?? 0) + 1 } : null);
+    setJobsScope(scope);
+    setJobsTarget((current) => target ? { ...target, returnTo, request: (current?.request ?? 0) + 1 } : null);
     closeSidebarOnMobile();
   }, [closePluginView, closeSidebarOnMobile, setActiveWorkspace]);
+  useEffect(() => {
+    const onOpenJob = (event: Event) => {
+      const detail = (event as CustomEvent<OpenJobDetail>).detail;
+      if (detail?.workspaceId) openWorkspaceAutomation(detail.workspaceId, detail.target, "workspace", detail.returnTo);
+    };
+    window.addEventListener(OPEN_JOB_EVENT, onOpenJob);
+    return () => window.removeEventListener(OPEN_JOB_EVENT, onOpenJob);
+  }, [openWorkspaceAutomation]);
   const openWorkspaceMap = useCallback((workspaceId: string) => {
     setAutomationWorkspaceId(null);
     closePluginView();
@@ -569,6 +602,7 @@ function AppInner() {
 
   return (
     <GuideNavigationProvider sections={GUIDE_SECTIONS} onOpen={openGuide}>
+    <ChatBlockHostProvider value={appChatBlockHost}>
     <div
       className={`flex flex-col w-screen overflow-hidden ${isCRT ? "crt-mode" : ""}`}
       style={{
@@ -587,8 +621,8 @@ function AppInner() {
           own --ct-safe-top padding covers the web notch/status-bar inset. */}
       <Titlebar
         api={stableApiConfig}
-        onToggleSidebar={toggleSidebar}
-        showSidebarToggle={!sidebarOpen}
+        onToggleSidebar={sidebarRailCollapsed && sidebarOpen ? () => setSidebarExpandRequest((count) => count + 1) : toggleSidebar}
+        showSidebarToggle={!sidebarOpen || sidebarRailCollapsed}
         onNewTab={handleNewTab}
         theme={stableTheme}
         onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
@@ -608,6 +642,7 @@ function AppInner() {
         onNavigateToast={navigateToNotificationTab}
       />
       <PlansProvider api={stableApiConfig} enabled={!configLoading}>
+      <AppChatBlockServices api={stableApiConfig}>
       <div
         data-testid="app-shell-body"
         data-shell-viewport={phoneViewport ? "phone" : "desktop"}
@@ -626,12 +661,14 @@ function AppInner() {
             {/* Fixed overlay escapes #root's safe-area padding — re-add it here. */}
             <div
               data-testid="sidebar-drawer"
-              className={`ct-sidebar-drawer ${sidebarShown ? "is-open" : ""} shell-narrow:fixed shell-narrow:inset-y-0 shell-narrow:left-0 shell-narrow:z-40 shell-narrow:shadow-2xl shell-narrow:pt-[var(--ct-safe-top,0px)] shell-narrow:pb-[var(--ct-safe-bottom,0px)] shell-narrow:bg-[var(--ct-sidebar-bg)] flex min-h-0 overflow-visible`}
+              className={`ct-sidebar-drawer ${sidebarShown ? "is-open" : ""} shell-narrow:fixed shell-narrow:inset-y-0 shell-narrow:left-0 shell-narrow:z-40 shell-narrow:pt-[var(--ct-safe-top,0px)] shell-narrow:pb-[var(--ct-safe-bottom,0px)] flex min-h-0 overflow-visible`}
               aria-hidden={!sidebarShown}
               inert={!sidebarShown || undefined}
             >
               <Sidebar
                 onCollapse={closeSidebar}
+                onCollapsedChange={setSidebarRailCollapsed}
+                expandRequest={sidebarExpandRequest}
                 onOpenMemory={() => { setMemoryOpen(true); closeSidebarOnMobile(); }}
                 onOpenMesh={() => { setMeshOpen(true); closeSidebarOnMobile(); }}
                 onOpenExtensions={() => { setExtensionsOpen(true); closeSidebarOnMobile(); }}
@@ -666,6 +703,9 @@ function AppInner() {
                 onClose={() => { setSettingsSection(undefined); setSettingsOpen(false); }}
                 initialSection={settingsSection}
                 guideRequest={requestedGuide}
+                tabs={state.tabs}
+                workspaces={state.workspaces}
+                teams={state.teams}
               />
             </div>
           )}
@@ -722,19 +762,22 @@ function AppInner() {
           {mountedAnalytics && analyticsAvailable && (
             <div
               data-testid="analytics-view"
-              className="absolute inset-0"
+              className="absolute inset-0 flex flex-col"
               style={viewLayerStyle(mainView === "analytics")}
               aria-hidden={mainView !== "analytics"}
               inert={mainView !== "analytics" || undefined}
             >
-              <PluginView
-                pluginId={ANALYTICS_PLUGIN_ID}
-                api={stableApiConfig}
-                active={mainView === "analytics"}
-                focusOnActive
-                kpiNotices
-                onClose={closeAnalytics}
-              />
+              <div className="relative min-h-0 flex-1">
+                <PluginView
+                  pluginId={ANALYTICS_PLUGIN_ID}
+                  api={stableApiConfig}
+                  active={mainView === "analytics"}
+                  focusOnActive
+                  kpiNotices
+                  onClose={closeAnalytics}
+                />
+              </div>
+              <AnalyticsSupporterSection api={stableApiConfig} />
             </div>
           )}
           {pluginViewId && (
@@ -744,7 +787,7 @@ function AppInner() {
           )}
           {automationWorkspaceId && mainView === "workspace" && (
             <div className="absolute inset-0" style={{ zIndex: 26 }}>
-              <WorkspaceAutomationView key={`${automationWorkspaceId}:${jobsTarget?.request ?? 0}`} workspaceId={automationWorkspaceId} teams={state.teams} initialTeamId={jobsTarget?.teamId ?? null} initialScenarioId={jobsTarget?.scenarioId} onClose={closeWorkspaceAutomation} />
+              <JobsView key={`${automationWorkspaceId}:${jobsScope}:${jobsTarget?.request ?? 0}`} workspaces={state.workspaces} teams={state.teams} tabs={state.tabs} initialFilter={jobsEntryFilter(jobsOpenEntry(automationWorkspaceId, jobsScope, jobsTarget?.teamId))} initialScenarioId={jobsTarget?.scenarioId} initialRunId={jobsTarget?.runId} initialCronId={jobsTarget?.cronId} initialBlueprintId={jobsTarget?.blueprintId} returnTo={jobsTarget?.returnTo} onReturnTo={activateReturnTo} onClose={closeWorkspaceAutomation} />
             </div>
           )}
           {workspaceMapWorkspaceId && mainView === "workspace" && (
@@ -787,7 +830,16 @@ function AppInner() {
               <CronWorkspaceView cronId={cronSelection.cronId} />
             </div>
           )}
-          {state.workspaces.length > 0 ? (
+          {state.storageUnavailable ? (
+            <div
+              className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm"
+              data-testid="storage-unavailable-empty"
+              role="alert"
+              style={{ color: "var(--ct-fg)" }}
+            >
+              Storage unavailable, your data is preserved, see the incident.
+            </div>
+          ) : state.workspaces.length > 0 ? (
             state.workspaces.flatMap((ws) =>
               ws.tabs.map((tabId) => {
                 const tab = state.tabs[tabId];
@@ -837,6 +889,7 @@ function AppInner() {
         </main>
         </div>
       </div>
+      </AppChatBlockServices>
       </PlansProvider>
 
       <CommandPalette commands={paletteCommands} />
@@ -849,6 +902,7 @@ function AppInner() {
 
       <UpdateProgressLayer />
     </div>
+    </ChatBlockHostProvider>
     </GuideNavigationProvider>
   );
 }

@@ -1,7 +1,6 @@
 # Domios Memory System
 
-Persistent memory for agents. Survives restarts, provider switches
-(Claude ↔ Codex), and Domios upgrades. Agent-agnostic.
+Agent-agnostic persistent memory survives restarts, provider switches and upgrades.
 
 ## TL;DR
 
@@ -19,14 +18,14 @@ Persistent memory for agents. Survives restarts, provider switches
 
 ## Mem vs past-session search
 
-Two stores, two purposes — don't confuse them:
+Separate stores:
 
 | Surface | Stored where | Asks | Used for |
 |---|---|---|---|
 | **mem** (`~/.codeterm/mem/knowledge.db`) | local database with text and vector indexes | "what did the agent learn / decide / save?" | Curated facts, learnings, skills, conversations the agent chose to keep |
 | **sessions** (provider-owned files) | Claude JSONLs / Codex rollouts / OpenCode's sqlite store | "what did we talk about that one time?" | Raw conversation history; on-demand search via `codeterm sessions search`, atomic resume via `codeterm sessions resume` |
 
-Mem is curated and indexed; sessions are raw and provider-owned. The two never share storage. See `codeterm docs API-STATE` for the session API.
+These stores never share storage. Session API: `codeterm docs API-STATE`.
 
 ## Storage layer
 
@@ -53,7 +52,7 @@ Three layers:
 | **L2 — Targeted** | `search --area X --kind Y` | On-demand when topic comes up | variable |
 | **L3 — Hybrid** | text and semantic recall | `codeterm mem search` / `recall` | variable |
 
-Search combines text and semantic matches; use filters to narrow results. A connected Supporter Agent automatically puts the most relevant candidates first.
+Filters narrow hybrid search; a connected Supporter automatically re-ranks results.
 
 ### Supporter Agent memory re-rank
 
@@ -70,28 +69,29 @@ A second stage over `mem search` that runs automatically when an adapter is conn
 - **Token mode.** Each adapter declares `required`, `optional`, or `none`. TypeSafe Jev requires its token. In plugin manifests, legacy bare `"decisionModel": true` means optional; `{ "tokenMode": "required" | "optional" | "none" }` is the explicit form. A selected, registered optional or none adapter connects without a token. A required adapter connects with a usable stored token. Connected status is `active`, or `budget_reached` when its shared call budget is exhausted; no selected adapter reports `not_connected`. Token-related states explain why a required adapter cannot connect.
 - **Token.** Adapter tokens never enter `config.toml` or argv. `printf %s "$TOKEN" | codeterm supporter token set` (or `pbpaste | ...`) reads stdin only and refuses a terminal; `token clear`, `token status [--adapter]` and `status` show `token_mode`, presence, path and `mode_ok`, never the value. A none-mode adapter reports that it needs no token and ignores token writes. The token lives in `<data dir>/supporter/<adapter>.json`: Unix uses a `0600` file in a `0700` directory, and Windows uses protected DACLs granting only the current user full control on the file and directory. Each instance keeps its own: `~/.codeterm/` for prod, `~/.codeterm-dev/` for dev. These commands use bearer HTTP on the local machine and never cross `--mesh`.
 
-Supporter Agent adapters are designed for deterministic decision models such as [TypeSafe Jev](https://typesafe.ai). A Jev-style fine-tune or a general LLM accessed through logprobs can approximate the choices, but may be less accurate and have different latency. Calibrated choice and noul probabilities represent probabilities over decisions; sampled-text logprobs describe generated tokens and are not equivalent.
+Decision adapters target deterministic models such as [TypeSafe Jev](https://typesafe.ai). Fine-tunes and general LLMs may differ in accuracy and latency. Calibrated choice/noul probabilities describe decisions; sampled-text logprobs describe generated tokens and are not equivalent.
 
-The Guide records an 80-question local-model run in which all 80 candidates hit the deadline. Memory re-rank stays on Jev; LM Studio models can drive local tab observations without a token. This is evidence about that measured model, not every local model. Shared-state requests require a fresh quality and latency comparison before they ship.
+The Guide's local-model run missed all 80 deadlines; that evidence applies to the measured model. Re-rank stays on Jev. Shared-state requests need fresh quality and latency comparisons before shipping.
 
-The adapter, model, token and activity are managed in **Settings > Agents > Supporter Agent** or with `codeterm supporter`.
+The adapter, model and token are managed in **Settings > Agents > Supporter Agent** or with `codeterm supporter`.
 
 Keys and bounds: `codeterm docs RUNTIME-CONFIG`. Routes: `codeterm docs API-MEMORY`.
 
 ### Supporter Agent
 
-The Supporter puts useful memories first, watches tabs on lifecycle events and helps recover the General Agent within limits. A connected adapter works automatically, with no feature switches. With no connected adapter, memory search and tabs work as before.
+The Supporter re-ranks memory, observes tab lifecycle events and supports bounded General Agent recovery. Connection enables it automatically; disconnected behavior is unchanged.
 
 - **Connect.** Use Connect another adapter in Settings > Agents, choose its model and supply a token according to its declared token mode. The Connect & make active action keeps previous connections saved. For CLI setup, discover adapters with `codeterm supporter models`; save a required token first with `pbpaste | codeterm supporter token set --adapter <adapter>`, then run `codeterm supporter use <adapter> [--model <id>]`. Optional and token-free adapters connect without a token. Each saved row has its own remembered model and Make active action. `codeterm supporter disconnect <adapter>` removes that connection and token; removing active stops the Supporter without choosing another. Check `codeterm supporter status` for connection, activity, verdicts and budget.
-- **Budget and fallback.** Requests have no cap by default. Optional `supporter.calls_per_hour` accepts 0 to 100000; absent or 0 means unlimited. Every physical HTTP attempt is counted and journaled; local decisions cost no request. Batched shared-state questions use one request; sequential adapters may use one per question. Per-candidate mode uses one per candidate. Only an explicit positive cap refuses calls at the limit: search returns baseline hits with reason `budget`, observation is skipped, and status shows `budget_reached` and the next free time. Unlimited status reports `calls_per_hour: null` with live hourly and daily counts. Adapter failures also return normal results. The stage deadline defaults to 3000 ms. Spend and balance alerts remain active without a request cap.
+- **Budget and fallback.** Requests have no cap by default. Optional `supporter.calls_per_hour` accepts 0 to 100000; absent or 0 means unlimited. Every physical HTTP attempt is counted and journaled; local decisions cost no request. Batched shared-state questions use one request; sequential adapters may use one per question. Per-candidate mode uses one per candidate. Only an explicit positive cap refuses calls at the limit: search returns baseline hits with reason `budget`, observation is skipped, and status shows `budget_reached` and the next free time. Unlimited status reports `calls_per_hour: null` with live hourly and daily counts. Adapter failures also return normal results. The stage deadline defaults to 3000 ms.
 - **What is sent.** Memory queries and candidate titles/bodies, capped at `supporter.memory_rerank.max_body_chars` (default 2000), plus matching docs or session excerpts if configured. Tab observations send recent screen or chat text and runtime context. Jev receives this at TypeSafe; a local adapter sends it to its configured server. Tokens stay in protected local storage.
-- **Recovery.** At most two automatic General Agent restarts per recovery episode, then a failure notification and no further automatic recovery until the owner acts. A confirmed crash resumes a verified session only if the provider is absent from that tab's process tree. Startup failure and an error loop each allow one attempt within the overall limit. The automatic provider coordinator answers classified update prompts with the declared safe option; model recovery outside it also requires agreement. Sign-in, unavailable models and uncovered folder trust ask the owner; command/tool permissions follow the tab's own policy. Automatic model-authorized recovery remains notify-only until its separate accuracy qualification passes. Details: `codeterm docs AGENT-CONTROL`.
-- **Models.** [TypeSafe Jev](https://typesafe.ai) is built for calibrated decisions and remains the memory re-rank model. LM Studio models can observe tabs locally without a token, but generated-token probabilities and local latency are different from Jev's decision probabilities; the measured local model missed the memory deadline. Jev usage is charged to the TypeSafe account; local models use the local machine.
-- **Spend and balance.** TypeSafe has no balance API, so Domios estimates spend from each response's `usage` and the adapter-declared price (Jev: $0.042 per 1M input tokens, output free; local adapters are free or unpriced). Settings > Agents shows today/month tokens and estimated USD, plus an optional owner-entered balance after a top-up and the estimated remaining. One `action_needed` alert fires when the estimate drops below $1.00 per balance entry; HTTP 402 or an out-of-credit error sends one `failure` alert and stops calls (baseline behaviour) until a new balance is entered, a call succeeds, or the at-most-hourly event-triggered probe recovers.
-- **Activity.** Settings > Agents shows recent requests, last activity, verdicts and budget state. The bounded `<data dir>/supporter/journal.jsonl` records automatic actions, budget transitions, answer distributions, adapter-reported model identities and criteria hashes. Inputs are hashes, never raw screen text or tokens. No verdict for `other` triggers an action or hint.
+- **Prompt answers.** On agent-, Team-, worker- and cron-owned tabs, one calibrated Supporter choice at 0.80 or above can answer folder-trust, tool-permission and update prompts by selecting a provider-declared option through the existing response surface. Missing, failed, capped, `other` or low-confidence answers fall back to the structural responder; unresolved prompts notify the owner. Folder trust at launch or in cron does not require host provenance for this choice. Direct owner-launched tabs keep owner-facing prompts. Login, authentication, unavailable-model and quota prompts are never answered automatically. Details: `codeterm docs TAB-LIFECYCLE`.
+- **Recovery.** At most two automatic General Agent restarts per recovery episode, then a failure notification and no further automatic recovery until the owner acts. A confirmed crash resumes a verified session only if the provider is absent from that tab's process tree. Startup failure and an error loop each allow one attempt within the overall limit. Automatic model-authorized recovery remains notify-only until its separate accuracy qualification passes. Details: `codeterm docs AGENT-CONTROL`.
+- **Models.** Jev remains the calibrated re-rank model, billed to the TypeSafe account. Configure local models through OpenCode with `codeterm model-provider`; its optional decision adapter declares no calibrated choice confidence. Local models use the local machine; their latency and generated-token probabilities differ from Jev's decision probabilities.
+- **Spend.** Domios estimates today and month spend from each response's `usage` and adapter-declared prices; unpriced adapters have no estimate. HTTP 402 or explicit credit exhaustion sends one `failure` alert and uses deterministic results until a later request probe succeeds.
+- **Activity.** The Mission Control feed shows recent decisions and verdicts. The bounded `<data dir>/supporter/journal.jsonl` records automatic actions, budget transitions, answer distributions, adapter-reported model identities and criteria hashes. Inputs are hashes, never raw screen text or tokens. No verdict for `other` triggers an action or hint.
 - **Diagnostic override.** `codeterm mem search --supporter off` skips re-rank for one search. Clearing a required token makes the active adapter unusable but keeps its saved connection; optional and token-free adapters remain connected without it.
 
-The in-app Guide opens from a standalone `@ct-guide supporter-agent` paragraph. More about Jev: https://docs.typesafe.ai.
+The in-app Guide opens from a standalone `@ds-guide supporter-agent` paragraph. More about Jev: https://docs.typesafe.ai.
 
 ### Wake-up selection
 
@@ -99,7 +99,7 @@ Wake-up includes global and selected-workspace memory; pins take precedence with
 
 ## Graph layer
 
-**Anti-star pattern:** only people and projects are entities. Technologies are searchable via FTS in body text — no graph nodes. This avoids the cascade where popular tech (React, Postgres) become mega-hubs.
+**Anti-star pattern:** only people and projects are entities. Search technologies through body FTS; no tech nodes or popularity hubs.
 
 **Canonical names:** dreaming worker merges name variants (Tima/Timofey → `person_tima`).
 
@@ -144,6 +144,7 @@ Use the bounded graph commands and their dry runs; do not issue raw SQL.
 The Dreamer never hard-deletes duplicates or stale items; both end as `kind = 'archived'` through the calibration archive, with a history row that keeps the prior kind.
 
 - `mem merge --keeper K --lesser L [--body B | --body-file F] [--conflict]` updates the keeper body, archives the lesser (history `merge`) and links `L merged_into K` (or `K supersedes L` with `--conflict`) in one transaction. Pinned, skill, rule and preference items are refused as the lesser. Dreamer merges are capped by `memory.dream_hygiene.merge_cap` (default 10 per UTC day), enforced server-side.
+- `mem area merge <from> --into <to> [--dry-run]` moves all source items across scopes, changing only their area. Preview returns counts per kind without writing. Empty, missing, equal and underscore-prefixed areas are refused; a new destination renames an area. Each item records one `update` with `area_merge` undo data in its history reason. `mem restore <id>` undoes its latest area merge; `--version <history-row>` selects an older merge without changing its body. Use `mem taxonomy` to list areas and counts. REM receives up to 20 conservative name pairs with counts and three sample titles each; it leaves uncertain pairs alone. The host caps area merges at 3 per dream worker run and saves a summary diary entry for each.
 - `mem restore L` on an archived or merged item restores the prior kind (plus the `--version` body) and invalidates the merge relation.
 - `mem calibration stale [--dry-run] [--limit N]` archives items older than 365 days with no direct touch (access, update, history row), no relation created or invalidated, and no touched active neighbour in that year. Pinned, skill, rule, preference, archived and importance >= 4 are excluded. The nightly run applies it only when `memory.dream_hygiene.stale_archive` is on (default off), capped by `stale_archive_cap` (default 20); the dry run lists ids and reasons and changes nothing.
 - The diary log records `MERGED:` and `ARCHIVED:` lines with ids and reasons, and the worker report repeats them.
@@ -178,4 +179,4 @@ The prior deletion receipt must establish conversation kind, `flush:<tab> pre-co
 
 Check row/byte counts and compaction outcomes. Blob unlink, VACUUM and WAL checkpoint reclaim storage, without secure erasure. Backups, snapshots, old WAL copies, filesystem free space and provider transcripts remain untouched. No global orphan sweep runs.
 
-<!-- revision: 41 -->
+<!-- revision: 46 -->

@@ -1,3 +1,4 @@
+import { tabActivity } from "../../../lib/tabActivity";
 import type { Tab } from "../../../lib/types";
 import { ownerName, ownerTabId } from "../owner";
 import type { Plan } from "../types";
@@ -32,7 +33,7 @@ export function resolvePlanAskOwner(plan: Pick<Plan, "owner">, tabs: Record<stri
     status: "ready",
     tabId,
     name,
-    busy: tab.agent_state?.state === "working",
+    busy: tabActivity(tab).active,
     chatBackend,
     agentSessionId: tab.agent_session_id ?? null,
     sessionBindingNonce: tab.session_binding_nonce ?? null,

@@ -3,6 +3,7 @@ use crate::agent::chat_types::ChatMsg;
 use crate::multiplexer::types::{Tab, TabBacking};
 use crate::plan::{Plan, Task, TaskExecutionAttempt, TaskStatus};
 use crate::service::ServiceContext;
+use codeterm_plan::service_plan::state::task_projection;
 
 fn encoded(value: &impl Serialize) -> String {
     crate::service::supporter::criteria_hash(&serde_json::to_vec(value).unwrap_or_default())
@@ -11,7 +12,7 @@ fn encoded(value: &impl Serialize) -> String {
 pub(super) fn plan_projection(plan: &Plan) -> BTreeMap<String, String> {
     let mut out = BTreeMap::from([("mode".into(), format!("{:?}:{:?}", plan.mode, plan.status))]);
     for task in &plan.tasks {
-        project_task(task, &mut out);
+        project_task(plan, task, &mut out);
     }
     for stride in &plan.strides {
         out.insert(format!("stride:{}", stride.id), encoded(stride));
@@ -22,14 +23,18 @@ pub(super) fn plan_projection(plan: &Plan) -> BTreeMap<String, String> {
     out
 }
 
-fn project_task(task: &Task, out: &mut BTreeMap<String, String>) {
+fn project_task(plan: &Plan, task: &Task, out: &mut BTreeMap<String, String>) {
     out.insert(
         format!("task:{}", task.id),
         encoded(&(
             &task.status,
             &task.status_label,
+            &task.pause_reason,
+            &task.interruption,
             &task.review_stage,
             &task.qa_state,
+            &task.assigned_tab_id,
+            &task_projection(plan, task).dependency_waits,
         )),
     );
     out.insert(
@@ -76,16 +81,15 @@ pub(crate) fn collect_worker_scope(
         .tasks
         .iter()
         .find(|task| scope.task_id.as_deref() == Some(task.id.as_str()));
-    let mut projection =
-        BTreeMap::from([("mode".into(), format!("{:?}:{:?}", plan.mode, plan.status))]);
+    let mut projection = BTreeMap::new();
     let mut context = BTreeMap::new();
     if let Some(task) = task {
-        project_task(task, &mut projection);
+        project_task(plan, task, &mut projection);
         let attempt = task
             .execution_attempts
             .iter()
             .find(|attempt| scope.attempt_id.as_deref() == Some(attempt.id.as_str()));
-        let mut row = task_context(task);
+        let mut row = task_context(plan, task);
         row["acknowledged"] = json!(attempt.is_some_and(|a| a.acknowledged_at.is_some()));
         row["reported"] = json!(attempt.is_some_and(|a| a.report.is_some()));
         context.insert(format!("task:{}", task.id), row);
@@ -106,6 +110,30 @@ pub(crate) fn collect_worker_scope(
         ..previous.clone()
     };
     (snapshot, observed)
+}
+
+pub(crate) fn collect_owner_messages(
+    svc: &ServiceContext,
+    tab_id: &str,
+    previous: &Observation,
+) -> (Vec<HardWake>, Option<Worker>) {
+    let owner = { svc.mux.read().get_tab(tab_id).cloned() };
+    let Some(owner) = owner else {
+        return (Vec::new(), None);
+    };
+    let old = previous.workers.get(tab_id);
+    let (turns, cursor, _) = own_session_turns(svc, &owner, old);
+    let hard = turns
+        .iter()
+        .filter(|turn| is_owner_turn(turn))
+        .map(|turn| HardWake::OwnerMessage(turn.id.clone()))
+        .collect();
+    let observed = Worker {
+        session_key: session_key(&owner),
+        turn_cursor: cursor,
+        ..Default::default()
+    };
+    (hard, Some(observed))
 }
 
 /// Digest of the tab's own confirmed binding, narrowed to the attempt's
@@ -294,21 +322,10 @@ pub(crate) fn collect(
                 .push(HardWake::Incident(format!("task_interruption:{}", task.id)));
         }
     }
-    let owner = { svc.mux.read().get_tab(tab_id).cloned() };
-    if let Some(owner) = owner {
-        let old = previous.workers.get(tab_id);
-        let (turns, cursor, _) = own_session_turns(svc, &owner, old);
-        for turn in turns.iter().filter(|m| is_owner_turn(m)) {
-            snapshot.hard.push(HardWake::OwnerMessage(turn.id.clone()));
-        }
-        observed.workers.insert(
-            tab_id.into(),
-            Worker {
-                session_key: session_key(&owner),
-                turn_cursor: cursor,
-                ..Default::default()
-            },
-        );
+    let (owner_messages, owner_observation) = collect_owner_messages(svc, tab_id, previous);
+    snapshot.hard.extend(owner_messages);
+    if let Some(owner_observation) = owner_observation {
+        observed.workers.insert(tab_id.into(), owner_observation);
     }
     let mut unique_hard = Vec::new();
     for hard in snapshot.hard.drain(..) {
@@ -330,6 +347,7 @@ pub(super) fn session_key(tab: &Tab) -> Option<String> {
             tab.agent_session_id.as_deref() == Some(session_id)
         }
         TabBacking::Pty => true,
+        TabBacking::Surface(_) => false,
     };
     (own_backend && crate::service::plan_reconcile::tab_has_live_agent(tab))
         .then(|| {
@@ -445,6 +463,7 @@ fn collect_worker(
                 _ => "absent",
             })
             .unwrap_or("unknown"),
+        TabBacking::Surface(_) => "absent",
     }
     .into();
     if worker.session_key.is_none() {
@@ -535,6 +554,7 @@ fn own_session_turns(
                 Err(_) => (Vec::new(), cursor.map(str::to_string), true),
             }
         }
+        TabBacking::Surface(_) => (Vec::new(), None, true),
         TabBacking::Pty => {
             let Some(provider) = tab.agent_type.as_deref() else {
                 return (Vec::new(), None, true);
@@ -667,7 +687,7 @@ fn delta_context(plan: &Plan, delta: &BTreeMap<String, String>) -> (BTreeMap<Str
     for task in &plan.tasks {
         let key = format!("task:{}", task.id);
         if delta.contains_key(&key) {
-            context.insert(key, task_context(task));
+            context.insert(key, task_context(plan, task));
         }
         for attempt in &task.execution_attempts {
             if let Some(report) = &attempt.report {
@@ -708,9 +728,16 @@ fn delta_context(plan: &Plan, delta: &BTreeMap<String, String>) -> (BTreeMap<Str
     )
 }
 
-fn task_context(task: &Task) -> Value {
+fn task_context(plan: &Plan, task: &Task) -> Value {
+    let projection = task_projection(plan, task);
     json!({"task": task.id, "status": task.status,
         "status_label": task.status_label.as_deref().map(scrubbed),
+        "pause_reason": task.pause_reason.as_deref().map(scrubbed),
+        "assigned_tab_id": task.assigned_tab_id,
+        "presentation": projection.presentation,
+        "dependency_waits": projection.dependency_waits.iter().map(|wait| json!({
+            "task_id": wait.task_id, "status": wait.status, "missing": wait.missing
+        })).collect::<Vec<_>>(),
         "held": crate::plan::reconcile::active_review_hold_note(task).is_some()})
 }
 

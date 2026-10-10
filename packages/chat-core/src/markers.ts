@@ -1,13 +1,8 @@
+import { buildDomiosMessage, parseDomiosMessage } from "./domios";
+
 /**
- * Unified CodeTerm message markers — TS twin of
- * `src-tauri/src/message_markers.rs`. Keep the two in lock-step (the parity
- * fixture lives in both test sets).
- *
- *   -=-codeterm:<kind> k=v k=v …-=-<payload>
- *
- * The `codeterm:` sentinel makes accidental reproduction unlikely. Attribute
- * values percent-encode the structural chars so payloads/labels never break
- * the frame.
+ * Legacy non-routing markers — TS twin of `src-tauri/src/message_markers.rs`.
+ * Routed messages use the XML-tagged Domios frame parser from `domios.ts`.
  */
 export const MARKER_OPEN = "-=-codeterm:";
 export const MARKER_CLOSE = "-=-";
@@ -63,6 +58,8 @@ export function buildMarker(
 
 /** Parse a marker, or null if `text` isn't a CodeTerm marker frame. */
 export function parseMarker(text: string): ParsedMarker | null {
+  const domios = parseDomiosMessage(text);
+  if (domios) return { kind: domios.attrs.from, attrs: domios.attrs, payload: domios.body };
   let normalized = text.replace(/^\s+/, "");
   if (normalized.startsWith(BRACKETED_PASTE_START)) {
     normalized = normalized.slice(BRACKETED_PASTE_START.length);
@@ -84,7 +81,7 @@ export function parseMarker(text: string): ParsedMarker | null {
       : raw;
   const tokens = head.split(" ");
   const kind = tokens.shift() ?? "";
-  if (!kind) return null;
+  if (!kind || isLegacyRouteKind(kind)) return null;
   const attrs: Record<string, string> = {};
   for (const tok of tokens) {
     if (!tok) continue;
@@ -92,6 +89,10 @@ export function parseMarker(text: string): ParsedMarker | null {
     if (eq > 0) attrs[tok.slice(0, eq)] = decode(tok.slice(eq + 1));
   }
   return { kind, attrs, payload };
+}
+
+function isLegacyRouteKind(kind: string): boolean {
+  return ["tab", "report", "system", "reminder", "mesh", "telegram", "pebble", "inbound"].includes(kind);
 }
 
 const opt = (k: string, v: string | null | undefined): Array<[string, string]> =>
@@ -108,15 +109,15 @@ export const markPhoto = (file: string, name?: string | null) =>
 export const markAttachment = (file: string, name?: string | null) =>
   buildMarker("file", [["file", file], ...opt("name", name)]);
 export const markTelegram = (user: string, msg: string | null, body: string) =>
-  buildMarker("telegram", [["user", user], ...opt("msg", msg)], body);
+  buildDomiosMessage({ from: "telegram", user, ...(msg ? { msg } : {}) }, body);
 export const markMesh = (peer: string, tab: string, body: string) =>
-  buildMarker("mesh", [["peer", peer], ["tab", tab]], body);
+  buildDomiosMessage({ from: "mesh", peer, tab }, body);
 export const markTab = (label: string, tab: string, body: string) =>
-  buildMarker("tab", [["label", label], ["tab", tab]], body);
+  buildDomiosMessage({ from: "tab", label, tab }, body);
 export const markPluginConfig = (id: string, name: string, body: string): string =>
   buildMarker("plugin_config", [["plugin", id], ["name", name]], body);
 export const markReport = (from: string, body: string) =>
-  buildMarker("report", [["from", from]], body);
+  buildDomiosMessage({ from: "report", label: from }, body);
 export const markHook = (json: string) => buildMarker("hook", [], json);
 export const markSystemPrompt = (body: string) => buildMarker("system_prompt", [], body);
 export const markContextRequest = (body: string) => buildMarker("context_request", [], body);

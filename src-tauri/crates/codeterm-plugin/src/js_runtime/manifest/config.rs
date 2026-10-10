@@ -3,9 +3,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::provider::{
     BusySubmitStrategy, ComposerCursorPosition, HookEventBinding, HookIngestionRoute,
-    ModelAvailability, ModelInfo, PasteCapability, ProviderReadinessStrategy, ProviderStateVerdict,
-    ReadinessStrategy, ReasoningEffortInfo, SandboxedLinuxLaunchCapability, SessionIdInjection,
-    SystemPromptDelivery, TaskDelivery, TurnEvidenceNormalization, VerifySubmitStrategy,
+    ModelAvailability, ModelInfo, OnboardingAutoAnswer, PasteCapability, ProviderReadinessStrategy,
+    ProviderStateVerdict, ReadinessStrategy, ReasoningEffortInfo, SandboxedLinuxLaunchCapability,
+    SessionIdInjection, SystemPromptDelivery, TaskDelivery, TurnEvidenceNormalization,
+    VerifySubmitStrategy,
 };
 
 /// Hosts/origins a plugin may reach via `host.fetch`.
@@ -28,6 +29,10 @@ pub struct SubprocessPermission {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SpawnConfig {
     #[serde(default)]
+    pub capability_probe: Option<crate::provider::CapabilityProbe>,
+    #[serde(default)]
+    pub fork_session_args: Option<Vec<String>>,
+    #[serde(default)]
     pub sandboxed_linux_launch: Option<SandboxedLinuxLaunchCapability>,
     #[serde(default)]
     pub launch_permissions: Option<crate::provider::LaunchPermissionCapability>,
@@ -35,6 +40,13 @@ pub struct SpawnConfig {
     pub paste_limit_bytes: Option<usize>,
     #[serde(default)]
     pub paste: Option<PasteCapability>,
+    /// Bounded input fallback: when the provider's own readiness signal never
+    /// fires, open input at this deadline instead of blocking the tab forever.
+    #[serde(default)]
+    pub input_fallback_ms: Option<u64>,
+    /// When a provider-declared startup dialog is auto-answered during launch.
+    #[serde(default)]
+    pub onboarding_auto_answer: OnboardingAutoAnswer,
     pub readiness_strategy: SerdeReadinessStrategy,
     pub task_delivery: SerdeTaskDelivery,
     #[serde(default)]
@@ -60,6 +72,8 @@ pub struct SpawnConfig {
     pub has_hooks: bool,
     #[serde(default, alias = "resumeBindsOnFirstUserTurn")]
     pub session_starts_on_first_user_turn: bool,
+    #[serde(default)]
+    pub restores_conversation_history_on_resume: bool,
     #[serde(default)]
     pub public_send_waits_for_startup_turn_completion: bool,
     /// Declared hook event roster (event name → core ingestion route).
@@ -334,6 +348,8 @@ pub fn resolve_hook_event_roster(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SessionsConfig {
+    #[serde(default)]
+    pub root_environment: Option<super::ReadRootEnvironment>,
     /// Filesystem root the provider writes session files into. May
     /// start with `~/` (expanded to home dir). E.g.
     /// `~/.claude/projects`.
@@ -376,6 +392,8 @@ fn default_session_ext() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct CredentialConfig {
+    #[serde(default)]
+    pub file_environment: Option<super::ReadRootEnvironment>,
     /// Name the plugin uses to reference this credential.
     pub id: String,
     /// JSON file holding it. May start with `~/`.
@@ -449,12 +467,16 @@ pub struct CommandsConfig {
     pub fresh_context: Option<String>,
     #[serde(default)]
     pub exit: Option<String>,
+    #[serde(default)]
+    pub idle_restart_termination: bool,
     /// Raw key bytes the host should send to interrupt the agent's
     /// current operation (NOT a clean exit — think Esc / Ctrl+C while
     /// the model is generating). Examples: `""` for Esc,
     /// `""` for Ctrl+C.
     #[serde(default)]
     pub stop_key: Option<String>,
+    #[serde(default)]
+    pub uses_win32_control_keys: bool,
     /// Ordered raw key bytes for a multi-key stop action.
     #[serde(default)]
     pub stop_keys: Option<Vec<String>>,
@@ -463,6 +485,8 @@ pub struct CommandsConfig {
     pub stop_key_wait_for_output: bool,
     #[serde(default)]
     pub model_switch: crate::provider::ModelSwitchMode,
+    #[serde(default)]
+    pub model_switch_commands: Option<crate::provider::ModelSwitchCommands>,
     #[serde(default)]
     pub auto_approve_flags: Vec<String>,
     /// Each element may contain `{model}` placeholder.
@@ -549,6 +573,8 @@ pub struct SerdeModelInfo {
     /// `unknown` here rather than collapsing into `available: false`.
     #[serde(default)]
     pub availability: Option<ModelAvailability>,
+    #[serde(default)]
+    pub primary: Option<bool>,
     /// See `ModelInfo::featured`. Marks a model to lead the picker list.
     #[serde(default)]
     pub featured: Option<bool>,
@@ -572,6 +598,7 @@ impl From<&SerdeModelInfo> for ModelInfo {
             description: s.description.clone(),
             available: s.available,
             availability: s.availability,
+            primary: s.primary,
             featured: s.featured,
             badge: s.badge.clone(),
             group: s.group.clone(),
@@ -623,6 +650,9 @@ pub struct PermissionsConfig {
     /// Whether a spawned agent may route `codeterm plugin <id> <verb>` to this plugin's `onAgentCommand` (the inverse seam).
     #[serde(default, rename = "agent_commands", alias = "agentCommands")]
     pub agent_commands: bool,
+    /// Whether `host.surface.call` may drive the calling agent's own stream surface of this plugin.
+    #[serde(default)]
+    pub surfaces: bool,
     /// Whether the plugin may create/manage workspaces via `host.workspace*`.
     #[serde(default, rename = "manage_workspaces", alias = "manageWorkspaces")]
     pub manage_workspaces: bool,
@@ -632,6 +662,8 @@ pub struct PermissionsConfig {
     /// Whether the plugin may read machine-wide KPI aggregates via `host.analytics`.
     #[serde(default)]
     pub analytics: bool,
+    #[serde(default, rename = "graph_events", alias = "graphEvents")]
+    pub graph_events: bool,
 }
 
 #[cfg(test)]
@@ -675,6 +707,7 @@ mod tests {
             "id": "deepseek-v4-flash",
             "displayName": "DeepSeek V4 Flash",
             "featured": true,
+            "primary": true,
             "badge": "own",
             "group": "deepseek",
         }))
@@ -682,6 +715,8 @@ mod tests {
 
         let model: ModelInfo = (&parsed).into();
         assert_eq!(model.featured, Some(true));
+        assert_eq!(model.primary, Some(true));
+        assert_eq!(serde_json::to_value(&model).unwrap()["primary"], true);
         assert_eq!(model.badge.as_deref(), Some("own"));
         assert_eq!(model.group.as_deref(), Some("deepseek"));
         assert!(model.is_featured());
@@ -695,6 +730,7 @@ mod tests {
 
         let model: ModelInfo = (&parsed).into();
         assert_eq!(model.featured, None);
+        assert_eq!(model.primary, None);
         assert_eq!(model.badge, None);
         assert_eq!(model.group, None);
         assert!(!model.is_featured());

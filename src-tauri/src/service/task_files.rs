@@ -8,19 +8,50 @@ pub(crate) fn capture<T>(
     tab_id: &str,
     operation: impl FnOnce() -> T,
 ) -> T {
-    let (result, paths) = codeterm_util::task_files::capture(tab_id, operation);
+    let root = service.agent_pad_data_dir.join("runtime/task-files");
+    let previous = codeterm_util::task_files::owned_paths(&root, tab_id);
+    let (result, mut paths) = codeterm_util::task_files::capture_in(&root, tab_id, operation);
+    paths.extend(previous);
     if !paths.is_empty() {
-        service
-            .launch_task_files
-            .lock()
-            .entry(tab_id.to_string())
-            .or_default()
-            .extend(paths);
+        let mut registry = service.launch_task_files.lock();
+        let owned = registry.entry(tab_id.to_string()).or_default();
+        for path in paths {
+            if !owned.contains(&path) {
+                owned.push(path);
+            }
+        }
     }
     result
 }
 
+pub(crate) fn retire_settings_for_launch(service: &ServiceContext, tab_id: &str, command: &str) {
+    let paths: Vec<_> = service
+        .launch_task_files
+        .lock()
+        .get(tab_id)
+        .into_iter()
+        .flatten()
+        .filter(|path| superseded_settings(path, command))
+        .cloned()
+        .collect();
+    let root = service.agent_pad_data_dir.join("runtime/task-files");
+    let removed = codeterm_util::task_files::release_paths(&root, tab_id, &paths);
+    if let Some(paths) = service.launch_task_files.lock().get_mut(tab_id) {
+        paths.retain(|path| !removed.contains(path));
+    }
+}
+
+fn superseded_settings(path: &std::path::Path, command: &str) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with(".ct-settings.json") && !command.contains(name))
+}
+
 pub(crate) fn release_tab(service: &ServiceContext, tab_id: &str) -> Vec<PathBuf> {
+    // Live-tab cleanup can race another launch's task-file read.
+    if service.mux.read().get_tab(tab_id).is_some() {
+        return Vec::new();
+    }
     let paths = service
         .launch_task_files
         .lock()
@@ -127,6 +158,36 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+    )]
+    fn active_launch_cleanup_preserves_task_files_until_tab_close() {
+        let (fixture, tab_id, first) = fixture_with_task_file();
+        let root = fixture
+            .service
+            .agent_pad_data_dir
+            .join("runtime")
+            .join("task-files");
+        let marker =
+            codeterm_util::task_files::instance_marker_for(&fixture.service.agent_pad_data_dir);
+        let second = capture(&fixture.service, &tab_id, || {
+            codeterm_util::task_files::write_at(
+                &root,
+                &marker,
+                &tab_id,
+                "concurrent launch payload",
+                Some(".ct-task.md"),
+            )
+            .expect("write concurrent launch task file")
+        });
+
+        assert!(release_tab(&fixture.service, &tab_id).is_empty());
+        assert!(first.exists());
+        assert!(second.exists());
+    }
+
+    #[test]
     fn task_file_sweep_is_instance_scoped() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("runtime").join("task-files");
@@ -156,5 +217,22 @@ mod tests {
         );
         assert!(live.exists());
         assert!(foreign.exists());
+    }
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::*;
+    #[test]
+    fn claude_settings_retirement_preserves_current_launch_and_task_files() {
+        let old = PathBuf::from("/data/runtime/task-files/old.ct-settings.json");
+        let current = PathBuf::from("/data/runtime/task-files/new.ct-settings.json");
+        let command = "claude --settings '/data/runtime/task-files/new.ct-settings.json'";
+        assert!(superseded_settings(&old, command));
+        assert!(!superseded_settings(&current, command));
+        assert!(!superseded_settings(
+            std::path::Path::new("payload.ct-task.md"),
+            command
+        ));
     }
 }

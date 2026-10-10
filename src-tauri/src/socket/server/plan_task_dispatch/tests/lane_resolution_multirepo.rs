@@ -334,37 +334,47 @@ fn lane_resolution_multirepo_names_every_unresolvable_address() {
     let explicit = container.path().join("missing-explicit");
     let workspace = container.path().join("missing-workspace");
     let caller = container.path().join("missing-caller");
-    let error = resolve_dispatch_lane(
-        Some(explicit.to_str().unwrap()),
-        Some(workspace.to_str().unwrap()),
-        Some(caller.to_str().unwrap()),
-        &TaskLaneMetadata {
-            worktree_path: Some(recorded.display().to_string()),
-            ..Default::default()
-        },
-        LaneProtection::Enforced,
-    )
-    .unwrap_err();
-    let message = error.message;
-    let positions = [
+    let (recorded, explicit, workspace, caller) = (
         recorded.to_str().unwrap(),
         explicit.to_str().unwrap(),
         workspace.to_str().unwrap(),
         caller.to_str().unwrap(),
-    ]
-    .map(|path| message.find(path).unwrap());
-    assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
-    // A generic refusal once replaced every candidate's own reason, so the
-    // failure pointed at checkout resolution instead of the real condition.
-    for path in [
-        recorded.to_str().unwrap(),
-        explicit.to_str().unwrap(),
-        workspace.to_str().unwrap(),
-        caller.to_str().unwrap(),
+    );
+    for (explicit_cwd, tried, skipped) in [
+        (None, vec![recorded, workspace, caller], vec![explicit]),
+        (
+            Some(explicit),
+            vec![recorded, explicit],
+            vec![workspace, caller],
+        ),
     ] {
-        assert!(
-            message.contains(&format!("'{path}': cannot resolve worker lane path")),
-            "{message}"
-        );
+        let message = resolve_dispatch_lane(
+            explicit_cwd,
+            Some(workspace),
+            Some(caller),
+            &TaskLaneMetadata {
+                worktree_path: Some(recorded.to_string()),
+                ..Default::default()
+            },
+            LaneProtection::Enforced,
+        )
+        .unwrap_err()
+        .message;
+        let positions: Vec<_> = tried
+            .iter()
+            .map(|path| message.find(path).unwrap())
+            .collect();
+        assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
+        // A generic refusal once replaced every candidate's own reason, so the
+        // failure pointed at checkout resolution instead of the real condition.
+        for path in tried {
+            assert!(
+                message.contains(&format!("'{path}': cannot resolve worker lane path")),
+                "{message}"
+            );
+        }
+        for path in skipped {
+            assert!(!message.contains(path), "{message}");
+        }
     }
 }

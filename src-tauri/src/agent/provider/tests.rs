@@ -27,8 +27,12 @@ fn usage_tracking_section_defaults_on() {
 #[test]
 fn provider_descriptor_round_trip() {
     let original = ProviderDescriptor {
+        supports_session_fork: false,
+            structured_control: None,
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
+            cli_status: None,
             id: "test".into(),
+            catalogue_version: 0,
             display_name: "Test Provider".into(),
             icon_hint: Some("T".into()),
             icon_svg: Some("<svg viewBox=\"0 0 24 24\" fill=\"currentColor\"><circle cx=\"12\" cy=\"12\" r=\"6\"/></svg>".into()),
@@ -40,6 +44,7 @@ fn provider_descriptor_round_trip() {
                 description: Some("first model".into()),
                 available: None,
                 availability: None,
+                primary: None,
                 featured: None,
                 badge: None,
                 group: None,
@@ -107,6 +112,7 @@ fn provider_descriptor_round_trip() {
             }],
             supports_lazy_skills: true,
             has_hooks: true,
+            supports_model_endpoints: true,
             supports_permission_bypass: true,
             cli_binary: Some("testcli".into()),
             install_command: Some("npm i -g testcli".into()),
@@ -210,6 +216,7 @@ impl AgentProvider for StubProvider {
                 description: None,
                 available: Some(true),
                 availability: None,
+                primary: None,
                 featured: None,
                 badge: None,
                 group: None,
@@ -222,6 +229,7 @@ impl AgentProvider for StubProvider {
                 description: None,
                 available: Some(false),
                 availability: None,
+                primary: None,
                 featured: None,
                 badge: None,
                 group: None,
@@ -271,6 +279,7 @@ fn default_describe_assembles_from_methods() {
     assert!(desc.settings_schema.is_empty());
     assert!(!desc.supports_lazy_skills); // default false
     assert!(!desc.has_hooks); // default false
+    assert!(!desc.supports_model_endpoints);
     assert!(!desc.supports_structured_prompts); // default false
     assert_eq!(desc.transport, ProviderTransport::Pty);
     assert_eq!(desc.behavior_config, BehaviorConfig::OwnPromptSet);

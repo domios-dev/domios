@@ -30,7 +30,7 @@ pub(crate) fn bind_reported_session(
 }
 
 /// A session read from this launch's own provider record. It carries the tab's
-/// launch nonce, so a rotated launch or an already bound tab refuses it.
+/// launch nonce, so a rotated launch or authenticated hook binding refuses it.
 pub(crate) fn bind_detected_session(
     mux: &crate::multiplexer::commands::MuxState,
     registry: &crate::agent::registry::AgentRegistry,
@@ -265,10 +265,20 @@ fn commit_reported_session(
                 None,
             ));
         }
-        if let Some(current) = tab.agent_session_id.as_deref() {
+        if tab.launch_session_authenticated() {
             return Err((
                 StatusCode::CONFLICT,
-                format!("Tab {tab_id} is already bound to session '{current}'"),
+                format!("Tab {tab_id} already has an authenticated launch binding"),
+                None,
+            ));
+        }
+    }
+
+    if let Some(source_session) = tab.fork_source_session_id.as_deref() {
+        if source_session == session_id || !nonce_verified {
+            return Err((
+                StatusCode::CONFLICT,
+                "fork binding requires a distinct session and this launch's nonce".into(),
                 None,
             ));
         }
@@ -369,6 +379,8 @@ fn commit_reported_session(
         .as_ref()
         .is_some_and(|pending| pending.session_id == session_id);
     if changed {
+        tab.provider_signals = Default::default();
+        tab.context = None;
         if let Some(previous_session_id) = previous.as_deref() {
             tab.archive_context_epoch(provider_id, previous_session_id);
         }

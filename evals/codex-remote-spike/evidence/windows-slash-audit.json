@@ -1,0 +1,53 @@
+{
+  "rootPid": 50200,
+  "at": "2026-10-07T12:25:58.8197861Z",
+  "method": "Native Toolhelp parent closure at explicit test phases and after teardown",
+  "observed": [
+    {
+      "pid": 15004,
+      "parent": 50200,
+      "name": "codex.exe",
+      "started": "2026-10-07T12:21:41.9900927Z"
+    },
+    {
+      "pid": 20492,
+      "parent": 50200,
+      "name": "codex.exe",
+      "started": "2026-10-07T12:21:48.2544338Z"
+    },
+    {
+      "pid": 30556,
+      "parent": 48660,
+      "name": "conhost.exe",
+      "started": "2026-10-07T12:21:42.3063741Z"
+    },
+    {
+      "pid": 45784,
+      "parent": 15004,
+      "name": "conhost.exe",
+      "started": "2026-10-07T12:21:41.9983437Z"
+    },
+    {
+      "pid": 48220,
+      "parent": 50200,
+      "name": "node.exe",
+      "started": "2026-10-07T12:21:42.1273468Z"
+    },
+    {
+      "pid": 48660,
+      "parent": 15004,
+      "name": "node.exe",
+      "started": "2026-10-07T12:21:42.3009802Z"
+    },
+    {
+      "pid": 50200,
+      "parent": 47876,
+      "name": "node.exe",
+      "started": "2026-10-07T12:21:41.9424083Z"
+    }
+  ],
+  "reusedPidsExcluded": [],
+  "live": [],
+  "verified": true,
+  "pass": true
+}

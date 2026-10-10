@@ -44,7 +44,8 @@ fn permission_request_payload_survives_the_detector_round_trip() {
     let mut detector = PromptDetector::new();
 
     let decision = detector.hook_detected_permission_request("tab-1", signal);
-    assert!(matches!(decision, PromptDecision::NewPrompt { .. }));
+    assert!(matches!(decision, PromptDecision::None));
+    assert!(detector.active_prompt("tab-1").is_none());
 
     let stored = detector
         .permission_request("tab-1")
@@ -55,19 +56,6 @@ fn permission_request_payload_survives_the_detector_round_trip() {
         stored.permission_suggestions,
         body["permission_suggestions"].as_array().unwrap().clone()
     );
-}
-
-#[test]
-fn permission_request_surfaces_the_vendor_supplied_options() {
-    let signal = parse_permission_request(&vendor_body()).expect("parses");
-    let prompt = signal
-        .to_pending_prompt()
-        .expect("suggestions become options");
-    assert_eq!(prompt.question, "Bash");
-    let labels: Vec<&str> = prompt.options.iter().map(|o| o.label.as_str()).collect();
-    assert_eq!(labels, vec!["Allow Bash(rm:*)", "Deny once"]);
-    let values: Vec<&str> = prompt.options.iter().map(|o| o.value.as_str()).collect();
-    assert_eq!(values, vec!["1", "2"]);
 }
 
 #[test]
@@ -84,8 +72,6 @@ fn permission_request_without_suggestions_still_records_the_payload() {
     let body = json!({"tool_name": "Edit", "tool_input": {"file_path": "a.rs"}});
     let signal = parse_permission_request(&body).expect("parses");
     assert!(signal.permission_suggestions.is_empty());
-    assert!(signal.to_pending_prompt().is_none());
-
     let mut detector = PromptDetector::new();
     let decision = detector.hook_detected_permission_request("tab-2", signal);
     assert!(matches!(decision, PromptDecision::None));
@@ -93,6 +79,7 @@ fn permission_request_without_suggestions_still_records_the_payload() {
         .permission_request("tab-2")
         .expect("still recorded");
     assert_eq!(stored.tool_input, body["tool_input"]);
+    assert!(detector.active_prompt("tab-2").is_none());
 }
 
 #[test]

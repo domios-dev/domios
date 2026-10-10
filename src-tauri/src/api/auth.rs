@@ -59,7 +59,7 @@ pub(crate) const PUBLIC_PATHS: &[&str] = &[
 ];
 
 fn peer_protocol_allowed(version: u16, path: &str) -> bool {
-    version == crate::mesh::types::RELAY_PROTOCOL_VERSION
+    crate::mesh::types::is_supported_relay_protocol(version)
         || matches!(path, "/api/mesh/announce" | "/api/mesh/sync")
 }
 
@@ -81,6 +81,9 @@ pub(crate) fn is_custom_auth(method: &Method, path: &str) -> bool {
     if is_inbound_webhook_path(method, path) {
         return true;
     }
+    if is_graph_event_path(method, path) {
+        return true;
+    }
     if path.starts_with("/api/mesh/relay-asset/") {
         return true;
     }
@@ -88,6 +91,13 @@ pub(crate) fn is_custom_auth(method: &Method, path: &str) -> bool {
     method == Method::DELETE
         && path.starts_with("/api/mesh/peers/")
         && path.matches('/').count() == 4
+}
+
+fn is_graph_event_path(method: &Method, path: &str) -> bool {
+    method == Method::POST
+        && path
+            .strip_prefix("/api/graph/events/")
+            .is_some_and(|id| !id.is_empty() && !id.contains('/') && id.len() <= 128)
 }
 
 pub(crate) fn is_inbound_webhook_path(method: &Method, path: &str) -> bool {
@@ -173,6 +183,18 @@ pub(crate) fn caller_peer_id(state: &AppState, headers: &axum::http::HeaderMap) 
         CallerIdentity::Peer { instance_id, .. } => Some(instance_id),
         _ => None,
     }
+}
+
+pub(crate) fn is_local_caller(state: &AppState, headers: &axum::http::HeaderMap) -> bool {
+    let auth = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    identify_caller(state, auth).is_ok_and(ownership_release_is_local)
+}
+
+fn ownership_release_is_local(caller: CallerIdentity) -> bool {
+    matches!(caller, CallerIdentity::Local)
 }
 
 pub(crate) fn isolated_caller_peer_id(
@@ -352,7 +374,7 @@ pub async fn auth_middleware(
                     .into_response();
             }
             if authorize_peer_request(&state, access_level, instance_id, &method, &path) {
-                next.run(req).await
+                super::peer_redaction::redact_peer_response(next.run(req).await).await
             } else {
                 log::warn!(
                     "[auth] Access denied for peer {} ({:?}) on {} {}",
@@ -407,6 +429,16 @@ pub async fn auth_middleware(
 mod tests {
     use super::super::access_policy::check_access;
     use super::*;
+
+    #[test]
+    fn remote_ownership_release_accepts_only_local_identity() {
+        assert!(ownership_release_is_local(CallerIdentity::Local));
+        assert!(!ownership_release_is_local(CallerIdentity::Peer {
+            instance_id: "peer-eight".into(),
+            access_level: AccessLevel::Full,
+            relay_protocol_version: crate::mesh::types::RELAY_PROTOCOL_VERSION,
+        }));
+    }
 
     #[test]
     fn hook_auth_context_only_matches_binding_events() {
@@ -496,15 +528,30 @@ mod tests {
     }
 
     #[test]
-    fn old_peer_protocol_can_only_bootstrap_compatibility_state() {
-        assert!(peer_protocol_allowed(0, "/api/mesh/announce"));
-        assert!(peer_protocol_allowed(0, "/api/mesh/sync"));
-        assert!(!peer_protocol_allowed(0, "/api/events/stream"));
-        assert!(!peer_protocol_allowed(0, "/api/config"));
+    fn ancient_peer_protocol_can_only_bootstrap_compatibility_state() {
+        let ancient_protocol = crate::mesh::types::RELAY_PROTOCOL_VERSION - 1;
         assert!(peer_protocol_allowed(
-            crate::mesh::types::RELAY_PROTOCOL_VERSION,
+            ancient_protocol,
+            "/api/mesh/announce"
+        ));
+        assert!(peer_protocol_allowed(ancient_protocol, "/api/mesh/sync"));
+        assert!(!peer_protocol_allowed(
+            ancient_protocol,
             "/api/events/stream"
         ));
+        assert!(!peer_protocol_allowed(ancient_protocol, "/api/config"));
+        assert!(!peer_protocol_allowed(
+            ancient_protocol,
+            "/api/tabs/abc/send"
+        ));
+
+        for version in crate::mesh::types::RELAY_PROTOCOL_VERSION
+            ..=crate::mesh::types::MAX_SUPPORTED_RELAY_PROTOCOL_VERSION
+        {
+            assert!(peer_protocol_allowed(version, "/api/mesh/announce"));
+            assert!(peer_protocol_allowed(version, "/api/events/stream"));
+            assert!(peer_protocol_allowed(version, "/api/tabs/abc/send"));
+        }
     }
 
     #[test]

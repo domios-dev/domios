@@ -171,7 +171,7 @@ impl CommandPort for StartupBlockedPort {
         unreachable!()
     }
 
-    fn list_workspaces(&self) -> Vec<crate::multiplexer::state::WorkspaceInfo> {
+    fn list_workspaces(&self) -> Result<Vec<crate::multiplexer::state::WorkspaceInfo>, String> {
         unreachable!()
     }
 

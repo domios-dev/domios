@@ -5,7 +5,7 @@ Optimizer (REM phase) prompt that runs as a periodic background worker
 to clean up the mem graph (decompose hub-and-spoke nodes, bridge
 disconnected islands, dedup entities).
 
-## What's covered (7 cases)
+## What's covered (8 cases)
 
 Stage A.1 — Hub decomposition:
 
@@ -44,8 +44,13 @@ Stage A.3 — Dedup:
   facts, the lesser is archived and linked), never `mem delete`, and the
   diary log names the merged pair.
 
-What's NOT covered yet (future): A.3 alias pass, Stage B diary writing,
-Stage C maintenance. Add cases as new failure modes show up.
+Stage C maintenance:
+
+- **#8 maintenance-uses-preface-candidates** � classify and evaluate promotion
+  from the supervisor's concrete candidate IDs without empty-query searches.
+
+What's NOT covered yet (future): A.3 alias pass and Stage B diary writing.
+Add cases as new failure modes show up.
 
 ## How to run
 

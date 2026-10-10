@@ -84,7 +84,9 @@ impl RpcClient for AttemptRebindRecorder {
                 }))
             }
             "plan.session.rebind" => Ok(self.response.clone()),
-            _ => Err(SocketCallError::Transport(format!("unexpected RPC {method}"))),
+            _ => Err(SocketCallError::Transport(format!(
+                "unexpected RPC {method}"
+            ))),
         }
     }
 }
@@ -223,7 +225,8 @@ fn review_bounce_forwards_trusted_binding_and_keeps_from_as_attribution() {
                 action: PlanReviewAction::Bounce {
                     plan_id: Some("pl_review".into()),
                     task_id: "task_review".into(),
-                    note: "review the terminal generation".into(),
+                    note: Some("review the terminal generation".into()),
+                    note_from_pad: None,
                     changed_executable_surfaces: true,
                     distinct_oracle: false,
                 },
@@ -282,7 +285,11 @@ fn plan_rebind_attempt_reads_epoch_routes_exact_identity_and_sanitizes_success()
     let _lock = crate::test_env_lock()
         .lock()
         .unwrap_or_else(|error| error.into_inner());
-    let _env = CallerEnv::set(Some("worker-tab"), Some("provider-session"), Some("current-nonce"));
+    let _env = CallerEnv::set(
+        Some("worker-tab"),
+        Some("provider-session"),
+        Some("current-nonce"),
+    );
     let mut client = AttemptRebindRecorder {
         calls: Vec::new(),
         response: json!({
@@ -295,12 +302,16 @@ fn plan_rebind_attempt_reads_epoch_routes_exact_identity_and_sanitizes_success()
         }),
         fail_rebind: false,
     };
-    let result = super::super::run_plan(&mut client, true, targeted_rebind_action(Some("pl_exact")))
-        .unwrap()
-        .unwrap();
+    let result =
+        super::super::run_plan(&mut client, true, targeted_rebind_action(Some("pl_exact")))
+            .unwrap()
+            .unwrap();
 
     assert_eq!(client.calls.len(), 2);
-    assert_eq!(client.calls[0], ("task.show".into(), json!({ "task_id": "COD-1" })));
+    assert_eq!(
+        client.calls[0],
+        ("task.show".into(), json!({ "task_id": "COD-1" }))
+    );
     assert_eq!(client.calls[1].0, "plan.session.rebind");
     assert_eq!(
         client.calls[1].1,
@@ -323,7 +334,11 @@ fn plan_rebind_attempt_rejects_legacy_response_without_rendering_nonce_or_retryi
     let _lock = crate::test_env_lock()
         .lock()
         .unwrap_or_else(|error| error.into_inner());
-    let _env = CallerEnv::set(Some("worker-tab"), Some("provider-session"), Some("current-nonce"));
+    let _env = CallerEnv::set(
+        Some("worker-tab"),
+        Some("provider-session"),
+        Some("current-nonce"),
+    );
     let mut client = AttemptRebindRecorder {
         calls: Vec::new(),
         response: json!({
@@ -346,7 +361,11 @@ fn plan_rebind_attempt_rpc_refusal_uses_the_shared_plan_error_renderer() {
     let _lock = crate::test_env_lock()
         .lock()
         .unwrap_or_else(|error| error.into_inner());
-    let _env = CallerEnv::set(Some("worker-tab"), Some("provider-session"), Some("current-nonce"));
+    let _env = CallerEnv::set(
+        Some("worker-tab"),
+        Some("provider-session"),
+        Some("current-nonce"),
+    );
     let mut client = AttemptRebindRecorder {
         calls: Vec::new(),
         response: Value::Null,
@@ -368,7 +387,8 @@ fn plan_rebind_attempt_requires_explicit_plan_before_rpc() {
         response: Value::Null,
         fail_rebind: false,
     };
-    let error = super::super::run_plan(&mut client, true, targeted_rebind_action(None)).unwrap_err();
+    let error =
+        super::super::run_plan(&mut client, true, targeted_rebind_action(None)).unwrap_err();
     assert!(error.contains("explicit plan id"));
     assert!(client.calls.is_empty());
 }

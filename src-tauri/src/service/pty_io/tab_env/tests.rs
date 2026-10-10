@@ -25,6 +25,30 @@ fn store_with_planner_bound_plan() -> (tempfile::TempDir, PlanStore, String) {
 }
 
 const AGENT_TAB_ID: &str = "tab-a";
+
+#[test]
+fn codex_rpc_sidecar_env_never_rewrites_agent_toolchain_selection() {
+    let env = compose_launch_env(&instance_env(), None, LaunchSurface::Service);
+    let mut command = std::process::Command::new("agent");
+    let inherited = [
+        ("CODEX_HOME", "/custom/account"),
+        ("HOME", "/custom/home"),
+        ("CODEX_MANAGED_PACKAGE_ROOT", "/custom/toolchain"),
+        ("CODEX_MANAGED_BY_NPM", "1"),
+    ];
+    command.envs(inherited).envs(&env);
+    let effective: HashMap<_, _> = command
+        .get_envs()
+        .map(|(key, value)| (key.to_owned(), value.map(|value| value.to_owned())))
+        .collect();
+    for (key, value) in inherited {
+        assert!(!env.contains_key(key));
+        assert_eq!(
+            effective.get(std::ffi::OsStr::new(key)).unwrap().as_deref(),
+            Some(std::ffi::OsStr::new(value))
+        );
+    }
+}
 const LANE_BASE: &str = "release/1.10.0";
 
 fn instance_env() -> InstanceEnv {

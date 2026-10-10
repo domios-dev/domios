@@ -54,7 +54,7 @@ pub struct PtySession {
     /// read_pty reads from this instead of the raw PTY reader to avoid competing reads.
     /// Bounded to prevent memory leaks when frontend isn't consuming (hidden tabs).
     pub backend_reader_tx: StdMutex<Option<tokio::sync::mpsc::Sender<Vec<u8>>>>,
-    pub backend_reader_rx: StdMutex<Option<tokio::sync::mpsc::Receiver<Vec<u8>>>>,
+    pub backend_output: super::backend_output::BackendOutput,
     pub backend_reader_active: AtomicBool,
     pub teardown: PtyTeardownSignal,
     /// Recorded once when the child process exits, with its exit code.
@@ -87,6 +87,31 @@ impl PtySession {
     ) -> Result<(), String> {
         self.write_queue
             .send_and_wait_guarded(data, permit, timeout)
+    }
+
+    pub fn write_and_flush_with_enqueued(
+        &self,
+        data: Vec<u8>,
+        timeout: std::time::Duration,
+        on_enqueued: impl FnOnce(),
+    ) -> Result<(), String> {
+        self.write_queue
+            .send_frames_and_wait_with_enqueued(vec![data], timeout, on_enqueued)
+    }
+
+    pub fn write_and_flush_guarded_with_enqueued(
+        &self,
+        data: Vec<u8>,
+        permit: GuardedInputPermit,
+        timeout: std::time::Duration,
+        on_enqueued: impl FnOnce(),
+    ) -> Result<(), String> {
+        self.write_queue.send_frames_and_wait_guarded_with_enqueued(
+            vec![data],
+            permit,
+            timeout,
+            on_enqueued,
+        )
     }
 
     pub fn write_frames_and_flush_guarded(
@@ -429,7 +454,7 @@ pub const STRIPPED_PTY_ENV: &[&str] = &[
     "CONTINUOUS_INTEGRATION",
 ];
 
-const INHERITED_ORCHESTRATION_ENV: &[&str] = &[
+pub const INHERITED_ORCHESTRATION_ENV: &[&str] = &[
     "CODETERM_PLAN_ID",
     "CODETERM_TASK_ID",
     "CODETERM_LANE_BASE",
@@ -486,6 +511,13 @@ fn apply_pty_env(cmd: &mut CommandBuilder, env_vars: &HashMap<String, String>) {
     for key in STRIPPED_PTY_ENV {
         cmd.env_remove(key);
     }
+
+    for (key, value) in super::child_env::child_env_changes(cmd.iter_full_env_as_str()) {
+        match value {
+            Some(value) => cmd.env(key, value),
+            None => cmd.env_remove(key),
+        }
+    }
 }
 
 pub fn build_session(
@@ -496,6 +528,22 @@ pub fn build_session(
     rows: u16,
     env_vars: HashMap<String, String>,
 ) -> Result<BuiltSession, String> {
+    build_session_with_profile(spawn_gate, command, cwd, cols, rows, env_vars, None)
+}
+
+pub fn build_session_with_profile(
+    spawn_gate: PtySpawnGate,
+    command: Option<String>,
+    cwd: Option<String>,
+    cols: u16,
+    rows: u16,
+    env_vars: HashMap<String, String>,
+    profile: Option<&super::shell_profiles::ShellProfile>,
+) -> Result<BuiltSession, String> {
+    let launch = profile
+        .filter(|_| command.is_none())
+        .map(|p| p.launch(cwd.as_deref()))
+        .transpose()?;
     let spawn_permit = spawn_gate.acquire()?;
     let pty_system = native_pty_system();
     let size = PtySize {
@@ -512,22 +560,28 @@ pub fn build_session(
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
     let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
 
-    let (shell, mut cmd) = match &command {
-        Some(c) => (c.clone(), CommandBuilder::new(c)),
-        None => {
-            let s = detect_default_shell();
-            #[cfg(target_os = "windows")]
-            {
-                (s.clone(), CommandBuilder::new(&s))
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                (s, CommandBuilder::new_default_prog())
+    let (shell, mut cmd) = if let Some(launch) = &launch {
+        let mut cmd = CommandBuilder::new(&launch.executable);
+        cmd.args(&launch.args);
+        (launch.executable.clone(), cmd)
+    } else {
+        match &command {
+            Some(c) => (c.clone(), CommandBuilder::new(c)),
+            None => {
+                let s = detect_default_shell();
+                #[cfg(target_os = "windows")]
+                {
+                    (s.clone(), CommandBuilder::new(&s))
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    (s, CommandBuilder::new_default_prog())
+                }
             }
         }
     };
 
-    if let Some(dir) = cwd {
+    if let Some(dir) = launch.as_ref().map(|l| l.cwd.clone()).unwrap_or(cwd) {
         cmd.cwd(dir);
     }
 
@@ -553,7 +607,15 @@ pub fn build_session(
         cmd.env("SHELL", &shell);
     }
 
-    super::shell_integration::apply_env(&mut cmd, &shell);
+    if let Some(profile) = profile.filter(|_| command.is_none()) {
+        super::shell_profiles::apply_profile(
+            &mut cmd,
+            profile,
+            env_vars.get("CODETERM_SHELL_NONCE").map(String::as_str),
+        )?;
+    } else {
+        super::shell_integration::apply_env(&mut cmd, &shell);
+    }
 
     // Env vars stripped from every interactive tab PTY. CLAUDECODE / CLAUDE_CODE_*:
     apply_pty_env(&mut cmd, &env_vars);
@@ -574,7 +636,7 @@ pub fn build_session(
         guarded_input: GuardedInputGate::default(),
         child: StdMutex::new(child),
         backend_reader_tx: StdMutex::new(None),
-        backend_reader_rx: StdMutex::new(None),
+        backend_output: super::backend_output::BackendOutput::default(),
         backend_reader_active: AtomicBool::new(false),
         teardown: PtyTeardownSignal::default(),
         child_exit: Arc::default(),
@@ -808,9 +870,7 @@ impl PtyManager {
         if let Ok(mut tx) = session.backend_reader_tx.lock() {
             let _ = tx.take();
         }
-        if let Ok(mut rx) = session.backend_reader_rx.lock() {
-            let _ = rx.take();
-        }
+        session.backend_output.close();
         // ConPTY handle is closed by the reaper's background thread, not here —
         // ClosePseudoConsole can block (see teardown.rs) and must not stall the caller.
         log::info!("Killed PTY {} process tree; ConPTY teardown queued", pty_id);
@@ -852,7 +912,7 @@ impl PtyManager {
         }
         let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(Self::BACKEND_CHANNEL_CAPACITY);
         *session.backend_reader_tx.lock().unwrap() = Some(tx.clone());
-        *session.backend_reader_rx.lock().unwrap() = Some(rx);
+        session.backend_output.install(rx);
         Some(tx)
     }
 

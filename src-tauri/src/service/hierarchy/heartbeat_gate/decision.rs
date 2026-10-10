@@ -15,8 +15,8 @@ fn choice(instructions: String, options: &[(&str, &str)]) -> NamedDecisionQuesti
 
 fn tick_question() -> NamedDecisionQuestion {
     choice(
-        "Decide whether the host-authored reminder named in state.reminder would help its recipient act now. Choose action_needed only when the plan state shows a concrete step for that recipient. Healthy progress, deliberate review holds and unchanged state need no reminder. Hard events are evidence, not an obligation. Use other for uncertainty.".into(),
-        &[("action_needed", "The reminder is useful now"), ("status_only", "Healthy progress; no reminder needed"), ("nothing_changed", "No meaningful change"), ("other", "Cannot classify confidently")],
+        "Decide whether the host-authored reminder named in state.reminder would help its recipient act now. Choose action_needed only when the plan state shows a concrete step for that recipient. Choose blocked when the recipient cannot act while waiting on the owner, a dependency or an external blocker. Healthy progress, deliberate review holds and unchanged state need no reminder. Hard events are evidence, not an obligation. Use other for uncertainty.".into(),
+        &[("action_needed", "The reminder is useful now"), ("blocked", "The recipient cannot act now"), ("status_only", "Healthy progress; no reminder needed"), ("nothing_changed", "No meaningful change"), ("other", "Cannot classify confidently")],
     )
 }
 

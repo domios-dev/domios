@@ -33,7 +33,7 @@
       "prompt": "You created C:\\Users\\User\\Desktop\\design-system.html and the user wants that exact file to be the single source rendered in the current CodeTerm reply. Show the minimal reply syntax. Do not copy the file contents.",
       "expected_output": "Uses the file-backed HTML fence rather than duplicating the file or asking the user to pick it.",
       "expectations": [
-        "Renders the file through a standalone file-backed directive naming the exact absolute path C:\\Users\\User\\Desktop\\design-system.html (either @ct-page or the still-supported @file html fence)",
+        "Renders the file through a standalone file-backed directive naming the exact absolute path C:\\Users\\User\\Desktop\\design-system.html (either @ds-page or the still-supported @file html fence)",
         "Does NOT copy or paraphrase the HTML file contents",
         "Does NOT use ct.file.pick() or ct.file.renderHtml() for a known file path"
       ]
@@ -53,7 +53,7 @@
       "id": 5,
       "name": "notify-escalation-role-and-trigger",
       "response_mode": "text",
-      "prompt": "Without running commands, answer three independent scenarios and name exact commands where relevant. (a) You are a Worker tab and you just finished your assigned task normally \u2014 do you send the user a notification, and what do you do instead if not? (b) You are an Orchestrator blocked because only the user can make a required decision and no autonomous path remains \u2014 how do you reach the user? (c) You are a solo agent, the user earlier said 'notify me when the build finishes', and the build just finished \u2014 what do you do?",
+      "prompt": "Without running commands, answer three independent scenarios and name exact commands where relevant. (a) You are a Worker tab and you just finished your assigned task normally — do you send the user a notification, and what do you do instead if not? (b) You are an Orchestrator blocked because only the user can make a required decision and no autonomous path remains — how do you reach the user? (c) You are a solo agent, the user earlier said 'notify me when the build finishes', and the build just finished — what do you do?",
       "expected_output": "Role-scoped rare-escalation policy: Workers never notify the user directly; solo agents and Orchestrators use codeterm notify send only for genuine user-attention need or an explicit user request.",
       "expectations": [
         "In scenario (a) does NOT send the user a notification for routine Worker completion and instead reports through its reporting channel",
@@ -89,9 +89,9 @@
       "name": "opens-known-guide-section-with-native-directive",
       "response_mode": "text",
       "prompt": "The user wants to open the existing supporter-agent section of CodeTerm's Guide from your chat reply. Give only the minimal native reply syntax for that known section id. Do not run a shell command or invent a URL.",
-      "expected_output": "A standalone @ct-guide directive carries the known section id.",
+      "expected_output": "A standalone @ds-guide directive carries the known section id.",
       "expectations": [
-        "Emits @ct-guide supporter-agent as a standalone paragraph outside a code fence",
+        "Emits @ds-guide supporter-agent as a standalone paragraph outside a code fence",
         "Does not use a URL fragment, filesystem path or shell command to navigate to the Guide"
       ]
     },
@@ -102,6 +102,7 @@
       "expected_output": "Creates a bounded sentinel to watch CI and deliver one transition instead of repeatedly polling with the agent.",
       "expectations": [
         "Uses the codeterm sentinel create command family with --probe, --question, and --buckets to watch the CI result",
+        "Supplies a short meaningful --name and validates the graph with --dry-run before creation",
         "Sets an explicit cadence through --every of at least 10s and a bounded lifetime through --timeout or --until; --until names exactly one declared bucket, never a comma-separated list",
         "Does not write an agent-side polling loop or sleep between status checks; the real codeterm sentinel create command and its --every scheduler cadence are allowed and are not an agent polling loop",
         "Uses default notifications to the creator or only a supplied existing route target. Does not invent tab get-id, noop routes or another recipient. Automatic reserved other is not included in declared --buckets. Explanation must not invent commands, automatic stopping or claim model-free classification. The supported codeterm sentinel create syntax includes --probe, --question, --buckets, --every, --timeout, --until and --route bucket=send:tab or bucket=cron:name; evaluate it as a real supported command, not an unknown tool."
@@ -114,12 +115,40 @@
       "expected_output": "Creates a bounded Sentinel with predefined passed/failed routes instead of starting a repeated full agent or allowing model-selected shell commands.",
       "expectations": [
         "Uses codeterm sentinel create with --probe \"gh run view 456 --json status,conclusion\", --question describing classification, and --buckets passed,failed. These are outcome buckets; no --terminal flag exists or is required.",
+        "Supplies a short meaningful --name and validates the routes with --dry-run before creation",
         "Sets --route passed=cron:review_pr and --route failed=send:repair_worker, selecting only the supplied existing targets",
         "Explicitly classifies still-running CI as automatic other, not a declared bucket with guessed quiet behavior; no route while running and no early stop merely for a running result. Expiry at the explicit lifetime timeout is allowed and required.",
         "Uses explicit --timeout or one declared --until bucket to bound the real codeterm sentinel create scheduler; does not write an agent-side polling loop or full recurring agent",
         "The real codeterm sentinel create family with --probe, --question, --buckets, --every, --timeout, --until and --route is allowed. Routes use bucket=send:tab or bucket=cron:name syntax. Does not invent a shell command, another route type or recipient. A send or cron route does not automatically stop the watch; only explicit timeout, --until or stop does. Classification uses the connected Choice model, not implicit JSON parsing. The scenario explicitly supplies existing cron review_pr and agent tab repair_worker; using those exact names is required and is not inventing recipients. --until accepts one bucket only, never passed,failed. Automatic other is always available in addition to the declared buckets; it must NOT be included in --buckets, and describing this automatic option is valid."
       ],
       "response_mode": "text"
+    },
+    {
+      "id": 11,
+      "name": "observes-each-cron-run-agent-tab",
+      "prompt": "The existing nightly cron starts an agent tab for each run. I want a bounded Sentinel that classifies whether that run's tab is waiting or working, and notifies me when it is waiting. Show the setup command without executing it.",
+      "expected_output": "Uses the CronRun observation source so each run is observed through the exact tab it launched.",
+      "expectations": [
+        "Uses codeterm sentinel create with --observe cron-run:nightly, not --probe or a hardcoded tab id",
+        "Supplies a short meaningful --name and validates the graph with --dry-run before creation",
+        "Provides a question and declared buckets for waiting and working, with a notify route for waiting",
+        "Bounds observation with --every of at least 10s and --timeout or --until",
+        "Does not invent a shell probe or a separate tab target for the cron run"
+      ],
+      "response_mode": "text"
+    },
+    {
+      "id": 12,
+      "name": "utility-tabs-have-purpose-description-and-an-end",
+      "response_mode": "text",
+      "prompt": "You are an Orchestrator. Without running commands, show how you would open a build utility tab and a test utility tab, then replace the command in an existing idle test tab named qa-id and clean it up when finished. Mention which purpose you would choose for a server. Keep it brief.",
+      "expected_output": "Utility tabs identify their purpose and activity, and are reused and closed.",
+      "expectations": [
+        "Uses purpose build for builds, qa for tests, and dev for servers",
+        "Includes --description on each tab new command",
+        "Uses codeterm tab restart --tab qa-id for the existing idle test tab instead of opening another test tab",
+        "Closes the utility tab when finished"
+      ]
     }
   ]
 }

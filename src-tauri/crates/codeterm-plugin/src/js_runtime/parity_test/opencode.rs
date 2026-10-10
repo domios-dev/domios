@@ -10,7 +10,7 @@ const TC_SESSION: i64 = 1_700_000_000_000;
 const TC_PART: i64 = 1_700_000_000_002;
 
 fn opencode() -> JsProvider {
-    load_js("opencode")
+    super::sqlite_fixture::load_sqlite_fixture_js("opencode")
 }
 
 // Resume reads the session's stored cwd, so it needs the same env lock and an empty store.
@@ -119,6 +119,9 @@ fn restored_resume_command_preserves_exact_session_model_and_launch_args() {
     let _store = empty_session_store();
     let command = opencode()
         .build_resume_command_with_context(&crate::provider::AgentResumeParams {
+            cwd: None,
+            context_files: None,
+            tool_less_instructions_path: None,
             session_id: SES_ID.into(),
             skip_permissions: false,
             agent_name: None,
@@ -154,6 +157,9 @@ fn resume_with_context_restages_the_session_config() {
     let (command, staged) =
         codeterm_util::task_files::capture_in(task_root.path(), "resume-tab", || {
             j.build_resume_command_with_context(&crate::provider::AgentResumeParams {
+                cwd: None,
+                context_files: None,
+                tool_less_instructions_path: None,
                 session_id: SES_ID.into(),
                 skip_permissions: false,
                 agent_name: None,
@@ -454,4 +460,57 @@ fn sqlite_backed_session_capabilities() {
         assert!(refused.messages.is_empty(), "{:#?}", refused.messages);
         assert_eq!(refused.cursor.as_deref(), Some(malformed));
     }
+}
+
+#[test]
+fn parity_directory_trust_opencode_declares_no_trust_capability() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = opencode();
+    let screen = std::fs::read_to_string(
+        workspace_plugins_root()
+            .join("provider-claude")
+            .join("tests")
+            .join("fixtures")
+            .join("folder-trust")
+            .join("quick-safety-no-first.txt"),
+    )
+    .expect("trust-shaped frame");
+    assert!(!provider.supports_directory_trust_prompt_parsing());
+    assert_eq!(provider.parse_directory_trust_prompt(&screen), None);
+    assert_eq!(provider.directory_trust_prompt_response(&screen), None);
+}
+
+#[test]
+fn structured_tool_file_diffs_match_stored_tool_parts() {
+    let provider = opencode();
+    let fixtures: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../tests/fixtures/opencode-1.18.35-tool-parts.json"
+    )))
+    .unwrap();
+    for fixture in fixtures.as_array().unwrap() {
+        let diffs = provider
+            .structured_tool_file_diffs(&fixture["part"])
+            .unwrap();
+        assert_eq!(diffs[0]["path"], fixture["expectedPath"]);
+        assert_eq!(diffs[0]["additions"], fixture["additions"]);
+        assert_eq!(diffs[0]["deletions"], fixture["deletions"]);
+    }
+}
+
+#[test]
+fn unsupported_structured_tool_diffs_keep_native_js_defaults_in_parity() {
+    let native = crate::agent_claude::provider::ClaudeProvider::new();
+    let js = load_inline_js("fixture", "module.exports.default = {};");
+    let part = serde_json::json!({"type":"tool","tool":"write","state":{
+        "status":"completed","input":{"filePath":"/repo/a","content":"new"},
+        "metadata":{"exists":false}
+    }});
+    assert_eq!(native.structured_tool_file_diffs(&part), None);
+    assert_eq!(
+        js.structured_tool_file_diffs(&part),
+        native.structured_tool_file_diffs(&part)
+    );
 }

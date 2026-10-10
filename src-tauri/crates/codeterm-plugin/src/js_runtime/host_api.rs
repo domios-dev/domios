@@ -37,6 +37,12 @@ struct HeldFileLock {
     file: File,
 }
 
+impl Drop for HeldFileLock {
+    fn drop(&mut self) {
+        let _ = self.file.unlock();
+    }
+}
+
 fn held_file_locks() -> &'static parking_lot::Mutex<HashMap<String, HeldFileLock>> {
     static LOCKS: OnceLock<parking_lot::Mutex<HashMap<String, HeldFileLock>>> = OnceLock::new();
     LOCKS.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
@@ -128,12 +134,15 @@ pub(super) struct PluginSandbox {
     secrets_allowed: bool,
     /// `agent_commands` grant — gates routing a spawned agent's `codeterm plugin <id> <verb>` to `onAgentCommand`.
     agent_commands_allowed: bool,
+    /// `surfaces` grant — gates `host.surface.call` driving the calling agent's own stream surface.
+    surfaces_allowed: bool,
     /// Whether `host.workspace*` is permitted (`manage_workspaces` grant).
     manage_workspaces_allowed: bool,
     /// Whether `host.agent*` is permitted (`spawn_agents` grant).
     spawn_agents_allowed: bool,
     /// Whether `host.analytics` is permitted (`analytics` grant).
     analytics_allowed: bool,
+    graph_events_allowed: bool,
     /// The plugin's settings blob, returned by `host.settingsJson()`. Interior-mutable
     /// so a config-only hot-reload re-stamps it in place without a VM rebuild (which would wipe in-memory sessions).
     settings_json: parking_lot::Mutex<String>,
@@ -158,9 +167,11 @@ impl PluginSandbox {
             token_mode: TokenMode::None,
             secrets_allowed: true,
             agent_commands_allowed: true,
+            surfaces_allowed: true,
             manage_workspaces_allowed: true,
             spawn_agents_allowed: true,
             analytics_allowed: true,
+            graph_events_allowed: true,
             settings_json: parking_lot::Mutex::new("null".to_string()),
             svc: LateRef::new(),
         }
@@ -181,9 +192,11 @@ impl PluginSandbox {
             token_mode: TokenMode::None,
             secrets_allowed: false,
             agent_commands_allowed: false,
+            surfaces_allowed: false,
             manage_workspaces_allowed: false,
             spawn_agents_allowed: false,
             analytics_allowed: false,
+            graph_events_allowed: false,
             settings_json: parking_lot::Mutex::new("null".to_string()),
             svc: LateRef::new(),
         }
@@ -201,9 +214,11 @@ impl PluginSandbox {
         self.net_allow = perms.network.allow.clone();
         self.secrets_allowed = self.unrestricted || perms.secrets;
         self.agent_commands_allowed = self.unrestricted || perms.agent_commands;
+        self.surfaces_allowed = self.unrestricted || perms.surfaces;
         self.manage_workspaces_allowed = self.unrestricted || perms.manage_workspaces;
         self.spawn_agents_allowed = self.unrestricted || perms.spawn_agents;
         self.analytics_allowed = self.unrestricted || perms.analytics;
+        self.graph_events_allowed = self.unrestricted || perms.graph_events;
         self
     }
 
@@ -284,6 +299,10 @@ impl PluginSandbox {
         self.agent_commands_allowed
     }
 
+    pub(super) fn surfaces_allowed(&self) -> bool {
+        self.surfaces_allowed
+    }
+
     /// Whether the plugin may create/manage workspaces (`host.workspace*`).
     pub(super) fn manage_workspaces_allowed(&self) -> bool {
         self.manage_workspaces_allowed
@@ -297,6 +316,10 @@ impl PluginSandbox {
     /// Whether the plugin may read machine-wide KPI aggregates (`host.analytics`).
     pub(super) fn analytics_allowed(&self) -> bool {
         self.analytics_allowed
+    }
+
+    pub(super) fn graph_events_allowed(&self) -> bool {
+        self.graph_events_allowed
     }
 
     /// Attach the plugin's settings blob (`config.yaml` → JSON) at load.
@@ -457,6 +480,8 @@ pub(super) fn install(
     manifest_json: Option<&str>,
     sandbox: Arc<PluginSandbox>,
 ) -> Result<(), VmError> {
+    let provider_observation =
+        Arc::new(super::provider_observation::ProviderObservation::from_manifest(manifest_json));
     let host = rquickjs::Object::new(ctx.clone())
         .map_err(|e| VmError::Script(format!("host obj: {e}")))?;
 
@@ -470,8 +495,27 @@ pub(super) fn install(
     }
 
     let manifest_owned: Option<String> = manifest_json.map(|s| s.to_string());
+    bind!(
+        "commandTranscriptStdout",
+        move |record_json: String, declaration_json: String| -> Option<String> {
+            if record_json.len() > PLUGIN_READ_FILE_LIMIT as usize
+                || declaration_json.len() > 24 * 1024
+            {
+                return None;
+            }
+            let source: crate::provider::ModelSwitchTranscript =
+                serde_json::from_str(&declaration_json).ok()?;
+            let record = serde_json::from_str(&record_json).ok()?;
+            source.record_stdout(&record)
+        }
+    );
     bind!("manifestJson", move || -> Option<String> {
         manifest_owned.clone()
+    });
+    let sb = sandbox.clone();
+    let observation = provider_observation.clone();
+    bind!("providerVersionJson", move || -> String {
+        serde_json::to_string(&observation.version(&sb)).unwrap_or_else(|_| "null".into())
     });
 
     bind!("platform", || -> String {
@@ -563,6 +607,39 @@ pub(super) fn install(
             return false;
         }
         codeterm_util::atomic_write::write_atomic(Path::new(&path), contents).is_ok()
+    });
+    let sb = sandbox.clone();
+    bind!("canonicalPath", move |path: String| -> Option<String> {
+        if !sb.can_read(&path) {
+            return None;
+        }
+        std::fs::canonicalize(&path)
+            .ok()
+            .map(|path| codeterm_paths::strip_verbatim_prefix(&path.to_string_lossy()))
+    });
+    let sb = sandbox.clone();
+    bind!("jsonBooleanRecord", move |path: String,
+                                     keys_json: String,
+                                     grant: bool|
+          -> String {
+        use crate::provider::PreTrustOutcome;
+        let outcome = if !sb.can_read(&path) || (grant && !sb.can_write(&path)) {
+            PreTrustOutcome::Skipped("record access denied".into())
+        } else if let Ok(keys) = serde_json::from_str::<Vec<String>>(&keys_json) {
+            if grant {
+                crate::json_boolean_record::grant(Path::new(&path), &keys)
+            } else {
+                match crate::json_boolean_record::trusted(Path::new(&path), &keys) {
+                    Ok(true) => PreTrustOutcome::AlreadyTrusted,
+                    Ok(false) => PreTrustOutcome::Skipped("not trusted".into()),
+                    Err(reason) => PreTrustOutcome::Skipped(reason),
+                }
+            }
+        } else {
+            PreTrustOutcome::Skipped("invalid key path".into())
+        };
+        serde_json::to_string(&outcome)
+            .unwrap_or_else(|_| r#"{"status":"failed","reason":"encoding failed"}"#.into())
     });
     let sb = sandbox.clone();
     bind!("lockFile", move |path: String| -> Option<String> {
@@ -672,10 +749,11 @@ pub(super) fn install(
     });
 
     let sb = sandbox.clone();
+    let observation = provider_observation.clone();
     bind!(
         "sqliteQueryAllJson",
         move |ctx: Ctx, db: String, sql: String, params_json: Option<String>| {
-            sqlite::host_query(&ctx, &sb, &db, &sql, params_json.as_deref())
+            sqlite::host_query(&ctx, &sb, &observation, &db, &sql, params_json.as_deref())
         }
     );
 
@@ -703,7 +781,7 @@ pub(super) fn install(
             );
             return serde_json::json!({ "error": format!("exec denied: {bin}") }).to_string();
         }
-        super::host_exec::run_with_host_env(&opts_json, &super::host_exec::current_host_env())
+        super::host_exec::run_with_host_env(&opts_json, &super::host_exec::current_host_env(), &sb)
     });
 
     // Async exec (job-id + poll): same gate as `exec`, but the command runs off-thread so the VM lock is held only per start/poll.
@@ -721,6 +799,7 @@ pub(super) fn install(
             sb.plugin_id(),
             &opts_json,
             &super::host_exec::current_host_env(),
+            sb.clone(),
         )
     });
     let sb = sandbox.clone();

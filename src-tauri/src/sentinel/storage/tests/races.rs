@@ -122,7 +122,7 @@ fn storage_sentinel_commit_failure_refuses_claim_and_closes_admission() {
     assert!(lease.is_cancelled());
     let error = store.lock().ensure_available().unwrap_err();
     assert!(
-        error.starts_with("sentinel_store_persistence_failed:"),
+        error.starts_with("blueprint_store_persistence_failed:"),
         "{error}"
     );
     assert!(commit(&store, Store::stage_due).is_err());
@@ -256,7 +256,7 @@ fn storage_sentinel_shutdown_settles_accepted_work_and_refuses_new_admission() {
     let refused = commit(&store, |current| current.stage_stop(&second.id, "late"));
     let error = refused.expect_err("closed admission is an explicit failure");
     assert!(
-        error.starts_with("sentinel_store_persistence_failed:"),
+        error.starts_with("blueprint_store_persistence_failed:"),
         "{error}"
     );
     assert!(store.lock().ensure_available().is_err());

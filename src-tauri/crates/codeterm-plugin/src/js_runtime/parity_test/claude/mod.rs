@@ -7,6 +7,7 @@ pub(crate) use crate::agent_claude::provider::ClaudeProvider;
 
 mod catalog;
 mod commands;
+mod context;
 mod core;
 mod folder_trust;
 mod launch_permissions;
@@ -14,7 +15,9 @@ mod launch_session;
 mod onboarding;
 mod permission_prompt;
 mod permission_request;
+mod pre_trust;
 mod sessions;
+mod signals;
 mod usage_sources;
 
 fn pair() -> (ClaudeProvider, JsProvider) {

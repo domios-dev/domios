@@ -268,8 +268,62 @@ run_workspace_lib_tests() {
   done
 }
 
+run_nextest_scope() {
+  [ "$#" -le 2 ] || {
+    echo "usage: ./build.sh nextest <scope> [filterset]" >&2
+    return 2
+  }
+  local scope="${1:?nextest requires a scope}"
+  local filterset="${2:-}"
+  local manifest="src-tauri/Cargo.toml"
+  local package=""
+  local targets=()
+  local filter_args=()
+
+  case "$scope" in
+    app|codeterm) package="codeterm"; targets+=(--lib --no-default-features) ;;
+    plan|codeterm-plan) package="codeterm-plan"; targets+=(--lib) ;;
+    pty|codeterm-pty) package="codeterm-pty" ;;
+    types|codeterm-types) package="codeterm-types"; targets+=(--all-targets) ;;
+    mem|codeterm-mem) package="codeterm-mem"; targets+=(--lib) ;;
+    mesh|codeterm-mesh) package="codeterm-mesh"; targets+=(--lib) ;;
+    plugin|codeterm-plugin) package="codeterm-plugin"; targets+=(--lib) ;;
+    plugins|codeterm-plugins) package="codeterm-plugins"; targets+=(--lib) ;;
+    cli|codeterm-cli) manifest="cli/Cargo.toml"; package="codeterm-cli"; targets+=(--all-targets) ;;
+    pty-fork) manifest="src-tauri/pty-fork/Cargo.toml" ;;
+    codeterm-*) package="$scope"; targets+=(--lib) ;;
+    *)
+      echo "Unknown nextest scope: $scope" >&2
+      return 2
+      ;;
+  esac
+
+  enter_build_gateway "$CMD $scope${filterset:+ $filterset}"
+  if [ "$scope" = "app" ] || [ "$scope" = "codeterm" ]; then
+    prepare_dev_frontend_dist "$(pwd -P)"
+    prepare_bundle_stubs
+    prepare_exceptional_worktree_target
+  fi
+
+  if [ -n "$filterset" ]; then
+    filter_args+=(--filter-expr "$filterset")
+  fi
+  if [ -n "$package" ]; then
+    if [[ "$filterset" == *"rdeps("* ]]; then
+      targets+=(--workspace)
+    else
+      targets+=(-p "$package")
+    fi
+  fi
+
+  CARGO_TEST_CMD="cargo nextest run" \
+    CARGO_TEST_BUILD_CMD="cargo nextest run" \
+    scripts/test-capped.sh --manifest-path "$manifest" \
+    "${targets[@]}" "${filter_args[@]}" --no-tests=fail
+}
+
 case "$CMD" in
-  gateway-*|help) ;;
+  gateway-*|help|gc) ;;
   *) setup_env ;;
 esac
 
@@ -330,7 +384,10 @@ if [ "$CMD" = "dev" ] || [ "$CMD" = "dev-prebuilt" ]; then
 else
   BUILD_ARGS=()
   for arg in "${@:2}"; do
-    if [ "$arg" = "--wait-build" ]; then
+    if [ "$arg" = "--wait-build" ] && [ "$CMD" = "check-tests" ]; then
+      echo "ERROR: check-tests does not use the build gateway, so --wait-build has no effect; run ./build.sh check-tests without it" >&2
+      exit 2
+    elif [ "$arg" = "--wait-build" ]; then
       export CODETERM_BUILD_GATEWAY_MODE=queue
     else
       BUILD_ARGS+=("$arg")
@@ -493,6 +550,9 @@ run_build_gateway_log_reader() {
 
 enter_build_gateway() {
   ct_gateway_acquire "$*"
+  if [ "$CMD" != gc ]; then
+    ct_cache_retention auto || echo "[cache-policy] retention refused; build continues" >&2
+  fi
   local gateway_log
   gateway_log="$(ct_gateway_log_path)"
   echo "Build gateway job $CT_BUILD_JOB_ID log: $gateway_log"
@@ -670,6 +730,8 @@ prepare_exceptional_worktree_target() {
   export CARGO_INCREMENTAL=0
   export CODETERM_ALLOW_EXTERNAL_TARGET=1
   mkdir -p "$CARGO_TARGET_DIR"
+  # The marker is retention bookkeeping; a busy gateway mutex must not kill the build.
+  ct_mark_exceptional_target || echo "[cache-policy] mark skipped; target stays protected while running"
   ct_verify_target_dir
   ct_require_prestarted_sccache
   echo "[cache-policy] exceptional worktree target=$CARGO_TARGET_DIR"
@@ -1541,14 +1603,16 @@ CodeTerm build commands
   frontend                    Production frontend typecheck + bundle
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
   worktree-check              Isolated lane-safe Rust compile check
-  test-one <app|plan|pty|pty-fork|types|mem|mesh|plugin|cli> NAME
+  test-one <app|plan|pty|pty-fork|types|storage|mem|mesh|plugin|cli> NAME
                               Run one focused Rust test
+  nextest <scope> [filterset]  Compile then run Rust tests through nextest
   test                        Run the application Rust unit suite
   verify                      Run app/CLI tests, TypeScript check, and source gates
   qa-prep                     Prepare a worktree for QA
   install-local               Build and install locally
   build                       Build production artifacts
   gateway-status              Show the machine build owner
+  gc [--dry-run]              Reclaim expired build caches and sweep checkout targets
 
 Gateway-backed commands fail fast when the slot is busy. Add --wait-build only
 when blocking this terminal is intentional.
@@ -1556,6 +1620,14 @@ EOF
     ;;
   env)
     # Already loaded above. Use: source build.sh env
+    ;;
+  gc)
+    if [ "$#" -gt 2 ] || { [ "$#" -eq 2 ] && [ "$2" != "--dry-run" ]; }; then
+      echo "Usage: ./build.sh gc [--dry-run]" >&2
+      exit 2
+    fi
+    enter_build_gateway "gc"
+    ct_cache_retention gc "${2:-}"
     ;;
   fmt-check)
     cargo fmt --manifest-path src-tauri/Cargo.toml --check
@@ -1661,8 +1733,8 @@ EOF
     prepare_exceptional_worktree_target
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
-    cargo check --manifest-path src-tauri/Cargo.toml --workspace --all-targets
-    cargo check --manifest-path cli/Cargo.toml --all-targets
+    cargo test --manifest-path src-tauri/Cargo.toml --workspace --all-targets --no-run
+    cargo test --manifest-path cli/Cargo.toml --all-targets --no-run
     ;;
   frontend)
     enter_build_gateway "$CMD ${*:2}"
@@ -1714,7 +1786,7 @@ EOF
     run_workspace_lib_tests
     ;;
   test-one)
-    test_scope="${2:?test-one requires app, plan, pty, pty-fork, types, mem, mesh, plugin, plugins, or cli}"
+    test_scope="${2:?test-one requires app, plan, pty, pty-fork, types, storage, mem, mesh, plugin, plugins, or cli}"
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
       app)
@@ -1726,7 +1798,7 @@ EOF
         prepare_dev_frontend_dist "$(pwd -P)"
         prepare_bundle_stubs
         prepare_exceptional_worktree_target
-        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib --no-default-features "$test_filter"
+        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter"
         ;;
       plan) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plan/Cargo.toml -p codeterm-plan --lib "$test_filter" ;;
       pty) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-pty/Cargo.toml -p codeterm-pty "$test_filter" ;;
@@ -1737,14 +1809,18 @@ EOF
       # the working codeterm-pty test path.
       pty-fork) scripts/test-capped.sh --manifest-path src-tauri/pty-fork/Cargo.toml "$test_filter" ;;
       types) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-types/Cargo.toml -p codeterm-types --all-targets "$test_filter" ;;
+      storage) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-storage/Cargo.toml -p codeterm-storage --lib "$test_filter" ;;
       mem) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-mem/Cargo.toml -p codeterm-mem --lib "$test_filter" ;;
       mesh) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-mesh/Cargo.toml -p codeterm-mesh --lib "$test_filter" ;;
       plugin) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugin/Cargo.toml -p codeterm-plugin --lib "$test_filter" ;;
       # Plural crate (channel/install/update), distinct from the singular confinement crate above.
       plugins) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugins/Cargo.toml -p codeterm-plugins --lib "$test_filter" ;;
       cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml --all-targets "$test_filter" ;;
-      *) echo "Unknown test scope: $test_scope (expected app, plan, pty, pty-fork, types, mem, mesh, plugin, plugins, or cli)" >&2; exit 2 ;;
+      *) echo "Unknown test scope: $test_scope (expected app, plan, pty, pty-fork, types, storage, mem, mesh, plugin, plugins, or cli)" >&2; exit 2 ;;
     esac
+    ;;
+  nextest)
+    run_nextest_scope "${@:2}"
     ;;
   verify)
     enter_build_gateway "$CMD ${*:2}"

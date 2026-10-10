@@ -98,6 +98,7 @@ fn supporter_status_exposes_activity_and_budget() {
             usage: None,
         },
         DecisionEvidence {
+            decision_point: None,
             model_id: Some("fixture-model".into()),
             criteria_version: "fixture-version",
             state_hash: "fixture-hash",
@@ -172,6 +173,7 @@ fn supporter_journal_hashes_recovery_option_values_without_losing_probabilities(
             usage: None,
         },
         DecisionEvidence {
+            decision_point: None,
             model_id: Some("reported".into()),
             criteria_version: "criteria",
             state_hash: "state-hash",
@@ -329,6 +331,7 @@ fn supporter_sentinel_verdict_is_visible_in_activity_feed() {
             usage: None,
         },
         DecisionEvidence {
+            decision_point: None,
             model_id: Some("fixture-model".into()),
             criteria_version: "fixture-criteria",
             state_hash: "private-state",
@@ -338,8 +341,8 @@ fn supporter_sentinel_verdict_is_visible_in_activity_feed() {
     );
     runtime
         .sentinel_event(json!({
-            "time": chrono::Utc::now().timestamp(), "kind": "sentinel", "tab": "private-creator",
-            "sentinel_id": "private-watch", "action": "decision", "reason": "transition",
+            "time": chrono::Utc::now().timestamp(), "kind": "blueprint", "tab": "private-creator",
+            "blueprint_id": "private-watch", "action": "decision", "reason": "transition",
             "label": "fixture-label", "confidence": 0.95, "state_hash": "private-state"
         }))
         .unwrap();
@@ -357,14 +360,14 @@ fn supporter_sentinel_verdict_is_visible_in_activity_feed() {
     assert_eq!(feed[1]["reason"], "model_answer");
     assert!(restored.feed(10, Some("team_11223344")).unwrap().is_empty());
     for entry in feed {
-        assert_eq!(entry["kind"], "sentinel");
+        assert_eq!(entry["kind"], "blueprint");
         assert_eq!(entry["team_id"], "team_aabbccdd");
         assert!(entry["time"].is_i64());
         assert_eq!(entry["label"], "redacted");
         assert_eq!(entry["confidence_band"], "strong");
         assert_eq!(entry["fallback"], false);
         assert!(entry.get("tab").is_none());
-        assert!(entry.get("sentinel_id").is_none());
+        assert!(entry.get("blueprint_id").is_none());
         assert!(entry.get("state_hash").is_none());
     }
 }
@@ -378,7 +381,7 @@ fn supporter_feed_sentinel_budget_preserves_safe_fields_and_redaction() {
         .reserve_at(1, VerdictKind::Sentinel, Some("private-creator"), 1, 100000)
         .unwrap();
     runtime.sentinel_event(json!({
-        "time": 100, "kind": "sentinel", "tab": "private-creator", "sentinel_id": "private-watch",
+        "time": 100, "kind": "blueprint", "tab": "private-creator", "blueprint_id": "private-watch",
         "action": "decision", "reason": "budget_exhausted", "label": "private-bucket",
         "screen": "private-output", "token": "private-token", "state_hash": "private-state"
     })).unwrap();
@@ -388,8 +391,8 @@ fn supporter_feed_sentinel_budget_preserves_safe_fields_and_redaction() {
     assert_eq!(
         feed,
         vec![json!({
-            "time": 100, "team_id": "team_aabbccdd", "kind": "sentinel", "label": "redacted",
-            "confidence_band": "unknown", "action": "decision", "reason": "budget_exhausted",
+            "time": 100, "team_id": "team_aabbccdd", "kind": "blueprint", "label": "redacted",
+            "confidence_band": "unknown", "action": "decision", "decision_point": "blueprint", "reason": "budget_exhausted",
             "budget_reached": true, "fallback": true
         })]
     );

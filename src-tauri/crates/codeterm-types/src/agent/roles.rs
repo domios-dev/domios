@@ -92,6 +92,7 @@ pub enum ReportOutcomeClass {
     StructurallyNotAttachable,
     DeliveredUnattached,
     MissingReviewEvidence,
+    BlockProposed,
 }
 
 impl ReportStatus {
@@ -108,7 +109,7 @@ impl ReportStatus {
         match self {
             ReportStatus::Done => Err("workers must not report --status done because only the owner can close a task. Use --status in_review when the work is ready for review, --status partial for progress, or ask the owner to close after review."),
             ReportStatus::InReview => Ok(Some(TaskStatus::InReview)),
-            ReportStatus::Blocked => Ok(Some(TaskStatus::Blocked)),
+            ReportStatus::Blocked => Ok(None),
             ReportStatus::Partial => Ok(None),
         }
     }
@@ -200,6 +201,15 @@ mod tests {
         assert_eq!(restored("Overlord", None), None);
         assert_eq!(restore_role(None, Some("planner")), None);
         assert_eq!(restored("Manager", Some("   ")), None);
+    }
+
+    #[test]
+    fn blocked_worker_report_has_no_task_transition() {
+        assert_eq!(ReportStatus::Blocked.task_transition(), Ok(None));
+        assert_eq!(
+            ReportStatus::InReview.task_transition(),
+            Ok(Some(TaskStatus::InReview))
+        );
     }
 
     #[test]

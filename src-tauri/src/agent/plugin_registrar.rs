@@ -24,4 +24,9 @@ impl PluginProviderRegistrar for AgentRegistry {
     fn provider_reloaded(&self, id: &str) {
         crate::commands::ensure_integration_for_provider(self, id);
     }
+
+    // Unlike provider_reloaded, never touches provider hook files.
+    fn provider_settings_changed(&self, id: &str) {
+        crate::agent::model_binary_watch::refresh_agent_after_settings_change(self, id);
+    }
 }

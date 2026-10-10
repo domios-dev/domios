@@ -67,8 +67,8 @@ export function ServicesTable({
   }, [daemons, hostFilter, statusFilter, thisMachineName]);
 
   return (
-    <div className="bg-[var(--ct-bg)] border-t border-[var(--ct-border)] flex-1 min-w-0">
-      <div className="flex items-center gap-3 px-4 py-2 bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] text-[10px] uppercase text-[var(--ct-muted)]">
+    <div className="bg-[var(--ct-bg)] flex-1 min-w-0">
+      <div className="ct-jobs-header flex items-center gap-3 px-4 py-2 text-[10px] uppercase text-[var(--ct-muted)]">
         <span className="flex-1">
           Services ({filtered.length})
         </span>
@@ -97,7 +97,7 @@ export function ServicesTable({
         </select>
       </div>
       <div
-        className="grid items-center px-4 py-1.5 border-b border-[var(--ct-border)] text-[9px] uppercase text-[var(--ct-muted)] sticky top-0 bg-[var(--ct-bg)]"
+        className="grid items-center px-4 pt-3 pb-1.5 text-[9px] uppercase text-[var(--ct-muted)] sticky top-0 bg-[var(--ct-bg)]"
         style={{ gridTemplateColumns: SERVICE_GRID_COLS }}
       >
         <span />
@@ -107,23 +107,25 @@ export function ServicesTable({
         <span>Uptime</span>
         <span />
       </div>
-      {filtered.map((s) => (
-        <ServiceRow
-          key={`${s.source_peer_id ?? s.source_peer ?? "local"}:${s.id}`}
-          service={s}
-          host={s.source_peer ?? thisMachineName}
-          onClick={() => onServiceClick(s)}
-        />
-      ))}
-      {peerIssues.map((p) => (
-        <div
-          key={`service-issue-${p.instance_id}`}
-          data-testid="service-peer-unavailable"
-          className="px-4 py-2 border-b border-[var(--ct-border)] text-[11px] text-[var(--ct-yellow)] bg-[var(--ct-titlebar-bg)]/40"
-        >
-          {p.name}: services {p.services_error ? `unreachable (${p.services_error})` : "cached / stale"}
-        </div>
-      ))}
+      <div className="ct-rows">
+        {filtered.map((s) => (
+          <ServiceRow
+            key={`${s.source_peer_id ?? s.source_peer ?? "local"}:${s.id}`}
+            service={s}
+            host={s.source_peer ?? thisMachineName}
+            onClick={() => onServiceClick(s)}
+          />
+        ))}
+        {peerIssues.map((p) => (
+          <div
+            key={`service-issue-${p.instance_id}`}
+            data-testid="service-peer-unavailable"
+            className="px-2 py-2 text-[11px] text-[var(--ct-yellow)]"
+          >
+            {p.name}: services {p.services_error ? `unreachable (${p.services_error})` : "cached / stale"}
+          </div>
+        ))}
+      </div>
       {filtered.length === 0 && peerIssues.length === 0 && (
         <div className="px-4 py-3 text-center text-[var(--ct-muted)] text-xs">
           No services match filter.

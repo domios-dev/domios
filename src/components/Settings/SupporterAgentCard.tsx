@@ -1,22 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { RefreshCw, Sparkles } from "lucide-react";
 import type { HelpSectionId } from "../../help/types";
-import type { ApiConfig } from "../../lib/types";
-import { ActivityFeed } from "../Supporter/ActivityFeed";
 import { Button } from "../shared/Button";
 import { InlineLinkButton, SettingsCard, SettingsPill } from "./shared";
 import {
-  SupporterBalanceForm,
   SupporterSpendLine,
+  SupporterSpendSummary,
+  supporterActivity,
   supporterIsPriced,
-  supporterTokenTotals,
 } from "./SupporterSpendPanel";
 import { SupporterConnectionRow } from "./SupporterConnectionRow";
 import { SupporterConnectPanel } from "./SupporterConnectPanel";
 import { useDecisionToken, type SupporterConnection, type SupporterStatus } from "./useDecisionToken";
 
 interface Props {
-  api: ApiConfig;
   apiBase: string;
   apiHeaders: HeadersInit;
   onOpenGuide: (section: HelpSectionId) => void;
@@ -33,10 +30,7 @@ function readiness(status: SupporterStatus, selected: SupporterConnection) {
     return "Token needs repair";
   }
   if (selected.token_mode === "required" && !selected.token.present) return "Token required";
-  if (
-    selected.token_mode === "required" &&
-    selected.token.mode_ok === false
-  ) return "Token needs repair";
+  if (selected.token_mode === "required" && selected.token.mode_ok === false) return "Token needs repair";
   if (selected.token_mode === "required" && selected.token.mode_ok !== true) return "Token status unknown";
   if (!selected.token_mode) return "Availability unknown";
   if (status.state === "not_connected" || !status.connected) return "Disconnected";
@@ -44,7 +38,7 @@ function readiness(status: SupporterStatus, selected: SupporterConnection) {
   return "Availability unknown";
 }
 
-export function SupporterAgentCard({ api, apiBase, apiHeaders, onOpenGuide }: Props) {
+export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) {
   const controls = useDecisionToken(apiBase, apiHeaders);
   const [connecting, setConnecting] = useState(false);
   const [announcement, setAnnouncement] = useState("");
@@ -60,23 +54,16 @@ export function SupporterAgentCard({ api, apiBase, apiHeaders, onOpenGuide }: Pr
   const selected = status?.adapter
     ? rows.find((row) => row.adapter === status.adapter && row.active && row.model === status.model) ?? null
     : null;
-  const inactiveRows = rows.filter((row) => row.adapter !== selected?.adapter);
+  const orderedRows = selected ? [selected, ...rows.filter((row) => row.adapter !== selected.adapter)] : rows;
   const available = controls.catalog.filter((adapter) => !rows.some((row) => row.adapter === adapter.id));
   const nameFor = (row: SupporterConnection) =>
     row.metadata?.display_name ??
     controls.catalog.find((adapter) => adapter.id === row.adapter)?.metadata?.display_name ??
     row.adapter;
-  const modelFor = (row: SupporterConnection) => {
-    const model = controls.catalog
-      .find((adapter) => adapter.id === row.adapter)
-      ?.models.find((entry) => entry.id === row.model);
-    return row.model ? (model ? `${model.display_name} (${row.model})` : row.model) : "Model not reported";
-  };
   const selectionLabel = (adapterId: string, modelId: string | null) => {
     const adapter = controls.catalog.find((entry) => entry.id === adapterId);
     const name = adapter?.metadata?.display_name ?? adapterId;
-    const model =
-      adapter?.models.find((entry) => entry.id === modelId)?.display_name ?? modelId ?? "Model not reported";
+    const model = adapter?.models.find((entry) => entry.id === modelId)?.display_name ?? modelId ?? "Model not reported";
     return `${name} · ${model}`;
   };
   const focusAfterRemoval = (removedAdapter: string, selectedAdapter: string | null) => {
@@ -117,10 +104,10 @@ export function SupporterAgentCard({ api, apiBase, apiHeaders, onOpenGuide }: Pr
     const selection = status.adapter ? selectionLabel(status.adapter, status.model) : null;
     setAnnouncement(
       removed.active && !status.adapter
-        ? `${removed.name} removed. The Supporter stopped with no automatic fallback.`
+        ? `${removed.name} removed. The Spinal Cord stopped with no automatic fallback.`
         : selectionUnchanged
-          ? `${removed.name} removed. The current Supporter is unchanged.`
-          : `${removed.name} removed. Current Supporter: ${selection ?? "none selected"}.`,
+          ? `${removed.name} removed. The current Spinal Cord is unchanged.`
+          : `${removed.name} removed. Current Spinal Cord: ${selection ?? "none selected"}.`,
     );
     focusAfterRemoval(removedAdapter, status.adapter);
   }, [status, controls.statusFailed, reconciling, rows, selectionLabel, focusAfterRemoval]);
@@ -134,17 +121,17 @@ export function SupporterAgentCard({ api, apiBase, apiHeaders, onOpenGuide }: Pr
       setAnnouncement(
         active
           ? `${name} is active. Previous connections are saved.`
-          : `${name} saved, not active. Retry activation from its row.`,
+          : `${name} saved, not active. Retry activation from its connection menu.`,
       );
     } else add.current?.querySelector("button")?.focus();
   };
   const disabled = controls.busy || controls.statusFailed;
   const currentReadiness = !status
     ? "Availability unknown"
-      : !status.adapter
-        ? "Stopped"
-        : selected
-          ? readiness(status, selected)
+    : !status.adapter
+      ? "Stopped"
+      : selected
+        ? readiness(status, selected)
         : "Selection unknown";
   const overall = controls.statusFailed
     ? status
@@ -153,16 +140,27 @@ export function SupporterAgentCard({ api, apiBase, apiHeaders, onOpenGuide }: Pr
     : !status
       ? "Checking status"
       : currentReadiness;
-  const currentName = selected ? nameFor(selected) : null;
-  const when = (seconds: number) => new Date(seconds * 1000).toLocaleTimeString();
   return (
     <SettingsCard
       icon={<Sparkles size={16} />}
-      title="Supporter Agent"
+      title="Spinal Cord"
       headerRight={
-        <SettingsPill tone={controls.statusFailed ? "amber" : currentReadiness === "Ready" ? "green" : "muted"}>
-          {overall}
-        </SettingsPill>
+        <div className="flex items-center gap-1.5">
+          <SettingsPill tone={controls.statusFailed ? "amber" : currentReadiness === "Ready" ? "green" : "muted"}>
+            {overall}
+          </SettingsPill>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="!h-7 !w-7 !min-h-7 !p-0"
+            disabled={controls.busy}
+            onClick={() => void controls.refreshStatus()}
+            aria-label="Refresh Spinal Cord status and models"
+            title="Refresh Spinal Cord status and models"
+          >
+            <RefreshCw size={13} aria-hidden="true" />
+          </Button>
+        </div>
       }
       description="Helps Domios pick useful memory and read what an agent tab is doing."
     >
@@ -174,162 +172,79 @@ export function SupporterAgentCard({ api, apiBase, apiHeaders, onOpenGuide }: Pr
           <p role="alert">Status is unavailable. Saved rows may be stale; refresh before making changes.</p>
         )}
         {controls.catalogFailed && <p role="alert">The model catalogue is unavailable. Refresh to choose a model.</p>}
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={controls.busy}
-          onClick={() => void controls.refreshStatus()}
-          aria-label="Refresh Supporter status and models"
-        >
-          <RefreshCw size={12} aria-hidden="true" /> Refresh
-        </Button>
-        <section aria-label="Current Supporter" className="flex flex-col gap-2">
-          <h3 className="text-sm font-medium text-[var(--ct-fg)]">Current Supporter</h3>
-          {!status ? (
-            <p>Status is not available yet.</p>
-          ) : selected ? (
-            <>
-              <p className="text-sm">
-                {controls.statusFailed ? "Last-known selection" : "Selected"}: {currentName}
-              </p>
-              <p className="text-xs">Model: {modelFor(selected)}</p>
-              <SettingsPill tone={controls.statusFailed ? "amber" : currentReadiness === "Ready" ? "green" : "muted"}>
-                {controls.statusFailed ? `Last-known state: ${currentReadiness}` : currentReadiness}
-              </SettingsPill>
-              <SupporterConnectionRow
-                row={selected}
-                controls={controls}
-                stale={controls.statusFailed}
-                removed={(selection) => {
-                  const current = selection?.adapter ? selectionLabel(selection.adapter, selection.model) : null;
-                  setAnnouncement(
-                    selection?.adapter
-                      ? `${nameFor(selected)} removed. Current Supporter: ${current}.`
-                      : `${nameFor(selected)} removed. The Supporter stopped with no automatic fallback.`,
-                  );
-                  focusAfterRemoval(selected.adapter, selection?.adapter ?? null);
-                }}
-                unconfirmedRemoval={() =>
-                  setReconciling((old) => ({
-                    ...old,
-                    [selected.adapter]: {
-                      name: nameFor(selected),
-                      active: true,
-                      adapter: status.adapter,
-                      model: status.model,
-                    },
-                  }))
-                }
-              >
-                {status && (
-                  <div
-                    role="status"
-                    aria-label="Supporter activity"
-                    className="flex flex-col gap-1 text-xs text-[var(--ct-muted-fg)]"
-                  >
-                    <span>
-                      {status.calls_last_hour.toLocaleString()} requests in the last hour ·{" "}
-                      {status.calls_last_day.toLocaleString()} in the last day
-                    </span>
-                    {supporterIsPriced(selected.pricing) && <SupporterSpendLine spend={status.spend} />}
-                    {status.state === "budget_reached" && <span>Request cap reached.</span>}
-                    {status.budget.free_at !== null && <span>Available again: {when(status.budget.free_at)}</span>}
-                    <details>
-                      <summary className="cursor-pointer">Details</summary>
-                      <div className="flex flex-col gap-1">
-                        <span>
-                          Last activity: {status.last_activity === null ? "none yet" : when(status.last_activity)}
-                        </span>
-                        <span>{supporterTokenTotals("Today", status.spend.today)}</span>
-                        <span>{supporterTokenTotals("This month", status.spend.month)}</span>
-                        <span>Answer deadline: {status.deadline_ms} ms</span>
-                        <span>
-                          Team heartbeats wake the Orchestrator only for decisions and incidents; healthy, unchanged work
-                          stays quiet.
-                        </span>
-                        <ActivityFeed api={api} embedded />
-                        {(["rerank", "tab_state"] as const).map((kind) => {
-                          const verdict = status.last_verdict[kind];
-                          return verdict ? (
-                            <span key={kind}>
-                              {kind}: {verdict.label ?? "relevance scored"}
-                              {verdict.confidence === null ? "" : ` (${Math.round(verdict.confidence * 100)}%)`}
-                            </span>
-                          ) : null;
-                        })}
-                        {supporterIsPriced(selected.pricing) && (
-                          <SupporterBalanceForm
-                            adapter={selected.adapter}
-                            spend={status.spend}
-                            busy={disabled}
-                            setBalance={(balance) => controls.setBalance(selected.adapter, balance)}
-                          />
-                        )}
-                      </div>
-                    </details>
-                  </div>
-                )}
-              </SupporterConnectionRow>
-            </>
-          ) : status.adapter ? (
-            <p role="alert">The selected connection could not be verified. Refresh status before making changes.</p>
+        {status?.adapter && !selected ? (
+          <p role="alert">The selected connection could not be verified. Refresh status before making changes.</p>
+        ) : null}
+        {!selected && status && !status.adapter && (
+          <p className="text-xs text-[var(--ct-muted-fg)]">
+            {controls.statusFailed
+              ? "Last-known selection: none. Refresh status before relying on this state."
+              : "The Spinal Cord is stopped. Deterministic behavior is available."}
+          </p>
+        )}
+        <section aria-label="Spinal Cord connections" className="ct-rows -mx-2">
+          {orderedRows.length ? (
+            orderedRows.map((row) => {
+              const selectedReadiness = selected?.adapter === row.adapter && status ? readiness(status, row) : null;
+              return (
+                <SupporterConnectionRow
+                  key={row.adapter}
+                  row={row}
+                  controls={controls}
+                  stale={controls.statusFailed}
+                  unavailableReason={selectedReadiness && selectedReadiness !== "Ready" ? selectedReadiness : undefined}
+                  removed={(selection) => {
+                    const unchanged = selection?.adapter === status?.adapter && selection?.model === status?.model;
+                    const current = selection?.adapter ? selectionLabel(selection.adapter, selection.model) : null;
+                    setAnnouncement(
+                      row.active && !selection?.adapter
+                        ? `${nameFor(row)} removed. The Spinal Cord stopped with no automatic fallback.`
+                        : unchanged
+                          ? `${nameFor(row)} removed. The current Spinal Cord is unchanged.`
+                          : `${nameFor(row)} removed. Current Spinal Cord: ${current ?? "none selected"}.`,
+                    );
+                    focusAfterRemoval(row.adapter, selection?.adapter ?? null);
+                  }}
+                  unconfirmedRemoval={() =>
+                    setReconciling((old) => ({
+                      ...old,
+                      [row.adapter]: {
+                        name: nameFor(row),
+                        active: row.active,
+                        adapter: status?.adapter ?? null,
+                        model: status?.model ?? null,
+                      },
+                    }))
+                  }
+                >
+                  {selected?.adapter === row.adapter && status && (
+                    <>
+                      <span role="status" aria-label="Spinal Cord activity" title={supporterActivity(status.calls_last_hour, status.calls_last_day).title}>
+                        {supporterActivity(status.calls_last_hour, status.calls_last_day).text}
+                      </span>
+                      {supporterIsPriced(row.pricing) && <SupporterSpendSummary spend={status.spend} />}
+                      {supporterIsPriced(row.pricing) && (status.spend.exhausted || !status.spend.storage_ready) && (
+                        <SupporterSpendLine spend={status.spend} />
+                      )}
+                    </>
+                  )}
+                </SupporterConnectionRow>
+              );
+            })
           ) : (
-            <p className="text-xs">
-              {controls.statusFailed
-                ? "Last-known selection: none. Refresh status before relying on this state."
-                : "The Supporter is stopped. Deterministic behavior is available."}
-            </p>
-          )}
-        </section>
-        <section aria-label="Saved inactive connections" className="flex flex-col gap-2">
-          <h3 className="text-sm font-medium text-[var(--ct-fg)]">Saved inactive connections</h3>
-          {controls.statusFailed && <p>Inactive labels reflect the last-known status.</p>}
-          {inactiveRows.length ? (
-            inactiveRows.map((row) => (
-              <SupporterConnectionRow
-                key={row.adapter}
-                row={row}
-                controls={controls}
-                stale={controls.statusFailed}
-                removed={(selection) => {
-                  const unchanged = selection?.adapter === status?.adapter && selection?.model === status?.model;
-                  const current = selection?.adapter ? selectionLabel(selection.adapter, selection.model) : null;
-                  setAnnouncement(
-                    unchanged
-                      ? `${nameFor(row)} removed. The current Supporter is unchanged.`
-                      : `${nameFor(row)} removed. Current Supporter: ${current ?? "none selected"}.`,
-                  );
-                  focusAfterRemoval(row.adapter, selection?.adapter ?? null);
-                }}
-                unconfirmedRemoval={() =>
-                  setReconciling((old) => ({
-                    ...old,
-                    [row.adapter]: {
-                      name: nameFor(row),
-                      active: false,
-                      adapter: status?.adapter ?? null,
-                      model: status?.model ?? null,
-                    },
-                  }))
-                }
-              />
-            ))
-          ) : (
-            <p className="text-xs">No saved inactive connections.</p>
+            <p className="py-2 text-xs text-[var(--ct-muted-fg)]">No saved connections.</p>
           )}
         </section>
         {connecting ? (
           <SupporterConnectPanel adapters={available} busy={disabled} connect={controls.connect} finish={finish} />
         ) : (
           <div ref={add}>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={disabled || !status || controls.catalogFailed || !available.length}
+            <InlineLinkButton
+              label="+ Connect another adapter"
               onClick={() => setConnecting(true)}
-            >
-              + Connect another adapter
-            </Button>
+              disabled={disabled || !status || controls.catalogFailed}
+              testId="supporter-agent-connect-link"
+            />
           </div>
         )}
         {Object.entries(controls.errors)

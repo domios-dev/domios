@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use crate::agent::registry::AgentRegistry;
 
-use super::{spawn_tailer, ChatRegistry, DeltaSink, TailConfig, TailerHandle};
+use super::{ChatRegistry, DeltaSink, TailConfig, TailerHandle};
 
 pub const PENDING_STORE_WATCH_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
@@ -16,6 +16,7 @@ pub struct StoreWatchConfig {
     pub provider_id: String,
     pub cwd: String,
     pub session_id: String,
+    pub session_binding_nonce: Option<String>,
     pub poll_interval: Duration,
 }
 
@@ -24,6 +25,7 @@ pub struct PendingStoreWatch {
     handle: TailerHandle,
     tab_id: String,
     session_id: String,
+    session_binding_nonce: Option<String>,
     promotion_authority: Arc<AtomicBool>,
 }
 
@@ -33,9 +35,16 @@ impl PendingStoreWatch {
             handle,
             tab_id,
             session_id,
+            session_binding_nonce,
             promotion_authority,
         } = self;
-        let registered = chat_registry.insert(tab_id, session_id, subscription_id, handle);
+        let registered = chat_registry.insert(
+            tab_id,
+            session_id,
+            session_binding_nonce,
+            subscription_id,
+            handle,
+        );
         if registered {
             promotion_authority.store(true, Ordering::Release);
         }
@@ -68,55 +77,65 @@ fn spawn_store_watch_inner(
     let watcher_authority = promotion_authority.clone();
     let tab_id = cfg.tab_id.clone();
     let session_id = cfg.session_id.clone();
-    let join = thread::spawn(move || {
-        #[cfg(test)]
-        let mut test_hook = test_hook;
-        while !stop.load(Ordering::Acquire) {
-            let path = agent_registry
-                .with_provider(&cfg.provider_id, |provider| {
-                    provider.session_jsonl_path(&cfg.cwd, &cfg.session_id)
-                })
-                .flatten()
-                .filter(|path| path.exists());
-            if path.is_some() {
-                #[cfg(test)]
-                let first_store_seen = test_hook.take();
-                #[cfg(test)]
-                if let Some(hook) = first_store_seen.as_ref() {
-                    let _ = hook.store_seen.send(());
-                    hook.resume_after_store_seen.wait();
-                }
-                if !watcher_authority.load(Ordering::Acquire) {
+    let session_binding_nonce = cfg.session_binding_nonce.clone();
+    let join = thread::Builder::new()
+        .name(format!("chat-store-{}", cfg.tab_id))
+        .spawn(move || {
+            #[cfg(test)]
+            let mut test_hook = test_hook;
+            while !stop.load(Ordering::Acquire) {
+                let path = agent_registry
+                    .with_provider(&cfg.provider_id, |provider| {
+                        provider.session_jsonl_path(&cfg.cwd, &cfg.session_id)
+                    })
+                    .flatten()
+                    .filter(|path| path.exists());
+                if path.is_some() {
                     #[cfg(test)]
-                    if let Some(hook) = first_store_seen {
-                        let _ = hook.authority_rejected.send(());
+                    let first_store_seen = test_hook.take();
+                    #[cfg(test)]
+                    if let Some(hook) = first_store_seen.as_ref() {
+                        let _ = hook.store_seen.send(());
+                        hook.resume_after_store_seen.wait();
                     }
-                    thread::sleep(cfg.poll_interval);
-                    continue;
+                    if !watcher_authority.load(Ordering::Acquire) {
+                        #[cfg(test)]
+                        if let Some(hook) = first_store_seen {
+                            let _ = hook.authority_rejected.send(());
+                        }
+                        thread::sleep(cfg.poll_interval);
+                        continue;
+                    }
+                    let tailer = super::tailer::spawn_sourced_tailer(
+                        TailConfig {
+                            tab_id: cfg.tab_id.clone(),
+                            provider_id: cfg.provider_id.clone(),
+                            cwd: cfg.cwd.clone(),
+                            session_id: cfg.session_id.clone(),
+                            start_offset: 0,
+                        },
+                        Some(chat_registry.jsonl_source(&cfg.tab_id)),
+                        agent_registry.clone(),
+                        sink.clone(),
+                    );
+                    chat_registry.replace_if_current(
+                        &cfg.tab_id,
+                        &cfg.session_id,
+                        cfg.session_binding_nonce.as_deref(),
+                        tailer,
+                    );
+                    return;
                 }
-                let tailer = spawn_tailer(
-                    TailConfig {
-                        tab_id: cfg.tab_id.clone(),
-                        provider_id: cfg.provider_id.clone(),
-                        cwd: cfg.cwd.clone(),
-                        session_id: cfg.session_id.clone(),
-                        start_offset: 0,
-                        poll_interval: super::live_chat_poll_interval(),
-                    },
-                    agent_registry.clone(),
-                    sink.clone(),
-                );
-                chat_registry.replace_if_current(&cfg.tab_id, &cfg.session_id, tailer);
-                return;
+                thread::sleep(cfg.poll_interval);
             }
-            thread::sleep(cfg.poll_interval);
-        }
-    });
+        })
+        .expect("chat worker thread could not start");
 
     PendingStoreWatch {
         handle: TailerHandle::new(stop_flag, Arc::new(AtomicU64::new(0)), join),
         tab_id,
         session_id,
+        session_binding_nonce,
         promotion_authority,
     }
 }

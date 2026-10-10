@@ -252,7 +252,10 @@ fn supporter_connections_disconnect_active_stops_supporter_no_silent_fallback() 
     assert!(!crate::service::supporter::supporter_connected(
         &f.cfg,
         &f.registry,
-        &super::super::TokenSnapshot { usable: true }
+        &super::super::TokenSnapshot {
+            usable: true,
+            acl_invalid: false,
+        }
     ));
 }
 

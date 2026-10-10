@@ -8,15 +8,19 @@ pub(crate) const PASTE_RENDER_WINDOW: std::time::Duration = std::time::Duration:
 
 mod actions;
 mod batch;
+mod control_key;
 mod inject;
 mod lifecycle;
 mod send;
 pub(crate) mod submit_transaction;
-mod tab_env;
+pub(crate) mod tab_env;
 
 pub(crate) use actions::{await_action_deadline, execute_ordered_actions, OrderedPtyAction};
+#[cfg(test)]
+pub(crate) use lifecycle::claim_restored_launch;
 pub(crate) use lifecycle::claim_restored_pty_boot;
 pub(crate) use send::build_spawn_dispatch;
+pub(crate) use send::delivery_is_unknown;
 pub(crate) use send::sanitize_agent_prompt_input;
 pub use send::{await_bare_shell_prompt, await_shell_prompt};
 pub use send::{

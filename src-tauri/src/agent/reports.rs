@@ -7,7 +7,12 @@ use serde::{Deserialize, Serialize};
 
 use super::ledger::{LedgerRow, OrchestrationLedger};
 
+mod verdict_footer;
+
 pub use codeterm_types::agent::ReportStatus;
+
+pub const BLOCK_PROPOSAL_NOTICE: &str =
+    "BLOCK PROPOSAL: task state unchanged pending Plan owner or Planner action";
 
 /// Optional structured fields a worker can attach to a report. All `None` for a
 /// freeform / synthetic message-only report, which then round-trips unchanged.
@@ -102,10 +107,8 @@ pub struct AgentReport {
 }
 
 impl AgentReport {
-    /// Build the PTY-injected body: a deterministic block of the present
-    /// structured fields (stable order) followed by the freeform message. When
-    /// no structured field is set, returns the message verbatim — message-only
-    /// and synthetic reports inject exactly as they did before this existed.
+    /// Render structured evidence, the freeform message and a task-bound verdict footer.
+    /// Reports without structured fields retain their original message.
     pub fn inject_body(&self) -> String {
         let mut lines: Vec<String> = Vec::new();
         match (self.plan_id.as_deref(), self.task_id.as_deref()) {
@@ -115,7 +118,11 @@ impl AgentReport {
             (None, None) => {}
         }
         if let Some(status) = self.status {
-            lines.push(format!("status: {}", status.label()));
+            if status == ReportStatus::Blocked {
+                lines.push(BLOCK_PROPOSAL_NOTICE.into());
+            } else {
+                lines.push(format!("status: {}", status.label()));
+            }
         }
         if let Some(ref branch) = self.branch {
             lines.push(format!("branch: {}", branch));
@@ -132,11 +139,18 @@ impl AgentReport {
         if let Some(ref skipped) = self.skipped {
             lines.push(format!("skipped: {}", skipped));
         }
-        if lines.is_empty() {
+        let body = if lines.is_empty() {
             self.message.clone()
         } else {
             format!("{}\n{}", lines.join("\n"), self.message)
-        }
+        };
+        verdict_footer::append(
+            &body,
+            self.plan_id.as_deref(),
+            self.task_id.as_deref(),
+            self.status,
+            self.timestamp,
+        )
     }
 }
 
@@ -439,6 +453,23 @@ impl ReportStore {
     }
 
     pub fn mark_delivered(&mut self, report_id: &str) {
+        if !self.delivered.contains(report_id) {
+            if let Some((target, report)) = self.reports.iter().find_map(|(target, reports)| {
+                reports
+                    .iter()
+                    .find(|report| report.id == report_id)
+                    .map(|report| (target, report))
+            }) {
+                crate::flow_trace::record_flow(
+                    report_id,
+                    "report.written",
+                    target,
+                    "",
+                    "delivered",
+                    report.attempt_id.as_deref(),
+                );
+            }
+        }
         self.in_flight.remove(report_id);
         self.delivered.insert(report_id.to_string());
     }
@@ -797,7 +828,38 @@ mod tests {
              tests: cargo test -> 42 passed\n\
              skipped: manual UI step\n\
              the freeform body";
-        assert_eq!(report.inject_body(), expected);
+        let body = report.inject_body();
+        assert_eq!(body.rsplit_once('\n').unwrap().0, expected);
+    }
+
+    #[test]
+    fn blocked_report_injects_a_proposal_marker_and_keeps_its_evidence() {
+        let details = ReportDetails {
+            plan_id: Some("pl_1".into()),
+            task_id: Some("task_1".into()),
+            status: Some(ReportStatus::Blocked),
+            test_cmd: Some("focused-check".into()),
+            test_result: Some("blocked by dependency".into()),
+            ..Default::default()
+        };
+        let report = ReportStore::new(100).add_detailed(
+            "orch",
+            "worker",
+            "Worker",
+            "dependency unavailable",
+            details,
+            None,
+        );
+
+        let body = report.inject_body();
+        assert!(body.contains(BLOCK_PROPOSAL_NOTICE));
+        assert!(body.contains("tests: focused-check -> blocked by dependency"));
+        assert!(body
+            .rsplit_once('\n')
+            .unwrap()
+            .0
+            .ends_with("dependency unavailable"));
+        assert_eq!(report.status, Some(ReportStatus::Blocked));
     }
 
     #[test]

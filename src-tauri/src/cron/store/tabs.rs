@@ -4,6 +4,7 @@
 //! append-only file assets at `crons/<job_id>/<run_id>.log`, never SQL bodies.
 
 use std::fs;
+use std::io::{ErrorKind, Write};
 use std::path::{Component, Path, PathBuf};
 
 use super::{CronRunStatus, CronStore, Prepared};
@@ -120,6 +121,24 @@ impl CronStore {
 
     pub fn read_log(&self, job_id: &str, run_id: &str) -> Option<String> {
         fs::read_to_string(self.log_path(job_id, run_id)?).ok()
+    }
+
+    /// Publishes a complete log only where none exists; `Ok(false)` leaves the existing one
+    /// byte-for-byte untouched, and a concurrent `write_log` still replaces what this created.
+    pub fn create_log(path: &Path, text: &str) -> Result<bool, String> {
+        let dir = path
+            .parent()
+            .ok_or_else(|| format!("cron log has no directory: {}", path.display()))?;
+        let _ = fs::create_dir_all(dir);
+        let mut staged = tempfile::NamedTempFile::new_in(dir).map_err(|e| e.to_string())?;
+        staged
+            .write_all(text.as_bytes())
+            .map_err(|e| e.to_string())?;
+        match staged.persist_noclobber(path) {
+            Ok(_) => Ok(true),
+            Err(e) if e.error.kind() == ErrorKind::AlreadyExists => Ok(false),
+            Err(e) => Err(e.error.to_string()),
+        }
     }
 }
 

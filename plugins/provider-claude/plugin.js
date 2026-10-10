@@ -24,6 +24,28 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-claude/src/preTrust.ts
+function claudeProjectKey(canonical, windows) {
+  if (!windows) return canonical;
+  return canonical.replace(/\\/g, "/").replace(/^\/\/\?\/UNC\//, "//").replace(/^\/\/\?\//, "").replace(/^[a-z]:/, (drive) => drive.toUpperCase());
+}
+function claudeTrustRecord(host2, cwd, grant) {
+  const root = host2.envGet("CLAUDE_CONFIG_DIR") || host2.homeDir();
+  const canonical = host2.canonicalPath(cwd);
+  if (!root) return { status: "skipped", reason: "configuration root unavailable" };
+  if (!canonical) return { status: "skipped", reason: "launch cwd cannot be resolved" };
+  const windows = host2.platform() === "windows";
+  const absoluteRoot = windows ? /^(?:[a-z]:[\\/]|[\\/]{2})/i.test(root) : root.startsWith("/");
+  if (!absoluteRoot) return { status: "skipped", reason: "configuration root unavailable" };
+  const key = claudeProjectKey(canonical, windows);
+  const path = root.replace(/[\\/]$/, "") + "/.claude.json";
+  try {
+    return JSON.parse(host2.jsonBooleanRecord(path, JSON.stringify(["projects", key, "hasTrustDialogAccepted"]), grant));
+  } catch {
+    return { status: "failed", reason: "record capability failed" };
+  }
+}
+
 // plugins/provider-shared/updatePrompt.ts
 function updatePromptSafeChoice(prompt) {
   if (prompt.options.length < 2 || !prompt.options.some(([label2]) => /\bupdate\b/i.test(label2))) {
@@ -48,15 +70,254 @@ function manifest() {
   }
 }
 
+// plugins/provider-claude/src/permissionHook.ts
+function permissionHookCapability() {
+  return {
+    protocol: "claude-permission-request",
+    options: [
+      { label: "Allow", value: "allow" },
+      { label: "Deny", value: "deny" }
+    ]
+  };
+}
+
+// plugins/provider-claude/model-capabilities.json
+var model_capabilities_default = {
+  profiles: {
+    standard: { efforts: { low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" }, defaultEffort: "medium", contextWindowTokens: 2e5 },
+    long: { efforts: { low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" }, defaultEffort: "medium", contextWindowTokens: 1e6 },
+    haiku: { efforts: {}, contextWindowTokens: 2e5 },
+    opus47: { efforts: { low: "low", medium: "medium", high: "high", xhigh: "max", max: "max" }, defaultEffort: "xhigh", contextWindowTokens: 1e6 }
+  },
+  models: {
+    opus: "standard",
+    sonnet: "standard",
+    haiku: "standard",
+    fable: "standard",
+    best: "standard",
+    opusplan: "standard",
+    "opus[1m]": "long",
+    "sonnet[1m]": "long",
+    "fable[1m]": "long",
+    "claude-opus-4-7": "opus47",
+    "claude-haiku-4-5": "haiku"
+  }
+};
+
+// plugins/provider-claude/src/modelCapabilities.ts
+var MODEL_CAPABILITIES_FLAG = "--codeterm-model-capabilities";
+function modelCapabilities(model) {
+  const key = model_capabilities_default.models[model || ""];
+  return key ? model_capabilities_default.profiles[key] || null : null;
+}
+function modelWithCapabilities(model) {
+  const profile = modelCapabilities(model.id);
+  if (!profile) return model;
+  return {
+    ...model,
+    reasoningEfforts: Object.keys(profile.efforts).map((id) => ({ id, displayName: id })),
+    ...profile.defaultEffort ? { defaultReasoningEffort: profile.defaultEffort } : {}
+  };
+}
+function reasoningEffortLaunchArgsForModel(model, effort) {
+  const mapped = modelCapabilities(model)?.efforts[effort];
+  return mapped ? ["--effort", mapped] : model ? [] : effort ? ["--effort", effort] : [];
+}
+function modelSettings(args) {
+  const enabled = args.includes(MODEL_CAPABILITIES_FLAG);
+  const rest = args.filter((arg) => arg !== MODEL_CAPABILITIES_FLAG);
+  let model;
+  for (let i = 0; i < rest.length; i++) {
+    if (rest[i] === "--model") model = rest[++i];
+    else if (rest[i].startsWith("--model=")) model = rest[i].slice(8);
+  }
+  const profile = modelCapabilities(model);
+  return { args: rest, env: enabled && profile ? { CLAUDE_CODE_AUTO_COMPACT_WINDOW: String(profile.contextWindowTokens) } : {} };
+}
+
+// plugins/provider-claude/src/context.ts
+var LIMIT = 1e7;
+function count(value) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= LIMIT ? value : null;
+}
+function parseContextUsage(record2) {
+  if (!record2 || typeof record2 !== "object") return null;
+  if (record2.type === "system" && record2.subtype === "compact_boundary") {
+    const tokens = count(record2.compactMetadata?.postTokens);
+    return tokens === null ? null : {
+      used_tokens: tokens,
+      window_tokens: 0,
+      cost_usd: null,
+      source: "claude-jsonl-compaction"
+    };
+  }
+  const statusline = record2.context_window;
+  const hasStatusline = Object.prototype.hasOwnProperty.call(record2, "context_window");
+  const usage = hasStatusline ? statusline?.current_usage : record2.type === "assistant" ? record2.message?.usage : null;
+  if (!usage || typeof usage !== "object") return null;
+  const input = count(usage.input_tokens);
+  const creation = usage.cache_creation_input_tokens === void 0 ? 0 : count(usage.cache_creation_input_tokens);
+  const read = usage.cache_read_input_tokens === void 0 ? 0 : count(usage.cache_read_input_tokens);
+  if (input === null || creation === null || read === null || input + creation + read > LIMIT) return null;
+  const window = count(statusline?.context_window_size !== void 0 ? statusline.context_window_size : usage.context_window_size !== void 0 ? usage.context_window_size : 0);
+  if (window === null) return null;
+  const rawCost = record2.cost?.total_cost_usd;
+  const cost = typeof rawCost === "number" && Number.isFinite(rawCost) && rawCost >= 0 && rawCost <= 1e6 ? rawCost : null;
+  return {
+    used_tokens: input + creation + read,
+    window_tokens: window,
+    cost_usd: cost,
+    source: hasStatusline ? "claude-statusline" : "claude-jsonl"
+  };
+}
+var STATUSLINE_FLAG = "--codeterm-statusline";
+var STATUSLINE_FORWARD = 'payload=$(cat); if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then printf \'%s\' "$payload" | curl -s --max-time 2 -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/context" -H \'Content-Type: application/json\' -H "Authorization: Bearer $CODETERM_API_TOKEN" -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE:-}" --data-binary @- || true; fi';
+function statuslineSettings(settings) {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return null;
+  const line = settings.statusLine;
+  if (line !== void 0 && (!line || line.type !== "command" || typeof line.command !== "string" || !line.command.trim())) return null;
+  if (line) {
+    let bytes = 0;
+    for (const character of line.command) {
+      const point = character.codePointAt(0);
+      bytes += point > 65535 ? 4 : point > 2047 ? 3 : point > 127 ? 2 : 1;
+    }
+    if (bytes > 8192) return null;
+    if (line.padding !== void 0 && (count(line.padding) === null || line.padding > 1e3)) return null;
+  }
+  const command = STATUSLINE_FORWARD + (line ? `; printf '%s' "$payload" | ( ${line.command}
+)` : "; true");
+  return JSON.stringify({ statusLine: { command, ...line?.padding !== void 0 ? { padding: line.padding } : {}, type: "command" } });
+}
+function settingsObject(text2) {
+  if (text2 === null || text2.length > 65536) return null;
+  try {
+    const value = JSON.parse(text2);
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+function sortedJson(value) {
+  return JSON.stringify(value, (_key, item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+    return Object.fromEntries(Object.entries(item).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0));
+  });
+}
+function composeSettingsArgs(args) {
+  const model = modelSettings(args);
+  args = model.args;
+  const enabled = args.includes(STATUSLINE_FLAG);
+  const rest = [];
+  let overlay = {};
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === STATUSLINE_FLAG) continue;
+    if (arg !== "--settings" && !arg.startsWith("--settings=")) {
+      rest.push(arg);
+      continue;
+    }
+    const raw = arg === "--settings" ? args[++index] : arg.slice("--settings=".length);
+    if (typeof raw !== "string") return null;
+    const value = settingsObject(raw) ?? settingsObject(host.fs.readFileHead(raw, 65537));
+    if (!value) return null;
+    overlay = { ...overlay, ...value };
+  }
+  if (enabled) {
+    const path = host.expandHome("~/.claude/settings.json");
+    const user = path ? settingsObject(host.fs.fileExists(path) ? host.fs.readFileHead(path, 65537) : "{}") : null;
+    const composed = user ? statuslineSettings({ ...user, ...overlay }) : null;
+    if (composed) overlay = { ...overlay, ...JSON.parse(composed) };
+  }
+  overlay.showThinkingSummaries = true;
+  if (Object.keys(model.env).length) {
+    const existing = overlay.env;
+    if (existing !== void 0 && (!existing || typeof existing !== "object" || Array.isArray(existing))) return null;
+    overlay.env = { ...existing, ...model.env };
+  }
+  return [...rest, "--settings", sortedJson(overlay)];
+}
+function statuslineLaunchArgs(args) {
+  const composed = composeSettingsArgs(args);
+  if (!composed) return null;
+  const path = host.fs.writeTempFile(composed[composed.length - 1], ".ct-settings.json");
+  if (!path) return null;
+  return [...composed.slice(0, -1), path];
+}
+
+// plugins/provider-claude/src/signals.ts
+function authStatusProbe() {
+  return { args: ["auth", "status"], timeoutMs: 3e3 };
+}
+function object(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function parseAuthStatus(value) {
+  const record2 = object(value);
+  if (!record2 || typeof record2.loggedIn !== "boolean") return null;
+  const result = { loggedIn: record2.loggedIn };
+  for (const key of ["authMethod", "subscriptionType", "configDirectory"]) {
+    const field = record2[key];
+    if (field !== void 0 && field !== null && (typeof field !== "string" || field.length > 4096)) return null;
+    result[key] = field ?? null;
+  }
+  return result;
+}
+function parseSessionObservations(value) {
+  const record2 = object(value);
+  if (!record2) return null;
+  const modes = ["default", "acceptEdits", "bypassPermissions", "plan", "dontAsk", "auto"];
+  const permission_mode = typeof record2.permissionMode === "string" && modes.includes(record2.permissionMode) ? record2.permissionMode : null;
+  const isError = record2.isApiErrorMessage === true;
+  const error = typeof record2.error === "string" ? record2.error : object(record2.error)?.type;
+  const api_error = !isError ? null : error === "rate_limit" || error === "rate_limit_error" ? "rate_limit" : error === "authentication_error" || error === "auth" ? "authentication" : "other";
+  const clears_api_error = record2.type === "assistant" && !isError && !!object(record2.message);
+  return isError || permission_mode || clears_api_error ? { api_error, permission_mode, clears_api_error } : null;
+}
+
+// plugins/provider-claude/src/backgroundWork.ts
+function object2(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function parseBackgroundWork(value) {
+  const row = object2(value);
+  if (!row) return [];
+  const result = object2(row.toolUseResult);
+  const events = [];
+  for (const [key, state] of [["backgroundTaskId", "running"], ["agentId", result?.status === "async_launched" || result?.status === "running" ? "running" : result?.status]]) {
+    const id = result?.[key];
+    if (typeof id === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(id) && ["running", "completed", "failed", "killed"].includes(String(state))) events.push({ id, state });
+  }
+  const content = object2(row.message)?.content;
+  const prompt = object2(row.attachment)?.prompt;
+  const texts = typeof content === "string" ? [content] : Array.isArray(content) ? content.map((block) => object2(block)?.text).filter((text2) => typeof text2 === "string") : [];
+  if (typeof prompt === "string") texts.push(prompt);
+  for (const text2 of texts) {
+    const notifications = text2.match(/<task-notification>[\s\S]*?<\/task-notification>/g) || [];
+    for (const block of notifications) {
+      const id = /<task-id>([^<]+)<\/task-id>/.exec(block)?.[1].trim();
+      const state = /<status>([^<]+)<\/status>/.exec(block)?.[1].trim();
+      if (id && /^[A-Za-z0-9_-]{1,256}$/.test(id) && state && ["running", "completed", "killed", "failed"].includes(state)) events.push({ id, state });
+    }
+  }
+  return events;
+}
+
+// plugins/provider-shared/readHome.ts
+function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
+  if (!inheritedHome) return fallback;
+  if (!subpath) return inheritedHome;
+  return inheritedHome + (/[\\/]$/.test(inheritedHome) ? "" : separator) + subpath;
+}
+
 // plugins/provider-claude/src/launchSession.ts
 var PROCESS_REGISTRY_DIR_ENV = "CODETERM_CLAUDE_PROCESS_REGISTRY_DIR";
 function registryDir() {
   const override = host.envGet(PROCESS_REGISTRY_DIR_ENV);
   if (override) return override;
-  const home = host.homeDir();
-  if (!home) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
-  return home + sep + ".claude" + sep + "sessions";
+  const home = host.homeDir();
+  return effectiveReadPath(host.envGet("CLAUDE_CONFIG_DIR"), home ? home + sep + ".claude" + sep + "sessions" : null, "sessions", sep);
 }
 function registrySessionId(raw, pid, startToken) {
   let record2;
@@ -103,9 +364,10 @@ function usageNormalize(raw) {
 }
 var CLAUDE_USAGE_KIND = "codeterm_usage_v1";
 function fetchClaudeUsage(host2) {
-  const credentialsPath = host2.expandHome("~/.claude/.credentials.json");
+  const inheritedHome = host2.envGet("CLAUDE_CONFIG_DIR");
+  const credentialsPath = effectiveReadPath(inheritedHome, host2.expandHome("~/.claude/.credentials.json"), ".credentials.json", host2.platform() === "windows" ? "\\" : "/");
   const fileCredentials = credentialsPath ? safeJson(host2.fs.readFile(credentialsPath)) : null;
-  const credentials = readMacOsCredentials(host2) ?? fileCredentials;
+  const credentials = (inheritedHome ? null : readMacOsCredentials(host2)) ?? fileCredentials;
   const oauth = objectAt(credentials, "claudeAiOauth");
   const accessToken = stringAt(oauth, "accessToken");
   if (!accessToken) throw new Error("usage credentials unavailable");
@@ -348,10 +610,10 @@ function claudeSessionFilePath(cwd, sessionId) {
   const m = manifest();
   const root = m && m.sessions && m.sessions.rootDir || "~/.claude/projects";
   const ext = m && m.sessions && m.sessions.fileExtension || "jsonl";
-  const expanded = host.expandHome(root);
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  const expanded = effectiveReadPath(host.envGet("CLAUDE_CONFIG_DIR"), host.expandHome(root), "projects", sep);
   if (!expanded) return null;
   const encoded = encodeCwdDashed(cwd);
-  const sep = host.platform() === "windows" ? "\\" : "/";
   return expanded + sep + encoded + sep + sessionId + "." + ext;
 }
 function sessionModelTranscriptBoundary(cwd, sessionId) {
@@ -451,16 +713,6 @@ function detectSessionModelAfterBoundary(cwd, sessionId, boundary) {
 function encodeCwdDashed(cwd) {
   return String(cwd || "").replace(/[^a-zA-Z0-9]/g, "-");
 }
-function contentToText(c) {
-  if (typeof c === "string") return c;
-  if (!Array.isArray(c)) return "";
-  const chunks = [];
-  for (let i = 0; i < c.length; i++) {
-    const b = c[i];
-    if (b && typeof b.text === "string") chunks.push(b.text);
-  }
-  return chunks.join(" ");
-}
 function isValidClaudeSessionMessage(v) {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
   if (v.type !== "user" && v.type !== "assistant") return false;
@@ -492,10 +744,10 @@ function isValidClaudeSessionDelta(v) {
   return true;
 }
 function extractSetModelFamily(raw) {
-  const idx = raw.indexOf("Set model to ");
-  if (idx === -1) return null;
-  const after = raw.substring(idx + "Set model to ".length);
-  const cleaned = stripAnsi(after).replace(/^\s+/, "");
+  const prefix = "Set model to ";
+  if (!raw.startsWith(prefix)) return null;
+  const after = raw.slice(prefix.length);
+  const cleaned = stripAnsi(after).replace(/^[\s`]+/, "");
   let fam = "";
   for (let i = 0; i < cleaned.length; i++) {
     const c = cleaned.charAt(i);
@@ -536,9 +788,6 @@ function capitalize(s) {
 
 // plugins/provider-claude/src/models.ts
 var FAMILIES = ["opus", "sonnet", "haiku", "fable"];
-var MINIMUM_CLI_BY_MODEL = {
-  fable: [2, 1, 258]
-};
 function decideAvailability(probe, minimum, declared) {
   if (declared === false) return "unavailable";
   if (probe.kind !== "version") return "unknown";
@@ -551,12 +800,13 @@ function discoverAnthropicModels() {
   const live = fetchLiveModels(key);
   if (!live) return applyInstalledCapabilities(manifestModels(), installed);
   const mapped = mapAliasesToLive(manifestModels(), live);
-  return mapped.length ? applyInstalledCapabilities(mapped, installed) : null;
+  return mapped.length ? applyInstalledCapabilities(mapped, installed, true) : null;
 }
 function manifestModels() {
   const m = manifest();
   if (!Array.isArray(m && m.models)) return [];
-  return m.models.map((model) => ({
+  return m.models.map((model) => modelWithCapabilities({
+    ...model,
     id: model.id,
     displayName: model.displayName,
     ...model.description ? { description: model.description } : {}
@@ -592,21 +842,22 @@ function fetchLiveModels(key) {
 function probeInstalledCli() {
   let raw;
   try {
-    raw = host.exec(JSON.stringify({ bin: "claude", args: ["--version"], timeoutMs: 3e3 }));
+    raw = host.providerVersionJson();
   } catch (_) {
     return { kind: "unreachable" };
   }
   const result = safeJson2(raw);
-  if (!result || result.code !== 0) return { kind: "unreachable" };
-  const match = /(\d+)\.(\d+)\.(\d+)/.exec(String(result.stdout || ""));
+  if (!result || result.status !== "detected") return { kind: "unreachable" };
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(result.version || ""));
   if (!match) return { kind: "unreachable" };
   return { kind: "version", version: [Number(match[1]), Number(match[2]), Number(match[3])] };
 }
-function applyInstalledCapabilities(models, probe) {
+function applyInstalledCapabilities(models, probe, liveDiscovery = false) {
   return models.map((model) => {
-    const minimum = MINIMUM_CLI_BY_MODEL[model.id];
+    const declaredMinimum = manifest()?.cliCompatibility?.modelMinimumCli?.[model.id];
+    const minimum = declaredMinimum?.split(".").map(Number);
     if (!minimum) return { ...model };
-    const verdict = decideAvailability(probe, minimum, model.available);
+    const verdict = decideAvailability(probe, minimum, liveDiscovery ? model.available : void 0);
     if (verdict === "unknown") {
       const unknown = { ...model, availability: "unknown" };
       delete unknown.available;
@@ -629,8 +880,9 @@ function mapAliasesToLive(aliases, live) {
     const family = familyOf(alias);
     const match = family ? bestLiveMatch(live, family) : null;
     const mapped = {
+      ...alias,
       id: alias.id,
-      displayName: match && !alias.id.endsWith("[1m]") ? withVersion(alias.displayName, versionOf(match)) : alias.displayName
+      displayName: match && alias.primary && liveDisplay(match) ? liveDisplay(match) : match && !alias.id.endsWith("[1m]") ? withVersion(alias.displayName, versionOf(match)) : alias.displayName
     };
     if (alias.description) mapped.description = alias.description;
     mapped.available = !!match;
@@ -748,8 +1000,8 @@ function claudeFileDiffs(result) {
     if (!hunk) return [];
     hunks.push(hunk);
   }
-  if (hunks.length > 0) return [fileDiff(path, hunks)];
-  return record2.type === "create" && typeof record2.content === "string" ? [fileDiff(path, createdHunks(record2.content))] : [];
+  if (hunks.length > 0) return [{ ...fileDiff(path, hunks), kind: record2.type === "create" ? "add" : "modify" }];
+  return record2.type === "create" && typeof record2.content === "string" ? [{ ...fileDiff(path, createdHunks(record2.content)), kind: "add" }] : [];
 }
 
 // plugins/provider-claude/src/toolFields.ts
@@ -834,7 +1086,7 @@ function record(value) {
 function text(value) {
   return typeof value === "string" ? value.trim() : "";
 }
-function count(value) {
+function count2(value) {
   if (value === null || !/^\d+$/.test(value)) return void 0;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? parsed : void 0;
@@ -915,9 +1167,9 @@ function subAgentNotification(content) {
     state: NOTIFICATION_STATES[xmlTagBody(block, "status") ?? ""] ?? "unknown",
     ...result ? { result } : {},
     ...usage !== null ? {
-      tokens: count(xmlTagBody(usage, "subagent_tokens")),
-      toolUses: count(xmlTagBody(usage, "tool_uses")),
-      durationMs: count(xmlTagBody(usage, "duration_ms"))
+      tokens: count2(xmlTagBody(usage, "subagent_tokens")),
+      toolUses: count2(xmlTagBody(usage, "tool_uses")),
+      durationMs: count2(xmlTagBody(usage, "duration_ms"))
     } : {}
   };
 }
@@ -1002,222 +1254,6 @@ function subAgentUsageSources(sessionFilePath, sessionId) {
   return entries.filter((entry) => entry && entry.isFile && AGENT_LOG_RE.test(entry.name)).map((entry) => entry.path).sort();
 }
 
-// plugins/provider-claude/src/classify.ts
-var CLASSIFY_THRESHOLD = 0.8;
-var RESUME_BUFFER_MS = 60 * 1e3;
-function classifyClaudeTabState(snapshot) {
-  const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
-  if (!screen.trim()) return null;
-  if (looksBusy(screen)) return { state: "working", confidence: 0 };
-  const activeChoice = activeTerminalChoiceBlock(screen);
-  const authConfidence = activeChoice ? scoreAuthPrompt(activeChoice.options.map((option) => option.label).join("\n")) : 0;
-  if (authConfidence >= CLASSIFY_THRESHOLD) {
-    return {
-      state: "waiting_on_auth",
-      confidence: authConfidence,
-      action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
-    };
-  }
-  const rl = scoreRateLimit(screen, host.unixNowMs());
-  if (rl.confidence >= CLASSIFY_THRESHOLD && rl.waitKeys && rl.waitKeys.length > 0) {
-    const action = { keys: rl.waitKeys };
-    const data = {};
-    if (rl.resetAtMs !== null) {
-      data.resetAt = new Date(rl.resetAtMs).toISOString();
-      action.delayedResume = {
-        at: new Date(rl.resetAtMs + RESUME_BUFFER_MS).toISOString(),
-        text: "continue your work",
-        thenKeys: ["enter"]
-      };
-    } else {
-      action.surface = { kind: "rate_limit", payload: { reason: "reset_time_unparsed" } };
-    }
-    return {
-      state: "rate_limited",
-      confidence: rl.confidence,
-      data: rl.resetAtMs !== null ? data : void 0,
-      action
-    };
-  }
-  const cq = scoreClarifyingQuestion(screen);
-  if (cq.confidence >= CLASSIFY_THRESHOLD && cq.questions.length > 0) {
-    return {
-      state: "clarifying_question",
-      confidence: cq.confidence,
-      data: { questions: cq.questions },
-      action: { surface: { kind: "clarifying_question", payload: { questions: cq.questions } } }
-    };
-  }
-  const partial = rl.confidence > cq.confidence ? rl.confidence : cq.confidence;
-  if (partial > 0) return { state: "unknown", confidence: partial };
-  return { state: "working", confidence: 0 };
-}
-var CLAUDE_MENU_OPTION_RE = /^[ \t]*([>❯▶➤])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
-function parseClaudeMenuOptions(screen) {
-  const lines = String(screen || "").split("\n");
-  const options = [];
-  for (let i = 0; i < lines.length; i++) {
-    const m = CLAUDE_MENU_OPTION_RE.exec(lines[i]);
-    if (!m) continue;
-    options.push({ highlighted: !!m[1], label: m[3] });
-  }
-  return options;
-}
-function navigationKeys(options, targetIdx) {
-  let highlightIdx = -1;
-  for (let i = 0; i < options.length; i++) {
-    if (options[i].highlighted) {
-      highlightIdx = i;
-      break;
-    }
-  }
-  if (highlightIdx === -1) highlightIdx = 0;
-  const keys = [];
-  const delta = targetIdx - highlightIdx;
-  if (delta > 0) for (let i = 0; i < delta; i++) keys.push("down");
-  else if (delta < 0) for (let i = 0; i < -delta; i++) keys.push("up");
-  keys.push("enter");
-  return keys;
-}
-function looksBusy(screen) {
-  const s = String(screen || "");
-  return /\besc to interrupt\b/i.test(s) || /\bctrl\+c to (?:cancel|stop|interrupt|quit)\b/i.test(s) || /\bWorking[….]/.test(s) || /\((?:esc|ctrl\+c) to interrupt\)/i.test(s);
-}
-function scoreRateLimit(screen, nowMs) {
-  const options = parseClaudeMenuOptions(screen);
-  let waitIdx = -1;
-  let hasUpgradeOption = false;
-  for (let i = 0; i < options.length; i++) {
-    const label = options[i].label;
-    if (/\bupgrade\b/i.test(label)) hasUpgradeOption = true;
-    if (waitIdx === -1 && /\b(?:wait|stop and wait)\b/i.test(label) && !/\bupgrade\b/i.test(label)) {
-      waitIdx = i;
-    }
-  }
-  const sigWaitUpgradeMenu = waitIdx !== -1 && hasUpgradeOption;
-  const sigLimitWord = /\b(?:session|usage|rate|message|weekly)\s+limit\b/i.test(screen) || /\blimit\b[\s\S]{0,40}\breset/i.test(screen);
-  const sigResetClock = /\breset[s]?\b[\s\S]{0,40}\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(screen);
-  const sigConfirmFooter = /\bto confirm\b/i.test(screen) && /\bto (?:cancel|exit)\b/i.test(screen);
-  let confidence = 0;
-  if (sigWaitUpgradeMenu) confidence += 0.5;
-  if (sigLimitWord) confidence += 0.25;
-  if (sigResetClock) confidence += 0.15;
-  if (sigConfirmFooter) confidence += 0.1;
-  if (confidence > 1) confidence = 1;
-  const waitKeys = sigWaitUpgradeMenu ? navigationKeys(options, waitIdx) : null;
-  const resetAtMs = parseResetClock(screen, nowMs);
-  return { confidence, waitKeys, resetAtMs };
-}
-function parseResetClock(screen, nowMs) {
-  const m = /\breset[s]?\b[^\n]{0,40}?(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i.exec(String(screen || ""));
-  if (!m) return null;
-  return usageParseTodayClock(m[1], nowMs);
-}
-function scoreClarifyingQuestion(screen) {
-  const block = activeClarifyingPromptBlock(screen);
-  const options = block?.options ?? [];
-  const questions = block?.questions ?? [];
-  const sigMenu = options.length >= 2;
-  const sigQuestion = questions.length > 0;
-  const sigConfirmFooter = !!block;
-  let confidence = 0;
-  if (sigMenu) confidence += 0.35;
-  if (sigQuestion) confidence += 0.3;
-  if (sigConfirmFooter) confidence += 0.35;
-  if (confidence > 1) confidence = 1;
-  return { confidence, questions };
-}
-function activeTerminalChoiceBlock(screen) {
-  const lines = String(screen || "").split("\n");
-  for (let footerIdx = lines.length - 1; footerIdx >= 0; footerIdx--) {
-    if (!isActiveChoiceFooter(lines[footerIdx])) continue;
-    if (lastMeaningfulLineIndex(lines) > footerIdx) return null;
-    const options = contiguousOptionsAbove(lines, footerIdx);
-    if (options.length >= 2 && options.some((option) => option.highlighted)) {
-      return { footerIdx, options };
-    }
-  }
-  return null;
-}
-function activeClarifyingPromptBlock(screen) {
-  const lines = String(screen || "").split("\n");
-  const choice = activeTerminalChoiceBlock(screen);
-  if (!choice || !isClarifyingConfirmFooter(lines[choice.footerIdx])) return null;
-  const questions = questionsAbove(lines, choice.footerIdx);
-  if (questions.length === 0) {
-    const prompt = promptAboveOptions(lines, choice.footerIdx);
-    if (prompt) questions.push(prompt);
-  }
-  return questions.length > 0 ? { questions, options: choice.options } : null;
-}
-function isActiveChoiceFooter(line) {
-  return /\b(?:press\s+)?enter\s+to\b/i.test(line);
-}
-function isClarifyingConfirmFooter(line) {
-  return /\bto (?:confirm|submit|select)\b/i.test(line);
-}
-function lastMeaningfulLineIndex(lines) {
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    if (isDividerLine(line)) continue;
-    return i;
-  }
-  return -1;
-}
-function isDividerLine(line) {
-  const stripped = line.replace(/\s/g, "");
-  return stripped.length >= 8 && /^[─━═-]+$/.test(stripped);
-}
-function contiguousOptionsAbove(lines, footerIdx) {
-  const options = [];
-  for (let i = footerIdx - 1; i >= 0; i--) {
-    const line = lines[i].trim();
-    if (!line) {
-      if (options.length > 0) break;
-      continue;
-    }
-    const m = CLAUDE_MENU_OPTION_RE.exec(lines[i]);
-    if (!m) {
-      if (options.length > 0) break;
-      continue;
-    }
-    options.push({ highlighted: !!m[1], label: m[3] });
-  }
-  return options.reverse();
-}
-function promptAboveOptions(lines, footerIdx) {
-  for (let i = footerIdx - 1; i >= 0; i--) {
-    const line = lines[i].trim();
-    if (!line || CLAUDE_MENU_OPTION_RE.test(lines[i]) || isDividerLine(line)) continue;
-    return line;
-  }
-  return null;
-}
-function questionsAbove(lines, footerIdx) {
-  const out = [];
-  for (let i = footerIdx - 1; i >= 0; i--) {
-    const line = lines[i].trim();
-    if (line.length > 1 && line.charAt(line.length - 1) === "?") out.push(line);
-    if (out.length > 0 && CLAUDE_MENU_OPTION_RE.test(line)) continue;
-    if (out.length > 0 && !line) break;
-  }
-  return out.reverse();
-}
-function scoreAuthPrompt(screen) {
-  const s = String(screen || "");
-  let score = 0;
-  if (/\bsign[ -]?in\b/i.test(s)) score += 0.5;
-  if (/\blog[ -]?in\b/i.test(s)) score += 0.5;
-  if (/\bauthenticat(?:e|ion|ing)\b/i.test(s)) score += 0.5;
-  if (/\bo\s?auth\b/i.test(s)) score += 0.6;
-  if (/\bapi key\b/i.test(s)) score += 0.6;
-  if (/paste\b[^\n]*\b(token|key|code|credential)/i.test(s)) score += 0.6;
-  if (/\bauthorization code\b/i.test(s)) score += 0.6;
-  if (/enter your\b[^\n]*\b(api key|token|credential)/i.test(s)) score += 0.6;
-  return score > 1 ? 1 : score;
-}
-
 // plugins/provider-claude/src/folderTrust.ts
 var FRAME_EDGES = /^[\s│┃║╭╮╰╯┌┐└┘╔╗╚╝─━═]+|[\s│┃║╭╮╰╯┌┐└┘╔╗╚╝─━═]+$/g;
 var ENTER = "DQ==";
@@ -1225,6 +1261,34 @@ var MOVE_DOWN = "ag==";
 var MOVE_UP = "aw==";
 function frameContent(line) {
   return line.replace(FRAME_EDGES, "");
+}
+function liveDialogRows(screen) {
+  const rawRows = String(screen || "").split("\n");
+  const rows = rawRows.map(frameContent);
+  let anchor = -1;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (isFooter(rows[i])) {
+      anchor = i;
+      break;
+    }
+  }
+  if (anchor < 0) {
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (isTrustOption(optionRow(rows[i]).label)) {
+        anchor = i;
+        break;
+      }
+    }
+  }
+  if (anchor < 0 || rawRows.slice(anchor + 1).some((row) => /^[❯>]|^[─━]{3,}$/.test(row.trim()))) return null;
+  let start = 0;
+  for (let i = anchor - 1; i >= 0; i--) {
+    if (isFooter(rows[i])) {
+      start = i + 1;
+      break;
+    }
+  }
+  return rows.slice(start);
 }
 function isPathRow(row) {
   return /^(?:\/[^ ]|~[\/\\]|\\\\|[A-Za-z]:[\\\/])/.test(row);
@@ -1245,7 +1309,8 @@ function leadsWith(label, word) {
   return new RegExp("^" + word + "(?:$|[, .])", "i").test(label);
 }
 function claudeFolderTrustResponse(screen) {
-  const rows = String(screen || "").split("\n").map(frameContent);
+  const rows = liveDialogRows(screen);
+  if (!rows) return null;
   const header = findTrustHeader(rows);
   if (header && rows.slice(header.end + 1).some((row) => pointerLabel(row) !== null)) {
     if (hasUntitledLeadingPath(rows, header.start)) return [];
@@ -1282,22 +1347,24 @@ function answer(options, hasPath) {
   return [yes > focused ? MOVE_DOWN : MOVE_UP];
 }
 function claudeFolderTrustPrompt(screen) {
-  const rows = String(screen || "").split("\n").map(frameContent);
+  const rows = liveDialogRows(screen);
+  if (!rows) return null;
   const prompt = pathlessPrompt(rows);
   if (!prompt || prompt.hasPath) return null;
   const options = prompt.choices.options;
   if (options.length !== 2) return null;
-  if (options.filter((option) => option.focused).length !== 1 || !trustChoices(options)) return null;
+  if (options.filter((option) => option.focused).length !== 1 || !hasFolderTrustPromptChoices(options)) return null;
   return {
     question: prompt.header.question,
     options: options.map((option, index) => [option.label, String(index + 1)])
   };
 }
 function claudeFolderTrustHighlightedOptionIndex(screen) {
-  const rows = String(screen || "").split("\n").map(frameContent);
+  const rows = liveDialogRows(screen);
+  if (!rows) return null;
   const prompt = pathlessPrompt(rows);
   if (!prompt || prompt.hasPath || prompt.choices.options.length !== 2) return null;
-  if (prompt.choices.options.filter((option) => option.focused).length !== 1 || !trustChoices(prompt.choices.options)) return null;
+  if (prompt.choices.options.filter((option) => option.focused).length !== 1 || !hasFolderTrustPromptChoices(prompt.choices.options)) return null;
   return prompt.choices.options.findIndex((option) => option.focused);
 }
 function pathlessPrompt(rows) {
@@ -1317,13 +1384,14 @@ function hasUntitledLeadingPath(rows, headerStart) {
   return path >= 0 && !leadingRows.slice(0, path).some((row) => row.endsWith(":"));
 }
 function findTrustHeader(rows) {
-  for (let start = 0; start < rows.length; start++) {
+  for (let start = rows.length - 1; start >= 0; start--) {
     const header = trustHeader(rows, start);
     if (header) return header;
   }
   return null;
 }
 function trustHeader(rows, start) {
+  if (isPathRow(rows[start])) return null;
   const colon = rows[start].indexOf(":");
   if (colon < 1) return null;
   const title = rows[start].slice(0, colon).trim();
@@ -1348,7 +1416,13 @@ function isFooter(row) {
   return footer.indexOf("enter") !== -1 && footer.indexOf("esc") !== -1;
 }
 function choiceRows(rows, trustEnd) {
-  const footer = rows.findIndex((row, index) => index > trustEnd && isFooter(row));
+  let footer = -1;
+  for (let i = rows.length - 1; i > trustEnd; i--) {
+    if (isFooter(rows[i])) {
+      footer = i;
+      break;
+    }
+  }
   if (footer < 0) return null;
   const start = rows.findIndex(
     (row, index) => index > trustEnd && index < footer && isTrustOption(optionRow(row).label)
@@ -1366,6 +1440,9 @@ function choiceRows(rows, trustEnd) {
 function trustChoices(options) {
   const no = options.findIndex((option) => leadsWith(option.label, "no"));
   return hasFolderTrustAffirmative(options) && no >= 0 && options[no].label.toLowerCase().indexOf("exit") !== -1;
+}
+function hasFolderTrustPromptChoices(options) {
+  return hasFolderTrustAffirmative(options) && options.some((option) => leadsWith(option.label, "no"));
 }
 function hasFolderTrustAffirmative(options) {
   const yes = options.findIndex((option) => leadsWith(option.label, "yes"));
@@ -1386,7 +1463,7 @@ function parseClaudeWizardPrompt(text2) {
   const sections = parseWizardSections(tabLine);
   if (sections.length < 2) return null;
   const body = wizardBody(raw, tabLine);
-  const options = parseWizardOptions(body);
+  const options = parseWizardScreenOptions(body);
   if (options.length < 2) return null;
   const question = parseWizardQuestion(body) || "Choose an option";
   const multiSelect = options.some((opt) => opt.selected) || /\[[ xX]\]|☐|☑|☒/.test(body);
@@ -1432,13 +1509,19 @@ function wizardBody(text2, knownTabLine) {
   return text2.slice(text2.indexOf(tabLine) + tabLine.length);
 }
 function parseWizardQuestion(body) {
-  const beforeOptions = body.split(/(?:❯\s*)?\d+\./)[0] || "";
+  const optionStart = /^(?:\s*[❯>]\s*)?(?:\[[ xX]\]|☐|☑|☒|✔|\d+\.)/gm.exec(body)?.index;
+  const beforeOptions = optionStart === void 0 ? body : body.slice(0, optionStart);
   return beforeOptions.replace(/^[\s←→☐☑☒✔A-Za-z]*Submit\s*→?/, "").replace(/─+/g, " ").replace(/\s+/g, " ").trim();
 }
 function parseWizardOptions(body) {
-  const checkbox = parseCheckboxOptions(body);
-  if (checkbox.length >= 2) return checkbox;
+  const checkboxes = parseCheckboxOptions(body);
+  if (checkboxes.length >= 2) return checkboxes;
   return parseNumberedOptions(body);
+}
+function parseWizardScreenOptions(body) {
+  const options = [...parseCheckboxOptions(body), ...parseNumberedOptions(body)];
+  options.sort((left, right) => left.line - right.line);
+  return options;
 }
 function parseNumberedOptions(text2) {
   const options = [];
@@ -1451,7 +1534,8 @@ function parseNumberedOptions(text2) {
       label,
       value: m[1],
       highlighted: m[0].indexOf("\u276F") !== -1 || m[0].indexOf(">") !== -1,
-      selected: false
+      selected: false,
+      line: text2.slice(0, m.index).split("\n").length - 1
     });
   }
   return options;
@@ -1468,26 +1552,38 @@ function parseCheckboxOptions(text2) {
       label,
       value: String(options.length + 1),
       highlighted: m[0].indexOf("\u276F") !== -1 || m[0].indexOf(">") !== -1,
-      selected: mark === "\u2611" || mark === "\u2612" || mark === "\u2714" || /\[[xX]\]/.test(mark)
+      selected: mark === "\u2611" || mark === "\u2612" || mark === "\u2714" || /\[[xX]\]/.test(mark),
+      line: text2.slice(0, m.index).split("\n").length - 1
     });
   }
   return options;
 }
 function cleanOptionLabel(value) {
-  return String(value || "").replace(/─+/g, " ").replace(/\bChat\s*about\s*this\b[\s\S]*$/i, "").replace(/\s+/g, " ").trim();
+  return String(value || "").replace(/─+/g, " ").replace(/\s+/g, " ").trim();
 }
 function parseClaudeNumberedPrompt(text2) {
-  const raw = String(text2 || "");
-  if (!/(Esc\s*to\s*cancel|Enter\s*to\s*(?:confirm|select)|Tab\s*to\s*amend|❯)/i.test(raw)) return null;
-  const options = parseNumberedOptions(raw);
+  const lines = String(text2 || "").replace(/\r\n?/g, "\n").split("\n");
+  const allOptions = parseNumberedOptions(lines.join("\n"));
+  const options = lastNumberedOptionCluster(allOptions);
   if (options.length < 2) return null;
-  const firstOption = raw.search(/(?:^|[\s❯>])\d+\.[ ]+/);
-  const before = firstOption >= 0 ? raw.slice(0, firstOption) : raw;
+  const lastOption = options[options.length - 1];
+  if (lines.slice(lastOption.line + 1).some((line) => /^\s*[❯›]\s*$/.test(line))) return null;
+  const hasActiveFooter = lines.some(
+    (line, index) => index > lastOption.line && index <= lastOption.line + 5 && /(?:Esc\s*to\s*(?:cancel|reject|exit)|Enter\s*to\s*(?:confirm|select)|Tab\s*to\s*amend)/i.test(line)
+  );
+  const cursorOnOption = options.some((option) => option.highlighted);
+  if (!hasActiveFooter && !cursorOnOption) return null;
+  const before = lines.slice(0, options[0].line).join("\n");
   const question = findQuestion(before) || "Choose an option";
   return {
     question,
     options: options.map((opt) => [opt.label, opt.value])
   };
+}
+function lastNumberedOptionCluster(options) {
+  let start = options.length - 1;
+  while (start > 0 && options[start].line - options[start - 1].line <= 2) start--;
+  return options.slice(start);
 }
 function parseClaudeLetteredPrompt(text2) {
   const lines = String(text2 || "").replace(/\r\n?/g, "\n").split("\n");
@@ -1516,7 +1612,8 @@ function parseClaudeLetteredPrompt(text2) {
       label: cleanOptionLabel(parts.join(" ")),
       value: start.letter,
       highlighted: false,
-      selected: false
+      selected: false,
+      line: start.index
     });
   }
   const groups = groupLetteredOptions(lines, optionStarts);
@@ -1685,11 +1782,231 @@ function buildWizardSubmitResponse(screen) {
   const parsed = parseClaudeWizardPrompt(screen);
   const steps = [];
   const active = parsed?.sections?.findIndex((section) => section.active) ?? -1;
-  const count2 = parsed?.sections?.length ?? 0;
-  const moves = active >= 0 && count2 > active ? count2 - active : 1;
+  const count3 = parsed?.sections?.length ?? 0;
+  const moves = active >= 0 && count3 > active ? count3 - active : 1;
   for (let i = 0; i < moves; i++) steps.push("G1tD");
   steps.push("DQ==");
   return steps;
+}
+
+// plugins/provider-claude/src/classify.ts
+var CLASSIFY_THRESHOLD = 0.8;
+var RESUME_BUFFER_MS = 60 * 1e3;
+function classifyClaudeTabState(snapshot) {
+  const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
+  if (!screen.trim()) return null;
+  if (looksBusy(screen)) return { state: "working", confidence: 0 };
+  const activeChoice = activeTerminalChoiceBlock(screen);
+  const authConfidence = activeChoice ? scoreAuthPrompt(activeChoice.options.map((option) => option.label).join("\n")) : 0;
+  if (authConfidence >= CLASSIFY_THRESHOLD) {
+    return {
+      state: "waiting_on_auth",
+      confidence: authConfidence,
+      action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
+    };
+  }
+  const rl = scoreRateLimit(screen, host.unixNowMs());
+  if (rl.confidence >= CLASSIFY_THRESHOLD && rl.waitKeys && rl.waitKeys.length > 0) {
+    const action = { keys: rl.waitKeys };
+    const data = {};
+    if (rl.resetAtMs !== null) {
+      data.resetAt = new Date(rl.resetAtMs).toISOString();
+      action.delayedResume = {
+        at: new Date(rl.resetAtMs + RESUME_BUFFER_MS).toISOString(),
+        text: "continue your work",
+        thenKeys: ["enter"]
+      };
+    } else {
+      action.surface = { kind: "rate_limit", payload: { reason: "reset_time_unparsed" } };
+    }
+    return {
+      state: "rate_limited",
+      confidence: rl.confidence,
+      data: rl.resetAtMs !== null ? data : void 0,
+      action
+    };
+  }
+  const cq = scoreClarifyingQuestion(screen);
+  if (cq.confidence >= CLASSIFY_THRESHOLD && cq.questions.length > 0) {
+    return {
+      state: "clarifying_question",
+      confidence: cq.confidence,
+      data: { questions: cq.questions },
+      action: { surface: { kind: "clarifying_question", payload: { questions: cq.questions } } }
+    };
+  }
+  const partial = rl.confidence > cq.confidence ? rl.confidence : cq.confidence;
+  if (partial > 0) return { state: "unknown", confidence: partial };
+  return { state: "working", confidence: 0 };
+}
+var CLAUDE_MENU_OPTION_RE = /^[ \t]*([>❯▶➤])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
+function parseClaudeMenuOptions(screen) {
+  const lines = String(screen || "").split("\n");
+  const options = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = CLAUDE_MENU_OPTION_RE.exec(lines[i]);
+    if (!m) continue;
+    options.push({ highlighted: !!m[1], label: m[3] });
+  }
+  return options;
+}
+function navigationKeys(options, targetIdx) {
+  let highlightIdx = -1;
+  for (let i = 0; i < options.length; i++) {
+    if (options[i].highlighted) {
+      highlightIdx = i;
+      break;
+    }
+  }
+  if (highlightIdx === -1) highlightIdx = 0;
+  const keys = [];
+  const delta = targetIdx - highlightIdx;
+  if (delta > 0) for (let i = 0; i < delta; i++) keys.push("down");
+  else if (delta < 0) for (let i = 0; i < -delta; i++) keys.push("up");
+  keys.push("enter");
+  return keys;
+}
+function looksBusy(screen) {
+  const s = String(screen || "");
+  return /\besc to interrupt\b/i.test(s) || /\bctrl\+c to (?:cancel|stop|interrupt|quit)\b/i.test(s) || /\bWorking[….]/.test(s) || /\((?:esc|ctrl\+c) to interrupt\)/i.test(s);
+}
+function scoreRateLimit(screen, nowMs) {
+  const options = parseClaudeMenuOptions(screen);
+  let waitIdx = -1;
+  let hasUpgradeOption = false;
+  for (let i = 0; i < options.length; i++) {
+    const label = options[i].label;
+    if (/\bupgrade\b/i.test(label)) hasUpgradeOption = true;
+    if (waitIdx === -1 && /\b(?:wait|stop and wait)\b/i.test(label) && !/\bupgrade\b/i.test(label)) {
+      waitIdx = i;
+    }
+  }
+  const sigWaitUpgradeMenu = waitIdx !== -1 && hasUpgradeOption;
+  const sigLimitWord = /\b(?:session|usage|rate|message|weekly)\s+limit\b/i.test(screen) || /\blimit\b[\s\S]{0,40}\breset/i.test(screen);
+  const sigResetClock = /\breset[s]?\b[\s\S]{0,40}\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(screen);
+  const sigConfirmFooter = /\bto confirm\b/i.test(screen) && /\bto (?:cancel|exit)\b/i.test(screen);
+  let confidence = 0;
+  if (sigWaitUpgradeMenu) confidence += 0.5;
+  if (sigLimitWord) confidence += 0.25;
+  if (sigResetClock) confidence += 0.15;
+  if (sigConfirmFooter) confidence += 0.1;
+  if (confidence > 1) confidence = 1;
+  const waitKeys = sigWaitUpgradeMenu ? navigationKeys(options, waitIdx) : null;
+  const resetAtMs = parseResetClock(screen, nowMs);
+  return { confidence, waitKeys, resetAtMs };
+}
+function parseResetClock(screen, nowMs) {
+  const m = /\breset[s]?\b[^\n]{0,40}?(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i.exec(String(screen || ""));
+  if (!m) return null;
+  return usageParseTodayClock(m[1], nowMs);
+}
+function scoreClarifyingQuestion(screen) {
+  const wizardPrompt = parseClaudeWizardPrompt(screen);
+  if (wizardPrompt?.multiSelect === true) {
+    return { confidence: 1, questions: [wizardPrompt.question] };
+  }
+  const block = activeClarifyingPromptBlock(screen);
+  const options = block?.options ?? [];
+  const questions = block?.questions ?? [];
+  const sigMenu = options.length >= 2;
+  const sigQuestion = questions.length > 0;
+  const sigConfirmFooter = !!block;
+  let confidence = 0;
+  if (sigMenu) confidence += 0.35;
+  if (sigQuestion) confidence += 0.3;
+  if (sigConfirmFooter) confidence += 0.35;
+  if (confidence > 1) confidence = 1;
+  return { confidence, questions };
+}
+function activeTerminalChoiceBlock(screen) {
+  const lines = String(screen || "").split("\n");
+  for (let footerIdx = lines.length - 1; footerIdx >= 0; footerIdx--) {
+    if (!isActiveChoiceFooter(lines[footerIdx])) continue;
+    if (lastMeaningfulLineIndex(lines) > footerIdx) return null;
+    const options = contiguousOptionsAbove(lines, footerIdx);
+    if (options.length >= 2 && options.some((option) => option.highlighted)) {
+      return { footerIdx, options };
+    }
+  }
+  return null;
+}
+function activeClarifyingPromptBlock(screen) {
+  const lines = String(screen || "").split("\n");
+  const choice = activeTerminalChoiceBlock(screen);
+  if (!choice || !isClarifyingConfirmFooter(lines[choice.footerIdx])) return null;
+  const questions = questionsAbove(lines, choice.footerIdx);
+  if (questions.length === 0) {
+    const prompt = promptAboveOptions(lines, choice.footerIdx);
+    if (prompt) questions.push(prompt);
+  }
+  return questions.length > 0 ? { questions, options: choice.options } : null;
+}
+function isActiveChoiceFooter(line) {
+  return /\b(?:press\s+)?enter\s+to\b/i.test(line);
+}
+function isClarifyingConfirmFooter(line) {
+  return /\bto (?:confirm|submit|select)\b/i.test(line);
+}
+function lastMeaningfulLineIndex(lines) {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    if (isDividerLine(line)) continue;
+    return i;
+  }
+  return -1;
+}
+function isDividerLine(line) {
+  const stripped = line.replace(/\s/g, "");
+  return stripped.length >= 8 && /^[─━═-]+$/.test(stripped);
+}
+function contiguousOptionsAbove(lines, footerIdx) {
+  const options = [];
+  for (let i = footerIdx - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line) {
+      if (options.length > 0) break;
+      continue;
+    }
+    const m = CLAUDE_MENU_OPTION_RE.exec(lines[i]);
+    if (!m) {
+      if (options.length > 0) break;
+      continue;
+    }
+    options.push({ highlighted: !!m[1], label: m[3] });
+  }
+  return options.reverse();
+}
+function promptAboveOptions(lines, footerIdx) {
+  for (let i = footerIdx - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line || CLAUDE_MENU_OPTION_RE.test(lines[i]) || isDividerLine(line)) continue;
+    return line;
+  }
+  return null;
+}
+function questionsAbove(lines, footerIdx) {
+  const out = [];
+  for (let i = footerIdx - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (line.length > 1 && line.charAt(line.length - 1) === "?") out.push(line);
+    if (out.length > 0 && CLAUDE_MENU_OPTION_RE.test(line)) continue;
+    if (out.length > 0 && !line) break;
+  }
+  return out.reverse();
+}
+function scoreAuthPrompt(screen) {
+  const s = String(screen || "");
+  let score = 0;
+  if (/\bsign[ -]?in\b/i.test(s)) score += 0.5;
+  if (/\blog[ -]?in\b/i.test(s)) score += 0.5;
+  if (/\bauthenticat(?:e|ion|ing)\b/i.test(s)) score += 0.5;
+  if (/\bo\s?auth\b/i.test(s)) score += 0.6;
+  if (/\bapi key\b/i.test(s)) score += 0.6;
+  if (/paste\b[^\n]*\b(token|key|code|credential)/i.test(s)) score += 0.6;
+  if (/\bauthorization code\b/i.test(s)) score += 0.6;
+  if (/enter your\b[^\n]*\b(api key|token|credential)/i.test(s)) score += 0.6;
+  return score > 1 ? 1 : score;
 }
 
 // plugins/provider-claude/src/permissionPrompt.ts
@@ -1764,6 +2081,10 @@ function entryIsLegacyPaneCodetermHook(entry) {
     return typeof hook.command === "string" && LEGACY_V2_COMMANDS.has(hook.command);
   });
 }
+function isCurrentHookCommand(command, platform) {
+  const executable = platform === "windows" ? "curl.exe " : "curl ";
+  return command.indexOf(executable) === 0 && command.indexOf(" --request POST ") !== -1 && command.indexOf(" --data-binary ") !== -1 && command.indexOf("if [") === -1 && command.indexOf("|| true") === -1;
+}
 function commandIsCurrentUnmarked(command) {
   if (command.indexOf("$CODETERM_API_URL") === -1) return false;
   if (command.indexOf("$CODETERM_TAB_ID") === -1) return false;
@@ -1796,6 +2117,8 @@ function entriesCarryMarker(entries) {
 var TITLE_RE = /claude/i;
 var BRAILLE_LO = 10241;
 var BRAILLE_HI = 10495;
+var QUARTER_CIRCLE_LO = 9680;
+var QUARTER_CIRCLE_HI = 9683;
 var OUTPUT_FINGERPRINTS = [
   "Claude Code",
   "Do you want to proceed?",
@@ -1868,7 +2191,7 @@ function sessionProjectPath(head) {
 function isBrailleSpinner(ch) {
   if (!ch) return false;
   const code = ch.charCodeAt(0);
-  return code >= BRAILLE_LO && code <= BRAILLE_HI || ch === "\u2733" || ch === "\u273B";
+  return code >= BRAILLE_LO && code <= BRAILLE_HI || code >= QUARTER_CIRCLE_LO && code <= QUARTER_CIRCLE_HI || ch === "\u2733" || ch === "\u273B";
 }
 function retainForeignPrecompactEntry(entry) {
   if (!entry || !Array.isArray(entry.hooks)) return true;
@@ -1879,6 +2202,15 @@ function retainForeignPrecompactEntry(entry) {
   return remaining.length > 0;
 }
 var plugin = {
+  authStatusProbe,
+  tracksBackgroundWork: () => true,
+  parseBackgroundWork,
+  reasoningEffortLaunchArgsForModel,
+  modelCatalogueSeed: manifestModels,
+  parseAuthStatus,
+  parseSessionObservations,
+  permissionHookCapability,
+  parseContextUsage,
   starterPromptText(prompt) {
     return prompt === "team_bootstrap" ? void 0 : starterPrompt(prompt);
   },
@@ -1946,11 +2278,7 @@ var plugin = {
   detectEvents(text2) {
     const t = String(text2 || "");
     const events = [];
-    if (parseClaudeWizardPrompt(t)) events.push("permission_request");
-    const numLines = (t.match(/^\s*\d+\.\s+/gm) || []).length;
-    const hasEscFooter = t.indexOf("Esc to cancel") !== -1 || t.indexOf("Tab to amend") !== -1;
-    const hasSelector = t.indexOf("\u276F") !== -1;
-    if (numLines >= 2 && (hasEscFooter || hasSelector)) {
+    if (parseClaudeWizardPrompt(t) || parseClaudeNumberedPrompt(t)) {
       events.push("permission_request");
     }
     const lines = t.split("\n");
@@ -1984,6 +2312,12 @@ var plugin = {
   buildPromptResponse(optionIndex, screen) {
     return buildClaudePromptResponse(optionIndex, String(screen || ""));
   },
+  preTrustDirectory(path) {
+    return claudeTrustRecord(host, path, true);
+  },
+  isDirectoryTrusted(path) {
+    return claudeTrustRecord(host, path, false).status === "already_trusted";
+  },
   directoryTrustPromptResponse(screen) {
     return claudeFolderTrustResponse(screen);
   },
@@ -2012,8 +2346,13 @@ var plugin = {
       parts.push("--session-id");
       parts.push(host.shell.quoteFor(p.sessionId, host.platform()));
     }
-    if (p.args && p.args.length > 0) {
-      for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
+    const launchArgs = statuslineLaunchArgs(p.args || []);
+    if (!launchArgs) {
+      host.log("error", "[claude-launch] cannot compose launch settings");
+      return "";
+    }
+    if (launchArgs.length > 0) {
+      for (const arg of launchArgs) parts.push(quoteArg(String(arg)));
     }
     if (p.task) {
       const visiblePath = writeTaskTempFile(p.task);
@@ -2028,21 +2367,18 @@ var plugin = {
     return parts.join(" ");
   },
   buildResumeCommand(sessionId, skipPermissions) {
-    const win = host.platform() === "windows";
-    const unset = win ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; $OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = [System.Text.Encoding]::UTF8; $PSNativeCommandArgumentPassing = 'Standard';" : "unset CLAUDECODE &&";
-    const parts = [unset, "claude"];
-    if (skipPermissions) parts.push("--dangerously-skip-permissions");
-    parts.push("--resume");
-    parts.push(host.shell.quoteFor(sessionId, host.platform()));
-    return parts.join(" ");
+    const args = statuslineLaunchArgs([]);
+    return args ? [resumeBase(sessionId, skipPermissions), ...args.map(quoteArg)].join(" ") : null;
   },
   // `--resume` restores the transcript but not the launch-time system prompt,
   // so it is re-applied through the same declared flag buildLaunchCommand uses.
   buildResumeCommandWithContext(params) {
     const p = params || {};
-    const parts = [this.buildResumeCommand(p.sessionId, p.skipPermissions)];
-    if (p.args && p.args.length > 0) {
-      for (let i = 0; i < p.args.length; i++) parts.push(quoteArg(String(p.args[i])));
+    const resumeArgs = statuslineLaunchArgs(p.args || []);
+    if (!resumeArgs) return null;
+    const parts = [resumeBase(p.sessionId, p.skipPermissions)];
+    if (resumeArgs.length > 0) {
+      for (const arg of resumeArgs) parts.push(quoteArg(String(arg)));
     }
     const systemPrompt = p.systemPrompt;
     if (systemPrompt && systemPrompt.trim()) {
@@ -2061,6 +2397,8 @@ var plugin = {
     const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
     if (!contents) return null;
     const lines = contents.split("\n");
+    const declaration = manifest()?.commands?.modelSwitchCommands?.transcript;
+    const declarationJson = declaration ? JSON.stringify(declaration) : null;
     for (let i = lines.length - 1; i >= 0; i--) {
       const line = lines[i];
       if (!line) continue;
@@ -2071,8 +2409,8 @@ var plugin = {
         continue;
       }
       if (!v || !v.message) continue;
-      const raw = contentToText(v.message.content);
-      const fam = extractSetModelFamily(raw);
+      const stdout = declarationJson ? host.commandTranscriptStdout(line, declarationJson) : null;
+      const fam = stdout ? extractSetModelFamily(stdout) : null;
       if (fam) return fam;
       const m = v.message.model;
       if (typeof m === "string" && m && m !== "<synthetic>") {
@@ -2089,6 +2427,13 @@ var plugin = {
     const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
     if (!contents) return null;
     const supported = { low: true, medium: true, high: true, xhigh: true, max: true };
+    const commands = manifest()?.commands?.modelSwitchCommands;
+    const declarationJson = commands?.transcript ? JSON.stringify(commands.transcript) : null;
+    const confirmation = commands?.effort?.confirmation;
+    const confirmations = confirmation ? Object.keys(supported).map((effort) => ({
+      effort,
+      pattern: new RegExp(confirmation.replace("{effort}", effort).replace("(?i)", ""), "i")
+    })) : [];
     const lines = contents.split("\n");
     for (let i = lines.length - 1; i >= 0; i--) {
       if (!lines[i]) continue;
@@ -2098,6 +2443,9 @@ var plugin = {
       } catch (_) {
         continue;
       }
+      const stdout = declarationJson ? host.commandTranscriptStdout(lines[i], declarationJson) : null;
+      const confirmed = stdout ? confirmations.find((confirmation2) => confirmation2.pattern.test(stdout)) : null;
+      if (confirmed) return confirmed.effort;
       const message = value.message && typeof value.message === "object" ? value.message : null;
       const metadata = message?.metadata && typeof message.metadata === "object" ? message.metadata : null;
       const candidates = [value.effort, value.reasoning_effort, value.reasoningEffort, message?.effort, message?.reasoning_effort, metadata?.effort];
@@ -2221,7 +2569,22 @@ var plugin = {
         }
         continue;
       }
+      const emitObservations = () => {
+        const observations = parseSessionObservations(v), background = parseBackgroundWork(v);
+        if (!observations && !background.length) return false;
+        out.push({
+          role: "system",
+          blocks: [],
+          ts: null,
+          uuid: null,
+          provider_observations: observations,
+          background_work: background,
+          provider_session_id: typeof v.sessionId === "string" ? v.sessionId : null
+        });
+        return true;
+      };
       if (!validateEntry(v)) {
+        if (emitObservations()) continue;
         if (!hadInvalid) {
           if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionDelta: skipped invalid JSONL entry");
           hadInvalid = true;
@@ -2354,6 +2717,7 @@ var plugin = {
       } else if (t === "attachment") {
         const att = v.attachment;
         if (!att || att.type !== "queued_command" || typeof att.prompt !== "string" || !att.prompt) {
+          emitObservations();
           continue;
         }
         const agentNotice = subAgentNotificationBlock(att.prompt, v);
@@ -2371,13 +2735,22 @@ var plugin = {
           blocks.push({ kind: "text", data: { text: att.prompt } });
         }
       } else {
+        emitObservations();
         continue;
       }
-      if (!blocks.length) continue;
+      if (!blocks.length) {
+        emitObservations();
+        continue;
+      }
       if (t === "system" && sourceSubtype === "compact_boundary") {
         timelineMarker = { kind: "context_compaction" };
       }
+      const context = parseContextUsage(v);
       out.push({
+        ...context ? { context_usage: context } : {},
+        provider_observations: parseSessionObservations(v),
+        provider_session_id: typeof v.sessionId === "string" ? v.sessionId : null,
+        background_work: parseBackgroundWork(v),
         role,
         blocks,
         ts,
@@ -2457,7 +2830,7 @@ var plugin = {
         integration_state: "unreadable"
       };
     }
-    function present(key) {
+    function present(key, completion = false) {
       const arr = json.hooks && json.hooks[key];
       if (!Array.isArray(arr)) return false;
       for (let i = 0; i < arr.length; i++) {
@@ -2466,7 +2839,8 @@ var plugin = {
         if (!Array.isArray(hooks)) continue;
         for (let j = 0; j < hooks.length; j++) {
           const hook = hooks[j];
-          if (hook && typeof hook.command === "string" && hook.command.indexOf("CODETERM_TAB_ID") !== -1 && hook.command.indexOf("CODETERM_API_URL") !== -1 && hook.command.indexOf("CODETERM_API_TOKEN") !== -1 && hook.command.indexOf("CODETERM_API_PORT") === -1 && hook.command.indexOf("CODETERM_PANE_ID") === -1) return true;
+          const command = hook && hook.command;
+          if (typeof command === "string" && (!completion || command.includes("CODETERM_SESSION_BINDING_NONCE") && command.includes('--data-binary "@-"')) && isCurrentHookCommand(command, host.platform()) && command.indexOf("CODETERM_TAB_ID") !== -1 && command.indexOf("CODETERM_API_URL") !== -1 && command.indexOf("CODETERM_API_TOKEN") !== -1 && command.indexOf("CODETERM_API_PORT") === -1 && command.indexOf("CODETERM_PANE_ID") === -1) return true;
         }
       }
       return false;
@@ -2479,14 +2853,15 @@ var plugin = {
         if (!Array.isArray(hooks)) continue;
         for (let j = 0; j < hooks.length; j++) {
           const h = hooks[j];
-          if (h && typeof h.command === "string" && h.command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 && h.command.indexOf("CODETERM_TAB_ID") !== -1 && h.command.indexOf("CODETERM_API_URL") !== -1 && h.command.indexOf("CODETERM_API_TOKEN") !== -1 && h.command.indexOf("CODETERM_API_PORT") === -1 && h.command.indexOf("CODETERM_PANE_ID") === -1) return true;
+          const command = h && h.command;
+          if (typeof command === "string" && isCurrentHookCommand(command, host.platform()) && command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 && command.indexOf("CODETERM_TAB_ID") !== -1 && command.indexOf("CODETERM_API_URL") !== -1 && command.indexOf("CODETERM_API_TOKEN") !== -1 && command.indexOf("CODETERM_API_PORT") === -1 && command.indexOf("CODETERM_PANE_ID") === -1) return true;
         }
       }
       return false;
     }
     const n = present("Notification");
     const pr = present("PermissionRequest");
-    const s = present("Stop");
+    const s = present("Stop", true);
     const pc = Array.isArray(json.hooks?.PreCompact) && json.hooks.PreCompact.some(isCodetermHook);
     const ss = sessionStartCurrent();
     const installed = n && pr && s && ss;
@@ -2547,13 +2922,20 @@ var plugin = {
       return { ok: false, error: "hooks is not an object" };
     }
     if (!json.hooks) json.hooks = {};
-    const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
-    const authH = '-H "Authorization: Bearer $CODETERM_API_TOKEN" ' + CODETERM_HOOK_MARKER_ARG;
-    const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
-    const finish = " || true; fi";
-    const notifyCmd = guard + `curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/permission" -H 'Content-Type: application/json' ` + authH + " " + nonceH + " --data-binary @-" + finish;
-    const stopCmd = guard + `curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/stop" -H 'Content-Type: application/json' ` + authH + " -d '{}'" + finish;
-    const sessionStartCmd = guard + `curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start" -H 'Content-Type: application/json' ` + authH + " " + nonceH + " --data-binary @-" + finish;
+    const executable = host.platform() === "windows" ? "curl.exe" : "curl";
+    const hookCommand = (path2, body, extraHeaders, stdin) => {
+      const payload = stdin ? '--data-binary "@-"' : `--data-binary "${body}"`;
+      return `${executable} --silent --request POST "$CODETERM_API_URL${path2}" --header "Content-Type: application/json" --header "Authorization: Bearer $CODETERM_API_TOKEN" ${CODETERM_HOOK_MARKER_ARG} ${extraHeaders} ${payload}`;
+    };
+    const nonceHeader = '--header "X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE"';
+    const notifyCmd = hookCommand("/api/tabs/$CODETERM_TAB_ID/hook/permission", "", nonceHeader, true);
+    const stopCmd = hookCommand("/api/tabs/$CODETERM_TAB_ID/hook/stop", "", nonceHeader, true);
+    const sessionStartCmd = hookCommand(
+      "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+      "",
+      nonceHeader,
+      true
+    );
     function newEntry(matcher, cmd, timeout) {
       return {
         matcher,
@@ -2701,5 +3083,14 @@ function randomShortHex(len) {
   let out = "";
   for (let i = 0; i < len; i++) out += hex.charAt(Math.random() * 16 | 0);
   return out;
+}
+function resumeBase(sessionId, skipPermissions) {
+  const win = host.platform() === "windows";
+  const unset = win ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; $OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = [System.Text.Encoding]::UTF8; $PSNativeCommandArgumentPassing = 'Standard';" : "unset CLAUDECODE &&";
+  const parts = [unset, "claude"];
+  if (skipPermissions) parts.push("--dangerously-skip-permissions");
+  parts.push("--resume");
+  parts.push(host.shell.quoteFor(sessionId, host.platform()));
+  return parts.join(" ");
 }
 var plugin_default = plugin;

@@ -69,7 +69,7 @@ test("renders milestone timeline with kind, age, and author", async () => {
   const entry = host.querySelector('[data-testid="plan-task-activity-entry"]');
   assert(entry, "timeline entry rendered");
   assert(host.querySelector('[data-testid="plan-task-activity-kind"]')?.textContent?.includes("status update"), "kind chip");
-  assert(host.querySelector('[data-testid="plan-task-activity-age"]')?.textContent === "1m", "relative age");
+  assert(host.querySelector('[data-testid="plan-task-activity-age"]')?.textContent === "1m ago", "relative age");
   const stamp = host.querySelector('[data-testid="plan-task-activity-timestamp"]');
   assert(stamp?.textContent === milestoneTimestampLabel(1_700_000_000_000, now), "absolute date+time stamp");
   const kindEl = host.querySelector('[data-testid="plan-task-activity-kind"]');
@@ -77,9 +77,9 @@ test("renders milestone timeline with kind, age, and author", async () => {
   const FOLLOWING = 4;
   assert(
     kindEl && stamp && ageEl &&
-      (kindEl.compareDocumentPosition(stamp) & FOLLOWING) !== 0 &&
-      (stamp.compareDocumentPosition(ageEl) & FOLLOWING) !== 0,
-    "meta order: kind → absolute stamp → relative age",
+      (ageEl.compareDocumentPosition(kindEl) & FOLLOWING) !== 0 &&
+      (kindEl.compareDocumentPosition(stamp) & FOLLOWING) !== 0,
+    "log row order: relative age → kind → absolute stamp in the expanded detail",
   );
   assert(host.querySelector('[data-testid="plan-task-activity-author"]')?.textContent === "Puccini", "author label");
   assert(entry?.textContent?.includes("Shipped first pass"), "stride text");
@@ -127,6 +127,27 @@ test("renders grouped execution attempts", async () => {
   const { host } = await render(<TaskActivityTimeline task={task} plan={FIXTURE_PLAN} />);
   assert(host.querySelector('[data-testid="plan-task-activity-attempts"]'), "attempts block");
   assert(host.querySelectorAll('[data-testid="plan-task-activity-attempt"]').length === 2, "two attempts");
+});
+
+test("renders per-turn lane stats and a cleanup offer without removing the lane", async () => {
+  const task: Task = {
+    ...FIXTURE_TASK,
+    lane: { cleanup_status: "offered", cleanup_hints: ["codeterm plan lane-remove lane-path"] },
+    execution_attempts: [{
+      id: "lane-attempt",
+      tab_id: "lane-executor",
+      lane_turn_stats: [{
+        turn: 2,
+        captured_at: 10,
+        numstat: "3\t1\tsrc/main.rs",
+        untracked_file_count: 2,
+      }],
+    }],
+    milestones: [],
+  };
+  const { host } = await render(<TaskActivityTimeline task={task} plan={FIXTURE_PLAN} />);
+  assert(host.querySelector('[data-testid="plan-task-activity-turn-stats"]')?.getAttribute("data-turn") === "2", "turn ordinal is visible");
+  assert(host.querySelector('[data-testid="plan-task-lane-cleanup-offer"] code')?.textContent === "codeterm plan lane-remove lane-path", "cleanup remains an explicit command");
 });
 
 let passed = 0;

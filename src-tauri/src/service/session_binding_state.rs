@@ -147,6 +147,7 @@ impl ServiceContext {
                 state,
             );
         }
+        self.on_turn_resume_binding_changed(tab_id);
     }
 }
 

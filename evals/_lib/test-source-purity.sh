@@ -25,12 +25,13 @@ printf '%s\n' 'token = "dev-token"' > "$FIXTURE/home/.codeterm-dev/config.toml"
 cat > "$FIXTURE/home/.codeterm-dev/bin/codeterm" <<'CLI'
 #!/usr/bin/env bash
 if [ "${1:-}" = identify ] && [ "${2:-}" = --json ]; then
-  printf '{"connection":{"data_dir":"%s","host":"127.0.0.1","port":7686,"socket_path":"dev.sock","instance":null}}\n' \
+  printf '{"connection":{"data_dir":"%s","host":"127.0.0.1","port":7686,"socket_path":"codeterm-dev.sock","instance":null}}\n' \
     "$HOME/.codeterm-dev"
   exit 0
 fi
-printf 'CLI_SAW port=%s token=%s socket=%s tab=%s\n' \
-  "${CODETERM_API_PORT:-unset}" "${CODETERM_API_TOKEN:-unset}" \
+printf 'CLI_SAW port=%s api_url=%s data_dir=%s vite=%s token=%s socket=%s tab=%s\n' \
+  "${CODETERM_API_PORT:-unset}" "${CODETERM_API_URL:-unset}" "${CODETERM_DATA_DIR:-unset}" \
+  "${CODETERM_VITE_PORT:-unset}" "${CODETERM_API_TOKEN:-unset}" \
   "${CODETERM_SOCKET_PATH:-unset}" "${CODETERM_TAB_ID-unset}"
 CLI
 
@@ -38,7 +39,7 @@ cat > "$FIXTURE/hostile/curl" <<'CURL'
 #!/usr/bin/env bash
 [ -z "${CURL_LOG:-}" ] || printf '%s\n' "$*" >> "$CURL_LOG"
 [ "${DEV_DOWN:-0}" != 1 ] || exit 7
-printf '{"status":"ok"}\n'
+printf '{"status":"ok","instance":{"name":"","api_port":"7686","vite_port":"1420","cdp_port":"9223"}}\n'
 CURL
 
 cat > "$FIXTURE/hostile/codeterm" <<'PROD'
@@ -48,8 +49,10 @@ PROD
 
 cat > "$FIXTURE/child-probe" <<'PROBE'
 #!/usr/bin/env bash
-printf 'CHILD port=%s auth=%s\n' \
-  "${CODETERM_API_PORT:-unset}" "${CODETERM_DEV_AUTH_HEADER:-unset}"
+printf 'CHILD port=%s api_url=%s data_dir=%s vite=%s cdp=%s instance=%s auth=%s\n' \
+  "${CODETERM_API_PORT:-unset}" "${CODETERM_API_URL:-unset}" "${CODETERM_DATA_DIR:-unset}" \
+  "${CODETERM_VITE_PORT:-unset}" "${CODETERM_CDP_PORT:-unset}" \
+  "${CODETERM_INSTANCE:-unset}" "${CODETERM_DEV_AUTH_HEADER:-unset}"
 PROBE
 
 chmod +x \
@@ -63,7 +66,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 # This bench runs inside CodeTerm, whose own CODETERM_* variables would other-
 # wise decide the result. Every probe starts from a shell that holds none.
 SCRUB='for v in $(compgen -v | grep "^CODETERM_" || true); do unset "$v"; done; '
-POISON='export CODETERM_API_PORT='"$PROD_PORT"' CODETERM_API_TOKEN=prod-token \
+POISON='export CODETERM_API_PORT='"$PROD_PORT"' CODETERM_API_URL=http://127.0.0.1:7685 CODETERM_DATA_DIR=/prod/data CODETERM_API_TOKEN=prod-token \
   CODETERM_SOCKET_PATH=prod.sock CODETERM_TAB_ID=prod-tab; '
 
 # Capture the CODETERM_* names this shell exports and the ones it merely holds,
@@ -114,7 +117,7 @@ fi
 # --- 3. dc targets dev and hands the CLI the dev connection ----------
 CURL_LOG="$FIXTURE/curl.log"
 dev_output="$(probe 'source "$1"; dc whoami')"
-if ! grep -q "^CLI_SAW port=$DEV_PORT token=dev-token socket=dev.sock tab=$" <<<"$dev_output"; then
+if ! grep -Fqx "CLI_SAW port=$DEV_PORT api_url=http://127.0.0.1:$DEV_PORT data_dir=$FIXTURE/home/.codeterm-dev vite=1420 token=dev-token socket=codeterm-dev.sock tab=" <<<"$dev_output"; then
   fail "dc did not compose the dev connection into the CLI process: $dev_output"
 fi
 if grep -q FAKE_PROD_CLI_WON <<<"$dev_output"; then
@@ -127,7 +130,7 @@ fi
 # --- 4. A poisoned parent cannot redirect dc off dev -----------------
 CURL_LOG="$FIXTURE/poisoned-curl.log"
 poisoned_output="$(probe "$POISON"'source "$1"; dc whoami')"
-if ! grep -q "^CLI_SAW port=$DEV_PORT token=dev-token socket=dev.sock tab=$" <<<"$poisoned_output"; then
+if ! grep -Fqx "CLI_SAW port=$DEV_PORT api_url=http://127.0.0.1:$DEV_PORT data_dir=$FIXTURE/home/.codeterm-dev vite=1420 token=dev-token socket=codeterm-dev.sock tab=" <<<"$poisoned_output"; then
   fail "a leaked parent CODETERM_* reached the CLI: $poisoned_output"
 fi
 if grep -q "127.0.0.1:$PROD_PORT" "$FIXTURE/poisoned-curl.log"; then
@@ -162,7 +165,7 @@ fi
 # --- 7. dev_run composes the connection for a non-CLI child ----------
 CURL_LOG="$FIXTURE/child-curl.log"
 child_output="$(probe "$POISON"'source "$1"; dev_run "$2/child-probe"')"
-if ! grep -q "^CHILD port=$DEV_PORT auth=Authorization: Bearer dev-token$" <<<"$child_output"; then
+if ! grep -Fqx "CHILD port=$DEV_PORT api_url=http://127.0.0.1:$DEV_PORT data_dir=$FIXTURE/home/.codeterm-dev vite=1420 cdp=9223 instance=unset auth=Authorization: Bearer dev-token" <<<"$child_output"; then
   fail "dev_run did not compose the dev connection for its child: $child_output"
 fi
 

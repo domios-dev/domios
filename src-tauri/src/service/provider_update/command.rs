@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 #[path = "process.rs"]
-mod process;
+pub(crate) mod process;
 pub(super) use process::owner_alive;
 
 pub(super) struct UpdateCommandFailure {
@@ -656,9 +656,7 @@ pub(super) fn platform_key() -> &'static str {
 }
 
 #[cfg(test)]
-#[path = "command_tests.rs"]
 mod tests;
 
 #[cfg(test)]
-#[path = "tests/process_fixture.rs"]
 mod process_fixture;

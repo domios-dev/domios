@@ -55,6 +55,7 @@ export const CAPABILITY_LABELS: Record<string, string> = {
   manage_workspaces: "Create & manage its workspaces",
   spawn_agents: "Spawn AI agents",
   agent_commands: "Receive commands from your agents",
+  surfaces: "Drive its live surfaces for your agents",
   write_tabs: "Type into its tabs",
   send_input: "Type into its tabs",
   read_tabs: "Read its tabs",

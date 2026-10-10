@@ -3,6 +3,9 @@ use crate::agent::tab_state::TabStateSnapshot;
 use crate::service::supporter_tab_state::{CandidateVerdict, PROVIDER_UPDATE_PROMPT};
 use codeterm_types::pty::PromptKind;
 
+#[path = "unattended_prompt.rs"]
+mod unattended_prompt;
+
 impl ServiceContext {
     pub(crate) fn is_scrape_candidate(&self, agent: &str, screen: &str) -> bool {
         manual_update_prompt_candidate(screen)
@@ -15,16 +18,22 @@ impl ServiceContext {
 
     pub(crate) fn observe_output_scrape_candidate(&self, snapshot: TabStateSnapshot) {
         let fallback_snapshot = snapshot.clone();
-        self.observe_scrape_candidate_from(
+        let unobserved = snapshot.clone();
+        if !self.observe_scrape_candidate_from(
             snapshot,
-            move |service| service.resolve_scrape_candidate_heuristically(&fallback_snapshot),
+            move |service| service.resolve_scrape_candidate_fallback(&fallback_snapshot),
             crate::service::supporter_tab_state::ObservationTrigger::OutputCandidate,
             None,
             None,
-        );
+        ) {
+            self.resolve_unobserved_launch_gate(&unobserved);
+        }
     }
 
-    fn resolve_scrape_candidate_heuristically(&self, snapshot: &TabStateSnapshot) {
+    pub(crate) fn resolve_scrape_candidate_heuristically(&self, snapshot: &TabStateSnapshot) {
+        if self.preserve_owner_prompt(snapshot) {
+            return;
+        }
         let onboarding = {
             let mux = self.mux.read();
             mux.get_tab(&snapshot.tab_id)
@@ -82,7 +91,12 @@ impl ServiceContext {
                 })
                 .flatten()
             {
-                resolve_classified_manual_update_prompt(self, snapshot, prompt, safe_choice);
+                resolve_classified_manual_update_prompt_fallback(
+                    self,
+                    snapshot,
+                    prompt,
+                    safe_choice,
+                );
             }
             return;
         }
@@ -116,6 +130,64 @@ impl ServiceContext {
         self.apply_prompt_decision_with_kind(&decision, Some(&snapshot.screen_text), kind, false);
     }
 
+    fn preserve_owner_prompt(&self, snapshot: &TabStateSnapshot) -> bool {
+        let tab = self.mux.read().get_tab(&snapshot.tab_id).cloned();
+        if !tab.is_some_and(|tab| !crate::service::unattended_launch::owns_prompt_answers(&tab)) {
+            return false;
+        }
+        let Some(provider) = self.agent_registry.provider_arc(&snapshot.agent_type) else {
+            return false;
+        };
+        let parsed = crate::agent::prompt::parse_prompt_safely(|| {
+            provider.parse_prompt(&snapshot.screen_text)
+        });
+        let update = crate::service::output::manual_update_prompt_candidate(&snapshot.screen_text)
+            && parsed
+                .as_ref()
+                .is_some_and(|prompt| provider.update_prompt_safe_choice(prompt).is_some());
+        let trust = provider
+            .parse_directory_trust_prompt(&snapshot.screen_text)
+            .is_some();
+        let permission = self
+            .prompt_detector
+            .lock()
+            .pending_permission_request(&snapshot.tab_id)
+            .is_some_and(|(_, signal)| {
+                parsed.as_ref().is_some_and(|prompt| {
+                    provider
+                        .permission_prompt_response(
+                            &signal.tool_name,
+                            prompt,
+                            &snapshot.screen_text,
+                        )
+                        .is_some()
+                })
+            });
+        let Some(prompt) = parsed else {
+            return false;
+        };
+        let kind = if update {
+            PromptKind::ManualUpdate
+        } else if trust {
+            PromptKind::DirectoryTrust
+        } else if permission {
+            PromptKind::Provider
+        } else {
+            return false;
+        };
+        let decision = self.prompt_detector.lock().evaluate_pty_output_parsed(
+            &snapshot.tab_id,
+            true,
+            true,
+            Some(crate::agent::prompt::ResolvedPrompt {
+                prompt,
+                explicit: false,
+            }),
+        );
+        self.apply_prompt_decision_with_kind(&decision, Some(&snapshot.screen_text), kind, true);
+        true
+    }
+
     pub(crate) fn publish_model_scrape_candidate(
         &self,
         snapshot: &TabStateSnapshot,
@@ -130,6 +202,32 @@ impl ServiceContext {
                 .active_prompt_explicit(&snapshot.tab_id)
                 == Some(true)
         {
+            return;
+        }
+        let launch_onboarding = {
+            let mux = self.mux.read();
+            mux.get_tab(&snapshot.tab_id).is_some_and(|tab| {
+                super::super::directory_trust::launch_onboarding_check_applies(
+                    tab,
+                    &snapshot.agent_type,
+                )
+            })
+        } && self
+            .agent_registry
+            .with_provider(&snapshot.agent_type, |provider| {
+                provider
+                    .launch_onboarding_response(&snapshot.screen_text)
+                    .is_some()
+            })
+            .unwrap_or(false);
+        if ((verdict.label == crate::service::supporter_tab_state::MODEL_UNAVAILABLE_OR_QUOTA)
+            || (verdict.label == crate::service::supporter_tab_state::LOGIN_OR_AUTH_REQUIRED
+                && !launch_onboarding))
+            && self.handle_prompt_chain_verdict(&snapshot.tab_id, &verdict.label, false)
+        {
+            return;
+        }
+        if self.route_unattended_launch_prompt(snapshot, verdict) {
             return;
         }
         let parsed = if verdict.live_prompt() {
@@ -147,6 +245,13 @@ impl ServiceContext {
         } else {
             None
         };
+        if self.handle_prompt_chain_verdict(
+            &snapshot.tab_id,
+            &verdict.label,
+            parsed.is_none() && verdict.live_prompt(),
+        ) {
+            return;
+        }
         let kind = if verdict.label == PROVIDER_UPDATE_PROMPT {
             PromptKind::ManualUpdate
         } else {
@@ -198,6 +303,9 @@ impl ServiceContext {
     ) {
         let svc = self.clone();
         std::thread::spawn(move || {
+            if svc.preserve_owner_prompt(&snapshot) {
+                return;
+            }
             let classified = svc
                 .agent_registry
                 .with_provider(&snapshot.agent_type, |provider| {

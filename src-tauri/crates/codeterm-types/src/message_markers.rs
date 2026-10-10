@@ -1,13 +1,11 @@
-//! Unified CodeTerm message markers.
-//!
-//! One collision-resistant, namespaced envelope for every marker CodeTerm
-//! injects into chat messages (attachments, source prefixes, hook metadata):
+//! Legacy non-routing CodeTerm markers for attachments and hook metadata.
+//! Routed messages use `crate::domios`.
 //!
 //! ```text
 //! -=-codeterm:<kind> k=v k=v …-=-<payload>
 //! ```
 //!
-//! The `codeterm:` sentinel makes accidental reproduction unlikely.
+//! Routed XML frames are never parsed through this legacy marker grammar.
 //!
 //! Attribute values are percent-encoded for the structural characters
 //! (`%`, space, `=`, newline, tab, `"`) so payloads/labels never break the
@@ -141,8 +139,13 @@ pub enum Provenance {
 /// envelope. Any preceding byte — including whitespace an attacker could pad to
 /// bypass a naive trim — yields `StreamContent`.
 pub fn provenance(text: &str) -> Provenance {
+    if crate::domios::parse_message(text).is_some() {
+        return Provenance::HostInjected;
+    }
     let head = text.strip_prefix(BRACKETED_PASTE_START).unwrap_or(text);
-    if head.starts_with(OPEN) && parse(text).is_some() {
+    if head.starts_with(OPEN)
+        && parse(text).is_some_and(|marker| !is_legacy_route_kind(&marker.kind))
+    {
         Provenance::HostInjected
     } else {
         Provenance::StreamContent
@@ -153,10 +156,27 @@ pub fn provenance(text: &str) -> Provenance {
 /// whitespace-padded markers return `None` even where [`parse`] alone would
 /// accept them. Trust routing metadata through this, never bare [`parse`].
 pub fn parse_host_injected(text: &str) -> Option<ParsedMarker> {
+    if let Some(message) = crate::domios::parse_message(text) {
+        let kind = message.attr("from")?.to_string();
+        return Some(ParsedMarker {
+            kind,
+            attrs: message.attrs.into_iter().collect(),
+            payload: message.body,
+        });
+    }
     match provenance(text) {
-        Provenance::HostInjected => parse(text),
+        Provenance::HostInjected => {
+            parse(text).filter(|marker| !is_legacy_route_kind(&marker.kind))
+        }
         Provenance::StreamContent => None,
     }
+}
+
+fn is_legacy_route_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "tab" | "report" | "system" | "reminder" | "mesh" | "telegram" | "pebble" | "inbound"
+    )
 }
 
 /// Parse a marker. Returns `None` unless the text starts with a CodeTerm marker
@@ -164,6 +184,13 @@ pub fn parse_host_injected(text: &str) -> Option<ParsedMarker> {
 /// only; it makes NO authenticity claim (it trims leading whitespace, which a
 /// forger can pad). For a trust decision use [`parse_host_injected`].
 pub fn parse(text: &str) -> Option<ParsedMarker> {
+    if let Some(message) = crate::domios::parse_message(text) {
+        return Some(ParsedMarker {
+            kind: message.attr("from")?.to_string(),
+            attrs: message.attrs.into_iter().collect(),
+            payload: message.body,
+        });
+    }
     let mut normalized = text.trim_start();
     if let Some(stripped) = normalized.strip_prefix(BRACKETED_PASTE_START) {
         normalized = stripped
@@ -184,7 +211,7 @@ pub fn parse(text: &str) -> Option<ParsedMarker> {
 
     let mut tokens = head.split(' ');
     let kind = tokens.next()?.to_string();
-    if kind.is_empty() {
+    if kind.is_empty() || is_legacy_route_kind(&kind) {
         return None;
     }
     let mut attrs = HashMap::new();
@@ -257,36 +284,46 @@ pub fn telegram_routed(
     origin: Option<&str>,
     body: &str,
 ) -> String {
-    Marker::new("telegram")
-        .attr("user", user)
-        .attr_opt("msg", msg)
-        .attr_opt("thread", thread)
-        .attr_opt("origin", origin)
-        .payload(body)
-        .build()
+    let mut attrs = vec![("from", "telegram")];
+    attrs.push(("user", user));
+    if let Some(msg) = msg.filter(|value| !value.is_empty()) {
+        attrs.push(("msg", msg));
+    }
+    if let Some(thread) = thread.filter(|value| !value.is_empty()) {
+        attrs.push(("thread", thread));
+    }
+    if let Some(origin) = origin.filter(|value| !value.is_empty()) {
+        attrs.push(("origin", origin));
+    }
+    crate::domios::DomiosFrame {
+        opening_tag: crate::domios::build_opening_tag(&attrs),
+        body: body.to_string(),
+        suffix: String::new(),
+    }
+    .to_message()
 }
 
 pub fn mesh(peer: &str, tab: &str, body: &str) -> String {
-    Marker::new("mesh")
-        .attr("peer", peer)
-        .attr("tab", tab)
-        .payload(body)
-        .build()
+    routed_message("mesh", &[("peer", peer), ("tab", tab)], body)
 }
 
 pub fn tab(label: &str, tab: &str, body: &str) -> String {
-    Marker::new("tab")
-        .attr("label", label)
-        .attr("tab", tab)
-        .payload(body)
-        .build()
+    routed_message("tab", &[("label", label), ("tab", tab)], body)
 }
 
 pub fn report(from: &str, body: &str) -> String {
-    Marker::new("report")
-        .attr("from", from)
-        .payload(body)
-        .build()
+    routed_message("report", &[("label", from)], body)
+}
+
+fn routed_message(kind: &str, attrs: &[(&str, &str)], body: &str) -> String {
+    let mut all_attrs = vec![("from", kind)];
+    all_attrs.extend_from_slice(attrs);
+    crate::domios::DomiosFrame {
+        opening_tag: crate::domios::build_opening_tag(&all_attrs),
+        body: body.to_string(),
+        suffix: String::new(),
+    }
+    .to_message()
 }
 
 pub fn hook(json: &str) -> String {
@@ -298,5 +335,4 @@ pub fn system_prompt(body: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "message_markers_tests.rs"]
 mod tests;

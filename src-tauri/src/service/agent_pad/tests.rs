@@ -311,15 +311,19 @@ fn chat_send_and_gateway_deliveries_substitute_too() {
 
     let gateway_body = "gateway content\nend marker".repeat(400);
     let envelope = MessageEnvelope::tab("Sender", sender);
-    let (delivery, gateway_file) =
+    let error =
         Messenger::deliver_with_pad_file(&fixture.service, &recipient, envelope, &gateway_body)
-            .unwrap();
-    let gateway_file = gateway_file.unwrap();
-    assert_eq!(fs::read(&gateway_file).unwrap(), gateway_body.as_bytes());
-    let crate::service::messenger::Delivery::Pty { text } = delivery else {
-        panic!("PTY delivery expected")
-    };
-    assert!(text.contains(gateway_file.to_str().unwrap()));
+            .expect_err("an unbound agent cannot report a completed PTY write");
+    assert_eq!(
+        error,
+        "agent_unavailable: recipient has no active PTY launch"
+    );
+    let pad = AgentPad::open(fixture.temp.path(), &recipient).unwrap();
+    let files = pad.list().unwrap();
+    assert!(files.iter().any(|file| {
+        pad.read_utf8(file)
+            .is_ok_and(|content| content == gateway_body)
+    }));
 }
 
 #[cfg(windows)]
@@ -342,6 +346,7 @@ fn mesh_received_long_send_lands_in_local_recipient_pad() {
         crate::agent::test_provider::MockProvider::new("limited-test-provider")
             .with_paste_limit_bytes(4096),
     ));
+    let _pty = fixture.bind_test_pty_session(&recipient, "mesh-session", "mesh-nonce");
     let original = "mesh payload\nend sentinel".repeat(400);
     let envelope = MessageEnvelope::tab("Remote", sender.clone()).mesh(Some("peer-token".into()));
     let delivery =
@@ -358,6 +363,7 @@ fn mesh_received_long_send_lands_in_local_recipient_pad() {
         original.as_bytes()
     );
     assert!(text.contains(&path_token));
-    assert!(text.contains(&crate::service::messenger::Messenger::pty_prefix(&envelope)));
+    assert!(text.starts_with("<domios from=\"tab\""));
+    assert!(text.ends_with(codeterm_types::domios::DOMIOS_CLOSE_TAG));
     assert!(text.contains("peer-token"));
 }

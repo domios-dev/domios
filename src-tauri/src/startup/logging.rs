@@ -68,6 +68,7 @@ impl std::io::Write for RotatingLog {
 
 /// Initialize file + stderr logging with rotation.
 pub(crate) fn setup_logging() {
+    crate::flow_trace::init();
     use std::fs;
 
     let log_dir = paths::data_dir().join("logs");

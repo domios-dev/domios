@@ -5,6 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tauri::Manager;
 
 use super::{
     auth::{caller_access_level, caller_peer_id},
@@ -22,11 +23,106 @@ pub struct GraphQuery {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct WorkspaceGraphQuery {
+    workspace_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StopBody {
     workspace_id: String,
     team_id: Value,
     caller_tab_id: Option<String>,
     session_binding_nonce: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeleteBody {
+    workspace_id: String,
+    team_id: Value,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EventBody {
+    plugin_id: String,
+    event_id: String,
+    payload: Value,
+}
+
+pub async fn event_ingress(
+    State(state): State<AppState>,
+    Path(subscription_id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<EventBody>,
+) -> Result<(StatusCode, Json<Value>), GraphError> {
+    let token = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .ok_or_else(|| {
+            failure((
+                StatusCode::UNAUTHORIZED,
+                "subscription bearer required".into(),
+            ))
+        })?;
+    let payload_bytes = serde_json::to_vec(&body.payload)
+        .map_err(|error| failure((StatusCode::BAD_REQUEST, error.to_string())))?
+        .len();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis().min(u128::from(u64::MAX)) as u64)
+        .unwrap_or_default();
+    let decision = state.svc.graph_event_subscriptions.admit(
+        codeterm_plugin::graph_events::AdmissionRequest {
+            subscription_id: &subscription_id,
+            token,
+            plugin_id: &body.plugin_id,
+            event_id: &body.event_id,
+            payload: &body.payload,
+            payload_bytes,
+            now_ms,
+        },
+    );
+    match decision {
+        codeterm_plugin::graph_events::AdmissionDecision::Admit => {
+            if let Some(pipeline_id) = state
+                .svc
+                .graph_event_subscriptions
+                .pipeline_id_for(&subscription_id)
+            {
+                if let Some(handle) = state
+                    .svc
+                    .app_handle
+                    .try_state::<crate::sentinel::scheduler::Handle>()
+                {
+                    handle.notify_event_subscription_changed(&pipeline_id);
+                }
+            }
+            Ok((
+                StatusCode::ACCEPTED,
+                Json(json!({"ok":true,"admitted":true})),
+            ))
+        }
+        codeterm_plugin::graph_events::AdmissionDecision::Refuse(reason) => {
+            let (status, code) = admission_refusal_status(reason);
+            if let Some(pipeline_id) = state
+                .svc
+                .graph_event_subscriptions
+                .pipeline_id_for(&subscription_id)
+            {
+                if let Some(handle) = state
+                    .svc
+                    .app_handle
+                    .try_state::<crate::sentinel::scheduler::Handle>()
+                {
+                    handle.notify_event_subscription_changed(&pipeline_id);
+                }
+            }
+            Err((status, Json(json!({"ok":false,"error":{"code":code}}))))
+        }
+    }
 }
 
 pub async fn snapshot(
@@ -59,6 +155,23 @@ pub async fn snapshot(
             }
         }
     }
+    Ok(Json(snapshot))
+}
+
+pub async fn workspace_snapshot(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<WorkspaceGraphQuery>,
+) -> Result<Json<Snapshot>, GraphError> {
+    caller_access_level(&state, &headers).map_err(failure)?;
+    let snapshot = tokio::task::spawn_blocking(move || {
+        state
+            .svc
+            .automation_graph_workspace_snapshot(&query.workspace_id)
+    })
+    .await
+    .map_err(|error| failure((StatusCode::INTERNAL_SERVER_ERROR, error.to_string())))?
+    .map_err(|error| failure((StatusCode::BAD_REQUEST, error)))?;
     Ok(Json(snapshot))
 }
 
@@ -102,23 +215,64 @@ pub async fn stop(
     ))
 }
 
+pub async fn delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<DeleteBody>,
+) -> Result<StatusCode, GraphError> {
+    caller_access_level(&state, &headers).map_err(failure)?;
+    if caller_peer_id(&state, &headers).is_some() {
+        return Err(failure((
+            StatusCode::FORBIDDEN,
+            "peer-origin automation delete is unavailable".into(),
+        )));
+    }
+    let team = explicit_team(&body.team_id).map_err(|e| failure((StatusCode::BAD_REQUEST, e)))?;
+    tokio::task::spawn_blocking(move || {
+        state
+            .svc
+            .automation_graph_delete_host(&body.workspace_id, team.as_deref(), &id)
+    })
+    .await
+    .map_err(|e| failure((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())))?
+    .map_err(|e| failure((StatusCode::BAD_REQUEST, e)))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 type GraphError = (StatusCode, Json<Value>);
 
+fn admission_refusal_status(
+    reason: codeterm_plugin::graph_events::AdmitRefusal,
+) -> (StatusCode, &'static str) {
+    use codeterm_plugin::graph_events::AdmitRefusal;
+    match reason {
+        AdmitRefusal::UnknownSubscription => (StatusCode::NOT_FOUND, "unknown_subscription"),
+        AdmitRefusal::BadToken => (StatusCode::UNAUTHORIZED, "bad_token"),
+        AdmitRefusal::ForeignPlugin => (StatusCode::FORBIDDEN, "foreign_plugin"),
+        AdmitRefusal::InvalidPayload => (StatusCode::UNPROCESSABLE_ENTITY, "invalid_payload"),
+        AdmitRefusal::Oversize => (StatusCode::PAYLOAD_TOO_LARGE, "oversize"),
+        AdmitRefusal::Duplicate => (StatusCode::CONFLICT, "duplicate"),
+        AdmitRefusal::Backpressure => (StatusCode::SERVICE_UNAVAILABLE, "backpressure"),
+        AdmitRefusal::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
+    }
+}
+
 fn failure((status, message): (StatusCode, String)) -> GraphError {
-    let (status, code) = if message.starts_with("sentinel_store_unsupported_format:") {
+    let (status, code) = if message.starts_with("blueprint_store_unsupported_format:") {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            "sentinel_store_unsupported_format",
+            "blueprint_store_unsupported_format",
         )
-    } else if message.starts_with("sentinel_store_load_failed:") {
+    } else if message.starts_with("blueprint_store_load_failed:") {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            "sentinel_store_load_failed",
+            "blueprint_store_load_failed",
         )
-    } else if message.starts_with("sentinel_store_persistence_failed:") {
+    } else if message.starts_with("blueprint_store_persistence_failed:") {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            "sentinel_store_persistence_failed",
+            "blueprint_store_persistence_failed",
         )
     } else if status == StatusCode::UNAUTHORIZED {
         (status, "unauthorized")
@@ -127,13 +281,44 @@ fn failure((status, message): (StatusCode, String)) -> GraphError {
     };
     (
         status,
-        Json(json!({"ok":false,"error":{"code":code,"message":message}})),
+        Json(
+            json!({"ok":false,"error":{"code":code,"message":message.replace("Sentinels", "Blueprints").replace("Sentinel", "Blueprint").replace("sentinel ", "blueprint ")}}),
+        ),
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blueprint_event_ingress_refusal_statuses_cover_admission_table() {
+        use codeterm_plugin::graph_events::AdmitRefusal::*;
+        for (reason, status, code) in [
+            (
+                UnknownSubscription,
+                StatusCode::NOT_FOUND,
+                "unknown_subscription",
+            ),
+            (BadToken, StatusCode::UNAUTHORIZED, "bad_token"),
+            (ForeignPlugin, StatusCode::FORBIDDEN, "foreign_plugin"),
+            (
+                InvalidPayload,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "invalid_payload",
+            ),
+            (Oversize, StatusCode::PAYLOAD_TOO_LARGE, "oversize"),
+            (Duplicate, StatusCode::CONFLICT, "duplicate"),
+            (
+                Backpressure,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "backpressure",
+            ),
+            (RateLimited, StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
+        ] {
+            assert_eq!(admission_refusal_status(reason), (status, code));
+        }
+    }
 
     #[test]
     fn sentinel_graph_http_adapter_requires_explicit_team_and_preserves_tab_declaration() {
@@ -153,10 +338,10 @@ mod tests {
         assert_eq!(explicit_team(&tab.team_id).unwrap(), None);
         let (status, Json(error)) = failure((
             StatusCode::BAD_REQUEST,
-            "sentinel_store_unsupported_format: preserve definitions".into(),
+            "blueprint_store_unsupported_format: preserve definitions".into(),
         ));
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(error["error"]["code"], "sentinel_store_unsupported_format");
+        assert_eq!(error["error"]["code"], "blueprint_store_unsupported_format");
     }
 
     #[cfg(debug_assertions)]
@@ -179,12 +364,21 @@ mod tests {
             creator: String,
             workspace: String,
             _env: codeterm_util::test_env::EnvGuard,
-            isolated_data: std::path::PathBuf,
+            _isolated_data: IsolatedDataDir,
+        }
+
+        struct IsolatedDataDir(std::path::PathBuf);
+
+        impl Drop for IsolatedDataDir {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).unwrap();
+            }
         }
 
         impl Fixture {
             fn new(raw: Option<&str>) -> Self {
                 let mut env = codeterm_util::test_env::EnvGuard::lock();
+                crate::session::lifecycle::TabLifecycleJournal::shared();
                 env.set(
                     "CODETERM_INSTANCE",
                     format!("sentinel-graph-test-{}", uuid::Uuid::new_v4().simple()),
@@ -261,7 +455,7 @@ mod tests {
                     creator,
                     workspace,
                     _env: env,
-                    isolated_data,
+                    _isolated_data: IsolatedDataDir(isolated_data),
                 }
             }
 
@@ -320,12 +514,6 @@ mod tests {
             }
         }
 
-        impl Drop for Fixture {
-            fn drop(&mut self) {
-                std::fs::remove_dir_all(&self.isolated_data).unwrap();
-            }
-        }
-
         #[tokio::test]
         #[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
         async fn sentinel_graph_http_router_auth_peer_refusal_and_host_stop_persist_actual_state() {
@@ -335,7 +523,7 @@ mod tests {
                 "/api/automation/graph?workspace_id={}&team_id=",
                 fixture.workspace
             );
-            let stop = format!("/api/automation/sentinels/{}/stop", job.id);
+            let stop = format!("/api/automation/blueprints/{}/stop", job.id);
             let body = json!({"workspace_id":fixture.workspace,"team_id":null});
             for token in [None, Some("invalid-token")] {
                 assert_eq!(
@@ -440,11 +628,79 @@ mod tests {
 
         #[tokio::test]
         #[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
+        async fn sentinel_graph_delete_removes_the_graph_from_the_list_and_persisted_file() {
+            let fixture = Fixture::new(None);
+            let job = fixture.create();
+            let path = format!("/api/automation/blueprints/{}", job.id);
+            let body = json!({"workspace_id":fixture.workspace,"team_id":null});
+            assert_eq!(
+                fixture
+                    .request(Method::DELETE, &path, Some("fixture-instance-bearer"), body,)
+                    .await
+                    .0,
+                StatusCode::NO_CONTENT
+            );
+            let (status, graph) = fixture
+                .request(
+                    Method::GET,
+                    &format!(
+                        "/api/automation/graph?workspace_id={}&team_id=",
+                        fixture.workspace
+                    ),
+                    Some("fixture-instance-bearer"),
+                    Value::Null,
+                )
+                .await;
+            assert_eq!(status, StatusCode::OK);
+            assert!(graph["scenarios"].as_array().unwrap().is_empty());
+            let persisted: Value = serde_json::from_slice(
+                &std::fs::read(fixture.runtime.temp.path().join("sentinels.json")).unwrap(),
+            )
+            .unwrap();
+            assert!(persisted.as_array().unwrap().is_empty());
+        }
+
+        #[tokio::test]
+        #[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
+        async fn legacy_sentinel_rest_alias_deletes_the_persisted_blueprint() {
+            let fixture = Fixture::new(None);
+            let job = fixture.create();
+            let path = format!("/api/automation/sentinels/{}", job.id);
+            let body = json!({"workspace_id":fixture.workspace,"team_id":null});
+            assert_eq!(
+                fixture
+                    .request(Method::DELETE, &path, Some("fixture-instance-bearer"), body,)
+                    .await
+                    .0,
+                StatusCode::NO_CONTENT
+            );
+            let (status, graph) = fixture
+                .request(
+                    Method::GET,
+                    &format!(
+                        "/api/automation/graph?workspace_id={}&team_id=",
+                        fixture.workspace
+                    ),
+                    Some("fixture-instance-bearer"),
+                    Value::Null,
+                )
+                .await;
+            assert_eq!(status, StatusCode::OK);
+            assert!(graph["scenarios"].as_array().unwrap().is_empty());
+            let persisted: Value = serde_json::from_slice(
+                &std::fs::read(fixture.runtime.temp.path().join("sentinels.json")).unwrap(),
+            )
+            .unwrap();
+            assert!(persisted.as_array().unwrap().is_empty());
+        }
+
+        #[tokio::test]
+        #[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
         async fn sentinel_graph_http_declared_tab_never_falls_back_after_failed_nonce_or_creator_check(
         ) {
             let fixture = Fixture::new(None);
             let job = fixture.create();
-            let path = format!("/api/automation/sentinels/{}/stop", job.id);
+            let path = format!("/api/automation/blueprints/{}/stop", job.id);
             for nonce in [Value::Null, json!("stale-nonce")] {
                 let body = json!({"workspace_id":fixture.workspace,"team_id":null,"caller_tab_id":fixture.creator,"session_binding_nonce":nonce});
                 assert_eq!(
@@ -515,13 +771,13 @@ mod tests {
                 assert!(error["error"]["code"]
                     .as_str()
                     .unwrap()
-                    .starts_with("sentinel_store_"));
+                    .starts_with("blueprint_store_"));
                 let body = json!({"workspace_id":fixture.workspace,"team_id":null});
                 assert_eq!(
                     fixture
                         .request(
                             Method::POST,
-                            "/api/automation/sentinels/old/stop",
+                            "/api/automation/blueprints/old/stop",
                             Some("fixture-instance-bearer"),
                             body
                         )
@@ -541,13 +797,13 @@ mod tests {
         ) {
             use tauri::Listener;
             let fixture = Fixture::new(None);
-            let cron=fixture.state.cron.lock().create(serde_json::from_value(json!({"name":"Supplied cron","workspace_id":fixture.workspace,"creator_tab_id":fixture.creator,"schedule":"0 * * * *","task":"private task"})).unwrap()).unwrap();
+            let cron=fixture.state.cron.lock().create(serde_json::from_value(json!({"name":"nightly-ci-review","workspace_id":fixture.workspace,"creator_tab_id":fixture.creator,"schedule":"0 * * * *","task":"private task"})).unwrap()).unwrap();
             let caller = fixture
                 .runtime
                 .service
                 .sentinel_caller(&fixture.creator, Some("fixture-nonce"))
                 .unwrap();
-            fixture.runtime.service.sentinel_create(&caller,serde_json::from_value(json!({"probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h","routes":{"done":format!("cron:{}",cron.id)}})).unwrap()).unwrap();
+            fixture.runtime.service.sentinel_create(&caller,serde_json::from_value(json!({"name":"cron-result-watch","probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h","routes":{"done":format!("cron:{}",cron.id)}})).unwrap()).unwrap();
             let before = fixture
                 .runtime
                 .service
@@ -629,7 +885,10 @@ mod tests {
                 let tab = mux.get_tab_mut(&worker).unwrap();
                 tab.agent_type = Some("supplied-agent".into());
                 mux.link_pty(&worker, "fixture-graph-pty".into());
-                assert_eq!(mux.tab_id_for_pty("fixture-graph-pty"), Some(worker.clone()));
+                assert_eq!(
+                    mux.tab_id_for_pty("fixture-graph-pty"),
+                    Some(worker.clone())
+                );
             }
             fixture
                 .runtime
@@ -642,7 +901,7 @@ mod tests {
                 .service
                 .sentinel_caller(&fixture.creator, Some("fixture-nonce"))
                 .unwrap();
-            fixture.runtime.service.sentinel_create(&caller,serde_json::from_value(json!({"probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h","routes":{"done":format!("send:{worker}")}})).unwrap()).unwrap();
+            fixture.runtime.service.sentinel_create(&caller,serde_json::from_value(json!({"name":"agent-result-notify","probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h","routes":{"done":format!("send:{worker}")}})).unwrap()).unwrap();
             let before = fixture
                 .runtime
                 .service

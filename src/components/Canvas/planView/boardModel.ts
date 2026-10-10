@@ -165,18 +165,6 @@ function laneBranch(task: Task): string | null {
   return clean(task.lane?.branch);
 }
 
-export function formatRelativeAge(fromTs: number, now: number = Date.now()): string {
-  const diff = Math.max(0, now - fromTs);
-  const s = Math.floor(diff / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h`;
-  const d = Math.floor(h / 24);
-  return `${d}d`;
-}
-
 function focusMatches(plan: Plan, task: Task, tabId: string | null): boolean {
   const focus = clean(plan.heartbeat?.current_focus);
   if (!focus || !tabId) return false;

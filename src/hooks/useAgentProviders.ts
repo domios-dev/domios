@@ -2,9 +2,8 @@
  * Live list of agent providers contributed by active plugins.
  *
  * Single source of truth: the backend's `list_agent_providers` Tauri command,
- * which calls `dispatch::Command::ListAgentProviders` → `AgentRegistry::list_descriptors()`.
- * Auto-refetches when a `contributions-changed { kind: "agent_provider" }` event
- * arrives, and when the backend emits `models-updated` after refreshing live model catalogs.
+ * which returns the transport-tagged ProviderRegistry snapshot.
+ * Auto-refetches when provider contributions or a versioned model catalogue changes.
  *
  * Adding a new bundled or third-party agent plugin requires ZERO changes here —
  * the descriptor flows through automatically.
@@ -12,29 +11,29 @@
 import { useCallback, useEffect, useLayoutEffect } from "react";
 import { invoke, listen, type UnlistenFn } from "../lib/bridge";
 
-import type { ProviderDescriptor } from "../lib/types";
-import { setAgentDescriptors } from "../lib/agentDescriptorCache";
+import type { ModelCatalogueChanged, ProviderDescriptor } from "../lib/types";
+import { acceptModelCatalogueChange, listAgentDescriptors, setAgentDescriptors } from "../lib/agentDescriptorCache";
 import { useContributions } from "./useContributions";
 
 const EMPTY_AGENT_PROVIDERS: ProviderDescriptor[] = [];
 
 export function shouldRefreshAgentProviders(eventType: string): boolean {
-  return eventType === "contributions-changed" || eventType === "models-updated";
+  return eventType === "contributions-changed" || eventType === "model-catalogue-changed";
 }
 
 export function visibleAgentProviders(
   items: ProviderDescriptor[],
-  loading: boolean,
+  _loading: boolean,
   error: string | null,
 ): ProviderDescriptor[] {
-  return loading || error ? EMPTY_AGENT_PROVIDERS : items;
+  return error ? EMPTY_AGENT_PROVIDERS : items;
 }
 
 export function agentProvidersFromResponse(result: unknown): ProviderDescriptor[] {
   return Array.isArray(result) ? (result as ProviderDescriptor[]) : [];
 }
 
-async function fetchAgentProviders(): Promise<ProviderDescriptor[]> {
+export async function fetchAgentProviders(): Promise<ProviderDescriptor[]> {
   const result = await invoke<unknown>("list_agent_providers");
   return agentProvidersFromResponse(result);
 }
@@ -44,18 +43,22 @@ export function syncAgentDescriptorCache(
   loading: boolean,
   error: string | null,
 ): void {
-  setAgentDescriptors(visibleAgentProviders(items, loading, error));
+  setAgentDescriptors(visibleAgentProviders(items, loading, error), loading);
 }
 
-export function attachModelsUpdatedRefresh(
+export function attachModelCatalogueChangedRefresh(
   refetch: () => void,
   listenImpl: typeof listen = listen,
 ): () => void {
   let active = true;
+  const observed = new Map(listAgentDescriptors().map((provider) => [provider.id, provider.catalogue_version ?? 0]));
   let unlisten: UnlistenFn | undefined;
 
-  void listenImpl<{ provider: string }>("models-updated", () => {
-    if (active) refetch();
+  void listenImpl<ModelCatalogueChanged>("model-catalogue-changed", (event) => {
+    if (!active || event.payload.version <= (observed.get(event.payload.provider) ?? 0)) return;
+    observed.set(event.payload.provider, event.payload.version);
+    acceptModelCatalogueChange(event.payload);
+    refetch();
   }).then((fn) => {
     if (active) {
       unlisten = fn;
@@ -84,14 +87,14 @@ export function useAgentProviders(): {
     fetcher,
   );
   useEffect(() => {
-    return attachModelsUpdatedRefresh(refetch);
+    return attachModelCatalogueChangedRefresh(refetch);
   }, [refetch]);
   return { providers: visibleAgentProviders(items, loading, error), loading, error, refetch };
 }
 
 export function useAgentProviderCachePublisher(): void {
-  const { providers } = useAgentProviders();
+  const { providers, loading } = useAgentProviders();
   useLayoutEffect(() => {
-    setAgentDescriptors(providers);
-  }, [providers]);
+    setAgentDescriptors(providers, loading);
+  }, [providers, loading]);
 }

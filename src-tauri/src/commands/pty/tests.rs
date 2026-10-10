@@ -1,5 +1,45 @@
 //! Tests for the PTY spawn/kill commands and restored-snapshot launch input.
 
+#[tokio::test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+async fn protected_frontend_attach_reuses_the_backend_launch_claim() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    mux.get_tab_mut(&tab_id).unwrap().protected = true;
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let svc = std::sync::Arc::new(fixture.service.clone());
+    let (backend, _) = svc
+        .pty
+        .lock()
+        .spawn(None, None, 80, 24, Default::default())
+        .unwrap();
+    let claim = svc.pty_ownership.acquire(&tab_id);
+    let selected = svc.link_pty_with_claim(&claim, &tab_id, backend.clone(), true);
+    assert!(selected.linked);
+    drop(claim);
+    let attached = super::spawn_pty_core(
+        &svc,
+        None,
+        None,
+        80,
+        24,
+        Some("frontend-must-not-exist".into()),
+        Some(tab_id.clone()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(attached, backend);
+    assert_eq!(
+        svc.pty_ownership.launch_claim(&tab_id),
+        Some(backend.clone())
+    );
+    assert!(svc
+        .pty
+        .lock()
+        .get_session("frontend-must-not-exist")
+        .is_none());
+    svc.kill_ptys(&[backend]);
+}
+
 mod kill_pty_tests {
     use std::collections::HashMap;
 
@@ -77,7 +117,7 @@ fn frontend_restore_launch_arms_shared_readiness_with_snapshot_origin() {
         .split("fn dispatch_restored_snapshot_launch(")
         .nth(1)
         .expect("restored frontend launches use one dispatcher");
-    assert!(dispatcher.contains("launch_agent_in_background("));
+    assert!(dispatcher.contains("launch_agent_in_background_with_env("));
     assert!(dispatcher.contains("AgentLaunchOrigin::RestoredSnapshot"));
 
     let shared_launcher = include_str!("../../service/orchestrator/launch.rs");
@@ -177,6 +217,9 @@ mod restored_fresh_launch_tests {
                 &registry,
                 worker_params("fixture-provider", historical_task),
                 crate::multiplexer::types::RestorableLaunchParameters {
+                    context_files: None,
+                    context_skills: None,
+                    worker_restart: None,
                     captured: true,
                     identity_instructions: Some(RESTORED_INSTRUCTIONS.into()),
                     ..Default::default()
@@ -218,6 +261,9 @@ mod restored_fresh_launch_tests {
                 registry,
                 worker_params("claude", historical_task),
                 crate::multiplexer::types::RestorableLaunchParameters {
+                    context_files: None,
+                    context_skills: None,
+                    worker_restart: None,
                     captured: true,
                     identity_instructions: Some(RESTORED_INSTRUCTIONS.into()),
                     ..Default::default()
@@ -277,7 +323,10 @@ mod restored_fresh_launch_tests {
         .command(&fixture.service, "tab-restored-resume")
         .expect("restored resume command");
         assert!(!resumed.contains("--launch-marker"));
-        assert_eq!(registered_launch_marker("tab-restored-resume"), None);
+        assert_eq!(
+            registered_launch_marker("tab-restored-resume").as_deref(),
+            Some("session-restored")
+        );
     }
 }
 
@@ -309,6 +358,7 @@ mod spawn_pty_restore_tests {
         tab.boot_stage = Some(crate::service::boot_stage::BootStage::SpawnFailed);
 
         let fixture = ServiceFixture::new(mux);
+        fixture.set_agent_full_access(true);
         use_fixture_dir_as_tab_cwd(&fixture, &tab_id);
         let resume_context = Arc::new(parking_lot::Mutex::new(Vec::new()));
         fixture.service.agent_registry.register_provider(Box::new(
@@ -335,6 +385,11 @@ mod spawn_pty_restore_tests {
         tab.agent_session_id = Some(SESSION.into());
         tab.restored_from_snapshot = true;
         tab.restorable_launch = RestorableLaunchParameters {
+            failed_provider: None,
+            structured_runtime_mode: None,
+            context_files: None,
+            context_skills: None,
+            worker_restart: None,
             captured: true,
             requested_model: Some("gpt-6-luna".into()),
             model: Some("gpt-6-luna".into()),

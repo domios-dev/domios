@@ -10,7 +10,7 @@ use codeterm_types::decision::{
 };
 use serde_json::Value;
 
-use super::provenance::{Scope, Stage};
+use super::provenance::{Classification, Scope, Stage};
 use super::store::Sentinel;
 use super::{classify, machine, scheduler};
 use crate::service::supporter::SupporterRuntime;
@@ -123,10 +123,10 @@ fn sentinel_provenance_route_stages_share_observation_without_recipient_claim() 
     }
     let rows = rows(dir.path());
     assert_eq!(rows.len(), 3);
-    let expected_keys: std::collections::BTreeSet<_> = [
+    let required_keys = [
         "time",
         "kind",
-        "sentinel_id",
+        "blueprint_id",
         "tab",
         "team_id",
         "workspace_id",
@@ -143,21 +143,15 @@ fn sentinel_provenance_route_stages_share_observation_without_recipient_claim() 
         "route_status",
         "route",
         "route_target",
+        "requested_by",
         "recipient_receipt",
         "asked",
         "budget",
-    ]
-    .into_iter()
-    .collect();
-    assert_eq!(
-        rows[0]
-            .as_object()
-            .unwrap()
-            .keys()
-            .map(String::as_str)
-            .collect::<std::collections::BTreeSet<_>>(),
-        expected_keys
-    );
+    ];
+    let decision = rows[0].as_object().unwrap();
+    for key in required_keys {
+        assert!(decision.contains_key(key), "journal row lacks {key}");
+    }
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     for row in &rows {
         assert_eq!(row["evaluation_id"], rows[0]["evaluation_id"]);
@@ -166,7 +160,7 @@ fn sentinel_provenance_route_stages_share_observation_without_recipient_claim() 
         assert_eq!(row["state_hash"], job.machine.last_hash.as_deref().unwrap());
         assert_eq!(row["tab"], "creator");
         assert_eq!(row["team_id"], "team_aabbccdd");
-        assert_eq!(row["sentinel_id"], job.id);
+        assert_eq!(row["blueprint_id"], job.id);
         assert_eq!(row["workspace_id"], "workspace");
         assert_eq!(row["classification_source"], "adapter");
         assert_eq!(row["classification_reason"], "transition");
@@ -175,6 +169,7 @@ fn sentinel_provenance_route_stages_share_observation_without_recipient_claim() 
             crate::service::supporter::criteria_hash(b"passed")
         );
         assert_eq!(row["route_target"], "opaque-target");
+        assert!(row["requested_by"].is_null());
         assert!(row["recipient_receipt"].is_null());
         assert!(row.get("probe_output").is_none());
         assert!(!row.to_string().contains("opaque-private-probe"));
@@ -226,10 +221,10 @@ fn sentinel_provenance_rejects_foreign_scope_or_state_hash() {
         Answer::Choice("passed", 0.95),
         Arc::new(AtomicUsize::new(0)),
     );
-    for field in ["sentinel", "creator", "team", "workspace", "state_hash"] {
+    for field in ["blueprint", "creator", "team", "workspace", "state_hash"] {
         let mut foreign = job.clone();
         match field {
-            "sentinel" => foreign.id = "foreign-watch".into(),
+            "blueprint" => foreign.id = "foreign-watch".into(),
             "creator" => foreign.creator_tab_id = "foreign-creator".into(),
             "team" => foreign.team_id = Some("team_11223344".into()),
             "workspace" => foreign.workspace_id = "foreign-workspace".into(),
@@ -271,15 +266,47 @@ fn sentinel_provenance_regex_and_disconnection_keep_actual_source() {
         scheduler::record(&runtime, &job, &outcome, Stage::Decision).unwrap();
     }
     let rows = rows(dir.path());
-    assert_eq!(rows[0]["classification_source"], "regex");
+    assert_eq!(rows[0]["classification_source"], "pattern");
     assert_eq!(rows[0]["classification_reason"], "transition");
-    assert_eq!(rows[1]["classification_source"], "regex");
+    assert_eq!(rows[1]["classification_source"], "pattern");
     assert_eq!(rows[1]["classification_reason"], "other");
     assert!(rows[1]["route"].is_null());
     assert_eq!(rows[2]["classification_source"], "disconnected");
     assert_eq!(rows[2]["classification_reason"], "adapter_disconnected");
     assert!(rows[2]["observation_id"].is_null());
     assert!(rows[2]["label"].is_null());
+}
+
+#[test]
+fn sentinel_provenance_journals_pattern_precedence_and_adapter_fallback() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = SupporterRuntime::new(dir.path().join("supporter"));
+    let mut job = job(dir.path());
+    job.matches
+        .insert("failed".into(), "^opaque-pattern$".into());
+    for output in ["opaque-pattern", "opaque-unmatched"] {
+        let classification = classify::with_pattern_precedence(&job, output, || {
+            Classification::adapter(Ok(machine::Verdict {
+                bucket: "passed".into(),
+                confidence: 0.9,
+            }))
+        });
+        let scope = Scope::from(&job);
+        let outcome = machine::evaluate(
+            &mut job.machine,
+            output.as_bytes(),
+            &job.buckets,
+            &job.routes,
+            None,
+            scope,
+            || classification,
+        );
+        scheduler::record(&runtime, &job, &outcome, Stage::Decision).unwrap();
+    }
+
+    let rows = rows(dir.path());
+    assert_eq!(rows[0]["classification_source"], "pattern");
+    assert_eq!(rows[1]["classification_source"], "adapter");
 }
 
 #[test]

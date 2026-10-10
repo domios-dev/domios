@@ -5,6 +5,7 @@
 
 use super::*;
 use codeterm_util::persisted_state::{write_atomic, Loaded, StateFile};
+use codeterm_util::secret_file::SecretFile;
 use serde_json::Value;
 
 /// `codeterm plugin get <id>` — the agent's discover handle.
@@ -23,12 +24,29 @@ pub(super) fn get_command(id: &str) -> Result<Value, String> {
     let manifest = read_plugin_manifest_value(&dir)?;
     let (schema, secret_keys) = load_schema(&dir, &manifest);
 
-    let yaml_path = dir.join("config.yaml");
+    let yaml_path = config_yaml_path(&id, &dir);
     let raw_yaml = fs::read_to_string(&yaml_path).unwrap_or_default();
     let redacted = redact_yaml(&raw_yaml, &secret_keys);
-    let configured = yaml_has_content(&raw_yaml);
+    let bucket = plugin_secret_bucket(id.as_str());
+    if !secret_keys.is_empty() && !bucket.is_available() {
+        return Err("plugin secret bucket is unavailable".to_string());
+    }
+    let mut secret_status = serde_json::Map::new();
+    for key in &secret_keys {
+        let set = bucket
+            .has(key)
+            .map_err(|error| format!("read secret status for '{key}': {error}"))?;
+        secret_status.insert(
+            key.clone(),
+            Value::String(if set { "set" } else { "unset" }.to_string()),
+        );
+    }
+    let configured = yaml_has_content(&raw_yaml)
+        || secret_status
+            .values()
+            .any(|value| value.as_str() == Some("set"));
 
-    Ok(serde_json::json!({
+    let mut out = serde_json::json!({
         "id": id.as_str(),
         "display_name": manifest.get("displayName").and_then(|v| v.as_str()),
         "description": manifest.get("description").and_then(|v| v.as_str()),
@@ -38,7 +56,12 @@ pub(super) fn get_command(id: &str) -> Result<Value, String> {
         "config_yaml": redacted,
         "settings_schema": schema,
         "secret_fields": secret_keys,
-    }))
+        "secret_status": secret_status,
+    });
+    if let Some(fields) = out.as_object_mut() {
+        super::agent_surface::insert_agent_fields(fields, &dir, &manifest);
+    }
+    Ok(out)
 }
 
 /// Grantable per-plugin permissions; an allowlist so a typo can't persist a bogus grant.
@@ -47,13 +70,15 @@ const GRANTABLE_PERMS: &[&str] = &[
     "spawn_agents",
     "agent_commands",
     "secrets",
+    "graph_events",
 ];
 
-/// `codeterm plugin config <id> [--set k=v]... [--values-json '{…}'] [--grant P]... [--revoke P]...`.
+/// `codeterm plugin config <id> [--set k=v]... [--secret FIELD] [--values-json '{…}'] [--grant P]... [--revoke P]...`.
 pub(super) fn config_command(
     id: &str,
     sets: &[String],
     values_json: Option<&str>,
+    secret: Option<(&str, &PluginSecretValue)>,
     grants: &[String],
     revokes: &[String],
 ) -> Result<Value, String> {
@@ -66,11 +91,24 @@ pub(super) fn config_command(
     let (_schema, secret_keys) = load_schema(&dir, &manifest);
     let known_keys = known_keys(&dir, &manifest);
 
+    if secret.is_some()
+        && (!sets.is_empty() || values_json.is_some() || !grants.is_empty() || !revokes.is_empty())
+    {
+        return Err("--secret must be used by itself".to_string());
+    }
+    if let Some((field, _)) = secret {
+        if !secret_keys.iter().any(|key| key == field) {
+            return Err(format!(
+                "--secret FIELD must name a secret field declared in {id}'s settings schema"
+            ));
+        }
+    }
+
     let mut updates: Vec<(String, Value)> = Vec::new();
     for s in sets {
         let (k, v) = s
             .split_once('=')
-            .ok_or_else(|| format!("--set expects KEY=VALUE, got '{s}'"))?;
+            .ok_or_else(|| "--set expects KEY=VALUE".to_string())?;
         // Infer the scalar type so `enabled=false` writes a real YAML boolean, not the truthy string "false".
         updates.push((k.trim().to_string(), infer_scalar(v)));
     }
@@ -82,7 +120,7 @@ pub(super) fn config_command(
             updates.push((k, v));
         }
     }
-    if updates.is_empty() && grants.is_empty() && revokes.is_empty() {
+    if updates.is_empty() && grants.is_empty() && revokes.is_empty() && secret.is_none() {
         return Err(
             "nothing to do (use --set KEY=VALUE, --values-json, --grant P, or --revoke P)"
                 .to_string(),
@@ -100,41 +138,65 @@ pub(super) fn config_command(
         }
     }
 
-    // Persist grant/revoke to grants.yaml; the host reads it fail-closed on next reload.
-    let granted = apply_grants(&dir, grants, revokes)?;
+    for (key, _) in &updates {
+        if secret_keys.contains(key) {
+            return Err(format!(
+                "setting '{key}' is secret; use `codeterm plugin config {id} --secret {key}` with the value piped to stdin"
+            ));
+        }
+    }
 
-    let yaml_path = dir.join("config.yaml");
+    let yaml_path = config_yaml_path(&parsed_id, &dir);
     let mut text = match fs::read_to_string(&yaml_path) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(e) => return Err(format!("read {}: {e}", yaml_path.display())),
     };
     let mut changed: Vec<String> = Vec::new();
-    let mut secrets_pending: Vec<String> = Vec::new();
     for (k, v) in &updates {
-        if secret_keys.contains(k) {
-            // Security invariant: a secret never lands in the YAML — report it for the secret store instead.
-            secrets_pending.push(k.clone());
-            continue;
-        }
-        text = yaml_set_scalar(&text, k, v);
+        text = yaml_set_value(&text, k, v)?;
         changed.push(k.clone());
     }
-    if !updates.is_empty() {
+
+    // Persist grant/revoke to grants.yaml; the host reads it fail-closed on next reload.
+    let granted = apply_grants(&dir, grants, revokes)?;
+
+    if !changed.is_empty() {
         write_atomic(&yaml_path, text.as_bytes())
             .map_err(|e| format!("write {}: {e}", yaml_path.display()))?;
     }
+
+    let secret_fields_set = if let Some((field, value)) = secret {
+        let bucket = plugin_secret_bucket(id);
+        if !bucket.is_available() {
+            return Err("plugin secret bucket is unavailable".to_string());
+        }
+        bucket
+            .set(field, value.expose())
+            .map_err(|error| format!("store secret field '{field}': {error}"))?;
+        vec![field]
+    } else {
+        Vec::new()
+    };
 
     Ok(serde_json::json!({
         "ok": true,
         "id": id,
         "changed": changed,
-        "secrets_pending": secrets_pending,
+        "secret_fields_set": secret_fields_set,
         "grants_changed": granted,
         // config.yaml re-stamps live; grants apply on the plugin's next reload.
         "reload": if granted.is_empty() { "live" } else { "reload" },
         "config_path": yaml_path.display().to_string(),
     }))
+}
+
+fn config_yaml_path(id: &PluginId, dir: &Path) -> PathBuf {
+    codeterm_util::plugin_config::config_yaml_path(&plugins_root(), id.as_str(), dir)
+}
+
+fn plugin_secret_bucket(plugin_id: &str) -> SecretFile {
+    codeterm_util::secret_file::plugin_secret_bucket(data_root(), plugin_id)
 }
 
 pub(super) fn settings_command(
@@ -363,32 +425,115 @@ fn infer_scalar(s: &str) -> Value {
     Value::String(s.to_string())
 }
 
-/// Set a top-level `key: value`, preserving comments: replace an existing line
-/// (keeping its trailing comment) or append. Value is YAML-encoded by type.
-fn yaml_set_scalar(text: &str, key: &str, value: &Value) -> String {
-    let encoded = encode_scalar(value);
-    let mut lines: Vec<String> = text.lines().map(String::from).collect();
+/// Set a top-level `key` to `value`, preserving comments and unrelated keys.
+/// The comment-preserving splice is accepted only when the result parses to exactly
+/// the intended document; otherwise the whole document is re-serialized.
+fn yaml_set_value(text: &str, key: &str, value: &Value) -> Result<String, String> {
+    let original = parse_yaml_mapping(text);
+    let spliced = splice_top_level(text, key, value);
+    let accepted = match (&original, parse_yaml_mapping(&spliced)) {
+        (Ok(before), Ok(after)) => {
+            let mut expected = before.clone();
+            expected.insert(key.to_string(), value.clone());
+            after == expected
+        }
+        (Err(_), Ok(after)) => after.get(key) == Some(value),
+        (_, Err(_)) => false,
+    };
+    if accepted {
+        return Ok(spliced);
+    }
+    let mut map = original.map_err(|e| {
+        format!("config.yaml is not valid YAML ({e}); fix or remove it, then retry")
+    })?;
+    map.insert(key.to_string(), value.clone());
+    serde_yaml::to_string(&Value::Object(map)).map_err(|e| format!("encode config.yaml: {e}"))
+}
+
+fn parse_yaml_mapping(text: &str) -> Result<serde_json::Map<String, Value>, String> {
+    if text.trim().is_empty() {
+        return Ok(serde_json::Map::new());
+    }
+    let parsed: serde_yaml::Value = serde_yaml::from_str(text).map_err(|e| e.to_string())?;
+    match serde_json::to_value(parsed).map_err(|e| e.to_string())? {
+        Value::Null => Ok(serde_json::Map::new()),
+        Value::Object(map) => Ok(map),
+        _ => Err("top level is not a mapping".to_string()),
+    }
+}
+
+/// Replace the key's whole value block (its line plus every continuation line), or append.
+fn splice_top_level(text: &str, key: &str, value: &Value) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out: Vec<String> = Vec::with_capacity(lines.len() + 1);
     let mut replaced = false;
-    for line in lines.iter_mut() {
-        if let Some(rest) = top_level_key(line, key) {
-            let comment = rest
-                .find(" #")
-                .map(|i| rest[i..].to_string())
-                .unwrap_or_default();
-            *line = format!("{key}: {encoded}{comment}");
-            replaced = true;
-            break;
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        match top_level_key(line, key).filter(|_| !replaced) {
+            Some(rest) => {
+                let comment = rest.find(" #").map(|at| &rest[at..]).unwrap_or_default();
+                out.push(render_entry(key, value, comment));
+                replaced = true;
+                i = value_block_end(&lines, i + 1);
+            }
+            None => {
+                out.push(line.to_string());
+                i += 1;
+            }
         }
     }
     if !replaced {
-        if !text.is_empty() && !text.ends_with('\n') {
-            lines.push(String::new());
-        }
-        lines.push(format!("{key}: {encoded}"));
+        out.push(render_entry(key, value, ""));
     }
-    let mut out = lines.join("\n");
-    out.push('\n');
-    out
+    let mut joined = out.join("\n");
+    joined.push('\n');
+    joined
+}
+
+/// Index just past the last continuation line of a top-level value starting at `start`.
+/// Blank lines are consumed only when more of the block follows them.
+fn value_block_end(lines: &[&str], start: usize) -> usize {
+    let mut end = start;
+    for (offset, line) in lines[start..].iter().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let sequence_item = *line == "-" || line.starts_with("- ") || line.starts_with("-\t");
+        if !line.starts_with(char::is_whitespace) && !sequence_item {
+            break;
+        }
+        end = start + offset + 1;
+    }
+    end
+}
+
+/// YAML for one top-level entry. Non-empty collections become an indented block
+/// under `key:`; everything else stays on the key's line.
+fn render_entry(key: &str, value: &Value, comment: &str) -> String {
+    let encoded = encode_value(value);
+    let nested = match value {
+        Value::Array(items) => !items.is_empty(),
+        Value::Object(fields) => !fields.is_empty(),
+        _ => false,
+    };
+    if nested {
+        let body: Vec<String> = encoded
+            .lines()
+            .map(|line| {
+                if line.is_empty() {
+                    String::new()
+                } else {
+                    format!("  {line}")
+                }
+            })
+            .collect();
+        return format!("{key}:{comment}\n{}", body.join("\n"));
+    }
+    match encoded.split_once('\n') {
+        Some((head, tail)) => format!("{key}: {head}{comment}\n{tail}"),
+        None => format!("{key}: {encoded}{comment}"),
+    }
 }
 
 /// Redact every secret field's value to `"***"` in place, preserving comments
@@ -425,12 +570,12 @@ fn top_level_key<'a>(line: &'a str, key: &str) -> Option<&'a str> {
     Some(rest)
 }
 
-/// YAML-encode a typed scalar to a single line. Booleans/numbers emit natively
-/// (`false`, `8080`); strings are quoted only when YAML requires it.
-fn encode_scalar(value: &Value) -> String {
+/// YAML-encode a typed value. Booleans/numbers emit natively (`false`, `8080`);
+/// strings are quoted only when YAML requires it; collections emit block YAML.
+fn encode_value(value: &Value) -> String {
     serde_yaml::to_string(value)
         .ok()
-        .map(|s| s.trim().to_string())
+        .map(|s| s.trim_end().to_string())
         .unwrap_or_else(|| value.to_string())
 }
 
@@ -441,7 +586,7 @@ mod tests {
     #[test]
     fn set_scalar_replaces_value_preserving_comment() {
         let yaml = "# the speech engine\nengine: whisper # default\nport: 8080\n";
-        let out = yaml_set_scalar(yaml, "engine", &infer_scalar("deepgram"));
+        let out = yaml_set_value(yaml, "engine", &infer_scalar("deepgram")).unwrap();
         assert!(out.contains("# the speech engine"), "leading comment kept");
         assert!(
             out.contains("engine: deepgram # default"),
@@ -452,7 +597,8 @@ mod tests {
 
     #[test]
     fn set_scalar_appends_unknown_key() {
-        let out = yaml_set_scalar("engine: whisper\n", "serverUrl", &infer_scalar("http://x"));
+        let out =
+            yaml_set_value("engine: whisper\n", "serverUrl", &infer_scalar("http://x")).unwrap();
         assert!(out.contains("engine: whisper"));
         assert!(out.contains("serverUrl: http://x"));
     }
@@ -460,7 +606,7 @@ mod tests {
     #[test]
     fn set_bool_writes_native_yaml_bool_not_string() {
         // `--set enabled=false` must write a real boolean, not the truthy string "false".
-        let out = yaml_set_scalar("enabled: 'true'\n", "enabled", &infer_scalar("false"));
+        let out = yaml_set_value("enabled: 'true'\n", "enabled", &infer_scalar("false")).unwrap();
         assert!(
             out.contains("enabled: false"),
             "native bool expected: {out}"
@@ -469,6 +615,134 @@ mod tests {
             !out.contains("'false'") && !out.contains("\"false\""),
             "must not be a quoted string: {out}"
         );
+    }
+
+    fn endpoints_fixture() -> Value {
+        serde_json::json!([
+            {
+                "name": "MiMo",
+                "kind": "openai",
+                "apiBase": "https://example.test/v1",
+                "models": [{"id": "openai/mimo", "mapTokens": 8192}],
+                "notes": "line one\nline two"
+            },
+            {"name": "Local", "kind": "openai", "models": []}
+        ])
+    }
+
+    #[test]
+    fn array_of_objects_round_trips_through_yaml_parser() {
+        let yaml = "# Aider settings\nplainMode: false # bypass adapter\n";
+        let endpoints = endpoints_fixture();
+        let out = yaml_set_value(yaml, "endpoints", &endpoints).unwrap();
+        let parsed = parse_yaml_mapping(&out).expect("valid YAML");
+        assert_eq!(parsed["endpoints"], endpoints, "{out}");
+        assert_eq!(parsed["plainMode"], false);
+        assert!(out.contains("# Aider settings"));
+        assert!(out.contains("plainMode: false # bypass adapter"));
+        assert!(!out.contains("endpoints: -"), "{out}");
+    }
+
+    #[test]
+    fn replacing_array_key_leaves_no_orphan_lines() {
+        let yaml = "endpoints: # model endpoints\n  - name: Old\n    apiBase: https://old.test\n\n  - name: Older\n- name: ColumnZero\n\n# path doc\nconfigPath: /tmp/aider.yml\n";
+        let endpoints = serde_json::json!([{"name": "New", "models": ["a"]}]);
+        let out = yaml_set_value(yaml, "endpoints", &endpoints).unwrap();
+        let parsed = parse_yaml_mapping(&out).expect("valid YAML");
+        assert_eq!(parsed["endpoints"], endpoints, "{out}");
+        assert_eq!(parsed["configPath"], "/tmp/aider.yml");
+        assert_eq!(parsed.len(), 2, "{out}");
+        for stale in ["Old", "old.test", "ColumnZero"] {
+            assert!(!out.contains(stale), "orphan '{stale}' left: {out}");
+        }
+        assert!(out.contains("endpoints: # model endpoints"), "{out}");
+        assert!(out.contains("\n\n# path doc\nconfigPath"), "{out}");
+    }
+
+    #[test]
+    fn rewriting_a_broken_single_line_array_repairs_the_document() {
+        let broken = "endpoints: - apiBase: https://old.test\n  kind: openai\nplainMode: true\n";
+        assert!(parse_yaml_mapping(broken).is_err());
+        let endpoints = endpoints_fixture();
+        let out = yaml_set_value(broken, "endpoints", &endpoints).unwrap();
+        let parsed = parse_yaml_mapping(&out).expect("valid YAML");
+        assert_eq!(parsed["endpoints"], endpoints);
+        assert_eq!(parsed["plainMode"], true);
+    }
+
+    #[test]
+    fn replacing_array_with_scalar_drops_the_old_block() {
+        let yaml = "endpoints:\n  - a\n  - b\nport: 1\n";
+        let out = yaml_set_value(yaml, "endpoints", &serde_json::json!([])).unwrap();
+        assert_eq!(out, "endpoints: []\nport: 1\n");
+    }
+
+    #[test]
+    fn scalar_edit_leaves_nested_blocks_untouched() {
+        let yaml =
+            "decision:\n  model: x # pick\n  maxTokens: 64\nbaseUrl: http://localhost:1234\n";
+        let out = yaml_set_value(yaml, "baseUrl", &infer_scalar("http://x")).unwrap();
+        assert_eq!(
+            out,
+            "decision:\n  model: x # pick\n  maxTokens: 64\nbaseUrl: http://x\n"
+        );
+    }
+
+    #[test]
+    fn splice_that_cannot_match_falls_back_to_serializing_the_document() {
+        let yaml = "\"endpoints\": [1]\nport: 2\n";
+        let endpoints = serde_json::json!([{"name": "x"}]);
+        let out = yaml_set_value(yaml, "endpoints", &endpoints).unwrap();
+        let parsed = parse_yaml_mapping(&out).expect("valid YAML");
+        assert_eq!(parsed["endpoints"], endpoints);
+        assert_eq!(parsed["port"], 2);
+        assert_eq!(parsed.len(), 2);
+    }
+
+    #[test]
+    fn unparseable_unrelated_yaml_is_refused_not_compounded() {
+        let err = yaml_set_value("other: [\n", "port", &serde_json::json!(1)).unwrap_err();
+        assert!(err.contains("not valid YAML"), "{err}");
+    }
+
+    #[test]
+    fn values_json_config_writes_yaml_the_host_parses() {
+        let root = tempfile::tempdir().unwrap();
+        let id = "aider-fixture";
+        let dir = root.path().join("plugins").join(id);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("plugin.json"),
+            serde_json::json!({"id": id}).to_string(),
+        )
+        .unwrap();
+        fs::write(dir.join("config.yaml"), "# docs\nplainMode: false\n").unwrap();
+        let ctx = PluginCtx {
+            data_root: root.path().to_path_buf(),
+            version: None,
+        };
+        let endpoints = endpoints_fixture();
+        let values = serde_json::json!({"endpoints": endpoints, "configPath": "/a b"});
+        for _ in 0..2 {
+            crate::run(
+                ctx.clone(),
+                PluginAction::Config {
+                    id: id.into(),
+                    set: Vec::new(),
+                    values_json: Some(values.to_string()),
+                    secret: None,
+                    grant: Vec::new(),
+                    revoke: Vec::new(),
+                },
+            )
+            .unwrap();
+        }
+        let text = fs::read_to_string(dir.join("config.yaml")).unwrap();
+        let parsed = parse_yaml_mapping(&text).expect("valid YAML");
+        assert_eq!(parsed["endpoints"], endpoints, "{text}");
+        assert_eq!(parsed["configPath"], "/a b");
+        assert_eq!(parsed["plainMode"], false);
+        assert!(text.starts_with("# docs\n"));
     }
 
     #[test]
@@ -575,6 +849,111 @@ spawn_agents: [
         collect_all_keys(&schema, &mut all);
         assert!(all.contains(&"serverUrl".to_string()));
         assert!(all.contains(&"OPENAI_API_KEY".to_string()));
+    }
+
+    #[test]
+    fn secret_config_uses_plugin_bucket_and_reports_only_presence() {
+        let root = tempfile::tempdir().unwrap();
+        let id = "secret-fixture";
+        let dir = root.path().join("plugins").join(id);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("plugin.json"),
+            serde_json::json!({
+                "id": id,
+                "settingsSchema": "settings.schema.json"
+            })
+            .to_string(),
+        )
+        .unwrap();
+        fs::write(
+            dir.join("settings.schema.json"),
+            serde_json::json!([{
+                "kind": "api_key",
+                "env_var": "SERVICE_TOKEN",
+                "label": "Service token"
+            }])
+            .to_string(),
+        )
+        .unwrap();
+        let ctx = PluginCtx {
+            data_root: root.path().to_path_buf(),
+            version: None,
+        };
+        let unset = crate::run(ctx.clone(), PluginAction::Get { id: id.into() }).unwrap();
+        assert_eq!(unset["secret_status"]["SERVICE_TOKEN"], "unset");
+
+        let value = format!("fixture-{}", uuid::Uuid::new_v4());
+        let mut stdin_value = value.as_bytes();
+        let secret_input = PluginSecretValue::read_from(&mut stdin_value, false).unwrap();
+        assert!(!format!("{secret_input:?}").contains(value.as_str()));
+        let configured = crate::run(
+            ctx.clone(),
+            PluginAction::Config {
+                id: id.into(),
+                set: Vec::new(),
+                values_json: None,
+                secret: Some(("SERVICE_TOKEN".into(), secret_input)),
+                grant: Vec::new(),
+                revoke: Vec::new(),
+            },
+        )
+        .unwrap();
+        assert_eq!(configured["secret_fields_set"][0], "SERVICE_TOKEN");
+        assert!(!configured.to_string().contains(value.as_str()));
+        let host_bucket = codeterm_util::secret_file::plugin_secret_bucket(root.path(), id);
+        let stored = host_bucket.get("SERVICE_TOKEN").unwrap();
+        assert!(stored.as_str() == value.as_str());
+        let other_bucket = codeterm_util::secret_file::plugin_secret_bucket(root.path(), "other");
+        assert!(other_bucket.get("SERVICE_TOKEN").is_err());
+
+        let shown = crate::run(ctx.clone(), PluginAction::Get { id: id.into() }).unwrap();
+        assert_eq!(shown["secret_status"]["SERVICE_TOKEN"], "set");
+        assert!(!shown.to_string().contains(value.as_str()));
+        assert!(!dir.join("config.yaml").exists());
+
+        let set_error = crate::run(
+            ctx,
+            PluginAction::Config {
+                id: id.into(),
+                set: vec![format!("SERVICE_TOKEN={stored}")],
+                values_json: None,
+                secret: None,
+                grant: Vec::new(),
+                revoke: Vec::new(),
+            },
+        )
+        .unwrap_err();
+        assert!(set_error.contains("--secret SERVICE_TOKEN"));
+        assert!(!set_error.contains(stored.as_str()));
+        let audit = fs::read_to_string(root.path().join("logs/plugin-events.log")).unwrap();
+        assert!(!audit.contains(stored.as_str()));
+    }
+
+    #[test]
+    fn get_returns_the_declared_verbs_and_bundled_agent_guide() {
+        let root = tempfile::tempdir().unwrap();
+        let id = "guide-fixture";
+        let dir = root.path().join("plugins").join(id);
+        fs::create_dir_all(dir.join("docs")).unwrap();
+        fs::write(
+            dir.join("plugin.json"),
+            serde_json::json!({
+                "id": id,
+                "agentVerbs": ["zz-alpha"],
+                "agentGuide": "docs/AGENT.md"
+            })
+            .to_string(),
+        )
+        .unwrap();
+        fs::write(dir.join("docs/AGENT.md"), "guide-token-q7").unwrap();
+        let ctx = PluginCtx {
+            data_root: root.path().to_path_buf(),
+            version: None,
+        };
+        let shown = crate::run(ctx, PluginAction::Get { id: id.into() }).unwrap();
+        assert_eq!(shown["agent_verbs"], serde_json::json!(["zz-alpha"]));
+        assert_eq!(shown["agent_guide"]["text"], "guide-token-q7");
     }
 
     #[test]

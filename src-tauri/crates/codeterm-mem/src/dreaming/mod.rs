@@ -9,6 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 
+mod area_candidates;
 pub mod recluster;
 mod rem;
 mod schedule;

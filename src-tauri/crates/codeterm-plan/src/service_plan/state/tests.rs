@@ -1,7 +1,7 @@
 use super::*;
 use crate::plan::coverage::compute_coverage_report;
 use crate::plan::reconcile::DriftKind;
-use crate::plan::types::{LoopSpec, Milestone, Section, Task};
+use crate::plan::types::{LoopSpec, Milestone, Section, Task, TaskGroup};
 
 fn section(id: &str) -> Section {
     Section {
@@ -33,6 +33,7 @@ fn milestone(id: &str, ts: u64) -> Milestone {
 
 fn task(id: &str, status: TaskStatus, sections: &[&str]) -> Task {
     Task {
+        files: Default::default(),
         id: id.into(),
         name: format!("name-{id}"),
         kind: "implement".into(),
@@ -374,6 +375,82 @@ fn hierarchy_without_explicit_dependency_does_not_wait() {
     assert!(!child_lane.waiting_on_dependencies);
     assert_eq!(child_lane.presentation, TaskPresentation::ActionablePending);
     assert!(child_lane.dependency_waits.is_empty());
+}
+
+#[test]
+fn later_group_pending_work_is_parked_until_the_active_group_finishes() {
+    let mut plan = fixture();
+    plan.task_groups = vec![
+        TaskGroup {
+            key: "release".into(),
+            label: "Release".into(),
+            color: None,
+        },
+        TaskGroup {
+            key: "after-release".into(),
+            label: "After release".into(),
+            color: None,
+        },
+    ];
+    let mut release = task("t_release", TaskStatus::InProgress, &[]);
+    release.group = Some("release".into());
+    let mut after_release = task("t_after_release", TaskStatus::Pending, &[]);
+    after_release.group = Some("after-release".into());
+    plan.tasks = vec![release.clone(), after_release.clone()];
+
+    let parked = task_projection(&plan, &after_release);
+    assert_eq!(parked.presentation, TaskPresentation::ParkedForLaterGroup);
+    assert!(!parked.needs_orchestrator_action());
+    assert_eq!(parked_later_group_task_count(&plan), 1);
+    assert!(!orchestrator_actionable_task_ids(&plan).contains(&after_release.id));
+
+    plan.tasks[0].status = TaskStatus::Done;
+    assert_eq!(
+        task_projection(&plan, &after_release).presentation,
+        TaskPresentation::ActionablePending
+    );
+    assert_eq!(parked_later_group_task_count(&plan), 0);
+}
+
+#[test]
+fn later_group_missing_dependency_stays_parked_until_the_group_is_current() {
+    let mut plan = fixture();
+    plan.task_groups = vec![
+        TaskGroup {
+            key: "active".into(),
+            label: "Active".into(),
+            color: None,
+        },
+        TaskGroup {
+            key: "later".into(),
+            label: "Later".into(),
+            color: None,
+        },
+    ];
+    let mut active = task("t_active", TaskStatus::InProgress, &[]);
+    active.group = Some("active".into());
+    let mut later = task("t_later", TaskStatus::Pending, &[]);
+    later.group = Some("later".into());
+    later.depends_on = vec!["missing".into()];
+    plan.tasks = vec![active, later.clone()];
+
+    let projection = task_projection(&plan, &later);
+    assert_eq!(
+        projection.presentation,
+        TaskPresentation::ParkedForLaterGroup
+    );
+    assert!(!projection.needs_orchestrator_action());
+    assert_eq!(parked_later_group_task_count(&plan), 1);
+    assert!(!orchestrator_actionable_task_ids(&plan).contains(&later.id));
+    assert_eq!(outstanding_blocked_count(&plan), 0);
+
+    plan.tasks[0].status = TaskStatus::Done;
+    assert_eq!(
+        task_projection(&plan, &later).presentation,
+        TaskPresentation::WaitingOnDependencies
+    );
+    assert!(orchestrator_actionable_task_ids(&plan).contains(&later.id));
+    assert_eq!(outstanding_blocked_count(&plan), 1);
 }
 
 #[test]

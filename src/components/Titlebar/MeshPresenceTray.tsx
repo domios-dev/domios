@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { Check } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { useConfig } from "../../hooks/useConfig";
 import { webRequestContext, assertWebRequestContext } from "../../lib/webApi";
@@ -67,7 +68,7 @@ export function MeshPresenceTray() {
 
   const dotStyle =
     state === "online"
-      ? { background: "#22c55e", boxShadow: "0 0 6px rgba(34,197,94,0.55)" }
+      ? { background: "var(--ct-green)", boxShadow: "0 0 6px color-mix(in srgb, var(--ct-green) 55%, transparent)" }
       : state === "offline"
         ? { background: "transparent", border: "1.5px solid var(--ct-muted, #888)" }
         : { background: "var(--ct-muted, #888)", opacity: 0.4 };
@@ -95,17 +96,15 @@ export function MeshPresenceTray() {
       {open && pos && createPortal(
         <div
           ref={menuRef}
-          className="ct-portal-menu fixed w-[220px] border border-[rgba(255,255,255,0.12)] rounded-lg shadow-2xl backdrop-blur-xl overflow-hidden"
-          style={{ top: pos.top, right: pos.right, background: "var(--ct-surface, #1e1e2e)" }}
+          className="ct-portal-menu ct-menu fixed w-[220px]"
+          style={{ top: pos.top, right: pos.right, "--ct-menu-origin": "top right" } as CSSProperties}
         >
-          <div className="px-3 pt-2.5 pb-1 text-[10.5px] uppercase tracking-wider text-[var(--ct-muted)]">
-            Mesh presence
-          </div>
+          <div className="ct-menu-caption">Mesh presence</div>
           <PresenceItem
             label="Online"
             sub="Visible to peers"
             active={state === "online"}
-            dotStyle={{ background: "#22c55e", boxShadow: "0 0 6px rgba(34,197,94,0.55)" }}
+            dotStyle={{ background: "var(--ct-green)", boxShadow: "0 0 6px color-mix(in srgb, var(--ct-green) 55%, transparent)" }}
             onClick={() => choose("online")}
           />
           <PresenceItem
@@ -128,27 +127,19 @@ function PresenceItem({
   label: string;
   sub: string;
   active: boolean;
-  dotStyle: React.CSSProperties;
+  dotStyle: CSSProperties;
   onClick: () => void;
 }) {
   return (
-    <button
-      onClick={onClick}
-      className={`flex items-start gap-2.5 w-full px-3 py-2 text-left transition-colors ${
-        active ? "bg-[rgba(125,200,255,0.08)]" : "hover:bg-[rgba(255,255,255,0.06)]"
-      }`}
-    >
-      <span
-        className="inline-block w-2.5 h-2.5 rounded-full mt-1 flex-shrink-0"
-        style={dotStyle}
-      />
-      <span className="flex flex-col min-w-0">
-        <span className={`text-[12px] ${active ? "text-[var(--ct-fg)] font-medium" : "text-[var(--ct-fg)]"}`}>
-          {label}
-          {active && <span className="text-[var(--ct-accent)] ml-1.5">✓</span>}
-        </span>
-        <span className="text-[10px] text-[var(--ct-muted)] mt-0.5">{sub}</span>
+    <button onClick={onClick} className="ct-menu-row">
+      <span className="ct-menu-row__icon">
+        <span className="inline-block w-2.5 h-2.5 rounded-full" style={dotStyle} />
       </span>
+      <span className="min-w-0 flex-1">
+        <span className={`block truncate ${active ? "font-medium" : ""}`}>{label}</span>
+        <span className="ct-menu-row__description">{sub}</span>
+      </span>
+      {active && <Check aria-hidden size={14} className="ct-menu-row__check shrink-0" />}
     </button>
   );
 }

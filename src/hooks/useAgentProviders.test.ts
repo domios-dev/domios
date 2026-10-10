@@ -1,10 +1,10 @@
 // Run: npx tsx src/hooks/useAgentProviders.test.ts
 
-import { getAgentDescriptor, listAgentDescriptors, setAgentDescriptors } from "../lib/agentDescriptorCache";
+import { agentDescriptorsRefreshing, acceptModelCatalogueChange, getAgentDescriptor, listAgentDescriptors, setAgentDescriptors } from "../lib/agentDescriptorCache";
 import type { ProviderDescriptor } from "../lib/types";
 import {
   agentProvidersFromResponse,
-  attachModelsUpdatedRefresh,
+  attachModelCatalogueChangedRefresh,
   shouldRefreshAgentProviders,
   syncAgentDescriptorCache,
   visibleAgentProviders,
@@ -48,16 +48,18 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-test("sync hides the previous catalog throughout loading and error before publishing the next catalog", () => {
+test("sync retains the catalog during refresh and clears it on error", () => {
   const catalogA = [provider("catalog-a")];
   const catalogB = [provider("catalog-b")];
 
   setAgentDescriptors(catalogA);
   syncAgentDescriptorCache(catalogA, true, null);
-  assert(listAgentDescriptors().length === 0, "loading clears catalog A from cache consumers");
+  assert(getAgentDescriptor("catalog-a")?.id === "catalog-a", "refresh retains the visible catalog");
+  assert(agentDescriptorsRefreshing(), "preset consumers can observe refresh without losing provider identity");
 
   syncAgentDescriptorCache(catalogA, false, "catalog unavailable");
   assert(listAgentDescriptors().length === 0, "fetch errors cannot republish retained catalog A items");
+  assert(!agentDescriptorsRefreshing(), "settled errors end the refresh state");
 
   syncAgentDescriptorCache(catalogB, false, null);
   assert(getAgentDescriptor("catalog-b")?.id === "catalog-b", "settled catalog B reaches cache consumers");
@@ -73,19 +75,19 @@ test("sync allows empty registry after a completed load", () => {
   assert(getAgentDescriptor("loaded-provider") === undefined, "empty completed fetch clears cache");
 });
 
-test("models-updated refresh is wired alongside contributions changes", () => {
+test("catalogue version changes refresh provider descriptors", () => {
   assert(shouldRefreshAgentProviders("contributions-changed"), "contribution event should refresh");
-  assert(shouldRefreshAgentProviders("models-updated"), "models-updated should refresh");
+  assert(shouldRefreshAgentProviders("model-catalogue-changed"), "catalogue change should refresh");
   assert(!shouldRefreshAgentProviders("tab-focused"), "irrelevant events must not refresh");
 });
 
-test("loading or failed catalogs expose no stale provider entries", () => {
+test("refresh preserves catalog identity while failures clear entries", () => {
   const stale = [provider("stale-provider")];
-  assert(visibleAgentProviders(stale, true, null).length === 0, "loading hides stale entries");
+  assert(visibleAgentProviders(stale, true, null) === stale, "refresh preserves visible entries");
   assert(visibleAgentProviders(stale, false, "catalog unavailable").length === 0, "errors hide stale entries");
   assert(
-    visibleAgentProviders(stale, true, null) === visibleAgentProviders([], true, null),
-    "hidden catalogs keep stable identity across consumer renders",
+    visibleAgentProviders(stale, true, "failed") === visibleAgentProviders([], true, "failed"),
+    "failed catalogs keep stable identity across consumer renders",
   );
   assert(visibleAgentProviders(stale, false, null) === stale, "settled catalog preserves identity");
 });
@@ -97,34 +99,51 @@ test("malformed catalog responses expose an honest empty catalog", () => {
   assert(agentProvidersFromResponse(catalog) === catalog, "array response preserves catalog identity");
 });
 
-test("models-updated listener refetches while mounted", () => {
+test("catalogue listener refetches a newer provider version while mounted", () => {
   let refetches = 0;
-  let trigger: (() => void) | undefined;
-  const cleanup = attachModelsUpdatedRefresh(
+  let trigger: ((version: number) => void) | undefined;
+  setAgentDescriptors([provider("codex")]);
+  const cleanup = attachModelCatalogueChangedRefresh(
     () => {
       refetches += 1;
     },
-    async <T>(_event: string, handler: (event: { payload: T }) => void) => {
-      trigger = () => handler({ payload: { provider: "codex" } as T });
+    async <T>(event: string, handler: (event: { payload: T }) => void) => {
+      assert(event === "model-catalogue-changed", "listener must use the versioned event");
+      trigger = (version) => handler({ payload: { provider: "codex", version } as T });
       return () => {
         trigger = undefined;
       };
     },
   );
 
-  trigger?.();
+  trigger?.(1);
   cleanup();
 
   assert(refetches === 1, "listener should refetch while active");
 });
 
-test("models-updated listener releases a late registration after cleanup", async () => {
+test("catalogue events reach every mounted consumer and deduplicate per consumer", () => {
+  setAgentDescriptors([provider("shared-catalogue")]);
+  const handlers: Array<(event: {payload: {provider: string; version: number}}) => void> = [];
+  const counts = [0, 0];
+  const listen = async <T>(_event: string, handler: (event: {payload: T}) => void) => {
+    handlers.push(handler as typeof handlers[number]);
+    return () => {};
+  };
+  const cleanups = counts.map((_, index) => attachModelCatalogueChangedRefresh(() => counts[index]++, listen));
+  for (const version of [1, 1, 2, 1]) {
+    for (const handler of handlers) handler({payload: {provider: "shared-catalogue", version}});
+  }
+  assert(counts[0] === 2 && counts[1] === 2, "each consumer observes both newer versions once");
+  cleanups.forEach((cleanup) => cleanup());
+});
+test("catalogue listener releases a late registration after cleanup", async () => {
   let refetches = 0;
   let unlistenCalls = 0;
   const registration = deferred<() => void>();
   const unlistenObserved = deferred<void>();
 
-  const cleanup = attachModelsUpdatedRefresh(() => {
+  const cleanup = attachModelCatalogueChangedRefresh(() => {
     refetches += 1;
   }, async () => registration.promise);
 
@@ -140,7 +159,7 @@ test("models-updated listener releases a late registration after cleanup", async
   assert(refetches === 0, "cleanup must block late events");
 });
 
-test("models-updated listener swallows a rejected registration", async () => {
+test("catalogue listener swallows a rejected registration", async () => {
   let refetches = 0;
   let caught = false;
   const originalUnhandled = process.listeners("unhandledRejection");
@@ -151,7 +170,7 @@ test("models-updated listener swallows a rejected registration", async () => {
   process.removeAllListeners("unhandledRejection");
   process.on("unhandledRejection", unhandled);
 
-  attachModelsUpdatedRefresh(
+  attachModelCatalogueChangedRefresh(
     () => {
       refetches += 1;
     },
@@ -170,13 +189,34 @@ test("models-updated listener swallows a rejected registration", async () => {
   assert(refetches === 0, "registration failure must not refetch");
 });
 
+test("catalogue listener ignores duplicate and older versions", () => {
+  setAgentDescriptors([{ ...provider("versioned"), catalogue_version: 4 }]);
+  assert(!acceptModelCatalogueChange({ provider: "versioned", version: 4 }), "same version is cached");
+  assert(!acceptModelCatalogueChange({ provider: "versioned", version: 3 }), "older version is ignored");
+  assert(acceptModelCatalogueChange({ provider: "versioned", version: 5 }), "new version invalidates the cache");
+});
+
+test("provider cache does not roll back after a newer catalogue event", () => {
+  const current = { ...provider("monotonic"), catalogue_version: 2 };
+  setAgentDescriptors([current]);
+  assert(acceptModelCatalogueChange({ provider: "monotonic", version: 3 }), "new catalogue version is accepted");
+
+  setAgentDescriptors([{ ...current, available_models: [{ id: "stale", display_name: "Stale" }] }]);
+
+  assert(
+    getAgentDescriptor("monotonic")?.available_models.length === 0,
+    "a stale in-flight response must not replace the cached catalogue",
+  );
+  assert(!acceptModelCatalogueChange({ provider: "monotonic", version: 3 }), "the event remains deduplicated");
+});
+
 test("listAgentDescriptors preserves registry order and identity", () => {
-  const list = [provider("claude"), provider("codex")];
+  const list = [provider("order-first"), provider("order-second")];
   setAgentDescriptors(list);
   const a = listAgentDescriptors();
   const b = listAgentDescriptors();
   assert(a === b, "stable identity between calls");
-  assert(a.map((p) => p.id).join(",") === "claude,codex", "preserves order");
+  assert(a.map((p) => p.id).join(",") === "order-first,order-second", "preserves order");
 });
 
 (async () => {

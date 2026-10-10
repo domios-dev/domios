@@ -34,7 +34,7 @@ export function SessionBindingRecoveryForm({
       onSubmit={submit}
       role="group"
       aria-label="Repair session binding"
-      className="mx-auto mt-2 flex w-full max-w-4xl flex-wrap items-end gap-2 px-2"
+      className="mx-auto mt-2 flex w-full ct-composer-lane flex-wrap items-end gap-2 px-2"
       data-testid="session-binding-recovery"
     >
       <label className="min-w-48 flex-1 text-xs text-[var(--ct-muted-fg)]">

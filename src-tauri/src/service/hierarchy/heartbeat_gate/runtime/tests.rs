@@ -156,7 +156,10 @@ fn heartbeat_connections_respect_token_mode_and_choice_capability() {
             let model = connected_model(
                 &cfg,
                 &registry,
-                &supporter::TokenSnapshot { usable },
+                &supporter::TokenSnapshot {
+                    usable,
+                    acl_invalid: false,
+                },
                 runtime.clone(),
                 "owner",
             );
@@ -166,7 +169,10 @@ fn heartbeat_connections_respect_token_mode_and_choice_capability() {
         assert!(connected_model(
             &cfg,
             &registry,
-            &supporter::TokenSnapshot { usable: true },
+            &supporter::TokenSnapshot {
+                usable: true,
+                acl_invalid: false,
+            },
             runtime.clone(),
             "owner"
         )

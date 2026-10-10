@@ -9,6 +9,12 @@ const LOOP_THRESHOLD: u32 = 3;
 const MAX_BACKOFF_SECS: u64 = 30;
 const FAST_FAIL_SECS: i64 = 30;
 static RECOVERY_HEAL_PENDING: AtomicBool = AtomicBool::new(false);
+static START_EPOCH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// This process's start epoch, fixed once by `record_startup`.
+pub fn current_start_epoch() -> Option<&'static str> {
+    START_EPOCH.get().map(String::as_str)
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -188,6 +194,7 @@ pub fn record_startup() -> RecoveryState {
         });
 
     write_json(&current_path(), &current);
+    let _ = START_EPOCH.set(current.epoch.clone());
     if let Some(crash) = &last_crash {
         write_json(&last_crash_path(), crash);
         append_crash_history(crash);

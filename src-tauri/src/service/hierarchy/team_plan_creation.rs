@@ -72,6 +72,10 @@ impl ServiceContext {
             now_ms,
         )?;
         self.emit_state_changed();
+        let _ = crate::service::session_persist::persist_session_after_mutation(
+            self,
+            crate::service::session_persist::SessionPersistUrgency::Prompt,
+        );
         Ok(outcome)
     }
 
@@ -107,6 +111,10 @@ impl ServiceContext {
             })?;
         }
         self.emit_state_changed();
+        let _ = crate::service::session_persist::persist_session_after_mutation(
+            self,
+            crate::service::session_persist::SessionPersistUrgency::Prompt,
+        );
         Ok(outcome)
     }
 }

@@ -75,7 +75,7 @@ fn storage_sentinel_graph_projects_one_committed_scope_with_configured_and_obser
     let scenario = authored(
         false,
         json!({"done":[
-            {"id":"branch","type":"sentinel","parameters":{"target":child.id}},
+            {"id":"branch","type":"blueprint","parameters":{"target":child.id}},
             {"id":"tell","type":"send","parameters":{"target":"absent-worker"}},
             {"id":"trigger","type":"cron","parameters":{"target":cron.id}}
         ]}),
@@ -220,20 +220,20 @@ fn storage_sentinel_schema_upgrades_v1_in_place_with_exact_relationships() {
         rows.map(|row| row.expect("parent table")).collect()
     };
     let relationships: [(&str, &[&str]); 11] = [
-        ("sentinels", &["sentinels"]),
-        ("sentinel_definitions", &["sentinels"]),
-        ("sentinel_heads", &["sentinel_definitions", "sentinels"]),
-        ("sentinel_buckets", &["sentinel_definitions"]),
-        ("sentinel_handlers", &["sentinel_buckets"]),
-        ("sentinel_handler_targets", &["sentinel_handlers"]),
-        ("sentinel_runtime", &["sentinels"]),
+        ("blueprints", &["blueprints"]),
+        ("blueprint_definitions", &["blueprints"]),
+        ("blueprint_heads", &["blueprint_definitions", "blueprints"]),
+        ("blueprint_buckets", &["blueprint_definitions"]),
+        ("blueprint_handlers", &["blueprint_buckets"]),
+        ("blueprint_handler_targets", &["blueprint_handlers"]),
+        ("blueprint_runtime", &["blueprints"]),
         (
-            "sentinel_transitions",
-            &["sentinel_definitions", "sentinels"],
+            "blueprint_transitions",
+            &["blueprint_definitions", "blueprints"],
         ),
-        ("sentinel_handler_results", &["sentinel_transitions"]),
-        ("sentinel_command_results", &["sentinel_handler_results"]),
-        ("sentinel_command_cleanup", &["sentinel_command_results"]),
+        ("blueprint_handler_results", &["blueprint_transitions"]),
+        ("blueprint_command_results", &["blueprint_handler_results"]),
+        ("blueprint_command_cleanup", &["blueprint_command_results"]),
     ];
     for (table, expected) in relationships {
         let expected: BTreeSet<String> = expected.iter().map(|name| name.to_string()).collect();

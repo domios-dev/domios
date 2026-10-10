@@ -94,11 +94,16 @@ export function HamburgerIcon({ size = 15, className, style }: IconProps) {
   );
 }
 
-/** Octicon send (paper plane) */
 export function SendIcon({ size = 14, className, style }: IconProps) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" className={className} style={style}>
-      <path d="M.989 8 .064 2.68a1.342 1.342 0 011.85-1.462l13.402 5.744a1.13 1.13 0 010 2.076L1.913 14.782a1.343 1.343 0 01-1.85-1.463L.99 8Zm1.015.78l-.616 3.559a.14.14 0 00.193.153l10.24-4.387-9.817.674Zm-.616-5.119.616 3.559 9.817.674-10.24-4.387a.14.14 0 00-.193.154Z" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className} style={style} aria-hidden>
+      <path
+        d="M4.5 12H19M13 5.5 19.5 12 13 18.5"
+        stroke="currentColor"
+        strokeWidth="2.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

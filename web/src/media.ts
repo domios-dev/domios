@@ -7,7 +7,8 @@ export const chapters: Chapter[] = [
   { id: 'plugins', label: 'Choose your tools', title: 'Your agents. Your tools.', description: 'Choose your intelligence and add capabilities through plugins. One environment for your team.', start: 30, end: 45 },
 ];
 
-export type Caption = { id?: number; start: number; end: number; text: string };
+export type CaptionWord = { text: string; start: number; end: number };
+export type Caption = { id?: number; start: number; end: number; text: string; words?: CaptionWord[] };
 export type MediaAsset = { src: string; bytes?: number };
 export type MusicCredit = { title: string; author: string; sourcePage: string; license: string; licenseUrl: string; credit: string };
 export type Trailer = { mp4: MediaAsset; webm: MediaAsset; poster: MediaAsset; duration: number; chapters: Chapter[]; captions: Caption[]; hasNarration?: boolean; subtitles?: MediaAsset; music?: MusicCredit };
@@ -34,13 +35,25 @@ function parseMusic(value: unknown): MusicCredit | undefined {
     sourcePage: value.sourcePage, licenseUrl: value.licenseUrl };
 }
 
-export function parseCaptions(value: unknown): Caption[] {
-  return Array.isArray(value) ? value.filter((caption): caption is Caption =>
+export function parseCaptions(value: unknown, wordTimings?: unknown): Caption[] {
+  const captions = Array.isArray(value) ? value.filter((caption): caption is Caption =>
     isRecord(caption) && typeof caption.text === 'string' && typeof caption.start === 'number'
     && typeof caption.end === 'number' && caption.start >= 0 && caption.end > caption.start) : [];
+  if (!Array.isArray(wordTimings)) return captions;
+  return captions.map(caption => {
+    const words = wordTimings.filter(word => isRecord(word) && word.cueId === caption.id);
+    if (!words.length || !words.every((word, index) => isRecord(word) && typeof word.text === 'string'
+      && typeof word.start === 'number' && Number.isFinite(word.start)
+      && typeof word.end === 'number' && Number.isFinite(word.end)
+      && word.start >= caption.start - .001 && word.end <= caption.end + .001 && word.end > word.start
+      && (!index || word.start >= words[index - 1].end))) return caption;
+    const timing = words as (CaptionWord & { cueId: number })[];
+    if (timing.map(word => word.text).join(' ') !== caption.text) return caption;
+    return { ...caption, words: timing.map(({ text, start, end }) => ({ text, start, end })) };
+  });
 }
 
-export function parseMedia(manifest: unknown, captions: unknown): Trailer {
+export function parseMedia(manifest: unknown, captions: unknown, wordTimings?: unknown): Trailer {
   const value = isRecord(manifest) ? manifest : {};
   const timings = Array.isArray(value.chapters) ? value.chapters : [];
   const duration = typeof value.duration === 'number' && value.duration > 0 ? value.duration : defaultMedia.duration;
@@ -57,7 +70,7 @@ export function parseMedia(manifest: unknown, captions: unknown): Trailer {
     poster: isAsset(value.poster) ? value.poster : defaultMedia.poster,
     duration,
     chapters: contiguous && timeline[timeline.length - 1].end === duration ? timeline : chapters,
-    captions: parseCaptions(captions),
+    captions: parseCaptions(captions, wordTimings),
     hasNarration: value.hasNarration === true,
     subtitles: isAsset(value.subtitles) ? value.subtitles : undefined,
     music: parseMusic(value.music),

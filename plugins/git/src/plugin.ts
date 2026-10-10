@@ -17,8 +17,9 @@ function exec(opts: ExecOpts): ExecResult {
   }
 }
 
+// Optional locks off: background reads must not take index.lock from the agent's own git.
 function git(cwd: string, args: string[]): ExecResult {
-  return exec({ bin: "git", args: ["-C", cwd].concat(args) });
+  return exec({ bin: "git", args: ["-C", cwd].concat(args), env: { GIT_OPTIONAL_LOCKS: "0" } });
 }
 
 // --- pure parsers (exported for tests) ---
@@ -283,7 +284,7 @@ function parseStatusPorcelain(out: string | undefined): StatusEntry[] {
 
 type Counts = Record<string, [number | null, number | null]>;
 
-// `git diff --numstat HEAD` → { path: [added, deleted] }.
+// `git diff-index --numstat HEAD` → { path: [added, deleted] }.
 function parseNumstatCounts(out: string | undefined): Counts {
   const map: Counts = {};
   (out || "").split("\n").forEach((line) => {
@@ -426,7 +427,7 @@ function gitCommitDiff(cwd: string, sha: string, path: string): { diff: string }
 function gitWorkdirFiles(cwd: string): WorkdirFile[] | { error: string } {
   const s = git(cwd, ["-c", "core.quotePath=false", "status", "--porcelain=v1", "-z"]);
   if (!ok(s)) return fail(s, "git status failed");
-  const ns = git(cwd, ["-c", "core.quotePath=false", "diff", "--numstat", "HEAD"]);
+  const ns = git(cwd, ["-c", "core.quotePath=false", "diff-index", "-M", "--numstat", "HEAD"]);
   return mergeWorkdirFiles(parseStatusPorcelain(s.stdout), ok(ns) ? parseNumstatCounts(ns.stdout) : {});
 }
 

@@ -98,6 +98,68 @@
           "subcommands": []
         },
         {
+          "name": "cli",
+          "about": "Inspect or manage a provider's CLI using its manifest commands",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "install",
+              "about": "Run the manifest installer in a visible utility tab and report its result",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "provider",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PROVIDER",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "status",
+              "about": "Show installed state, resolved binary, and commands for this OS",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "provider",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PROVIDER",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "update",
+              "about": "Run the manifest updater in a visible utility tab and report its result",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "provider",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PROVIDER",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
           "name": "compact",
           "about": "Compact agent context (sends /compact to Claude)",
           "aliases": [],
@@ -110,6 +172,24 @@
               "possible_values": [],
               "default": null,
               "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "fork",
+          "about": "Open a new tab from a provider-declared session fork; bind only from its own session evidence",
+          "aliases": [],
+          "args": [
+            {
+              "name": "tab",
+              "positional": false,
+              "required": false,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": null,
               "aliases": []
             }
           ],
@@ -166,6 +246,16 @@
           "about": "Switch one idle agent Tab to another model. Only that Tab changes: it is relaunched on its own session and the command returns once the provider reports the new model. Providers without a live switch refuse; respawn them with `agent spawn PROVIDER --model X`",
           "aliases": [],
           "args": [
+            {
+              "name": "force",
+              "positional": false,
+              "required": false,
+              "value_name": "FORCE",
+              "possible_values": [],
+              "default": null,
+              "help": "Explicitly override the background-work restart guard and report the affected work",
+              "aliases": []
+            },
             {
               "name": "name",
               "positional": true,
@@ -351,7 +441,7 @@
                 "partial"
               ],
               "default": null,
-              "help": "Task outcome: in_review | blocked | partial | done",
+              "help": "Report outcome: in_review | blocked (proposes a task block) | partial | done",
               "aliases": []
             },
             {
@@ -419,7 +509,17 @@
               "value_name": "FORCE",
               "possible_values": [],
               "default": null,
-              "help": "Skip the graceful exit and force-kill instead. Use only when the agent is hung",
+              "help": "Skip graceful exit and force-kill; also permits --fresh on a live agent",
+              "aliases": []
+            },
+            {
+              "name": "fresh",
+              "positional": false,
+              "required": false,
+              "value_name": "FRESH",
+              "possible_values": [],
+              "default": null,
+              "help": "Start a new session in the same tab. Live agents require --force; an existing exact restored session is never replaced",
               "aliases": []
             },
             {
@@ -430,6 +530,26 @@
               "possible_values": [],
               "default": "10",
               "help": "Wait this long for graceful exit before force-killing (seconds)",
+              "aliases": []
+            },
+            {
+              "name": "handoff-history",
+              "positional": false,
+              "required": false,
+              "value_name": "HANDOFF_HISTORY",
+              "possible_values": [],
+              "default": null,
+              "help": "Include bounded, redacted history in a provider-changing fresh launch",
+              "aliases": []
+            },
+            {
+              "name": "provider",
+              "positional": false,
+              "required": false,
+              "value_name": "PROVIDER",
+              "possible_values": [],
+              "default": null,
+              "help": "Relaunch with this installed PTY provider instead of the current provider",
               "aliases": []
             },
             {
@@ -648,7 +768,7 @@
               "value_name": "PRESET",
               "possible_values": [],
               "default": null,
-              "help": "Select a chatBackend shell preset (plugin default when omitted); refused for PTY agents",
+              "help": "Select a provider-owned preset supported by the target provider",
               "aliases": []
             },
             {
@@ -826,6 +946,44 @@
           "subcommands": []
         },
         {
+          "name": "turns",
+          "about": "Read completed turns from a tool-less agent's exact bound session",
+          "aliases": [],
+          "args": [
+            {
+              "name": "after",
+              "positional": false,
+              "required": false,
+              "value_name": "AFTER",
+              "possible_values": [],
+              "default": "0",
+              "help": "UTF-8 user-record lower bound; use next_offset to continue a bounded window",
+              "aliases": []
+            },
+            {
+              "name": "last",
+              "positional": false,
+              "required": false,
+              "value_name": "LAST",
+              "possible_values": [],
+              "default": "10",
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "unlink",
           "about": "Remove a tab's role. A final Orchestrator leaves its Team and Plan recoverable",
           "aliases": [],
@@ -838,6 +996,685 @@
               "possible_values": [],
               "default": null,
               "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "blueprint",
+      "about": "Cheap hash-gated watchers with closed-set routes",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "create",
+          "about": "Classify a bounded probe or same-Team agent observation",
+          "aliases": [],
+          "args": [
+            {
+              "name": "buckets",
+              "positional": false,
+              "required": false,
+              "value_name": "BUCKETS",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "convert-timeout",
+              "positional": false,
+              "required": false,
+              "value_name": "DURATION",
+              "possible_values": [],
+              "default": null,
+              "help": "Bound the one-time conversion, in the --every duration syntax",
+              "aliases": []
+            },
+            {
+              "name": "convert-to",
+              "positional": false,
+              "required": false,
+              "value_name": "KIND",
+              "possible_values": [],
+              "default": null,
+              "help": "Convert the input to another kind once: text|audio",
+              "aliases": []
+            },
+            {
+              "name": "dry-run",
+              "positional": false,
+              "required": false,
+              "value_name": "DRY_RUN",
+              "possible_values": [],
+              "default": null,
+              "help": "Validate and print the resulting graph without creating it",
+              "aliases": []
+            },
+            {
+              "name": "escalation-timeout-ms",
+              "positional": false,
+              "required": false,
+              "value_name": "ESCALATION_TIMEOUT_MS",
+              "possible_values": [],
+              "default": null,
+              "help": "Bound how long an `other` escalation may hold this stage, in milliseconds",
+              "aliases": []
+            },
+            {
+              "name": "every",
+              "positional": false,
+              "required": false,
+              "value_name": "EVERY",
+              "possible_values": [],
+              "default": null,
+              "help": "Owner-requested cadence (minimum 10s, default 20s)",
+              "aliases": []
+            },
+            {
+              "name": "handlers-file",
+              "positional": false,
+              "required": false,
+              "value_name": "HANDLERS_FILE",
+              "possible_values": [],
+              "default": null,
+              "help": "JSON bucket-to-array of {id,type,parameters} handlers, including command, respond_prompt and escalation on `other`",
+              "aliases": []
+            },
+            {
+              "name": "input",
+              "positional": false,
+              "required": false,
+              "value_name": "INPUT",
+              "possible_values": [],
+              "default": null,
+              "help": "Watch data instead of a probe or observation: text|audio|video|image",
+              "aliases": []
+            },
+            {
+              "name": "input-file",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Absolute or caller-cwd-relative path of the input data file",
+              "aliases": []
+            },
+            {
+              "name": "input-text",
+              "positional": false,
+              "required": false,
+              "value_name": "INPUT_TEXT",
+              "possible_values": [],
+              "default": null,
+              "help": "Inline input text (only for --input text)",
+              "aliases": []
+            },
+            {
+              "name": "input-url",
+              "positional": false,
+              "required": false,
+              "value_name": "INPUT_URL",
+              "possible_values": [],
+              "default": null,
+              "help": "http or https URL of the input data",
+              "aliases": []
+            },
+            {
+              "name": "match",
+              "positional": false,
+              "required": false,
+              "value_name": "MATCHES",
+              "possible_values": [],
+              "default": null,
+              "help": "Deterministic fallback when no Choice adapter is connected: bucket=regex",
+              "aliases": []
+            },
+            {
+              "name": "max-actions",
+              "positional": false,
+              "required": false,
+              "value_name": "MAX_ACTIONS",
+              "possible_values": [],
+              "default": null,
+              "help": "Finite action-attempt budget (maximum 1024)",
+              "aliases": []
+            },
+            {
+              "name": "max-transitions",
+              "positional": false,
+              "required": false,
+              "value_name": "MAX_TRANSITIONS",
+              "possible_values": [],
+              "default": null,
+              "help": "Finite accepted transition budget (maximum 256)",
+              "aliases": []
+            },
+            {
+              "name": "name",
+              "positional": false,
+              "required": false,
+              "value_name": "NAME",
+              "possible_values": [],
+              "default": null,
+              "help": "Short meaningful name describing what is watched and what happens",
+              "aliases": []
+            },
+            {
+              "name": "observe",
+              "positional": false,
+              "required": false,
+              "value_name": "OBSERVE",
+              "possible_values": [],
+              "default": null,
+              "help": "Observe a same-Team tab or cron run; shells require terminal-pattern or output-settled",
+              "aliases": []
+            },
+            {
+              "name": "output-settled",
+              "positional": false,
+              "required": false,
+              "value_name": "OUTPUT_SETTLED",
+              "possible_values": [],
+              "default": null,
+              "help": "Fire when terminal output settles for this many milliseconds (10..60000)",
+              "aliases": []
+            },
+            {
+              "name": "owner",
+              "positional": false,
+              "required": false,
+              "value_name": "OWNER",
+              "possible_values": [
+                "tab",
+                "team"
+              ],
+              "default": null,
+              "help": "Assign the pipeline to its creator tab or Team",
+              "aliases": []
+            },
+            {
+              "name": "paused",
+              "positional": false,
+              "required": false,
+              "value_name": "PAUSED",
+              "possible_values": [],
+              "default": null,
+              "help": "Create a dormant downstream stage; its lifetime starts now",
+              "aliases": []
+            },
+            {
+              "name": "probe",
+              "positional": false,
+              "required": false,
+              "value_name": "PROBE",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "question",
+              "positional": false,
+              "required": false,
+              "value_name": "QUESTION",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "rearm-on-change",
+              "positional": false,
+              "required": false,
+              "value_name": "BUCKET",
+              "possible_values": [],
+              "default": null,
+              "help": "Route again when this bucket's output changes without changing buckets",
+              "aliases": []
+            },
+            {
+              "name": "recipe",
+              "positional": false,
+              "required": false,
+              "value_name": "RECIPE",
+              "possible_values": [],
+              "default": null,
+              "help": "Create from a named pipeline recipe",
+              "aliases": []
+            },
+            {
+              "name": "route",
+              "positional": false,
+              "required": false,
+              "value_name": "ROUTES",
+              "possible_values": [],
+              "default": null,
+              "help": "Inline routes: bucket=notify|blueprint:<exact-id>|send:<tab>|cron:<name>|stop|none; use --handlers-file for command, respond_prompt and escalation handlers",
+              "aliases": []
+            },
+            {
+              "name": "session",
+              "positional": false,
+              "required": false,
+              "value_name": "SESSION",
+              "possible_values": [],
+              "default": null,
+              "help": "Keep exchanges outside transition/action budgets; stop at 16384 exchanges or 120/minute",
+              "aliases": []
+            },
+            {
+              "name": "set",
+              "positional": false,
+              "required": false,
+              "value_name": "SET",
+              "possible_values": [],
+              "default": null,
+              "help": "Replace recipe placeholders with key=value pairs",
+              "aliases": []
+            },
+            {
+              "name": "spec",
+              "positional": false,
+              "required": false,
+              "value_name": "SPEC",
+              "possible_values": [],
+              "default": null,
+              "help": "JSON or YAML pipeline specification, or `-` to read standard input",
+              "aliases": []
+            },
+            {
+              "name": "terminal-pattern",
+              "positional": false,
+              "required": false,
+              "value_name": "TERMINAL_PATTERN",
+              "possible_values": [],
+              "default": null,
+              "help": "Fire with the new terminal output delta when this regex matches",
+              "aliases": []
+            },
+            {
+              "name": "timeout",
+              "positional": false,
+              "required": false,
+              "value_name": "TIMEOUT",
+              "possible_values": [],
+              "default": null,
+              "help": "End the blueprint after this duration",
+              "aliases": []
+            },
+            {
+              "name": "until",
+              "positional": false,
+              "required": false,
+              "value_name": "UNTIL",
+              "possible_values": [],
+              "default": null,
+              "help": "Stop after this bucket's first confident transition",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "delete",
+          "about": "Delete a whole blueprint, or every stopped one in the Team; the creator or the Team owner may delete",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": false,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "stop",
+              "positional": false,
+              "required": false,
+              "value_name": "STOP",
+              "possible_values": [],
+              "default": null,
+              "help": "Stop a running blueprint before deleting it",
+              "aliases": []
+            },
+            {
+              "name": "stopped",
+              "positional": false,
+              "required": false,
+              "value_name": "STOPPED",
+              "possible_values": [],
+              "default": null,
+              "help": "Delete every stopped blueprint the caller may delete in its Team",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "escalation",
+          "about": "Resolve an open escalation",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "resolve",
+              "about": "Release a held stage and re-evaluate its observation",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "transition_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "TRANSITION_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "export",
+          "about": "Export a portable recipe containing only the definition",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "out",
+              "positional": false,
+              "required": false,
+              "value_name": "OUT",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "history",
+          "about": "Show immutable definition versions",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "import",
+          "about": "Import a portable recipe into the caller's Team (stopped by default)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "file",
+              "positional": true,
+              "required": true,
+              "value_name": "FILE",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "set",
+              "positional": false,
+              "required": false,
+              "value_name": "SET",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "start",
+              "positional": false,
+              "required": false,
+              "value_name": "START",
+              "possible_values": [],
+              "default": null,
+              "help": "Start immediately after validation",
+              "aliases": []
+            },
+            {
+              "name": "stopped",
+              "positional": false,
+              "required": false,
+              "value_name": "STOPPED",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "input",
+          "about": "Deliver a text body to a running text input stage",
+          "aliases": [],
+          "args": [
+            {
+              "name": "from-pad",
+              "positional": false,
+              "required": false,
+              "value_name": "FROM_PAD",
+              "possible_values": [],
+              "default": null,
+              "help": "Read a UTF-8 body from the caller's Agent Pad",
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "text-file",
+              "positional": false,
+              "required": false,
+              "value_name": "TEXT_FILE",
+              "possible_values": [],
+              "default": null,
+              "help": "Read a UTF-8 body from a file",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List blueprints scoped to the calling tab and its Team",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "log",
+          "about": "List bounded run journal entries, newest first",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "limit",
+              "positional": false,
+              "required": false,
+              "value_name": "LIMIT",
+              "possible_values": [],
+              "default": "50",
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "nodes",
+          "about": "List trigger, step, converter and event-source capabilities",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "recipe",
+          "about": "List built-in graph skeletons or print one ready-to-edit recipe",
+          "aliases": [],
+          "args": [
+            {
+              "name": "name",
+              "positional": true,
+              "required": false,
+              "value_name": "NAME",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "show",
+          "about": "Show one blueprint",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "stop",
+          "about": "Stop one blueprint",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "update",
+          "about": "Replace one definition at the expected version",
+          "aliases": [],
+          "args": [
+            {
+              "name": "cause",
+              "positional": false,
+              "required": false,
+              "value_name": "CAUSE",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "dry-run",
+              "positional": false,
+              "required": false,
+              "value_name": "DRY_RUN",
+              "possible_values": [],
+              "default": null,
+              "help": "Validate and print the resulting graph without updating it",
+              "aliases": []
+            },
+            {
+              "name": "expect-version",
+              "positional": false,
+              "required": true,
+              "value_name": "EXPECT_VERSION",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "from-file",
+              "positional": false,
+              "required": true,
+              "value_name": "FROM_FILE",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
               "aliases": []
             }
           ],
@@ -863,7 +1700,7 @@
               "value_name": "ANNOUNCE",
               "possible_values": [],
               "default": null,
-              "help": "Send a one-shot \"now serving from <host>\" message to the sentinel chat",
+              "help": "Send a one-shot \"now serving from <host>\" message to the Blueprint chat",
               "aliases": []
             },
             {
@@ -873,7 +1710,7 @@
               "value_name": "ANNOUNCE_CHAT_ID",
               "possible_values": [],
               "default": null,
-              "help": "Sentinel chat id for --announce. Defaults to the target's first allow-listed bridge user",
+              "help": "Blueprint chat id for --announce. Defaults to the target's first allow-listed bridge user",
               "aliases": []
             },
             {
@@ -1407,7 +2244,7 @@
               "value_name": "NAME",
               "possible_values": [],
               "default": null,
-              "help": "Cron job name",
+              "help": "Short meaningful cron job name",
               "aliases": []
             },
             {
@@ -1727,7 +2564,7 @@
               "value_name": "ID",
               "possible_values": [],
               "default": null,
-              "help": "Cron job ID",
+              "help": "Cron job ID or name",
               "aliases": []
             }
           ],
@@ -2603,7 +3440,7 @@
         },
         {
           "name": "sweep-profiles",
-          "about": "Preview or remove dead provider launch artifacts owned by this instance",
+          "about": "Preview dead provider launch artifacts; only the machine owner may remove them",
           "aliases": [],
           "args": [
             {
@@ -2623,7 +3460,7 @@
               "value_name": "INCLUDE_LEGACY",
               "possible_values": [],
               "default": null,
-              "help": "Include every unmarked legacy profile, regardless of tab liveness",
+              "help": "Include exact-pattern unmarked legacy profiles whose tabs are not live here",
               "aliases": []
             },
             {
@@ -2802,6 +3639,52 @@
             }
           ],
           "subcommands": []
+        },
+        {
+          "name": "area",
+          "about": "Merge an area reversibly; use taxonomy to list areas and counts",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "merge",
+              "about": "Move every item to another area, preserving scope and audit history",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "dry-run",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "DRY_RUN",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "from",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "FROM",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "into",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "INTO",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
         },
         {
           "name": "calibration",
@@ -4464,7 +5347,7 @@
         },
         {
           "name": "restore",
-          "about": "Restore from the audit history. An archived or merged item gets its prior kind back and its merge link invalidated (plus the --version body when given); otherwise reverts the body before the most recent change",
+          "about": "Undo an area merge, or restore from audit history. An archived item gets its prior kind back and its merge link invalidated (plus the --version body when given); otherwise reverts the body before the most recent change",
           "aliases": [],
           "args": [
             {
@@ -4494,7 +5377,7 @@
               "value_name": "VERSION",
               "possible_values": [],
               "default": null,
-              "help": "History row id (from `mem history <id>`) to restore the body of. Omit to undo the latest body change",
+              "help": "History row id from `mem history <id>`: undo its area merge or restore its body. Omit to undo the latest area merge, archive, or body change",
               "aliases": []
             }
           ],
@@ -5889,6 +6772,219 @@
               "possible_values": [],
               "default": null,
               "help": "Instance ID of the revoked peer",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "model-provider",
+      "about": "Configure model endpoints through the installed provider capability",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "add",
+          "about": "Add an endpoint; pipe the key on stdin. Omit --model to discover models",
+          "aliases": [],
+          "args": [
+            {
+              "name": "base-url",
+              "positional": false,
+              "required": true,
+              "value_name": "BASE_URL",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "kind",
+              "positional": false,
+              "required": true,
+              "value_name": "KIND",
+              "possible_values": [
+                "openai-compatible",
+                "anthropic"
+              ],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "model",
+              "positional": false,
+              "required": false,
+              "value_name": "MODELS",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "name",
+              "positional": false,
+              "required": true,
+              "value_name": "NAME",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "secret",
+              "positional": false,
+              "required": true,
+              "value_name": "SECRET",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List Domios-owned endpoints without key values",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "preset",
+          "about": "Manage Domios-owned provider presets",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": "Create or replace an owned model, prompt and parameter preset",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "model",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "MODEL",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "name",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "NAME",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "prompt",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "PROMPT",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "steps",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "STEPS",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "temperature",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TEMPERATURE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "top-p",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TOP_P",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List Domios-owned presets",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "remove",
+              "about": "Remove only a Domios-owned preset",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "name",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "NAME",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "remove",
+          "about": "Remove a Domios-owned endpoint and its owned secret",
+          "aliases": [],
+          "args": [
+            {
+              "name": "name",
+              "positional": false,
+              "required": true,
+              "value_name": "NAME",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "test",
+          "about": "Check an endpoint within a bounded deadline and return its models",
+          "aliases": [],
+          "args": [
+            {
+              "name": "name",
+              "positional": false,
+              "required": true,
+              "value_name": "NAME",
+              "possible_values": [],
+              "default": null,
+              "help": null,
               "aliases": []
             }
           ],
@@ -7464,7 +8560,7 @@
           "subcommands": [
             {
               "name": "close",
-              "about": "Record a group's retrospective stride: closes its reflection window and clears its retrospective dispatch gate",
+              "about": "Record an optional retrospective stride for a completed group",
               "aliases": [],
               "args": [
                 {
@@ -7817,6 +8913,16 @@
               "possible_values": [],
               "default": null,
               "help": "Lane branch to delete after worktree removal, if merged into project HEAD",
+              "aliases": []
+            },
+            {
+              "name": "force",
+              "positional": false,
+              "required": false,
+              "value_name": "FORCE",
+              "possible_values": [],
+              "default": null,
+              "help": "Force removal, discarding uncommitted and untracked lane content",
               "aliases": []
             },
             {
@@ -9353,11 +10459,21 @@
                 {
                   "name": "note",
                   "positional": false,
-                  "required": true,
+                  "required": false,
                   "value_name": "NOTE",
                   "possible_values": [],
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "note-from-pad",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Read the review note from a file in this tab's pad",
                   "aliases": []
                 },
                 {
@@ -9503,11 +10619,21 @@
                 {
                   "name": "note",
                   "positional": false,
-                  "required": true,
+                  "required": false,
                   "value_name": "NOTE",
                   "possible_values": [],
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "note-from-pad",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Read the review note from a file in this tab's pad",
                   "aliases": []
                 },
                 {
@@ -9541,11 +10667,21 @@
                 {
                   "name": "note",
                   "positional": false,
-                  "required": true,
+                  "required": false,
                   "value_name": "NOTE",
                   "possible_values": [],
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "note-from-pad",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Read the review note from a file in this tab's pad",
                   "aliases": []
                 },
                 {
@@ -11116,6 +12252,54 @@
               "subcommands": []
             },
             {
+              "name": "files",
+              "about": "Replace structured task context files (relative paths resolve against the Worker cwd)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "edit-file",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "read-file",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "TASK_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "link",
               "about": "Link a task to one or more plan sections (CSV)",
               "aliases": [],
@@ -12477,7 +13661,7 @@
         },
         {
           "name": "config",
-          "about": "Configure a plugin by editing its self-documenting config.yaml (comments preserved, validated against the settings schema). Non-secret fields are written to the YAML; secret fields are reported for routing to the secret store (never written plaintext). Reload is live",
+          "about": "Configure plugin settings. Non-secret fields use the comment-preserving config.yaml; secret values are read from stdin and stored in the plugin bucket",
           "aliases": [],
           "args": [
             {
@@ -12511,6 +13695,16 @@
               "aliases": []
             },
             {
+              "name": "secret",
+              "positional": false,
+              "required": false,
+              "value_name": "FIELD",
+              "possible_values": [],
+              "default": null,
+              "help": "Set a declared secret field from stdin",
+              "aliases": []
+            },
+            {
               "name": "set",
               "positional": false,
               "required": false,
@@ -12535,7 +13729,7 @@
         },
         {
           "name": "get",
-          "about": "Show a plugin's agent-facing config: its self-documenting config.yaml (secret values redacted), settings schema, and installed/configured/ reload state. The agent's discover handle (§1.7)",
+          "about": "Show a plugin's agent-facing config and guidance: its config.yaml, settings schema, secret field presence, configHelp, agent verbs, agent guide, and installed/configured/reload state",
           "aliases": [],
           "args": [
             {
@@ -12919,195 +14113,6 @@
         }
       ],
       "subcommands": []
-    },
-    {
-      "name": "sentinel",
-      "about": "Cheap hash-gated watchers with closed-set routes",
-      "aliases": [],
-      "args": [],
-      "subcommands": [
-        {
-          "name": "create",
-          "about": "Watch a bounded shell probe, classifying only changed output",
-          "aliases": [],
-          "args": [
-            {
-              "name": "buckets",
-              "positional": false,
-              "required": true,
-              "value_name": "BUCKETS",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "every",
-              "positional": false,
-              "required": false,
-              "value_name": "EVERY",
-              "possible_values": [],
-              "default": "20s",
-              "help": "Owner-requested cadence (minimum 10s)",
-              "aliases": []
-            },
-            {
-              "name": "handlers-file",
-              "positional": false,
-              "required": false,
-              "value_name": "HANDLERS_FILE",
-              "possible_values": [],
-              "default": null,
-              "help": "JSON bucket-to-array of {id,type,parameters} handlers, including fixed local command actions",
-              "aliases": []
-            },
-            {
-              "name": "match",
-              "positional": false,
-              "required": false,
-              "value_name": "MATCHES",
-              "possible_values": [],
-              "default": null,
-              "help": "Deterministic fallback when no Choice adapter is connected: bucket=regex",
-              "aliases": []
-            },
-            {
-              "name": "max-actions",
-              "positional": false,
-              "required": false,
-              "value_name": "MAX_ACTIONS",
-              "possible_values": [],
-              "default": null,
-              "help": "Finite action-attempt budget (maximum 1024)",
-              "aliases": []
-            },
-            {
-              "name": "max-transitions",
-              "positional": false,
-              "required": false,
-              "value_name": "MAX_TRANSITIONS",
-              "possible_values": [],
-              "default": null,
-              "help": "Finite accepted transition budget (maximum 256)",
-              "aliases": []
-            },
-            {
-              "name": "name",
-              "positional": false,
-              "required": false,
-              "value_name": "NAME",
-              "possible_values": [],
-              "default": null,
-              "help": "Display name of the Sentinel scenario or stage",
-              "aliases": []
-            },
-            {
-              "name": "paused",
-              "positional": false,
-              "required": false,
-              "value_name": "PAUSED",
-              "possible_values": [],
-              "default": null,
-              "help": "Create a dormant downstream stage; its lifetime starts now",
-              "aliases": []
-            },
-            {
-              "name": "probe",
-              "positional": false,
-              "required": true,
-              "value_name": "PROBE",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "question",
-              "positional": false,
-              "required": true,
-              "value_name": "QUESTION",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "route",
-              "positional": false,
-              "required": false,
-              "value_name": "ROUTES",
-              "possible_values": [],
-              "default": null,
-              "help": "Closed-set route: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop",
-              "aliases": []
-            },
-            {
-              "name": "timeout",
-              "positional": false,
-              "required": false,
-              "value_name": "TIMEOUT",
-              "possible_values": [],
-              "default": null,
-              "help": "End the sentinel after this duration",
-              "aliases": []
-            },
-            {
-              "name": "until",
-              "positional": false,
-              "required": false,
-              "value_name": "UNTIL",
-              "possible_values": [],
-              "default": null,
-              "help": "Stop after this bucket's first confident transition",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "list",
-          "about": "List sentinels scoped to the calling tab and its Team",
-          "aliases": [],
-          "args": [],
-          "subcommands": []
-        },
-        {
-          "name": "show",
-          "about": "Show one sentinel",
-          "aliases": [],
-          "args": [
-            {
-              "name": "id",
-              "positional": true,
-              "required": true,
-              "value_name": "ID",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "stop",
-          "about": "Stop one sentinel",
-          "aliases": [],
-          "args": [
-            {
-              "name": "id",
-              "positional": true,
-              "required": true,
-              "value_name": "ID",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        }
-      ]
     },
     {
       "name": "service",
@@ -14151,8 +15156,10 @@
     },
     {
       "name": "supporter",
-      "about": "Configure and inspect the Supporter Agent",
-      "aliases": [],
+      "about": "Configure and inspect Spinal Cord (Supporter Agent)",
+      "aliases": [
+        "spinal-cord"
+      ],
       "args": [],
       "subcommands": [
         {
@@ -14272,6 +15279,77 @@
               "possible_values": [],
               "default": null,
               "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "surface",
+      "about": "Plugin surface tabs: app tabs whose content a plugin view renders",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "close",
+          "about": "Close a surface tab; refuses tabs that are not surfaces",
+          "aliases": [],
+          "args": [
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Surface tab id",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List the surfaces enabled plugins declare and the surface tabs that are open",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "open",
+          "about": "Open a plugin surface as a tab nested under its owner",
+          "aliases": [],
+          "args": [
+            {
+              "name": "owner",
+              "positional": false,
+              "required": false,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Tab that owns the surface (default: the calling agent tab)",
+              "aliases": []
+            },
+            {
+              "name": "target",
+              "positional": true,
+              "required": true,
+              "value_name": "TARGET",
+              "possible_values": [],
+              "default": null,
+              "help": "Surface to open, as `<plugin_id>:<surface_id>`",
+              "aliases": []
+            },
+            {
+              "name": "title-from-owner",
+              "positional": false,
+              "required": false,
+              "value_name": "TITLE_FROM_OWNER",
+              "possible_values": [],
+              "default": null,
+              "help": "Label the tab after its owner (\"{owner}'s {title}\") even when the surface is not agent-bound",
               "aliases": []
             }
           ],
@@ -14787,6 +15865,16 @@
               "aliases": []
             },
             {
+              "name": "description",
+              "positional": false,
+              "required": false,
+              "value_name": "DESCRIPTION",
+              "possible_values": [],
+              "default": null,
+              "help": "Activity summary shown below the tab title",
+              "aliases": []
+            },
+            {
               "name": "eager",
               "positional": false,
               "required": false,
@@ -14797,6 +15885,26 @@
               "aliases": []
             },
             {
+              "name": "icon",
+              "positional": false,
+              "required": false,
+              "value_name": "ICON",
+              "possible_values": [],
+              "default": null,
+              "help": "Lucide icon name (for example bug or flask-conical)",
+              "aliases": []
+            },
+            {
+              "name": "list-shells",
+              "positional": false,
+              "required": false,
+              "value_name": "LIST_SHELLS",
+              "possible_values": [],
+              "default": null,
+              "help": "List available shell profiles without creating a tab",
+              "aliases": []
+            },
+            {
               "name": "no-team",
               "positional": false,
               "required": false,
@@ -14804,6 +15912,34 @@
               "possible_values": [],
               "default": null,
               "help": "Keep the new shell outside the calling tab's Team",
+              "aliases": []
+            },
+            {
+              "name": "purpose",
+              "positional": false,
+              "required": false,
+              "value_name": "PURPOSE",
+              "possible_values": [
+                "build",
+                "dev",
+                "qa",
+                "deploy",
+                "logs",
+                "db",
+                "shell"
+              ],
+              "default": "shell",
+              "help": "Utility shell purpose shown in the sidebar",
+              "aliases": []
+            },
+            {
+              "name": "shell",
+              "positional": false,
+              "required": false,
+              "value_name": "SHELL",
+              "possible_values": [],
+              "default": null,
+              "help": "Shell profile id (discover with --list-shells)",
               "aliases": []
             },
             {
@@ -14862,6 +15998,24 @@
               "possible_values": [],
               "default": null,
               "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "release-ownership",
+          "about": "Release stored remote mesh control ownership from a local tab",
+          "aliases": [],
+          "args": [
+            {
+              "name": "tab",
+              "positional": false,
+              "required": false,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Local tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             }
           ],
@@ -15243,7 +16397,7 @@
       "subcommands": [
         {
           "name": "adopt-agent",
-          "about": "Attach an already-running roleless agent tab to a Team",
+          "about": "Attach an already-running roleless agent or plain shell tab to a Team (a shell becomes a utility shell, process kept)",
           "aliases": [],
           "args": [
             {
@@ -15253,7 +16407,7 @@
               "value_name": "TAB_ID",
               "possible_values": [],
               "default": null,
-              "help": "Tab ID of the running agent",
+              "help": "Tab ID of the running agent or shell",
               "aliases": []
             },
             {
@@ -15573,6 +16727,60 @@
       ]
     },
     {
+      "name": "trace",
+      "about": "Read this instance's DEV flow trace without contacting the daemon",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "recent",
+          "about": "List the most recently observed flows",
+          "aliases": [],
+          "args": [
+            {
+              "name": "limit",
+              "positional": false,
+              "required": false,
+              "value_name": "LIMIT",
+              "possible_values": [],
+              "default": "20",
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "show",
+          "about": "Show a retained flow or all flows involving a tab, with missing stages",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "since",
+              "positional": false,
+              "required": false,
+              "value_name": "SINCE",
+              "possible_values": [],
+              "default": null,
+              "help": "Limit the retained window (for example 30m, 1h, 2d)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "update",
       "about": "Check for updates and manage Domios version",
       "aliases": [],
@@ -15649,7 +16857,7 @@
               "value_name": "TEXT",
               "possible_values": [],
               "default": null,
-              "help": "Optional prompt to send to the calling tab once the new daemon is up — lets a session continue work post-restart",
+              "help": "Optional prompt to send to the calling tab's own session after restart",
               "aliases": []
             },
             {
@@ -15659,7 +16867,7 @@
               "value_name": "ID",
               "possible_values": [],
               "default": null,
-              "help": "Tab to deliver `--continue-prompt` to. Defaults to `$CODETERM_TAB_ID`",
+              "help": "Calling tab to continue. Must match `$CODETERM_TAB_ID`",
               "aliases": []
             },
             {
@@ -15689,7 +16897,7 @@
               "value_name": "NO_CONTINUE",
               "possible_values": [],
               "default": null,
-              "help": "Disable the default continuation sent back to the calling tab",
+              "help": "Suppress the calling tab's continuation for the next start",
               "aliases": []
             }
           ],

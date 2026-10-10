@@ -108,7 +108,7 @@ and controls inside file previews.
 Manual far-end proof on a named dev instance with a fresh first-run profile:
 verify its build first; observe no optional mention in the greeting, tour or
 identity capture; finish identity, soul, memory save and bootstrap deletion;
-observe one post-setup note and `@ct-guide supporter-agent` control; activate it
+observe one post-setup note and `@ds-guide supporter-agent` control; activate it
 with the keyboard and confirm Settings > Guide selects the section and focuses
 its heading. Continue the conversation and confirm the note is not repeated.
 This checks the real first-run journey beyond the sandbox bench and DOM harness.

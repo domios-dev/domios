@@ -7,24 +7,28 @@ mod ops;
 mod tests;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+#[cfg(test)]
 use std::path::PathBuf;
+#[cfg(test)]
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use parking_lot::Mutex;
 
+use super::amend::DefinitionVersion;
 use super::store::{scope_revisions, validate, ScopeKey, Sentinel, Store};
 use crate::cron::clock::SharedClock;
+#[cfg(test)]
 use crate::persisted_state::StateFile;
 use crate::storage::{
     Committed, Completion, Revision, SentinelCommit, SentinelImport, SentinelRepository, Storage,
-    StorageError, StoredSentinel,
+    StorageError, StoredDefinition, StoredSentinel,
 };
 
 /// Failure bound around a commit wait only; expiry is unconfirmed, never failure.
 pub(crate) const COMMIT_DEADLINE: Duration = Duration::from_secs(30);
 pub(super) const GUARD_FREE_REQUIRED: &str =
-    "sentinel_store_guard_free_commit_required: settle typed Storage commits without the store lock";
+    "blueprint_store_guard_free_commit_required: settle typed Storage commits without the store lock";
 
 pub(super) type Mutation = Completion<Committed<SentinelCommit>>;
 pub(super) type Finish<T> =
@@ -33,6 +37,7 @@ pub(super) type Finish<T> =
 /// Why the store refuses all work; never reported as an empty or idle inventory.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum LoadFailure {
+    #[cfg(test)]
     UnsupportedFormat,
     LoadFailed,
     PersistenceFailed,
@@ -41,6 +46,7 @@ pub(super) enum LoadFailure {
 }
 
 impl LoadFailure {
+    #[cfg(test)]
     fn from_raw(raw: &str) -> Self {
         let unsupported = serde_json::from_str::<serde_json::Value>(raw)
             .ok()
@@ -61,11 +67,12 @@ impl LoadFailure {
 
     pub(super) fn message(self) -> String {
         let (code, detail) = match self {
-            Self::UnsupportedFormat => ("sentinel_store_unsupported_format", ""),
-            Self::LoadFailed => ("sentinel_store_load_failed", ""),
-            Self::PersistenceFailed => ("sentinel_store_persistence_failed", ""),
+            #[cfg(test)]
+            Self::UnsupportedFormat => ("blueprint_store_unsupported_format", ""),
+            Self::LoadFailed => ("blueprint_store_load_failed", ""),
+            Self::PersistenceFailed => ("blueprint_store_persistence_failed", ""),
             Self::PersistenceUnconfirmed => (
-                "sentinel_store_persistence_failed",
+                "blueprint_store_persistence_failed",
                 "commit outcome unconfirmed until reconciled; ",
             ),
         };
@@ -73,12 +80,14 @@ impl LoadFailure {
     }
 }
 
+#[cfg(test)]
 fn decode(raw: &str) -> Result<Vec<Sentinel>, String> {
     validate(serde_json::from_str(raw).map_err(|e| e.to_string())?)
 }
 
 /// The legacy JSON file backend; it stays the live authority until the cutover.
 impl Store {
+    #[cfg(test)]
     pub fn new(path: PathBuf, clock: SharedClock) -> Self {
         let file = StateFile::new(path);
         let (jobs, unavailable) = match std::fs::read_to_string(file.path()) {
@@ -104,21 +113,23 @@ impl Store {
         Self {
             jobs,
             active: HashMap::new(),
+            wake_pending: BTreeSet::new(),
             backend: Backend::Json(file),
             clock,
             unavailable,
             admission_closed: false,
             committed_revisions,
             changes: BTreeMap::new(),
+            pending_stop_notices: Vec::new(),
         }
     }
 
-    /// Legacy whole-file save, made under the caller's store lock.
+    #[cfg(test)]
     pub(super) fn save(&mut self) -> Result<(), String> {
         self.ensure_available()?;
         self.check_existing_file()?;
         let raw = serde_json::to_string_pretty(&self.jobs).map_err(|e| e.to_string())?;
-        let Some(file) = self.backend.json() else {
+        let Backend::Json(file) = &self.backend else {
             return Err(GUARD_FREE_REQUIRED.into());
         };
         if let Err(error) = file.save(&raw) {
@@ -149,8 +160,20 @@ impl Store {
         Ok(())
     }
 
+    pub(super) fn save_legacy(&mut self) -> Result<(), String> {
+        #[cfg(test)]
+        {
+            self.save()
+        }
+        #[cfg(not(test))]
+        {
+            Err("legacy Sentinel JSON writer is test-only".into())
+        }
+    }
+
+    #[cfg(test)]
     fn check_existing_file(&mut self) -> Result<(), String> {
-        let Some(file) = self.backend.json() else {
+        let Backend::Json(file) = &self.backend else {
             return Ok(());
         };
         let failure = match std::fs::read_to_string(file.path()) {
@@ -171,20 +194,48 @@ impl Store {
 }
 
 pub(super) enum Backend {
+    #[cfg(test)]
     Json(StateFile),
     Sqlite(SqliteBackend),
 }
 
 impl Backend {
-    pub(super) fn json(&self) -> Option<&StateFile> {
+    pub(super) fn sqlite(&self) -> Option<&SqliteBackend> {
         match self {
-            Backend::Json(file) => Some(file),
-            Backend::Sqlite(_) => None,
+            #[cfg(test)]
+            Backend::Json(_) => None,
+            Backend::Sqlite(sqlite) => Some(sqlite),
+        }
+    }
+
+    pub(super) fn sqlite_mut(&mut self) -> Option<&mut SqliteBackend> {
+        match self {
+            #[cfg(test)]
+            Backend::Json(_) => None,
+            Backend::Sqlite(sqlite) => Some(sqlite),
+        }
+    }
+
+    pub(super) fn is_json(&self) -> bool {
+        #[cfg(test)]
+        match self {
+            Backend::Json(_) => true,
+            Backend::Sqlite(_) => false,
+        }
+        #[cfg(not(test))]
+        {
+            false
         }
     }
 
     pub(super) fn held(&self) -> bool {
-        self.json().is_some_and(|file| file.held().is_some())
+        #[cfg(test)]
+        {
+            if let Backend::Json(file) = self {
+                return file.held().is_some();
+            }
+        }
+        false
     }
 }
 
@@ -197,11 +248,15 @@ struct Known {
 /// Per-stage commit revisions fence publication, so a late older outcome never regresses
 /// the cache; tombstones stop an in-flight outcome from resurrecting a removed stage.
 pub(super) struct SqliteBackend {
-    repo: SentinelRepository,
+    pub(super) repo: SentinelRepository,
     known: HashMap<String, Known>,
     removed: BTreeSet<String>,
     floor: Option<Revision>,
     inflight: usize,
+}
+
+pub(crate) fn history_versions(records: Vec<StoredDefinition>) -> Vec<DefinitionVersion> {
+    records.into_iter().map(codec::history_version).collect()
 }
 
 /// Why a staged mutation did not commit.
@@ -306,7 +361,7 @@ pub(crate) fn commit<T: Send + 'static>(
 fn classify(error: StorageError) -> (Option<LoadFailure>, String) {
     match error {
         StorageError::Backpressure { .. } | StorageError::Busy { .. } => {
-            (None, format!("sentinel_store_busy: not applied: {error}"))
+            (None, format!("blueprint_store_busy: not applied: {error}"))
         }
         StorageError::Unconfirmed { .. } => {
             (Some(LoadFailure::PersistenceUnconfirmed), error.to_string())
@@ -316,6 +371,26 @@ fn classify(error: StorageError) -> (Option<LoadFailure>, String) {
 }
 
 impl Store {
+    pub(crate) fn ensure_external_commit_ready(&self) -> Result<(), String> {
+        self.ensure_available()?;
+        match &self.backend {
+            Backend::Sqlite(backend) if backend.inflight == 0 => Ok(()),
+            Backend::Sqlite(_) => Err("sentinel storage has unsettled commits".into()),
+            #[cfg(test)]
+            Backend::Json(_) => Err(GUARD_FREE_REQUIRED.into()),
+        }
+    }
+
+    pub(crate) fn adopt_external_commit(
+        &mut self,
+        committed: &Committed<SentinelCommit>,
+    ) -> Result<(), String> {
+        if !matches!(&self.backend, Backend::Sqlite(_)) {
+            return Err(GUARD_FREE_REQUIRED.into());
+        }
+        self.publish(committed)
+    }
+
     /// Admits one typed mutation without waiting; refusals settle through `finish` at once.
     pub(super) fn submit<T: Send + 'static>(
         &mut self,
@@ -325,8 +400,12 @@ impl Store {
         if let Err(error) = self.ensure_available() {
             return Staged::ready(finish(self, Err(Failure::Failed(error))));
         }
+        #[cfg(not(test))]
+        let Backend::Sqlite(backend) = &mut self.backend;
+        #[cfg(test)]
         let backend = match &mut self.backend {
             Backend::Sqlite(backend) => backend,
+            #[cfg(test)]
             Backend::Json(_) => return Staged::ready(Err(GUARD_FREE_REQUIRED.into())),
         };
         let completion = build(&backend.repo);
@@ -346,7 +425,7 @@ impl Store {
         &mut self,
         outcome: Result<Committed<SentinelCommit>, StorageError>,
     ) -> Result<SentinelCommit, Failure> {
-        if let Backend::Sqlite(backend) = &mut self.backend {
+        if let Some(backend) = self.backend.sqlite_mut() {
             backend.inflight = backend.inflight.saturating_sub(1);
         }
         match outcome {
@@ -363,8 +442,13 @@ impl Store {
 
     /// Adopts post-commit aggregates newer than the cache, then emits scoped invalidations.
     fn publish(&mut self, committed: &Committed<SentinelCommit>) -> Result<(), String> {
-        let Store { jobs, backend, .. } = self;
-        let Backend::Sqlite(backend) = backend else {
+        let Store {
+            jobs,
+            backend,
+            wake_pending,
+            ..
+        } = self;
+        let Some(backend) = backend.sqlite_mut() else {
             return Err(GUARD_FREE_REQUIRED.into());
         };
         let mut scopes: BTreeSet<ScopeKey> = BTreeSet::new();
@@ -376,6 +460,7 @@ impl Store {
                 let job = jobs.remove(position);
                 scopes.insert((job.workspace_id, job.team_id));
             }
+            wake_pending.remove(id);
         }
         for stored in &committed.value.sentinels {
             let id = stored.record.identity.id.as_str();
@@ -409,6 +494,13 @@ impl Store {
                         .unwrap_or(jobs.len());
                     jobs.insert(position, job);
                 }
+            }
+            if jobs
+                .iter()
+                .find(|current| current.id == id)
+                .is_none_or(|current| current.machine.stopped || current.machine.paused)
+            {
+                wake_pending.remove(id);
             }
             backend.known.insert(
                 id.to_string(),
@@ -447,7 +539,7 @@ impl Store {
     /// Replaces the cache with one authoritative committed inventory.
     fn install(&mut self, inventory: Vec<StoredSentinel>, floor: Revision) -> Result<(), String> {
         let jobs = validate(inventory.iter().map(codec::decode).collect())?;
-        let Backend::Sqlite(backend) = &mut self.backend else {
+        let Some(backend) = self.backend.sqlite_mut() else {
             return Err(GUARD_FREE_REQUIRED.into());
         };
         let mut known = HashMap::with_capacity(inventory.len());
@@ -480,13 +572,13 @@ impl Store {
 
     /// The typed Storage backend over a supplied shared owner; blocking, call off-runtime.
     /// Refuses to start empty when the committed inventory cannot be read or validated.
-    #[allow(dead_code)] // Dormant until the all-domain cutover selects it; tests drive it now.
     pub fn with_storage(storage: &Storage, clock: SharedClock) -> Store {
         let repo = storage.sentinels();
         let loaded = repo.inventory().wait(COMMIT_DEADLINE);
         let mut store = Store {
             jobs: Vec::new(),
             active: HashMap::new(),
+            wake_pending: BTreeSet::new(),
             backend: Backend::Sqlite(SqliteBackend {
                 repo,
                 known: HashMap::new(),
@@ -499,6 +591,7 @@ impl Store {
             admission_closed: false,
             committed_revisions: BTreeMap::new(),
             changes: BTreeMap::new(),
+            pending_stop_notices: Vec::new(),
         };
         let installed = loaded
             .map_err(|error| error.to_string())
@@ -521,7 +614,7 @@ impl Store {
         &mut self,
         stage: impl FnOnce(&mut Store) -> Staged<T>,
     ) -> Result<T, String> {
-        if self.backend.json().is_none() {
+        if !self.backend.is_json() {
             return Err(GUARD_FREE_REQUIRED.into());
         }
         stage(self).into_ready()
@@ -566,6 +659,7 @@ pub(crate) fn committed_scope(
         let leases = store.live_leases();
         match &store.backend {
             Backend::Sqlite(backend) => (backend.repo.clone(), leases),
+            #[cfg(test)]
             Backend::Json(_) => {
                 let jobs = store
                     .list()
@@ -582,15 +676,62 @@ pub(crate) fn committed_scope(
         .scope(workspace.to_string(), team.map(str::to_owned))
         .wait(COMMIT_DEADLINE)
         .map_err(|error| {
-            format!("sentinel_store_load_failed: committed scope read failed: {error}")
+            format!("blueprint_store_load_failed: committed scope read failed: {error}")
         })?;
     Ok((read.value.iter().map(codec::decode).collect(), leases))
+}
+
+pub(crate) fn committed_workspace(
+    store: &Mutex<Store>,
+    workspace: &str,
+) -> Result<(Vec<Sentinel>, BTreeSet<String>), String> {
+    let repo = {
+        let store = store.lock();
+        store.ensure_available()?;
+        let leases = store.live_leases();
+        match &store.backend {
+            Backend::Sqlite(backend) => (backend.repo.clone(), leases),
+            #[cfg(test)]
+            Backend::Json(_) => {
+                let jobs = store
+                    .list()
+                    .iter()
+                    .filter(|job| job.workspace_id == workspace)
+                    .cloned()
+                    .collect();
+                return Ok((jobs, leases));
+            }
+        }
+    };
+    let (repo, leases) = repo;
+    let read = repo
+        .workspace(workspace.to_string())
+        .wait(COMMIT_DEADLINE)
+        .map_err(|error| {
+            format!("blueprint_store_load_failed: committed workspace read failed: {error}")
+        })?;
+    Ok((read.value.iter().map(codec::decode).collect(), leases))
+}
+
+/// Why a legacy Sentinel file does not decode into import records.
+#[allow(dead_code)] // The all-domain importer consumes this; tests drive it now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum LegacySentinelError {
+    /// The bytes are not a typed Sentinel inventory.
+    Malformed(String),
+    /// A well-formed inventory that breaks a stored-inventory invariant.
+    Conflict(String),
 }
 
 /// Side-effect-free decode of the legacy file into exact import records; it never renames,
 /// rewrites or holds the source and starts no work.
 #[allow(dead_code)] // The all-domain importer consumes this; tests drive it now.
-pub(crate) fn legacy_import(raw: &str) -> Result<Vec<SentinelImport>, String> {
-    let jobs: Vec<Sentinel> = serde_json::from_str(raw).map_err(|error| error.to_string())?;
-    validate(jobs)?.iter().map(codec::import).collect()
+pub(crate) fn legacy_import(raw: &str) -> Result<Vec<SentinelImport>, LegacySentinelError> {
+    let jobs: Vec<Sentinel> = serde_json::from_str(raw)
+        .map_err(|error| LegacySentinelError::Malformed(error.to_string()))?;
+    let jobs = validate(jobs).map_err(LegacySentinelError::Conflict)?;
+    jobs.iter()
+        .map(codec::import)
+        .collect::<Result<_, _>>()
+        .map_err(LegacySentinelError::Conflict)
 }

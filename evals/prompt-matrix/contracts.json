@@ -334,6 +334,98 @@
     "reason": "Strict fixture source is bound to acceptance. Actual fixture-owned authentication readiness and owner runtime disposition remain pending notification 5a2c6367-cace-4c24-84d4-6a544f633c66. Empty homes and standalone version checks do not prove authenticated prompt readiness.",
     "source_status": "strict_fixture_recipe_auth_unqualified"
   },
+  "launch_prompt_matrix": {
+    "status": "pending",
+    "owner": "Orchestrator",
+    "owner_decision": {
+      "status": "pending",
+      "notification": "5a2c6367-cace-4c24-84d4-6a544f633c66",
+      "choice": null,
+      "stride": null,
+      "rule": null,
+      "accepted_choices": ["A", "B", "C"]
+    },
+    "reason": "Owner isolation choice and stride are pending. Provider homes remain credential-free and no real-profile trust state is borrowed.",
+    "cell_key": ["provider", "folder", "jev"],
+    "folders": ["owner-dir", "new-dir", "lane", "home"],
+    "jev_arms": ["off", "on"],
+    "bindings": {
+      "prompt": {
+        "status": "bound",
+        "field": "launch_prompt_capture.prompt + screen",
+        "source": "evals/prompt-matrix/transport.py::Dev.snapshot; matrix.py::launch_prompt_evidence"
+      },
+      "provisioned_cwd": {
+        "status": "bound",
+        "field": "tab.provisioned_cwd == provider_launch.cwd",
+        "source": "src-tauri/src/cron/spawn_spec.rs::build_cron_spawn_spec; evals/prompt-matrix/provider_exec.py::main"
+      },
+      "decided_by": {
+        "status": "bound",
+        "field": "action=unattended_launch_prompt.decided_by",
+        "source": "src-tauri/src/service/supporter_tab_state/safe_response/directory_trust.rs::journal_unattended_route"
+      },
+      "observation_id": {
+        "status": "bound",
+        "field": "action=unattended_launch_prompt.observation_id",
+        "source": "src-tauri/src/service/supporter_tab_state/safe_response/directory_trust.rs::journal_unattended_route; identity.rs::journal"
+      },
+      "action_phase": {
+        "status": "bound",
+        "field": "phase=action_authorized|action_stale with observation_id",
+        "source": "src-tauri/src/service/supporter_tab_state/safe_response.rs::try_model_safe_response"
+      },
+      "provider_answer": {
+        "status": "bound",
+        "field": "provider_safe_step_authorized on the correlated observation, or deterministic_directory_trust",
+        "source": "src-tauri/src/service/supporter_tab_state/safe_response.rs::try_model_safe_response; src-tauri/src/service/supporter_tab_state/safe_response/directory_trust.rs::provider_target; src-tauri/src/service/directory_trust.rs::answer_directory_trust_prompt"
+      },
+      "owner_notice": {
+        "status": "bound",
+        "field": "new owner-routed non-verbose notification count",
+        "source": "src-tauri/src/service/supporter_tab_state/safe_response/directory_trust.rs::notify_unattended_owner; evals/prompt-matrix/oracles.py::tab_notifications"
+      },
+      "cron_status": {
+        "status": "bound",
+        "field": "CronRunInfo.run_id|status|finished_at|session_id",
+        "source": "src-tauri/src/service/cron.rs::cron_complete; src-tauri/src/cron/store/mod.rs::CronRunInfo"
+      },
+      "provider_session": {
+        "status": "bound",
+        "field": "tab.agent_session_id|session_binding_nonce joined to CronRunInfo.session_id",
+        "source": "src-tauri/src/api/tab_routes.rs::inspect_tabs; evals/prompt-matrix/transport.py::Dev.snapshot"
+      },
+      "non_trust_prompt": {
+        "status": "bound",
+        "field": "zero action_authorized/action_stale or deterministic trust action for non-trust kind",
+        "source": "src-tauri/src/service/supporter_tab_state/safe_response/directory_trust.rs::unattended_launch_gate; evals/prompt-matrix/launch_prompt.py::judge"
+      },
+      "provider_auth_policy": {
+        "status": "pending",
+        "field": "provider executable HOME/credentials for recorded A/B/C owner rule",
+        "source": "evals/prompt-matrix/launch_env.py::isolated_environment",
+        "reason": "Current provider wrapper deliberately strips real-profile credentials; no owner rule is recorded or wired to a provider-auth transport."
+      }
+    },
+    "providers": {
+      "claude": {
+        "status": "pending",
+        "reason": "Fixture-native target authentication readiness under the owner-selected isolation rule remains unqualified; versions.json::providers.claude.prompt_status."
+      },
+      "codex": {
+        "status": "pending",
+        "reason": "Fixture-native target authentication readiness under the owner-selected isolation rule remains unqualified; versions.json::providers.codex.prompt_status."
+      },
+      "opencode": {
+        "status": "pending",
+        "reason": "Fixture-native target authentication readiness under the owner-selected isolation rule remains unqualified; versions.json::providers.opencode.prompt_status."
+      },
+      "cursor": {
+        "status": "pending",
+        "reason": "Provider launchability is unobserved; versions.json::providers.cursor.reason says no launch behavior or portable archive acquisition is established."
+      }
+    }
+  },
   "update_fixture": {
     "status": "pending",
     "reason": "Original promptmatrix failed acquisition is preserved. Six corrected darwin/arm64 archive assemblies in promptmatrixtls have scoped canonical receipts; every native version remains NOT RUN. Dedicated direct-resource version source repair is pending review/pure verification. Codex startup trigger remains disabled; supported real update trigger and complete updater confinement remain pending.",

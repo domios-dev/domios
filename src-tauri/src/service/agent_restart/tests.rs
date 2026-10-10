@@ -1,5 +1,76 @@
 use super::*;
 
+#[test]
+fn command_prompt_ownership_is_bound_to_pty_and_nonce_and_released_on_exit() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.pty_id = Some("own-pty".into());
+    tab.session_binding_nonce = Some("own-nonce".into());
+    tab.reported_session_binding_nonce = Some("own-nonce".into());
+    let owner = ("own-pty".into(), "own-nonce".into());
+    assert!(command_prompt_owner_matches(Some(&owner), tab));
+    assert!(!command_prompt_owner_matches(None, tab));
+    tab.pty_id = Some("other-pty".into());
+    assert!(!command_prompt_owner_matches(Some(&owner), tab));
+    tab.pty_id = Some("own-pty".into());
+    tab.reported_session_binding_nonce = Some("stale-nonce".into());
+    assert!(!command_prompt_owner_matches(Some(&owner), tab));
+    let tracker = new_restart_tracker();
+    tracker.lock().in_progress.insert(tab_id.clone());
+    tracker.lock().command_ptys.insert(tab_id.clone(), owner);
+    drop(RestartClaim {
+        tracker: tracker.clone(),
+        tab_id: tab_id.clone(),
+    });
+    assert!(!tracker.lock().in_progress.contains(&tab_id));
+    assert!(!tracker.lock().command_ptys.contains_key(&tab_id));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn command_prompt_ownership_suppresses_picker_until_operation_exits() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.pty_id = Some("own-pty".into());
+    tab.session_binding_nonce = Some("own-nonce".into());
+    tab.reported_session_binding_nonce = Some("own-nonce".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let tracker = fixture.service.restart_tracker.clone();
+    tracker.lock().in_progress.insert(tab_id.clone());
+    tracker
+        .lock()
+        .command_ptys
+        .insert(tab_id.clone(), ("own-pty".into(), "own-nonce".into()));
+    let claim = RestartClaim {
+        tracker,
+        tab_id: tab_id.clone(),
+    };
+    let prompt = serde_json::from_value(serde_json::json!({"question":"opaque picker", "options":[{"label":"target", "value":"4"}]})).unwrap();
+    let decision = crate::agent::prompt::PromptDecision::NewPrompt {
+        tab_id: tab_id.clone(),
+        prompt,
+    };
+    fixture.service.apply_prompt_decision(&decision);
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .pending_prompt
+        .is_none());
+    drop(claim);
+    fixture.service.apply_prompt_decision(&decision);
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .pending_prompt
+        .is_some());
+}
+
 fn fresh_tracker() -> RestartTracker {
     new_restart_tracker()
 }
@@ -98,16 +169,77 @@ fn restart_requires_observed_live_process_evidence() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn failed_general_agent_without_live_identity_remains_a_restart_target() {
+    let mut mux = crate::multiplexer::state::MultiplexerState::empty();
+    crate::service::general_agent::ensure_general_workspace(&mut mux, true);
+    let tab_id = mux
+        .resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)
+        .unwrap();
+    mux.get_tab_mut(&tab_id).unwrap().boot_stage =
+        Some(codeterm_types::pty::BootStage::SpawnFailed);
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.set_agent_full_access(false);
+    let snap = fixture
+        .service
+        .general_agent_restart_snapshot(&tab_id)
+        .unwrap();
+    assert_eq!(snap.tab_id, tab_id);
+    assert!(snap.pty_id.is_empty());
+    assert!(snap.session_id.is_none());
+    assert!(
+        crate::service::general_agent::claim_general_agent_tab_retry(&tab_id, &fixture.service.mux)
+            .unwrap()
+    );
+}
+
+#[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn surviving_shell_stale_metadata_is_cleared_before_restart_acceptance() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let pty_id = "stale-provider-pty";
+    mux.link_pty(&tab_id, pty_id.into());
     {
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.agent_type = Some("claude".into());
-        tab.pty_id = Some("missing-pty".into());
+        tab.agent_session_id = Some("stale-session".into());
+        tab.agent_session_model = Some("stale-model".into());
+        tab.session_binding_nonce = Some("stale-provider-nonce".into());
+        tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
         tab.boot_stage = Some(codeterm_types::pty::BootStage::ShellReady);
+        tab.exit_suspected_at = Some(std::time::Instant::now());
     }
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("claude").with_launch_binary("claude"),
+    ));
+    fixture
+        .service
+        .pty
+        .lock()
+        .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
+        .expect("spawn the surviving shell PTY");
+    let tree_key = fixture
+        .service
+        .provider_tree_key_for_tab(&tab_id, pty_id)
+        .expect("Claude supplies the tab process-tree key");
+    fixture.service.provider_tree_witnesses.script_snapshot(
+        &tree_key,
+        crate::service::process_tree::ProviderProcessTreeSnapshot::Present(
+            std::collections::HashSet::from([crate::service::process_tree::ProcessIdentity {
+                pid: 52_520,
+                start_token: "stale-claude-child".into(),
+            }]),
+        ),
+    );
+    fixture
+        .service
+        .observe_provider_process_tree(&tab_id, pty_id)
+        .expect("observe the provider before it exits");
+    fixture.service.provider_tree_witnesses.script_snapshot(
+        &tree_key,
+        crate::service::process_tree::ProviderProcessTreeSnapshot::Absent,
+    );
 
     let result = fixture.service.snapshot_tab_for_restart(&tab_id);
 
@@ -126,7 +258,7 @@ fn surviving_shell_stale_metadata_is_cleared_before_restart_acceptance() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn absent_restart_target_retires_spawn_failed_identity_with_live_shell() {
+fn absent_restart_target_preserves_spawn_failed_identity_with_live_shell() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let pty_id = "spawn-failed-live-shell";
     {
@@ -160,13 +292,11 @@ fn absent_restart_target_retires_spawn_failed_identity_with_live_shell() {
         .get_tab(&tab_id)
         .cloned()
         .expect("tab remains present");
-    assert_eq!(tab.agent_type, None);
-    assert_eq!(tab.agent_session_id, None);
+    assert_eq!(tab.agent_type.as_deref(), Some("codex"));
+    assert_eq!(tab.agent_session_id.as_deref(), Some("retired-session"));
     assert_eq!(
-        tab.prior_session_binding_nonces
-            .last()
-            .and_then(|entry| entry.session_id.as_deref()),
-        Some("retired-session")
+        tab.boot_stage,
+        Some(codeterm_types::pty::BootStage::SpawnFailed)
     );
 
     fixture
@@ -237,12 +367,26 @@ fn guard_snapshot(session_id: Option<&str>) -> TabRestartSnapshot {
         tab_id: "tab-guard".into(),
         pty_id: "pty-guard".into(),
         provider: "claude".into(),
+        target_provider: None,
         session_id: session_id.map(str::to_string),
         cwd: Some("/tmp/project".into()),
         auto_approve: false,
         role: None,
         role_profile: None,
+        handoff_history: None,
     }
+}
+
+#[test]
+fn provider_handoff_outcome_does_not_claim_a_source_session_resume() {
+    let mut snap = guard_snapshot(Some("source-session"));
+    snap.target_provider = Some("target-provider".into());
+
+    let outcome = RestartOutcome::accepted(&snap, false, false);
+
+    assert_eq!(outcome.provider, "target-provider");
+    assert_eq!(outcome.session_id, None);
+    assert_eq!(outcome.session_action(), "fresh_launch");
 }
 
 #[test]
@@ -661,11 +805,13 @@ fn settle_snapshot_and_outcome(tab_id: &str) -> (TabRestartSnapshot, RestartOutc
         tab_id: tab_id.into(),
         pty_id: "pty-new".into(),
         provider: "claude".into(),
+        target_provider: None,
         session_id: Some("sess-a".into()),
         cwd: None,
         auto_approve: false,
         role: None,
         role_profile: None,
+        handoff_history: None,
     };
     let outcome = RestartOutcome {
         tab_id: tab_id.into(),

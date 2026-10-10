@@ -5,113 +5,8 @@ use crate::service::message_gateway::{DeliveryClass, MessageBody, MessageOrigin,
 use crate::service::startup_lease::StartupHoldRejection;
 use serde_json::json;
 use std::sync::Arc;
-use tauri::Manager;
 
 impl ServiceContext {
-    pub(crate) fn acknowledge_remote_worker_ack(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        attempt_id: &str,
-        peer_id: &str,
-        worker_tab_id: &str,
-    ) {
-        let identity =
-            remote_worker_ack_identity(plan_id, task_id, attempt_id, peer_id, worker_tab_id);
-        self.worker_ack.acknowledge(&identity);
-    }
-
-    pub(crate) fn arm_remote_worker_ack_deadline(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        attempt_id: &str,
-        peer_id: &str,
-        peer_name: &str,
-        worker_tab_id: &str,
-        parent_tab_id: &str,
-    ) {
-        let identity =
-            remote_worker_ack_identity(plan_id, task_id, attempt_id, peer_id, worker_tab_id);
-        let arm = self.worker_ack.arm(identity.clone());
-        let Some(receiver) = arm.receiver.filter(|_| arm.starts_supervisor) else {
-            return;
-        };
-        let service = Arc::new(self.clone());
-        let plan_id = plan_id.to_string();
-        let task_id = task_id.to_string();
-        let attempt_id = attempt_id.to_string();
-        let peer_id = peer_id.to_string();
-        let peer_name = peer_name.to_string();
-        let worker_tab_id = worker_tab_id.to_string();
-        let parent_tab_id = parent_tab_id.to_string();
-        std::thread::spawn(move || {
-            if await_remote_worker_ack(&receiver, REMOTE_WORKER_ACK_DEADLINE) {
-                return;
-            }
-            if !service.worker_ack.expire(&identity) {
-                return;
-            }
-            let peer_online = service
-                .app_handle
-                .state::<crate::MeshStateHandle>()
-                .lock()
-                .paired_peers
-                .get(&peer_id)
-                .is_some_and(|peer| peer.online);
-            let finalized = if peer_online {
-                service.plan_store.mark_remote_ack_timeout(
-                    &plan_id,
-                    &task_id,
-                    &attempt_id,
-                    &peer_id,
-                    &worker_tab_id,
-                    epoch_ms(),
-                )
-            } else {
-                service.plan_store.mark_remote_peer_offline_before_ack(
-                    &plan_id,
-                    &task_id,
-                    &attempt_id,
-                    &peer_id,
-                    &worker_tab_id,
-                    epoch_ms(),
-                )
-            }
-            .unwrap_or(false);
-            if !finalized {
-                return;
-            }
-            crate::api::events::emit_everywhere(
-                &service.app_handle,
-                "plan-changed",
-                json!({"plan_id": plan_id}),
-            );
-            let payload = json!({
-                "kind": if peer_online { "remote_ack_timeout" } else { "remote_peer_offline" },
-                "plan_id": plan_id,
-                "task_id": task_id,
-                "attempt_id": attempt_id,
-                "peer_id": peer_id,
-                "peer_name": peer_name,
-                "tab_id": worker_tab_id,
-                "impact": if peer_online {
-                    "Remote Worker did not acknowledge before the origin deadline; the task is dispatchable again."
-                } else {
-                    "Remote peer went offline before Worker ACK; the task is dispatchable again."
-                },
-            });
-            service.publish_worker_lifecycle_report(
-                &parent_tab_id,
-                &worker_tab_id,
-                &format!("Worker@{peer_name}"),
-                &plan_id,
-                &task_id,
-                payload,
-            );
-        });
-    }
-
     fn startup_provider_output(&self, attempt_id: &str) -> Option<String> {
         self.screen_state
             .lock()
@@ -469,6 +364,21 @@ impl ServiceContext {
             })
     }
 
+    pub(super) fn startup_attempt_binding_observed(&self, authority: &StartupAuthority) -> bool {
+        self.mux
+            .read()
+            .get_tab(&authority.child_tab_id)
+            .is_some_and(|tab| {
+                tab.pty_id.as_deref() == Some(authority.attempt_id.as_str())
+                    && tab.session_binding_nonce == authority.binding_nonce
+                    && authority
+                        .session_id
+                        .as_ref()
+                        .is_none_or(|session| tab.agent_session_id.as_ref() == Some(session))
+                    && tab.launch_session_authenticated()
+            })
+    }
+
     pub(crate) fn publish_agent_startup_report(
         &self,
         supervisor_tab_id: &str,
@@ -641,7 +551,9 @@ impl ServiceContext {
                 AgentStartupNoticeOutcome::Resolved => return,
                 AgentStartupNoticeOutcome::Overdue { exit_code } => exit_code,
             };
-            if !service.startup_attempt_is_current(&authority) {
+            if !service.startup_attempt_is_current(&authority)
+                || service.startup_attempt_binding_observed(&authority)
+            {
                 return;
             }
             let mut notice = agent_startup_notice_event(&agent_tab_id, &agent_title, &attempt_id);
@@ -649,6 +561,11 @@ impl ServiceContext {
                 crate::service::launch_readiness::owner_prompt_is_active(&agent_tab_id);
             if waiting_for_owner_prompt {
                 notice["waiting_for_owner_prompt"] = serde_json::Value::Bool(true);
+            }
+            if !service.startup_attempt_is_current(&authority)
+                || service.startup_attempt_binding_observed(&authority)
+            {
+                return;
             }
             service.publish_agent_startup_report(
                 &supervisor_tab_id,
@@ -840,6 +757,20 @@ impl ServiceContext {
         tab_id: &str,
         attempt_id: &str,
     ) -> Result<(), String> {
+        let provider = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.agent_type.clone());
+        if provider
+            .and_then(|provider| {
+                self.agent_registry
+                    .with_provider(&provider, |provider| provider.is_tool_less())
+            })
+            .unwrap_or(false)
+        {
+            return Ok(());
+        }
         self.gateway
             .submit(self, worker_ack_reminder_message(tab_id, attempt_id))
             .map(|_| ())
@@ -876,6 +807,13 @@ impl ServiceContext {
         payload: Value,
         delivery: &impl HierarchyReportDelivery,
     ) {
+        if payload.get("kind").and_then(Value::as_str) == Some("tab_state_spawn_ok")
+            && !crate::service::supporter_notify::spawn_ok_notice_allowed(
+                crate::service::supporter_notify::launch_was_restored(parent_tab_id),
+            )
+        {
+            return;
+        }
         let attempt_id = payload.get("attempt_id").and_then(Value::as_str);
         let tab_provider = {
             self.mux
@@ -1009,6 +947,7 @@ impl ServiceContext {
             if await_worker_ack(&receiver, WORKER_ACK_TIMEOUT) == WorkerAckWaitOutcome::Resolved {
                 return;
             }
+            service.reconcile_tool_less_worker_ack(&worker_tab_id);
             if !service.worker_ack_identity_is_current(&identity) {
                 return;
             }
@@ -1043,6 +982,10 @@ impl ServiceContext {
             if await_worker_ack(&receiver, WORKER_ACK_FINAL_TIMEOUT)
                 == WorkerAckWaitOutcome::Resolved
             {
+                return;
+            }
+            service.reconcile_tool_less_worker_ack(&worker_tab_id);
+            if !service.worker_ack_identity_is_current(&identity) {
                 return;
             }
             if !service.worker_ack.expire(&identity) {
@@ -1137,24 +1080,6 @@ impl ServiceContext {
             spawn_command,
         );
         Ok(true)
-    }
-}
-
-fn remote_worker_ack_identity(
-    plan_id: &str,
-    task_id: &str,
-    attempt_id: &str,
-    peer_id: &str,
-    worker_tab_id: &str,
-) -> WorkerAckIdentity {
-    WorkerAckIdentity {
-        plan_id: plan_id.to_string(),
-        task_id: task_id.to_string(),
-        attempt_id: attempt_id.to_string(),
-        tab_id: format!("remote:{peer_id}:{worker_tab_id}"),
-        startup_attempt_id: None,
-        session_id: None,
-        binding_nonce: None,
     }
 }
 

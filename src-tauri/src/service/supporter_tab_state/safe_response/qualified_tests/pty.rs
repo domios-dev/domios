@@ -1,6 +1,6 @@
 use super::{
     BoundedText, CLOSED_MARKER, COMPLETION_TIMEOUT, FOCUS_MARKER, INITIAL_MARKER,
-    MAX_STAGE_SCREEN_BYTES, STAGE_TIMEOUT,
+    MAX_FIXTURE_DIAGNOSTIC_BYTES, MAX_STAGE_SCREEN_BYTES, STAGE_TIMEOUT,
 };
 use parking_lot::Mutex;
 use std::io::Read;
@@ -304,7 +304,7 @@ impl CompletionEvidence {
                 .is_some_and(|elapsed| elapsed <= limit)
     }
 }
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(super) struct CleanupEvidence {
     pub(super) generation_matched: bool,
     pub(super) begin_kill_error: Option<String>,
@@ -314,6 +314,21 @@ pub(super) struct CleanupEvidence {
     pub(super) post_cleanup_reader_end: Option<ReaderEnd>,
     pub(super) reader_join: ReaderJoinStatus,
     pub(super) reader_started: bool,
+}
+impl std::fmt::Debug for CleanupEvidence {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CleanupEvidence")
+            .field("generation_matched", &self.generation_matched)
+            .field("begin_kill_error", &self.begin_kill_error)
+            .field("reap_error", &self.reap_error)
+            .field("reaped", &self.reaped)
+            .field("post_cleanup_child_exit", &self.post_cleanup_child_exit)
+            .field("post_cleanup_reader_end", &self.post_cleanup_reader_end)
+            .field("reader_join", &self.reader_join)
+            .field("reader_started", &self.reader_started)
+            .finish()
+    }
 }
 impl CleanupEvidence {
     pub(super) fn succeeds(&self) -> bool {
@@ -395,16 +410,32 @@ impl PtyChild {
                     evidence: evidence.clone(),
                     wake: wake.clone(),
                 };
+                let mut frame = Vec::new();
+                let mut stages =
+                    [ModalStage::Initial, ModalStage::Focus, ModalStage::Closed].into_iter();
+                let mut expected = stages.next();
                 let end = loop {
                     let mut bytes = [0u8; 8192];
                     match reader.read(&mut bytes) {
                         Ok(0) => break ReaderEnd::Eof,
                         Ok(count) => {
-                            service.feed_pty_output_for_generation(
-                                &pty,
-                                generation,
-                                &bytes[..count],
-                            );
+                            let Some(stage) = expected else { continue };
+                            frame.extend_from_slice(&bytes[..count]);
+                            if !frame
+                                .windows(stage.marker().len())
+                                .any(|bytes| bytes == stage.marker().as_bytes())
+                            {
+                                if frame.len() > MAX_FIXTURE_DIAGNOSTIC_BYTES {
+                                    break ReaderEnd::ReadError {
+                                        kind: "frame_bound".into(),
+                                        raw_os_error: None,
+                                    };
+                                }
+                                continue;
+                            }
+                            expected = stages.next();
+                            service.feed_pty_output_for_generation(&pty, generation, &frame);
+                            frame.clear();
                             let screen = service
                                 .screen_state
                                 .lock()

@@ -6,6 +6,11 @@ use crate::session::store::SplitNodeSnapshot;
 /// A persisted role claim, with or without a provider identity behind it.
 fn role_claim_leaf(role: &str, role_profile: Option<&str>) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
+        purpose: Default::default(),
+        icon: None,
+        shell_profile: None,
+        utility_created_at: 0,
+        close_restore: None,
         tab_id: "db79d2da".into(),
         cwd: None,
         title: Some("Plan card fixture".into()),
@@ -37,6 +42,7 @@ fn role_claim_leaf(role: &str, role_profile: Option<&str>) -> SplitNodeSnapshot 
         model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
+        surface: None,
         watcher: None,
         pending_delivery: None,
     }

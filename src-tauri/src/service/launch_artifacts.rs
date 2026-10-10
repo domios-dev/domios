@@ -3,6 +3,15 @@ use codeterm_plugin::provider::{LaunchArtifactSweepReport, LaunchArtifactSweepRe
 
 use super::ServiceContext;
 
+mod migration;
+
+fn authorize_profile_cleanup(confirm: bool, machine_owner: bool) -> Result<(), String> {
+    if confirm && !machine_owner {
+        return Err("Only the machine-owner instance may delete provider launch artifacts".into());
+    }
+    Ok(())
+}
+
 fn live_tab_ids(service: &ServiceContext) -> Vec<String> {
     let mut tab_ids: Vec<_> = service.mux.read().snapshot().tabs.into_keys().collect();
     tab_ids.sort();
@@ -63,37 +72,121 @@ fn has_live_provider_process_evidence(
 }
 
 pub(crate) fn sweep_after_restore(service: &ServiceContext) {
+    for error in super::codex_rpc::process::sweep(
+        &crate::paths::data_dir().join("codex-rpc"),
+        crate::paths::codeterm_instance_id(),
+    ) {
+        log::error!("[codex-rpc] orphan sweep: {error}");
+    }
     let task_files = super::task_files::sweep_after_restore(service);
     if !task_files.is_empty() {
         log::info!("[startup] removed orphaned task files: {:?}", task_files);
     }
-    let request = LaunchArtifactSweepRequest {
-        instance_id: crate::paths::codeterm_instance_id().to_string(),
-        live_tab_ids: startup_live_tab_ids(service),
-        confirm: true,
-        include_legacy: false,
-    };
+    if authorize_profile_cleanup(
+        true,
+        codeterm_plugin::global_writes::machine_global_write_allowed(),
+    )
+    .is_err()
+    {
+        return;
+    }
     for provider_id in service.agent_registry.provider_ids() {
-        match service
-            .agent_registry
-            .with_provider(&provider_id, |provider| {
-                provider.sweep_launch_artifacts(&request)
-            }) {
-            Some(Ok(Some(report))) if !report.removed.is_empty() => {
-                log::info!(
-                    "[startup] released this instance's dead launch artifacts: {:?}",
-                    report.removed
-                );
-            }
-            Some(Err(error)) => {
-                log::warn!("[startup] launch artifact sweep failed: {error}");
-            }
-            _ => {}
+        if let Err(error) = startup_provider_sweep(service, &provider_id) {
+            log::warn!("[startup] launch artifact sweep failed for {provider_id}: {error}");
         }
     }
 }
 
+fn startup_provider_sweep(service: &ServiceContext, provider_id: &str) -> Result<(), String> {
+    let migration_root = &service.agent_pad_data_dir;
+    let prior = migration::load(migration_root, provider_id);
+    if let Err(error) = &prior {
+        log::warn!("[startup] legacy migration state unavailable for {provider_id}: {error}");
+    }
+    let migrate = migration::should_migrate(
+        prior
+            .as_ref()
+            .map(|state| state.as_ref())
+            .map_err(|error| error.as_str()),
+    );
+    let mut state = migration::Migration::default();
+    loop {
+        let gone = crate::instance_lifetime::lock_gone_instances();
+        let request = LaunchArtifactSweepRequest {
+            instance_id: crate::paths::codeterm_instance_id().to_string(),
+            live_tab_ids: startup_live_tab_ids(service),
+            gone_instance_ids: gone
+                .iter()
+                .map(|instance| instance.instance_id.clone())
+                .collect(),
+            confirm: true,
+            include_legacy: migrate,
+        };
+        let Some(report) = service
+            .agent_registry
+            .with_provider(provider_id, |provider| {
+                provider.sweep_launch_artifacts(&request)
+            })
+            .transpose()?
+            .flatten()
+        else {
+            return Ok(());
+        };
+        let removed_legacy = report
+            .legacy
+            .iter()
+            .filter(|name| report.removed.contains(name))
+            .count();
+        state.removed += removed_legacy;
+        state.retained = report.legacy.len().saturating_sub(removed_legacy);
+        if !report.removed.is_empty() {
+            log::info!(
+                "[startup] released dead provider launch artifacts: {:?}",
+                report.removed
+            );
+        }
+        let candidates = report.dead.len() + if migrate { report.legacy.len() } else { 0 };
+        if !migration::continue_sweep(candidates, report.removed.len()) {
+            break;
+        }
+    }
+    let mut state = if migrate {
+        migration::save(migration_root, provider_id, &state)?;
+        state
+    } else if let Ok(Some(state)) = prior {
+        state
+    } else {
+        return Ok(());
+    };
+    if migration::should_notify(&state) {
+        service.create_notification_ext(
+            "Provider profile cleanup completed".into(),
+            Some(format!("{provider_id}: removed {} unused legacy launch profiles; {} eligible profiles retained because safe removal was not confirmed. Live tabs and other files were kept.", state.removed, state.retained)),
+            Some("info"),
+            None,
+            Some(true),
+            super::notification::NotificationOrigin::default(),
+            super::notification::PushIntent {
+                level: Some(crate::notification::push::NotifyLevel::Verbose),
+                event_key: Some(format!("legacy-launch-profiles-v1:{provider_id}")),
+            },
+            None,
+        );
+        state.notified = true;
+        migration::save(migration_root, provider_id, &state)?;
+    }
+    Ok(())
+}
+
 pub(crate) fn release_closed_tabs(registry: &AgentRegistry, agent_providers: &[(String, String)]) {
+    if authorize_profile_cleanup(
+        true,
+        codeterm_plugin::global_writes::machine_global_write_allowed(),
+    )
+    .is_err()
+    {
+        return;
+    }
     let instance_id = crate::paths::codeterm_instance_id();
     for (tab_id, provider_id) in agent_providers {
         if let Some(Err(error)) = registry.with_provider(provider_id, |provider| {
@@ -109,6 +202,10 @@ pub(crate) fn release_tab(
     tab_id: &str,
     provider_id: &str,
 ) -> Result<bool, String> {
+    authorize_profile_cleanup(
+        true,
+        codeterm_plugin::global_writes::machine_global_write_allowed(),
+    )?;
     registry
         .with_provider(provider_id, |provider| {
             provider.release_tab_launch_artifacts(tab_id, crate::paths::codeterm_instance_id())
@@ -122,9 +219,18 @@ pub(crate) fn sweep_for_owner(
     confirm: bool,
     include_legacy: bool,
 ) -> Result<LaunchArtifactSweepReport, String> {
+    authorize_profile_cleanup(
+        confirm,
+        codeterm_plugin::global_writes::machine_global_write_allowed(),
+    )?;
+    let gone = crate::instance_lifetime::lock_gone_instances();
     let request = LaunchArtifactSweepRequest {
         instance_id: crate::paths::codeterm_instance_id().to_string(),
         live_tab_ids: live_tab_ids(service),
+        gone_instance_ids: gone
+            .iter()
+            .map(|instance| instance.instance_id.clone())
+            .collect(),
         confirm,
         include_legacy,
     };
@@ -141,9 +247,21 @@ pub(crate) fn sweep_for_owner(
 
 #[cfg(test)]
 mod tests {
-    use super::is_live_for_startup_sweep;
+    use super::{authorize_profile_cleanup, is_live_for_startup_sweep};
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::boot_stage::BootStage;
+
+    #[test]
+    fn profile_cleanup_requires_machine_owner_for_deletion() {
+        assert!(authorize_profile_cleanup(true, false).is_err());
+        assert!(authorize_profile_cleanup(true, true).is_ok());
+    }
+
+    #[test]
+    fn profile_cleanup_allows_non_owner_dry_run() {
+        assert!(authorize_profile_cleanup(false, false).is_ok());
+        assert!(authorize_profile_cleanup(false, true).is_ok());
+    }
 
     #[test]
     fn startup_sweep_keeps_spawn_failed_tab_with_live_provider_process_evidence() {

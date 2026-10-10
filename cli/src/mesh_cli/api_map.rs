@@ -290,6 +290,11 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             ),
             crate::TabAction::Current { .. } => ("GET".into(), "/api/tabs".into(), None),
             crate::TabAction::New {
+                shell,
+                list_shells,
+                purpose,
+                description,
+                icon,
                 workspace,
                 cwd,
                 title,
@@ -300,7 +305,8 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 chat_backend,
                 config,
             } => {
-                let mut body = serde_json::json!({});
+                if *list_shells { return ("GET".into(), "/api/shells".into(), None); }
+                let mut body = serde_json::json!({ "purpose": purpose, "description": description, "icon": icon, "shell": shell });
                 if let Some(w) = workspace {
                     body["workspace_id"] = serde_json::Value::String(w.clone());
                 }
@@ -441,6 +447,9 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             ),
             crate::TabAction::AdoptAgent { .. } => unsupported(
                 "tab adopt-agent is caller-local and cannot target a mesh peer",
+            ),
+            crate::TabAction::ReleaseOwnership { .. } => unsupported(
+                "tab release-ownership is local-only and cannot target a mesh peer",
             ),
             crate::TabAction::Search { .. } => {
                 // tab search runs local CLI-side; peer only supplies raw list.
@@ -921,13 +930,15 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         // match was reached. Listed explicitly so a new variant must choose.
         Commands::Web { .. }
         | Commands::Plugin { .. }
+        | Commands::ModelProvider { .. }
         | Commands::Supporter { .. }
-        | Commands::Sentinel { .. }
+        | Commands::Blueprint { .. }
         | Commands::Plan { .. }
         | Commands::Team { .. }
         | Commands::Spec { .. }
         | Commands::Effort { .. }
         | Commands::EssenceMap { .. }
+        | Commands::Trace { .. }
         | Commands::Orchestrator { .. }
         | Commands::Persona { .. }
         | Commands::Task { .. }
@@ -938,6 +949,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         | Commands::Pad { .. }
         | Commands::System { .. }
         | Commands::Docs { .. }
+        | Commands::Surface { .. }
         | Commands::Debug { .. } => {
             unreachable!("transport table declares this command non-REST")
         }

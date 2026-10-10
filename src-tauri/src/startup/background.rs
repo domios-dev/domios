@@ -1,42 +1,24 @@
-//! Background tasks: auto-save, mesh health, update check, agent idle poll.
+//! Background tasks: mesh health, update check, agent idle poll.
 
 use tauri::Manager;
 
-use crate::multiplexer::commands::MuxState;
-use crate::session::SessionState;
 use crate::{keepawake, mesh, update};
 
 use super::states::AppStates;
 
-/// Start background threads: auto-save, update check, agent idle monitoring.
+/// Start the persistence worker and background monitoring threads.
 pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &AppStates) {
-    keepawake::start_supervisor(states.keepawake.clone(), app_handle.clone());
-
-    {
-        let app_handle = app_handle.clone();
-        std::thread::spawn(move || loop {
-            std::thread::sleep(std::time::Duration::from_secs(30));
-            if let (Some(mux), Some(session)) = (
-                app_handle.try_state::<MuxState>(),
-                app_handle.try_state::<SessionState>(),
-            ) {
-                let snapshot = mux.write().to_session_snapshot();
-                let saved = session.lock().save(&snapshot);
-                if let Err(e) = saved {
-                    log::warn!("Auto-save failed: {}", e);
-                } else {
-                    crate::session::scrollback_sync::sync_scrollback_sidecars(&app_handle);
-                }
-            }
-        });
+    if let Err(error) = crate::service::session_persist::start_worker(app_handle) {
+        log::error!("[session-persist] worker startup failed: {error}");
     }
+    keepawake::start_supervisor(states.keepawake.clone(), app_handle.clone());
 
     // Mesh loop runs continuously; `mesh.enabled` is re-read each tick.
     {
         let mesh = states.mesh.clone();
         let cfg = states.config.clone();
         let app_h = app_handle.clone();
-        std::thread::spawn(move || {
+        codeterm_util::named_thread::spawn("mesh-health", move || {
             std::thread::sleep(std::time::Duration::from_secs(10));
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -176,7 +158,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
     {
         let mesh = states.mesh.clone();
         let cfg = states.config.clone();
-        std::thread::spawn(move || {
+        codeterm_util::named_thread::spawn("mesh-announce", move || {
             std::thread::sleep(std::time::Duration::from_secs(10));
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -248,7 +230,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
     {
         let update_st = states.update.clone();
         let app_h = app_handle.clone();
-        std::thread::spawn(move || {
+        codeterm_util::named_thread::spawn("update-check", move || {
             std::thread::sleep(std::time::Duration::from_secs(5));
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -288,15 +270,24 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
             std::time::Duration::from_millis(cfg.agent.poll_interval_ms as u64)
         };
         let app_handle = app_handle.clone();
-        std::thread::spawn(move || {
+        codeterm_util::named_thread::spawn("agent-idle-poll", move || {
             loop {
                 std::thread::sleep(poll_interval);
+                let structured_ptys: std::collections::HashSet<_> = mux
+                    .read()
+                    .all_tabs()
+                    .filter(|tab| tab.structured_control_active)
+                    .filter_map(|tab| tab.pty_id.clone())
+                    .collect();
                 // Hold tracker lock for collect, then unlock before mux updates.
                 let changed = {
                     let mut t = tracker.lock();
                     let pty_ids = t.all_ids();
                     let mut changes = Vec::new();
                     for pty_id in pty_ids {
+                        if structured_ptys.contains(&pty_id) {
+                            continue;
+                        }
                         let prev = t.get_status(&pty_id);
                         t.check_idle(&pty_id, idle_timeout);
                         let now = t.get_status(&pty_id);
@@ -339,7 +330,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
     // Runaway test-binary sweeper — kills orphan */target/*/deps/* processes.
     {
         let cfg = states.config.clone();
-        std::thread::spawn(move || {
+        codeterm_util::named_thread::spawn("runaway-sweeper", move || {
             // Initial delay: give the daemon a moment to settle before first sweep.
             std::thread::sleep(std::time::Duration::from_secs(60));
             loop {

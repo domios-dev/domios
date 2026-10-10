@@ -6,6 +6,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const MAX_CONSECUTIVE_FAILURES: u32 = 5;
+pub const STALE_FIRE_MS: u64 = 10 * 60 * 1000;
 const MAX_SCHEDULE_LOOKAHEAD_MS: u64 = 5 * 366 * 24 * 60 * 60 * 1000;
 const MAX_AUTO_JITTER_MS: u64 = 30 * 60 * 1000;
 
@@ -166,6 +167,12 @@ pub fn compute_next_run_jittered_at(
     use rand::Rng;
     let offset = rand::thread_rng().gen_range(0..=max);
     Ok(Some(next.saturating_add(offset)))
+}
+
+/// A recurring slot missed by more than the stale window (sleep, late boot) is skipped
+/// rather than fired late; a one-shot job always fires.
+pub fn is_stale_fire(next_run_ms: u64, now_ms: u64, oneshot: bool) -> bool {
+    !oneshot && now_ms.saturating_sub(next_run_ms) > STALE_FIRE_MS
 }
 
 pub fn compute_backoff(consecutive_failures: u32, base_ms: u64) -> u64 {
@@ -478,5 +485,14 @@ mod tests {
     #[test]
     fn tz_invalid_via_jittered_errors() {
         assert!(compute_next_run_jittered_in("0 3 * * *", None, Some("Mars/Time")).is_err());
+    }
+
+    #[test]
+    fn stale_fire_window_applies_only_to_recurring_jobs() {
+        let slot = 1_700_000_000_000;
+        assert!(!is_stale_fire(slot, slot + STALE_FIRE_MS, false));
+        assert!(is_stale_fire(slot, slot + STALE_FIRE_MS + 1, false));
+        assert!(!is_stale_fire(slot, slot + STALE_FIRE_MS * 6, true));
+        assert!(!is_stale_fire(slot + 5, slot, false));
     }
 }

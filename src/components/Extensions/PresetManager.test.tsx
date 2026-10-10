@@ -79,10 +79,11 @@ const MODELS: ModelInfo[] = [
   { id: "llama-3", display_name: "Llama 3" },
 ];
 
-function catalogProvider(models: ModelInfo[]): ProviderDescriptor {
+function catalogProvider(models: ModelInfo[], catalogueVersion = 0): ProviderDescriptor {
   return {
     schema_version: 1,
     id: "catalog-provider",
+    catalogue_version: catalogueVersion,
     display_name: "Catalog Provider",
     transport: "chat_backend",
     behavior_config: { model: "presets_and_system_prompt" },
@@ -380,24 +381,28 @@ test("catalog refresh hides stale preset models through loading and error before
   __setInvokeForTest(<T,>(command: string): Promise<T> => {
     assert(command === "list_agent_providers", `unexpected command: ${command}`);
     fetches += 1;
-    if (fetches === 1) return Promise.resolve([catalogProvider(catalogA)]) as unknown as Promise<T>;
+    if (fetches === 1) return Promise.resolve([catalogProvider(catalogA, 1)]) as unknown as Promise<T>;
     if (fetches === 2) return failedRefresh.promise as unknown as Promise<T>;
-    if (fetches === 3) return Promise.resolve([catalogProvider(catalogB)]) as unknown as Promise<T>;
+    if (fetches === 3) return Promise.resolve([catalogProvider(catalogB, 3)]) as unknown as Promise<T>;
     return Promise.reject(new Error(`unexpected catalog fetch ${fetches}`));
   });
   __setListenForTest(async <T,>(event: string, handler: (event: { payload: T }) => void) => {
-    if (event === "models-updated") {
-      modelsUpdated = () => handler({ payload: { provider: "catalog-provider" } as T });
+    if (event === "model-catalogue-changed") {
+      let version = 2;
+      modelsUpdated = () => {
+        handler({ payload: { provider: "catalog-provider", version } as T });
+        version = 3;
+      };
     }
     return () => {
-      if (event === "models-updated") modelsUpdated = undefined;
+      if (event === "model-catalogue-changed") modelsUpdated = undefined;
     };
   });
 
   const { host, root } = await render(<CatalogPluginDetail />);
   await flush();
   assert(presetModelIds(host).join(",") === "model-a", "preset selector starts with exact catalog A entries");
-  assert(modelsUpdated, "models-updated listener should be active");
+  assert(modelsUpdated, "versioned model catalogue listener should be active");
 
   await act(async () => modelsUpdated?.());
   assert(presetModelIds(host).length === 0, "preset selector exposes no catalog A entries while refreshing");

@@ -202,7 +202,8 @@ fn mux_snapshot_without_generation(mux: &MultiplexerState) -> serde_json::Value 
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn worker_transfer_source_manager_transfer_preserves_the_exact_plan_attempt_and_worker_provenance() {
+fn worker_transfer_source_manager_transfer_preserves_the_exact_plan_attempt_and_worker_provenance()
+{
     let fixture = TransferFixture::new();
     let before_plan = fixture
         .fixture
@@ -282,7 +283,8 @@ fn worker_transfer_source_manager_transfer_preserves_the_exact_plan_attempt_and_
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn worker_transfer_all_generic_service_entrypoints_refuse_task_bound_cross_parent_worker_transfer() {
+fn worker_transfer_all_generic_service_entrypoints_refuse_task_bound_cross_parent_worker_transfer()
+{
     let fixture = TransferFixture::new();
     assert_refused_without_changes(&fixture, |service| {
         service.set_tab_role(&fixture.worker, "Worker", Some(&fixture.destination), None)

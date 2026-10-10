@@ -1,15 +1,23 @@
 use super::*;
 use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
 
+mod live_tabs;
 mod merge;
 mod permission_auto_confirm;
 #[path = "tests/restore_verbatim_cwd.rs"]
 mod restore_verbatim_cwd;
 mod restored_agent_boot_stage;
 mod role_restore;
+mod shell_profiles;
+mod surface_restore;
 
 fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
+        purpose: Default::default(),
+        icon: None,
+        shell_profile: None,
+        utility_created_at: 0,
+        close_restore: None,
         tab_id: tab_id.into(),
         cwd: None,
         title: Some("LM Studio".into()),
@@ -41,6 +49,7 @@ fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNod
         model_identity_mismatch: None,
         chatbackend_plugin_id: Some(plugin_id.into()),
         chatbackend_session_id: Some(session_id.into()),
+        surface: None,
         watcher: None,
         pending_delivery: None,
     }
@@ -392,6 +401,11 @@ fn chatbackend_backing_round_trips_through_snapshot() {
 fn stale_legacy_pty_snapshot_restores_sandboxed_without_chatbackend_fields() {
     // backing on round-trip.
     let leaf = SplitNodeSnapshot::Leaf {
+        purpose: Default::default(),
+        icon: None,
+        shell_profile: None,
+        utility_created_at: 0,
+        close_restore: None,
         tab_id: "p2".into(),
         cwd: None,
         title: Some("claude".into()),
@@ -423,6 +437,7 @@ fn stale_legacy_pty_snapshot_restores_sandboxed_without_chatbackend_fields() {
         model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
+        surface: None,
         watcher: None,
         pending_delivery: None,
     };
@@ -481,6 +496,11 @@ fn automation_audience_round_trips_and_legacy_defaults_fail_closed() {
 #[test]
 fn tab_description_round_trips_through_snapshot() {
     let leaf = SplitNodeSnapshot::Leaf {
+        purpose: Default::default(),
+        icon: None,
+        shell_profile: None,
+        utility_created_at: 0,
+        close_restore: None,
         tab_id: "p-desc".into(),
         cwd: None,
         title: Some("Worker".into()),
@@ -512,6 +532,7 @@ fn tab_description_round_trips_through_snapshot() {
         model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
+        surface: None,
         watcher: None,
         pending_delivery: None,
     };
@@ -544,6 +565,11 @@ fn tab_description_round_trips_through_snapshot() {
 #[test]
 fn spawned_by_and_report_target_restore_intact_not_none() {
     let leaf = SplitNodeSnapshot::Leaf {
+        purpose: Default::default(),
+        icon: None,
+        shell_profile: None,
+        utility_created_at: 0,
+        close_restore: None,
         tab_id: "worker-1".into(),
         cwd: None,
         title: Some("Worker".into()),
@@ -575,6 +601,7 @@ fn spawned_by_and_report_target_restore_intact_not_none() {
         model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
+        surface: None,
         watcher: None,
         pending_delivery: None,
     };
@@ -596,6 +623,11 @@ fn spawned_by_and_report_target_restore_intact_not_none() {
 #[test]
 fn legacy_tab_title_seeds_default_provider_tab_title() {
     let leaf = SplitNodeSnapshot::Leaf {
+        purpose: Default::default(),
+        icon: None,
+        shell_profile: None,
+        utility_created_at: 0,
+        close_restore: None,
         tab_id: "legacy-worker".into(),
         cwd: None,
         title: Some("claude".into()),
@@ -627,6 +659,7 @@ fn legacy_tab_title_seeds_default_provider_tab_title() {
         model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
+        surface: None,
         watcher: None,
         pending_delivery: None,
     };
@@ -918,6 +951,11 @@ fn snapshot_with_status_keeps_dead_over_stale_pending_prompt() {
 fn spawned_by_round_trips_through_snapshot() {
     // state → snapshot → state preserves the hierarchy linkage fields.
     let leaf = SplitNodeSnapshot::Leaf {
+        purpose: Default::default(),
+        icon: None,
+        shell_profile: None,
+        utility_created_at: 0,
+        close_restore: None,
         tab_id: "w".into(),
         cwd: None,
         title: Some("Worker".into()),
@@ -949,6 +987,7 @@ fn spawned_by_round_trips_through_snapshot() {
         model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
+        surface: None,
         watcher: None,
         pending_delivery: None,
     };
@@ -1019,6 +1058,10 @@ fn requested_and_actual_model_identity_round_trips_through_snapshot() {
 fn restorable_launch_parameters_round_trip_in_snapshot() {
     let (mut state, tab_id) = MultiplexerState::new();
     let launch = crate::multiplexer::types::RestorableLaunchParameters {
+        failed_provider: Some("failed-provider-fixture".into()),
+        context_files: None,
+        context_skills: None,
+        worker_restart: None,
         captured: true,
         requested_model: Some("gpt-6-luna".into()),
         model: Some("gpt-6-luna".into()),
@@ -1028,6 +1071,7 @@ fn restorable_launch_parameters_round_trip_in_snapshot() {
         agent_name: Some("agent-label".into()),
         identity_instructions: Some("opaque-instruction-fragment".into()),
         permission_bypass_requested: true,
+        structured_runtime_mode: Some("auto".into()),
     };
     state.get_tab_mut(&tab_id).unwrap().restorable_launch = launch.clone();
 
@@ -1094,100 +1138,4 @@ fn workspace_provisioned_cwd_round_trips_through_snapshot() {
 
 // ── Ghost-tab repro harness ───────────────────────────────────────────────
 
-/// Repro: a tab marked skip_snapshot (first-run picker or any ephemeral
-/// onboarding tab) must be absent from the serialised session snapshot.
-/// Without the fix this test fails — the tab IS included, then restores as
-/// a ghost after a daemon restart.
-#[test]
-fn ghost_repro_skip_snapshot_tab_excluded_from_snapshot() {
-    let mut state = MultiplexerState::empty();
-    let wsid = state.create_workspace("Test".to_string(), None).id;
-    let tab_id = state.create_tab(&wsid).unwrap();
-    state.get_tab_mut(&tab_id).unwrap().skip_snapshot = true;
-
-    let snap = state.to_session_snapshot();
-    assert_eq!(
-        snap.workspaces[0].tabs.len(),
-        0,
-        "skip_snapshot Tab must be excluded from the session snapshot — \
-         if it weren't, a daemon restart would restore it as a ghost tab"
-    );
-}
-
-/// Happy path: a regular (non-ephemeral) tab must survive the round-trip
-/// and not be accidentally dropped by the ghost-tab fix.
-#[test]
-fn ghost_repro_normal_tab_survives_snapshot_round_trip() {
-    let mut state = MultiplexerState::empty();
-    let wsid = state.create_workspace("Test".to_string(), None).id;
-    let tab_id = state.create_tab(&wsid).unwrap();
-    state.get_tab_mut(&tab_id).unwrap().title = "My session".to_string();
-    // skip_snapshot defaults to false
-
-    let snap = state.to_session_snapshot();
-    assert_eq!(
-        snap.workspaces[0].tabs.len(),
-        1,
-        "regular Tab must survive the session snapshot round-trip"
-    );
-
-    let restored = MultiplexerState::from_session_snapshot(&snap);
-    assert!(
-        restored.tabs.contains_key(&tab_id),
-        "restored state must include the regular Tab"
-    );
-}
-
-/// Mixed workspace: only the ephemeral tab is dropped; the real tab survives.
-#[test]
-fn ghost_repro_mixed_workspace_drops_only_ephemeral() {
-    let mut state = MultiplexerState::empty();
-    let wsid = state.create_workspace("Test".to_string(), None).id;
-
-    let tab_real = state.create_tab(&wsid).unwrap();
-    state.get_tab_mut(&tab_real).unwrap().title = "Real session".to_string();
-
-    let tab_picker = state.create_tab(&wsid).unwrap();
-    state.get_tab_mut(&tab_picker).unwrap().skip_snapshot = true;
-
-    let snap = state.to_session_snapshot();
-    assert_eq!(
-        snap.workspaces[0].tabs.len(),
-        1,
-        "only the real Tab must survive; the ephemeral picker must be excluded"
-    );
-    let surviving_leaf = &snap.workspaces[0].tabs[0].split_tree;
-    match surviving_leaf {
-        crate::session::store::SplitNodeSnapshot::Leaf { tab_id, .. } => {
-            assert_eq!(tab_id, &tab_real, "surviving tab must be the real Tab");
-        }
-        _ => panic!("expected a leaf"),
-    }
-}
-
-#[test]
-fn snapshots_exclude_orphaned_and_duplicate_live_tabs() {
-    let mut state = MultiplexerState::empty();
-    let workspace_id = state.create_workspace("Clean".to_string(), None).id;
-    let tab_id = state.create_tab(&workspace_id).unwrap();
-    let workspace = state
-        .workspaces
-        .iter_mut()
-        .find(|workspace| workspace.id == workspace_id)
-        .unwrap();
-    workspace.tabs.push(tab_id.clone());
-    workspace.tabs.push("closed-tab".to_string());
-    workspace.active_tab_id = Some("closed-tab".to_string());
-
-    let live = state.snapshot();
-    assert_eq!(live.workspaces[0].tabs.len(), 1);
-    assert_eq!(live.workspaces[0].tabs[0], tab_id);
-    assert_eq!(
-        live.workspaces[0].active_tab_id.as_deref(),
-        Some(tab_id.as_str())
-    );
-
-    let persisted = state.to_session_snapshot();
-    assert_eq!(persisted.workspaces[0].tabs.len(), 1);
-    assert_eq!(persisted.workspaces[0].tabs[0].id, tab_id);
-}
+mod visibility;

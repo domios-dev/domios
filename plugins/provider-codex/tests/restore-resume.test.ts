@@ -16,7 +16,7 @@ const context = {
     shell: {
       quoteFor: (value: unknown, target: string) => {
         assert.equal(target, platform);
-        const argument = String(value);
+        const argument = String(value).replace(/\\"/g, '"');
         quoted.push(argument);
         return `ARG(${argument})`;
       },
@@ -76,6 +76,7 @@ const windowsCommand = resume({
 assert.equal(instructionFile, "");
 assert(windowsCommand.includes(" resume"));
 assert.equal((windowsCommand.match(/-c check_for_update_on_startup=false/g) || []).length, 1);
+assert.equal((windowsCommand.match(/-c project_doc_max_bytes=65536/g) || []).length, 1);
 assert(windowsCommand.includes("--profile $ctProfileName"));
 assert(windowsCommand.includes("launch-artifacts/release"));
 assert(windowsCommand.includes("instance-restored-test"));
@@ -102,6 +103,7 @@ quoted.length = 0;
 const unixCommand = resume({ sessionId: uuid, args, systemPrompt: instructions });
 assert(unixCommand.includes(" resume"));
 assert.equal((unixCommand.match(/-c check_for_update_on_startup=false/g) || []).length, 1);
+assert.equal((unixCommand.match(/-c project_doc_max_bytes=65536/g) || []).length, 1);
 assert(unixCommand.includes("--no-daemon"));
 assert(!unixCommand.includes("--profile"));
 assert(!unixCommand.includes(instructions));

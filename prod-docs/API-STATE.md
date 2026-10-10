@@ -2,6 +2,12 @@
 
 Secrets, sessions, web mirror, diagnostics, usage, logs, configuration, and update endpoints.
 
+## Storage authority and recovery
+
+Each instance has one typed Storage owner for migrated desk, cron, and Blueprint state in `storage/state.db` beneath that instance's data directory. Storage opens before restore and schedulers start. Its one-time importer seals and verifies a copy of recognized legacy inputs under `storage/legacy-originals/`; it retains the original files and switches authority only after archive and semantic checks pass. A failed open, import, or verification leaves migrated state unavailable. Storage-dependent API operations return 503 with the Storage-unavailable error; they do not return or create an empty substitute.
+
+For a Storage backup, stop Domios cleanly and copy the complete `storage/` directory, including `state.db`, referenced assets, and the import archive. Restore the complete backup into an empty `storage/` root with a Storage-compatible build. Never downgrade by running an older binary against the retained legacy files: writes made after cutover are absent there. There is no supported in-place downgrade or JSON rollback; preserve both copies and use a reviewed compatible recovery path.
+
 #### Secrets
 
 Pluggable secret-store layer. Active backend is selected by `integrations.secrets.backend` in `config.toml`; built-in backends are `local` (plaintext local file, default), `bitwarden` (Bitwarden CLI, optional Vaultwarden server), and `mock` (in-memory, dev only). All endpoints require the standard Bearer token. **Local-only by design** — secret routes are never relayed across the mesh; the CLI rejects `--mesh` on `mem secret` subcommands with exit code 7.
@@ -36,8 +42,8 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 #### Session Snapshot
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| POST | `/api/session/save` | — | Snapshot the multiplexer (workspaces/tabs) into the session store immediately. Durability is otherwise the 30s auto-save timer + close-to-tray hook; Call it before force-killing the daemon to make restart persistence deterministic. A save that would drop workspaces/tabs vs the persisted `last.json` is refused unless it carries authorized-reduction intent (close verbs, Team close, policy closes, spawn rollbacks, boot cleanup of ghost/duplicate entries): the fuller persisted desk stays authoritative, the rejected snapshot is quarantined as `sessions/last.json.reduced-<epoch-ms>`, and the refusal is logged at error with drop counts. Refusal is protection, not failure — the endpoint still returns 200; only a genuine persist failure (I/O, serialization) errors. |
-| GET | `/api/session/backups` | — | List rotated full-desk snapshots from `sessions/backups/`, newest first: `{backups: [{name, saved_at_secs, workspaces, tabs}]}`. CLI: `codeterm sessions backups list`. |
+| POST | `/api/session/save` | optional `{continue_tab, continue_prompt}` | Flush accepted desk writes through Storage. With `continue_tab`, the next start delivers one system continue to that tab (the supplied prompt or default) after its own resumed session is agent-ready; the response reports `registered` or a refusal reason (`no_agent_session`, `no_pty_agent_session`). A snapshot that would drop workspaces or tabs from the committed desk is refused unless it carries authorized-reduction intent; the committed desk remains authoritative. Storage errors are reported, never replaced by empty state. |
+| GET | `/api/session/backups` | — | List rotated full-desk backup projections from Storage, newest first: `{backups: [{name, saved_at_secs, workspaces, tabs}]}`. CLI: `codeterm sessions backups list`. |
 | POST | `/api/session/backups/{name}/restore` | — | Additive desk recovery from one backup: recreates workspaces/tabs missing from the live desk under their original ids; existing ones are never modified or closed. Returns `{restored, workspaces_added, tabs_added, tabs_already_present}`; 404 for an unknown/invalid name. CLI: `codeterm sessions backups restore <name>`. |
 
 #### Web Mirror
@@ -210,6 +216,16 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 
 **Errors:** `502 Failed to check for updates` when GitHub is unreachable; `400 Run check first` when `install` is called before `check` populated the cache; `400 invalid channel` on a malformed `channel` body.
 
+### Tab-scoped local previews
+
+The browser mirror uses `POST /api/tabs/{id}/preview/read` with `{ "path": "/absolute/file.md", "kind": "document" }` and `POST /api/tabs/{id}/preview/check` with `{ "paths": ["/absolute/file.md"] }`. Both require the normal Bearer authentication and an exact live tab ID. Peer access follows the tab's read permissions and ownership policy.
+
+A file must be referenced by that tab's own transcript: a full-line `@ds-image`, `@ds-document`, `@ds-page` (or `@ct-*`/`@file`) directive, an attachment, a recorded edit/diff path, or an image result path. Client-supplied paths do not grant access. Prose mentions, fenced examples and another tab's references grant nothing. Unavailable and refused reads return the same `404` JSON error; batch checks omit refused paths without exposing their existence.
+
+Read returns `{ "data": "...", "media_type": "..." }`; images use a base64 data URL. Batch returns `{ "paths": [...], "home": "..." }`. Allowed extensions and byte limits are shared with desktop: HTML pages 200,000 bytes, UTF-8 documents 1,000,000 bytes, images 10 MiB. Symlinks/junctions, hardlinks, traversal, UNC/device paths and alternate streams are refused. CodeTerm data directories, SSH/cloud credential directories and credential/token filenames are denied. Additional absolute file or directory roots can be denied with `api.preview_secret_paths = ["/absolute/private"]`; invalid roots fail closed.
+
+Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, and a restrictive sandbox CSP. HTML is returned inside JSON and rendered in the existing sandboxed preview. Requests are capped at 120 per minute across these routes, four concurrent operations, 64 KiB request bodies and 128 paths per batch. Excess traffic returns `429`; oversized batches return `413`. Reveal in the OS and Open in the OS remain desktop-only.
+
 Related documents — service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 23 -->
+<!-- revision: 27 -->

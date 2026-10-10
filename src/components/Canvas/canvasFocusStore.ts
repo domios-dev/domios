@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import type { ReturnToRoute } from "../../lib/returnTo";
 
 export interface CanvasFocusTarget {
   planId?: string;
@@ -10,7 +11,7 @@ export interface CanvasFocusTarget {
 /** The team view a plan or task jump lands on. */
 export type PlanTargetJump = { view: "plan" } | { view: "task"; taskId: string };
 
-export interface CanvasWorkspaceTarget {
+export interface CanvasWorkspaceTarget extends ReturnToRoute {
   teamId?: string;
   managerTabId?: string | null;
   planId?: string;

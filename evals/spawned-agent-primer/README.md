@@ -35,13 +35,17 @@ TEST_CAP_SECS=3600 scripts/test-capped.sh --exec \
 ```
 
 Case 9 asserts the `sentinel create` mechanism, cadence/end flags, and absence
-of an agent polling loop; it never asserts prompt wording. The old arm records
-the baseline and the new arm must pass 3/3 without regression in cases 1–8.
+of an agent polling loop; case 11 covers the `cron-run` observation source and
+its recorded run tab. Neither case asserts prompt wording. The old arm records
+the baseline and the new arm must pass 3/3 without regression in cases 1–10.
 Record the observed A/B result as a plan stride.
 
 ## Pass
 
-The report shows all ten cases passing for all three samples and the runner
-exits zero.
+The new-arm report shows all twelve cases passing for all three samples and
+the runner exits zero. The old arm may fail the new CronRun case; it records
+the baseline while cases 1–10 guard against regressions.
 
-<!-- revision: 6 -->
+Case 12 covers utility purposes, creation descriptions, idle restart and closing a completed tab. The prepared non-Worker prompt includes `utility_tab_guidance.md`; the Worker composition is covered by the Rust fragment-delivery test.
+
+<!-- revision: 8 -->

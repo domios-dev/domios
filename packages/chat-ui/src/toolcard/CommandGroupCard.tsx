@@ -1,9 +1,8 @@
-import { toolCommand, type ShellScript, type ToolEvent } from "@codeterm/chat-core";
+import type { ShellScript, ToolEvent } from "@codeterm/chat-core";
 import { ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { SyntaxHighlighter } from "../syntaxHighlighter";
 import { commandGroupSummary, type CommandRow } from "../codeterm/commandShape";
-import { RawCommandDisclosure } from "../codeterm/RawCommandDisclosure";
 import { DIFF_HIGHLIGHT_MAX_LINES } from "../MarkdownBody";
 import { SYNTAX_HIGHLIGHT_ROOT_CLASS, themeAwarePrismStyle } from "../syntaxTheme";
 import { ToolOutputContent } from "../ToolOutputContent";
@@ -51,6 +50,12 @@ function SegmentDetail({ event, row, index, navigation }: { event: ToolEvent; ro
       {row.segment.text}
     </pre>
   );
+  if (row.event) return <>
+    {text}
+    <span aria-label={statusName(row.event.status)}><StatusGlyph status={row.event.status} /></span>
+    <ToolOutcomeFacts event={row.event} />
+    {row.event.result && <ToolOutputContent text={row.event.result} maxHeight="12rem" />}
+  </>;
   if (row.role === "command") return text;
   const segment: ToolEvent = {
     id: `${event.id}:segment:${index}`,
@@ -74,9 +79,8 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
     rememberOpenSegment(callKey, next);
     setOpenRowState(next);
   };
-  const title = event.description || commandGroupSummary(rows);
+  const title = event.description || (event.commandBatch ? event.title : undefined) || commandGroupSummary(rows);
   const countLabel = `${rows.length} commands`;
-  const failed = event.status === "error";
   const capped = !expanded && (openRow ?? -1) < COMMAND_TREE_CAP;
 
   return (
@@ -84,9 +88,8 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
       data-testid="chat-command-group"
       data-tool-status={event.status}
       aria-label={`Command, ${countLabel}`}
-      className="mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-md border-l-2"
+      className="mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-md"
       style={{
-        borderLeftColor: failed ? "var(--ct-red)" : event.status === "pending" ? "var(--ct-accent)" : "var(--ct-border)",
         background: "color-mix(in srgb, var(--ct-surface) 60%, transparent)",
       }}
     >
@@ -118,14 +121,6 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
         renderDetail={(index) => <SegmentDetail event={event} row={rows[index]} index={index} navigation={navigation} />}
       />
       <div id={regionId} role="region" aria-label="Command output" hidden={!expanded} className="px-3 pb-2">
-        {expanded && (
-          <RawCommandDisclosure
-            raw={toolCommand(event).command}
-            details={event.status === "pending"
-              ? <div data-testid="toolcard-spinner" className="font-mono text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>Running…</div>
-              : event.result && <div data-testid="toolcard-result"><ToolOutputContent text={event.result} maxHeight="12rem" /></div>}
-          />
-        )}
       </div>
     </section>
   );

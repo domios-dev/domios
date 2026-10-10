@@ -101,8 +101,11 @@ fn end_run(run: &OneshotRun, success: bool, summary: &str, deliveries: &Deliveri
             session_id: None,
             cwd: None,
         },
-        move |tab_id, text| {
-            recorded.lock().push((tab_id.to_string(), text.to_string()));
+        move |tab_id, envelope, text| {
+            recorded.lock().push((
+                tab_id.to_string(),
+                crate::service::messenger::Messenger::from(envelope).wrap(text),
+            ));
             Ok(())
         },
     )
@@ -134,6 +137,11 @@ fn assert_retired_with_report(
     assert_eq!(deliveries.len(), 1, "exactly one status report");
     let (target, text) = &deliveries[0];
     assert_eq!(target, REPORT_TAB);
+    let context = format!("cron:once:{}", format!("{status:?}").to_lowercase());
+    assert!(
+        text.starts_with(&format!("<domios from=\"system\" context=\"{context}\">")),
+        "{text}"
+    );
     assert!(text.contains(&run.run_id), "{text}");
     assert!(text.contains(&format!("{status:?}")), "{text}");
     assert!(text.contains(summary), "{text}");
@@ -231,4 +239,52 @@ fn storage_cron_consumer_run_end_commits_through_storage() {
         fresh.get_history(&run.job_id),
         cache.get_history(&run.job_id)
     );
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn cron_settle_async_runtime_progresses_while_cron_writer_is_held() {
+    let run = oneshot_run(None);
+    let writer = run.cron.lock();
+    let (ready, progressed) = std::sync::mpsc::channel();
+    let svc = run.fixture.service.clone();
+    let job_id = run.job_id.clone();
+    let run_id = run.run_id.clone();
+    let caller = std::thread::spawn(move || {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async move {
+                let settlement = finish_with(
+                    &svc,
+                    EndedCronRun {
+                        tab_id: RUN_TAB,
+                        job_id: &job_id,
+                        run_id: &run_id,
+                        success: true,
+                        summary: "held-writer-summary".into(),
+                        raw_output: "",
+                        session_id: None,
+                        cwd: None,
+                    },
+                    |_, _, _| Ok(()),
+                )
+                .expect("managed cron state starts settlement");
+                tokio::task::yield_now().await;
+                ready.send(settlement).unwrap();
+            });
+    });
+
+    let settlement = progressed
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .expect("the async caller progresses while the cron writer is held");
+    drop(writer);
+    caller.join().unwrap();
+    settlement.join().unwrap();
+
+    let cron = run.cron.lock();
+    let history = cron.get_history(&run.job_id);
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].status, CronRunStatus::Success);
 }

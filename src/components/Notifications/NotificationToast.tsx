@@ -1,63 +1,60 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { RichMarkdown } from "@codeterm/chat-ui";
 import { runNotificationAction } from "../../lib/notificationActions";
 import type { Notification, NotificationAction } from "../../lib/types";
-import { Check, X } from "lucide-react";
+import { X } from "lucide-react";
 import { PluginIcon } from "../Extensions/PluginIcon";
 import { notificationLevel, notificationTone } from "../../lib/notifyLevels";
+import { RunPath } from "../Automation/RunPath";
+import { requestOpenJob } from "../Jobs/openJobEvent";
 import { levelIcon } from "./levelIcon";
+import { useReducedMotion } from "../Canvas/missionControl/useReducedMotion";
+import { countdownAnimation } from "./toastLifetime";
+import { useToastHostWidth } from "./useToastHostWidth";
+import { useToastLifetime } from "./useToastLifetime";
 
-const AUTO_DISMISS_MS = 5000;
-const MAX_VISIBLE_TOASTS = 2;
+const MAX_VISIBLE_TOASTS = 3;
 
 interface ToastItemProps {
   notification: Notification;
   onDismiss: (id: string) => void;
   onMarkRead?: (id: string) => void;
   onNavigate?: (tabId: string, workspaceId: string | null) => void;
-  embedded?: boolean;
 }
 
-function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }: ToastItemProps) {
-  const [closing, setClosing] = useState(false);
+function ToastItem({ notification, onDismiss, onMarkRead, onNavigate }: ToastItemProps) {
+  const reducedMotion = useReducedMotion();
+  const lifetime = useToastLifetime(notification.id, notification.lifetime_ms, onDismiss);
   const [expanded, setExpanded] = useState(false);
+  const expandedPanel = useRef<HTMLDivElement>(null);
+  const runOpener = useRef<HTMLButtonElement>(null);
+  const detailsOpener = useRef<HTMLButtonElement>(null);
+  const isRun = !!notification.blueprint_run;
+  useLayoutEffect(() => {
+    if (expanded) expandedPanel.current?.querySelector<HTMLButtonElement>("button")?.focus();
+  }, [expanded]);
+  const closeExpanded = () => { setExpanded(false); (isRun ? runOpener : detailsOpener).current?.focus(); };
   // A choice is answered from the bell and the chat card, which keep it as a
   // log of decisions; a toast that vanishes must not offer one.
   const runnable = notification.actions?.filter((action) =>
     action.type !== "answer" && action.type !== "respond_prompt_option",
   ) ?? [];
-  const compactRunnable = embedded ? runnable.slice(0, 1) : runnable;
-  const hasActions = compactRunnable.length > 0;
-  const sticky = notification.sticky || hasActions || expanded;
-
-  const dismiss = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    setClosing(true);
-  }, []);
+  const hasActions = runnable.length > 0;
+  const dismiss = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    lifetime.dismiss();
+  };
 
   const handleClick = useCallback(() => {
-    if (!notification.read) onMarkRead?.(notification.id);
+    if (!notification.read && !notification.blueprint_run) onMarkRead?.(notification.id);
     setExpanded(true);
-  }, [notification.id, notification.read, onMarkRead]);
+  }, [notification.id, notification.read, notification.blueprint_run, onMarkRead]);
 
-  const runAction = useCallback(async (action: NotificationAction) => {
+  const runAction = async (action: NotificationAction) => {
     await runNotificationAction(action);
-    setClosing(true);
-  }, []);
-
-  const handleAnimationEnd = useCallback((event: React.AnimationEvent<HTMLElement>) => {
-    if (event.target !== event.currentTarget) return;
-    if (event.animationName === "ct-toast-life" || event.animationName === "ct-toast-out") {
-      onDismiss(notification.id);
-    }
-  }, [notification.id, onDismiss]);
-
-  const animationClass = closing
-    ? "ct-toast-exit"
-    : sticky
-      ? "ct-toast-enter"
-      : "ct-toast-timed";
+    lifetime.dismiss();
+  };
 
   const level = notificationLevel(notification);
   const tone = notificationTone(notification);
@@ -78,18 +75,20 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
         <LevelIcon className="shrink-0" style={{ color: tone }} />
       )}
       <div className="min-w-0 flex flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap">
-        <span className="block min-w-0 max-w-full truncate font-medium text-[var(--ct-fg)]">
+        <button ref={detailsOpener} type="button" aria-label={`Show notification: ${notification.title}`} className="block min-w-0 max-w-full truncate text-left font-medium text-[var(--ct-fg)]" onClick={(event) => { event.stopPropagation(); handleClick(); }}>
           {notification.title}
-        </span>
+        </button>
         {notification.body && (
           <div className="min-w-0 flex-1 truncate text-[var(--ct-muted-fg)] [&_*]:whitespace-nowrap [&_p]:m-0 [&_p]:inline">
             <RichMarkdown text={notification.body} />
           </div>
         )}
       </div>
+      {notification.blueprint_run && <button ref={runOpener} type="button" className="shrink-0 text-[10px] text-[var(--ct-accent)]" onClick={(event) => { event.stopPropagation(); setExpanded(true); }}>View run</button>}
+      {notification.local_actions?.map((action) => <button key={action.label} type="button" className="shrink-0 text-[10px] text-[var(--ct-accent)]" onClick={(event) => { event.stopPropagation(); void action.run(); lifetime.dismiss(); }}>{action.label}</button>)}
       {hasActions && (
-        <div className="flex shrink-0 gap-1">
-          {compactRunnable.map((action, i) => (
+        <div className="flex min-w-0 max-w-[60%] gap-1 overflow-x-auto">
+          {runnable.map((action, i) => (
             <button
               key={i}
               onClick={(e) => { e.stopPropagation(); runAction(action); }}
@@ -106,120 +105,104 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
       )}
       <button
         onClick={dismiss}
-        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-bg-hover)] hover:text-[var(--ct-fg)]"
+        className="relative inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-bg-hover)] hover:text-[var(--ct-fg)]"
         aria-label="Dismiss"
       >
+        <svg aria-hidden="true" viewBox="0 0 24 24" className="pointer-events-none absolute inset-0 h-6 w-6 -rotate-90">
+          <circle cx="12" cy="12" r="10" pathLength="1" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="1" className="ct-toast-countdown" style={{ animationName: countdownAnimation(reducedMotion), animationDuration: `${lifetime.duration}ms`, animationPlayState: lifetime.paused ? "paused" : "running" }} />
+        </svg>
         <X size={12} strokeWidth={1.8} />
       </button>
     </>
   );
 
-  if (embedded) {
-    return (
-      <>
-        <div
-          onClick={handleClick}
-          data-testid="notification-toast"
-          data-notification-id={notification.id}
-          data-notification-key={notification.key ?? ""}
-          data-notification-severity={notification.severity}
-          data-notification-level={level ?? ""}
-          role="status"
-          style={{
-            ["--toast-accent" as string]: tone,
-            ["--ct-toast-duration" as string]: `${AUTO_DISMISS_MS}ms`,
-          }}
-          className="ct-toast-inline cursor-pointer"
-        >
-          <div className={`ct-toast-inline-panel ct-float ${animationClass}`} onAnimationEnd={handleAnimationEnd}>
-            <div className="ct-toast-inline-content">
-              {content}
-            </div>
+  return (
+    <>
+      <div
+        onClick={handleClick}
+        data-testid="notification-toast"
+        data-notification-id={notification.id}
+        data-notification-key={notification.key ?? ""}
+        data-notification-severity={notification.severity}
+        data-notification-level={level ?? ""}
+        onMouseEnter={lifetime.pause}
+        onMouseLeave={lifetime.resume}
+        role="status"
+        style={{
+          ["--toast-accent" as string]: tone,
+          ["--ct-toast-duration" as string]: `${lifetime.duration}ms`,
+        }}
+        className="ct-toast-inline cursor-pointer"
+      >
+        <div className="ct-toast-inline-panel ct-float">
+          <div className="ct-toast-inline-content">
+            {content}
           </div>
         </div>
-        {expanded && createPortal(
-          <div
-            data-testid="notification-toast-expanded"
-            role="dialog"
-            aria-label={notification.title}
-            className="fixed right-2 top-[calc(2rem+var(--ct-safe-top,0px)+6px)] z-[70] w-[min(420px,calc(100vw-16px))] rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] p-3 shadow-2xl ct-float"
-            style={{ ["--toast-accent" as string]: tone }}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start gap-2">
-              <LevelIcon className="mt-0.5 shrink-0" style={{ color: tone }} />
-              <div className="min-w-0 flex-1">
-                <div className="font-medium text-[var(--ct-fg)]">{notification.title}</div>
-                {notification.body && (
-                  <div className="mt-2 max-h-[min(420px,60vh)] overflow-y-auto break-words text-[12px] leading-5 text-[var(--ct-muted-fg)]">
-                    <RichMarkdown text={notification.body} />
-                  </div>
-                )}
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {notification.tab_id && onNavigate && (
-                    <button
-                      type="button"
-                      className="rounded border border-[var(--ct-border)] px-2 py-1 text-[10px] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-                      onClick={() => onNavigate(notification.tab_id!, notification.workspace_id)}
-                    >
-                      Show Tab
-                    </button>
-                  )}
-                  {runnable.map((action, index) => (
-                    <button
-                      type="button"
-                      key={`${action.label}-${index}`}
-                      className="rounded border border-[var(--ct-border)] px-2 py-1 text-[10px] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-                      onClick={() => runAction(action)}
-                    >
-                      {action.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <button
-                type="button"
-                aria-label="Close expanded notification"
-                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-                onClick={() => setExpanded(false)}
-              >
-                <X size={13} />
-              </button>
-            </div>
-          </div>,
-          document.body,
-        )}
-      </>
-    );
-  }
-
-  return (
-    <div
-      onClick={handleClick}
-      data-testid="notification-toast"
-      data-notification-id={notification.id}
-      data-notification-key={notification.key ?? ""}
-      data-notification-severity={notification.severity}
-      data-notification-level={level ?? ""}
-      role="status"
-      style={{
-        ["--toast-accent" as string]: tone,
-        ["--ct-toast-duration" as string]: `${AUTO_DISMISS_MS}ms`,
-      }}
-      onAnimationEnd={handleAnimationEnd}
-      className={`
-        group relative h-7 min-w-0 overflow-hidden
-        rounded border border-[var(--ct-border)]/80 bg-[color-mix(in_srgb,var(--ct-surface)_90%,transparent)]
-        px-2.5 text-[11px] leading-none shadow-[0_4px_16px_rgba(0,0,0,0.18)]
-        ct-float ${hasActions ? "" : "cursor-pointer"}
-        ${animationClass}
-        max-w-[min(620px,calc(100vw-144px))]
-      `}
-    >
-      <div className={`flex h-full min-w-0 items-center gap-2 ${embedded ? "ct-toast-grow-content" : ""}`}>
-        {content}
       </div>
-    </div>
+      {expanded && createPortal(
+        <div
+          ref={expandedPanel}
+          data-testid="notification-toast-expanded"
+          role="dialog"
+          aria-label={notification.title}
+          className="fixed right-2 top-[calc(2rem+var(--ct-safe-top,0px)+6px)] z-[70] w-[min(420px,calc(100vw-16px))] rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] p-3 shadow-2xl ct-float"
+          style={{ ["--toast-accent" as string]: tone }}
+          onKeyDown={(event) => { if (event.code === "Escape") { event.stopPropagation(); closeExpanded(); } }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="flex items-start gap-2">
+            <LevelIcon className="mt-0.5 shrink-0" style={{ color: tone }} />
+            <div className="min-w-0 flex-1">
+              <div className="font-medium text-[var(--ct-fg)]">{notification.title}</div>
+              {notification.blueprint_run && <>
+                <RunPath run={notification.blueprint_run.run} />
+                <button type="button" className="mt-2 rounded border border-[var(--ct-border)] px-2 py-1 text-xs text-[var(--ct-fg)]" onClick={() => {
+                  const data = notification.blueprint_run!;
+                  requestOpenJob({ workspaceId: data.workspaceId, target: { teamId: data.teamId, scenarioId: data.scenarioId, runId: data.run.key } });
+                  setExpanded(false);
+                }}>Open full graph</button>
+              </>}
+              {notification.body && (
+                <div className="mt-2 max-h-[min(420px,60vh)] overflow-y-auto break-words text-[12px] leading-5 text-[var(--ct-muted-fg)]">
+                  <RichMarkdown text={notification.body} />
+                </div>
+              )}
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {notification.tab_id && onNavigate && (
+                  <button
+                    type="button"
+                    className="rounded border border-[var(--ct-border)] px-2 py-1 text-[10px] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+                    onClick={() => onNavigate(notification.tab_id!, notification.workspace_id)}
+                  >
+                    Show Tab
+                  </button>
+                )}
+                {runnable.map((action, index) => (
+                  <button
+                    type="button"
+                    key={`${action.label}-${index}`}
+                    className="rounded border border-[var(--ct-border)] px-2 py-1 text-[10px] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+                    onClick={() => runAction(action)}
+                  >
+                    {action.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button
+              type="button"
+              aria-label="Close expanded notification"
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+              onClick={closeExpanded}
+            >
+              <X size={13} />
+            </button>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 
@@ -228,7 +211,6 @@ interface NotificationToastContainerProps {
   onDismiss: (id: string) => void;
   onMarkRead?: (id: string) => void;
   onNavigate?: (tabId: string, workspaceId: string | null) => void;
-  embedded?: boolean;
 }
 
 export function NotificationToastContainer({
@@ -236,48 +218,15 @@ export function NotificationToastContainer({
   onDismiss,
   onMarkRead,
   onNavigate,
-  embedded = false,
 }: NotificationToastContainerProps) {
+  const hostRef = useToastHostWidth(toasts.length);
   if (toasts.length === 0) return null;
-  const visibleToasts = embedded ? toasts.slice(-1) : toasts.slice(-MAX_VISIBLE_TOASTS);
-  const hiddenCount = Math.max(0, toasts.length - visibleToasts.length);
-
-  if (embedded) {
-    return (
-      <div className="flex h-full min-w-0 max-w-[min(620px,48vw)] flex-1 items-center justify-end gap-1 overflow-hidden pl-1">
-        {hiddenCount > 0 && (
-          <div className="ct-toast-pending">
-            <Check size={10} />
-            <span>+{hiddenCount}</span>
-          </div>
-        )}
-        {visibleToasts.map((toast) => (
-          <ToastItem
-            key={toast.id}
-            notification={toast}
-            onDismiss={onDismiss}
-            onMarkRead={onMarkRead}
-            onNavigate={onNavigate}
-            embedded
-          />
-        ))}
-      </div>
-    );
-  }
-
+  const visibleToasts = toasts.slice(-MAX_VISIBLE_TOASTS).reverse();
   return (
-    <div className="fixed left-1/2 top-2 z-40 flex w-[min(620px,calc(100vw-160px))] -translate-x-1/2 flex-col items-center gap-1 pointer-events-none">
-      {hiddenCount > 0 && (
-        <div className="pointer-events-none flex h-5 items-center gap-1 rounded border border-[var(--ct-border)]/70 bg-[var(--ct-surface)]/80 px-2 text-[10px] text-[var(--ct-muted-fg)] ct-float">
-          <Check size={11} />
-          <span>+{hiddenCount}</span>
-        </div>
-      )}
-      {visibleToasts.map((toast) => (
-        <div key={toast.id} className="pointer-events-auto">
-          <ToastItem notification={toast} onDismiss={onDismiss} onMarkRead={onMarkRead} onNavigate={onNavigate} />
-        </div>
-      ))}
+    <div ref={hostRef} data-testid="toast-host" aria-label="Notifications" className="absolute right-0 top-full z-[65] mt-1.5 flex w-[min(420px,calc(100vw-16px))] flex-col gap-1.5 pointer-events-none">
+      {visibleToasts.map((toast) => <div key={toast.id} className="pointer-events-auto">
+        <ToastItem notification={toast} onDismiss={onDismiss} onMarkRead={onMarkRead} onNavigate={onNavigate} />
+      </div>)}
     </div>
   );
 }

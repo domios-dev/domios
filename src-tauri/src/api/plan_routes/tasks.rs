@@ -13,14 +13,15 @@ use crate::plan::{
 };
 use crate::service::plan::task_attempts::TaskRespawnRequest;
 use crate::service::plan::{NewTask, TaskLaneUpdate};
-use crate::service::{
-    persist_attempt_executor_identity_for_mux, respawn_title_provenance, ServiceState,
-};
+use crate::service::{persist_attempt_executor_identity_for_mux, respawn_title_provenance};
 
 use super::{
     authorize_draft_structure_mutation_http, authorize_execution_action_http, emit_plan_changed,
     epoch_ms, optional_string_field, plan_authority_err, plan_err, text_err, PlanRouteResult,
 };
+
+mod block_authority;
+use block_authority::{verify_task_mutation_owner, TaskMutationKind};
 
 fn planner_role_for_tab(state: &AppState, tab_id: &str) -> Option<&'static str> {
     state.svc.mux.read().get_tab(tab_id).and_then(|tab| {
@@ -177,6 +178,8 @@ mod dependency_field_tests {
 
 #[derive(Deserialize, Default)]
 pub(crate) struct TaskAddBody {
+    #[serde(default)]
+    files: crate::plan::TaskFiles,
     name: String,
     #[serde(rename = "type", default)]
     kind: String,
@@ -301,6 +304,7 @@ pub async fn task_add(
         .add_task_with_external_refs(
             &id,
             NewTask {
+                files: body.files,
                 name: body.name,
                 kind,
                 section_ids,
@@ -355,7 +359,23 @@ pub async fn task_update(
     Json(body): Json<Value>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Recovery).await?;
+    let mutation = if body.get("status").and_then(Value::as_str) == Some("blocked") {
+        let has_reason = body
+            .get("status_label")
+            .and_then(Value::as_str)
+            .is_some_and(|label| !label.trim().is_empty());
+        if !has_reason {
+            return Err(text_err(
+                axum::http::StatusCode::BAD_REQUEST,
+                "blocked status requires a new status label with its reason and trigger",
+            ));
+        }
+        TaskMutationKind::BlockDecision
+    } else {
+        TaskMutationKind::Recovery
+    };
+    let status_label = body.get("status_label").and_then(Value::as_str);
+    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, mutation, status_label).await?;
     let service = state.svc.clone();
     tokio::task::spawn_blocking(move || task_update_core(&service, &headers, &id, &tid, body))
         .await
@@ -387,6 +407,21 @@ fn task_update_core(
         .map_err(plan_authority_err)?;
     crate::service::ensure_planner_task_fields_are_structural(&author, &body)
         .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
+    let files = body
+        .get("files")
+        .map(|value| {
+            serde_json::from_value::<crate::plan::TaskFiles>(value.clone())
+                .map_err(|e| e.to_string())
+                .and_then(crate::plan::TaskFiles::validated)
+        })
+        .transpose()
+        .map_err(|e| text_err(axum::http::StatusCode::BAD_REQUEST, e))?;
+    if let Some(files) = files {
+        service
+            .plan_store
+            .update_task_files(id, tid, files, epoch_ms())
+            .map_err(plan_err)?;
+    }
     let section_ids = if body.get("sections").is_some() {
         let requested_sections = body
             .get("sections")
@@ -587,7 +622,15 @@ pub async fn task_close(
     Json(body): Json<TaskCloseBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Recovery).await?;
+    verify_task_mutation_owner(
+        &state.svc,
+        &headers,
+        &id,
+        &tid,
+        TaskMutationKind::Recovery,
+        None,
+    )
+    .await?;
     let from = body.from.unwrap_or_else(|| AgentRef::from_tab("unknown"));
     let owner_epoch = state
         .svc
@@ -666,7 +709,15 @@ pub async fn task_assign(
         crate::api::tab_routes::authenticated_plan_caller(&headers),
     )
     .await?;
-    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Recovery).await?;
+    verify_task_mutation_owner(
+        &state.svc,
+        &headers,
+        &id,
+        &tid,
+        TaskMutationKind::Recovery,
+        None,
+    )
+    .await?;
     let owner_epoch = state
         .svc
         .plan_store
@@ -772,162 +823,6 @@ fn rest_task_mutation_authority(
     })
 }
 
-/// REST twin of the socket gate's recovery classification: only these verbs may
-/// be widened for the live Plan owner. `task_rm` is deliberately excluded.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum TaskMutationKind {
-    Recovery,
-    Ordinary,
-}
-
-fn owner_tab_is_gone(svc: &ServiceState, owner_tab_id: Option<&str>) -> bool {
-    owner_tab_id.is_none_or(|tab_id| svc.mux.read().get_tab(tab_id).is_none())
-}
-
-// A never-dispatched task has no Worker owner to prove, so only the Plan
-// Orchestrator, its Planner, or a confirmed human may mutate it.
-async fn require_plan_role_for_unowned_task(
-    svc: &ServiceState,
-    headers: &HeaderMap,
-    plan_id: &str,
-    caller: &crate::service::AuthenticatedPlanCaller,
-) -> Result<(), (axum::http::StatusCode, Json<Value>)> {
-    let confirmed_human = headers
-        .get("X-CodeTerm-Plan-Confirmation")
-        .and_then(|value| value.to_str().ok())
-        == Some(plan_id);
-    if caller.tab_id.as_deref().is_none_or(str::is_empty) && !confirmed_human {
-        return Err(text_err(
-            axum::http::StatusCode::FORBIDDEN,
-            "task mutation requires a Plan role or explicit human confirmation",
-        ));
-    }
-    if !confirmed_human
-        && !matches!(
-            svc.classify_planning_caller_async(plan_id, caller).await,
-            Ok(crate::plan::PlanningAuthor::User | crate::plan::PlanningAuthor::Planner { .. })
-        )
-    {
-        return Err(text_err(
-            axum::http::StatusCode::FORBIDDEN,
-            "the caller is not the Plan Orchestrator or Planner",
-        ));
-    }
-    Ok(())
-}
-
-pub(super) async fn verify_task_mutation_owner(
-    svc: &ServiceState,
-    headers: &HeaderMap,
-    plan_id: &str,
-    task_id: &str,
-    recovery: TaskMutationKind,
-) -> Result<(), (axum::http::StatusCode, Json<Value>)> {
-    let detail = svc
-        .plan_store
-        .show_task(task_id)
-        .filter(|detail| detail.plan_id == plan_id)
-        .ok_or_else(|| plan_err(crate::service::plan::PlanError::TaskNotFound))?;
-    let caller = crate::api::tab_routes::authenticated_plan_caller(headers);
-    if detail.task.interruption.owner_epoch == 0 {
-        return require_plan_role_for_unowned_task(svc, headers, plan_id, &caller).await;
-    }
-    if recovery == TaskMutationKind::Recovery
-        && caller
-            .tab_id
-            .as_deref()
-            .is_some_and(|tab_id| !tab_id.is_empty())
-        && owner_tab_is_gone(svc, detail.task.interruption.owner_tab_id.as_deref())
-    {
-        match svc
-            .authorize_plan_orchestrator_async(plan_id, &caller)
-            .await
-        {
-            Ok(()) => {
-                return svc
-                    .plan_store
-                    .retire_stale_task_owner(plan_id, task_id, None, |_| false, epoch_ms())
-                    .map(|_| ())
-                    .map_err(|error| {
-                        text_err(axum::http::StatusCode::CONFLICT, error.to_string())
-                    });
-            }
-            Err(crate::service::PlanAuthorityError::SessionBindingPending) => {
-                return Err(plan_authority_err(
-                    crate::service::PlanAuthorityError::SessionBindingPending,
-                ));
-            }
-            Err(_) => {}
-        }
-    }
-    let tab_id = headers
-        .get("X-CodeTerm-Tab-Id")
-        .and_then(|value| value.to_str().ok())
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| {
-            text_err(
-                axum::http::StatusCode::UNAUTHORIZED,
-                "missing Worker tab id",
-            )
-        })?;
-    let session_id = headers
-        .get("X-CodeTerm-Session-Id")
-        .and_then(|value| value.to_str().ok())
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| {
-            text_err(
-                axum::http::StatusCode::UNAUTHORIZED,
-                "missing Worker session id",
-            )
-        })?;
-    let nonce = headers
-        .get("X-CodeTerm-Session-Binding-Nonce")
-        .and_then(|value| value.to_str().ok())
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| {
-            text_err(
-                axum::http::StatusCode::UNAUTHORIZED,
-                "missing session binding nonce",
-            )
-        })?;
-    let caller_epoch = headers
-        .get("X-CodeTerm-Owner-Epoch")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok())
-        .ok_or_else(|| text_err(axum::http::StatusCode::CONFLICT, "missing task owner epoch"))?;
-    if detail.task.interruption.owner_epoch != caller_epoch {
-        return Err(text_err(
-            axum::http::StatusCode::CONFLICT,
-            "task mutation owner epoch is stale",
-        ));
-    }
-    let binding_matches = svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
-        tab.agent_session_id.as_deref() == Some(session_id)
-            && tab.session_binding_nonce.as_deref() == Some(nonce)
-            && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
-    });
-    if !binding_matches {
-        return Err(text_err(
-            axum::http::StatusCode::CONFLICT,
-            "task mutation caller binding is stale or rebound",
-        ));
-    }
-    match svc
-        .authorize_plan_orchestrator_async(plan_id, &caller)
-        .await
-    {
-        Ok(()) => return Ok(()),
-        Err(crate::service::PlanAuthorityError::SessionBindingPending) => {
-            return Err(plan_authority_err(
-                crate::service::PlanAuthorityError::SessionBindingPending,
-            ));
-        }
-        Err(_) => {}
-    }
-    svc.verify_task_owner_session(task_id, tab_id, session_id, caller_epoch)
-        .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error))
-}
-
 pub async fn task_adopt_checkpoint(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -998,7 +893,15 @@ pub async fn task_respawn(
         crate::api::tab_routes::authenticated_plan_caller(&headers),
     )
     .await?;
-    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Recovery).await?;
+    verify_task_mutation_owner(
+        &state.svc,
+        &headers,
+        &id,
+        &tid,
+        TaskMutationKind::Recovery,
+        None,
+    )
+    .await?;
     let plan = state
         .svc
         .plan_store
@@ -1176,7 +1079,15 @@ pub async fn task_rm(
     Path((id, tid)): Path<(String, String)>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    verify_task_mutation_owner(&state.svc, &headers, &id, &tid, TaskMutationKind::Ordinary).await?;
+    verify_task_mutation_owner(
+        &state.svc,
+        &headers,
+        &id,
+        &tid,
+        TaskMutationKind::Ordinary,
+        None,
+    )
+    .await?;
     authorize_draft_structure_mutation_http(
         &state.svc,
         &id,

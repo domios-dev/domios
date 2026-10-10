@@ -2,6 +2,31 @@ import { describe, expect, finish, it } from "../test/standaloneTest";
 import { classifyTabTarget, hasCompositeTabArgument, parseCompositeTabId, remoteTransportCall } from "./remoteTabTransport";
 
 describe("remote tab transport adapter", () => {
+  it("routes staged model cancellation to the owning daemon", () => {
+    const call = remoteTransportCall("switch_agent_model", { tabId: "mesh:peer/owned", model: "", cancel: true });
+    expect(call?.suffix).toBe("/agent/model");
+    expect(call?.body).toEqual({ model: "", reasoning_effort: undefined, runtime_mode: undefined, cancel: true });
+  });
+  it("preserves explicit fresh session intent for the owning tab", () => {
+    const call = remoteTransportCall("restart_agent_tab", { tabId: "mesh:peer/restored", fresh: true });
+    expect(call?.suffix).toBe("/agent/restart");
+    expect(call?.remoteTabId).toBe("restored");
+    expect(call?.body).toEqual({ fresh: true });
+  });
+  it("routes local previews to the composite tab's owning daemon", () => {
+    for (const command of ["read_local_preview_file", "read_html_preview_file", "check_local_preview_files"]) {
+      const call = remoteTransportCall(command, { tabId: "mesh:peer/shared", path: "/work/preview.html", kind: "page", paths: ["/work/preview.html"] });
+      expect(call?.peerId).toBe("peer");
+      expect(call?.remoteTabId).toBe("shared");
+      expect(call?.suffix).toBe(command === "check_local_preview_files" ? "/preview/check" : "/preview/read");
+    }
+  });
+
+  it("uses provider stop for managed calls and preserves legacy PTY interrupts", () => {
+    expect(remoteTransportCall("interrupt_agent", { tabId: "mesh:peer/tab", ptyId: "mesh:peer/pty" })?.suffix).toBe("/stop");
+    expect(remoteTransportCall("interrupt_agent", { ptyId: "mesh:peer/pty" })?.suffix).toBe("/pty/write");
+  });
+
   it("routes every local-component action to the composite owner", () => {
     for (const command of [
       "mux_close_tab", "mux_rename_tab", "mux_set_focused_tab", "get_tab_text",
@@ -78,9 +103,11 @@ describe("remote tab transport adapter", () => {
       expect(call?.ordinaryTabId.slice(`mesh:${peerId}/`.length)).toBe(call?.remoteTabId);
     }
 
-    const modelSwitch = remoteTransportCall("switch_agent_model", { tabId: composite, model: "opaque-model-5d" });
+    const modelSwitch = remoteTransportCall("switch_agent_model", { tabId: composite, model: "opaque-model-5d", reasoningEffort: "high", runtimeMode: "auto" });
     expect(modelSwitch?.suffix).toBe("/agent/model");
-    expect(modelSwitch?.body).toEqual({ model: "opaque-model-5d" });
+    expect(modelSwitch?.body).toEqual({ model: "opaque-model-5d", reasoning_effort: "high", runtime_mode: "auto" });
+    const fallbackSwitch = remoteTransportCall("switch_agent_model", { tabId: composite, model: "opaque-model-5d", restartResume: true });
+    expect(fallbackSwitch?.body).toEqual({ model: "opaque-model-5d", reasoning_effort: undefined, runtime_mode: undefined, restart_resume: true });
 
     // INBOUND: parse is the exact inverse, so a raw peer tab id remaps only to its composite owner.
     const identity = parseCompositeTabId(composite);

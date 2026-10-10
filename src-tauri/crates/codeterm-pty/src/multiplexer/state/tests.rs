@@ -880,3 +880,74 @@ fn test_alias_to_deleted_tab_returns_none() {
 
     assert_eq!(state.resolve_tab_id("ephemeral"), None);
 }
+
+fn surface_child(state: &mut MultiplexerState, workspace_id: &str, owner_id: &str) -> String {
+    let surface_id = state.create_tab(workspace_id).unwrap();
+    let surface = state.get_tab_mut(&surface_id).unwrap();
+    surface.backing = TabBacking::Surface(crate::multiplexer::types::SurfaceBacking {
+        plugin_id: "dash".into(),
+        surface_id: "board".into(),
+        instance_id: surface_id.clone(),
+        owner_label: true,
+        resume_url: None,
+        resume_profile: None,
+    });
+    surface.parent_tab_id = Some(owner_id.to_string());
+    surface_id
+}
+
+#[test]
+fn owner_close_closes_its_surfaces_and_orphans_other_children() {
+    let (mut state, root_id) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let owner_id = state.create_tab(&ws_id).unwrap();
+    let surface_id = surface_child(&mut state, &ws_id, &owner_id);
+    let nested_surface_id = surface_child(&mut state, &ws_id, &surface_id);
+    let plain_child_id = state.create_tab(&ws_id).unwrap();
+    state.get_tab_mut(&plain_child_id).unwrap().parent_tab_id = Some(owner_id.clone());
+    state.set_focused_tab(&surface_id).unwrap();
+
+    state.close_tab(&owner_id).unwrap();
+
+    assert!(state.get_tab(&surface_id).is_none());
+    assert!(state.get_tab(&nested_surface_id).is_none());
+    assert!(state.find_workspace_for_tab(&surface_id).is_none());
+    let plain = state
+        .get_tab(&plain_child_id)
+        .expect("plain child survives");
+    assert!(plain.parent_tab_id.is_none());
+    assert_ne!(state.get_focused_tab_id(), Some(surface_id.as_str()));
+    assert!(state.get_tab(&root_id).is_some());
+}
+
+#[test]
+fn team_close_cascade_tolerates_surfaces_already_closed_with_their_owner() {
+    let (mut state, root_id) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    state.set_orchestrator_role(&root_id).unwrap();
+    let worker_id = state.create_tab(&ws_id).unwrap();
+    state
+        .set_tab_role(&worker_id, AgentRole::Worker, Some(&root_id))
+        .unwrap();
+    let surface_id = surface_child(&mut state, &ws_id, &worker_id);
+
+    state.close_tab_for_team_close(&root_id).unwrap();
+
+    assert!(state.get_tab(&worker_id).is_none());
+    assert!(state.get_tab(&surface_id).is_none());
+}
+
+#[test]
+fn clearing_an_owner_role_keeps_its_surfaces_nested() {
+    let (mut state, root_id) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    state.set_orchestrator_role(&root_id).unwrap();
+    let surface_id = surface_child(&mut state, &ws_id, &root_id);
+
+    state.clear_tab_role(&root_id).unwrap();
+
+    assert_eq!(
+        state.get_tab(&surface_id).unwrap().parent_tab_id.as_deref(),
+        Some(root_id.as_str())
+    );
+}

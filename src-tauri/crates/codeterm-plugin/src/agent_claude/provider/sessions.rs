@@ -25,9 +25,9 @@ pub(super) fn encode_cwd(cwd: &str) -> String {
 /// raw cwd would encode to a dir that doesn't exist. Canonicalize to match;
 /// fall back to the raw cwd if the path can't be resolved (e.g. it was removed).
 pub(super) fn sessions_dir(cwd: &str) -> Option<PathBuf> {
-    let home = dirs::home_dir()?;
+    let home = super::read_home::config_root()?;
     let encoded = encode_cwd(&codeterm_paths::canonical_cwd(cwd));
-    Some(home.join(".claude").join("projects").join(encoded))
+    Some(home.join("projects").join(encoded))
 }
 
 /// Read the real cwd out of a Claude session JSONL. Claude's directory
@@ -140,6 +140,13 @@ fn read_rich_tail(
             })
             .collect();
         let mut msg = RichMessage {
+            provider_session_id: v
+                .get("sessionId")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            background_work: super::background_work::parse(&v),
+            provider_observations: super::signals::session(&v),
+            context_usage: super::context::parse(&v),
             role: role.to_string(),
             blocks,
             ..Default::default()
@@ -469,8 +476,30 @@ fn scan_effort_tail(path: &Path, tail_bytes: u64) -> Option<String> {
     if start > 0 && !lines.is_empty() {
         lines.remove(0);
     }
+    let commands = super::schemas::model_switch_commands();
+    let confirmations: Vec<_> = commands
+        .effort
+        .iter()
+        .flat_map(|command| {
+            ["low", "medium", "high", "xhigh", "max"]
+                .into_iter()
+                .filter_map(move |effort| {
+                    regex::Regex::new(&command.confirmation.replace("{effort}", effort))
+                        .ok()
+                        .map(|pattern| (effort, pattern))
+                })
+        })
+        .collect();
     lines.iter().rev().find_map(|line| {
         let value = serde_json::from_str::<serde_json::Value>(line).ok()?;
+        if let Some(stdout) = commands.transcript.record_stdout(&value) {
+            if let Some((effort, _)) = confirmations
+                .iter()
+                .find(|(_, pattern)| pattern.is_match(&stdout))
+            {
+                return Some((*effort).to_owned());
+            }
+        }
         session_entry_reasoning_effort(&value)
     })
 }
@@ -516,18 +545,16 @@ fn scan_tail(path: &Path, tail_bytes: u64) -> Option<String> {
     if start > 0 && !lines.is_empty() {
         lines.remove(0);
     }
-    for line in lines.iter().rev() {
-        if line.is_empty() {
-            continue;
-        }
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
-            continue;
-        };
+    let source = super::schemas::model_switch_commands().transcript;
+    for v in source
+        .records(&lines.join("\n"))
+        .filter_map(Result::ok)
+        .rev()
+    {
         // /model X writes "Set model to X" before the next assistant turn.
-        if let Some(content) = v.get("message").and_then(|m| m.get("content")) {
-            let raw = content_to_text(content);
-            if let Some(fam) = extract_set_model_family(&raw) {
-                return Some(fam);
+        if let Some(stdout) = source.record_stdout(&v) {
+            if let Some(family) = set_model_family(&stdout) {
+                return Some(family);
             }
         }
         // Last assistant turn carries the authoritative model id.
@@ -544,24 +571,18 @@ fn scan_tail(path: &Path, tail_bytes: u64) -> Option<String> {
     None
 }
 
-fn content_to_text(c: &serde_json::Value) -> String {
-    match c {
-        serde_json::Value::String(s) => s.clone(),
-        serde_json::Value::Array(arr) => arr
-            .iter()
-            .filter_map(|c| c.get("text").and_then(|t| t.as_str()))
-            .collect::<Vec<_>>()
-            .join(" "),
-        _ => String::new(),
-    }
+#[cfg(test)]
+fn extract_set_model_family(raw: &str) -> Option<String> {
+    let source = super::schemas::model_switch_commands().transcript;
+    set_model_family(source.stdout(raw)?)
 }
 
-fn extract_set_model_family(raw: &str) -> Option<String> {
-    let idx = raw.find("Set model to ")?;
-    let after = &raw[idx + "Set model to ".len()..];
+fn set_model_family(stdout: &str) -> Option<String> {
+    let after = stdout.strip_prefix("Set model to ")?;
     let cleaned = strip_ansi(after);
     let family: String = cleaned
         .trim_start()
+        .trim_start_matches('`')
         .chars()
         .take_while(|c| c.is_ascii_alphabetic())
         .collect();
@@ -615,7 +636,7 @@ mod model_label_tests;
 type SessionsIndex = std::collections::HashMap<String, serde_json::Value>;
 
 fn claude_projects_root() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| home.join(".claude").join("projects"))
+    super::read_home::config_root().map(|home| home.join("projects"))
 }
 
 fn is_session_stem(stem: &str) -> bool {

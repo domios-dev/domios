@@ -1,0 +1,236 @@
+{
+  "schema": "domios.continuous-music.edit-map.v1",
+  "sourceSha256": "389ef2c7fa857bfa3556122ffa754d48a2e94a3a16b808df1220533617e61612",
+  "sampleRate": 48000,
+  "outputSampleCount": 2160000,
+  "segments": [
+    {
+      "id": "bed-01",
+      "sourceStartSample": 412800,
+      "sourceEndSample": 576000,
+      "outputStartSample": 0
+    },
+    {
+      "id": "bed-02",
+      "sourceStartSample": 412800,
+      "sourceEndSample": 576000,
+      "outputStartSample": 133120
+    },
+    {
+      "id": "bed-03",
+      "sourceStartSample": 412800,
+      "sourceEndSample": 576000,
+      "outputStartSample": 266240
+    },
+    {
+      "id": "bed-04",
+      "sourceStartSample": 412800,
+      "sourceEndSample": 576000,
+      "outputStartSample": 399360
+    },
+    {
+      "id": "bed-05",
+      "sourceStartSample": 412800,
+      "sourceEndSample": 576000,
+      "outputStartSample": 532480
+    },
+    {
+      "id": "bed-06",
+      "sourceStartSample": 412800,
+      "sourceEndSample": 576000,
+      "outputStartSample": 665600
+    },
+    {
+      "id": "bed-07",
+      "sourceStartSample": 412800,
+      "sourceEndSample": 576000,
+      "outputStartSample": 798720
+    },
+    {
+      "id": "bed-08",
+      "sourceStartSample": 412800,
+      "sourceEndSample": 576000,
+      "outputStartSample": 931840
+    },
+    {
+      "id": "bed-09",
+      "sourceStartSample": 412800,
+      "sourceEndSample": 576000,
+      "outputStartSample": 1064960
+    },
+    {
+      "id": "bed-10",
+      "sourceStartSample": 412800,
+      "sourceEndSample": 576000,
+      "outputStartSample": 1198080
+    },
+    {
+      "id": "bed-11",
+      "sourceStartSample": 412800,
+      "sourceEndSample": 576000,
+      "outputStartSample": 1331200
+    },
+    {
+      "id": "bed-12",
+      "sourceStartSample": 412800,
+      "sourceEndSample": 576000,
+      "outputStartSample": 1464320
+    },
+    {
+      "id": "bed-13",
+      "sourceStartSample": 412800,
+      "sourceEndSample": 576000,
+      "outputStartSample": 1597440
+    },
+    {
+      "id": "bed-14",
+      "sourceStartSample": 412800,
+      "sourceEndSample": 576000,
+      "outputStartSample": 1730560
+    },
+    {
+      "id": "bed-15",
+      "sourceStartSample": 412800,
+      "sourceEndSample": 576000,
+      "outputStartSample": 1863680
+    },
+    {
+      "id": "bed-16",
+      "sourceStartSample": 412800,
+      "sourceEndSample": 576000,
+      "outputStartSample": 1996800
+    }
+  ],
+  "joins": [
+    {
+      "leftSegment": "bed-01",
+      "rightSegment": "bed-02",
+      "startSample": 133120,
+      "endSample": 163200,
+      "curve": "equalPower"
+    },
+    {
+      "leftSegment": "bed-02",
+      "rightSegment": "bed-03",
+      "startSample": 266240,
+      "endSample": 296320,
+      "curve": "equalPower"
+    },
+    {
+      "leftSegment": "bed-03",
+      "rightSegment": "bed-04",
+      "startSample": 399360,
+      "endSample": 429440,
+      "curve": "equalPower"
+    },
+    {
+      "leftSegment": "bed-04",
+      "rightSegment": "bed-05",
+      "startSample": 532480,
+      "endSample": 562560,
+      "curve": "equalPower"
+    },
+    {
+      "leftSegment": "bed-05",
+      "rightSegment": "bed-06",
+      "startSample": 665600,
+      "endSample": 695680,
+      "curve": "equalPower"
+    },
+    {
+      "leftSegment": "bed-06",
+      "rightSegment": "bed-07",
+      "startSample": 798720,
+      "endSample": 828800,
+      "curve": "equalPower"
+    },
+    {
+      "leftSegment": "bed-07",
+      "rightSegment": "bed-08",
+      "startSample": 931840,
+      "endSample": 961920,
+      "curve": "equalPower"
+    },
+    {
+      "leftSegment": "bed-08",
+      "rightSegment": "bed-09",
+      "startSample": 1064960,
+      "endSample": 1095040,
+      "curve": "equalPower"
+    },
+    {
+      "leftSegment": "bed-09",
+      "rightSegment": "bed-10",
+      "startSample": 1198080,
+      "endSample": 1228160,
+      "curve": "equalPower"
+    },
+    {
+      "leftSegment": "bed-10",
+      "rightSegment": "bed-11",
+      "startSample": 1331200,
+      "endSample": 1361280,
+      "curve": "equalPower"
+    },
+    {
+      "leftSegment": "bed-11",
+      "rightSegment": "bed-12",
+      "startSample": 1464320,
+      "endSample": 1494400,
+      "curve": "equalPower"
+    },
+    {
+      "leftSegment": "bed-12",
+      "rightSegment": "bed-13",
+      "startSample": 1597440,
+      "endSample": 1627520,
+      "curve": "equalPower"
+    },
+    {
+      "leftSegment": "bed-13",
+      "rightSegment": "bed-14",
+      "startSample": 1730560,
+      "endSample": 1760640,
+      "curve": "equalPower"
+    },
+    {
+      "leftSegment": "bed-14",
+      "rightSegment": "bed-15",
+      "startSample": 1863680,
+      "endSample": 1893760,
+      "curve": "equalPower"
+    },
+    {
+      "leftSegment": "bed-15",
+      "rightSegment": "bed-16",
+      "startSample": 1996800,
+      "endSample": 2026880,
+      "curve": "equalPower"
+    }
+  ],
+  "gainEnvelope": [
+    {
+      "sample": 0,
+      "gainDb": -13.5
+    },
+    {
+      "sample": 2159999,
+      "gainDb": -13.5
+    }
+  ],
+  "ducking": {
+    "attackSamples": 19200,
+    "releaseSamples": 48000,
+    "reductionDb": 3
+  },
+  "finalFade": {
+    "startSample": 2150400,
+    "endSample": 2160000,
+    "curve": "cosine"
+  },
+  "review": {
+    "basis": "Retained measured continuous source interval 8.6..12.0 seconds, excluding all measured silent regions. Repeated source phrase with explicit equal-power joins; no tempo, harmonic, or subjective musical suitability claim.",
+    "sourceAudition": "Unavailable to root tools. Owner full-film listening remains required; this is one technical review candidate only.",
+    "publication": "Do not replace public assets before full-film and combined-site owner review."
+  }
+}

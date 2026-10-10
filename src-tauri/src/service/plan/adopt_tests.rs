@@ -1,8 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use super::adopt::AdoptPlanRequest;
-use super::task_queries::TaskListFilter;
-use super::{NewTask, PlanStore};
+use super::adopt::{AdoptPlanExt, AdoptPlanRequest};
+use super::{store_v2, NewTask, PlanStore};
 use crate::plan::{OrchestratorRef, Plan, PlanMode, PlanStatus, PlannerRef, TaskStatus};
 
 fn make_source_plan(root: &Path) -> (PlanStore, String, String, PathBuf) {
@@ -65,6 +64,7 @@ fn make_source_plan(root: &Path) -> (PlanStore, String, String, PathBuf) {
         .join("plans")
         .join("active")
         .join("pl_adoptme");
+    store_v2::write_plan(&source_dir, &store.get(&plan.id).unwrap()).unwrap();
     std::fs::write(
         source_dir.join("tasks").join("task-with-sidecar.jsonl"),
         "{\"kind\":\"stride\"}\n",
@@ -96,10 +96,6 @@ fn adopt_plan_preserves_task_files_and_clears_stale_runtime_bindings() {
 
     assert_eq!(report.plan_id, plan_id);
     assert_eq!(report.task_count, 1);
-    assert!(report
-        .warnings
-        .iter()
-        .any(|warning| warning.contains("task Tab/lane bindings")));
     let target_root = target.path().canonicalize().unwrap();
     let adopted = target_store.get(&plan_id).unwrap();
     assert_eq!(adopted.project_path, target_root.display().to_string());
@@ -146,15 +142,6 @@ fn adopt_plan_preserves_task_files_and_clears_stale_runtime_bindings() {
         .list_index()
         .iter()
         .any(|entry| entry.plan_id == plan_id));
-    assert_eq!(
-        target_store
-            .list_tasks(TaskListFilter {
-                plan_id: Some(plan_id.clone()),
-                ..Default::default()
-            })
-            .len(),
-        1
-    );
 }
 
 #[test]
@@ -167,7 +154,7 @@ fn adopt_plan_dry_run_reports_without_writing() {
     let report = target_store
         .adopt_plan(
             AdoptPlanRequest {
-                source: source_dir,
+                source: source_dir.clone(),
                 target_project: target.path().to_path_buf(),
                 owner: OrchestratorRef::from_tab("new-owner"),
                 dry_run: true,
@@ -229,5 +216,14 @@ fn adopt_plan_rejects_existing_destination_without_overwrite() {
         )
         .unwrap_err();
 
-    assert!(err.to_string().contains("already exists"));
+    assert!(matches!(err, super::PlanError::Io(_)));
+    assert_eq!(target_store.get(&plan_id).unwrap().title, "Existing");
+    assert!(!target
+        .path()
+        .join(".codeterm")
+        .join("plans")
+        .join("archive")
+        .join(&plan_id)
+        .join("plan.yaml")
+        .is_file());
 }

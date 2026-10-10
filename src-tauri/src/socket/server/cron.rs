@@ -5,7 +5,85 @@ use tauri::{AppHandle, Manager};
 
 use crate::service::ServiceState;
 
-use super::{get_string_param, JsonRpcError};
+use super::{get_string_param, JsonRpcError, PostResponseAction};
+
+pub(super) fn dispatch_complete(
+    params: &Option<Value>,
+    app: &AppHandle,
+    svc: &ServiceState,
+) -> Result<(Value, Option<PostResponseAction>), JsonRpcError> {
+    let run_id = get_string_param(params, "run_id")?;
+    let summary = params
+        .as_ref()
+        .and_then(|p| p.get("summary"))
+        .and_then(|v| v.as_str());
+    let caller_tab_id = params
+        .as_ref()
+        .and_then(|p| p.get("caller_tab_id"))
+        .and_then(|v| v.as_str());
+    let binding_nonce = params
+        .as_ref()
+        .and_then(|p| p.get("session_binding_nonce"))
+        .and_then(|v| v.as_str());
+    let human_confirmed = params
+        .as_ref()
+        .and_then(|p| p.get("human_confirmed"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let cron_state = app
+        .try_state::<crate::CronState>()
+        .ok_or_else(|| JsonRpcError {
+            code: -32603,
+            message: "Cron not initialized".into(),
+            data: None,
+        })?;
+    let cron_wake = app
+        .try_state::<crate::CronWake>()
+        .ok_or_else(|| JsonRpcError {
+            code: -32603,
+            message: "Cron not initialized".into(),
+            data: None,
+        })?;
+    let completion = svc
+        .cron_complete(
+            &cron_state,
+            &cron_wake,
+            &run_id,
+            summary,
+            caller_tab_id,
+            binding_nonce,
+            human_confirmed,
+        )
+        .map_err(|e| JsonRpcError {
+            code: -32603,
+            message: e,
+            data: None,
+        })?;
+    let after_response = completion.map(|completion| {
+        let svc = svc.clone();
+        Box::new(move || {
+            let _ = svc.close_tab_with_reason(
+                &completion.tab_id,
+                crate::multiplexer::types::TabCloseReason::AgentRunEnded,
+            );
+            let svc = svc.clone();
+            std::thread::spawn(move || {
+                svc.cron_settle_run_end(
+                    &completion.cron,
+                    Some(&completion.wake),
+                    crate::service::cron::CronRunEnd {
+                        job_id: &completion.job_id,
+                        run_id: &completion.run_id,
+                        status: crate::cron::store::CronRunStatus::Success,
+                        summary: &completion.summary,
+                    },
+                );
+                crate::api::events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
+            });
+        }) as PostResponseAction
+    });
+    Ok((serde_json::json!({"ok": true}), after_response))
+}
 
 pub(super) fn dispatch(
     method: &str,
@@ -26,7 +104,13 @@ pub(super) fn dispatch(
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
-            let jobs = svc.cron_list(&cron_state, ws_id);
+            let jobs = svc
+                .cron_list(&cron_state, ws_id)
+                .map_err(|message| JsonRpcError {
+                    code: -32603,
+                    message,
+                    data: None,
+                })?;
             serde_json::to_value(&jobs).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
@@ -43,11 +127,17 @@ pub(super) fn dispatch(
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
-            let job = svc.cron_get(&cron_state, &id).map_err(|e| JsonRpcError {
-                code: -32602,
-                message: e,
-                data: None,
-            })?;
+            let job = svc
+                .cron_get(&cron_state, &id)
+                .map_err(|message| JsonRpcError {
+                    code: if message.starts_with("cron storage unavailable:") {
+                        -32603
+                    } else {
+                        -32602
+                    },
+                    message,
+                    data: None,
+                })?;
             serde_json::to_value(&job).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
@@ -275,7 +365,11 @@ pub(super) fn dispatch(
             let history = svc
                 .cron_history(&cron_state, &id)
                 .map_err(|message| JsonRpcError {
-                    code: -32602,
+                    code: if message.starts_with("cron storage unavailable:") {
+                        -32603
+                    } else {
+                        -32602
+                    },
                     message,
                     data: Some(serde_json::json!({ "code": "not_found" })),
                 })?;
@@ -287,53 +381,11 @@ pub(super) fn dispatch(
         }
 
         "cron.complete" => {
-            let run_id = get_string_param(params, "run_id")?;
-            let summary = params
-                .as_ref()
-                .and_then(|p| p.get("summary"))
-                .and_then(|v| v.as_str());
-            let caller_tab_id = params
-                .as_ref()
-                .and_then(|p| p.get("caller_tab_id"))
-                .and_then(|v| v.as_str());
-            let binding_nonce = params
-                .as_ref()
-                .and_then(|p| p.get("session_binding_nonce"))
-                .and_then(|v| v.as_str());
-            let human_confirmed = params
-                .as_ref()
-                .and_then(|p| p.get("human_confirmed"))
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            let cron_state = app
-                .try_state::<crate::CronState>()
-                .ok_or_else(|| JsonRpcError {
-                    code: -32603,
-                    message: "Cron not initialized".into(),
-                    data: None,
-                })?;
-            let cron_wake = app
-                .try_state::<crate::CronWake>()
-                .ok_or_else(|| JsonRpcError {
-                    code: -32603,
-                    message: "Cron not initialized".into(),
-                    data: None,
-                })?;
-            svc.cron_complete(
-                &cron_state,
-                &cron_wake,
-                &run_id,
-                summary,
-                caller_tab_id,
-                binding_nonce,
-                human_confirmed,
-            )
-            .map_err(|e| JsonRpcError {
-                code: -32603,
-                message: e,
-                data: None,
-            })?;
-            Ok(serde_json::json!({"ok": true}))
+            let (result, after_response) = dispatch_complete(params, app, svc)?;
+            if let Some(after_response) = after_response {
+                after_response();
+            }
+            Ok(result)
         }
 
         _ => Err(JsonRpcError {

@@ -72,6 +72,7 @@ pub(crate) enum ActivityContext {
     TabState {
         title: String,
         declared_safe_choice: Option<String>,
+        decision_point: String,
     },
     Sentinel {
         job: String,
@@ -80,6 +81,14 @@ pub(crate) enum ActivityContext {
 }
 
 impl ActivityContext {
+    pub(crate) fn decision_point(&self) -> &str {
+        match self {
+            Self::Rerank { .. } => "memory_rerank",
+            Self::TabState { decision_point, .. } => decision_point,
+            Self::Sentinel { .. } => "blueprint",
+        }
+    }
+
     pub(crate) fn failure(&self, reason: &str) -> Vec<QuestionAnswer> {
         let question = match self {
             Self::Rerank { query, .. } => {
@@ -89,7 +98,10 @@ impl ActivityContext {
                 format!("What state is tab {} in?", scrub(title, MAX_QUERY_CHARS))
             }
             Self::Sentinel { job, .. } => {
-                format!("What state is Sentinel {} in?", scrub(job, MAX_QUERY_CHARS))
+                format!(
+                    "What state is Blueprint {} in?",
+                    scrub(job, MAX_QUERY_CHARS)
+                )
             }
         };
         let answer = match reason {
@@ -129,6 +141,7 @@ impl ActivityContext {
                     Self::TabState {
                         title,
                         declared_safe_choice,
+                        ..
                     } => {
                         let title = scrub(title, MAX_QUERY_CHARS);
                         match name.as_str() {
@@ -159,7 +172,10 @@ impl ActivityContext {
                         }
                     }
                     Self::Sentinel { job, buckets } => (
-                        format!("What state is Sentinel {} in?", scrub(job, MAX_QUERY_CHARS)),
+                        format!(
+                            "What state is Blueprint {} in?",
+                            scrub(job, MAX_QUERY_CHARS)
+                        ),
                         choice(answer)
                             .filter(|choice| {
                                 buckets.iter().any(|bucket| bucket.as_str() == *choice)

@@ -61,6 +61,9 @@ fn restart_fixture(
         tab.agent_type = Some(PROVIDER.into());
         tab.agent_session_id = Some("session-restart".into());
         tab.restorable_launch = crate::multiplexer::types::RestorableLaunchParameters {
+            context_files: None,
+            context_skills: None,
+            worker_restart: None,
             captured: true,
             requested_model: Some(spawn.model.clone()),
             model: Some(spawn.model.clone()),
@@ -75,11 +78,13 @@ fn restart_fixture(
         tab_id,
         pty_id: "pty-restart".into(),
         provider: PROVIDER.into(),
+        target_provider: None,
         session_id: Some("session-restart".into()),
         cwd: Some("fixture-cwd".into()),
         auto_approve: false,
         role: role.map(str::to_string),
         role_profile: None,
+        handoff_history: None,
     };
     (fixture, snap, spawn)
 }
@@ -152,3 +157,23 @@ fn restart_without_a_recorded_spawn_still_resumes_the_session() {
     assert!(resumed.command.contains("session-restart"));
     assert_eq!(resumed.task, None);
 }
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn provider_handoff_relaunches_fresh_with_selected_history_in_launch_task() {
+    let (fixture, mut snap, _) = restart_fixture(None);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("target-provider"),
+    ));
+    snap.target_provider = Some("target-provider".into());
+    snap.handoff_history = Some("## User\nopaque-goal".into());
+
+    let relaunch = build_relaunch(&fixture.service, &snap, false).expect("fresh handoff");
+
+    assert!(relaunch.command.contains("target-provider"));
+    assert!(!relaunch.command.contains("session-restart"));
+    let task = relaunch.task.expect("bootstrap task");
+    assert!(task.contains("opaque-goal"));
+}
+
+mod model_provider;

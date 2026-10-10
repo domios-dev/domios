@@ -87,11 +87,6 @@ const substitutedDeclarations = [
   ],
   [
     globalsCss,
-    "transition: opacity 250ms cubic-bezier(0.16, 1, 0.3, 1), transform 250ms cubic-bezier(0.16, 1, 0.3, 1);",
-    "transition: opacity 250ms var(--ct-ease-liquid-settle), transform 250ms var(--ct-ease-liquid-settle);",
-  ],
-  [
-    globalsCss,
     "animation: tab-materialize 280ms cubic-bezier(0.16, 1, 0.3, 1) both;",
     "animation: tab-materialize 280ms var(--ct-ease-liquid-settle) both;",
   ],

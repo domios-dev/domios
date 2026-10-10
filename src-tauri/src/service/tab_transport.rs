@@ -142,7 +142,7 @@ impl ServiceContext {
                 plugin_id,
                 session_id,
             } => Some((plugin_id, session_id)),
-            TabBacking::Pty => None,
+            TabBacking::Pty | TabBacking::Surface(_) => None,
         }
     }
 
@@ -216,6 +216,7 @@ impl ServiceContext {
                 plugin_id,
                 session_id,
             })),
+            TabBacking::Surface(_) => Ok(Box::new(super::surface::SurfaceTransport)),
         }
     }
 }

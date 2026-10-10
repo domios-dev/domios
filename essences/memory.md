@@ -30,11 +30,15 @@ The Dreamer consolidates memory through bounded, reviewable changes. A merge arc
 
 Restoring an archived item returns its prior kind and invalidates the relation created by its merge while preserving the relation's history. Body versions remain separately restorable: restoring the lesser item does not silently undo a keeper-body revision. Dreamer merges and stale archives have separate daily caps enforced by the host.
 
+Areas can be folded into another name without changing item scope or content. Every moved item keeps an audited prior area and can be restored independently. System areas, equal names and empty sources are refused; previews are read-only. The Dreamer judges bounded structural name candidates by their sample content, leaves uncertain pairs alone, and makes at most three area merges per run with a diary summary.
+
 Stale archival is off by default and has a read-only preview with item ids and reasons. An item qualifies only when it is older than a year and has had no direct access, update or history change, no relation change, and no touch through an active neighbour during that year. Pinned items, skills, rules, preferences, already archived items and high-importance knowledge are excluded. Archival records the reason and remains reversible.
 
 The graph hub report provides bounded, deterministic cluster suggestions and existing topic anchors. Suggestions distinguish structural congestion from provenance and leave graph changes to explicit operations; the Dreamer does not have to invent a grouping from an unbounded graph dump.
 
 Run completion and diary finalization are separate facts. If a deadline or blocking command-approval prompt ends a dreaming run, the host preserves the work already logged, marks unfinished stages as cut short and records partial finalization with its reason. It never upgrades interrupted work to success, and it preserves an already completed diary.
+
+Hidden memory workers record execution failures and stop within a 45-minute ceiling, or a shorter configured deadline. Extraction retries are bounded and backed off; exhausted items remain failed with a visible reason until an explicit retry or a change to the source or launch cause. Restarting the app does not reset that budget. Activity groups repeated identical failures and labels age separately from duration. An orphan's duration ends at its last observed activity, or remains unknown when that evidence is absent.
 
 ```map
 anchors:

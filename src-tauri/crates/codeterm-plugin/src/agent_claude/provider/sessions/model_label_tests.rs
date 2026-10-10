@@ -22,6 +22,33 @@ fn extract_set_model_strips_ansi_bold() {
 }
 
 #[test]
+fn backtick_command_stdout_wins_over_the_previous_assistant_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("own-session.jsonl");
+    let records = concat!(
+        "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-opus-5-5\"}}\n",
+        "{\"type\":\"user\",\"message\":{\"content\":\"<local-command-stdout>Set model to `Sonnet 5.5` for this session only</local-command-stdout>\"}}\n",
+    );
+    std::fs::write(&path, records).unwrap();
+    assert_eq!(scan_tail(&path, 64 * 1024).as_deref(), Some("Sonnet"));
+}
+
+#[test]
+fn ordinary_content_cannot_override_the_session_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("owned.jsonl");
+    for (kind, content) in [
+        ("user", "Set model to `Haiku 5.5` for this session only"),
+        ("assistant", "<local-command-stdout>Set model to `Haiku 5.5` for this session only</local-command-stdout>"),
+    ] {
+        let old = serde_json::json!({"type":"assistant","message":{"model":"claude-opus-5-5"}});
+        let quoted = serde_json::json!({"type":kind,"message":{"content":content}});
+        std::fs::write(&path, format!("{old}\n{quoted}\n")).unwrap();
+        assert_eq!(scan_tail(&path, 64 * 1024).as_deref(), Some("Opus"));
+    }
+}
+
+#[test]
 fn tail_scan_finds_latest_model() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("s.jsonl");
@@ -137,6 +164,43 @@ fn effort_tail_uses_only_the_exact_session_record() {
     assert_eq!(
         scan_effort_tail(&dir.path().join("missing.jsonl"), 64 * 1024),
         None
+    );
+}
+
+#[test]
+fn effort_tail_uses_newer_confirmed_command_then_newer_turn_metadata() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let prior = serde_json::json!({"type":"assistant","message":{"metadata":{"effort":"low"}}});
+    let command = serde_json::json!({"type":"user","message":{"content":"<local-command-stdout>Set effort level to medium (saved as your default for new sessions): Balanced approach with standard implementation and testing</local-command-stdout>"}});
+    let mut records = vec![prior.clone(), command.clone()];
+    let write = |records: &[serde_json::Value]| {
+        std::fs::write(
+            file.path(),
+            records
+                .iter()
+                .map(serde_json::Value::to_string)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+        .unwrap()
+    };
+    write(&records);
+    assert_eq!(
+        scan_effort_tail(file.path(), 64 * 1024).as_deref(),
+        Some("medium")
+    );
+    records.push(serde_json::json!({"type":"assistant","message":{"metadata":{"effort":"high"}}}));
+    write(&records);
+    assert_eq!(
+        scan_effort_tail(file.path(), 64 * 1024).as_deref(),
+        Some("high")
+    );
+    let mut ordinary = command;
+    ordinary["type"] = serde_json::json!("assistant");
+    write(&[prior, ordinary]);
+    assert_eq!(
+        scan_effort_tail(file.path(), 64 * 1024).as_deref(),
+        Some("low")
     );
 }
 

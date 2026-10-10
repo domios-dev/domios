@@ -1,13 +1,25 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+mod shell;
+pub use shell::{CloseRestoreTabState, ShellActivity, ShellCommandState, ShellPurpose};
+mod managed_tab;
 mod model_identity;
 mod restorable_launch;
+pub use managed_tab::ManagedTab;
+mod turn_resume;
 pub use model_identity::{
     LaunchModelReport, ModelFallbackNotice, ModelIdentityMismatch, PendingModelSwitchObservation,
     SessionModelIdentity,
 };
-pub use restorable_launch::{ReasoningEffortIdentity, RestorableLaunchParameters};
+pub use restorable_launch::{
+    ReasoningEffortIdentity, RestorableLaunchParameters, RestorableWorkerTurn, WorkerRestartState,
+};
+pub use turn_resume::{
+    observe_turn, request_continue, request_continue_for_restored_start, request_continue_from,
+    settle_turn_resume, suppress_continue, withdraw_sent_claim, TurnResumeMark, TurnResumeOutcome,
+    TurnResumeSender, TurnResumeSettlement,
+};
 
 pub use codeterm_types::pty::{AgentRole, PendingPrompt, PromptOption, PromptSection};
 
@@ -119,6 +131,8 @@ pub struct ClosedTab {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub model: Option<String>,
     #[serde(default)]
+    pub restorable_launch: RestorableLaunchParameters,
+    #[serde(default)]
     pub chat_view: bool,
     pub closed_at: u64,
     /// Workspace the tab belonged to when it was closed. Empty string on old
@@ -147,7 +161,11 @@ impl From<&Tab> for ClosedTab {
             agent_session_id: tab.agent_session_id.clone(),
             role_profile: tab.role_profile.clone(),
             worker_id: tab.worker_id.clone(),
-            model: tab.agent_session_model.clone(),
+            model: tab
+                .agent_session_model
+                .clone()
+                .or_else(|| tab.agent_provider_resolved_model.clone()),
+            restorable_launch: tab.restorable_launch.clone(),
             chat_view: tab.chat_view,
             closed_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -218,9 +236,9 @@ pub struct WatcherSpec {
 }
 
 /// What backs a tab's I/O. A `Pty` tab runs a terminal; a `ChatBackend` tab is
-/// driven by a plugin's `chatBackend` capability and keeps `pty_id: None`
-/// permanently (no backend reader, no screen state). The single discriminator the
-/// `TabTransport` seam dispatches on.
+/// driven by a plugin's `chatBackend` capability and a `Surface` tab renders a
+/// plugin-declared app; both keep `pty_id: None` permanently (no backend reader,
+/// no screen state). The single discriminator the `TabTransport` seam dispatches on.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TabBacking {
@@ -230,6 +248,34 @@ pub enum TabBacking {
         plugin_id: String,
         session_id: String,
     },
+    Surface(SurfaceBacking),
+}
+
+impl TabBacking {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Pty => "pty",
+            Self::ChatBackend { .. } => "chat_backend",
+            Self::Surface(_) => "surface",
+        }
+    }
+}
+
+/// Which plugin surface a tab renders. It has no text input and no agent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SurfaceBacking {
+    pub plugin_id: String,
+    pub surface_id: String,
+    pub instance_id: String,
+    /// The UI labels the tab after its owner (`parent_tab_id`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub owner_label: bool,
+    /// Last committed top-level page of a relaunching stream surface; local desk state only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_url: Option<String>,
+    /// Named browser profile the surface last ran under; `None` is the clean profile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_profile: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -477,7 +523,19 @@ pub fn latest_prior_session(lineage: &[PriorBindingNonce]) -> Option<&str> {
 
 /// A tab represents one terminal, chat backend, or transient choice surface.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingModelSelection {
+    pub model: String,
+    pub effort: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
+    #[serde(default, skip_deserializing)]
+    pub provider_signals: codeterm_types::agent::provider_signals::ProviderSignals,
+    #[serde(default, skip_deserializing)]
+    pub fork_source_session_id: Option<String>,
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    pub context: Option<codeterm_types::agent::context::TurnContext>,
     pub id: String,
     /// Sibling ordinal within a workspace or orchestration group.
     #[serde(default)]
@@ -488,6 +546,20 @@ pub struct Tab {
     #[serde(default)]
     pub backing: TabBacking,
     pub tab_type: TabType,
+    #[serde(default)]
+    pub purpose: ShellPurpose,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub utility_created_at: u64,
+    #[serde(default)]
+    pub shell_profile: Option<crate::pty::shell_profiles::ShellProfile>,
+    #[serde(skip)]
+    pub utility_command_pending: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub close_restore: Option<CloseRestoreTabState>,
+    #[serde(default, skip_deserializing)]
+    pub shell_command_state: ShellCommandState,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub pending_delivery: Option<PendingDeliveryRecord>,
     pub title: String,
@@ -538,8 +610,10 @@ pub struct Tab {
     pub agent_session_model: Option<String>,
     #[serde(skip, default)]
     pub agent_session_model_identity: Option<SessionModelIdentity>,
-    #[serde(skip, default)]
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
     pub pending_model_switch_observation: Option<PendingModelSwitchObservation>,
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    pub pending_model_selection: Option<PendingModelSelection>,
     /// Model selected by plan/task routing before a launch-time override.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_planned_model: Option<String>,
@@ -547,6 +621,10 @@ pub struct Tab {
     /// reports use `agent_session_model`, which must come from runtime evidence.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_requested_model: Option<String>,
+    #[serde(default)]
+    pub structured_control_active: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_runtime_mode: Option<String>,
     /// Model accepted by provider catalog resolution and passed to launch args.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_provider_resolved_model: Option<String>,
@@ -592,6 +670,8 @@ pub struct Tab {
     /// agent from an ordinary shell/utility tab, which is also role=None.
     #[serde(default)]
     pub roleless_tracked: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub managed: Option<ManagedTab>,
     /// Structural orchestration role. The finer-grained kind lives in
     /// `role_profile` and is resolved through `role_kind` descriptors.
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -656,6 +736,8 @@ pub struct Tab {
     /// the chat view. Persisted only with the tab-owned session identity.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_state: Option<codeterm_types::pty::AgentLiveState>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub turn_resume: Option<TurnResumeMark>,
     /// Auto-approve prompts (set when spawned with skip_permissions).
     /// When true, detected prompts are answered automatically instead of shown to user.
     #[serde(default)]
@@ -748,6 +830,14 @@ impl Default for TitleLevel {
 }
 
 impl Tab {
+    pub fn is_utility_shell(&self) -> bool {
+        self.tab_type == TabType::Terminal
+            && matches!(self.backing, TabBacking::Pty)
+            && self.agent_type.is_none()
+            && self.role.is_none()
+            && !self.roleless_tracked
+    }
+
     pub fn prompt_identity(&self) -> Option<codeterm_types::pty::PromptIdentity> {
         let (prompt, kind) = self.pending_prompt.as_ref().zip(self.pending_prompt_kind)?;
         Some(codeterm_types::pty::PromptIdentity::new(kind, prompt))
@@ -758,6 +848,18 @@ impl Tab {
     /// `pty_id`.
     pub fn is_chat_backend(&self) -> bool {
         matches!(self.backing, TabBacking::ChatBackend { .. })
+    }
+
+    /// A surface lives inside its owner, so it closes with it; other children are orphaned.
+    pub fn closes_with_owner(&self) -> bool {
+        matches!(self.backing, TabBacking::Surface(_))
+    }
+
+    pub fn surface(&self) -> Option<&SurfaceBacking> {
+        match &self.backing {
+            TabBacking::Surface(surface) => Some(surface),
+            TabBacking::Pty | TabBacking::ChatBackend { .. } => None,
+        }
     }
 
     /// Role kind resolved from this tab's own `(role, role_profile)` pair.
@@ -881,310 +983,4 @@ pub enum TabType {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn tab_with(id: &str, backing: TabBacking) -> Tab {
-        Tab {
-            id: id.to_string(),
-            sort_order: 0,
-            pty_id: None,
-            backing,
-            tab_type: TabType::Terminal,
-            pending_delivery: None,
-            title: "Terminal".to_string(),
-            description: None,
-            cwd: None,
-            provisioned_cwd: None,
-            url: None,
-            agent_type: None,
-            agent_type_locked: false,
-            agent_session_id: None,
-            agent_session_name: None,
-            agent_session_model: None,
-            agent_session_model_identity: None,
-            pending_model_switch_observation: None,
-            agent_planned_model: None,
-            agent_requested_model: None,
-            agent_provider_resolved_model: None,
-            model_fallback: None,
-            model_identity_mismatch: None,
-            reasoning_effort_identity: ReasoningEffortIdentity::default(),
-            restorable_launch: RestorableLaunchParameters::default(),
-            context_epoch_archives: vec![],
-            session_binding_nonce: None,
-            reported_session_binding_nonce: None,
-            prior_session_binding_nonces: Vec::new(),
-            shell_integration_nonce: None,
-            lifecycle_epoch: None,
-            lifecycle_operation_id: None,
-            task_binding: None,
-            roleless_tracked: false,
-            role: None,
-            role_profile: None,
-            team_id: None,
-            watcher: None,
-            parent_tab_id: None,
-            pending_paired_planner_tab_id: None,
-            can_spawn: false,
-            depth: 0,
-            report_target_tab_id: None,
-            report_target_mesh_peer: None,
-            spawned_by_tab_id: None,
-            ownership: None,
-            title_level: TitleLevel::Default,
-            chat_view: false,
-            pending_prompt: None,
-            pending_prompt_kind: None,
-            agent_state: None,
-            auto_approve: false,
-            permission_auto_confirm: false,
-            permission_auto_confirmations: Vec::new(),
-            protected: false,
-            connected_services: vec![],
-            agent_set_at: None,
-            exit_suspected_at: None,
-            agent_booting: false,
-            hidden: false,
-            audience: Default::default(),
-            show_in_tabbar: true,
-            worker_id: None,
-            restored_from_snapshot: false,
-            scrollback_seed_pending: false,
-            pending_scrollback_tail: None,
-            skip_snapshot: false,
-            pending_greeting: None,
-            boot_stage: None,
-            boot_failure_reason: None,
-            provisional_launch: None,
-        }
-    }
-
-    #[test]
-    fn pty_tab_is_not_chat_backend() {
-        let p = tab_with("a", TabBacking::Pty);
-        assert!(!p.is_chat_backend());
-    }
-
-    #[test]
-    fn accepted_weak_is_terminal() {
-        let mut delivery =
-            PendingDeliveryRecord::new("digest".into(), PendingDeliveryChannel::InteractiveInput);
-        delivery
-            .begin_attempt(DeliveryAttemptProvenance {
-                attempt_id: "attempt-1".into(),
-                started_at_ms: 42,
-            })
-            .unwrap();
-        assert_eq!(delivery.confirm(), Ok(()));
-        assert_eq!(delivery.state(), PendingDeliveryState::AcceptedWeak);
-        assert_eq!(
-            delivery.begin_attempt(DeliveryAttemptProvenance {
-                attempt_id: "attempt-2".into(),
-                started_at_ms: 43,
-            }),
-            Err(PendingDeliveryTransitionError::AcceptedTerminal)
-        );
-        assert_eq!(
-            delivery.confirm(),
-            Err(PendingDeliveryTransitionError::AcceptedTerminal)
-        );
-    }
-
-    #[test]
-    fn pending_delivery_uses_verdict_tier_labels() {
-        let mut weak =
-            PendingDeliveryRecord::new("weak".into(), PendingDeliveryChannel::InteractiveInput);
-        weak.mark_ingested();
-        assert_eq!(weak.state(), PendingDeliveryState::Ingested);
-        weak.mark_unconfirmed();
-        assert_eq!(weak.state(), PendingDeliveryState::Unconfirmed);
-        weak.confirm().unwrap();
-        assert_eq!(weak.state(), PendingDeliveryState::AcceptedWeak);
-
-        let mut strong =
-            PendingDeliveryRecord::new("strong".into(), PendingDeliveryChannel::InteractiveInput);
-        strong.confirm_strong().unwrap();
-        assert_eq!(strong.state(), PendingDeliveryState::AcceptedStrong);
-    }
-
-    #[test]
-    fn legacy_pending_delivery_defaults_provenance_from_channel() {
-        let record: PendingDeliveryRecord = serde_json::from_str(
-            r#"{
-                "content_digest":"legacy",
-                "channel":"fallback_bootstrap",
-                "state":"pending",
-                "attempt_provenance":null
-            }"#,
-        )
-        .unwrap();
-        assert_eq!(record.channel, PendingDeliveryChannel::FallbackBootstrap);
-        assert_eq!(
-            record.provenance,
-            PendingDeliveryProvenance::FallbackBootstrap
-        );
-        assert_eq!(record.send_id(), None);
-        assert!(!record.record_id().is_empty());
-    }
-
-    #[test]
-    fn pending_interactive_send_round_trips_its_chat_send_id() {
-        let record =
-            PendingDeliveryRecord::new("digest".into(), PendingDeliveryChannel::InteractiveInput)
-                .with_send_id("send-1".into());
-
-        let encoded = serde_json::to_string(&record).unwrap();
-        let decoded: PendingDeliveryRecord = serde_json::from_str(&encoded).unwrap();
-
-        assert_eq!(decoded.send_id(), Some("send-1"));
-        assert_eq!(decoded.record_id(), record.record_id());
-    }
-
-    #[test]
-    fn pending_allows_one_inflight_attempt() {
-        let mut delivery =
-            PendingDeliveryRecord::new("digest".into(), PendingDeliveryChannel::InteractiveInput);
-        delivery
-            .begin_attempt(DeliveryAttemptProvenance {
-                attempt_id: "attempt-1".into(),
-                started_at_ms: 42,
-            })
-            .unwrap();
-        assert_eq!(
-            delivery.begin_attempt(DeliveryAttemptProvenance {
-                attempt_id: "attempt-2".into(),
-                started_at_ms: 43,
-            }),
-            Err(PendingDeliveryTransitionError::AttemptAlreadyInFlight)
-        );
-    }
-
-    #[test]
-    fn mid_boot_snapshot_exposes_current_stage() {
-        use codeterm_types::pty::BootStage;
-        // the live snapshot.
-        let mut p = tab_with("a", TabBacking::Pty);
-        p.boot_stage = Some(BootStage::AgentLaunching);
-        let v = serde_json::to_value(&p).unwrap();
-        assert_eq!(v["boot_stage"], "agent_launching");
-        assert!(v.as_object().unwrap().get("boot_failure_reason").is_none());
-
-        // Before any boot progress the field is omitted entirely (skip_if None).
-        let idle = tab_with("b", TabBacking::Pty);
-        let v = serde_json::to_value(&idle).unwrap();
-        assert!(v.as_object().unwrap().get("boot_stage").is_none());
-    }
-
-    #[test]
-    fn chat_backend_tab_is_detected() {
-        let p = tab_with(
-            "b",
-            TabBacking::ChatBackend {
-                plugin_id: "local-shell".into(),
-                session_id: "s1".into(),
-            },
-        );
-        assert!(p.is_chat_backend());
-    }
-
-    #[test]
-    fn backing_round_trips_on_tab_and_defaults_to_pty() {
-        // A ChatBackend tab survives a serde round-trip.
-        let p = tab_with(
-            "c",
-            TabBacking::ChatBackend {
-                plugin_id: "local-shell".into(),
-                session_id: "s1".into(),
-            },
-        );
-        let v = serde_json::to_value(&p).unwrap();
-        let back: Tab = serde_json::from_value(v).unwrap();
-        assert!(back.is_chat_backend());
-        // snapshot) defaults to Pty.
-        let mut v = serde_json::to_value(&p).unwrap();
-        v.as_object_mut().unwrap().remove("backing");
-        let back: Tab = serde_json::from_value(v).unwrap();
-        assert_eq!(back.backing, TabBacking::Pty);
-        assert!(!back.is_chat_backend());
-    }
-
-    #[test]
-    fn chat_backing_round_trips_through_serde() {
-        let backing = TabBacking::ChatBackend {
-            plugin_id: "local-shell".into(),
-            session_id: "abc".into(),
-        };
-        let v = serde_json::to_value(&backing).unwrap();
-        assert_eq!(v["kind"], "chat_backend");
-        let back: TabBacking = serde_json::from_value(v).unwrap();
-        assert_eq!(back, backing);
-    }
-
-    #[test]
-    fn watcher_policy_clamped_applies_defaults_and_bounds() {
-        let all_none = WatcherPolicy::clamped(None, None, None);
-        assert_eq!(all_none.tick_interval_secs, 120);
-        assert_eq!(all_none.nudge_cooldown_secs, 600);
-        assert_eq!(all_none.max_actions_per_tick, 3);
-
-        let low = WatcherPolicy::clamped(Some(5), Some(0), Some(99));
-        assert_eq!(low.tick_interval_secs, 30);
-        assert_eq!(low.nudge_cooldown_secs, 60);
-        assert_eq!(low.max_actions_per_tick, 5);
-    }
-
-    #[test]
-    fn tab_with_watcher_round_trips_through_serde() {
-        let spec = WatcherSpec {
-            charter: "Observe the group.".into(),
-            policy: WatcherPolicy::clamped(Some(90), Some(120), Some(2)),
-            observations: serde_json::json!({"orchestration": true, "chatTail": 2}),
-            state: serde_json::json!({"seen": 1}),
-            tick: 3,
-            last_tick_ms: Some(1_700_000_000_000),
-            last_status: Some("ok".into()),
-            tick_inflight_since_ms: None,
-        };
-        let mut p = tab_with("w1", TabBacking::Pty);
-        p.watcher = Some(spec.clone());
-
-        let v = serde_json::to_value(&p).unwrap();
-        assert!(v.get("watcher").is_some());
-        let back: Tab = serde_json::from_value(v).unwrap();
-        assert_eq!(back.watcher, Some(spec));
-
-        let mut bare = tab_with("w2", TabBacking::Pty);
-        let v = serde_json::to_value(&bare).unwrap();
-        assert!(v.get("watcher").is_none());
-        bare.watcher = Some(WatcherSpec {
-            charter: "x".into(),
-            ..Default::default()
-        });
-        let back: Tab = serde_json::from_value(serde_json::to_value(&bare).unwrap()).unwrap();
-        assert_eq!(back.watcher.as_ref().map(|w| w.charter.as_str()), Some("x"));
-    }
-
-    #[test]
-    fn backing_matches_frontend_ts_contract_shape() {
-        // The TS type is `{ kind: 'chat_backend'; plugin_id: string;
-        let v = serde_json::to_value(TabBacking::ChatBackend {
-            plugin_id: "lmstudio".into(),
-            session_id: "s7".into(),
-        })
-        .unwrap();
-        assert_eq!(
-            v,
-            serde_json::json!({
-                "kind": "chat_backend",
-                "plugin_id": "lmstudio",
-                "session_id": "s7",
-            })
-        );
-        // "not a chat Tab".
-        assert_eq!(
-            serde_json::to_value(TabBacking::Pty).unwrap(),
-            serde_json::json!({ "kind": "pty" })
-        );
-    }
-}
+mod tests;

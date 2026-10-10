@@ -25,6 +25,9 @@ mod startup_model_refresh_tests {
     }
 }
 
+mod restored_effort;
+mod next_turn_confirmation;
+
 mod model_refresh_tests {
     use std::collections::{HashMap, HashSet};
     use std::path::PathBuf;
@@ -68,13 +71,6 @@ mod model_refresh_tests {
                 during_detect: None,
                 session_detection_calls: None,
             }
-        }
-
-        fn counting(models: &[(&str, &str)]) -> (Self, Arc<AtomicUsize>) {
-            let calls = Arc::new(AtomicUsize::new(0));
-            let mut provider = Self::new(models);
-            provider.session_detection_calls = Some(calls.clone());
-            (provider, calls)
         }
 
         fn with_provider(
@@ -482,7 +478,7 @@ mod model_refresh_tests {
 
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
-    fn stop_skips_session_model_detection_when_tab_model_is_known() {
+    fn stop_refreshes_known_session_model_after_in_tui_switch_without_fallback() {
         use crate::plan::{OrchestratorRef, Plan};
         use crate::service::plan::NewTask;
 
@@ -490,15 +486,22 @@ mod model_refresh_tests {
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.session_binding_nonce = Some("nonce-known".into());
         tab.reported_session_binding_nonce = Some("nonce-known".into());
-        tab.agent_session_model = Some("opus".into());
+        tab.agent_session_model = Some("sonnet".into());
+        tab.agent_requested_model = Some("sonnet".into());
+        tab.agent_provider_resolved_model = Some("sonnet".into());
         tab.agent_session_model_identity = Some(crate::multiplexer::types::SessionModelIdentity {
             session_id: "session-known".into(),
             session_binding_nonce: "nonce-known".into(),
             launch_report: None,
             model_switch_turn_confirmed: false,
         });
-        let (provider, detection_calls) =
-            SessionModelProvider::counting(&[("session-known", "claude-opus-5")]);
+        let (mut provider, models) = SessionModelProvider::with_provider(AGENT, &["session-known"]);
+        models
+            .lock()
+            .unwrap()
+            .insert("session-known".into(), "sonnet".into());
+        let detection_calls = Arc::new(AtomicUsize::new(0));
+        provider.session_detection_calls = Some(detection_calls.clone());
         let fixture = ServiceFixture::new(mux);
         fixture
             .service
@@ -550,10 +553,22 @@ mod model_refresh_tests {
             )
             .unwrap();
 
-        assert!(!fixture
+        models
+            .lock()
+            .unwrap()
+            .insert("session-known".into(), "claude-opus-5".into());
+        assert!(fixture
             .service
             .schedule_session_model_refresh_after_stop(&tab_id));
-        assert_eq!(detection_calls.load(Ordering::Relaxed), 0);
+        let refreshed = crate::service::boot_wait::wait_until(
+            std::time::Instant::now() + Duration::from_secs(2),
+            || session_model(&fixture.service.mux, &tab_id).as_deref() == Some("opus"),
+        );
+        assert!(
+            refreshed,
+            "the same bound session's switched model is published"
+        );
+        assert!(detection_calls.load(Ordering::Relaxed) > 0);
         let attempt = fixture
             .service
             .plan_store
@@ -565,6 +580,10 @@ mod model_refresh_tests {
             .find(|attempt| attempt.id == attempt_id)
             .unwrap();
         assert_eq!(attempt.session_model.as_deref(), Some("opus"));
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&tab_id).unwrap();
+        assert!(tab.model_identity_mismatch.is_none());
+        assert!(tab.model_fallback.is_none());
     }
 
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
@@ -1076,6 +1095,14 @@ mod model_refresh_tests {
         let notif = fixture.service.notif.lock();
         let notifications = notif.list(false);
         assert_eq!(notifications.len(), 1);
+        assert_eq!(
+            notifications[0].level,
+            Some(crate::notification::push::NotifyLevel::Verbose)
+        );
+        assert_eq!(
+            notifications[0].severity,
+            crate::notification::store::NotificationSeverity::Info
+        );
         assert_eq!(
             notifications[0].title,
             "model fallback: requested sonnet, actual opus"

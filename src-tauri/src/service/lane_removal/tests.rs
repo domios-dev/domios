@@ -1,8 +1,23 @@
 use std::path::Path;
 use std::process::Command;
+use std::sync::Arc;
 
 use super::*;
 use crate::service::worker_lane::provision_lane_for_test;
+
+struct NullRepoEvents;
+
+impl crate::repowatch::RepoEventSink for NullRepoEvents {
+    fn repository_changed(&self, _: &str) {}
+
+    fn repository_unavailable(&self, _: &str, _: crate::repowatch::RepoWatchUnavailable) {}
+}
+
+fn repo_watch() -> crate::repowatch::RepoWatchRegistryHandle {
+    Arc::new(crate::repowatch::RepoWatchRegistry::new(Arc::new(
+        NullRepoEvents,
+    )))
+}
 
 fn git(dir: &Path, args: &[&str]) {
     let mut command = Command::new("git");
@@ -37,6 +52,139 @@ fn branch_exists(project: &Path, branch: &str) -> bool {
         .unwrap()
         .status
         .success()
+}
+
+fn link_dir(link: &Path, target: &Path) {
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(target, link).expect("create directory symlink");
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("cmd");
+        process_util::no_window_std(&mut command);
+        let output = command
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
+fn lane_removal_links_dispatches_directory_and_file_links_by_metadata() {
+    assert_eq!(
+        link_removal_kind(true, true, false),
+        Some(LinkRemovalKind::Directory)
+    );
+    assert_eq!(
+        link_removal_kind(true, false, true),
+        Some(LinkRemovalKind::Directory)
+    );
+    assert_eq!(
+        link_removal_kind(true, false, false),
+        Some(LinkRemovalKind::File)
+    );
+    assert_eq!(link_removal_kind(false, true, true), None);
+}
+
+#[test]
+fn lane_removal_links_preserves_canonical_marker_and_removes_lane() {
+    let root = tempfile::tempdir().unwrap();
+    let project = fixture_project(root.path());
+    let marker = project.join("canonical-marker");
+    std::fs::create_dir(&marker).unwrap();
+    let marker_file = marker.join("proof.bin");
+    let bytes = [0, 1, 2, 127, 128, 254, 255];
+    std::fs::write(&marker_file, bytes).unwrap();
+    let lane = provision_lane_for_test(project.to_str().unwrap(), "link-marker").unwrap();
+    link_dir(&Path::new(&lane.cwd).join("canonical-link"), &marker);
+
+    remove_lane(
+        &LaneRemovalRequest {
+            worktree_path: lane.cwd.clone(),
+            branch: Some(lane.branch.clone()),
+            canonical_cwd: Some(project.display().to_string()),
+            force: false,
+        },
+        &[],
+    )
+    .expect("lane with a link to canonical content removes safely");
+
+    assert!(!Path::new(&lane.cwd).exists());
+    assert_eq!(std::fs::read(marker_file).unwrap(), bytes);
+}
+
+#[test]
+fn lane_removal_links_refuses_a_lane_with_leftover_content() {
+    let root = tempfile::tempdir().unwrap();
+    let project = fixture_project(root.path());
+    let lane = provision_lane_for_test(project.to_str().unwrap(), "leftover-content").unwrap();
+    let leftover = Path::new(&lane.cwd).join("untracked-leftover");
+    std::fs::write(&leftover, "retain this lane content").unwrap();
+
+    let error = remove_lane(
+        &LaneRemovalRequest {
+            worktree_path: lane.cwd.clone(),
+            branch: Some(lane.branch.clone()),
+            canonical_cwd: Some(project.display().to_string()),
+            force: false,
+        },
+        &[],
+    )
+    .unwrap_err();
+
+    assert!(error.contains("lane removal failed"), "{error}");
+    assert!(error.contains(&lane.cwd), "{error}");
+    assert_eq!(
+        std::fs::read_to_string(leftover).unwrap(),
+        "retain this lane content"
+    );
+    assert!(Path::new(&lane.cwd).is_dir());
+}
+
+#[test]
+fn lane_removal_links_force_cleans_internal_node_modules_junctions() {
+    let root = tempfile::tempdir().unwrap();
+    let project = fixture_project(root.path());
+    let outside_marker = project.join("outside-marker");
+    std::fs::create_dir(&outside_marker).unwrap();
+    let marker_file = outside_marker.join("proof.bin");
+    let marker_bytes = [9, 0, 37, 128, 255];
+    std::fs::write(&marker_file, marker_bytes).unwrap();
+
+    let lane = provision_lane_for_test(project.to_str().unwrap(), "node-modules-links").unwrap();
+    let modules = Path::new(&lane.cwd).join("node_modules");
+    let packages = modules.join(".pnpm");
+    let internal_target = packages.join("internal-target");
+    std::fs::create_dir_all(&internal_target).unwrap();
+    std::fs::write(internal_target.join("package.bin"), [4, 5, 6]).unwrap();
+    for index in 0..4 {
+        link_dir(
+            &packages.join(format!("package-link-{index}")),
+            &internal_target,
+        );
+    }
+    link_dir(&modules.join("outside-marker-link"), &outside_marker);
+    std::fs::write(modules.join("untracked-package.bin"), [1, 2, 3]).unwrap();
+
+    remove_lane(
+        &LaneRemovalRequest {
+            worktree_path: lane.cwd.clone(),
+            branch: Some(lane.branch.clone()),
+            canonical_cwd: Some(project.display().to_string()),
+            force: true,
+        },
+        &[],
+    )
+    .expect("forced lane removal unlinks internal and external junctions first");
+
+    assert!(!Path::new(&lane.cwd).exists());
+    assert_eq!(std::fs::read(marker_file).unwrap(), marker_bytes);
 }
 
 fn task_store(root: &Path, project: &Path) -> (PlanStore, String, String) {
@@ -113,6 +261,7 @@ fn lane_removal_refuses_when_tab_holds_worktree() {
             worktree_path: lane.cwd.clone(),
             branch: Some(lane.branch.clone()),
             canonical_cwd: Some(project.display().to_string()),
+            force: false,
         },
         &[elsewhere, holder],
     )
@@ -161,6 +310,7 @@ fn lane_removal_succeeds_when_worktree_unheld() {
             worktree_path: lane_cwd.clone(),
             branch: Some(branch.clone()),
             canonical_cwd: Some(project.display().to_string()),
+            force: false,
         },
         &live_tabs,
     )
@@ -185,6 +335,7 @@ fn lane_removal_refuses_unmerged_branch_before_deleting_worktree() {
             worktree_path: lane.cwd.clone(),
             branch: Some(lane.branch.clone()),
             canonical_cwd: Some(project.display().to_string()),
+            force: false,
         },
         &[],
     )
@@ -200,13 +351,14 @@ fn lane_removal_refuses_unmerged_branch_before_deleting_worktree() {
 #[test]
 fn canonical_checkout_is_refused_as_a_lane() {
     let root = tempfile::tempdir().unwrap();
-    let project = fixture_project(root.path());
+    let project = fixture_project(&root.path().canonicalize().unwrap());
 
     let error = remove_lane(
         &LaneRemovalRequest {
             worktree_path: project.display().to_string(),
             branch: None,
             canonical_cwd: Some(project.display().to_string()),
+            force: false,
         },
         &[],
     )
@@ -248,10 +400,12 @@ fn lane_remove_is_idempotent_for_an_already_removed_worktree() {
 
     let outcome = remove_lane_and_clear_task_references(
         &store,
+        &repo_watch(),
         &LaneRemovalRequest {
             worktree_path: lane_path.clone(),
             branch: Some(branch.clone()),
             canonical_cwd: Some(project.display().to_string()),
+            force: false,
         },
         &[],
     )
@@ -272,6 +426,66 @@ fn lane_remove_is_idempotent_for_an_already_removed_worktree() {
         task.execution_attempts[0].worktree_path.as_deref(),
         Some(lane_path.as_str())
     );
+}
+
+#[test]
+fn lane_checkpoint_refs_are_deleted_when_lane_is_removed() {
+    let root = tempfile::tempdir().unwrap();
+    let project = fixture_project(root.path());
+    let lane = provision_lane_for_test(project.to_str().unwrap(), "checkpoint-cleanup").unwrap();
+    let lane_path = lane.cwd.clone();
+    let branch = lane.branch.clone();
+    let (store, plan_id, task_id) = task_store(root.path(), &project);
+    record_lane(&store, &plan_id, &task_id, &lane);
+    store
+        .with_plan(&plan_id, 4, |plan| {
+            plan.tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .expect("fixture task")
+                .execution_attempts
+                .push(crate::plan::TaskExecutionAttempt {
+                    id: "attempt-cleanup".into(),
+                    executor_tab_id: "worker-tab".into(),
+                    worktree_path: Some(lane_path.clone()),
+                    ..Default::default()
+                });
+            Ok(())
+        })
+        .unwrap();
+    git(
+        &project,
+        &[
+            "update-ref",
+            "refs/domios/checkpoints/attempt-cleanup/1",
+            "HEAD",
+        ],
+    );
+
+    remove_lane_and_clear_task_references(
+        &store,
+        &repo_watch(),
+        &LaneRemovalRequest {
+            worktree_path: lane_path,
+            branch: Some(branch),
+            canonical_cwd: Some(project.display().to_string()),
+            force: false,
+        },
+        &[],
+    )
+    .unwrap();
+
+    let refs = Command::new("git")
+        .current_dir(&project)
+        .args([
+            "for-each-ref",
+            "--format=%(refname)",
+            "refs/domios/checkpoints",
+        ])
+        .output()
+        .unwrap();
+    assert!(refs.status.success());
+    assert!(refs.stdout.is_empty());
 }
 
 #[test]
@@ -318,6 +532,7 @@ fn lane_remove_prunes_a_registration_for_an_already_missing_worktree() {
             worktree_path: lane_path.clone(),
             branch: Some(branch.clone()),
             canonical_cwd: Some(project.display().to_string()),
+            force: false,
         },
         &[],
     )
@@ -337,8 +552,11 @@ fn lane_remove_prunes_a_registration_for_an_already_missing_worktree() {
 #[test]
 fn lane_remove_reports_a_missing_branch_as_already_removed() {
     let root = tempfile::tempdir().unwrap();
-    let project = fixture_project(root.path());
-    let worktree = root.path().join("detached");
+    let root_path = PathBuf::from(codeterm_paths::canonical_cwd(
+        &root.path().to_string_lossy(),
+    ));
+    let project = fixture_project(&root_path);
+    let worktree = root_path.join("detached");
     git(
         &project,
         &[
@@ -356,6 +574,7 @@ fn lane_remove_reports_a_missing_branch_as_already_removed() {
             worktree_path: worktree.display().to_string(),
             branch: Some("lane/already-gone".into()),
             canonical_cwd: Some(project.display().to_string()),
+            force: false,
         },
         &[],
     )

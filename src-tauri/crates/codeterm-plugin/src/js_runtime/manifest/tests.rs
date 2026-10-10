@@ -691,17 +691,56 @@ fn unknown_context_owner_fails_the_parse_instead_of_defaulting() {
 }
 
 #[test]
-fn parse_agent_doc_field() {
-    // would reject it without the schema entry → plugin fails to load.
+fn parse_agent_guide_field() {
+    // deny_unknown_fields would reject it without the schema entry.
     let json = r#"{
             "id": "codeterm-npc",
             "version": "0.1.0",
             "displayName": "Dread NPCs",
-            "agentDoc": "AGENT.md",
+            "agentGuide": "docs/AGENT.md",
             "capabilities": { "chatBackend": true }
         }"#;
-    let m: PluginManifest = serde_json::from_str(json).expect("parse agentDoc");
-    assert_eq!(m.agent_doc.as_deref(), Some("AGENT.md"));
+    let m: PluginManifest = serde_json::from_str(json).expect("parse agentGuide");
+    assert_eq!(m.agent_guide.as_deref(), Some("docs/AGENT.md"));
+}
+
+#[test]
+fn agent_prompt_line_is_trimmed_and_an_invalid_one_is_dropped() {
+    let manifest = |line: &str| {
+        let json = serde_json::json!({
+            "id": "p", "version": "0", "displayName": "P", "agentPromptLine": line
+        });
+        PluginManifest::from_json_str(&json.to_string())
+            .expect("an invalid line never fails the load")
+    };
+    assert_eq!(
+        manifest("  OPAQUE_LINE_q7  ").agent_prompt_line.as_deref(),
+        Some("OPAQUE_LINE_q7")
+    );
+    assert!(manifest("one\ntwo").agent_prompt_line.is_none());
+    assert!(manifest(&"x".repeat(241)).agent_prompt_line.is_none());
+    let plain = r#"{ "id": "p", "version": "0", "displayName": "P" }"#;
+    assert!(PluginManifest::from_json_str(plain)
+        .unwrap()
+        .agent_prompt_line
+        .is_none());
+}
+
+#[test]
+fn shipped_browser_manifest_contributes_a_valid_prompt_line() {
+    let text = include_str!("../../../../../../plugins/browser/plugin.json");
+    let manifest = PluginManifest::from_json_str(text).expect("browser manifest parses");
+    let line = manifest
+        .agent_prompt_line
+        .expect("browser declares agentPromptLine");
+    assert!(line.contains("`codeterm docs BROWSER`"));
+}
+
+#[test]
+fn agent_guide_defaults_to_absent() {
+    let json = r#"{ "id": "p", "version": "0", "displayName": "P" }"#;
+    let m: PluginManifest = serde_json::from_str(json).expect("parse");
+    assert!(m.agent_guide.is_none());
 }
 
 #[test]
@@ -754,6 +793,25 @@ fn expand_home_handles_tilde() {
         PluginManifest::expand_home("/abs/path"),
         Some(PathBuf::from("/abs/path"))
     );
+}
+
+#[test]
+fn expand_home_resolves_codeterm_paths_in_the_instance_data_dir() {
+    let data = codeterm_paths::data_dir();
+    assert_eq!(
+        PluginManifest::expand_home("~/.codeterm"),
+        Some(data.clone())
+    );
+    assert_eq!(
+        PluginManifest::expand_home("~/.codeterm/plugin-fixture-41/bin"),
+        Some(data.join("plugin-fixture-41/bin"))
+    );
+    if let Some(home) = dirs::home_dir() {
+        assert_eq!(
+            PluginManifest::expand_home("~/.codeterm-fixture-41/x"),
+            Some(home.join(".codeterm-fixture-41/x"))
+        );
+    }
 }
 
 #[test]
@@ -958,4 +1016,17 @@ fn manifest_accepts_legacy_icon_fields_shipped_by_channel_plugins() {
 #[test]
 fn retired_memory_flush_hook_route_is_refused() {
     assert!(crate::provider::HookIngestionRoute::parse("mem_flush").is_none());
+}
+
+#[test]
+fn manifest_accepts_a_one_line_pitch() {
+    let manifest: PluginManifest = serde_json::from_value(serde_json::json!({
+        "id": "telegram-client", "version": "1.0.1", "displayName": "Telegram Client",
+        "pitch": "Let agents find your Telegram chats, read them and send messages for you."
+    }))
+    .expect("pitch is a known manifest field");
+    assert_eq!(
+        manifest.pitch.as_deref(),
+        Some("Let agents find your Telegram chats, read them and send messages for you.")
+    );
 }

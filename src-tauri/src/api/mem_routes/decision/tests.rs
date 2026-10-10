@@ -552,6 +552,7 @@ fn decision_applied_reorders_and_annotates() {
 
 #[test]
 fn decision_applied_low_confidence_envelope() {
+    let _scope = clock::fixture_clock().enter();
     let backend = seeded();
     let registry = relevance_registry(&[
         (TITLES[0], 0.02),
@@ -565,8 +566,8 @@ fn decision_applied_low_confidence_envelope() {
     };
     let output = resolve_search(&backend, &registry, &enabled_cfg(), request).unwrap();
 
+    assert_eq!(output["supporter"]["status"], "applied", "{output}");
     assert_eq!(titles(&output), vec![TITLES[1], TITLES[2], TITLES[0]]);
-    assert_eq!(output["supporter"]["status"], "applied");
     assert_eq!(output["supporter"]["low_confidence"], true);
     assert_eq!(output["supporter"]["max_relevance"], 0.10);
 }

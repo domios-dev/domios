@@ -27,7 +27,7 @@ telegram_allowed_users = []     # Telegram user IDs as strings, empty = allow al
 
 Connected services are shown as icons next to the tab title in the sidebar (`connected_services` field on the tab object).
 
-Settings UI: Settings > Integrations > Telegram (toggle + allowed users list).
+Settings UI: Settings > General > Messengers (Telegram bot bridge toggle + allowed users list).
 
 ### Discord (coming soon)
 
@@ -108,7 +108,48 @@ Response (one of):
 3. `codeterm config set integrations.text_hooks.daemon_url http://127.0.0.1:7892` (or wherever your daemon listens)
 4. Restart bridge (`codeterm bridge restart`) — picks up the new config.
 
-### Secrets
+### Graph nodes (plugin declarations)
+
+A plugin contributes graph nodes through `capabilities.graphNodes` in its manifest: media `converters` and typed `eventSources`. Both lists are optional, and a declared block must name at least one node.
+
+```json
+"capabilities": {
+  "graphNodes": {
+    "converters": [{ "from": "audio", "to": "text" }],
+    "eventSources": [{
+      "kind": "telegram.message",
+      "title": "Telegram: new message",
+      "params":  { "type": "object", "properties": { "chat_id": { "type": "string", "maxLength": 128 } }, "required": ["chat_id"] },
+      "payload": { "type": "object", "properties": { "text": { "type": "string", "maxLength": 16384 } }, "required": ["text"] }
+    }]
+  }
+}
+```
+
+- **converters** declare which media kinds (`text`, `audio`, `video`, `image`) the plugin turns into which (`from` differs from `to`, at most 16). The plugin exports `convert(request)` returning `{ text }`, `{ path }` (a file inside the request's `outputDir`), or `{ error }`. The host chains conversion steps across plugins from the declarations alone, so a plan never depends on which plugin serves a step. A `transcriber` capability is registered as `audio -> text` automatically.
+- **eventSources** declare up to 16 event kinds per plugin (`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`, at most 64 bytes, unique per plugin) with a 1-128 byte title and typed `params`/`payload` schemas. The schema subset is an object of scalar or one-level scalar-array properties (at most 32; `maxLength` <= 65536, `maxItems` <= 256) with optional `description` and `enum`; `$ref`, combinators (`oneOf`/`anyOf`), `patternProperties` and nested objects are refused at parse.
+### Model endpoints and presets
+
+`codeterm model-provider` routes to the installed provider declaring model configuration support. In the app, each such harness's plugin page has a **Custom model endpoints** section with the same operations plus edit and model discovery: a typed key is saved to the secret store (masked, never shown again), or a saved secret is copied into the endpoint's owned slot. The HTTP endpoint `POST /api/model-providers` accepts `?provider=<id>` to address one harness.
+
+```bash
+codeterm model-provider add --name local --kind openai-compatible --base-url http://localhost:1234/v1 --secret local-key --model model-id
+codeterm model-provider list
+codeterm model-provider test --name local
+codeterm model-provider remove --name local
+codeterm model-provider preset add --name demo --model local/model-id --prompt "Review the task" --temperature 0.2 --top-p 0.9 --steps 12
+codeterm model-provider preset list
+codeterm agent spawn opencode --preset demo
+codeterm model-provider preset remove --name demo
+```
+
+For `add`, pipe the key from a secure source on stdin; `--secret` is a name, never the value. Repeat `--model` for several models, or omit it to discover models through a connection test. Kinds are `openai-compatible` and `anthropic`. The key lives in the Domios secret store and is injected into the launch environment; OpenCode config contains only `{env:NAME}` references. Endpoint removal deletes only the Domios-owned entry and its owned secret; foreign entries and secrets are preserved.
+
+Connection tests have a ten-second failure deadline and return models or typed `timeout`, `unauthorized`, `connection`, or `invalid_response` errors. Configuration and secret-store refusals are also typed; returned errors omit keys and remote response bodies.
+
+Presets map a name to a model, prompt and optional parameters (temperature 0–2, top-p 0–1, steps 1–10000). They are Domios-owned OpenCode agents; foreign agents cannot be overwritten or removed. Select a preset in New Session or with `agent spawn --preset`; conflicting model or agent launch arguments are refused. Recorded launch parameters preserve the preset on restart/resume. Provider and preset changes emit versioned catalogue events, so the picker and model chip refresh without a reload. OpenCode model variants appear as reasoning levels and travel with launch and live model switching; the chip identifies the live or restart/resume path.
+
+### Secret store
 
 Pluggable secret store for the `codeterm mem secret` command family and the Settings → Secrets UI. Configure the active backend, (for Bitwarden) the default org/collection that new items land in, and (for Bitwarden) the server URL. Auto-unlock is not a config key: a secret-backend plugin opts in through its manifest and the unlock request (see the secret-store reference below).
 
@@ -135,4 +176,4 @@ Full secret-store reference, including CLI, storage internals, error mapping, an
 
 Settings UI: Settings > Secrets — backend picker, server URL + Apply (Bitwarden), Install Bitwarden CLI button (when `bw` missing), login (password or API key), default scope, recently saved items, lock / sign-out.
 
-<!-- revision: 6 -->
+<!-- revision: 9 -->

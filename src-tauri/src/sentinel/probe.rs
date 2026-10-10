@@ -9,11 +9,14 @@ pub(super) mod windows;
 
 pub(super) mod cancellation;
 pub(super) mod capture;
+pub(crate) mod environment;
 pub(super) mod owner;
 pub(super) mod process;
 
 #[cfg(test)]
 mod native_tests;
+#[cfg(test)]
+mod owner_tests;
 #[cfg(test)]
 mod tests;
 
@@ -34,11 +37,28 @@ pub struct Output {
     pub stderr: super::command::Capture,
 }
 
+#[cfg(test)]
 pub(super) fn run(
     command: &str,
     cwd: &Path,
     limit: Duration,
     owner: &Arc<owner::ProbeResourceOwner>,
+) -> Result<Output, process::ProbeFailure> {
+    run_with_environment(
+        command,
+        cwd,
+        limit,
+        owner,
+        &environment::Environment::default(),
+    )
+}
+
+pub(super) fn run_with_environment(
+    command: &str,
+    cwd: &Path,
+    limit: Duration,
+    owner: &Arc<owner::ProbeResourceOwner>,
+    environment: &environment::Environment,
 ) -> Result<Output, process::ProbeFailure> {
     let deadlines = process::Deadlines::start(limit, PROBE_RUNTIME)?;
     run_transaction(
@@ -48,6 +68,7 @@ pub(super) fn run(
         owner,
         &cancellation::Cancellation::default(),
         false,
+        environment,
     )
 }
 
@@ -61,9 +82,31 @@ pub(super) fn run_with_receipt(
     (Output, process::DeadlineReceipt),
     (process::ProbeFailure, Option<process::DeadlineReceipt>),
 > {
+    run_with_runtime_and_receipt(
+        command,
+        cwd,
+        limit,
+        PROBE_RUNTIME,
+        owner,
+        &environment::Environment::default(),
+    )
+}
+
+#[cfg(test)]
+fn run_with_runtime_and_receipt(
+    command: &str,
+    cwd: &Path,
+    limit: Duration,
+    runtime: Duration,
+    owner: &Arc<owner::ProbeResourceOwner>,
+    environment: &environment::Environment,
+) -> Result<
+    (Output, process::DeadlineReceipt),
+    (process::ProbeFailure, Option<process::DeadlineReceipt>),
+> {
     let admitted = std::time::Instant::now();
-    let deadlines = process::Deadlines::at(limit, PROBE_RUNTIME, admitted)
-        .map_err(|failure| (failure, None))?;
+    let deadlines =
+        process::Deadlines::at(limit, runtime, admitted).map_err(|failure| (failure, None))?;
     let receipt = deadlines.receipt();
     run_transaction(
         command,
@@ -72,6 +115,7 @@ pub(super) fn run_with_receipt(
         owner,
         &cancellation::Cancellation::default(),
         false,
+        environment,
     )
     .map(|output| (output, receipt))
     .map_err(|failure| (failure, Some(receipt)))
@@ -85,7 +129,15 @@ pub(super) fn run_cancellable(
     cancellation: &cancellation::Cancellation,
 ) -> Result<Output, process::ProbeFailure> {
     let deadlines = process::Deadlines::start(limit, PROBE_RUNTIME)?;
-    run_transaction(command, cwd, deadlines, owner, cancellation, true)
+    run_transaction(
+        command,
+        cwd,
+        deadlines,
+        owner,
+        cancellation,
+        true,
+        &environment::Environment::default(),
+    )
 }
 
 fn run_transaction(
@@ -95,6 +147,7 @@ fn run_transaction(
     owner: &Arc<owner::ProbeResourceOwner>,
     cancellation: &cancellation::Cancellation,
     _cancellation_required: bool,
+    environment: &environment::Environment,
 ) -> Result<Output, process::ProbeFailure> {
     if cancellation.load(std::sync::atomic::Ordering::SeqCst) {
         return Err(process::ProbeFailure::new("probe_cancelled"));
@@ -111,11 +164,20 @@ fn run_transaction(
                 owner,
                 cancellation,
                 _cancellation_required,
+                environment,
             )
         }
         #[cfg(windows)]
         {
-            windows::run(command, cwd, deadlines, reservation, owner, cancellation)
+            windows::run(
+                command,
+                cwd,
+                deadlines,
+                reservation,
+                owner,
+                cancellation,
+                environment,
+            )
         }
     })
 }

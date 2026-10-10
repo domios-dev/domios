@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 /// Defined group-side; implemented app-side (ServiceContext).
 pub trait CommandPort: Send + Sync {
     fn mark_user_activity(&self);
+    fn ensure_storage_available(&self) -> Result<(), String> {
+        Ok(())
+    }
     fn mux_snapshot(&self) -> crate::multiplexer::state::MultiplexerSnapshot;
     /// The status-bearing snapshot, waiting for the state locks no later than
     /// `deadline`. `None` means a writer held them past the deadline.
@@ -53,7 +56,7 @@ pub trait CommandPort: Send + Sync {
         ws_id: &str,
         force: bool,
     ) -> Result<(), String>;
-    fn list_workspaces(&self) -> Vec<crate::multiplexer::state::WorkspaceInfo>;
+    fn list_workspaces(&self) -> Result<Vec<crate::multiplexer::state::WorkspaceInfo>, String>;
     fn list_recently_closed(&self, ws_id: &str) -> Vec<crate::multiplexer::types::ClosedTab>;
     fn reopen_closed_tab(&self, ws_id: &str, index: Option<usize>) -> Result<String, String>;
     fn reopen_closed_group(&self, group_id: &str) -> Result<(String, String), String>;
@@ -67,6 +70,9 @@ pub trait CommandPort: Send + Sync {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum Command {
+    ShellProfiles {
+        refresh: bool,
+    },
     /// Health check / system identify
     Health,
 
@@ -93,7 +99,10 @@ pub enum Command {
     },
 
     /// Send text to a tab's PTY
-    SendText { tab_id: String, text: String },
+    SendText {
+        tab_id: String,
+        text: String,
+    },
 
     /// Get tab output (terminal buffer)
     GetOutput {
@@ -130,13 +139,21 @@ pub enum Command {
     },
 
     /// Focus a tab (move keyboard focus).
-    TabFocus { tab_id: String },
+    TabFocus {
+        tab_id: String,
+    },
 
     /// Rename a tab's title (pinned until the user clears it).
-    TabRename { tab_id: String, title: String },
+    TabRename {
+        tab_id: String,
+        title: String,
+    },
 
     /// Set or clear a tab's short description.
-    TabDescribe { tab_id: String, description: String },
+    TabDescribe {
+        tab_id: String,
+        description: String,
+    },
 
     /// List all registered agent providers as `ProviderDescriptor`s.
     /// First dispatch command for the plugin self-presentation system (Chunk B.3).
@@ -155,7 +172,10 @@ pub enum Command {
     },
 
     /// Rename an existing workspace.
-    WorkspaceRename { workspace_id: String, name: String },
+    WorkspaceRename {
+        workspace_id: String,
+        name: String,
+    },
 
     /// Close a workspace and kill all of its PTYs. `caller_tab_id` refuses a
     /// coordinator closing the workspace it runs in; `force` acknowledges any agent tabs.
@@ -171,7 +191,9 @@ pub enum Command {
     WorkspaceList,
 
     /// List a workspace's recently-closed tabs (newest first).
-    WorkspaceRecentlyClosed { workspace_id: String },
+    WorkspaceRecentlyClosed {
+        workspace_id: String,
+    },
 
     /// Reopen a recently-closed tab (browser-style). `index` selects the ring
     /// entry (newest = 0, default).
@@ -182,7 +204,9 @@ pub enum Command {
     },
 
     /// Reopen a whole closed group (single / cascade subtree / workspace) by id.
-    WorkspaceReopenClosedGroup { group_id: String },
+    WorkspaceReopenClosedGroup {
+        group_id: String,
+    },
 
     /// Resize the PTY backing a tab.
     PtyResize {
@@ -193,7 +217,9 @@ pub enum Command {
 
     /// Kill the PTY process for a tab without removing the tab from the mux.
     /// Compare to `TabClose`, which both stops the process and drops the tab.
-    PtyKill { tab_id: String },
+    PtyKill {
+        tab_id: String,
+    },
 }
 
 /// Unified result type for all commands.
@@ -248,6 +274,7 @@ pub fn dispatch_tab_summary_if_ready(
         return dispatch(cmd, ctx);
     };
 
+    ctx.ensure_storage_available()?;
     let snapshot = ctx
         .mux_snapshot_until(std::time::Instant::now() + TAB_SUMMARY_LOCK_DEADLINE)
         .ok_or_else(|| TAB_SUMMARY_BUSY_ERROR.to_string())?;
@@ -273,10 +300,23 @@ pub async fn dispatch_tab_summary_blocking(
 }
 
 pub fn dispatch(cmd: &Command, ctx: &dyn CommandPort) -> Result<CommandResult, String> {
+    if matches!(
+        cmd,
+        Command::TabList
+            | Command::TabSummary { .. }
+            | Command::TabInspect { .. }
+            | Command::WorkspaceList
+    ) {
+        ctx.ensure_storage_available()?;
+    }
     if is_mutating_user_command(cmd) {
         ctx.mark_user_activity();
     }
     match cmd {
+        Command::ShellProfiles { refresh } => Ok(CommandResult::Json(
+            serde_json::to_value(&*crate::pty::shell_profiles::catalog().load_blocking(*refresh))
+                .map_err(|error| error.to_string())?,
+        )),
         Command::Health => cmd_health(),
         Command::TabList => cmd_tab_list(ctx),
         Command::TabSummary {
@@ -489,7 +529,7 @@ fn snapshot_agent_liveness(
     tab: &crate::multiplexer::types::Tab,
     tracked: Option<&codeterm_types::pty::TabStatus>,
 ) -> codeterm_types::pty::AgentLiveness {
-    use codeterm_types::pty::{AgentBacking, LivenessEvidence, TabStatus};
+    use codeterm_types::pty::{AgentBacking, AgentLiveness, LivenessEvidence, TabStatus};
     let backing = match &tab.backing {
         crate::multiplexer::types::TabBacking::ChatBackend { .. } => AgentBacking::ChatBackend {
             session_open: tab.agent_session_id.is_some(),
@@ -500,6 +540,7 @@ fn snapshot_agent_liveness(
                 .as_ref()
                 .and_then(|_| tracked.map(|status| *status != TabStatus::Dead)),
         },
+        crate::multiplexer::types::TabBacking::Surface(_) => return AgentLiveness::Absent,
     };
     codeterm_types::pty::classify_agent_liveness(LivenessEvidence {
         declares_agent: tab.agent_type.is_some(),
@@ -586,16 +627,17 @@ pub fn build_tab_summary_json(
         })
         .filter_map(|tab| {
             let (tab_id, workspace_id, workspace_name) = tab_index.get(tab.id.as_str())?;
-            let backing_kind = match &tab.backing {
-                crate::multiplexer::types::TabBacking::Pty => "pty",
-                crate::multiplexer::types::TabBacking::ChatBackend { .. } => "chat_backend",
-            };
+            let backing_kind = tab.backing.kind();
             let liveness = snapshot_agent_liveness(tab, snapshot.tab_statuses.get(tab.id.as_str()));
             Some(serde_json::json!({
                 "id": tab.id,
                 "tab_id": tab_id,
                 "title": tab.title,
                 "description": tab.description,
+                "purpose": tab.purpose,
+                "shell_profile": tab.shell_profile,
+                "icon": tab.icon,
+                "shell_command_state": tab.shell_command_state,
                 "workspace_id": workspace_id,
                 "workspace_name": workspace_name,
                 "scope": scope_kind,
@@ -751,7 +793,7 @@ fn cmd_workspace_close(
 }
 
 fn cmd_workspace_list(ctx: &dyn CommandPort) -> Result<CommandResult, String> {
-    let workspaces = ctx.list_workspaces();
+    let workspaces = ctx.list_workspaces()?;
     let json =
         serde_json::to_value(&workspaces).map_err(|e| format!("serialize workspaces: {}", e))?;
     Ok(CommandResult::Json(json))

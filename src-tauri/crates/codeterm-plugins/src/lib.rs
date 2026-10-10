@@ -4,6 +4,7 @@
 
 use std::cell::RefCell;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 // Shared glob surface for submodules written against `super::*` — re-exports the names the old `cmd::plugin` facade did.
 use sha2::{Digest, Sha256};
@@ -13,6 +14,11 @@ use std::path::Path;
 use std::process::Command;
 
 mod audit;
+mod availability;
+mod update_status;
+pub use availability::{update_availability, UpdateAvailability, UpdateOffer, UpdateSource};
+use update_status::*;
+mod agent_surface;
 mod channel;
 mod config;
 mod install;
@@ -20,6 +26,7 @@ mod list;
 mod state;
 mod types;
 mod update;
+mod user_config;
 mod util;
 mod version;
 
@@ -33,6 +40,7 @@ use list::*;
 use state::*;
 use types::*;
 use update::*;
+use user_config::*;
 use util::*;
 use version::*;
 
@@ -42,6 +50,44 @@ use version::*;
 pub struct PluginCtx {
     pub data_root: PathBuf,
     pub version: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct PluginSecretValue(Arc<String>);
+
+impl PluginSecretValue {
+    fn new(value: String) -> Self {
+        Self(Arc::new(value))
+    }
+
+    pub fn read_from(input: &mut impl std::io::Read, terminal: bool) -> Result<Self, String> {
+        if terminal {
+            return Err(
+                "refusing to read a secret from a terminal; pipe the value to --secret".into(),
+            );
+        }
+        let mut value = String::new();
+        input
+            .read_to_string(&mut value)
+            .map_err(|_| "failed to read secret from stdin".to_string())?;
+        let value = value
+            .trim_end_matches(|character| character == '\r' || character == '\n')
+            .to_string();
+        if value.is_empty() {
+            return Err("no secret provided on stdin".into());
+        }
+        Ok(Self::new(value))
+    }
+
+    fn expose(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl std::fmt::Debug for PluginSecretValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PluginSecretValue([REDACTED])")
+    }
 }
 
 thread_local! {
@@ -127,6 +173,7 @@ pub enum PluginAction {
         id: String,
         set: Vec<String>,
         values_json: Option<String>,
+        secret: Option<(String, PluginSecretValue)>,
         grant: Vec<String>,
         revoke: Vec<String>,
     },
@@ -211,9 +258,19 @@ fn dispatch(action: PluginAction) -> Result<serde_json::Value, String> {
             id,
             set,
             values_json,
+            secret,
             grant,
             revoke,
-        } => config::config_command(&id, &set, values_json.as_deref(), &grant, &revoke),
+        } => config::config_command(
+            &id,
+            &set,
+            values_json.as_deref(),
+            secret
+                .as_ref()
+                .map(|(field, value)| (field.as_str(), value)),
+            &grant,
+            &revoke,
+        ),
         PluginAction::Settings {
             id,
             allow_host,

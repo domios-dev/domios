@@ -16,6 +16,8 @@ from fixture_tests import NativeControls, IsolationControls, CoordinatorPhaseCon
 from tls_tests import TLSControls, FailureFactControls
 from native_version_tests import NativeVersionControls
 from bounded_io_tests import DeadlineControls, ArchiveCollisionControls, AcquisitionControls, ProcessControls, HelperControls
+from launch_prompt import judge as judge_launch_prompt
+from launch_prompt_tests import LaunchPromptControls, answered_evidence, bound_contract
 
 
 def notification_evidence():
@@ -170,7 +172,10 @@ class ReportControls(unittest.TestCase):
 
     def test_missing_base_cell_is_red(self):
         self.assertEqual(exit_code({"PASS": 85, "N/A": 1}, self.contract()), 1)
-        self.assertEqual(exit_code({"PASS": 87, "N/A": 1}, self.contract()), 0)
+        self.assertEqual(exit_code({"PASS": 87, "N/A": 1}, self.contract(), True), 0)
+
+    def test_missing_launch_matrix_keeps_report_red(self):
+        self.assertEqual(exit_code({"PASS": 87, "N/A": 1}, self.contract()), 1)
 
 
 def main():
@@ -181,6 +186,9 @@ def main():
     parser.add_argument("--red-courier-demo", action="store_true")
     parser.add_argument("--red-sentinel-provenance-demo", action="store_true")
     parser.add_argument("--red-acquisition-demo", action="store_true")
+    parser.add_argument("--red-launch-prompt-demo", choices=(
+        "wrong-arm", "duplicate-observation", "missing-transcript", "non-trust-key",
+        "unauthorized-off-answer"))
     options = parser.parse_args()
     if options.red_demo:
         evidence = notification_evidence() | {"notifications": 2}
@@ -218,8 +226,31 @@ def main():
         lifecycle.finished.set()
         lifecycle.finish(cancel=False)
         return 0
+    if options.red_launch_prompt_demo:
+        evidence = answered_evidence()
+        control = options.red_launch_prompt_demo
+        if control == "wrong-arm":
+            evidence["jev"] = "off"
+        elif control == "duplicate-observation":
+            evidence["journal_rows"][1]["observation_id"] = evidence["journal_rows"][0]["observation_id"]
+        elif control == "missing-transcript":
+            evidence["transcript"] = []
+        elif control == "non-trust-key":
+            evidence["transcript"][0]["value"]["kind"] = "permission"
+        elif control == "unauthorized-off-answer":
+            evidence["jev"] = "off"
+            evidence["provenance_authorized"] = False
+            evidence["provisioned_cwd"] = None
+            evidence["journal_rows"][0]["decided_by"] = "fallback(no_adapter)"
+            evidence["journal_rows"][1]["decided_by"] = "fallback(no_adapter)"
+        try:
+            judge_launch_prompt(evidence, bound_contract())
+        except Finding as error:
+            print(f"REJECTED {control}: {error}")
+            return 1
+        raise RuntimeError(f"Launch-prompt red demo {control} was not rejected")
     suite = unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(cls)
-                               for cls in (Oracles, AttributionControls, CourierControls, ReportControls, SentinelRawControls,
+                               for cls in (Oracles, LaunchPromptControls, AttributionControls, CourierControls, ReportControls, SentinelRawControls,
                                            NativeControls, IsolationControls, CoordinatorPhaseControls, VersionToolControls,
                                            DeadlineControls, ArchiveCollisionControls, AcquisitionControls, ProcessControls,
                                            HelperControls, TLSControls, FailureFactControls, NativeVersionControls))

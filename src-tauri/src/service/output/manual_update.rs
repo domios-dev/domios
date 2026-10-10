@@ -111,11 +111,28 @@ pub(crate) fn resolve_classified_manual_update_prompt(
     prompt: crate::multiplexer::types::PendingPrompt,
     skip_value: Option<String>,
 ) -> Option<crate::service::tab::RespondPromptOutcome> {
+    resolve_classified_manual_update_prompt_fallback(service, snapshot, prompt, skip_value)
+}
+
+pub(crate) fn resolve_classified_manual_update_prompt_fallback(
+    service: &ServiceContext,
+    snapshot: &codeterm_plugin::tab_state::TabStateSnapshot,
+    prompt: crate::multiplexer::types::PendingPrompt,
+    skip_value: Option<String>,
+) -> Option<crate::service::tab::RespondPromptOutcome> {
+    if !agent_owns_prompt_answers(service, &snapshot.tab_id) {
+        return resolve_manual_update_with_model_gate(service, snapshot, prompt, None, false);
+    }
     crate::service::provider_update::manual_prompt_observed(service, snapshot);
-    let model_owned =
-        !crate::service::provider_update::coordinates_prompt(service, &snapshot.agent_type)
-            && service.general_agent_model_recovery_connected(&snapshot.tab_id);
-    resolve_manual_update_with_model_gate(service, snapshot, prompt, skip_value, model_owned)
+    resolve_manual_update_with_model_gate(service, snapshot, prompt, skip_value, false)
+}
+
+fn agent_owns_prompt_answers(service: &ServiceContext, tab_id: &str) -> bool {
+    service
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .is_some_and(crate::service::unattended_launch::owns_prompt_answers)
 }
 
 pub(super) fn resolve_manual_update_with_model_gate(

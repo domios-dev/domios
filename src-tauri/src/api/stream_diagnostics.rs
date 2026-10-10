@@ -78,7 +78,6 @@ pub(crate) struct StreamDiagnostics {
     parser: SseFrameParser,
     last_reported_frames: u64,
     last_reported_bytes: u64,
-    close_reason: &'static str,
     finished: bool,
 }
 
@@ -103,7 +102,6 @@ impl StreamDiagnostics {
             parser: SseFrameParser::default(),
             last_reported_frames: 0,
             last_reported_bytes: 0,
-            close_reason: "cancelled",
             finished: false,
         };
         diagnostics.log_summary("open", "session");
@@ -168,7 +166,6 @@ impl StreamDiagnostics {
             return;
         }
         self.finished = true;
-        self.close_reason = reason;
         self.log_summary("close", reason);
         for tab in self.tabs.keys() {
             self.log_tab_summary(tab, reason);
@@ -289,12 +286,6 @@ impl StreamDiagnostics {
             counters.boot_changed_at_open,
             counters.counters.boot_changed_events,
         );
-    }
-}
-
-impl Drop for StreamDiagnostics {
-    fn drop(&mut self) {
-        self.finish(self.close_reason);
     }
 }
 

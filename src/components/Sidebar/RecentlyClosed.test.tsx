@@ -102,10 +102,10 @@ test("describeGroup labels cascade and workspace groups", () => {
 test("closedAgo formats relative age, empty for a missing stamp", () => {
   const now = 1_000_000_000_000;
   assert(closedAgo(0, now) === "", "zero stamp -> empty");
-  assert(closedAgo(now - 5_000, now) === "now", `5s -> now, got ${closedAgo(now - 5_000, now)}`);
-  assert(closedAgo(now - 5 * 60_000, now) === "5m", `5m, got ${closedAgo(now - 5 * 60_000, now)}`);
-  assert(closedAgo(now - 3 * 3_600_000, now) === "3h", `3h, got ${closedAgo(now - 3 * 3_600_000, now)}`);
-  assert(closedAgo(now - 2 * 86_400_000, now) === "2d", `2d, got ${closedAgo(now - 2 * 86_400_000, now)}`);
+  assert(closedAgo(now - 5_000, now) === "just now", `5s -> just now, got ${closedAgo(now - 5_000, now)}`);
+  assert(closedAgo(now - 5 * 60_000, now) === "5m ago", `5m ago, got ${closedAgo(now - 5 * 60_000, now)}`);
+  assert(closedAgo(now - 3 * 3_600_000, now) === "3h ago", `3h ago, got ${closedAgo(now - 3 * 3_600_000, now)}`);
+  assert(closedAgo(now - 2 * 86_400_000, now) === "2d ago", `2d ago, got ${closedAgo(now - 2 * 86_400_000, now)}`);
 });
 
 test("renders a row per single close with title and model", async () => {

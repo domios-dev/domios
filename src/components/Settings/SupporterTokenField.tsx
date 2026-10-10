@@ -8,11 +8,28 @@ interface Props {
   hasToken: boolean;
   busy: boolean;
   saveToken: (adapter: string, token: string) => Promise<boolean>;
+  showTrigger?: boolean;
+  editing?: boolean;
+  onEditingChange?: (editing: boolean) => void;
 }
 
-export function SupporterTokenField({ adapter, mode, hasToken, busy, saveToken }: Props) {
+export function SupporterTokenField({
+  adapter,
+  mode,
+  hasToken,
+  busy,
+  saveToken,
+  showTrigger = true,
+  editing: controlledEditing,
+  onEditingChange,
+}: Props) {
   const input = useRef<HTMLInputElement>(null);
-  const [editing, setEditing] = useState(false);
+  const [localEditing, setLocalEditing] = useState(false);
+  const editing = controlledEditing ?? localEditing;
+  const setEditing = (value: boolean) => {
+    if (onEditingChange) onEditingChange(value);
+    else setLocalEditing(value);
+  };
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const token = input.current?.value.trim() ?? "";
@@ -23,13 +40,15 @@ export function SupporterTokenField({ adapter, mode, hasToken, busy, saveToken }
   };
   const id = `supporter-token-${adapter}`;
   return (
-    <div className="text-xs">
+    <div className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--ct-muted-fg)]">
       <span>{hasToken ? "Token saved, hidden" : "No token stored"}</span>
-      <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => setEditing(true)}>
-        {hasToken ? "Replace token" : "Add token"}
-      </Button>
+      {showTrigger && (
+        <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => setEditing(true)}>
+          {hasToken ? "Replace token" : "Add token"}
+        </Button>
+      )}
       {editing && (
-        <form onSubmit={(event) => void submit(event)} className="flex flex-wrap items-center gap-2">
+        <form onSubmit={(event) => void submit(event)} className="flex flex-wrap items-center gap-1.5">
           <label htmlFor={id}>{mode === "optional" ? "API token (optional)" : "API token"}</label>
           <input
             id={id}

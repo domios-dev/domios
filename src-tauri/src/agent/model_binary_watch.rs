@@ -8,74 +8,155 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use notify::event::{MetadataKind, ModifyKind};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use parking_lot::Mutex;
 
+use codeterm_plugin::chatbackend_provider::ChatBackendProvider;
 use codeterm_plugin::provider::AgentProvider;
 
 use crate::agent::model_catalog;
 
-/// Keeps one watcher per provider alive for the daemon's lifetime; dropping the
-/// registry stops every watch.
+/// Keeps one watcher per provider alive for the daemon's lifetime.
 #[derive(Default)]
 pub struct ProviderBinaryWatchers {
-    watchers: Mutex<HashMap<String, RecommendedWatcher>>,
+    watchers: Mutex<HashMap<String, InputWatch>>,
+}
+
+type OnChange = Arc<dyn Fn() + Send + Sync>;
+
+struct InputWatch {
+    targets: Vec<PathBuf>,
+    callback: Arc<Mutex<OnChange>>,
+    _watcher: RecommendedWatcher,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum WatchInstall {
+    Installed(PathBuf),
+    Reused,
+    Unavailable,
+}
+
+#[derive(PartialEq, Eq)]
+struct InputStamp {
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+}
+
+fn input_stamps(targets: &[PathBuf]) -> Vec<Option<InputStamp>> {
+    targets
+        .iter()
+        .map(|path| {
+            std::fs::metadata(path).ok().map(|metadata| InputStamp {
+                len: metadata.len(),
+                modified: metadata.modified().ok(),
+            })
+        })
+        .collect()
+}
+
+fn changes_input(event: &Event, targets: &[PathBuf]) -> bool {
+    matches!(
+        event.kind,
+        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+    ) && !matches!(
+        event.kind,
+        EventKind::Modify(ModifyKind::Metadata(MetadataKind::AccessTime))
+    ) && touches_any(event, targets)
 }
 
 impl ProviderBinaryWatchers {
-    /// Watch the path the resolver actually resolved to — never a guessed one.
-    /// A provider whose CLI never resolved has nothing to watch yet; the next
-    /// forced refresh re-resolves and this can be called again.
-    pub fn watch(
+    fn watch(
         &self,
-        provider: Arc<dyn AgentProvider>,
-        on_change: Arc<dyn Fn(Arc<dyn AgentProvider>) + Send + Sync>,
-    ) -> Option<PathBuf> {
-        let bin = provider.cli_binary()?.to_string();
-        let resolved = codeterm_plugin::js_runtime::resolved_bin_path(&bin)?;
-        // A self-update replaces the file rather than editing it, so the
-        // directory entry is what carries the event on every platform.
-        let dir = resolved.parent()?.to_path_buf();
-        let provider_id = provider.id().to_string();
-        let target = resolved.clone();
-        let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
+        key: String,
+        mut targets: Vec<PathBuf>,
+        on_change: Arc<dyn Fn() + Send + Sync>,
+    ) -> WatchInstall {
+        targets.sort();
+        targets.dedup();
+        let mut watchers = self.watchers.lock();
+        if let Some(existing) = watchers.get(&key).filter(|watch| watch.targets == targets) {
+            *existing.callback.lock() = on_change;
+            return WatchInstall::Reused;
+        }
+        let watch_dirs: Vec<PathBuf> = targets
+            .iter()
+            .filter_map(|target| target.parent().map(Path::to_path_buf))
+            .filter(|dir| dir.is_dir())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        if watch_dirs.is_empty() {
+            watchers.remove(&key);
+            return WatchInstall::Unavailable;
+        }
+        let watched_targets = targets.clone();
+        let callback = Arc::new(Mutex::new(on_change));
+        let event_callback = callback.clone();
+        let role = format!("catalogue-watch:{key}");
+        let mut stamps = input_stamps(&targets);
+        let watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
+            let _role = codeterm_util::named_thread::Scope::enter(&role);
             let Ok(event) = event else { return };
-            if !matches!(
-                event.kind,
-                EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
-            ) {
+            if !changes_input(&event, &watched_targets) {
                 return;
             }
-            if !touches(&event, &target) {
+            let current = input_stamps(&watched_targets);
+            if current == stamps {
                 return;
             }
-            on_change(provider.clone());
-        })
-        .ok()?;
-        watcher.watch(&dir, RecursiveMode::NonRecursive).ok()?;
-        self.watchers.lock().insert(provider_id, watcher);
-        Some(resolved)
+            stamps = current;
+            let on_change = event_callback.lock().clone();
+            on_change();
+        });
+        let Ok(mut watcher) = watcher else {
+            return WatchInstall::Unavailable;
+        };
+        for dir in watch_dirs {
+            if watcher.watch(&dir, RecursiveMode::NonRecursive).is_err() {
+                return WatchInstall::Unavailable;
+            }
+        }
+        watchers.insert(
+            key,
+            InputWatch {
+                targets: targets.clone(),
+                callback,
+                _watcher: watcher,
+            },
+        );
+        WatchInstall::Installed(targets.remove(0))
     }
 }
 
-fn touches(event: &Event, target: &Path) -> bool {
-    event.paths.iter().any(|path| path == target)
+#[cfg(test)]
+#[path = "model_binary_watch/tests.rs"]
+mod tests;
+
+fn touches_any(event: &Event, targets: &[PathBuf]) -> bool {
+    event
+        .paths
+        .iter()
+        .any(|path| targets.iter().any(|target| path == target))
 }
 
-/// The change handler the daemon installs: drop the resolver memo, re-probe
-/// without the TTL, and tell every surface the answer moved.
-pub fn on_binary_changed<F>(provider: Arc<dyn AgentProvider>, notify_updated: F)
-where
-    F: Fn(String) + Send + 'static,
-{
+/// Re-probe without the TTL after a declared catalogue input changes.
+pub fn on_catalogue_input_changed(provider: Arc<dyn AgentProvider>) {
+    crate::service::capability_probe::invalidate_and_rebuild(provider.id());
+    model_catalog::invalidate(provider.id());
+    refresh_agent_provider(provider, true);
+}
+
+pub fn refresh_agent_provider(provider: Arc<dyn AgentProvider>, force: bool) {
+    install(provider.clone());
     tauri::async_runtime::spawn(async move {
-        let provider_id = provider.id().to_string();
-        if model_catalog::refresh_after_binary_change(provider)
-            .await
-            .is_some()
-        {
-            notify_updated(provider_id);
-        }
+        let _ = if force {
+            model_catalog::refresh_after_catalogue_input_change(provider.clone()).await
+        } else {
+            model_catalog::refresh_models(provider.clone(), false).await
+        };
+        install(provider);
     });
 }
 
@@ -84,25 +165,84 @@ fn watchers() -> &'static ProviderBinaryWatchers {
     WATCHERS.get_or_init(ProviderBinaryWatchers::default)
 }
 
-/// Install the watch and the refresh it triggers. A provider whose CLI has not
-/// resolved yet is simply not watched; the next forced refresh resolves it.
-pub fn install(provider: Arc<dyn AgentProvider>, app: tauri::AppHandle) {
-    let on_change: Arc<dyn Fn(Arc<dyn AgentProvider>) + Send + Sync> =
-        Arc::new(move |changed: Arc<dyn AgentProvider>| {
-            let app = app.clone();
-            on_binary_changed(changed, move |provider_id| {
-                crate::api::events::emit_everywhere(
-                    &app,
-                    "models-updated",
-                    serde_json::json!({ "provider": provider_id }),
-                );
-            });
-        });
-    match watchers().watch(provider, on_change) {
-        Some(path) => log::info!(
-            "[model_catalog] watching {} for provider-binary changes",
+/// Install the watch and the refresh it triggers. A provider whose CLI is not
+/// installed is simply not watched; the next forced refresh resolves it.
+pub fn install(provider: Arc<dyn AgentProvider>) {
+    let mut targets = provider
+        .model_catalogue_capability()
+        .fingerprint_files(provider.model_credential_files());
+    let binary = provider.cli_binary().and_then(|binary| {
+        match codeterm_plugin::js_runtime::probe_bin(binary).resolution {
+            codeterm_plugin::js_runtime::BinResolution::Found(path) => Some(path),
+            _ => None,
+        }
+    });
+    if let Some(binary) = &binary {
+        targets.push(binary.clone());
+    }
+    let watched_provider = provider.clone();
+    let key = format!("pty:{}", provider.id());
+    let on_change: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+        on_catalogue_input_changed(watched_provider.clone());
+    });
+    match watchers().watch(key, targets, on_change) {
+        WatchInstall::Installed(path) => log::info!(
+            "[model_catalog] watching catalogue input {}",
             path.display()
         ),
-        None => log::debug!("[model_catalog] no resolved provider binary to watch yet"),
+        WatchInstall::Unavailable => {
+            log::debug!("[model_catalog] no declared catalogue inputs to watch")
+        }
+        WatchInstall::Reused => {}
+    }
+}
+
+pub fn install_chatbackend(
+    provider: Arc<dyn ChatBackendProvider>,
+    registry: crate::chatbackend::ChatBackendRegistryHandle,
+) {
+    let id = provider.id().to_string();
+    let targets = provider.model_catalogue_input_files();
+    let refresh_registry = registry.clone();
+    let refresh_id = id.clone();
+    let on_change: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+        model_catalog::invalidate(&refresh_id);
+        let _ = refresh_registry.refresh_provider(&refresh_id);
+    });
+    match watchers().watch(format!("chatbackend:{id}"), targets, on_change) {
+        WatchInstall::Installed(path) => log::info!(
+            "[model_catalog] watching catalogue input {}",
+            path.display()
+        ),
+        WatchInstall::Unavailable => {
+            log::debug!("[model_catalog] no declared chatBackend catalogue inputs to watch")
+        }
+        WatchInstall::Reused => {}
+    }
+}
+
+pub fn refresh_after_settings_change(
+    agents: &crate::agent::registry::AgentRegistry,
+    chat_backends: &crate::chatbackend::ChatBackendRegistry,
+    provider_ids: impl IntoIterator<Item = String>,
+) {
+    for provider_id in provider_ids {
+        if chat_backends.contains(&provider_id) {
+            crate::service::capability_probe::invalidate_and_rebuild(&provider_id);
+            chat_backends.refresh_after_input_change(&provider_id);
+        } else {
+            refresh_agent_after_settings_change(agents, &provider_id);
+        }
+    }
+}
+
+pub fn refresh_agent_after_settings_change(
+    agents: &crate::agent::registry::AgentRegistry,
+    provider_id: &str,
+) {
+    crate::service::capability_probe::invalidate_and_rebuild(provider_id);
+    if let Some(provider) = agents.provider_arc(provider_id) {
+        model_catalog::invalidate(provider_id);
+        refresh_agent_provider(provider, true);
     }
 }

@@ -1,5 +1,8 @@
 import { useState, type DragEvent } from "react";
+import { attachmentKindForPath } from "@codeterm/chat-core";
+import { invoke } from "../../lib/bridge";
 import { IS_WEB } from "../../lib/webApi";
+import type { InlineAttachment } from "./useComposerCapsules";
 import { storeBlob } from "./voice/audio";
 
 export async function storeBrowserFiles(
@@ -17,6 +20,17 @@ export async function storeBrowserFiles(
     }
   }
   if (paths.length > 0) onAttach(paths);
+}
+
+/** Folders become folder capsules; the host answers where it can stat the path, the extension decides elsewhere. */
+export async function classifyAttachmentPaths(paths: string[]): Promise<InlineAttachment[]> {
+  let kinds: string[] = [];
+  try {
+    kinds = await invoke<string[]>("attachment_path_kinds", { paths });
+  } catch {
+    kinds = [];
+  }
+  return paths.map((path, index) => ({ path, kind: kinds[index] === "folder" ? "folder" : attachmentKindForPath(path) }));
 }
 
 export function useWebFileDrop(

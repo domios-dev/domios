@@ -16,6 +16,7 @@ fn codex_credential(dir: &std::path::Path) -> CredentialConfig {
     )
     .unwrap();
     CredentialConfig {
+        file_environment: None,
         id: "codexAuth".into(),
         file: file.to_string_lossy().into_owned(),
         public: fields(&[("accountId", "tokens.account_id")]),
@@ -130,6 +131,7 @@ fn json_pointer_credential_fields_select_dotted_keys_and_inject_the_secret() {
     let key_path = format!("{pointer}/key");
 
     let creds = vec![CredentialConfig {
+        file_environment: None,
         id: "grokAuth".into(),
         file: file.to_string_lossy().into_owned(),
         public: fields(&[("userId", &user_path)]),
@@ -200,4 +202,51 @@ fn declared_files_are_absolute_paths_for_the_read_deny_list() {
     let dir = tempfile::tempdir().unwrap();
     let creds = vec![codex_credential(dir.path())];
     assert_eq!(declared_files(&creds), vec![dir.path().join("auth.json")]);
+}
+
+#[test]
+fn account_home_diagnostic_credential_reads_selected_home_without_writes() {
+    let mut env = codeterm_util::test_env::EnvGuard::lock();
+    let default = tempfile::tempdir().unwrap();
+    let selected = tempfile::tempdir().unwrap();
+    let mut credential = codex_credential(default.path());
+    let selected_file = selected.path().join("auth.json");
+    let selected_bytes =
+        r#"{"tokens":{"access_token":"selected-secret","account_id":"selected-account"}}"#;
+    std::fs::write(&selected_file, selected_bytes).unwrap();
+    let default_file = default.path().join("auth.json");
+    let default_bytes = std::fs::read(&default_file).unwrap();
+    credential.file_environment = Some(super::super::manifest::ReadRootEnvironment {
+        variable: "FIXTURE_CREDENTIAL_HOME".into(),
+        subdir: "auth.json".into(),
+    });
+    env.set("FIXTURE_CREDENTIAL_HOME", selected.path());
+    let credentials = vec![credential];
+    assert_eq!(
+        public_json(&credentials, "codexAuth"),
+        Some(r#"{"accountId":"selected-account"}"#.into())
+    );
+    let injected = inject(
+        &credentials,
+        r#"{"credential":{"id":"codexAuth","headers":{"Authorization":"Bearer {accessToken}"}}}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&injected).unwrap()["headers"]["Authorization"],
+        "Bearer selected-secret"
+    );
+    let denied = declared_files(&credentials);
+    assert!(denied.contains(&default_file));
+    assert!(denied.contains(&selected_file));
+    assert_eq!(std::fs::read(&default_file).unwrap(), default_bytes);
+    assert_eq!(
+        std::fs::read_to_string(&selected_file).unwrap(),
+        selected_bytes
+    );
+    env.set("FIXTURE_CREDENTIAL_HOME", "");
+    assert_eq!(declared_files(&credentials), vec![default_file]);
+    assert_eq!(
+        public_json(&credentials, "codexAuth"),
+        Some(r#"{"accountId":"acct-42"}"#.into())
+    );
 }

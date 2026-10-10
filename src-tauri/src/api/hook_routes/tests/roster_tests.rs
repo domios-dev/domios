@@ -337,8 +337,11 @@ fn codex_stop_bundled_roster_declares_session_start_and_stop_and_registration_fo
         [
             ("SessionStart", HookIngestionRoute::SessionStart),
             ("Stop", HookIngestionRoute::Stop),
+            ("turn/started", HookIngestionRoute::SessionState),
+            ("turn/completed", HookIngestionRoute::SessionState),
+            ("serverRequest/pending", HookIngestionRoute::SessionState),
         ],
-        "the declared roster is SessionStart + Stop, in declaration order"
+        "registration preserves declaration order"
     );
 
     let registry = AgentRegistry::new();

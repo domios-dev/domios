@@ -116,7 +116,8 @@ impl ServiceContext {
         if attempt_model_unknown {
             self.persist_current_attempt_session_model(tab_id);
         }
-        false
+        self.schedule_session_model_refresh_for_current_tab(tab_id);
+        true
     }
 
     /// The model this tab's own claimed session is running. Runtime evidence first,
@@ -286,7 +287,7 @@ impl ServiceContext {
                 tab_id,
                 agent_id,
                 &sid,
-                model,
+                model.clone(),
                 None,
                 Some(binding_nonce),
                 true,
@@ -401,6 +402,12 @@ impl ServiceContext {
         };
         let Some(agent_id) = agent_id else { return };
         let Some(cwd) = cwd else { return };
+        self.refresh_session_reasoning_effort_once(
+            tab_id,
+            &agent_id,
+            &cwd,
+            &observation.session_id,
+        );
         let Some(model) = self
             .agent_registry
             .with_provider(&agent_id, |provider| {
@@ -420,7 +427,7 @@ impl ServiceContext {
             tab_id,
             &agent_id,
             &observation.session_id,
-            model,
+            model.clone(),
             None,
             Some(binding_nonce),
             true,
@@ -430,7 +437,7 @@ impl ServiceContext {
         }
     }
 
-    fn clear_pending_model_switch(
+    pub(crate) fn clear_pending_model_switch(
         &self,
         tab_id: &str,
         observation: &crate::multiplexer::types::PendingModelSwitchObservation,
@@ -488,7 +495,7 @@ impl ServiceContext {
         true
     }
 
-    fn apply_session_model(
+    pub(crate) fn apply_session_model(
         &self,
         tab_id: &str,
         agent_id: &str,
@@ -500,6 +507,7 @@ impl ServiceContext {
     ) {
         let (
             current_model,
+            current_model_is_verified,
             planned_model,
             requested_model,
             provider_resolved_model,
@@ -515,6 +523,7 @@ impl ServiceContext {
             }
             (
                 tab.agent_session_model.clone(),
+                current_session_model_identity(tab, sid).is_some(),
                 tab.agent_planned_model.clone(),
                 tab.agent_requested_model.clone(),
                 tab.agent_provider_resolved_model.clone(),
@@ -529,9 +538,13 @@ impl ServiceContext {
             provider_resolved_model.as_deref(),
             current_fallback.clone(),
             &model,
-            requested_model.as_deref().is_none_or(|requested| {
-                session_model_matches(&self.agent_registry, agent_id, requested, &model)
-            }),
+            (current_model.is_some()
+                && current_model_is_verified
+                && current_mismatch.is_none()
+                && current_fallback.is_none())
+                || requested_model.as_deref().is_none_or(|requested| {
+                    session_model_matches(&self.agent_registry, agent_id, requested, &model)
+                }),
         );
         let mismatch_changed = identity_update.mismatch != current_mismatch;
         let fallback_changed = identity_update.fallback != current_fallback;
@@ -561,41 +574,8 @@ impl ServiceContext {
             self.persist_attempt_session_model(tab_id, agent_id, sid, &model);
             return;
         }
-        let should_notify = identity_update.mismatch.is_some() && current_mismatch.is_none();
-        if should_notify {
-            if let Some(mismatch) = identity_update.mismatch.as_ref() {
-                let severity = crate::service::spawn::unrequested_substitution_severity(
-                    mismatch.planned_model.as_deref(),
-                );
-                let title = format!(
-                    "model fallback: requested {}, actual {}",
-                    mismatch.requested_model, mismatch.actual_model
-                );
-                // A tab nobody watches keeps the fallback in its log, off the user's inbox.
-                if self.tab_is_user_facing(tab_id) {
-                    self.create_notification_ext(
-                        title,
-                        Some(
-                            "Provider runtime session metadata reported a different model than the launch request."
-                                .to_string(),
-                        ),
-                        Some(severity),
-                        None,
-                        None,
-                        crate::service::notification::NotificationOrigin::local_tab(tab_id.to_string()),
-                        crate::service::notification::PushIntent::default(),
-                        None,
-                    );
-                }
-                log::warn!(
-                    "[session-model] tab={} requested_model={} actual_model={} severity={} fallback_reason=runtime_session_model_mismatch",
-                    tab_id,
-                    mismatch.requested_model,
-                    mismatch.actual_model,
-                    severity
-                );
-            }
-        }
+        let notice_mismatch = identity_update.mismatch.clone();
+        let mut should_notify = false;
         let model = Some(model);
         let updated = {
             let mut mux = self.mux.write();
@@ -609,6 +589,10 @@ impl ServiceContext {
                             model
                         );
                     }
+                    should_notify = runtime_mismatch_notice_needed(
+                        tab.model_fallback.as_ref(),
+                        notice_mismatch.as_ref(),
+                    );
                     tab.agent_session_model = model.clone();
                     tab.agent_provider_resolved_model = model.clone();
                     let model_identity =
@@ -625,11 +609,50 @@ impl ServiceContext {
             }
         };
         if updated {
+            if should_notify {
+                if let Some(mismatch) = notice_mismatch.as_ref() {
+                    self.notify_session_model_mismatch(tab_id, sid, mismatch);
+                }
+            }
             self.emit_state_changed();
             if let Some(model) = model.as_deref() {
                 self.persist_attempt_session_model(tab_id, agent_id, sid, model);
             }
         }
+    }
+
+    fn notify_session_model_mismatch(
+        &self,
+        tab_id: &str,
+        session_id: &str,
+        mismatch: &crate::multiplexer::types::ModelIdentityMismatch,
+    ) {
+        if self.tab_is_user_facing(tab_id) {
+            let title = format!(
+                "model fallback: requested {}, actual {}",
+                mismatch.requested_model, mismatch.actual_model
+            );
+            let body = "Provider runtime session metadata reported a different model than the launch request.";
+            self.create_notification_ext(
+                title,
+                Some(body.to_string()),
+                Some("info"),
+                None,
+                None,
+                crate::service::notification::NotificationOrigin::local_tab(tab_id.to_string()),
+                crate::service::notification::PushIntent {
+                    level: Some(crate::notification::push::NotifyLevel::Verbose),
+                    event_key: Some(format!("session-model:{tab_id}:{session_id}")),
+                },
+                None,
+            );
+        }
+        log::info!(
+            "[session-model] tab={} requested_model={} actual_model={} severity=info fallback_reason=runtime_session_model_mismatch",
+            tab_id,
+            mismatch.requested_model,
+            mismatch.actual_model,
+        );
     }
 
     pub(crate) fn persist_attempt_session_model(
@@ -806,12 +829,32 @@ pub(crate) fn current_launch_report(
     tab: &crate::multiplexer::types::Tab,
     session_id: &str,
 ) -> Option<crate::multiplexer::types::LaunchModelReport> {
-    let identity = tab.agent_session_model_identity.as_ref()?;
-    let current = session_model_identity(tab, session_id, None, false)?;
-    (current.session_id == identity.session_id
-        && current.session_binding_nonce == identity.session_binding_nonce)
-        .then(|| identity.launch_report.clone())
-        .flatten()
+    current_session_model_identity(tab, session_id)
+        .and_then(|identity| identity.launch_report.clone())
+}
+
+fn current_session_model_identity<'a>(
+    tab: &'a crate::multiplexer::types::Tab,
+    session_id: &str,
+) -> Option<&'a crate::multiplexer::types::SessionModelIdentity> {
+    let nonce = tab.session_binding_nonce.as_deref()?;
+    if tab.agent_session_id.as_deref() != Some(session_id)
+        || tab.reported_session_binding_nonce.as_deref() != Some(nonce)
+    {
+        return None;
+    }
+    tab.agent_session_model_identity
+        .as_ref()
+        .filter(|identity| {
+            identity.session_id == session_id && identity.session_binding_nonce == nonce
+        })
+}
+
+fn runtime_mismatch_notice_needed(
+    prior_fallback: Option<&crate::multiplexer::types::ModelFallbackNotice>,
+    mismatch: Option<&crate::multiplexer::types::ModelIdentityMismatch>,
+) -> bool {
+    mismatch.is_some() && prior_fallback.is_none_or(|fallback| fallback.actual_model.is_none())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -876,6 +919,7 @@ fn model_identity_update(
 }
 
 pub(crate) fn clear_runtime_model_evidence(tab: &mut crate::multiplexer::types::Tab) {
+    tab.context = None;
     tab.agent_session_model = None;
     tab.agent_session_model_identity = None;
     tab.pending_model_switch_observation = None;

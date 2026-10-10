@@ -89,6 +89,16 @@ const PLUGIN_PREAMBLE: &str = r#"
   host.analytics = {
     query: function (query) { return parseJson(host.analyticsQuery(JSON.stringify(query || {}))); },
   };
+  host.events = {
+    emit: function (event) { return parseJson(host.graphEventEmit(JSON.stringify(event || {}))); },
+  };
+  // Returns the JSON text `{ result }` or `{ error }` exactly as the host produced it.
+  host.surface = {
+    call: function (verb, argsJson) {
+      var args = typeof argsJson === "string" ? argsJson : JSON.stringify(argsJson === undefined ? [] : argsJson);
+      return host.surfaceCall(String(verb || ""), args);
+    },
+  };
   host.receiverTarget = {
     get:   function () { return parseJson(host.receiverTargetGet()); },
     clear: function () { return parseJson(host.receiverTargetClear()); },
@@ -422,6 +432,18 @@ impl PluginVm {
         })
     }
 
+    pub(crate) fn can_access_config_path(&self, path: &str) -> bool {
+        self.sandbox.can_read(path) && self.sandbox.can_write(path)
+    }
+
+    pub(crate) fn can_read_path(&self, path: &Path) -> bool {
+        self.sandbox.can_read(&path.to_string_lossy())
+    }
+
+    pub(crate) fn can_read_environment(&self, name: &str) -> bool {
+        self.sandbox.can_env(name)
+    }
+
     pub fn plugin_id(&self) -> &str {
         &self.plugin_id
     }
@@ -439,6 +461,10 @@ impl PluginVm {
     /// Whether this plugin holds the `agent_commands` grant — drives inverse-seam handler registration.
     pub fn agent_commands_allowed(&self) -> bool {
         self.sandbox.agent_commands_allowed()
+    }
+
+    pub fn graph_events_allowed(&self) -> bool {
+        self.sandbox.graph_events_allowed()
     }
 
     /// How many sandbox capabilities this plugin has been denied. Snapshot it
@@ -544,6 +570,16 @@ pub fn call_json<R: serde::de::DeserializeOwned>(
     call_json_mode(vm, method, args, false)
 }
 
+pub fn call_json_interruptible<R: serde::de::DeserializeOwned>(
+    vm: &PluginVm,
+    method: &str,
+    args: &[serde_json::Value],
+    cancellation: crate::converter::ConversionCancellation,
+    deadline: std::time::Instant,
+) -> Result<R, VmError> {
+    call_json_mode_interruptible(vm, method, args, false, Some((cancellation, deadline)))
+}
+
 pub(super) fn call_json_strict<R: serde::de::DeserializeOwned>(
     vm: &PluginVm,
     method: &str,
@@ -558,11 +594,23 @@ fn call_json_mode<R: serde::de::DeserializeOwned>(
     args: &[serde_json::Value],
     strict: bool,
 ) -> Result<R, VmError> {
+    call_json_mode_interruptible(vm, method, args, strict, None)
+}
+
+fn call_json_mode_interruptible<R: serde::de::DeserializeOwned>(
+    vm: &PluginVm,
+    method: &str,
+    args: &[serde_json::Value],
+    strict: bool,
+    interrupt: Option<(crate::converter::ConversionCancellation, std::time::Instant)>,
+) -> Result<R, VmError> {
     let _file_lock_scope = super::host_api::FileLockCallScope::new();
     let started = std::time::Instant::now();
     CALL_YIELDED.with(|y| y.set(false));
     // bad drop-in can't unwind through the host and take the daemon down (#16).
-    let run = std::panic::AssertUnwindSafe(|| call_json_inner::<R>(vm, method, args, strict));
+    let run = std::panic::AssertUnwindSafe(|| {
+        call_json_inner_interruptible::<R>(vm, method, args, strict, interrupt)
+    });
     let result = match std::panic::catch_unwind(run) {
         Ok(res) => res,
         Err(_) => Err(VmError::Script(format!(
@@ -610,15 +658,16 @@ fn parse_await(result_json: &str) -> Option<AwaitRequest> {
     })
 }
 
-fn call_json_inner<R: serde::de::DeserializeOwned>(
+fn call_json_inner_interruptible<R: serde::de::DeserializeOwned>(
     vm: &PluginVm,
     method: &str,
     args: &[serde_json::Value],
     strict: bool,
+    interrupt: Option<(crate::converter::ConversionCancellation, std::time::Instant)>,
 ) -> Result<R, VmError> {
     let args_json =
         serde_json::to_string(args).map_err(|e| VmError::ArgSerialize(method.to_string(), e))?;
-    let mut result_json = enter_call(vm, method, &args_json, strict)?;
+    let mut result_json = enter_call(vm, method, &args_json, strict, interrupt.clone())?;
     while let Some(pending) = parse_await(&result_json) {
         CALL_YIELDED.with(|y| y.set(true));
         // No guard is held here: the frame unwound to produce the marker, so the
@@ -627,7 +676,14 @@ fn call_json_inner<R: serde::de::DeserializeOwned>(
             super::host_exec::WaitResult::Completed(result) => result,
             super::host_exec::WaitResult::TimedOut => return Err(VmError::AsyncJobTimedOut),
         };
-        result_json = resume_call(vm, method, &pending.continuation, &job_result, strict)?;
+        result_json = resume_call(
+            vm,
+            method,
+            &pending.continuation,
+            &job_result,
+            strict,
+            interrupt.clone(),
+        )?;
     }
     serde_json::from_str(&result_json)
         .map_err(|e| VmError::InvalidJson(method.to_string(), e.to_string()))
@@ -641,9 +697,15 @@ fn enter_call(
     method: &str,
     args_json: &str,
     strict: bool,
+    interrupt: Option<(crate::converter::ConversionCancellation, std::time::Instant)>,
 ) -> Result<String, VmError> {
     let inner = vm.inner.lock();
-    inner._ctx.with(|ctx| -> Result<String, VmError> {
+    if let Some((cancellation, deadline)) = interrupt.clone() {
+        inner._rt.set_interrupt_handler(Some(Box::new(move || {
+            cancellation.is_cancelled() || std::time::Instant::now() >= deadline
+        })));
+    }
+    let result = inner._ctx.with(|ctx| -> Result<String, VmError> {
         let plugin_obj: Value = ctx
             .globals()
             .get("__plugin__")
@@ -679,7 +741,11 @@ fn enter_call(
             .catch(&ctx)
             .map_err(|e| VmError::Script(format!("{method}: {e:?}")))?;
         Ok(result)
-    })
+    });
+    if interrupt.is_some() {
+        inner._rt.set_interrupt_handler(None);
+    }
+    result
 }
 
 fn resume_call(
@@ -688,9 +754,15 @@ fn resume_call(
     continuation: &str,
     job_result: &str,
     strict: bool,
+    interrupt: Option<(crate::converter::ConversionCancellation, std::time::Instant)>,
 ) -> Result<String, VmError> {
     let inner = vm.inner.lock();
-    inner._ctx.with(|ctx| -> Result<String, VmError> {
+    if let Some((cancellation, deadline)) = interrupt.clone() {
+        inner._rt.set_interrupt_handler(Some(Box::new(move || {
+            cancellation.is_cancelled() || std::time::Instant::now() >= deadline
+        })));
+    }
+    let result = inner._ctx.with(|ctx| -> Result<String, VmError> {
         let globals = ctx.globals();
         globals
             .set("__ct_await_k__", continuation)
@@ -713,7 +785,11 @@ fn resume_call(
             .catch(&ctx)
             .map_err(|e| VmError::Script(format!("{method}: {e:?}")))?;
         Ok(result)
-    })
+    });
+    if interrupt.is_some() {
+        inner._rt.set_interrupt_handler(None);
+    }
+    result
 }
 
 /// Whether the plugin exports `method` as a function. Lets the host tell

@@ -269,6 +269,12 @@ pub(crate) fn tab_became_idle(service: &ServiceContext, tab_id: &str) {
     }
 }
 
+pub(crate) fn background_work_changed(service: &ServiceContext, tab_id: &str) {
+    if ENABLED.load(Ordering::Acquire) {
+        restarts::schedule_async(service, Some(tab_id.into()));
+    }
+}
+
 fn spawn_utility(name: &str, work: impl FnOnce() + Send + 'static) {
     if let Err(error) = std::thread::Builder::new().name(name.into()).spawn(work) {
         log::error!("[provider-update] utility thread failed: {error}");
@@ -337,3 +343,7 @@ fn notify_owner(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(windows)]
+pub(crate) use command::process::ProcessChild;
+pub(crate) use command::process::ProcessTree;

@@ -24,6 +24,7 @@ pub(super) fn plan(id: &str, owner: &str, mode: PlanMode, tasks: Vec<Task>) -> P
 
 pub(super) fn task(id: &str, status: TaskStatus, tab_id: Option<&str>) -> Task {
     Task {
+        files: Default::default(),
         id: id.into(),
         name: id.into(),
         kind: "status_update".into(),
@@ -673,7 +674,7 @@ fn time_targets_follow_reseeded_owner_tab() {
 }
 
 #[test]
-fn time_targets_workers_only_for_report_pending_statuses() {
+fn time_targets_workers_for_open_and_blocked_statuses() {
     let plans = vec![plan(
         "pl_1",
         "orch",
@@ -827,6 +828,50 @@ fn plan_reminder_dependency_wait_becomes_actionable_when_the_dependency_lands() 
     let text = crate::service::plan::reminders::orchestrator_nudge_text(&plan);
     assert!(text.contains("pending_waiting"));
     assert!(!text.contains("dep_held"));
+}
+
+#[test]
+fn blocked_notices_group_shared_blockers_and_propose_full_plan_pause() {
+    let mut first = task("task_a", TaskStatus::Blocked, None);
+    first.pause_reason = Some("shared machine hold".into());
+    let mut second = task("task_b", TaskStatus::Blocked, None);
+    second.pause_reason = Some("shared machine hold".into());
+    let shared_plan = plan("blocked", "orch", PlanMode::Execution, vec![first, second]);
+    let notices = super::blocked_notices(&shared_plan, &Scope::default(), &Snapshot::default());
+
+    assert_eq!(notices.len(), 1);
+    assert_eq!(
+        notices[0].task_ids,
+        vec!["task_a".to_string(), "task_b".to_string()]
+    );
+    assert!(notices[0].pause_plan);
+
+    let worker_scope = Scope {
+        kind: ReminderKind::Worker,
+        task_id: Some("task_a".into()),
+        ..Scope::default()
+    };
+    let notices = super::blocked_notices(&shared_plan, &worker_scope, &Snapshot::default());
+    assert_eq!(notices.len(), 1);
+    assert_eq!(
+        notices[0].task_ids,
+        vec!["task_a".to_string(), "task_b".to_string()]
+    );
+    assert!(notices[0].pause_plan);
+
+    let mut first = task("task_a", TaskStatus::Blocked, None);
+    first.pause_reason = Some("shared machine hold".into());
+    let mut second = task("task_b", TaskStatus::Blocked, None);
+    second.pause_reason = Some("different machine hold".into());
+    let distinct_plan = plan(
+        "blocked-distinct",
+        "orch",
+        PlanMode::Execution,
+        vec![first, second],
+    );
+    let notices = super::blocked_notices(&distinct_plan, &Scope::default(), &Snapshot::default());
+    assert_eq!(notices.len(), 2);
+    assert!(notices.iter().all(|notice| !notice.pause_plan));
 }
 
 #[test]

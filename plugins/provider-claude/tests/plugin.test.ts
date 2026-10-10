@@ -3,6 +3,8 @@
  * Run: npx tsx plugins/provider-claude/tests/plugin.test.ts
  */
 
+import { runSessionModelTests } from "./session-model";
+import { runFolderTrustRegionTests } from "./folder-trust-region";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
@@ -75,7 +77,10 @@ const manifestSeed = JSON.parse(fs.readFileSync(
   "utf8",
 )) as { models: Array<{ id: string; displayName: string; description?: string }> };
 
+const commandCases = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures/model-switch/command-transcript.json"), "utf8")) as Array<{record: unknown; stdout: string | null}>;
+
 const baseHost = (over: Record<string, unknown>) => ({
+  commandTranscriptStdout: (record: string) => commandCases.find(entry => JSON.stringify(entry.record) === record)?.stdout ?? null,
   manifestJson: () => JSON.stringify(manifestSeed),
   homeDir: () => "/tmp",
   path: { equal: () => true },
@@ -102,33 +107,7 @@ const baseHost = (over: Record<string, unknown>) => ({
   ...over,
 });
 
-console.log("\n--- session model detection ---\n");
-{
-  const transcript = '{"type":"assistant","message":{"model":"claude-opus-5","content":[]}}';
-  let fullReads = 0;
-  let tailBytes = 0;
-  const p = loadClaudeWithHost(baseHost({
-    fs: {
-      fileExists: () => true,
-      readFile: () => { fullReads += 1; return transcript; },
-      readFileTail: (_path: string, maxBytes: number) => {
-        tailBytes = maxBytes;
-        return transcript;
-      },
-      readJson: () => null,
-      writeTempFile: () => "/tmp/ct-task",
-      writeJson: () => true,
-    },
-  }));
-
-  eq(
-    p.detectSessionModel("/fixture/project", "session-model"),
-    "Opus",
-    "session model uses the exact session transcript",
-  );
-  eq(fullReads, 0, "session model avoids loading the full transcript");
-  eq(tailBytes, 4 * 1024 * 1024, "session model reads a bounded 4 MiB transcript tail");
-}
+runSessionModelTests(loadClaudeWithHost, baseHost, eq);
 
 {
   const fixturePath = path.join(
@@ -242,6 +221,55 @@ console.log("\n--- detect delegation ---\n");
 assert(plugin.detect({ bytes: "", title: "claude" }), "plugin.detect delegates to detect.ts");
 
 const hostPlugin = loadHostPlugin();
+for (const screen of [fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures/tab-state/completed-numbered-answer-dev67.txt"), "utf8"), "❯ 1. opaque-a\n  2. opaque-b\nEsc to cancel\n─────\n❯\n─────"]) {
+  eq(hostPlugin.parsePrompt(screen), null, "completed numbered transcript with ready input has no current prompt");
+  assert(!hostPlugin.detectEvents(screen).includes("permission_request"), "completed numbered transcript does not emit a permission event");
+}
+for (const selector of ["❯", ">"] ) {
+  const screen = `opaque-question?\n${selector} 1. opaque-a\n  2. opaque-b\nEsc to cancel`;
+  assert(Boolean(hostPlugin.parsePrompt(screen)), "current selected option block remains a prompt");
+  assert(hostPlugin.detectEvents(screen).includes("permission_request"), "current selected option block emits its permission event");
+}
+const permissionHook = hostPlugin.permissionHookCapability();
+eq(permissionHook.protocol, "claude-permission-request", "permission hook declares its protocol");
+eq(permissionHook.options.map((option: { value: string }) => option.value), ["allow", "deny"],
+  "permission hook declares both explicit decisions");
+
+{
+  const screen = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "tab-state", "normal-idle-numbered-history.txt"),
+    "utf8",
+  );
+  eq(
+    hostPlugin.parsePrompt(screen),
+    null,
+    "a live composer marker does not promote historical numbered chat text into a modal",
+  );
+  eq(
+    hostPlugin.classifyTabState({ tabId: "fixture-tab", agentType: "claude", screenText: screen })?.state,
+    "working",
+    "ordinary idle prompt history is not classified as a dialog",
+  );
+}
+
+{
+  const fixturePath = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "fixtures",
+    "folder-trust",
+    "mcp-server.txt",
+  );
+  const screen = fs.readFileSync(fixturePath, "utf8");
+  const rows = screen.split(/\r?\n/);
+  const firstOption = rows.findIndex((row) => /^\s*(?:[❯>]\s*)?\d+\.[ ]+/.test(row));
+  const preambleRows = rows.slice(0, firstOption).map((row) => row.trim()).filter(Boolean);
+  const renderedQuestion = preambleRows[preambleRows.length - 1];
+  eq(
+    hostPlugin.parsePrompt(screen)?.question,
+    renderedQuestion,
+    "numbered prompt question comes from its rendered preamble",
+  );
+}
 
 eq(
   hostPlugin.describeSession(
@@ -281,7 +309,13 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
     ],
     "wizard parsePrompt extracts sections and active step",
   );
-  eq(parsed?.options?.map((o: [string, string]) => o[1]), ["1", "2", "3", "4"], "wizard options keep 1-based values");
+  eq(parsed?.options, [
+    ["Dev (port 7686) The hot-reload dev instance. Safe to kill and restart freely.", "1"],
+    ["Prod (port 7685) Production CodeTerm. Read-only, never killed.", "2"],
+    ["Both Apply setup across dev and prod where applicable.", "3"],
+    ["Type something.", "4"],
+    ["Chat about this", "5"],
+  ], "wizard prompt preserves each visible option");
   eq(parsed?.multiSelect, false, "wizard numbered section is single-select");
   eq(parsed?.submitAvailable, true, "wizard submit is available");
   eq(hostPlugin.buildPromptResponse(2, wizard), ["ag==", "ag==", "DQ==", "CQ=="], "wizard option click moves from highlighted row, selects, then advances");
@@ -295,13 +329,21 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
     "❯ ☐ Performance",
     "  ☑ Tests",
     "  ☐ Docs",
+    "  5. Submit",
+    "  6. Chat about this",
     "",
     "Enter to select · Tab/Arrow keys to navigate · Esc to cancel",
   ].join("\n");
   const parsed = hostPlugin.parsePrompt(multi);
+  eq(parsed?.question, "Which focus areas should be enabled?", "multi-select question excludes choices");
   eq(parsed?.multiSelect, true, "checkbox section is multi-select");
   eq(parsed?.selectedValues, ["2"], "checkbox parser extracts selected values");
+  eq(parsed?.options?.map((option: [string, string]) => option[0]), [
+    "Performance", "Tests", "Docs", "Submit", "Chat about this",
+  ], "multi-select prompt preserves the visible submit and chat choices");
   eq(hostPlugin.buildPromptResponse(10004, multi), ["IA==", "ag==", "IA==", "ag==", "IA==", "CQ=="], "multi-select confirm toggles desired mask then advances");
+  eq(hostPlugin.classifyTabState({ tabId: "tab-1", agentType: "claude", screenText: multi })?.state,
+    "clarifying_question", "multi-select screen is surfaced for a person to answer");
 }
 
 {
@@ -381,6 +423,30 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
     eq(hostPlugin.directoryTrustPromptResponse(screen), keys[c.expect], `folder trust ${c.file} -> ${c.expect}`);
   }
 
+  runFolderTrustRegionTests(hostPlugin, dir, eq, assert);
+
+  const preapproved = fs.readFileSync(path.join(dir, "trust-local-preapproved-no-first.txt"), "utf8");
+  const preapprovedPrompt = hostPlugin.parseDirectoryTrustPrompt(preapproved);
+  assert(Boolean(preapprovedPrompt), "pre-approved folder trust exposes provider-declared options");
+  const preapprovedOptions = preapprovedPrompt?.options ?? [];
+  const affirmativeIndex = preapprovedOptions.findIndex(([label]) =>
+    /^yes(?:$|[, .])/i.test(label) && /\btrust\b/i.test(label),
+  );
+  assert(affirmativeIndex >= 0, "the parsed trust option identifies the affirmative choice");
+  eq(hostPlugin.directoryTrustPromptResponse(preapproved), ["ag=="], "pre-approved trust advances away from the focused refusal");
+  eq(hostPlugin.buildPromptResponse(affirmativeIndex, preapproved), ["ag==", "DQ=="], "pre-approved trust selection moves down then confirms");
+  const focusedAffirmative = preapproved.split(/\r?\n/).map((row) => {
+    const normalized = row.replace(/[│┃║]/g, "").trim();
+    const label = normalized.replace(/^[❯>]\s*/, "").trim();
+    if (!preapprovedOptions.some(([option]) => option === label)) return row;
+    const withoutFocus = row.replace(/[❯>](?=\s)/, " ");
+    if (label !== preapprovedOptions[affirmativeIndex]?.[0]) return withoutFocus;
+    const position = withoutFocus.indexOf(label);
+    return `${withoutFocus.slice(0, position)}❯ ${withoutFocus.slice(position)}`;
+  }).join("\n");
+  eq(hostPlugin.directoryTrustPromptResponse(focusedAffirmative), ["DQ=="], "focused affirmative trust confirms without moving");
+  eq(hostPlugin.buildPromptResponse(affirmativeIndex, focusedAffirmative), ["DQ=="], "focused affirmative selection only confirms");
+
   const unnumbered = fs.readFileSync(path.join(dir, "quick-safety-no-first.txt"), "utf8");
   const parsed = hostPlugin.parsePrompt(unnumbered);
   const trustPrompt = hostPlugin.parseDirectoryTrustPrompt(unnumbered);
@@ -390,6 +456,17 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
   eq(parsed?.options?.map(([label]) => label.match(/^[A-Za-z]+/)?.[0].toLowerCase()), ["no", "yes"], "folder trust options expose refusal before trust");
   eq(hostPlugin.buildPromptResponse(1, unnumbered), ["ag==", "DQ=="], "responding with option two moves off refusal before confirming");
   eq(hostPlugin.permissionPromptResponse("Bash", parsed, unnumbered), null, "directory trust is never a tool permission approval");
+
+  const continueWithoutPermissions = fs.readFileSync(
+    path.join(dir, "trust-continue-without-permissions.txt"),
+    "utf8",
+  );
+  assert(Boolean(hostPlugin.parsePrompt(continueWithoutPermissions)), "continue-without-permissions remains visible as a prompt");
+  eq(
+    hostPlugin.directoryTrustPromptResponse(continueWithoutPermissions),
+    [],
+    "continue-without-permissions is never auto-advanced",
+  );
 
   const wrapped = fs.readFileSync(path.join(dir, "quick-safety-wrapped-header.txt"), "utf8");
   const wrappedPrompt = hostPlugin.parsePrompt(wrapped);
@@ -788,9 +865,22 @@ for (const [name, fixture] of [
   eq(files.get(settingsPath + ".codeterm-backup"), original, "Claude backup preserves exact original bytes");
   const installed = JSON.parse(files.get(settingsPath) || "{}");
   assert(installed.foreign === true, "Claude install preserves foreign settings");
+  const stopCommand = installed.hooks.Stop[0].hooks[0].command;
+  assert(stopCommand.includes('--data-binary "@-"'), "Stop forwards the provider completion payload");
+  assert(stopCommand.includes('--header "X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE"'),
+    "Stop authenticates the exact launch binding");
   assert(!installed.hooks.PreCompact, "Claude never installs raw memory export");
   assert(p.restoreIntegration().ok === true, "Claude restore succeeds");
   eq(files.get(settingsPath), original, "Claude restore reproduces exact original bytes");
+  installed.hooks.Stop[0].hooks[0].command = stopCommand
+    .replace('--data-binary "@-"', '--data-binary "{}"')
+    .replace('--header "X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE"', "");
+  files.set(settingsPath, JSON.stringify(installed));
+  assert(p.checkIntegration().hook_contract_current === false,
+    "the empty unverified Stop request requires repair");
+  assert(p.installIntegration(7686, { consent: true }).ok === true, "consented Stop repair succeeds");
+  assert(p.checkIntegration().hook_contract_current === true, "repaired Stop completion contract is current");
+
 }
 
 console.log("--- permission_request ingestion ---");
@@ -816,7 +906,7 @@ console.log("--- permission_request ingestion ---");
   for (const key of ["PermissionRequest", "Notification"]) {
     const cmd = installed.hooks?.[key]?.[0]?.hooks?.[0]?.command as string | undefined;
     assert(typeof cmd === "string", `${key} hook is installed by the shipped plugin`);
-    assert((cmd as string).indexOf("--data-binary @-") !== -1, `${key} forwards the stdin payload`);
+    assert((cmd as string).indexOf('--data-binary "@-"') !== -1, `${key} forwards the stdin payload`);
     assert((cmd as string).indexOf("-d '{}'") === -1, `${key} never posts an empty body`);
     assert((cmd as string).indexOf("/hook/permission") !== -1, `${key} targets the existing permission route`);
     assert((cmd as string).indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1, `${key} carries the binding nonce`);
@@ -1031,13 +1121,13 @@ for (const [label, response, expected] of [
   assert(!message.includes("secret-token"), `${label} diagnostics omit credentials`);
 }
 
-console.log("\n--- versionless Claude alias catalog ---\n");
+console.log("\n--- Claude primary alias catalog ---\n");
 {
   const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
   const manifest = JSON.parse(fs.readFileSync(
     path.join(repoRoot, "plugins", "provider-claude", "plugin.json"),
     "utf8",
-  )) as { models: Array<{ id: string; displayName: string; description?: string; available?: boolean }>; defaultModel?: string };
+  )) as { models: Array<{ id: string; displayName: string; description?: string; available?: boolean; primary?: boolean }>; defaultModel?: string };
 
   eq(
     manifest.models.map((m) => m.id),
@@ -1045,7 +1135,8 @@ console.log("\n--- versionless Claude alias catalog ---\n");
     "catalogue includes every alias accepted by the installed CLI",
   );
   eq(manifest.defaultModel, "sonnet", "default alias remains sonnet");
-  eq(manifest.models[0]?.displayName, "Claude Opus", "base alias labels remain versionless");
+  eq(manifest.models.filter((model) => model.primary).map((model) => model.id),
+    ["opus", "sonnet", "haiku", "fable"], "manifest declares the primary aliases");
   for (const m of manifest.models) {
     if (m.id === "fable") {
       // Do not advertise model availability until installed-CLI discovery proves it.

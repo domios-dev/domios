@@ -6,13 +6,33 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 use std::path::Path;
 use std::time::Duration;
 
+mod blueprint;
+mod desk;
 mod sentinel;
 
 /// `PRAGMA application_id` of every Storage database ("CTST").
 pub(crate) const APPLICATION_ID: i32 = 0x4354_5354;
 
 /// Index `n` upgrades schema `n` to `n + 1`; follow-up domain migrations append here.
-const MIGRATIONS: &[&str] = &[SCHEMA_V1, cron::SCHEMA, sentinel::SCHEMA];
+const MIGRATIONS: &[&str] = &[
+    SCHEMA_V1,
+    cron::SCHEMA,
+    sentinel::SCHEMA,
+    desk::SCHEMA,
+    // Sentinel graph v4 is the migration immediately after the desk migration.
+    sentinel::GRAPH_SCHEMA,
+    "ALTER TABLE sentinel_runtime ADD COLUMN run_transitions INTEGER NOT NULL DEFAULT 0 CHECK (run_transitions >= 0);",
+    "ALTER TABLE sentinel_buckets ADD COLUMN rearm_on_change INTEGER NOT NULL DEFAULT 0 CHECK (rearm_on_change IN (0, 1));",
+    // The source pair lands in one rebuild; later source kinds need no schema change.
+    sentinel::SOURCE_SCHEMA,
+    sentinel::PIPELINE_SCHEMA,
+    "ALTER TABLE sentinel_transitions ADD COLUMN decision_json TEXT CHECK (decision_json IS NULL OR length(decision_json) <= 4096);",
+    "ALTER TABLE sentinel_runtime ADD COLUMN causal_run_json TEXT CHECK (causal_run_json IS NULL OR length(causal_run_json) <= 4096);
+     ALTER TABLE sentinel_transitions ADD COLUMN causal_run_json TEXT CHECK (causal_run_json IS NULL OR length(causal_run_json) <= 4096);",
+    "ALTER TABLE sentinel_definitions ADD COLUMN terminal_spec TEXT CHECK (terminal_spec IS NULL OR length(terminal_spec) <= 8192);
+     ALTER TABLE sentinel_definitions ADD COLUMN session INTEGER NOT NULL DEFAULT 0 CHECK (session IN (0, 1));",
+    blueprint::SCHEMA,
+];
 pub(crate) const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
 
 /// Every table holding `asset_id` references; an asset is released only when none refers to it.
@@ -214,10 +234,25 @@ pub(crate) fn check_integrity(conn: &Connection) -> Result<(), StorageError> {
 }
 
 fn migrate(conn: &mut Connection, from: i32) -> Result<(), StorageError> {
+    conn.pragma_update(None, "foreign_keys", "OFF")
+        .map_err(|e| sqlite_error("suspend migration foreign keys", e))?;
+    let result = migrate_transaction(conn, from);
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(|e| sqlite_error("restore migration foreign keys", e))?;
+    result
+}
+
+fn migrate_transaction(conn: &mut Connection, from: i32) -> Result<(), StorageError> {
     let tx = conn
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|e| sqlite_error("begin migration", e))?;
     for step in MIGRATIONS.iter().skip(from as usize) {
+        if *step == sentinel::GRAPH_SCHEMA {
+            sentinel::refuse_stored_stages(&tx)?;
+        }
+        if *step == sentinel::SOURCE_SCHEMA && sentinel::definitions_carry_source_pair(&tx)? {
+            continue;
+        }
         tx.execute_batch(step)
             .map_err(|e| sqlite_error("apply migration", e))?;
     }
@@ -227,6 +262,16 @@ fn migrate(conn: &mut Connection, from: i32) -> Result<(), StorageError> {
     }
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)
         .map_err(|e| sqlite_error("stamp schema version", e))?;
+    let violations: i64 = tx
+        .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+            row.get(0)
+        })
+        .map_err(|e| sqlite_error("verify migration foreign keys", e))?;
+    if violations != 0 {
+        return Err(StorageError::Corrupt {
+            detail: "migration violates foreign keys".into(),
+        });
+    }
     tx.commit().map_err(|e| sqlite_error("commit migration", e))
 }
 

@@ -205,6 +205,9 @@ fn enabled_capabilities(m: &PluginManifest) -> Vec<&'static str> {
     if c.transcriber {
         out.push("transcriber");
     }
+    if !c.graph_nodes.is_empty() {
+        out.push("graphNodes");
+    }
     if c.glance_view {
         out.push("glanceView");
     }
@@ -529,5 +532,30 @@ mod tests {
             "conformance gate is a load failure: {err}"
         );
         assert!(err.contains("hostApi"), "error names the gate: {err}");
+    }
+
+    #[test]
+    fn plugin_validate_graph_nodes_lists_graph_nodes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("grapher");
+        write(
+            &dir.join("plugin.json"),
+            &valid_manifest("grapher").replace(
+                r#""entry": "plugin.js""#,
+                r#""capabilities": { "graphNodes": {
+                    "converters": [{"from":"video","to":"audio"}],
+                    "eventSources": [{"kind":"fixture.event","title":"Fixture"}]
+                } },
+                 "entry": "plugin.js""#,
+            ),
+        );
+        write(
+            &dir.join("plugin.js"),
+            r#"module.exports.default = {
+                convert() { return { text: "audio" }; }
+            };"#,
+        );
+        let report = validate_dir(&dir).expect("graph-node plugin passes");
+        assert_eq!(report.capabilities, vec!["graphNodes"]);
     }
 }

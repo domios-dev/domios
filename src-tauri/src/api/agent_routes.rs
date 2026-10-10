@@ -6,12 +6,14 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::api::{
-    optional_json::OptionalJson,
-    routes::{check_auth, resolve_tab, AppState},
-};
+use crate::api::routes::{check_auth, resolve_tab, AppState};
 use crate::multiplexer::types::AgentRole;
 use codeterm_types::agent::role_kind::builtins::PLANNER;
+
+pub(crate) use crate::api::agent_restart_routes::{agent_restart_handler, agent_restart_response};
+
+#[cfg(test)]
+use crate::api::agent_restart_routes::agent_restart_failure_response;
 
 mod model_error;
 mod pair_headers;
@@ -25,15 +27,7 @@ pub(crate) use spawn_rejection::SpawnRejection;
 
 const CONFIGURE_DELIVERY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(90);
 
-pub(crate) fn list_agent_provider_values(
-    registry: &crate::provider::ProviderRegistry,
-) -> Vec<serde_json::Value> {
-    registry
-        .describe_all()
-        .into_iter()
-        .filter_map(|descriptor| serde_json::to_value(descriptor).ok())
-        .collect()
-}
+pub(crate) use super::provider_cli_routes::list_agent_provider_values;
 
 #[derive(Deserialize)]
 pub(crate) struct SpawnAgentBody {
@@ -264,6 +258,8 @@ pub async fn spawn_agent(
     )?;
     let starter_prompt = crate::service::starter_prompt_for_role(role_probe.role.as_deref());
     let params = crate::service::SpawnAgentParams {
+        context_files: None,
+        context_skills: None,
         agent: body.agent,
         agent_name: body.agent_name,
         args: body.args,
@@ -305,6 +301,7 @@ pub async fn spawn_agent(
         system_prompt: body.system_prompt,
         preset: body.preset,
         resume_session_id: None,
+        fork_session: false,
         charter: body.charter,
         tick_interval_secs: body.tick_interval_secs,
         nudge_cooldown_secs: body.nudge_cooldown_secs,
@@ -793,140 +790,6 @@ pub async fn set_can_spawn(
         .set_can_spawn(&id, body.can_spawn)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
-}
-
-#[derive(Deserialize)]
-pub(crate) struct AgentRestartBody {
-    #[serde(default)]
-    force: bool,
-    #[serde(default = "default_grace_secs")]
-    grace_secs: u64,
-}
-
-fn default_grace_secs() -> u64 {
-    crate::service::agent_restart::DEFAULT_GRACE_SECS
-}
-
-pub(crate) fn agent_restart_response(
-    outcome: &crate::service::agent_restart::RestartOutcome,
-) -> serde_json::Value {
-    serde_json::json!({
-        "restart_accepted": outcome.restart_accepted,
-        "old_pty_torn_down": outcome.old_pty_torn_down,
-        "agent_ready": outcome.agent_ready,
-        "recovered_in_place": outcome.recovered_in_place,
-        "old_pty_id": outcome.old_pty_id,
-        "new_pty_id": outcome.new_pty_id,
-        "tab_id": outcome.tab_id,
-        "provider": outcome.provider,
-        "session_id": outcome.session_id,
-        "session_was_stale": outcome.session_was_stale,
-        "session_action": outcome.session_action(),
-        "full_access": outcome.auto_approve,
-        "force": outcome.force,
-    })
-}
-
-fn agent_restart_failure_response(
-    outcome: &crate::service::agent_restart::RestartOutcome,
-    reason: &str,
-) -> serde_json::Value {
-    let mut response = agent_restart_response(outcome);
-    response["error"] = serde_json::Value::String(reason.to_string());
-    response
-}
-
-pub async fn agent_restart_handler(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(raw_tab_id): Path<String>,
-    OptionalJson(body): OptionalJson<AgentRestartBody>,
-) -> axum::response::Response {
-    use axum::response::IntoResponse;
-    if let Err((status, msg)) = check_auth(&state, &headers) {
-        return (status, msg.to_string()).into_response();
-    }
-    let tab_id = match resolve_tab(&state, &raw_tab_id) {
-        Ok(p) => p,
-        Err((status, msg)) => return (status, msg.to_string()).into_response(),
-    };
-    let body = body.unwrap_or(AgentRestartBody {
-        force: false,
-        grace_secs: default_grace_secs(),
-    });
-
-    let svc = state.svc.clone();
-    let force = body.force;
-    let grace_secs = body.grace_secs;
-    let attempt =
-        tokio::task::spawn_blocking(move || svc.agent_restart_observed(&tab_id, force, grace_secs))
-            .await;
-    let attempt = match attempt {
-        Ok(attempt) => attempt,
-        Err(error) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({
-                    "error": format!("restart worker failed: {error}"),
-                    "restart_accepted": false,
-                    "old_pty_torn_down": false,
-                    "agent_ready": false,
-                })),
-            )
-                .into_response();
-        }
-    };
-
-    match attempt {
-        Ok(outcome) => {
-            (StatusCode::ACCEPTED, Json(agent_restart_response(&outcome))).into_response()
-        }
-        Err(crate::service::agent_restart::RestartAttemptError::Failed {
-            outcome,
-            reason,
-            timed_out,
-        }) => (
-            if timed_out {
-                StatusCode::GATEWAY_TIMEOUT
-            } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            },
-            Json(agent_restart_failure_response(&outcome, &reason)),
-        )
-            .into_response(),
-        Err(crate::service::agent_restart::RestartAttemptError::Request(
-            crate::service::agent_restart::AgentRestartError::NotFound(m),
-        )) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": m}))).into_response(),
-        Err(crate::service::agent_restart::RestartAttemptError::Request(
-            crate::service::agent_restart::AgentRestartError::BadRequest(m),
-        )) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": m})),
-        )
-            .into_response(),
-        Err(crate::service::agent_restart::RestartAttemptError::Request(
-            crate::service::agent_restart::AgentRestartError::RateLimited { retry_after_secs },
-        )) => {
-            let mut h = HeaderMap::new();
-            h.insert("Retry-After", retry_after_secs.to_string().parse().unwrap());
-            (
-                StatusCode::TOO_MANY_REQUESTS,
-                h,
-                Json(serde_json::json!({
-                    "error": "rate limited",
-                    "retry_after_secs": retry_after_secs,
-                })),
-            )
-                .into_response()
-        }
-        Err(crate::service::agent_restart::RestartAttemptError::Request(
-            crate::service::agent_restart::AgentRestartError::Internal(m),
-        )) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": m})),
-        )
-            .into_response(),
-    }
 }
 
 pub async fn respond_prompt(

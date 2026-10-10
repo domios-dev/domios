@@ -62,7 +62,14 @@ const worker: GraphWorkerInfo = {
 async function main() {
   setupDom();
   setAgentDescriptors([provider("cursor", "Cursor")]);
-  const { host, root } = await render(<WorkerCard worker={worker} onOpen={() => {}} onKill={null} />);
+  let opened = 0;
+  const { host, root } = await render(<WorkerCard worker={worker} onOpen={() => { opened++; }} onKill={null} />);
+  const openControl = host.querySelector<HTMLElement>('[role="button"]');
+  assert(openControl, "worker log control must exist");
+  assert(openControl.getAttribute("aria-label")?.includes(worker.intent), "worker log control must identify its worker");
+  assert(openControl.tabIndex === 0, "worker log control must be keyboard reachable");
+  await act(async () => openControl.click());
+  assert(opened === 1, "opening a worker log must call the handler once");
   const icon = host.querySelector('[role="img"]');
   assert(icon?.getAttribute("title") === "Executed by cursor", "icon tooltip must name the durable worker provider");
   assert(icon?.getAttribute("aria-label") === "Executed by cursor", "icon must expose its executor provider to assistive technology");

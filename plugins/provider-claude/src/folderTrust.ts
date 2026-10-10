@@ -25,6 +25,26 @@ function frameContent(line: string): string {
   return line.replace(FRAME_EDGES, "");
 }
 
+function liveDialogRows(screen: string): string[] | null {
+  const rawRows = String(screen || "").split("\n");
+  const rows = rawRows.map(frameContent);
+  let anchor = -1;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (isFooter(rows[i])) { anchor = i; break; }
+  }
+  if (anchor < 0) {
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (isTrustOption(optionRow(rows[i]).label)) { anchor = i; break; }
+    }
+  }
+  if (anchor < 0 || rawRows.slice(anchor + 1).some((row) => /^[❯>]|^[─━]{3,}$/.test(row.trim()))) return null;
+  let start = 0;
+  for (let i = anchor - 1; i >= 0; i--) {
+    if (isFooter(rows[i])) { start = i + 1; break; }
+  }
+  return rows.slice(start);
+}
+
 function isPathRow(row: string): boolean {
   return /^(?:\/[^ ]|~[\/\\]|\\\\|[A-Za-z]:[\\\/])/.test(row);
 }
@@ -51,7 +71,8 @@ function leadsWith(label: string, word: string): boolean {
 // `null` when no trust dialog is shown; `[]` holds a trust dialog whose shape
 // does not prove which key advances it toward trusting the folder.
 export function claudeFolderTrustResponse(screen: string): string[] | null {
-  const rows = String(screen || "").split("\n").map(frameContent);
+  const rows = liveDialogRows(screen);
+  if (!rows) return null;
   const header = findTrustHeader(rows);
   if (header && rows.slice(header.end + 1).some((row) => pointerLabel(row) !== null)) {
     if (hasUntitledLeadingPath(rows, header.start)) return [];
@@ -90,12 +111,13 @@ function answer(options: OptionRow[], hasPath: boolean): string[] | null {
 }
 
 export function claudeFolderTrustPrompt(screen: string): { question: string; options: [string, string][] } | null {
-  const rows = String(screen || "").split("\n").map(frameContent);
+  const rows = liveDialogRows(screen);
+  if (!rows) return null;
   const prompt = pathlessPrompt(rows);
   if (!prompt || prompt.hasPath) return null;
   const options = prompt.choices.options;
   if (options.length !== 2) return null;
-  if (options.filter((option) => option.focused).length !== 1 || !trustChoices(options)) return null;
+  if (options.filter((option) => option.focused).length !== 1 || !hasFolderTrustPromptChoices(options)) return null;
   return {
     question: prompt.header.question,
     options: options.map((option, index): [string, string] => [option.label, String(index + 1)]),
@@ -103,10 +125,14 @@ export function claudeFolderTrustPrompt(screen: string): { question: string; opt
 }
 
 export function claudeFolderTrustHighlightedOptionIndex(screen: string): number | null {
-  const rows = String(screen || "").split("\n").map(frameContent);
+  const rows = liveDialogRows(screen);
+  if (!rows) return null;
   const prompt = pathlessPrompt(rows);
   if (!prompt || prompt.hasPath || prompt.choices.options.length !== 2) return null;
-  if (prompt.choices.options.filter((option) => option.focused).length !== 1 || !trustChoices(prompt.choices.options)) return null;
+  if (
+    prompt.choices.options.filter((option) => option.focused).length !== 1
+    || !hasFolderTrustPromptChoices(prompt.choices.options)
+  ) return null;
   return prompt.choices.options.findIndex((option) => option.focused);
 }
 
@@ -129,7 +155,7 @@ function hasUntitledLeadingPath(rows: string[], headerStart: number): boolean {
 }
 
 function findTrustHeader(rows: string[]): TrustHeader | null {
-  for (let start = 0; start < rows.length; start++) {
+  for (let start = rows.length - 1; start >= 0; start--) {
     const header = trustHeader(rows, start);
     if (header) return header;
   }
@@ -137,6 +163,8 @@ function findTrustHeader(rows: string[]): TrustHeader | null {
 }
 
 function trustHeader(rows: string[], start: number): TrustHeader | null {
+  // A Windows drive path ("D:\repo") carries a colon but is never a dialog title.
+  if (isPathRow(rows[start])) return null;
   const colon = rows[start].indexOf(":");
   if (colon < 1) return null;
   const title = rows[start].slice(0, colon).trim();
@@ -164,7 +192,10 @@ function isFooter(row: string): boolean {
 }
 
 function choiceRows(rows: string[], trustEnd: number): TrustChoices | null {
-  const footer = rows.findIndex((row, index) => index > trustEnd && isFooter(row));
+  let footer = -1;
+  for (let i = rows.length - 1; i > trustEnd; i--) {
+    if (isFooter(rows[i])) { footer = i; break; }
+  }
   if (footer < 0) return null;
   const start = rows.findIndex(
     (row, index) => index > trustEnd && index < footer && isTrustOption(optionRow(row).label),
@@ -185,6 +216,11 @@ function trustChoices(options: OptionRow[]): boolean {
   return hasFolderTrustAffirmative(options)
     && no >= 0
     && options[no].label.toLowerCase().indexOf("exit") !== -1;
+}
+
+function hasFolderTrustPromptChoices(options: OptionRow[]): boolean {
+  return hasFolderTrustAffirmative(options)
+    && options.some((option) => leadsWith(option.label, "no"));
 }
 
 function hasFolderTrustAffirmative(options: OptionRow[]): boolean {

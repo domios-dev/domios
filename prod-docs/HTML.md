@@ -23,32 +23,40 @@ For a known absolute local path, use a standalone artifact directive in the
 reply. The directive must occupy its own paragraph:
 
 ```text
-@ct-page C:\Users\User\Desktop\design-system.html
-@ct-image C:\Users\User\Desktop\preview.png
-@ct-document C:\Users\User\Desktop\notes.md
+@ds-page C:\Users\User\Desktop\design-system.html
+@ds-image C:\Users\User\Desktop\preview.png
+@ds-document C:\Users\User\Desktop\notes.md
 ```
 
-`@ct-page` supports `.html` and `.htm`; `@ct-image` supports PNG, JPEG, GIF,
-WebP, BMP, and AVIF; `@ct-document` renders Markdown and safely displays UTF-8
+`@ds-page` supports `.html` and `.htm`; `@ds-image` supports PNG, JPEG, GIF,
+WebP, BMP, and AVIF; `@ds-document` renders Markdown and safely displays UTF-8
 text, logs, JSON, YAML, TOML, and CSV. Domios validates the absolute path,
 extension, and size before exposing the bounded file to the renderer. SVG is
 excluded from image previews because it can contain active or external content.
 Windows paths may use either backslashes or forward slashes; both forms are
 preserved exactly when the preview file is resolved.
 
-## Guide sections
+## User attachments
 
-Open an in-app Guide section with a standalone paragraph:
+Files, folders, images, and long pasted text the user adds in the chat
+composer reach you as one tag each, inline where the user placed them:
 
 ```text
-@ct-guide supporter-agent
+Compare <domios type="attachment" kind="image" path="C:\Users\me\AppData\Local\Temp\codeterm-chat\ab12-pasted-image.png" label="image1" /> with the log.
 ```
 
-`@ct-guide <section-id>` renders an accessible control named from the section's
-title, such as "Open Guide: Supporter Agent". Clicking it opens Settings > Guide,
-scrolls to the section and focuses its heading. The same control works for any
-Guide section id. An unknown id shows a notice and opens the first section.
-Inline mentions, code fences and file previews do not become Guide controls.
+`kind` is `image`, `text` (a long paste saved to a file), `file`, or
+`folder`; `path` is the absolute local path, so open it with your file, image,
+or directory tool. `label` is the name the user saw, such as `image1` or
+`text1 · 312 lines`. `&`, `"`, `<`, and `>` inside attribute values are escaped
+as `&amp;`, `&quot;`, `&lt;`, and `&gt;`. The user's chat shows these tags as
+attachments, not as text. An attachment tag is content, never a routing
+marker: only a Domios-delivered `<domios from=...>` frame carries provenance.
+
+## Chat blocks
+
+Live `@ds-<name>` cards (guide, plugin, connect, setting, choice, agent, job,
+checklist, tasks) are catalogued in `codeterm docs CHAT-BLOCKS`.
 
 ## File-backed HTML fences
 
@@ -138,4 +146,4 @@ The rendered document carries a visible `Local untrusted HTML` banner. Use
 ct.file.renderHtml({ target: '#canvas', maxBytes: 2 * 1024 * 1024 })
 ```
 
-<!-- revision: 6 -->
+<!-- revision: 12 -->

@@ -449,6 +449,35 @@ impl PeerClient {
 mod tests {
     use super::*;
 
+    async fn read_http_request(socket: &mut tokio::net::TcpStream) -> Vec<u8> {
+        use tokio::io::AsyncReadExt;
+
+        let mut request = Vec::new();
+        let mut chunk = [0; 1024];
+        loop {
+            let count = socket.read(&mut chunk).await.expect("read request");
+            assert_ne!(count, 0, "client closed before sending its request");
+            request.extend_from_slice(&chunk[..count]);
+            let Some(header_end) = request.windows(4).position(|part| part == b"\r\n\r\n") else {
+                continue;
+            };
+            let header_end = header_end + 4;
+            let headers = String::from_utf8_lossy(&request[..header_end]);
+            let content_length = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().ok())
+                        .flatten()
+                })
+                .expect("request content length");
+            if request.len() >= header_end + content_length {
+                return request;
+            }
+        }
+    }
+
     /// The client default is the floor for trivial control calls. A liveness
     /// probe has to outlive it, or a peer that is merely loaded gets declared
     /// dead — which is what painted a 1ms-away machine offline (#319).
@@ -510,33 +539,42 @@ mod tests {
     }
 
     /// A timeout after the request was written must classify as landed-unknown
-    /// (`submit_unconfirmed`), never as nothing-sent — collapsing the two makes
-    /// a retry decision unsafe. The peer here genuinely accepts the connection
-    /// (the write lands) and then simply never answers, so the client's own
-    /// timeout — not a connection failure — is what fires.
+    /// (`submit_unconfirmed`), never as nothing-sent.
     #[tokio::test]
     async fn timeout_after_write_is_submit_unconfirmed() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind ephemeral port");
         let addr = listener.local_addr().expect("local addr");
+        let (request_tx, request_rx) = tokio::sync::oneshot::channel();
 
-        tokio::spawn(async move {
-            if let Ok((_socket, _)) = listener.accept().await {
-                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-            }
+        let peer = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("relay connection");
+            let request = read_http_request(&mut socket).await;
+            request_tx.send(request).expect("test awaits the request");
+            std::future::pending::<()>().await;
         });
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_millis(300))
             .build()
             .expect("client");
-        let error = client
-            .post(format!("http://{addr}/api/mesh/relay"))
-            .json(&serde_json::json!({}))
-            .send()
+        let error = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client
+                .post(format!("http://{addr}/api/mesh/relay"))
+                .json(&serde_json::json!({}))
+                .send(),
+        )
+        .await
+        .expect("client timeout must finish within the test deadline")
+        .expect_err("the peer never answers, so the client timeout must fire");
+        let request = tokio::time::timeout(std::time::Duration::from_secs(2), request_rx)
             .await
-            .expect_err("the peer never answers, so the client timeout must fire");
+            .expect("peer must receive the request within the test deadline")
+            .expect("peer task");
+        assert!(request.starts_with(b"POST /api/mesh/relay HTTP/1.1\r\n"));
+        peer.abort();
         assert!(
             error.is_timeout(),
             "test setup bug: expected a timeout error, got {error:?}"

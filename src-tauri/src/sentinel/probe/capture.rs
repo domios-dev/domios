@@ -77,6 +77,13 @@ pub(super) fn assemble_confirmed(
     if let Some(error) = facts.error {
         let mut failure = ProbeFailure::new("probe_capture_or_completion_failed");
         failure.cleanup_error(error);
+        failure.processes_confirmed = facts.parent_complete && facts.boundary_complete;
+        if !facts.parent_complete {
+            failure.unconfirmed(ResourceKind::Child);
+        }
+        if !facts.boundary_complete {
+            failure.unconfirmed(ResourceKind::ProcessGroup);
+        }
         failure.unconfirmed(ResourceKind::Capture);
         return Err(failure);
     }
@@ -87,6 +94,13 @@ pub(super) fn assemble_confirmed(
     }
     if !facts.stdout_eof || !facts.stderr_eof || !stdout.eof || !stderr.eof {
         let mut failure = ProbeFailure::new("probe_capture_eof_unconfirmed");
+        failure.processes_confirmed = facts.parent_complete && facts.boundary_complete;
+        if !facts.parent_complete {
+            failure.unconfirmed(ResourceKind::Child);
+        }
+        if !facts.boundary_complete {
+            failure.unconfirmed(ResourceKind::ProcessGroup);
+        }
         failure.unconfirmed(ResourceKind::Capture);
         return Err(failure);
     }
@@ -300,5 +314,19 @@ pub(super) fn resource_name(kind: ResourceKind) -> &'static str {
         ResourceKind::Capture => "capture",
         ResourceKind::Job => "job",
         ResourceKind::OverlappedIo => "overlapped-io",
+    }
+}
+
+impl Output {
+    /// Raw stdout of the command, read back from the layout `assemble` writes.
+    pub(crate) fn stdout_text(&self) -> String {
+        let len = self
+            .bytes
+            .get(4..12)
+            .and_then(|raw| <[u8; 8]>::try_from(raw).ok())
+            .map(u64::from_le_bytes)
+            .unwrap_or(0) as usize;
+        let end = 12usize.saturating_add(len).min(self.bytes.len());
+        String::from_utf8_lossy(self.bytes.get(12..end).unwrap_or_default()).into_owned()
     }
 }

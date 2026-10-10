@@ -426,7 +426,19 @@ impl NotificationStore {
         {
             return DeliveryAdmission::Duplicate(id);
         }
-        let identity = NotificationIdentity::of(&provenance, &severity, &title, body.as_deref());
+        let prompt_choices = ask
+            .actions
+            .iter()
+            .flatten()
+            .filter_map(|action| match action {
+                NotificationAction::RespondPromptOption {
+                    identity, value, ..
+                } => Some(format!("{identity:?}:{value}")),
+                _ => None,
+            })
+            .collect();
+        let identity = NotificationIdentity::of(&provenance, &severity, &title, body.as_deref())
+            .with_prompt_choices(prompt_choices);
         if let Some(id) = self.deliveries.existing(&identity) {
             return DeliveryAdmission::Duplicate(id);
         }
@@ -676,12 +688,13 @@ impl NotificationStore {
                     )
                 })
             });
-            let unanswered = notification.answer.as_ref().is_some_and(|answer| {
-                answer.answered.is_none() && answer.asked_from_tab.as_deref() == Some(tab_id)
-            });
+            let asked_here = notification
+                .answer
+                .as_ref()
+                .is_some_and(|answer| answer.asked_from_tab.as_deref() == Some(tab_id));
             if notification.tab_id.as_deref() == Some(tab_id)
                 && matching_prompt
-                && unanswered
+                && asked_here
                 && !notification.resolved
             {
                 notification.resolved = true;

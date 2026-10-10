@@ -59,6 +59,7 @@ fn is_current_codeterm_hook(hook_entry: &Json) -> bool {
         command.contains("CODETERM_TAB_ID")
             && command.contains("CODETERM_API_URL")
             && command.contains("CODETERM_API_TOKEN")
+            && is_current_hook_command(command)
             && !command.contains("CODETERM_API_PORT")
             && !command.contains("CODETERM_PANE_ID")
     })
@@ -70,9 +71,27 @@ fn is_current_session_start_hook(hook_entry: &Json) -> bool {
             && command.contains("CODETERM_TAB_ID")
             && command.contains("CODETERM_API_URL")
             && command.contains("CODETERM_API_TOKEN")
+            && is_current_hook_command(command)
             && !command.contains("CODETERM_API_PORT")
             && !command.contains("CODETERM_PANE_ID")
     })
+}
+
+fn is_current_stop_hook(hook_entry: &Json) -> bool {
+    is_current_codeterm_hook(hook_entry)
+        && entry_has_command(hook_entry, |command| {
+            command.contains("CODETERM_SESSION_BINDING_NONCE")
+                && command.contains("--data-binary \"@-\"")
+        })
+}
+
+fn is_current_hook_command(command: &str) -> bool {
+    let executable = if cfg!(windows) { "curl.exe " } else { "curl " };
+    command.starts_with(executable)
+        && command.contains(" --request POST ")
+        && command.contains(" --data-binary ")
+        && !command.contains("if [")
+        && !command.contains("|| true")
 }
 
 fn entry_has_command(hook_entry: &Json, matches: impl Fn(&str) -> bool) -> bool {
@@ -201,7 +220,7 @@ pub(crate) fn check_integration_at(path: &std::path::Path) -> Json {
     let stop_hook = json
         .pointer("/hooks/Stop")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().any(is_current_codeterm_hook))
+        .map(|arr| arr.iter().any(is_current_stop_hook))
         .unwrap_or(false);
     let precompact_hook = owned_precompact_hook(&json);
     let session_start_hook = json
@@ -259,14 +278,15 @@ pub fn hook_event_roster() -> Vec<HookEventBinding> {
 }
 
 fn hook_command(path: &str, body: &str, extra_headers: &str, stdin: bool) -> String {
+    let executable = if cfg!(windows) { "curl.exe" } else { "curl" };
     let payload = if stdin {
-        "--data-binary @-".to_string()
+        "--data-binary \"@-\"".to_string()
     } else {
-        format!("-d '{body}'")
+        format!("--data-binary \"{body}\"")
     };
     let marker = marker_header_arg();
     format!(
-        "if [ -n \"${{CODETERM_API_URL:-}}\" ] && [ -n \"${{CODETERM_API_TOKEN:-}}\" ] && [ -n \"${{CODETERM_TAB_ID:-}}\" ]; then curl -s -o /dev/null -X POST \"$CODETERM_API_URL{path}\" -H 'Content-Type: application/json' -H \"Authorization: Bearer $CODETERM_API_TOKEN\" {marker} {extra_headers} {payload} || true; fi"
+        "{executable} --silent --request POST \"$CODETERM_API_URL{path}\" --header \"Content-Type: application/json\" --header \"Authorization: Bearer $CODETERM_API_TOKEN\" {marker} {extra_headers} {payload}"
     )
 }
 
@@ -277,7 +297,7 @@ fn hook_command(path: &str, body: &str, extra_headers: &str, stdin: bool) -> Str
 /// only on the vendor's `permission_prompt`). `None` = this provider declares
 /// no settings.json shape for that route and installs nothing.
 fn hook_entry(binding: &HookEventBinding) -> Option<Json> {
-    let nonce_h = "-H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\"";
+    let nonce_h = "--header \"X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE\"";
     // Forward the vendor's stdin payload; an empty body throws away the
     // tool_name / tool_input / permission_suggestions it already sent.
     let permission_command = hook_command(
@@ -300,7 +320,7 @@ fn hook_entry(binding: &HookEventBinding) -> Option<Json> {
             "matcher": "",
             "hooks": [{
                 "type": "command",
-                "command": hook_command("/api/tabs/$CODETERM_TAB_ID/hook/stop", "{}", "", false),
+                "command": hook_command("/api/tabs/$CODETERM_TAB_ID/hook/stop", "", nonce_h, true),
                 "timeout": 5000,
                 "_source": CODETERM_HOOK_MARKER
             }]
@@ -579,8 +599,11 @@ mod tests {
         let current = serde_json::json!({
             "hooks": [{
                 "type": "command",
-                "command": "curl \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" -H \"Authorization: Bearer $CODETERM_API_TOKEN\"",
-                "_source": CODETERM_HOOK_MARKER
+                "command": format!(
+                    "{} --silent --request POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" --header \"Content-Type: application/json\" --header \"Authorization: Bearer $CODETERM_API_TOKEN\" {} --header \"X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE\" --data-binary \"@-\"",
+                    if cfg!(windows) { "curl.exe" } else { "curl" },
+                    marker_header_arg()
+                )
             }]
         });
 
@@ -617,11 +640,11 @@ mod tests {
     }
 
     #[test]
-    fn session_start_nonce_must_be_in_the_current_hook_command() {
+    fn session_start_hook_currentness_requires_binding_and_portable_command() {
         let stale = serde_json::json!({
             "hooks": [{
                 "type": "command",
-                "command": "curl http://localhost:7686/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+                "command": "if [ -n \"$CODETERM_API_URL\" ]; then curl -s -X POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" -H \"Authorization: Bearer $CODETERM_API_TOKEN\" -H \"X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE\" --data-binary @- || true; fi",
                 "_source": CODETERM_HOOK_MARKER
             }, {
                 "type": "command",
@@ -632,7 +655,10 @@ mod tests {
         let current = serde_json::json!({
             "hooks": [{
                 "type": "command",
-                "command": "curl \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" -H \"Authorization: Bearer $CODETERM_API_TOKEN\" -H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\"",
+                "command": format!(
+                    "{} --silent --request POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" --header \"Authorization: Bearer $CODETERM_API_TOKEN\" --header \"X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE\" --data-binary \"@-\"",
+                    if cfg!(windows) { "curl.exe" } else { "curl" }
+                ),
                 "_source": CODETERM_HOOK_MARKER
             }]
         });
@@ -654,11 +680,110 @@ mod tests {
         assert!(first.contains("CODETERM_API_URL"));
         assert!(first.contains("CODETERM_API_TOKEN"));
         assert!(first.contains("CODETERM_TAB_ID"));
-        assert!(first.contains("if [ -n"));
+        assert!(!first.contains("if ["));
+        assert!(!first.contains("|| true"));
         assert!(first.contains("X-CodeTerm-Hook: codeterm-hook-v3"));
         assert!(!first.contains("CODETERM_API_PORT"));
         assert!(!first.contains("localhost:768"));
         assert!(!first.contains("> NUL"));
+    }
+
+    #[cfg(windows)]
+    fn parse_generated_hook_command(command: &str) {
+        let mut bash_candidates = Vec::new();
+        for root in [
+            std::env::var_os("ProgramFiles"),
+            std::env::var_os("ProgramFiles(x86)"),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let git = std::path::PathBuf::from(root).join("Git");
+            bash_candidates.push(git.join("bin").join("bash.exe"));
+            bash_candidates.push(git.join("usr").join("bin").join("bash.exe"));
+        }
+        bash_candidates.push(std::path::PathBuf::from(r"C:\msys64\usr\bin\bash.exe"));
+        let bash = bash_candidates
+            .into_iter()
+            .find(|candidate| candidate.is_file())
+            .expect("Git Bash is available through the repository toolchain");
+        let bash_output = std::process::Command::new(bash)
+            .args(["-n", "-c", command])
+            .output()
+            .expect("Git Bash starts for parsing generated hook commands");
+        assert!(
+            bash_output.status.success(),
+            "Bash rejected generated hook command: {}",
+            String::from_utf8_lossy(&bash_output.stderr)
+        );
+
+        let powershell_command = [
+            "CODETERM_API_URL",
+            "CODETERM_API_TOKEN",
+            "CODETERM_TAB_ID",
+            "CODETERM_SESSION_BINDING_NONCE",
+        ]
+        .iter()
+        .fold(command.to_string(), |rewritten, name| {
+            rewritten.replace(&format!("${name}"), &format!("$env:{name}"))
+        });
+        let output = std::process::Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "$tokens = $null; $errors = $null; $null = [System.Management.Automation.Language.Parser]::ParseInput($env:CODETERM_HOOK_COMMAND, [ref]$tokens, [ref]$errors); if ($errors.Count -gt 0) { exit 1 }",
+            ])
+            .env("CODETERM_HOOK_COMMAND", powershell_command)
+            .output()
+            .expect("PowerShell parser is available on Windows");
+        assert!(
+            output.status.success(),
+            "PowerShell rejected generated hook command: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[cfg(not(windows))]
+    fn parse_generated_hook_command(command: &str) {
+        let output = std::process::Command::new("bash")
+            .args(["-n", "-c", command])
+            .output()
+            .expect("Bash parser is available on POSIX");
+        assert!(
+            output.status.success(),
+            "Bash rejected generated hook command: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn generated_hook_commands_parse_in_the_host_shell() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        install_integration_at(&path, &integration_options()).unwrap();
+        let installed: Json =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let hooks = installed.get("hooks").and_then(Json::as_object).unwrap();
+
+        for (event, entries) in hooks {
+            let Some(entries) = entries.as_array() else {
+                continue;
+            };
+            for hook in entries
+                .iter()
+                .flat_map(|entry| entry["hooks"].as_array().into_iter().flatten())
+            {
+                let command = hook["command"].as_str().expect("command hook");
+                assert!(is_current_hook_command(command), "stale hook: {command}");
+                if event == "SessionStart" {
+                    assert!(command.contains("/hook/session_start"));
+                    assert!(command.contains("CODETERM_SESSION_BINDING_NONCE"));
+                    assert!(command.contains("--data-binary \"@-\""));
+                }
+                parse_generated_hook_command(command);
+            }
+        }
     }
 
     #[test]
@@ -766,7 +891,7 @@ mod tests {
                 .and_then(|c| c.as_str())
                 .unwrap_or_else(|| panic!("{event} hook installed"));
             assert!(
-                command.contains("--data-binary @-"),
+                command.contains("--data-binary \"@-\""),
                 "{event} must forward the stdin payload: {command}"
             );
             assert!(

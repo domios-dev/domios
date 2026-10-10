@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import { hostAutomationAdapter, AUTOMATION_GRAPH_EVENT } from "./hostAdapter";
 import { attachment, deferred, fixtureGraph, sentinelIdentity } from "./fixtures.testdata";
-import type { AutomationGraph, AutomationScope } from "./types";
+import { ALL_JOBS_SCOPE, type AutomationGraph, type AutomationScope } from "./types";
 
 async function main() {
   const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
@@ -15,7 +15,9 @@ async function main() {
     assert.deepEqual(calls.pop(), { command: "automation_graph_snapshot", args: { workspaceId: attachment.workspace_id, teamId: attachment.team_id } });
     await hostAutomationAdapter.read({ ...attachment, team_id: null }, new AbortController().signal);
     assert.equal(calls.pop()?.args?.teamId, null);
-    console.log("✓ snapshot passes exact scoped host arguments including explicit unteamed");
+    await hostAutomationAdapter.read({ ...attachment, team_id: ALL_JOBS_SCOPE }, new AbortController().signal);
+    assert.deepEqual(calls.pop(), { command: "automation_graph_workspace_snapshot", args: { workspaceId: attachment.workspace_id } });
+    console.log("✓ snapshots use exact Team scopes or one bounded workspace-wide read");
 
     let event!: (payload: AutomationScope & { revision: string }) => void;
     let off = false;
@@ -33,13 +35,21 @@ async function main() {
     assert.equal(changed, 1);
     unsubscribe();
     assert.equal(off, true);
-    console.log("✓ committed-change subscription filters exact workspace and Team");
+    let allChanged = 0;
+    const allUnsubscribe = await hostAutomationAdapter.subscribe({ ...attachment, team_id: ALL_JOBS_SCOPE }, () => { allChanged++; });
+    event({ ...attachment, team_id: "other", revision: "team-b" });
+    assert.equal(allChanged, 1);
+    allUnsubscribe();
+    console.log("✓ committed-change subscription filters exact scopes or any Team in the workspace");
 
     await hostAutomationAdapter.stop(attachment, sentinelIdentity);
-    assert.deepEqual(calls.pop(), { command: "automation_graph_stop_sentinel", args: { workspaceId: attachment.workspace_id, teamId: attachment.team_id, id: sentinelIdentity.id } });
+    assert.deepEqual(calls.pop(), { command: "automation_graph_stop_blueprint", args: { workspaceId: attachment.workspace_id, teamId: attachment.team_id, id: sentinelIdentity.id } });
+    await hostAutomationAdapter.delete({ ...attachment, team_id: ALL_JOBS_SCOPE }, { ...sentinelIdentity, team_id: "team-b" });
+    assert.deepEqual(calls.pop(), { command: "automation_graph_delete_blueprint", args: { workspaceId: attachment.workspace_id, teamId: "team-b", id: sentinelIdentity.id } });
+    await assert.rejects(hostAutomationAdapter.delete(attachment, { ...sentinelIdentity, team_id: "other" }));
     await assert.rejects(hostAutomationAdapter.stop(attachment, { ...sentinelIdentity, team_id: "other" }));
     assert.equal(calls.length, 0);
-    console.log("✓ stop uses host-control arguments without creator or nonce impersonation");
+    console.log("✓ stop and delete retain identity Team scope without creator or nonce impersonation");
 
     const held = deferred<AutomationGraph>();
     __setInvokeForTest(async <T,>() => held.promise as Promise<T>);
@@ -49,7 +59,7 @@ async function main() {
     held.resolve(fixtureGraph());
     await assert.rejects(pending);
     console.log("✓ aborted attachment rejects a late invoke snapshot");
-    console.log("4 hostAutomationAdapter cases passed");
+    console.log("5 hostAutomationAdapter cases passed");
   } finally { __setInvokeForTest(null); __setListenForTest(null); }
 }
 void main().catch((error: unknown) => { console.error(error); process.exitCode = 1; });

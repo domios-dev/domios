@@ -1,8 +1,15 @@
 {
   "id": "opencode",
-  "version": "1.12.3",
-  "minCodeterm": "1.12.3",
+  "version": "1.14.0",
+  "minCodeterm": "1.14.0",
   "hostApi": 2,
+  "capabilities": {
+    "agentProvider": true,
+    "modelProviderConfig": true,
+    "decisionModel": {
+      "tokenMode": "none"
+    }
+  },
   "displayName": "OpenCode",
   "binaryName": "opencode",
   "cliBinary": "opencode",
@@ -119,7 +126,11 @@
   ],
   "defaultModel": "anthropic/claude-opus-4-8",
   "modelCatalogue": {
-    "authority": "free_form"
+    "authority": "free_form",
+    "configFiles": [
+      "~/.config/opencode/opencode.json",
+      "~/.config/opencode/opencode.jsonc"
+    ]
   },
   "installer": {
     "macos": "curl -fsSL https://opencode.ai/install | bash",
@@ -141,19 +152,43 @@
     ],
     "stopKeyWaitForOutput": true,
     "autoApproveFlags": [
-      "--dangerously-skip-permissions"
+      "--auto"
     ],
     "modelLaunchArgsFormat": [
       "-m",
       "{model}"
-    ]
+    ],
+    "reasoningEffortLaunchArgsFormat": [
+      "--variant",
+      "{effort}"
+    ],
+    "modelSwitch": "next_turn"
   },
   "permissions": {
+    "subprocess": {
+      "allow": [
+        "opencode"
+      ]
+    },
     "network": {
       "allow": [
         "api.deepseek.com"
       ]
     }
   },
-  "icon": "icon.svg"
+  "icon": "icon.svg",
+  "cliCompatibility": {
+    "supported": ["=1.18.35"],
+    "breaking": [
+      {
+        "range": ">=2.0.0, <3.0.0",
+        "reasons": [
+          "sqlite_schema_conversion",
+          "event_route_changed",
+          "server_password_required"
+        ]
+      }
+    ],
+    "directSqlite": true
+  }
 }

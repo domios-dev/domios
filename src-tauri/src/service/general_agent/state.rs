@@ -113,29 +113,51 @@ pub(super) fn detect_owned_session_id(
     exclude: &[String],
     max_age: Option<Duration>,
 ) -> Option<String> {
-    let mut candidates = registry
-        .with_provider(provider_name, |p| {
-            p.enumerate_sessions()
-                .into_iter()
-                .filter(|s| s.provider == provider_name)
-                .filter(|s| !exclude.contains(&s.session_id))
-                .filter(|s| session_matches_cwd(s.project_path.as_deref(), cwd))
-                .filter_map(|s| {
-                    let sort_ts = s.modified_ts.or(s.created_ts)?;
-                    if !within_age(sort_ts, max_age) {
-                        return None;
-                    }
-                    Some(SessionCandidate {
-                        session_id: s.session_id,
-                        file_path: s.file_path,
-                        sort_ts,
+    discover_main_session(independent_sessions_path().exists(), || {
+        let mut candidates = registry
+            .with_provider(provider_name, |p| {
+                p.enumerate_sessions()
+                    .into_iter()
+                    .filter(|s| s.provider == provider_name)
+                    .filter(|s| !exclude.contains(&s.session_id))
+                    .filter(|s| session_matches_cwd(s.project_path.as_deref(), cwd))
+                    .filter_map(|s| {
+                        let sort_ts = s.modified_ts.or(s.created_ts)?;
+                        if !within_age(sort_ts, max_age) {
+                            return None;
+                        }
+                        Some(SessionCandidate {
+                            session_id: s.session_id,
+                            file_path: s.file_path,
+                            sort_ts,
+                        })
                     })
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
 
-    pick_general_agent_session(&mut candidates)
+        pick_general_agent_session(&mut candidates)
+    })
+}
+
+pub(super) fn mark_independent_sessions() -> Result<(), String> {
+    std::fs::write(independent_sessions_path(), b"").map_err(|error| error.to_string())
+}
+
+fn independent_sessions_path() -> PathBuf {
+    general_dir().join("state").join("independent-sessions")
+}
+
+fn discover_main_session(
+    has_independent_sessions: bool,
+    discover: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    // Siblings share Main's prompt and home, so those cannot establish Main ownership.
+    if has_independent_sessions {
+        None
+    } else {
+        discover()
+    }
 }
 
 pub(super) fn session_id_is_owned(
@@ -239,6 +261,21 @@ fn session_file_has_ga_marker(mut file: impl Read) -> bool {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn shared_general_prompt_cannot_discover_main_after_independent_sessions() {
+        let mut searches = 0;
+        let selected = discover_main_session(true, || {
+            searches += 1;
+            Some("newest-sibling-session".into())
+        });
+        assert_eq!(selected, None);
+        assert_eq!(searches, 0);
+        assert_eq!(
+            discover_main_session(false, || Some("main-session".into())),
+            Some("main-session".into())
+        );
+    }
 
     #[test]
     fn picks_ga_marked_session_over_newer_worker_session() {

@@ -1,40 +1,35 @@
-import type { ReactNode } from "react";
-import { Card } from "../../shared/Card";
-import { UI_BUTTON } from "../../shared/design";
+import { useId, type CSSProperties, type ReactNode } from "react";
+import { AUTOMATION_LABEL, AUTOMATION_PRIMARY, AUTOMATION_TONE, AUTOMATION_TOOL } from "../../Automation/styles";
 import type { InventoryOperation } from "../types";
 
-export const CRON_LABEL = "text-[0.6875rem] font-medium uppercase tracking-wider text-[var(--ct-muted)]";
-export const CRON_TEXT = "text-[length:var(--ct-font-size-sm)] leading-relaxed";
-export const CRON_PRIMARY = `${UI_BUTTON.primary} ${UI_BUTTON.compact} gap-1.5 disabled:cursor-not-allowed disabled:opacity-50`;
-export const CRON_SECONDARY = `${UI_BUTTON.base} ${UI_BUTTON.compact} gap-1.5 border border-[var(--ct-border)] text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] disabled:cursor-not-allowed disabled:opacity-50`;
-export const CRON_DANGER = `${UI_BUTTON.danger} ${UI_BUTTON.compact} gap-1.5 border border-[color-mix(in_srgb,var(--ct-red)_35%,transparent)] disabled:cursor-not-allowed disabled:opacity-50`;
-export const CRON_QUIET = `${UI_BUTTON.ghost} ${UI_BUTTON.compact} gap-1.5 disabled:cursor-not-allowed disabled:opacity-50`;
+export const CRON_LABEL = AUTOMATION_LABEL;
+export const CRON_PRIMARY = AUTOMATION_PRIMARY;
+export const CRON_PILL = AUTOMATION_TOOL;
+export const CRON_DANGER = `${AUTOMATION_TOOL} ct-bar-pill--tinted`;
+export const CRON_DANGER_TONE = { "--ct-bar-pill-tone": "var(--ct-red)" } as CSSProperties;
 
-export function CronCard({ label, aside, children }: { label: string; aside?: ReactNode; children: ReactNode }) {
-  return <Card className="flex min-w-0 flex-col gap-3 p-4 sm:p-5">
-    <div className="flex items-center justify-between gap-3"><h3 className={CRON_LABEL}>{label}</h3>{aside}</div>
-    {children}
-  </Card>;
+export function CronCard({ label, icon, aside, children, bodyless = false }: { label: string; icon: ReactNode; aside?: ReactNode; children: ReactNode; bodyless?: boolean }) {
+  const headingId = useId();
+  return <section className="ct-card ct-card--static ct-job-section" aria-labelledby={headingId} style={{ "--ct-card-tone": AUTOMATION_TONE.cron } as CSSProperties}>
+    <div className="ct-card__head">
+      <span className="ct-card__icon" aria-hidden="true">{icon}</span>
+      <h3 id={headingId} className="ct-detail__heading">{label}</h3>
+      {aside}
+    </div>
+    {bodyless ? children : <div className="ct-card__body ct-job-section__body">{children}</div>}
+  </section>;
 }
 
 export function Unavailable({ operation, reason }: { operation: InventoryOperation; reason?: string }) {
   return <p className="text-xs text-[var(--ct-yellow)]" data-testid={`mesh-operation-unavailable-${operation}`}>Unavailable{reason ? `: ${reason}` : ""}</p>;
 }
 
-export function runIcon(status: string): string {
-  if (status === "Running") return "●";
-  if (status === "AwaitingOwnerPrompt") return "!";
-  if (status === "Success") return "✓";
-  if (status === "Cancelled") return "■";
-  return "✗";
-}
-
-export function runColor(status: string): string {
-  if (status === "Running") return "text-[var(--ct-accent)] animate-pulse";
-  if (status === "AwaitingOwnerPrompt") return "text-[var(--ct-yellow)]";
-  if (status === "Success") return "text-[var(--ct-green)]";
-  if (status === "Cancelled") return "text-[var(--ct-muted-fg)]";
-  return "text-[var(--ct-red)]";
+export function runTone(status: string): string {
+  if (status === "Running") return "var(--ct-accent)";
+  if (status === "AwaitingOwnerPrompt") return "var(--ct-yellow)";
+  if (status === "Success") return "var(--ct-green)";
+  if (status === "Cancelled") return "var(--ct-muted)";
+  return "var(--ct-red)";
 }
 
 export function runStatusLabel(status: string): string {

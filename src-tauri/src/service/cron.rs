@@ -1,12 +1,27 @@
 use super::ServiceContext;
 use crate::cron::store::{
-    commit, finish_run, CronCreateParams, CronJob, CronRunInfo, CronRunStatus, CronScope,
-    CronUpdateParams, RunSession,
+    commit, finish_run, CronCommitError, CronCommitted, CronCreateParams, CronJob, CronRunInfo,
+    CronRunStatus, CronScope, CronStore, CronUpdateParams, RunSession,
 };
 use crate::multiplexer::types::TabCloseReason;
+use crate::service::message_gateway::DeliveryClass;
+use crate::service::messenger::MessageEnvelope;
 use crate::CronState;
 use crate::CronWake;
+use parking_lot::Mutex;
+use std::collections::HashMap;
+use std::future::Future;
+use std::sync::Arc;
 use tauri::Manager;
+
+pub(crate) fn cron_fired_payload(cron_id: &str, run_id: &str, tab_id: &str) -> serde_json::Value {
+    serde_json::json!({"cron_id": cron_id, "run_id": run_id, "tab_id": tab_id})
+}
+
+pub(crate) fn emit_cron_fired(app: &tauri::AppHandle, cron_id: &str, run_id: &str, tab_id: &str) {
+    use tauri::Emitter;
+    let _ = app.emit("cron-fired", cron_fired_payload(cron_id, run_id, tab_id));
+}
 
 fn cron_report_delivery_label(result: Result<(), String>) -> String {
     match result {
@@ -18,6 +33,20 @@ fn cron_report_delivery_label(result: Result<(), String>) -> String {
     }
 }
 
+fn cron_status_slug(status: &CronRunStatus) -> &'static str {
+    match status {
+        CronRunStatus::Running => "running",
+        CronRunStatus::AwaitingOwnerPrompt => "awaiting_owner_prompt",
+        CronRunStatus::Success => "success",
+        CronRunStatus::Failed => "failed",
+        CronRunStatus::Cancelled => "cancelled",
+    }
+}
+
+fn cron_end_context(job_name: &str, status: &CronRunStatus) -> String {
+    format!("cron:{job_name}:{}", cron_status_slug(status))
+}
+
 /// A cron run that has ended, by any path, and still owes its report and oneshot retirement.
 pub(crate) struct CronRunEnd<'a> {
     pub(crate) job_id: &'a str,
@@ -26,14 +55,133 @@ pub(crate) struct CronRunEnd<'a> {
     pub(crate) summary: &'a str,
 }
 
+pub(crate) struct CronCompleteAfterResponse {
+    pub(crate) tab_id: String,
+    pub(crate) job_id: String,
+    pub(crate) run_id: String,
+    pub(crate) summary: String,
+    pub(crate) cron: CronState,
+    pub(crate) wake: CronWake,
+}
+
+/// Newest owner-prompt value per tab while a Storage commit of that tab is settling.
+#[derive(Clone, Default)]
+struct OwnerPromptRequests(Arc<Mutex<HashMap<String, OwnerPromptRequest>>>);
+
+struct OwnerPromptRequest {
+    awaiting: bool,
+    requested: u64,
+    admitted: u64,
+}
+
+impl OwnerPromptRequests {
+    /// Never waits for COMMIT. One change per tab is admitted at a time and each settlement
+    /// admits the tab's newest value, so the latest request always commits last.
+    fn request<R>(&self, cron: &CronState, tab_id: &str, awaiting: bool, report: R)
+    where
+        R: Fn(&str, Result<CronCommitted<bool>, CronCommitError>) + Send + 'static,
+    {
+        {
+            let mut tabs = self.0.lock();
+            if let Some(request) = tabs.get_mut(tab_id) {
+                request.awaiting = awaiting;
+                request.requested += 1;
+                return;
+            }
+            tabs.insert(
+                tab_id.to_string(),
+                OwnerPromptRequest {
+                    awaiting,
+                    requested: 1,
+                    admitted: 0,
+                },
+            );
+        }
+        let Some(first) = self.admit_next(cron, tab_id, &report) else {
+            return;
+        };
+        let (requests, cron, tab_id) = (self.clone(), cron.clone(), tab_id.to_string());
+        tauri::async_runtime::spawn(async move {
+            let mut settling = Some(first);
+            while let Some(commit) = settling.take() {
+                let outcome = commit.await;
+                report(&tab_id, outcome);
+                settling = requests.admit_next(&cron, &tab_id, &report);
+            }
+        });
+    }
+
+    /// Admits the tab's newest unadmitted value; `None` retires the tab once none is left.
+    fn admit_next(
+        &self,
+        cron: &CronState,
+        tab_id: &str,
+        report: &impl Fn(&str, Result<CronCommitted<bool>, CronCommitError>),
+    ) -> Option<impl Future<Output = Result<CronCommitted<bool>, CronCommitError>> + Send + 'static>
+    {
+        loop {
+            let awaiting = {
+                let mut tabs = self.0.lock();
+                let request = tabs.get_mut(tab_id)?;
+                if request.admitted == request.requested {
+                    tabs.remove(tab_id);
+                    return None;
+                }
+                request.admitted = request.requested;
+                request.awaiting
+            };
+            let tab = tab_id.to_string();
+            match CronStore::stage(cron, move |store| {
+                Ok(store.prepare_owner_prompt(&tab, awaiting))
+            }) {
+                Ok(Some(commit)) => return Some(commit),
+                Ok(None) => {}
+                Err(error) => report(tab_id, Err(error)),
+            }
+        }
+    }
+}
+
 impl ServiceContext {
+    /// Under Storage the change is staged and settles on its completion's wake; the legacy
+    /// JSON backend still commits before returning.
     pub(crate) fn set_cron_owner_prompt_waiting(&self, tab_id: &str, awaiting: bool) {
         let Some(cron) = self.app_handle.try_state::<CronState>() else {
             return;
         };
+        let staged = cron.lock().commits_to_storage();
+        if staged {
+            let service = self.clone();
+            self.owner_prompt_requests().request(
+                cron.inner(),
+                tab_id,
+                awaiting,
+                move |tab_id, updated| service.report_owner_prompt(tab_id, updated),
+            );
+            return;
+        }
         let updated = commit(cron.inner(), |store| {
             Ok(store.prepare_owner_prompt(tab_id, awaiting))
         });
+        self.report_owner_prompt(tab_id, updated);
+    }
+
+    fn owner_prompt_requests(&self) -> OwnerPromptRequests {
+        if let Some(requests) = self.app_handle.try_state::<OwnerPromptRequests>() {
+            return requests.inner().clone();
+        }
+        self.app_handle.manage(OwnerPromptRequests::default());
+        self.app_handle
+            .state::<OwnerPromptRequests>()
+            .inner()
+            .clone()
+    }
+
+    fn report_owner_prompt(
+        &self,
+        tab_id: &str,
+        updated: Result<CronCommitted<bool>, CronCommitError>,
+    ) {
         match updated {
             Ok(done) if done.value => self.emit_cron_changed(),
             Ok(_) => {}
@@ -174,16 +322,27 @@ impl ServiceContext {
         .map_err(|error| format!("reasoning_effort: {error}"))
     }
 
-    pub fn cron_list(&self, cron: &CronState, workspace_id: Option<&str>) -> Vec<CronJob> {
+    pub fn cron_list(
+        &self,
+        cron: &CronState,
+        workspace_id: Option<&str>,
+    ) -> Result<Vec<CronJob>, String> {
         let store = cron.lock();
-        match workspace_id {
+        if let Some(reason) = store.unavailable_reason() {
+            return Err(format!("cron storage unavailable: {reason}"));
+        }
+        Ok(match workspace_id {
             Some(ws) => store.list_for_workspace(ws).into_iter().cloned().collect(),
             None => store.list().to_vec(),
-        }
+        })
     }
 
     pub fn cron_get(&self, cron: &CronState, id: &str) -> Result<CronJob, String> {
-        cron.lock()
+        let store = cron.lock();
+        if let Some(reason) = store.unavailable_reason() {
+            return Err(format!("cron storage unavailable: {reason}"));
+        }
+        store
             .get(id)
             .cloned()
             .ok_or_else(|| format!("Cron job not found: {}", id))
@@ -327,7 +486,23 @@ impl ServiceContext {
         wake: Option<&CronWake>,
         end: CronRunEnd<'_>,
     ) {
-        self.cron_settle_run_end_with(cron, wake, end, |tab_id, text| self.send_text(tab_id, text));
+        self.cron_settle_run_end_with(cron, wake, end, |tab_id, envelope, text| {
+            self.deliver_cron_report(tab_id, envelope, text)
+        });
+    }
+
+    /// Agents get a framed system notice; plain shells keep the bare text.
+    pub(crate) fn deliver_cron_report(
+        &self,
+        target: &str,
+        envelope: MessageEnvelope,
+        body: &str,
+    ) -> Result<(), String> {
+        if !self.tab_has_agent_identity(target) {
+            return self.send_text(target, body);
+        }
+        self.gateway_deliver(target, envelope, body, DeliveryClass::SystemNotice)
+            .map(|_| ())
     }
 
     /// Delivers the ended run's status to its report tab, records the outcome in history,
@@ -337,7 +512,7 @@ impl ServiceContext {
         cron: &CronState,
         wake: Option<&CronWake>,
         end: CronRunEnd<'_>,
-        deliver: impl FnOnce(&str, &str) -> Result<(), String>,
+        deliver: impl FnOnce(&str, MessageEnvelope, &str) -> Result<(), String>,
     ) {
         let CronRunEnd {
             job_id,
@@ -345,12 +520,15 @@ impl ServiceContext {
             status,
             summary,
         } = end;
-        let (report_target, is_oneshot) = {
+        let (report_target, is_oneshot, job_name) = {
             let store = cron.lock();
             let job = store.get(job_id);
             (
                 job.and_then(|job| job.report_target_tab_id.clone()),
                 job.is_some_and(|job| job.oneshot),
+                job.map(|job| job.name.trim().to_string())
+                    .filter(|name| !name.is_empty())
+                    .unwrap_or_else(|| job_id.to_string()),
             )
         };
         let delivery = match report_target {
@@ -358,7 +536,9 @@ impl ServiceContext {
                 let report = format!(
                     "Cron run {run_id} completed with status {status:?}. Summary: {summary}"
                 );
-                cron_report_delivery_label(deliver(&report_target, &report))
+                let envelope =
+                    MessageEnvelope::codeterm_reminder(cron_end_context(&job_name, &status));
+                cron_report_delivery_label(deliver(&report_target, envelope, &report))
             }
             None => "no report target".to_string(),
         };
@@ -531,18 +711,28 @@ impl ServiceContext {
                 task_text,
                 role,
                 cwd,
-                workspace_id: (!workspace_id.is_empty()).then_some(workspace_id),
+                workspace_id: crate::cron::recovery::restored_spawn_workspace(
+                    &self.mux.read(),
+                    &workspace_id,
+                ),
                 team_id,
                 creator_tab_id,
                 report_target_tab_id,
             },
         );
 
-        match self.spawn_tab(spec) {
+        let spawn = dispatch_after_trigger_record(cron, id, &run_info, || self.spawn_tab(spec))?;
+        match spawn {
             Ok(handle) => {
                 run_info.tab_id = Some(handle.tab_id.clone());
-                run_info.tab_id = Some(handle.tab_id.clone());
                 cron.lock().register_tab(&handle.tab_id, id, &run_id);
+                if let Err(error) = commit(cron, |store| {
+                    Ok(store.prepare_set_run_tab(id, &run_id, &handle.tab_id))
+                }) {
+                    log::error!(
+                        "Failed to record triggered cron Tab: job={id} run={run_id}: {error}"
+                    );
+                }
                 // Register with the auto-complete watcher (cron flavor).
                 if let Some(pty_id) = self.agent_run_pty_map.lock().get(&handle.tab_id).cloned() {
                     let global_timeout = crate::config::memory_config().worker_timeout_seconds;
@@ -569,16 +759,14 @@ impl ServiceContext {
                 }
             }
             Err(e) => {
-                run_info.status = CronRunStatus::Failed;
-                run_info.finished_at = Some(now);
-                record_trigger_run(cron, id, &run_info);
+                let _ = finish_run(cron, id, &run_id, CronRunStatus::Failed, None);
                 return Err(e);
             }
         }
 
-        record_trigger_run(cron, id, &run_info);
         if let Some(tab_id) = run_info.tab_id.as_deref() {
             self.sync_cron_owner_prompt_state(tab_id);
+            emit_cron_fired(&self.app_handle, id, &run_id, tab_id);
         }
         self.emit_cron_changed();
         Ok(run_info)
@@ -593,7 +781,7 @@ impl ServiceContext {
         caller_tab_id: Option<&str>,
         binding_nonce: Option<&str>,
         human_confirmed: bool,
-    ) -> Result<(), String> {
+    ) -> Result<Option<CronCompleteAfterResponse>, String> {
         let caller_tab_id = caller_tab_id.filter(|caller| !caller.trim().is_empty());
         if caller_tab_id.is_none() && !human_confirmed {
             return Err("completing a cron run without tab identity requires --yes".into());
@@ -616,6 +804,20 @@ impl ServiceContext {
                 return Err(format!(
                     "Only the owning Tab or a human caller may complete cron run {run_id}"
                 ));
+            }
+            if self
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .is_some_and(|tab| tab.agent_type.is_some())
+            {
+                self.run_watcher.request_cron_completion(
+                    self,
+                    &tab_id,
+                    run_id,
+                    summary.unwrap_or("(no summary provided)"),
+                )?;
+                return Ok(None);
             }
             let (pty_id, session_id, run_cwd) = {
                 let mux = self.mux.read();
@@ -641,7 +843,7 @@ impl ServiceContext {
 
             let log_file = cron.lock().log_file(&job_id, run_id);
             if let Err(e) =
-                log_file.and_then(|path| crate::cron::store::write_log(&path, &log_text))
+                log_file.and_then(|path| CronStore::create_log(&path, &log_text).map(|_| ()))
             {
                 log::error!("Failed to save cron log: {}", e);
             }
@@ -674,36 +876,21 @@ impl ServiceContext {
                 self.run_watcher.mark_completed_externally(pid);
             }
 
-            // Killing it before the caller writes the JSON-RPC response would break the pipe mid-write, which interprocess escalates to std::process::abort().
-            let svc = self.clone();
-            let cron = cron.clone();
-            let wake = wake.clone();
-            let tab_id = tab_id.clone();
-            let job_id = job_id.clone();
-            let run_id = run_id.to_string();
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(250));
-                let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::AgentRunEnded);
-                svc.cron_settle_run_end(
-                    &cron,
-                    Some(&wake),
-                    CronRunEnd {
-                        job_id: &job_id,
-                        run_id: &run_id,
-                        status: CronRunStatus::Success,
-                        summary: &summary_text,
-                    },
-                );
-                svc.emit_cron_changed();
-            });
-            Ok(())
+            Ok(Some(CronCompleteAfterResponse {
+                tab_id,
+                job_id,
+                run_id: run_id.to_string(),
+                summary: summary_text,
+                cron: cron.clone(),
+                wake: wake.clone(),
+            }))
         } else if let Some((job_id, run)) = cron.lock().find_run_by_id(run_id) {
             // The terminal status already recorded stands (first terminal wins); log it so the race stays observable instead of surfacing as an opaque "not found".
             log::warn!(
                 "[cron] cron.complete for run={} (job={}) arrived after the run was already finalized as {:?} — treating as idempotent no-op",
                 run_id, job_id, run.status
             );
-            Ok(())
+            Ok(None)
         } else {
             Err(format!("No cron run found for run_id: {}", run_id))
         }
@@ -711,14 +898,18 @@ impl ServiceContext {
 
     pub fn cron_history(&self, cron: &CronState, id: &str) -> Result<Vec<CronRunInfo>, String> {
         let store = cron.lock();
-        let history = store.get_history(id);
-        if history.is_empty() && store.get(id).is_none() {
+        if let Some(reason) = store.unavailable_reason() {
+            return Err(format!("cron storage unavailable: {reason}"));
+        }
+        let job_id = resolve_cron_id_or_name(&store, id)?;
+        let history = store.get_history(job_id);
+        if history.is_empty() && store.get(job_id).is_none() {
             return Err(format!("Cron job not found: {id}"));
         }
         Ok(history.into_iter().cloned().collect())
     }
 
-    fn emit_cron_changed(&self) {
+    pub(crate) fn emit_cron_changed(&self) {
         let handle = self.app_handle.clone();
         std::thread::spawn(move || {
             crate::api::events::emit_everywhere(&handle, "cron-run-finished", ());
@@ -726,14 +917,54 @@ impl ServiceContext {
     }
 }
 
-/// A manually triggered run is recorded after its spawn; a refused record is logged and
-/// the spawned run itself stands.
-fn record_trigger_run(cron: &CronState, id: &str, run: &CronRunInfo) {
-    if let Err(error) = commit(cron, |store| store.prepare_record_run(id, run.clone())) {
-        log::error!("Failed to record triggered cron run: job={id}: {error}");
+fn resolve_cron_id_or_name<'a>(
+    store: &'a CronStore,
+    id_or_name: &'a str,
+) -> Result<&'a str, String> {
+    if let Some(job) = store.get(id_or_name) {
+        return Ok(&job.id);
+    }
+    if !store.get_history(id_or_name).is_empty() {
+        return Ok(id_or_name);
+    }
+    let mut matches = store.list().iter().filter(|job| job.name == id_or_name);
+    let Some(job) = matches.next() else {
+        return Err(format!("Cron job not found: {id_or_name}"));
+    };
+    if matches.next().is_some() {
+        return Err(format!("Cron job name is ambiguous: {id_or_name}"));
+    }
+    Ok(&job.id)
+}
+
+fn dispatch_after_trigger_record<T>(
+    cron: &CronState,
+    id: &str,
+    run: &CronRunInfo,
+    dispatch: impl FnOnce() -> T,
+) -> Result<T, String> {
+    record_trigger_run(cron, id, run)?;
+    Ok(dispatch())
+}
+
+fn record_trigger_run(cron: &CronState, id: &str, run: &CronRunInfo) -> Result<(), String> {
+    match commit(cron, |store| store.prepare_record_run(id, run.clone())) {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            log::error!("Failed to record triggered cron run: job={id}: {error}");
+            if error.applied() {
+                Ok(())
+            } else {
+                Err(error.to_string())
+            }
+        }
     }
 }
 
 #[cfg(test)]
 #[path = "cron/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cron/owner_prompt_tests.rs"]
+mod owner_prompt_tests;

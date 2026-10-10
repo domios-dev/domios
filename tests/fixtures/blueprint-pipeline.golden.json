@@ -1,0 +1,138 @@
+{
+  "all_teams": false,
+  "blueprints": [
+    {
+      "current_step": null,
+      "id": "blueprint-echo",
+      "last_event_at_ms": 1107,
+      "name": "Echo pipeline",
+      "owner": {
+        "kind": "tab",
+        "tab_id": "creator",
+        "team_id": "team"
+      },
+      "result": {
+        "body_ref": null,
+        "reason": null,
+        "state": "delivered",
+        "target": {
+          "id": null,
+          "kind": "notify"
+        }
+      },
+      "run_id": "run-echo",
+      "runs": [
+        {
+          "closed": true,
+          "current_step": null,
+          "id": "run-echo",
+          "last_event_at_ms": 1107,
+          "result": {
+            "body_ref": null,
+            "reason": null,
+            "state": "delivered",
+            "target": {
+              "id": null,
+              "kind": "notify"
+            }
+          },
+          "started_at_ms": 1001,
+          "state": "completed",
+          "steps": [
+            {
+              "ended_at_ms": 1103,
+              "index": 0,
+              "kind": "command",
+              "name": "emit",
+              "outcome": "done",
+              "reason": null,
+              "result_summary": null,
+              "started_at_ms": 1003,
+              "state": "done",
+              "title": "command: emit"
+            },
+            {
+              "ended_at_ms": 1105,
+              "index": 1,
+              "kind": "filter",
+              "name": "match",
+              "outcome": "done",
+              "reason": null,
+              "result_summary": null,
+              "started_at_ms": 1005,
+              "state": "done",
+              "title": "filter: match"
+            }
+          ]
+        }
+      ],
+      "state": "idle",
+      "steps": [
+        {
+          "ended_at_ms": 1103,
+          "index": 0,
+          "kind": "command",
+          "name": "emit",
+          "outcome": "done",
+          "reason": null,
+          "result_summary": null,
+          "started_at_ms": 1003,
+          "state": "done",
+          "title": "command: emit"
+        },
+        {
+          "ended_at_ms": 1105,
+          "index": 1,
+          "kind": "filter",
+          "name": "match",
+          "outcome": "done",
+          "reason": null,
+          "result_summary": null,
+          "started_at_ms": 1005,
+          "state": "done",
+          "title": "filter: match"
+        }
+      ],
+      "trigger": {
+        "summary": "every 20s",
+        "type": "schedule"
+      }
+    }
+  ],
+  "configured_fallback": null,
+  "edges": [],
+  "nodes": [
+    {
+      "identity": {
+        "id": "blueprint-echo",
+        "kind": "blueprint",
+        "owner_tab_id": "creator",
+        "team_id": "team",
+        "workspace_id": "workspace"
+      },
+      "state": "idle",
+      "stop": {
+        "allowed": true,
+        "reason": null
+      }
+    }
+  ],
+  "revision": "752ef19b0b41e1017c6905e343ae31fd554628c2eccc68f950ce16540f1fa9df",
+  "runs": [],
+  "scenarios": [
+    {
+      "id": "blueprint-echo",
+      "name": "Echo pipeline",
+      "root": {
+        "id": "blueprint-echo",
+        "kind": "blueprint",
+        "owner_tab_id": "creator",
+        "team_id": "team",
+        "workspace_id": "workspace"
+      }
+    }
+  ],
+  "team_id": "team",
+  "truncated": false,
+  "workspace_id": "workspace"
+}

@@ -110,33 +110,35 @@ vague even when it is long.
 Effort lineage links use `codeterm effort link --from <plan> --to <plan> --rel
 <rel>`. The accepted `rel` values are `follows` and `supersedes`.
 
-## Milestones & regression boundaries
+## Milestones & validation
 
-Tasks are not a flat list — group them into **milestones** and gate each
-boundary with one centralized regression run. Isolated implementation lanes do
-not repeat cold compiled builds.
+Tasks are not a flat list — group them into **milestones** and keep later work
+parked until it reaches the frontier. Lanes run focused checks; merged waves
+get one canonical batch, and the broad regression suite runs once on the release
+SHA.
 
 ```bash
 codeterm plan kinds set <plan> --kinds "build,integration,release"   # milestone-kind columns
 codeterm plan milestone add <plan> <task> --kind <kind> --text "<what shipped>"
 ```
 
-At each milestone boundary the Orchestrator runs the broad gate in one warm
-integration checkout before opening the next milestone. A milestone with no
-regression gate is a milestone in name only.
+At each boundary the Orchestrator reruns the merged wave's focused selectors as
+one canonical batch. `plan qa next` may record focused evidence for a group, but
+the optional record does not gate dispatch.
 
 Give each task its group with `--group` and sequence with `depends_on`, never by
-pausing tasks. When every task in a group is terminal, no further task
-dispatches until the group regression run and the group retrospective
-(`codeterm plan groups close <plan> <group> --note "<retrospective>"`) are both
-recorded; reclosing a member re-arms both.
+pausing tasks. Pending work in later groups stays parked until it reaches the
+frontier and appears once as a compact count in the plan reminder. Regression
+and retrospective records are optional advisories; they do not gate dispatch.
 
-## Reflection is a rhythm, not a one-off
+## Reflection at wrap-up
 
-Surface these at plan creation: a plan-level retrospective at every plan close
-(`plan retrospective`), self-improving loops that re-run a task class until a
-quality bar holds (`plan loop`), and the serialized QA queue for in_review tasks,
-one heavy gate per machine at a time (`plan qa`).
+Plan archive succeeds without a retrospective; `plan retrospective` remains
+available for useful closeout notes. Keep `codeterm plan groups close --note` and
+`codeterm orchestrator learn` available for optional group notes and reusable
+lessons; mention them once at most during plan wrap-up, not after every group
+close. Also surface self-improving loops (`plan loop`) and the serialized QA
+queue for `in_review` tasks (`plan qa`).
 
 ## Plans carry their own skills
 
@@ -200,4 +202,4 @@ Never require a lane in a task; checkout placement is the Orchestrator's call.
 When blocked or unclear on intent, ask the Orchestrator with what you already
 tried; uncertainty routed early is planning working.
 
-<!-- revision: 27 -->
+<!-- revision: 29 -->

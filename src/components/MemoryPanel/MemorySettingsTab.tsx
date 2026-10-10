@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatUntil } from "../../lib/timeLabels";
 import { Cog, Moon, RefreshCw } from "lucide-react";
 import type { AppConfig, CronJob } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
@@ -52,14 +53,7 @@ function freqLabel(freq: ScheduleFreq): string {
 }
 
 function relativeFromNow(target: number): string {
-  const diff = target - Date.now();
-  if (diff <= 0) return "soon";
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `in about ${mins} minute${mins === 1 ? "" : "s"}`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `about ${hrs} hour${hrs === 1 ? "" : "s"} from now`;
-  const days = Math.floor(hrs / 24);
-  return `about ${days} day${days === 1 ? "" : "s"} from now`;
+  return target <= Date.now() ? "soon" : formatUntil(target, Date.now());
 }
 
 interface MemorySettingsTabProps {
@@ -266,7 +260,7 @@ export function MemorySettingsTab({ config, onUpdate, onOpenAgentsSettings }: Me
   );
 
   return (
-    <SettingsPage title="Memory" subtitle="Extraction, dreaming, and file sync.">
+    <SettingsPage title="Memory">
       <SettingsCard
         icon={<Cog size={16} />}
         title="Extraction"

@@ -46,6 +46,20 @@ pub async fn materialize_dropped_files(paths: Vec<String>) -> Result<Vec<String>
 }
 
 #[tauri::command]
+pub async fn attachment_path_kinds(paths: Vec<String>) -> Result<Vec<String>, String> {
+    tokio::task::spawn_blocking(move || {
+        paths
+            .iter()
+            .map(|path| {
+                crate::attachments::dropped_path_kind(std::path::Path::new(path)).to_string()
+            })
+            .collect()
+    })
+    .await
+    .map_err(|e| format!("attachment path kinds task failed: {}", e))
+}
+
+#[tauri::command]
 pub fn save_temp_file(
     data: String,
     extension: String,

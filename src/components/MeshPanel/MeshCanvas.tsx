@@ -327,11 +327,11 @@ export function MeshCanvas({
             {p.isGhost ? (
               <button
                 onClick={onAddPeerClick}
-                className="group flex min-h-[88px] w-[280px] items-center gap-3 rounded-lg border border-dashed border-[var(--ct-border)] bg-[color-mix(in_srgb,var(--ct-titlebar-bg)_28%,transparent)] px-4 text-left text-[var(--ct-muted-fg)] transition-colors hover:border-[color-mix(in_srgb,var(--ct-accent)_65%,var(--ct-border))] hover:bg-[color-mix(in_srgb,var(--ct-accent)_4%,transparent)] hover:text-[var(--ct-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)] cursor-pointer"
+                className="group flex min-h-[88px] w-[280px] items-center gap-3 rounded-lg border border-dashed border-[var(--ct-border)] bg-transparent px-4 text-left text-[var(--ct-muted-fg)] transition-colors hover:border-[color-mix(in_srgb,var(--ct-accent)_65%,var(--ct-border))] hover:bg-[color-mix(in_srgb,var(--ct-accent)_4%,transparent)] hover:text-[var(--ct-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)] cursor-pointer"
                 data-peer-card
                 aria-label="Add a peer in Network settings"
               >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] text-[var(--ct-muted-fg)] transition-colors group-hover:border-[color-mix(in_srgb,var(--ct-accent)_55%,var(--ct-border))] group-hover:text-[var(--ct-accent)]">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--ct-border)] bg-[color-mix(in_srgb,var(--ct-fg)_4%,transparent)] text-[var(--ct-muted-fg)] transition-colors group-hover:border-[color-mix(in_srgb,var(--ct-accent)_55%,var(--ct-border))] group-hover:text-[var(--ct-accent)]">
                   <Plus size={16} />
                 </span>
                 <span className="min-w-0 flex-1">

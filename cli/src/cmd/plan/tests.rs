@@ -488,7 +488,9 @@ fn render_plan_markdown_prepends_goal_block() {
     assert_eq!(blockquotes.len(), 1);
     assert!(!blockquotes[0].trim().is_empty());
     let goal_pos = rendered.find("## Goal").unwrap();
-    let sections_pos = rendered.find("## Sections\n\n### Supplied section").unwrap();
+    let sections_pos = rendered
+        .find("## Sections\n\n### Supplied section")
+        .unwrap();
     assert!(goal_pos < sections_pos);
     assert!(rendered.contains("### Supplied section\n\nSupplied section body\n"));
     assert!(rendered.contains("**Vector:** Ship the foundation"));
@@ -724,7 +726,8 @@ mod review_ref_forwarding {
                 PlanReviewAction::Bounce {
                     plan_id: Some("pl_1".into()),
                     task_id: reference.into(),
-                    note: "n".into(),
+                    note: Some("n".into()),
+                    note_from_pad: None,
                     changed_executable_surfaces: false,
                     distinct_oracle: false,
                 },
@@ -736,7 +739,8 @@ mod review_ref_forwarding {
                 PlanReviewAction::Hold {
                     plan_id: Some("pl_1".into()),
                     task_id: reference.into(),
-                    note: "n".into(),
+                    note: Some("n".into()),
+                    note_from_pad: None,
                 },
             )
             .unwrap();
@@ -746,7 +750,8 @@ mod review_ref_forwarding {
                 PlanReviewAction::Accept {
                     plan_id: Some("pl_1".into()),
                     task_id: reference.into(),
-                    note: "n".into(),
+                    note: Some("n".into()),
+                    note_from_pad: None,
                     changed_executable_surfaces: false,
                     distinct_oracle: false,
                     residual_risk: None,

@@ -24,7 +24,13 @@ and lifecycle lineage, persists the snapshot, and resumes after relaunch. Steps:
 2. Send the provider's exit command (Claude: `/exit`, etc.) only when the Tab
    reads `idle`. A busy composer would queue it as a user turn, so a working
    agent skips it and is stopped at the process by step 4.
+   A provider declaring `commands.idleRestartTermination` skips the command
+   for its own nonce-verified idle session with no known background work.
+   Claude declares this because its transcript is written per message.
 3. Wait up to `grace_secs` (default 10) for the PTY to exit cleanly.
+   A proven provider exit cancels the exit command's submit wait through the
+   existing per-PTY cycle signal, even when `/exit` writes no user transcript
+   turn. This ends shutdown without claiming message-delivery confirmation.
 4. If `--force` is set, the Tab was busy, or the timeout fires, kill the PTY.
 5. The existing Tab lifecycle detects the exit and respawns the agent
    with `--resume <session_id>` if a session id was recorded — otherwise
@@ -220,9 +226,23 @@ the shell PTY, launches the provider from the recorded spawn without resuming
 the unverified session, and reports `action=fresh_launch`. If the provider or
 recorded launch cannot be used, the command fails instead of reporting success.
 
-## Internal references
+## Implementation sources
 
-Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
+Restart stage telemetry uses `[restart-timing]` with `tab`, `pty`, `stage`, and
+`at_ms` (Unix milliseconds). Compare `exit-request`, `process-exit`,
+`relaunch-request`, `relaunch-spawn`, `session-bound`, and `ready` for both agent
+restart and the model restart fallback. `idle-terminate` proves the bypass ran.
+`first-composer` records the first composer observed by the launch input gate;
+hook-only resume can settle readiness without entering that gate. Never infer a
+composer timestamp from `session-bound` or `ready`.
 
-- [references/lifecycle.md](references/lifecycle.md) — restore, liveness and lifecycle-journal internals
-- [references/shell-integration.md](references/shell-integration.md) — per-shell cwd integration
+`provider-exit` records shutdown released by proven process exit rather than
+submit confirmation. `relaunch-worker`, `relaunch-pty-request`, and
+`relaunch-pty-created` split thread scheduling and launch setup from native PTY
+creation and reader/link setup before `relaunch-spawn`. Sidecar preparation runs
+in parallel with PTY creation; shell readiness follows `relaunch-spawn`.
+
+- `src-tauri/src/service/agent_restart/exit_recovery.rs` — in-place recovery of an exited agent session
+- `src-tauri/src/service/pty_io/lifecycle.rs` — restored agent materialization and PTY lifecycle
+- `src-tauri/src/service/tab/lifecycle_exit.rs` — identity retirement after observed exits
+- `src-tauri/src/crash/restore_report.rs` — startup restore outcomes and liveness classification

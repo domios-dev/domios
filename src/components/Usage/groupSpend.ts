@@ -24,6 +24,8 @@ export function groupSpendSnapshot(
     account_id: usage.group,
     captured_at: capturedAtMs,
     parsed_ok: true,
+    billing_mode: "unknown",
+    limits_reported: false,
     session_pct: null,
     session_resets_at: null,
     weekly_pct: null,

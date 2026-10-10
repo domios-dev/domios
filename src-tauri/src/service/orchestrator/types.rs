@@ -89,6 +89,10 @@ pub struct SpawnResult {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct SpawnAgentParams {
+    #[serde(default, skip)]
+    pub(crate) context_files: Option<crate::plan::TaskFiles>,
+    #[serde(default, skip)]
+    pub(crate) context_skills: Option<String>,
     pub agent: Option<String>,
     pub agent_name: Option<String>,
     pub args: Option<Vec<String>>,
@@ -178,6 +182,8 @@ pub struct SpawnAgentParams {
     pub(crate) manager_bootstrap: Option<crate::service::role_identity::ManagerBootstrapInputs>,
     pub preset: Option<String>,
     pub resume_session_id: Option<String>,
+    #[serde(default, skip_deserializing)]
+    pub(crate) fork_session: bool,
     pub charter: Option<String>,
     pub tick_interval_secs: Option<u64>,
     pub nudge_cooldown_secs: Option<u64>,

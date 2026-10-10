@@ -79,3 +79,39 @@ fn provider_update_process_retired_absent_or_reused_group_has_no_signal_authorit
         std::io::Error::from_raw_os_error(libc::EPERM).to_string()
     );
 }
+
+#[cfg(all(windows, debug_assertions))]
+#[test]
+fn provider_update_resume_failure_is_an_error_and_owned_child_is_reaped() {
+    use std::os::windows::io::AsRawHandle;
+    use std::process::{Command, Stdio};
+    let mut command = Command::new("cmd.exe");
+    command
+        .args(["/d", "/c", "exit 0"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let mut tree = crate::service::provider_update::ProcessTree::prepare(&mut command).unwrap();
+    let mut child = command.spawn().unwrap();
+    tree.record_spawn(&child).unwrap();
+    let evidence = codeterm_util::process_util::diagnostics::snapshot(&child);
+    let threads = evidence["threads"]["entries"].as_array().unwrap();
+    assert_eq!(threads.len(), 1, "{evidence}");
+    assert_eq!(threads[0]["suspend_count"], 1, "{evidence}");
+    let error = tree
+        .attach_with_resume(&child, |handle| {
+            assert_eq!(handle, child.as_raw_handle().cast());
+            0xC0000022u32 as i32
+        })
+        .unwrap_err();
+    assert!(error.contains("NTSTATUS 0xc0000022"), "{error}");
+    assert!(tree.assigned);
+    assert!(child.try_wait().unwrap().is_none());
+    tree.terminate(&mut child).unwrap();
+    assert_eq!(child.wait().unwrap().code(), Some(1));
+    tree.reaped(&child);
+    assert!(tree
+        .wait_completion(std::time::Instant::now() + std::time::Duration::from_secs(5))
+        .unwrap()
+        .confirmed());
+}

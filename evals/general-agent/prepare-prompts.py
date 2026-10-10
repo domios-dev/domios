@@ -51,6 +51,14 @@ def main() -> None:
 
             fragments = [] if family == 'spawned-agent' else [general_agent(source)]
             fragments.extend(source(name) for name in names)
+            if family == 'spawned-agent':
+                path = 'src-tauri/prompts/utility_tab_guidance.md'
+                present = (root / path).exists() if arm == 'new' else subprocess.run(
+                    ['git', 'cat-file', '-e', f'{args.baseline_ref}:{path}'],
+                    cwd=root, capture_output=True,
+                ).returncode == 0
+                if present:
+                    fragments.insert(1, source('utility_tab_guidance.md'))
             destination = args.output_dir / f'{family}-{arm}.md'
             destination.write_text('\n\n'.join(fragments) + '\n', encoding='utf-8')
             print(destination)

@@ -8,7 +8,7 @@ The owner chooses agent execution access through the global `agent.full_access` 
 
 Without full access, a model whose provider declares no unattended permission mode receives launch-scoped grants for its role's Domios commands. Launching an Orchestrator or Planner on such a model is refused before tab creation, with the model named; Team pairing checks both members first. Provider capabilities determine this behavior, not provider identity.
 
-Command and tool permission prompts follow the tab's own permission policy. A model observation never approves them. Notification audience controls who is alerted, not execution access.
+Command and tool permission prompts follow the tab's own permission policy. At an agent's launch or during a cron run, a prompt offering provider-declared options may be answered by one confident model choice of a declared option under the [Supporter prompt-answer rule](supporter-agent.md#provider-declared-prompt-answers); otherwise a model observation never approves it. Notification audience controls who is alerted, not execution access.
 
 ## Operator and role authority
 
@@ -16,7 +16,7 @@ The owner's execution-access choice is separate from authority over Teams, plans
 
 ## Folder trust and provenance
 
-Trust in a directory authorizes the provider-declared folder-trust response, not blanket approval of future commands. It is established by the existing deterministic policy: host-recorded provenance, shared trust, or a live same-provider tab with a verified session in the exact canonical directory. Uncovered folder trust requires owner attention.
+Trust in a directory authorizes the provider-declared folder-trust response, not blanket approval of future commands. It is established by the existing deterministic policy: host-recorded provenance, shared trust, or a live same-provider tab with a verified session in the exact canonical directory. At an agent's launch or during a cron run, the provider-declared folder-trust option may also be chosen under the [Supporter prompt-answer rule](supporter-agent.md#provider-declared-prompt-answers). Otherwise, uncovered folder trust requires owner attention.
 
 Hidden memory workers trust their daemon-owned folder. Crons trust the folder chosen by the owner when the schedule was created. Provenance covers that exact directory; an arbitrary supplied path or model verdict cannot create it. This provenance handling is merged for 1.12.4, in rollout.
 
@@ -24,7 +24,7 @@ Hidden memory workers trust their daemon-owned folder. Crons trust the folder ch
 
 Plugins declare capabilities and permissions. The host registers only capabilities it supports, and declared permissions bound access to local files, subprocesses, network hosts and secrets. A plugin update cannot supply host behavior absent from the installed app. Plugin confinement and official-channel provenance remain under the [plugin-host contract](core.md#core:plugin-host).
 
-Plugin setup guidance is data. A helper asks the owner what to change and uses the existing permission-gated configuration path only after confirmation. Global provider integrations may be inspected without mutation; installing or repairing them requires explicit user consent. Domios changes only entries it owns and provides a reversible restore path.
+Plugin setup guidance is data. A helper asks the owner what to change and uses the existing permission-gated configuration path only after confirmation. Global provider integrations may be inspected without mutation; installing or repairing them requires explicit user consent. Domios changes only entries it owns and provides a reversible restore path. Only the machine-owner instance reclaims unused launch profiles, preserving provider trust first. Live profiles and unknown foreign instances are kept; a registered foreign instance is reclaimable only while its exclusive lifetime lock is held. One-time legacy cleanup matches only generated filenames, keeps live tabs and reports counts to the owner.
 
 ## Supporter classification
 

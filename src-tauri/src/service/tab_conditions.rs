@@ -12,6 +12,51 @@ pub(crate) fn is_user_facing(tab: &Tab) -> bool {
     !tab.hidden && tab.audience == TabAudience::User
 }
 
+fn owner_prompt_notice_body(tab_id: &str, subject: &str, prompt: &PendingPrompt) -> String {
+    let need = match ServiceContext::pending_prompt_blocker_kind(prompt) {
+        "free_text" => "free-text input",
+        "multi_select" => "a multi-select answer",
+        "too_many_options" => "an owner choice from more than ten options",
+        _ => "a response to the prompt",
+    };
+    format!(
+        "{subject} needs {need}.\nTab: {tab_id}\nPrompt: {}",
+        prompt.question
+    )
+}
+
+fn parent_prompt_report_body(tab_id: &str, prompt: &PendingPrompt) -> String {
+    let mut body = format!(
+        "Agent needs your response: {}\nAnswer it with `codeterm tab respond <option> --tab {tab_id}`.",
+        prompt.question
+    );
+    for (index, option) in prompt.options.iter().enumerate() {
+        body.push_str(&format!(
+            "\n{}. {} (value: {})",
+            index + 1,
+            option.label,
+            option.value
+        ));
+    }
+    body
+}
+
+fn local_parent_target(mux: &MultiplexerState, tab_id: &str) -> Option<String> {
+    let parent = mux
+        .get_tab(tab_id)
+        .and_then(|tab| tab.parent_tab_id.as_deref())
+        .filter(|parent| *parent != tab_id && mux.get_tab(parent).is_some())
+        .map(str::to_string);
+    if parent.is_some() {
+        return parent;
+    }
+    let (_, target) = resolve_report_target(mux, tab_id).ok()?;
+    match target {
+        Some(ReportTarget::Local(target)) if mux.get_tab(&target).is_some() => Some(target),
+        _ => None,
+    }
+}
+
 /// Who a tab's standing conditions are owed to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ConditionOwner {
@@ -157,41 +202,57 @@ impl ServiceContext {
 
         crate::service::launch_readiness::owner_prompt_pending(tab_id, &prompt.question);
         self.set_cron_owner_prompt_waiting(tab_id, true);
+        self.handle_prompt_chain_blocker(tab_id, prompt);
 
-        let (owner, label) = {
+        let (owner, parent) = {
             let mux = self.mux.read();
             (
                 condition_owner(&mux, tab_id),
-                mux.display_label_for_tab(tab_id),
+                local_parent_target(&mux, tab_id),
             )
         };
-        let Some(ConditionOwner::Reporter(target)) = owner else {
+
+        if owner == Some(ConditionOwner::User) {
+            if let Some(event_key) = self.claim_pending_prompt_notice_event_key(tab_id, prompt) {
+                let subject = self.prompt_notice_subject(tab_id);
+                self.create_condition_notification_with_key(
+                    tab_id,
+                    TabCondition::PendingPrompt,
+                    crate::service::prompt_chain::owner_prompt_notice_title(prompt).into(),
+                    Some(owner_prompt_notice_body(tab_id, &subject, prompt)),
+                    Some(crate::service::prompt_chain::owner_prompt_condition_actions()),
+                    event_key,
+                );
+            }
+        }
+
+        let target = match owner {
+            Some(ConditionOwner::Reporter(target)) => target,
+            Some(ConditionOwner::User) => parent,
+            None => None,
+        };
+        let Some(target) =
+            target.filter(|_| self.claim_pending_prompt_parent_route(tab_id, prompt))
+        else {
             return None;
         };
-        let transition = self
-            .notif
-            .lock()
-            .observe_tab_condition(tab_id, TabCondition::PendingPrompt);
-        if transition == ConditionTransition::AlreadyAnnounced {
-            return None;
-        }
-        let Some(target) = target else {
+        if self.mux.read().get_tab(&target).is_none() {
             log::info!(
                 "[tab-condition] tab={tab_id} condition={} is not user-facing and has no report target; kept off the user's surfaces",
                 TabCondition::PendingPrompt.as_str()
             );
             return None;
-        };
+        }
 
         let message = OutboundMessage {
             target: target.clone(),
             body: MessageBody::Text {
-                body: format!(
-                    "Agent needs your response: {}\nAnswer it with `codeterm tab respond <option> --tab {tab_id}`.",
-                    prompt.question
-                ),
+                body: parent_prompt_report_body(tab_id, prompt),
             },
-            envelope: Some(MessageEnvelope::report(label, tab_id)),
+            envelope: Some(MessageEnvelope::report(
+                self.prompt_notice_subject(tab_id),
+                tab_id,
+            )),
             class: DeliveryClass::SystemNotice,
             origin: MessageOrigin::System,
             idempotency_key: None,
@@ -234,5 +295,4 @@ impl ServiceContext {
 }
 
 #[cfg(test)]
-#[path = "tab_conditions_tests.rs"]
 mod tests;

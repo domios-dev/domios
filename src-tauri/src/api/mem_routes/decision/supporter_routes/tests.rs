@@ -98,7 +98,7 @@ fn supporter_feed_api_redacts_untrusted_journal_fields() {
 }
 
 #[test]
-fn supporter_spend_status_exposes_today_month_and_optional_balance_estimates() {
+fn supporter_spend_status_exposes_today_month_and_credit_state() {
     let dir = tempfile::tempdir().unwrap();
     let runtime = SupporterRuntime::new(dir.path().into());
     let price = codeterm_types::decision::DecisionPricing {
@@ -106,12 +106,6 @@ fn supporter_spend_status_exposes_today_month_and_optional_balance_estimates() {
         input_usd_per_million: 0.5,
         output_usd_per_million: 0.5,
     };
-    let empty = spend_snapshot(&runtime, "fixture", Some(&price));
-    assert_eq!(empty["balance_usd"], Value::Null);
-    assert_eq!(empty["remaining_usd"], Value::Null);
-    runtime
-        .set_balance("fixture", Some(&price), Some(2.0))
-        .unwrap();
     runtime.record_spend(
         "fixture",
         Some(&price),
@@ -126,8 +120,7 @@ fn supporter_spend_status_exposes_today_month_and_optional_balance_estimates() {
     let spend = spend_snapshot(&runtime, "fixture", Some(&price));
     assert_eq!(spend["today"]["estimated_usd"], 0.5);
     assert_eq!(spend["month"]["estimated_usd"], 0.5);
-    assert_eq!(spend["remaining_usd"], 1.5);
     let unpriced = spend_snapshot(&runtime, "fixture", None);
     assert_eq!(unpriced["today"]["estimated_usd"], Value::Null);
-    assert_eq!(unpriced["remaining_usd"], Value::Null);
+    assert_eq!(unpriced["month"]["estimated_usd"], Value::Null);
 }

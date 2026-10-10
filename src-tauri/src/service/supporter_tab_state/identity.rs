@@ -84,7 +84,7 @@ pub(crate) enum DecisionSource {
     Adapter,
     NoAdapter,
     Timeout,
-    Error,
+    Error(DecisionErrorCategory),
     Budget,
     Other,
     LowConfidence,
@@ -96,7 +96,7 @@ impl DecisionSource {
             Self::Adapter => "adapter",
             Self::NoAdapter => "fallback(no_adapter)",
             Self::Timeout => "fallback(timeout)",
-            Self::Error => "fallback(error)",
+            Self::Error(_) => "fallback(error)",
             Self::Budget => "fallback(budget)",
             Self::Other => "fallback(other)",
             Self::LowConfidence => "fallback(low_confidence)",
@@ -107,7 +107,18 @@ impl DecisionSource {
         match error {
             DecisionError::Deadline => Self::Timeout,
             DecisionError::Budget | DecisionError::CreditExhausted => Self::Budget,
-            _ => Self::Error,
+            error => Self::Error(DecisionErrorCategory::from_error(error)),
+        }
+    }
+
+    pub(crate) fn unavailable() -> Self {
+        Self::Error(DecisionErrorCategory::Unavailable)
+    }
+
+    fn error_category(self) -> Option<&'static str> {
+        match self {
+            Self::Error(category) => Some(category.as_str()),
+            _ => None,
         }
     }
 
@@ -117,6 +128,45 @@ impl DecisionSource {
             || (),
         )
         .1
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DecisionErrorCategory {
+    Transport,
+    Http,
+    Unavailable,
+    Unsupported,
+    Parse,
+    InvalidObservation,
+}
+
+impl DecisionErrorCategory {
+    fn from_error(error: &DecisionError) -> Self {
+        match error {
+            DecisionError::Transport(_) => Self::Transport,
+            DecisionError::Http(_) => Self::Http,
+            DecisionError::Unavailable(_) => Self::Unavailable,
+            DecisionError::Unsupported => Self::Unsupported,
+            DecisionError::Parse(reason) if reason == "invalid_observation" => {
+                Self::InvalidObservation
+            }
+            DecisionError::Parse(_) => Self::Parse,
+            DecisionError::Deadline | DecisionError::Budget | DecisionError::CreditExhausted => {
+                Self::Unavailable
+            }
+        }
+    }
+
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Transport => "transport",
+            Self::Http => "http",
+            Self::Unavailable => "unavailable",
+            Self::Unsupported => "unsupported",
+            Self::Parse => "parse",
+            Self::InvalidObservation => "invalid_observation",
+        }
     }
 }
 
@@ -130,6 +180,10 @@ pub(crate) fn journal<'a>(
 ) -> Value {
     let observation = observation.into();
     let title = super::privacy::text(title);
+    let decision_point = observation
+        .decision_point()
+        .unwrap_or("tab_state")
+        .to_owned();
     let asked = match source {
         DecisionSource::Adapter | DecisionSource::Other | DecisionSource::LowConfidence => {
             super::super::supporter::tab_questions(&title, label)
@@ -137,6 +191,7 @@ pub(crate) fn journal<'a>(
         _ => super::super::supporter::ActivityContext::TabState {
             title: title.into(),
             declared_safe_choice: None,
+            decision_point: decision_point.clone(),
         }
         .failure(match source {
             DecisionSource::Timeout => "deadline",
@@ -148,7 +203,7 @@ pub(crate) fn journal<'a>(
     let mut event = json!({ "time": chrono::Utc::now().timestamp(), "kind": "tab_state",
         "tab": tab, "action": "classification", "decided_by": source.as_str(),
         "observation_id": observation.observation_id, "label": label, "confidence": confidence,
-        "reason": "model_answer", "asked": asked });
+        "reason": "model_answer", "error_category": source.error_category(), "asked": asked });
     observation.decorate(&mut event, source, label, confidence);
     event
 }

@@ -1,6 +1,7 @@
 export interface SlashCommandSuggestion {
   name: string;
   description: string;
+  argumentHint?: string;
 }
 
 export const CLAUDE_SLASH_COMMANDS: SlashCommandSuggestion[] = [
@@ -18,10 +19,10 @@ export const CLAUDE_SLASH_COMMANDS: SlashCommandSuggestion[] = [
   { name: "/status",  description: "Show status" },
 ];
 
-export function filterSlashCommands(prefix: string): SlashCommandSuggestion[] {
+export function filterSlashCommands(prefix: string, commands: SlashCommandSuggestion[] = CLAUDE_SLASH_COMMANDS): SlashCommandSuggestion[] {
   if (!prefix.startsWith("/")) return [];
   const needle = prefix.toLowerCase();
-  return CLAUDE_SLASH_COMMANDS.filter((c) =>
+  return commands.filter((c) =>
     c.name.toLowerCase().startsWith(needle),
   );
 }

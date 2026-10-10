@@ -1,6 +1,5 @@
 import { useCallback, useState, useEffect, type Ref } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { SupporterActivityTray } from "./SupporterActivityTray";
 import type { ApiConfig, ThemeConfig } from "../../lib/types";
 import { CloseXIcon, HamburgerIcon } from "../Icons";
 
@@ -44,7 +43,6 @@ interface TitlebarProps {
 }
 
 export function Titlebar({
-  api,
   onToggleSidebar,
   showSidebarToggle = false,
   theme: _theme,
@@ -128,35 +126,24 @@ export function Titlebar({
 
       <div className="min-w-0 flex-1" data-tauri-drag-region />
 
-      <div className="flex min-w-0 flex-1 items-center justify-end h-full overflow-hidden" data-tauri-drag-region>
-        {onDismissToast && (
-          <NotificationToastContainer
-            toasts={toasts}
-            onDismiss={onDismissToast}
-            onMarkRead={onMarkNotificationRead}
-            onNavigate={onNavigateToast}
-            embedded
-          />
-        )}
-      </div>
-
-      {/* Trays sit outside the clipping toast lane so a narrow window never hides them. */}
       <div className="flex shrink-0 items-center gap-0.5 pr-1 sm:gap-1 sm:pr-1.5">
-        {showBell && onMarkNotificationRead && onMarkAllNotificationsRead && onDeleteNotification && onClearNotifications && onNavigateToast && (
-          <NotificationBell
-            notifications={notifications}
-            onMarkRead={onMarkNotificationRead}
-            onMarkAllRead={onMarkAllNotificationsRead}
-            onDelete={onDeleteNotification}
-            onClearAll={onClearNotifications}
-            onNavigate={onNavigateToast}
-            onAnswer={onAnswerNotification}
-          />
-        )}
+        <div className="relative flex items-center">
+          {onDismissToast && <NotificationToastContainer toasts={toasts} onDismiss={onDismissToast} onMarkRead={onMarkNotificationRead} onNavigate={onNavigateToast} />}
+          {showBell && onMarkNotificationRead && onMarkAllNotificationsRead && onDeleteNotification && onClearNotifications && onNavigateToast && (
+            <NotificationBell
+              notifications={notifications}
+              onMarkRead={onMarkNotificationRead}
+              onMarkAllRead={onMarkAllNotificationsRead}
+              onDelete={onDeleteNotification}
+              onClearAll={onClearNotifications}
+              onNavigate={onNavigateToast}
+              onAnswer={onAnswerNotification}
+            />
+          )}
+        </div>
         {onToggleAnalytics && (
           <AnalyticsTray ref={analyticsButtonRef} open={analyticsOpen} onToggle={onToggleAnalytics} />
         )}
-        {api && <SupporterActivityTray api={api} />}
         {onOpenExtensions && <ExtensionsTray onOpen={onOpenExtensions} />}
         <KeepAwakeTray />
         {onOpenSettings && (
@@ -216,11 +203,11 @@ function MacTrafficLights({
       <button
         onClick={onClose}
         className="w-3 h-3 rounded-full flex items-center justify-center transition-colors"
-        style={{ backgroundColor: dim ? "var(--ct-muted)" : "#ff5f57" }}
+        style={{ backgroundColor: dim ? "var(--ct-muted)" : "var(--ct-window-close)" }}
         title="Close"
       >
         {hover && (
-          <svg width="6" height="6" viewBox="0 0 6 6" fill="none" stroke="#4d0000" strokeWidth="1.2" strokeLinecap="round">
+          <svg width="6" height="6" viewBox="0 0 6 6" fill="none" stroke="var(--ct-window-close-glyph)" strokeWidth="1.2" strokeLinecap="round">
             <line x1="1" y1="1" x2="5" y2="5" />
             <line x1="5" y1="1" x2="1" y2="5" />
           </svg>
@@ -230,11 +217,11 @@ function MacTrafficLights({
       <button
         onClick={onMinimize}
         className="w-3 h-3 rounded-full flex items-center justify-center transition-colors"
-        style={{ backgroundColor: dim ? "var(--ct-muted)" : "#febc2e" }}
+        style={{ backgroundColor: dim ? "var(--ct-muted)" : "var(--ct-window-minimize)" }}
         title="Minimize"
       >
         {hover && (
-          <svg width="6" height="2" viewBox="0 0 6 2" fill="none" stroke="#995700" strokeWidth="1.2" strokeLinecap="round">
+          <svg width="6" height="2" viewBox="0 0 6 2" fill="none" stroke="var(--ct-window-minimize-glyph)" strokeWidth="1.2" strokeLinecap="round">
             <line x1="1" y1="1" x2="5" y2="1" />
           </svg>
         )}
@@ -243,11 +230,11 @@ function MacTrafficLights({
       <button
         onClick={onMaximize}
         className="w-3 h-3 rounded-full flex items-center justify-center transition-colors"
-        style={{ backgroundColor: dim ? "var(--ct-muted)" : "#28c840" }}
+        style={{ backgroundColor: dim ? "var(--ct-muted)" : "var(--ct-window-maximize)" }}
         title="Maximize"
       >
         {hover && (
-          <svg width="6" height="6" viewBox="0 0 6 6" fill="none" stroke="#006500" strokeWidth="1.1" strokeLinecap="round">
+          <svg width="6" height="6" viewBox="0 0 6 6" fill="none" stroke="var(--ct-window-maximize-glyph)" strokeWidth="1.1" strokeLinecap="round">
             <polyline points="1,3.5 1,1 3.5,1" />
             <polyline points="5,2.5 5,5 2.5,5" />
           </svg>
@@ -290,7 +277,7 @@ function WindowsControls({
       </button>
       <button
         onClick={onClose}
-        className={`${UI_BUTTON.base} h-full w-12 text-[var(--ct-muted)] hover:text-white hover:bg-[#e81123] transition-colors`} 
+        className={`${UI_BUTTON.base} h-full w-12 text-[var(--ct-muted)] hover:text-white hover:bg-[var(--ct-window-close-hover)] transition-colors`} 
         title="Close"
       >
         <CloseXIcon />

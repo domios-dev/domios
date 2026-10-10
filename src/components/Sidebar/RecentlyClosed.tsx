@@ -1,7 +1,9 @@
-import { memo, useState, useCallback } from "react";
+import { memo, useState, useCallback, useRef } from "react";
+import { formatAge } from "../../lib/timeLabels";
 import { createPortal } from "react-dom";
 import { GitBranch, Layers } from "lucide-react";
-import type { ClosedTabView } from "../../lib/types";
+import type { ClosedTabView, ClosedStructureView } from "../../lib/types";
+import { closedLabel, describeRestore, restorableStructures } from "../../lib/closeHistoryModel";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { SidebarModelBadge } from "./SidebarModelBadge";
@@ -37,14 +39,7 @@ export function groupClosedViews(views: ClosedTabView[]): ClosedGroup[] {
  *  `3h`, `2d`, then an absolute date. Empty for a missing/zero stamp. */
 export function closedAgo(closedAtMs: number, nowMs: number = Date.now()): string {
   if (!closedAtMs) return "";
-  const s = Math.max(0, Math.round((nowMs - closedAtMs) / 1000));
-  if (s < 45) return "now";
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h}h`;
-  const d = Math.round(h / 24);
-  if (d < 7) return `${d}d`;
+  if (nowMs - closedAtMs < 7 * 86_400_000) return formatAge(closedAtMs, nowMs);
   return new Date(closedAtMs).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
@@ -67,11 +62,12 @@ export function describeGroup(group: ClosedGroup): string {
 interface RecentlyClosedProps {
   /** Flat newest-first closed-history view; grouped here for display. */
   views: ClosedTabView[];
+  structures?: ClosedStructureView[];
   showWorkspace: boolean;
   /** Reopen a single tab (or one tab inside a group). */
   onReopen: (workspaceId: string, index: number, orphaned: boolean, tabId: string) => void;
   /** Reopen an entire cascade/workspace group at once. */
-  onReopenGroup: (groupId: string) => void;
+  onReopenGroup: (groupId: string) => void | Promise<void>;
   touchMode?: boolean;
   uiFontScale?: number;
 }
@@ -84,6 +80,7 @@ interface TooltipState {
 
 function RecentlyClosedInner({
   views,
+  structures = [],
   showWorkspace,
   onReopen,
   onReopenGroup,
@@ -91,6 +88,18 @@ function RecentlyClosedInner({
   uiFontScale,
 }: RecentlyClosedProps) {
   const [open, setOpen] = useState(false);
+  const pendingRestore = useRef<string | null>(null);
+  const [restoring, setRestoring] = useState<string | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const restore = async (id: string) => {
+    if (pendingRestore.current) return;
+    pendingRestore.current = id;
+    setRestoring(id);
+    setRestoreError(null);
+    try { await onReopenGroup(id); }
+    catch (error) { setRestoreError(String(error)); }
+    finally { pendingRestore.current = null; setRestoring(null); }
+  };
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
 
@@ -112,6 +121,7 @@ function RecentlyClosedInner({
   }, []);
 
   const groups = groupClosedViews(views);
+  const inventories = restorableStructures(structures);
   const text = pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
   const metaText = pickUiFontScaleValue(uiFontScale, ["text-[9px]", "text-[10px]", "text-[11px]", "text-xs"]);
   const rowPad = touchMode ? "py-2" : "py-1.5";
@@ -182,7 +192,7 @@ function RecentlyClosedInner({
       </SidebarDisclosure>
       {open && (
         <div className="mt-0.5 overflow-y-auto" style={{ maxHeight: 165 }}>
-          {groups.length === 0 && (
+          {groups.length === 0 && inventories.length === 0 && (
             <div
               data-testid="recently-closed-empty"
               className={`${metaText} px-2 py-1.5 text-[var(--ct-muted)]`}
@@ -190,6 +200,15 @@ function RecentlyClosedInner({
               No closed tabs
             </div>
           )}
+          {inventories.map((record) => <div key={record.id} className="flex items-center gap-2 p-2">
+            <span className="min-w-0 flex-1">
+              <span className={`${text} block truncate`}>{closedLabel(record)}</span>
+              <span className={`${metaText} block text-[var(--ct-muted)]`}>{describeRestore(record)}</span>
+            </span>
+            <button type="button" aria-label={`Restore ${closedLabel(record)}`} disabled={restoring !== null}
+              className="shrink-0 rounded-md border border-[var(--ct-border)] px-2 py-0.5 text-[11px] text-[var(--ct-fg)] hover:bg-[var(--ct-surface-hover,var(--ct-surface))] disabled:opacity-50"
+              onClick={() => { void restore(record.id); }}>Restore</button>
+          </div>)}
           {groups.map((group) => {
             if (group.kind === "single") return tabRow(group.tabs[0], false);
 
@@ -213,7 +232,7 @@ function RecentlyClosedInner({
                     data-testid="recently-closed-group-restore"
                     onClick={() => {
                       setTooltip(null);
-                      onReopenGroup(group.id);
+                      void restore(group.id);
                     }}
                     title="Restore all"
                     className={`flex items-start gap-2 min-w-0 flex-1 pr-1 ${rowPad} text-left hover:text-[var(--ct-fg)]`}
@@ -240,6 +259,7 @@ function RecentlyClosedInner({
           })}
         </div>
       )}
+      {restoreError && <p role="alert">{restoreError}</p>}
       {tooltip &&
         createPortal(
           <div

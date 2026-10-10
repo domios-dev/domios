@@ -57,6 +57,72 @@ const { configureHtmlFileLoader } = await import("./htmlFileLoader");
 const { configureLocalArtifactLoader } = await import("./localArtifactLoader");
 const { parseLocalArtifactDirective } = await import("./LocalArtifactBlock");
 
+function paragraphLines(host: HTMLElement): string[] {
+  const visibleText = (node: Node): string => {
+    if (node.nodeName === "BR") return "\n";
+    if (node.nodeType === 3) return (node.textContent ?? "").replace(/\r\n?/g, "\n");
+    return Array.from(node.childNodes, visibleText).join("");
+  };
+  return Array.from(host.querySelectorAll("p"), visibleText);
+}
+
+test("mixed soft and hard verse breaks each render one newline", async () => {
+  for (const ending of ["\n", "\r\n"]) {
+    for (const sourcePositions of [false, true]) {
+      const source = ["first  ", "second", "third\\", "fourth", "", "fifth  ", "sixth"].join(ending);
+      const { host, root } = await render(<RichMarkdown text={source} sourcePositions={sourcePositions} />);
+      try {
+        assert(JSON.stringify(paragraphLines(host)) === JSON.stringify([
+          "first\nsecond\nthird\nfourth", "fifth\nsixth",
+        ]), `hard breaks must not add a second visible newline; ending=${JSON.stringify(ending)} sourcePositions=${sourcePositions} actual=${JSON.stringify(paragraphLines(host))}`);
+      } finally {
+        await act(async () => root.unmount());
+        host.remove();
+      }
+    }
+  }
+});
+
+test("arbitrary delta splits preserve verse blocks through completion", async () => {
+  for (const ending of ["\n", "\r\n"]) {
+    const source = ["first  ", "second", "third\\", "fourth", "", "fifth  ", "sixth"].join(ending);
+    const { host: whole, root: wholeRoot } = await render(<RichMarkdown text={source} />);
+    const { host, root } = await render(<RichMarkdown text="" />);
+    try {
+      for (let split = 0; split <= source.length; split += 1) {
+        let accumulated = "";
+        for (const delta of [source.slice(0, split), source.slice(split)]) {
+          accumulated += delta;
+          await act(async () => root.render(<RichMarkdown text={accumulated} />));
+        }
+        assert(host.innerHTML === whole.innerHTML, `split ${split} changes streamed blocks`);
+        await act(async () => root.render(<RichMarkdown text={source} />));
+        assert(host.innerHTML === whole.innerHTML, `completion changes blocks after split ${split}`);
+      }
+      let accumulated = "";
+      for (const delta of source) {
+        accumulated += delta;
+        await act(async () => root.render(<RichMarkdown text={accumulated} />));
+      }
+      assert(host.innerHTML === whole.innerHTML, "one-character deltas change blocks");
+    } finally {
+      await act(async () => { root.unmount(); wholeRoot.unmount(); });
+      host.remove();
+      whole.remove();
+    }
+  }
+});
+
+test("hard break cleanup also runs alongside inline HTML", async () => {
+  const { host, root } = await render(<RichMarkdown text={"first <em>verse</em>  \nsecond\nthird"} />);
+  try {
+    assert(paragraphLines(host)[0] === "first verse\nsecond\nthird", "HTML path doubles a hard break");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 test("containsHtmlMarkup gates on real tags, not comparisons", () => {
   assert(containsHtmlMarkup("press <kbd>Ctrl</kbd>"), "opening tag detected");
   assert(containsHtmlMarkup("</div>"), "closing tag detected");
@@ -228,37 +294,100 @@ test("standalone ct artifact directives render pages, images, and documents", as
   const imagePath = "C:\\Users\\User\\Desktop\\preview.png";
   const documentPath = "C:\\Users\\User\\Desktop\\notes.md";
   configureHtmlFileLoader(async (path) => {
-    assert(path === pagePath, "ct-page uses the existing sandboxed page loader");
+    assert(path === pagePath, "ds-page uses the existing sandboxed page loader");
     return "<main>Page from file</main>";
   });
   configureLocalArtifactLoader(async (path, kind) => {
     if (kind === "image") {
-      assert(path === imagePath, "ct-image preserves its absolute path");
+      assert(path === imagePath, "ds-image preserves its absolute path");
       return { data: "data:image/png;base64,AA==", media_type: "image/png" };
     }
-    assert(path === documentPath && kind === "document", "ct-document preserves kind and path");
+    assert(path === documentPath && kind === "document", "ds-document preserves kind and path");
     return {
       data: "# Document title\n\n![tracker](https://example.test/pixel.png)",
       media_type: "text/markdown",
     };
   });
 
-  assert(parseLocalArtifactDirective(`@ct-page "${pagePath}"`)?.path === pagePath, "quoted ct-page parses");
+  assert(parseLocalArtifactDirective(`@ds-page "${pagePath}"`)?.path === pagePath, "quoted ds-page parses");
   const { host } = await render(
-    <RichMarkdown text={`@ct-page ${pagePath}\n\n@ct-image ${imagePath}\n\n@ct-document ${documentPath}`} />,
+    <RichMarkdown text={`@ds-page ${pagePath}\n\n@ds-image ${imagePath}\n\n@ds-document ${documentPath}`} />,
   );
   await act(async () => {
     await Promise.resolve();
     await Promise.resolve();
   });
-  assert(host.querySelector("iframe")?.getAttribute("srcdoc")?.includes("Page from file"), "ct-page renders in the HTML sandbox");
-  assert(host.querySelector<HTMLImageElement>("[data-testid='chat-ct-image'] img")?.src.startsWith("data:image/png"), "ct-image renders bounded data");
-  assert(host.querySelector("[data-testid='chat-ct-document'] h1")?.textContent === "Document title", "Markdown document renders as a document");
-  assert(!host.querySelector("[data-testid='chat-ct-document'] img"), "document Markdown cannot fetch external images");
+  assert(host.querySelector("iframe")?.getAttribute("srcdoc")?.includes("Page from file"), "ds-page renders in the HTML sandbox");
+  assert(host.querySelector<HTMLImageElement>("[data-testid='chat-ds-image'] img")?.src.startsWith("data:image/png"), "ds-image renders bounded data");
+  assert(host.querySelector("[data-testid='chat-ds-document'] h1")?.textContent === "Document title", "Markdown document renders as a document");
+  assert(!host.querySelector("[data-testid='chat-ds-document'] img"), "document Markdown cannot fetch external images");
   assert(host.textContent?.includes("external image omitted"), "blocked document media is explicit");
 
   configureHtmlFileLoader(null);
   configureLocalArtifactLoader(null);
+});
+
+test("local embeds retain DOM and scroll across focus, visibility, and identical transcript resync", async () => {
+  let pageReads = 0;
+  let artifactReads = 0;
+  configureHtmlFileLoader(async () => {
+    pageReads += 1;
+    return "<main>Original page</main>";
+  });
+  configureLocalArtifactLoader(async (_path, kind) => {
+    artifactReads += 1;
+    return kind === "image"
+      ? { data: "data:image/png;base64,AA==", media_type: "image/png" }
+      : { data: "# Original document\n\n" + "Scrollable content\n\n".repeat(2200), media_type: "text/markdown" };
+  });
+  const snapshot = () => [
+    { id: "page", text: "@ds-page C:/preview.html" },
+    { id: "image", text: "@ds-image C:/preview.png" },
+    { id: "document", text: "@ds-document C:/preview.md" },
+  ];
+  const transcript = (messages: ReturnType<typeof snapshot>) => (
+    <>{messages.map((message) => <RichMarkdown key={message.id} text={message.text} />)}</>
+  );
+  const { host, root } = await render(transcript(snapshot()));
+  try {
+    const frame = host.querySelector("iframe");
+    const image = host.querySelector("img");
+    const documentHeading = host.querySelector("h1");
+    const scroll = documentHeading?.parentElement;
+    assert(frame && image && scroll, "all three embeds must be loaded");
+    scroll.scrollTop = 420;
+    for (const event of ["focus", "visibilitychange", "resync"]) {
+      await act(async () => {
+        if (event === "focus") window.dispatchEvent(new testWindow.Event(event));
+        if (event === "visibilitychange") document.dispatchEvent(new testWindow.Event(event));
+        root.render(transcript(snapshot()));
+      });
+      assert(host.querySelector("iframe") === frame, `${event} preserves page identity`);
+      assert(host.querySelector("img") === image, `${event} preserves image identity`);
+      assert(host.querySelector("h1") === documentHeading, `${event} preserves document identity`);
+      assert(scroll.isConnected && scroll.scrollTop === 420, `${event} preserves internal document scroll`);
+      assert(pageReads === 1 && artifactReads === 2, `${event} must not refetch files`);
+    }
+
+    configureHtmlFileLoader(async () => "<main>Changed page</main>");
+    configureLocalArtifactLoader(async (_path, kind) => kind === "image"
+      ? { data: "data:image/png;base64,AQ==", media_type: "image/png" }
+      : { data: "# Changed document", media_type: "text/markdown" });
+    const reloads = Array.from(host.querySelectorAll<HTMLButtonElement>("button"))
+      .filter((button) => button.getAttribute("aria-label")?.startsWith("Reload ") || button.textContent === "Reload");
+    assert(reloads.length === 3, "each file preview exposes a reload control");
+    await act(async () => {
+      reloads.forEach((button) => button.dispatchEvent(new testWindow.MouseEvent("click", { bubbles: true })));
+    });
+    assert(host.querySelector("iframe")?.getAttribute("srcdoc")?.includes("Changed page"), "reload renders changed page");
+    assert(host.querySelector("img")?.getAttribute("src") === "data:image/png;base64,AQ==", "reload renders changed image");
+    assert(host.querySelector("h1")?.textContent === "Changed document", "reload renders changed document");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    configureHtmlFileLoader(null);
+    configureLocalArtifactLoader(null);
+  }
 });
 
 test("standalone ct directives preserve Windows and forward-slash paths", async () => {
@@ -272,7 +401,7 @@ test("standalone ct directives preserve Windows and forward-slash paths", async 
   });
 
   const { host } = await render(
-    <RichMarkdown text={`@ct-image ${windowsPath}\n\n@ct-image ${forwardPath}`} />,
+    <RichMarkdown text={`@ds-image ${windowsPath}\n\n@ds-image ${forwardPath}`} />,
   );
   await act(async () => {
     await Promise.resolve();
@@ -281,14 +410,14 @@ test("standalone ct directives preserve Windows and forward-slash paths", async 
 
   assert(requested[0] === windowsPath, "Markdown must not consume backslashes before punctuation");
   assert(requested[1] === forwardPath, "forward-slash paths should remain unchanged");
-  assert(host.querySelectorAll("[data-testid='chat-ct-image'] img").length === 2, "both path forms should render");
+  assert(host.querySelectorAll("[data-testid='chat-ds-image'] img").length === 2, "both path forms should render");
   configureLocalArtifactLoader(null);
 });
 
 test("ct directives inside code fences remain inert code", async () => {
-  const { host } = await render(<RichMarkdown text={"```text\n@ct-image C:\\\\secret.png\n```"} />);
-  assert(!host.querySelector("[data-testid='chat-ct-image']"), "code-fenced directive is not executed");
-  assert(host.textContent?.includes("@ct-image"), "literal directive remains visible");
+  const { host } = await render(<RichMarkdown text={"```text\n@ds-image C:\\\\secret.png\n```"} />);
+  assert(!host.querySelector("[data-testid='chat-ds-image']"), "code-fenced directive is not executed");
+  assert(host.textContent?.includes("@ds-image"), "literal directive remains visible");
 });
 
 test("html fullscreen survives a markdown parent rerender", async () => {

@@ -1,0 +1,13 @@
+{
+  "profiles": {
+    "standard": { "efforts": {"low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"}, "defaultEffort":"medium", "contextWindowTokens":200000 },
+    "long": { "efforts": {"low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"}, "defaultEffort":"medium", "contextWindowTokens":1000000 },
+    "haiku": { "efforts": {}, "contextWindowTokens":200000 },
+    "opus47": { "efforts": {"low":"low","medium":"medium","high":"high","xhigh":"max","max":"max"}, "defaultEffort":"xhigh", "contextWindowTokens":1000000 }
+  },
+  "models": {
+    "opus":"standard", "sonnet":"standard", "haiku":"standard", "fable":"standard", "best":"standard", "opusplan":"standard",
+    "opus[1m]":"long", "sonnet[1m]":"long", "fable[1m]":"long",
+    "claude-opus-4-7":"opus47", "claude-haiku-4-5":"haiku"
+  }
+}

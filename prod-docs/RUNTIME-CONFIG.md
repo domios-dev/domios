@@ -14,38 +14,24 @@ Toggle via Settings UI (Agents tab) or Tauri IPC commands `get_autostart_enabled
 
 ## Themes
 
-### GitHub Dark (default)
-Dark theme matching GitHub's dark mode.
+| Built-in | Look |
+|---|---|
+| GitHub Dark (default) | Dark theme matching GitHub's dark mode |
+| Dracula | Popular purple-tinted dark theme |
+| Catppuccin Mocha | Warm pastel dark theme |
+| One Dark | Atom-inspired dark theme |
+| Nord | Arctic blue-tinted theme |
+| GitHub Light | Light theme matching GitHub's light mode |
+| Solarized Light | Ethan Schoonover's warm light color scheme |
+| Pip-Boy | Retro green-on-black Fallout terminal theme; selecting it activates CRT effects: scanlines, phosphor glow, and screen vignette |
 
-### Dracula
-Popular purple-tinted dark theme.
+`codeterm theme list` shows built-in and custom themes; `theme apply NAME`, `theme dir` (custom themes directory), `theme save ID FILE.toml [--apply]` and `theme delete ID` manage them (REST: `codeterm docs API-TABS`).
 
-### Catppuccin Mocha
-Warm pastel dark theme.
-
-### One Dark
-Atom-inspired dark theme.
-
-### Nord
-Arctic blue-tinted theme.
-
-### GitHub Light
-Light theme matching GitHub's light mode.
-
-### Solarized Light
-Ethan Schoonover's warm light color scheme.
-
-### Pip-Boy
-Retro green-on-black Fallout terminal theme. Selecting this theme automatically activates CRT effects: scanlines, phosphor glow, and screen vignette.
+A custom theme is a TOML file with `name` plus 20 color fields: `background`, `foreground`, `cursor`, `selection`, then `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white` and their `bright_` variants (`bright_black` … `bright_white`), each a `"#rrggbb"` string. UI chrome (sidebar, surfaces, borders) is derived from the background and palette, so light and dark themes need no extra fields.
 
 ## Session Persistence
 
-Sessions auto-save every 30 seconds and when you close the window. Saved to:
-- **Windows:** `%APPDATA%/codeterm/sessions/last.json`
-- **Linux:** `~/.config/codeterm/sessions/last.json`
-- **macOS:** `~/Library/Application Support/codeterm/sessions/last.json`
-
-Contains workspace layout and tab arrangement metadata.
+Desk state—workspaces, tabs, layout, and tab identity—is committed through the instance's Storage owner in `storage/state.db` beneath its data directory. Ordinary mutations are persisted through Storage; `POST /api/session/save` provides an explicit flush barrier before a forced stop. The Cron Jobs section below describes Storage unavailable mode and the backup/rollback protocol.
 
 ## CWD Tracking
 
@@ -62,14 +48,11 @@ Domios creates these scripts at startup.
 
 ## Cron Jobs
 
-Cron jobs live in `~/.codeterm/crons.json` (dev: `~/.codeterm-dev/crons.json`), not in `config.toml`. They are managed through the APIs in `codeterm docs API-INTEGRATIONS`, while the schema is documented here. Closing a workspace deletes its cron jobs, run history, and log directories.
+Cron jobs and run history belong to the instance's typed Storage state in `storage/state.db` beneath its data directory, not `config.toml`. They are managed through the APIs in `codeterm docs API-INTEGRATIONS`, while the schema is documented here. Closing a workspace deletes its cron jobs, run history, and log directories. Storage opens before cron restore or scheduler start.
 
-A `crons.json` that fails to load is preserved as `crons.json.corrupt-<UTC timestamp>`,
-reported by one ERROR line and one action-needed notification, and recovered from
-the newest valid backup in `state-backups/crons.json/` (written on every save).
-Without a backup the store runs on an empty in-memory list: built-in jobs such as
-`mem-dreaming-auto` run in memory only, and every save is refused until a fixed
-`crons.json` is restored and Domios restarts.
+If Storage cannot open or its one-time import fails verification, cron state is unavailable: dependent reads and writes report the Storage failure, scheduling does not fall back to an empty in-memory list, and no jobs execute from a substitute. The importer keeps recognized legacy inputs under `storage/legacy-originals/` after verifying the archive; those files are retained import evidence, not live configuration.
+
+For backup, stop Domios cleanly and preserve the complete `storage/` directory, including the database, referenced assets, and import archive. Restore it only into an empty `storage/` root with a Storage-compatible build. Do not downgrade by starting an older binary against the retained legacy JSON: it does not contain post-cutover writes. No in-place downgrade or JSON rollback is supported.
 
 ### `CronJob` schema
 
@@ -103,9 +86,13 @@ Without a backup the store runs on an empty in-memory list: built-in jobs such a
 
 Jitter is applied on top of recurring cron fire times. A job with `0 * * * *` and `jitter_max_ms=5000` fires between `:00.000` and `:05.000` each hour. Auto-mode exists so users on `*/5 * * * *` schedules don't all hammer LLM providers at the same minute boundary.
 
+### Missed slots
+
+A recurring job whose scheduled (jittered) fire time passed more than 10 minutes ago, for example because the machine slept or Domios started late, does not fire late: it moves to its next future slot and the scheduler logs the skip. A slot missed by 10 minutes or less still fires once. A oneshot job always fires, however late.
+
 ### Hidden spawn
 
-Cron runs spawn agents in **hidden tabs** — no separate visible tab. Observe progress via the cron tabl in the sidebar, the frontend log viewer, or `codeterm cron history ID`. Use `cron_read_log` (Tauri IPC) / the live tab fallback to tail a running run's output.
+Cron runs spawn agents in **hidden tabs** — no separate visible tab. Observe progress via the cron tabl in the sidebar, the frontend log viewer, or `codeterm cron history ID-or-name`. Use `cron_read_log` (Tauri IPC) / the live tab fallback to tail a running run's output.
 
 ## UI feature gates
 
@@ -158,7 +145,7 @@ The bundled `mem-dreaming-auto` cron runs the dreamer at `0 6 * * *` (6 AM local
 
 ### Supporter Agent
 
-The Supporter Agent runs memory re-rank and tab-state whenever its selected adapter is connected. Automatic plan reminders are the exception to deterministic fallback: without the connected adapter's approving choice none is sent (`codeterm docs ORCHESTRATION`). Memory search can force re-rank with `supporter=true|false`; adapter failures return plain recall with a `supporter.status = "fallback"` envelope. The shared `codeterm supporter status` and `/api/supporter/status` response reports the selected adapter and model, token status, `connected`, `last_activity`, `calls_last_hour`, `calls_last_day`, `last_verdict`, and `budget` (reached, calls_per_hour, free_at). `spend` holds today/month/since-balance token and estimated USD totals, balance/remaining estimates, exhaustion and next probe time; prices are adapter-declared, never assumed for unpriced adapters. The token is set in Settings > Agents > Supporter Agent or through bearer-only `/api/supporter/token`, and is stored under `<data dir>/supporter/`, never in `config.toml`.
+The Supporter Agent runs memory re-rank and tab-state whenever its selected adapter is connected. Automatic plan reminders are the exception to deterministic fallback: without the connected adapter's approving choice none is sent (`codeterm docs ORCHESTRATION`). Memory search can force re-rank with `supporter=true|false`; adapter failures return plain recall with a `supporter.status = "fallback"` envelope. The shared `codeterm supporter status` and `/api/supporter/status` response reports the selected adapter and model, token status, `connected`, `last_activity`, `calls_last_hour`, `calls_last_day`, `last_verdict`, and `budget` (reached, calls_per_hour, free_at). `spend` holds today/month token and estimated USD totals, exhaustion and next probe time; prices are adapter-declared, never assumed for unpriced adapters. The token is set in Settings > Agents > Supporter Agent or through bearer-only `/api/supporter/token`, and is stored under `<data dir>/supporter/`, never in `config.toml`.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -199,7 +186,7 @@ sessions = 0
 
 ```
 
-Requests are counted without a cap by default. An explicit positive cap counts requests, not questions: batched shared-state searches and multi-question tab observations each count as one physical HTTP request. Sequential adapters may use multiple requests per shared-state search; local decisions cost no request. Status reports a null cap when unlimited and live hourly/daily counts. Settings > Agents accepts an optional balance after a top-up. Usage and spend counters persist across restarts. Below-$1 alerts dedupe per balance entry; HTTP 402 or explicit credit exhaustion enters `credit_exhausted`, writes one failure alert and serves deterministic fallback. A new balance or successful request re-arms it; hourly probes are triggered by normal requests, never a timer.
+Requests are counted without a cap by default. An explicit positive cap counts requests, not questions: batched shared-state searches and multi-question tab observations each count as one physical HTTP request. Sequential adapters may use multiple requests per shared-state search; local decisions cost no request. Status reports a null cap when unlimited and live hourly/daily counts. Usage and spend counters persist across restarts. HTTP 402 or explicit credit exhaustion enters `credit_exhausted`, writes one failure alert and serves deterministic fallback. A later request probe may recover; probes are triggered by normal requests, never a timer.
 
 Saved membership is the union of the connections table, the active adapter and adapters with stored tokens. Switching keeps other tokens and models. `codeterm supporter disconnect <adapter>` removes that connection and token, preserving usage history; removing the active connection stops the Supporter without selecting another.
 
@@ -236,4 +223,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Both builds can run simultaneously.
 
-<!-- revision: 25 -->
+<!-- revision: 30 -->

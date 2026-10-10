@@ -81,12 +81,35 @@ Outputs go to `target-check/evals/` (gitignored).
 |---|-----------|---------------|----------------------------|
 | 1 | `WS-empty` | none | workspace id, name, cwd |
 | 2 | `WS-shell-silent` | `tab new` | bare shell tab stays bare on UI mount |
-| 3 | `WS-shell-with-text` | `tab new` + `tab exec` | same as above; scrollback NOT preserved (PTY restarts) |
+| 3 | `WS-shell-with-text` | `tab new` + `tab exec` | bare shell stays bare; saved scrollback remains above the fresh shell viewport |
 | 4 | `WS-claude-silent` | `agent spawn claude` (no input) | **claude relaunches** on UI mount, not powershell |
 | 5 | `WS-claude-with-text` | `agent spawn claude --task '...'` | claude launches and `--resume` picks up the conversation IF JSONL still on disk; fresh launch otherwise |
 | 6 | `WS-claude-renamed` | `agent spawn claude` + `tab rename "MY-CUSTOM"` | custom title preserved + claude relaunches |
 
 ## Adding scenarios
+
+### Shell viewport replay
+
+The deterministic viewport fixture is `src/hooks/terminal/terminalOutputWrite.test.ts`:
+
+```bash
+pnpm test:unit -- terminalOutputWrite.test
+```
+
+It replays shell history before a fake PTY's cursor-addressed first prompt,
+types into that prompt, and compares every retained line using xterm's buffer.
+Repeated restores change the viewer height and require each prior frame exactly
+once. A fragmented transport marker exercises the live stream path. An agent
+alternate-screen repaint must retain its original six-row viewport with no
+scrollback or blank rows inserted by shell restoration.
+
+For the live Windows oracle, keep a plain PowerShell tab open with enough ping
+output to fill the screen. Restart DEV through its canonical lifecycle twice,
+opening the restored tab after each restart. Require a fresh prompt below the
+saved output, typed input at that prompt, and every saved ping line readable
+above. Repeat with an agent TUI tab and a chat-backend tab open: their viewport
+and conversation must restore as before. Change the shell tab's viewport height
+between restarts to exercise backend/viewer dimension differences.
 
 Extend `run.sh` with another `create_ws + spawn` block, then add a
 matching row to the verification python at the bottom. Keep each

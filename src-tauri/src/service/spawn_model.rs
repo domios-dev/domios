@@ -20,7 +20,7 @@ impl ServiceContext {
         let result = self.agent_registry.with_provider(provider_id, |provider| {
             let supported = provider.reasoning_efforts_for_model(model);
             if supported.iter().any(|level| level.id == effort) {
-                Ok(provider.reasoning_effort_launch_args(effort))
+                Ok(provider.reasoning_effort_launch_args_for_model(model, effort))
             } else {
                 Err(supported
                     .into_iter()
@@ -203,11 +203,11 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
             .map(|model| normalize_requested_model(provider_id, &model));
         let capability = model_catalogue_capability(registry, provider_id);
         let catalogue_missing = live_catalogue_missing(registry, provider_id);
-        let catalogue = catalogue_models_for_resolution(provider_id, capability);
+        let catalogue = catalogue_models_for_resolution(provider_id, &capability);
         let matched = requested_model.as_deref().and_then(|model| {
             catalogue
                 .as_deref()
-                .and_then(|models| resolve_catalogue_model(provider_id, model, models, capability))
+                .and_then(|models| resolve_catalogue_model(provider_id, model, models, &capability))
         });
         let model = matched
             .as_ref()
@@ -228,7 +228,7 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
                     return Some(requested.to_string());
                 }
                 catalogue.as_deref().and_then(|models| {
-                    authoritative_catalogue_default(provider_id, capability, models)
+                    authoritative_catalogue_default(provider_id, &capability, models)
                 })
             });
         let provider_resolved_model = matched
@@ -275,10 +275,10 @@ pub(crate) fn resolve_fresh_agent_model_with_notice(
     {
         let catalogue_missing = live_catalogue_missing(registry, provider_id);
         let capability = model_catalogue_capability(registry, provider_id);
-        let catalogue = catalogue_models_for_resolution(provider_id, capability);
+        let catalogue = catalogue_models_for_resolution(provider_id, &capability);
         let matched = catalogue.as_deref().and_then(|models| {
             (!catalogue_missing)
-                .then(|| resolve_catalogue_model(provider_id, &model, models, capability))
+                .then(|| resolve_catalogue_model(provider_id, &model, models, &capability))
                 .flatten()
         });
         let resolved_model = matched
@@ -358,7 +358,7 @@ fn resolve_live_provider_model(
 
 fn catalogue_models_for_resolution(
     provider_id: &str,
-    capability: crate::agent::provider::ModelCatalogueCapability,
+    capability: &crate::agent::provider::ModelCatalogueCapability,
 ) -> Option<Vec<crate::agent::provider::ModelInfo>> {
     if capability.live_discovery_required {
         crate::agent::model_catalog::resolve_live_models(provider_id)
@@ -371,7 +371,7 @@ fn resolve_catalogue_model(
     provider_id: &str,
     requested: &str,
     catalogue: &[crate::agent::provider::ModelInfo],
-    capability: crate::agent::provider::ModelCatalogueCapability,
+    capability: &crate::agent::provider::ModelCatalogueCapability,
 ) -> Option<crate::agent::provider::ModelInfo> {
     let lookup = catalogue_lookup_model(requested, catalogue);
     if capability.live_discovery_required {
@@ -383,7 +383,7 @@ fn resolve_catalogue_model(
 
 fn authoritative_catalogue_default(
     provider_id: &str,
-    capability: crate::agent::provider::ModelCatalogueCapability,
+    capability: &crate::agent::provider::ModelCatalogueCapability,
     catalogue: &[crate::agent::provider::ModelInfo],
 ) -> Option<String> {
     let default = if capability.live_discovery_required {
@@ -554,6 +554,7 @@ pub(crate) fn normalize_session_model(model: &str) -> String {
 /// A tab launched with a DECLARED model was dispatched as that agent; running a
 /// different one is a failure, not a note. Without a declaration the operator
 /// took the default and a substitution is only worth a warning.
+#[cfg(test)]
 pub(crate) fn unrequested_substitution_severity(planned_model: Option<&str>) -> &'static str {
     match planned_model
         .map(str::trim)

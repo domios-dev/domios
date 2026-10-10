@@ -1,5 +1,7 @@
 # Orchestration control loop
 
+Create Team utility shells with `codeterm tab new --team <team-id> --purpose build` for builds, `--purpose dev` for servers, and `--purpose qa` for verification. The default purpose is `shell`; restart and desk restore keep it. Shell rows and headers show command-mark evidence: running, idle with the last exit, or unknown without marks.
+
 Use command `--help` for syntax; this is the Domios Orchestrator contract.
 
 ## Related documents
@@ -26,7 +28,6 @@ Use `codeterm orchestrator inspect --plan <plan> --json` only for discrepancies 
 | Test authoring | `codeterm docs TEST-AUTHORING` |
 | Task lifecycle, groups, dispatch | `codeterm docs ORCHESTRATION-TASKS` |
 | Verification, integration, heartbeat, closeout | `codeterm docs ORCHESTRATION-OPERATIONS` |
-| CLI syntax | `codeterm <command> --help` |
 
 ## Durable model
 
@@ -75,8 +76,9 @@ The live Plan owner may cancel, pend, reassign, respawn, or dispatch a task whos
 Worker tab is gone; the recovery retires the stale attempt in the same transition.
 Ownership proof, verb allowlists, and refusals: `codeterm docs API-PLAN`.
 
-Archive without a retrospective returns `plan.retrospective_unrecorded`;
-write it first with
+Archive succeeds without a retrospective and reports the optional
+`plan.retrospective_unrecorded` advisory. If a durable note would help, record
+it at plan wrap-up with
 `codeterm plan retrospective <plan> --body-file <pad-relative-path>`.
 
 ## The loop
@@ -89,20 +91,23 @@ the task, lane, dirty state, and recovery command. Treat it as an incident: tell
 the user, then recover with the named `codeterm plan task respawn` command.
 
 1. **Handle pushed reports.** Worker reports arrive automatically as incoming
-   messages. Accept or bounce them without polling an inbox.
+   messages. Accept or bounce them without polling an inbox. A Worker
+   `--status blocked` report is a block proposal and leaves task state
+   unchanged; deliberate blocks are in `ORCHESTRATION-TASKS`.
 2. **Reconcile.** Run `codeterm plan reconcile <plan>`; fix only owned drift.
 3. **Re-derive the frontier.** Inspect all open tasks, not only the previous focus.
 4. **Give every actionable task an exit** under the task sequencing contract;
-   plan reminders name only the actionable task ids.
+   plan reminders name actionable task ids and show later-group work once as a
+   compact parked-task count.
 5. **Keep the frontier staffed.** Do not leave a capable Worker idle while
    independent actionable work exists. Clear dispatch, dependency, review, and
    cleanup blockers first, then reuse a matching Worker or dispatch the next
    bounded task without duplicating ownership.
-6. **Keep source writers parallel.** Use isolated source-only lanes with
-   disjoint ownership.
+6. **Keep source writers parallel.** Prefer isolated lanes with disjoint
+   ownership: diffs stay reviewable and canonical stays warm.
 7. **Own canonical verification.** Real-merge ancestry; never cherry-pick,
-   squash, replay or patch-copy. All builds, tests, dev checks and gates run
-   in canonical.
+   squash, replay or patch-copy. Accept on review, then rerun each merged
+   wave's focused selectors in canonical.
 8. **Let heartbeat follow state.** It derives from plan/task state; answer
    reminders there, never through heartbeat, focus or lane fields.
 9. **Clean accepted work.** Close the Worker tab, remove the ancestry-merged
@@ -141,11 +146,6 @@ Before each wave, check provider headroom (reuse live Workers near95%), map disj
 
 If dispatch fails, send a standalone user alert immediately with impact, affected tasks, cleanup, and fallback; verify rollback. After two failures of the same class, stop, diagnose, and await owner direction. Never self-implement plan-owned work to bypass a blocked dispatch.
 
-## Task lifecycle, milestones, and dispatch
-
-See the task guide for lifecycle/dispatch, and the operations guide for review,
-verification and closeout.
-
 ## Review capacity
 
 Choose review granularity by backlog and diff: review a few large changes
@@ -156,21 +156,18 @@ grinding tiny edits.
 
 At five reviews, prioritize closures and avoid backlog growth. Backlog and credit
 debt are advisory: dispatch, competition and respawn need no capacity grant.
-Authorization, dependency, regression and acceptance checks still apply; never
-fake acceptance or adjust credit to silence warnings.
+Authorization, dependencies, review safety, and task acceptance still apply;
+pending terminal-group evidence remains advisory. Never fake acceptance or
+adjust credit to silence warnings.
 
-The following owner-only commands can still record review-work classification;
-they are not required for dispatch and do not grant additional authority:
+Owner-only `codeterm plan review authorize-capacity <plan> <task>` with
+`--class review` or `--class canonical_gate` records review-work classification;
+dispatch never needs it and it grants no authority.
 
-```bash
-codeterm plan review authorize-capacity <plan> <task> --class review
-codeterm plan review authorize-capacity <plan> <task> --class canonical_gate
-```
-
-Use `codeterm plan review accept|bounce|hold <plan> <task> --note "…"` for
-`in_review`; generic updates, gates and removal cannot exit it. `bounce`
-continues a live Worker or returns pending when gone; `hold` preserves the
-review, assignment and lane. Every verdict uses `--note`, never `--reason`.
+Exit `in_review` only via:
+`codeterm plan review accept <plan> <task> --note-from-pad review.md` (also `bounce`/`hold`).
+Bounce resumes Workers or returns pending; hold keeps review, assignment and lane.
+Pad notes or scalar `--note`; no authored inline.
 `API-PLAN` covers credit repair, task-less evidence and Planner parent resolution.
 
 ### Quiet team heartbeat
@@ -183,6 +180,6 @@ timeout, error or exhausted cap, none is sent; elapsed silence and hard events
 never force one, and an unchanged observation is never sent twice. Every
 delivered heartbeat names a next step. Reports, owner messages, decisions and
 failure alerts still reach you through their own channels. Record deliberate
-holds with `plan review hold --note`.
+holds with `plan review hold --note-from-pad`.
 
-<!-- revision: 103 -->
+<!-- revision: 109 -->

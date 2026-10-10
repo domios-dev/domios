@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+import { getAgentDescriptor } from "../../../lib/agentDescriptorCache";
 import type { MissionAgent } from "./types";
 
 interface AgentAvatarProps {
@@ -10,12 +12,15 @@ export function AgentAvatar({ agent, showName, onClick }: AgentAvatarProps) {
   const initials = agent.name.slice(0, 2).toUpperCase();
   const liveClass = agent.state === "working" ? "ct-presence-live" : agent.state === "qa-fail" ? "mc-avatar-qa-fail" : undefined;
   const staleClass = agent.state === "idle" || agent.state === "waiting" ? "ct-presence-stale" : undefined;
+  const providerColor = getAgentDescriptor(agent.provider)?.icon_color ?? undefined;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
       <div
         className={["mc-avatar", onClick && "mc-avatar-clickable", liveClass, staleClass].filter(Boolean).join(" ")}
         data-state={agent.state}
         data-provider={agent.provider}
+        data-provider-color={providerColor ? "" : undefined}
+        style={providerColor ? ({ "--mc-provider-color": providerColor } as CSSProperties) : undefined}
         data-mc-interactive={onClick ? "true" : undefined}
         title={onClick ? `${agent.name} (${agent.provider}) — open tab` : `${agent.name} (${agent.provider})`}
         data-testid={`avatar-${agent.id}`}

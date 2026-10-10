@@ -76,7 +76,7 @@ pub(crate) fn recover(
     if current.pty_id != observed.pty_id {
         return true;
     }
-    let general = super::super::is_general_agent(observed);
+    let general = super::super::session_contract::owns_main(&service.mux.read(), observed);
     let connected = count >= 2;
     if !connected {
         return false;
@@ -401,24 +401,5 @@ mod tests {
             agreement(&id, "new-launch", 1, 6, Label::ErrorLoop, 0.90).0,
             1
         );
-    }
-}
-
-impl ServiceContext {
-    pub(crate) fn general_agent_model_recovery_connected(&self, tab_id: &str) -> bool {
-        if !self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .is_some_and(super::super::is_general_agent)
-        {
-            return false;
-        }
-        let config = crate::config::load_config().supporter;
-        let tokens = crate::service::supporter::TokenSnapshot::read(
-            &crate::api::mem_routes::decision::token_store(),
-            config.active_id().unwrap_or(""),
-        );
-        crate::service::supporter::supporter_connected(&config, &self.supporter_models, &tokens)
     }
 }

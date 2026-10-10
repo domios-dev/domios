@@ -38,7 +38,7 @@ export function isSupporterStatus(value: unknown): value is SupporterStatus {
     typeof value.deadline_ms !== "number"
   )
     return false;
-  for (const period of ["today", "month", "since_balance"]) {
+  for (const period of ["today", "month"]) {
     const totals = value.spend[period];
     if (!object(totals) || typeof totals.input_tokens !== "number" || typeof totals.output_tokens !== "number")
       return false;

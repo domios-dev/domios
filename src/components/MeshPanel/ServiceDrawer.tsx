@@ -515,7 +515,7 @@ function SvcDrawer({
           )}
           {isRemote && (
             <span
-              className={`${pillClass} bg-[var(--ct-titlebar-bg)] text-[var(--ct-muted-fg)]`}
+              className={`${pillClass} bg-[color-mix(in_srgb,var(--ct-fg)_6%,transparent)] text-[var(--ct-muted-fg)]`}
               title={service.source_peer_id ?? undefined}
             >
               {service.source_peer ?? "remote"}

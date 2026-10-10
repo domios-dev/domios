@@ -20,6 +20,7 @@ export interface SingleSessionChoice {
   providerId: string;
   modelId?: string;
   effortId?: string;
+  preset?: string;
 }
 
 export interface PairSessionChoice {
@@ -33,6 +34,15 @@ export interface PairSessionChoice {
 }
 
 export type NewSessionChoice = SingleSessionChoice | PairSessionChoice;
+
+export function reconcilePresetSelection(
+  choice: NewSessionChoice,
+  presets: ReadonlyArray<{ provider: string; name: string; model: string }>,
+): NewSessionChoice {
+  if (choice.mode !== "single" || !choice.preset || presets.some((preset) =>
+    preset.provider === choice.providerId && preset.name === choice.preset && preset.model === choice.modelId)) return choice;
+  return { ...choice, preset: undefined };
+}
 
 function resolveProvider(
   providers: ProviderDescriptor[],
@@ -97,7 +107,7 @@ export function defaultNewSessionChoice(providers: ProviderDescriptor[]): NewSes
   };
 }
 
-function resolvePersistedChoice(
+export function resolvePersistedChoice(
   providers: ProviderDescriptor[],
   choice: NewSessionChoice,
 ): NewSessionChoice {
@@ -106,6 +116,7 @@ function resolvePersistedChoice(
     const modelId = resolveModel(provider, choice.modelId);
     return {
       mode: "single",
+      ...(choice.preset && provider?.id === choice.providerId && modelId === choice.modelId ? { preset: choice.preset } : {}),
       providerId: provider?.id ?? "",
       modelId,
       effortId: resolveEffort(provider, modelId, choice.effortId),

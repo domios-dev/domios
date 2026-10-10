@@ -33,6 +33,29 @@ Every claim below is transcribed from the Rust source of truth:
 
 ## The two-surface contract
 
+`authStatusProbe()` declares bounded subprocess arguments; `parseAuthStatus(record)`
+decodes its supported JSON. `parseSessionObservations(record)` carries typed API
+errors and permission mode from the claimed transcript. Native and JS paths owe
+parity fixtures. The host runs probes on a worker thread and consumes observations
+only when the provider's `structured_signals` setting is enabled (default false).
+No new sandbox host function is exposed by these capabilities.
+
+`modelCatalogueSeed()` decorates the manifest seed once at provider registration;
+it must be pure and must not probe a binary or network. Per-model effort launch
+mapping uses `reasoningEffortLaunchArgsForModel(model, effort)` with native parity.
+Claude's `model-capabilities.json` owns effort maps and compact windows separately
+from CLI version compatibility. `--codeterm-model-capabilities` explicitly opts
+launch/resume into its per-launch compact-window environment overlay; absent that
+flag, the provider's automatic compaction policy remains authoritative.
+
+`spawn.forkSessionArgs` declares session forking. Core opens a separate tab,
+resumes the source with those arguments, and accepts only a distinct session
+proved by the new launch's nonce. No session id is prebound for a fork.
+`tracksBackgroundWork()` plus `parseBackgroundWork(record)` declare structured
+background task observations. The bounded per-tab roster is session-scoped;
+`background_work_guard` defaults false. When enabled, restart refuses live work,
+provider updates wait for a roster change event, and explicit force is reported.
+
 A JS provider never sees the ~70-method Rust `AgentProvider` trait. It sees two
 surfaces:
 
@@ -79,6 +102,24 @@ remaining available. Preflight, enumeration, and `host.exec` use this shared
 observation; Windows PTY launch preserves the same process → machine → user
 PATH precedence without mutating the caller's environment.
 
+### CLI status and management
+
+The host's shared CLI status service uses `cliBinary`, falling back to
+`binaryName` and then the manifest id. Spawn preflight checks the actual launch
+binary. Status includes the resolver verdict and path plus `installer` and
+`updater` for the current OS, without changing command content. Chat backends
+explicitly require no CLI. Missing and unknown observations stay distinct.
+
+Plugin install/update prints that status immediately. Agents can inspect it with
+`codeterm agent cli status <provider>` and run the declared commands with
+`codeterm agent cli install <provider>` or `codeterm agent cli update <provider>`.
+Commands run in visible Team utility tabs, with completion reports and status
+refreshes; unsupported OS commands are refused before a tab is created.
+Status and dispatch warnings name missing command runners with setup guidance,
+derived from the manifest command's leading executable or explicit shell
+availability checks. This diagnostic does not parse arbitrary shell programs or
+install prerequisites; conditional installers can use an available alternative.
+
 ## Minimal vs full: pick your tier
 
 The contract supports a thin provider; nothing forces codex-grade depth.
@@ -114,12 +155,13 @@ Top-level `plugin.json` fields shared with capability plugins (`id`, `version`,
 |---|---|---|
 | `binaryName` | string? | Process name used for type-mapping a PTY to this provider. Defaults to `id`. |
 | `cliBinary` | string? | Binary probed for install/version checks. |
+| `cliCompatibility` | `{supported: string[], breaking: {range: string, reasons: string[]}[], modelMinimumCli?: map, directSqlite?: bool}` | Rust semver ranges (comma-separated comparisons); empty supported ranges explicitly mean unknown. Breaking ranges win. `directSqlite` defaults false and opts sqlite reads into fail-closed version enforcement. |
 | `installer` | map platform→string | Per-OS install command (`macos` / `linux` / `windows`). |
 | `updater` | map platform→string | Per-OS update command run automatically in a bounded utility process by the provider coordinator; working tabs keep running. |
 | `models` | `[{id, displayName, description?, available?}]` | Model seed registered with the model catalog. Each entry carries `id`, `displayName`, optional `description`, optional `available`; `available: false` ships an alias disabled until live discovery confirms it. |
 | `modelCatalogue` | `{authority: "authoritative"|"free_form", liveDiscoveryRequired?: bool}` | `authoritative` closes model selection to catalogue ids; `free_form` preserves provider-owned ids. Set `liveDiscoveryRequired` when the seed is not a trustworthy validation list. If no live snapshot is available, Domios preserves the requested id and returns a warning. |
 | `modelGroups` | `[{id, label}]` | Provider-owned groupings of `models` for the picker (e.g. the upstream company a routed model belongs to). `id` matches a model-id prefix, `label` is the text the picker renders; core never maps a vendor id to a label. Empty ⇒ one flat list. |
-| `credentials` | `[{id, file, public?, secret?}]` | Credential files the host reads on the plugin's behalf. Declaring one also revokes the plugin's own read access to that file. A declared file's fingerprint is captured with the cached model snapshot, so connecting a provider (the file appearing or changing) re-probes its models without a rebuild. |
+| `credentials` | `[{id, file, fileEnvironment?, public?, secret?}]` | Credential files the host reads on the plugin's behalf. Declaring one also revokes the plugin's own read access to that file. A declared file's fingerprint is captured with the cached model snapshot, so connecting a provider (the file appearing or changing) re-probes its models without a rebuild. |
 | `defaultModel` | string? | Default model id. |
 | `reasoningEfforts` | `[{id, displayName, description?}]` | Reasoning-effort levels. |
 | `defaultReasoningEffort` | string? | Default effort id. |
@@ -171,6 +213,48 @@ Drives the manifest fallbacks for session discovery (`sessionFilePath`,
 | `fileExtension` | string | `"jsonl"` | Session file extension. |
 | `searchFiles` | object? | absent | Search-only filesystem enumeration. `rootSubdir` selects a path beneath `rootDir`, `directoryDepth` bounds the number of directories to descend (default 1, host maximum 8), and `fileStemRegex` optionally extracts the session id from capture group 1. Search reads file paths and timestamps in Rust, then asks the provider for descriptive fields only after the raw content prefilter selects a candidate. |
 
+### Session identity confirmation
+
+`commands.modelSwitchCommands.confirmationSource: {kind: "session_identity"}`
+selects provider-owned model metadata instead of transcript stdout. Declare
+`model: {command: "/model {model}"}` and optional
+`effort: {command: "/effort {effort}"}`. Export
+`sessionModelIdentityPath(cwd, sessionId): string | null` for the exact session.
+The host canonicalizes that existing file beneath the permitted session root,
+installs a parent watcher before writing, and requires changed own-file bytes
+plus the target from `detectSessionModel` or `detectSessionReasoningEffort`.
+An already-current value is a no-op. Missing paths or unchanged evidence fail
+honestly. Session, PTY and binding nonce remain fixed; no automatic restart.
+The default `confirmationSource: {kind: "transcript"}` preserves the existing
+`transcript` declaration and fresh wrapped-stdout confirmation.
+No new sandbox host function or filesystem grant is exposed.
+
+Busy model changes require authenticated own-turn completion; Idle alone never
+releases a staged change. Providers without hooks may declare
+`commands.modelSwitchCommands.turnCompletion` with `eventPointer`, `eventValue`,
+`sessionPointer`, `startEventValue`, `turnPointer`, `activeTurnPointer` and `source`.
+Pointers use JSON Pointer syntax against records in the exact bound session's
+`sessionJsonlPath` (`source: "session_jsonl"`) or `sessionFilePath`
+(`source: "session_file"`). Select the file that contains the declared completion
+records; chat and update files can differ. Both paths require session-root
+confinement. The host captures an append boundary, observes file events,
+and matches the completed turn id against the latest provider-authored active
+turn id. A new user record invalidates prior completion evidence. Missing,
+foreign, partial or pre-boundary records cannot release the staged operation.
+
+Next-turn hooks read `GET /api/tabs/{id}/turn-controls?session_id=...` with the
+instance token and `x-codeterm-binding-nonce`. The exact-session response contains
+`model` and `effort`, preferring a staged selection over resolved launch values.
+It does not change actual identity or confirm a switch. Binding and controls
+requests need independent failure deadlines. Unavailable or mismatched controls
+must preserve the user message and current model, warn once quietly, and leave
+the selection pending for a subsequent turn; hooks must never block the message.
+
+`parseUsage` snapshots carry `billing_mode` (`subscription`, `api`, `unknown`)
+and `limits_reported` (boolean). Unknown is the default. Subscription snapshots
+with no reported metrics display that limits were not reported, without guessed
+spend. Providers must preserve missing meters as null.
+
 ### `commands`
 
 All fields optional.
@@ -180,10 +264,36 @@ All fields optional.
 | `compact` | string? | In-agent compact command (e.g. `/compact`). |
 | `freshContext` | string? | In-agent fresh-context command. |
 | `exit` | string? | In-agent clean-exit command. |
+| `idleRestartTermination` | bool | Transcript is durable while idle, so a verified idle restart may terminate without the exit command. Default `false`; busy restart behavior is unchanged. |
 | `stopKey` | string? | One raw key value for interrupting the current generation. |
 | `stopKeys` | string[]? | Ordered raw key values for a multi-key interrupt sequence. |
 | `stopKeyWaitForOutput` | bool | Wait for a PTY screen change between sequence keys. Default `false`. |
-| `modelSwitch` | `"restart_resume"` \| `"unsupported"` | How `agent model` changes a live tab's model. `restart_resume` relaunches the tab resuming the same verified session with `modelLaunchArgsFormat`; confirmation waits for an assistant turn after the captured transcript boundary. Default `unsupported` refuses the switch without writing to the tab. Never declare an in-agent slash command: provider model pickers persist the choice as the machine-global default. |
+| `modelSwitch` | `"restart_resume"` \| `"live"` \| `"live_command"` \| `"next_turn"` \| `"unsupported"` | `next_turn` keeps the session running: an RPC endpoint receives per-turn controls; a provider hook consumes the authenticated tab's resolved controls before persisting its user message. Hook providers require `sessionModelTranscriptBoundary` and `detectSessionModelAfterBoundary`; the shared core stages busy requests and confirms only a new assistant record. Unavailable boundaries refuse without restart. `live` uses the tab's advertised model route. `restart_resume` resumes the same verified session with new launch args and waits for post-boundary assistant evidence. `live_command` runs a declared idle command and confirms fresh bound-session output; failures never restart automatically. Default `unsupported` refuses without writing. |
+| `modelSwitchCommands` | `{model: {command, confirmation}, effort?: {command, confirmation}, transcript: {recordType, contentPath, prefix, suffix, ignoredContentRegexes?}}` | Required for `live_command`. Commands substitute `{model}` or `{effort}`; confirmation regexes also accept `{display_name}`, with selection values regex-escaped. Transcript declarations select the JSONL record type, string content path, and exact output wrapper. Optional `ignoredContentRegexes` identify complete non-turn command records such as caveats and exact command echoes; the inter-command guard excludes only whole-content matches or the exact stdout wrapper, retaining mixed prompt content. Only fresh output in the tab's own bound session confirms a switch. Busy tabs refuse before writing; a timeout fails without replay or restart. The picker offers a separate, confirmed `restart_resume` fallback. |
+
+Each live command may declare `prompt: {screenRegex, responseKeys, cancelKeys?}`. The screen
+regex accepts the same escaped placeholders; response keys are literal UTF-8
+strings (for example `"\r"`), concatenated into one bounded write. The host
+refuses a matching prompt before injection and answers once only after its own
+command was written, under the same session, PTY and binding nonce. The current
+screen must match at response enqueue. A response never confirms success: the
+declared transcript output must still arrive before the failure deadline.
+On failure, optional literal `cancelKeys` dismiss only the matching dialog caused
+by this command; the host waits for that dialog to clear before returning.
+An effort-only selection sends only its effort command and preserves model identity.
+
+A live command may declare a session-only `picker` with `screenRegex`,
+`selectedRegex`, `targetRegex`, `position` (`number` or `column`), `previousKey`,
+`nextKey`, `responseKey`, and `cancelKey`. Both selection regexes capture
+`position`; numeric pickers capture the displayed option number, while column
+pickers capture the text before the cursor or target label. Column targets also
+capture `label`. Core writes one navigation key per changed cursor position,
+re-observes the exact owned picker, and writes `responseKey` only on the target.
+Missing targets refuse with the explicit restart-and-resume fallback. Bare slash
+commands can open pickers without a selection argument. No new host API or
+sandbox access is granted; native and manifest declarations owe parity.
+Transcript appends wake confirmation alongside screen changes. Picker responses
+never establish success; fresh declared stdout in the owned session does.
 | `autoApproveFlags` | string[] | Launch flags for permission-bypass mode (e.g. `--yolo`, `--force`). Empty ⇒ the UI hides the bypass choice (`supports_permission_bypass` is derived). |
 | `modelLaunchArgsFormat` | string[] | Launch-arg template, each element may contain `{model}`. Empty ⇒ default `--model <id>`. |
 | `reasoningEffortLaunchArgsFormat` | string[] | Launch-arg template with `{effort}`, checked against the installed CLI's own `--help`. Absent ⇒ no scriptable effort flag, and spawn refuses any `--reasoning-effort` for this provider; declare no `reasoningEfforts` then. |
@@ -197,6 +307,13 @@ All fields optional.
 | `settingsPath` | string | Where the integration is stored (e.g. `~/.claude/settings.json`). |
 | `trust_grant` (alias `trustGrant`) | object? | One field, `managedKeys` (string[]): managed hook keys core passes to `grantIntegrationTrust` per install. |
 
+`spawn.restoresConversationHistoryOnResume` declares that a resume restores the
+existing conversation. Absent/false is non-restoring. A task-bound tool-less
+Worker then receives one host-restored brief after authenticated rebinding,
+subject to exact current-session evidence and a persisted launch claim. Resume
+context includes `cwd`, `contextFiles`, and `toolLessInstructionsPath`; mandatory
+attachments are revalidated and shared instructions are materialized again.
+
 ### `permissions`
 
 Provider-relevant subset (full contract in [PLUGINS.md](../PLUGINS.md)):
@@ -208,7 +325,7 @@ Provider-relevant subset (full contract in [PLUGINS.md](../PLUGINS.md)):
 | `network` | object | `host.fetch` host allowlist: an `allow` array of hosts. |
 | `subprocess` | object | `host.exec` binary allowlist: an `allow` array of binaries. |
 | `secrets` | bool | May use the per-plugin secret bucket. |
-| `agent_commands` (alias `agentCommands`) | bool | Spawned agents may route `codeterm plugin <id> <verb>` to this plugin's `onAgentCommand`. |
+| `agent_commands` (alias `agentCommands`) | bool | Spawned agents may route `codeterm plugin <id> <verb>` to this plugin's `onAgentCommand`. Declare the verbs as top-level `agentVerbs` (usage strings such as `send <chat-id> <text>`) and optional `agentKeywords`; Domios publishes them as the `plugin-<id>` mem skill and in `codeterm capabilities`. Without `agentVerbs`, the backticked spans after `Agent verbs:` in `configHelp` are used. Optional top-level `agentGuide` names a bundle-relative markdown file (absolute or escaping paths are refused; past 16 KiB it is cut with a truncation marker) that is appended to that mem skill and returned by `codeterm plugin get <id>`. Optional top-level `agentPromptLine` (one line, at most 240 characters) is added to every agent's launch prompt under `Built-in plugins:`, but only for enabled, hash-verified core plugins; a core plugin's `agentGuide` is also served by `codeterm docs <ID>`. A successful result may include `catalogueChanged: true` when the verb changed this provider's model catalogue. |
 | `manage_workspaces` (alias `manageWorkspaces`) | bool | May create/manage workspaces via `host.workspace*`. |
 | `spawn_agents` (alias `spawnAgents`) | bool | May spawn/drive agents via `host.agent*`. |
 | `analytics` | bool | May read machine-wide KPI aggregates via `host.analytics`. |
@@ -236,6 +353,7 @@ instead.
 | `detectFromTitle(title)` | terminal title | bool | `false`. |
 | `detectFromOutput(text)` | output chunk | bool | `false`. |
 | `screenHasTui(screenText)` | screen text | bool | `false`. |
+| `supportsUnboundSubmitRecovery()` | — | bool | `false`. Opt in only when this provider can safely recover submits without an authenticated session; each key still requires the provider classifier and live composer evidence. |
 | `extractSessionName(screen)` | screen text | string or `null` | `null`. |
 | `classifyTabState(snapshot)` | `{tabId, agentType, screenText, …}` (TabStateSnapshot) | TabStateClassification or `null` | native fallback; else `null` (generic classifier serves the tab). |
 | `isOutputNoise(text)` | output chunk | bool | `false`. |
@@ -255,6 +373,8 @@ instead.
 | `launchOnboardingResponse(screen)` | live clean screen text | `{frameKey, step}` for the next declared safe key (`step` is base64), or `null` | `null` — owner-facing prompts stay with the owner. Core checks delegated Worker/Planner screen changes off the PTY output path, deduplicates each focus frame, and re-observes after each key. |
 | `launchOnboardingSafeChoice(screen)` | the same live screen | exact provider-parsed safe option value, or `null` | `null` — model-bound onboarding is unsupported without a declared option. |
 | `permissionPromptResponse(toolName, prompt, screen)` | hook-reported tool name, PendingPrompt, screen | `{optionIndex, rule, steps}` (base64 steps) or `null`. Only for a single-choice tool approval; return `null` for questions, plan decisions, trust gates and anything without an explicit decline option. | `null` — per-tab auto-confirm never answers this provider's prompts. |
+| `permissionHookCapability()` | — | `{protocol, options: [{label, value}]}` or `null`. `claude-permission-request` requires distinct `allow` and `deny` options, a declared hook roster entry and explicit per-provider `permission_hook_decisions = true`. This declares response data, not automatic answering authority. | `null` — retain the interactive permission flow. |
+| `parseContextUsage(record)` | Provider-owned statusline or transcript record | `{used_tokens, window_tokens, cost_usd, source}` or `null`; numeric counts, USD or null, bounded source identifier. Never include raw payload or identifiers. Zero window means unknown, not a guessed denominator. Host ingestion additionally requires the per-provider `context_feed` boolean and exact session/nonce binding. | `null` — no context observation. |
 
 ### Session discovery
 
@@ -284,6 +404,7 @@ instead.
 | `readSessionContent(sessionId, {maxBytes, hintTerms})` | id, the newest-bytes budget, ASCII-lowercased terms a returned message must hold | `{messages: [{role, text, ts?, isMeta?}], truncated}` or `null` when the store is unreadable | native fallback; else the provider has no shared-store content. For providers whose sessions share one store (`filePath` is the store): exporting it declares the `shared_store` source, so search reads each session through it and never opens the store as a file. Read only that session, scan at most `maxBytes` newest bytes, and set `truncated` when older content went unscanned. |
 | `sessionJsonlPath(cwd, sessionId)` | cwd (pre-canonicalized when `cwdEncoding` is `dash_encoded`), id | path or `null` | native fallback. Exporting this is one of the signals that flips `supports_chat_ui` on. |
 | `parseSessionDelta(chunk)` | line-aligned chunk read by the host tailer (host owns all offset math) | `{messages: RichMessage[]}`; each row sets `recordIndex`, the chunk line it came from, which the host maps to the record start byte that names uuid-less rows (`rec-{start}-{row}`) | the window is skipped with a warning and the offset still advances — the tailer never retry-loops. |
+| `structuredToolFileDiffs(part)` | raw structured tool part | `FileDiff[]` or `null`; map only confirmed successful edits. The host uses this for live, recovered and history rows. | native fallback; else `null`. |
 | `usesStructuredChat()` | — | bool | native fallback; else `false`. |
 | `readStructuredChat(cwd, sessionId, cursor)` | cwd, id, opaque cursor | StructuredChat | native fallback; else empty. |
 | `parseInteractiveEvents(msg)` | RichMessage | InteractiveElement[] | called only when `spawn.interactiveEvents` is true **and** the export exists; otherwise native fallback / `[]`. |
@@ -388,3 +509,14 @@ Moved out of the embedded `codeterm docs` pages because they describe Domios's o
 - [prompt-detection.md](prompt-detection.md) — provider prompt detection architecture
 - [references/session-storage.md](references/session-storage.md) — provider session storage and search scanning
 - [references/secret-backends.md](references/secret-backends.md) — native secret backends and the retired credential erase
+
+Session manifests may declare `sessions.rootEnvironment: {variable, subdir}` for read-only inherited account homes. Empty/unset falls back to `rootDir`; the selected directory still requires sandbox read and environment permission. This does not grant write access or install integrations in that home. Credentials may declare `fileEnvironment` with the same shape; both default and selected credential paths remain denied to plugin reads.
+
+For a model-free control handshake, declare `spawn.capabilityProbe: "stream_json_initialize"`. The host owns process containment, isolation, decoding and bounded project/binary cache; no new sandbox host function is exposed. This capability uses `capability_probe_enabled`, default false, and explicit `POST /api/tabs/{id}/agent/capabilities/refresh`. Native and JS providers must agree on the declaration. Supported initialize data feeds cached slash suggestions, model aliases and subscription/mode display. Never send a user turn or usage request from a capability probe.
+
+`host.commandTranscriptStdout(recordJson, declarationJson)` exposes the shared
+pure Rust command-record parser to JS providers. It returns only declared
+stdout from caller-supplied JSON (1 MiB record and 24 KiB declaration bounds),
+with no filesystem, network, environment or subprocess access. The guard,
+confirmation reader and native/JS model-label detection share that parser;
+shared command fixtures cover native/QuickJS parity.

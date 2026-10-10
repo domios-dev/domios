@@ -17,7 +17,15 @@ export interface EnrichedChatEntry {
 export type EnrichmentCache = WeakMap<ChatMessage, EnrichedChatEntry[]>;
 
 function enrichUserMessage(raw: ChatMessage, rawItem: TimelineItem): EnrichedChatEntry[] {
-  const content = stripPastedContentTags(raw.content);
+  const splitPrefixes = splitChatPrefixedMessages(raw.content);
+  if (splitPrefixes && splitPrefixes.length > 1) {
+    return splitPrefixes.map((prefix, index) => {
+      const msg = { ...raw, id: `${raw.id}-prefix-${index}`, content: prefix.body };
+      return { msg, item: { kind: "message" as const, message: msg }, origin: prefix.origin };
+    });
+  }
+  const prefix = detectChatPrefix(raw.content);
+  const content = prefix?.body ?? stripPastedContentTags(raw.content);
   const m = content === raw.content ? raw : { ...raw, content };
   const item =
     m === raw || rawItem.kind !== "message" ? rawItem : { kind: "message" as const, message: m };
@@ -31,20 +39,11 @@ function enrichUserMessage(raw: ChatMessage, rawItem: TimelineItem): EnrichedCha
     };
     return [{ msg: m, item, origin }];
   }
-  const splitPrefixes = splitChatPrefixedMessages(m.content);
-  if (splitPrefixes && splitPrefixes.length > 1) {
-    return splitPrefixes.map((prefix, index) => {
-      const msg = { ...m, id: `${m.id}-prefix-${index}`, content: prefix.body };
-      return { msg, item: { kind: "message" as const, message: msg }, origin: prefix.origin };
-    });
-  }
-  const prefix = detectChatPrefix(m.content);
   if (!prefix) return [{ msg: m, item, origin: undefined }];
-  const msg = { ...m, content: prefix.body };
   return [
     {
-      msg,
-      item: item.kind === "message" ? { kind: "message" as const, message: msg } : item,
+      msg: m,
+      item: item.kind === "message" ? { kind: "message" as const, message: m } : item,
       origin: prefix.origin,
     },
   ];

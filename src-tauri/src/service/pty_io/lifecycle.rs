@@ -8,6 +8,8 @@ use crate::multiplexer::commands::MuxState;
 use crate::service::boot_stage::BootStage;
 use crate::service::ServiceContext;
 
+mod empty_session;
+
 #[derive(Clone)]
 pub(crate) struct RestoredLaunch {
     pub provider_id: String,
@@ -35,61 +37,25 @@ fn restored_snapshot_launch_input(
         crate::service::permission_policy::PermissionBypassAuthorization,
     >,
 ) -> RestoredSnapshotLaunchInput {
-    let mut launch_parameters = launch.launch_parameters;
-    let legacy_snapshot = !launch_parameters.captured;
-    let skip_permissions = if launch_parameters.captured {
-        launch_parameters.permission_bypass_requested && permission_bypass_authorization.is_some()
-    } else {
-        permission_bypass_authorization.is_some()
-    };
-    let provider_id = launch.provider_id;
-    let model = launch_parameters.model.clone().or(launch.model);
-    let reasoning_effort = launch_parameters
-        .resolved_reasoning_effort
-        .clone()
-        .or_else(|| launch_parameters.requested_reasoning_effort.clone());
-    let (system_prompt_capable, launch_task) =
-        crate::service::restored_launch::restored_launch_task(
-            registry,
-            &provider_id,
-            launch.role.as_deref(),
-            launch.role_profile.as_deref(),
-            &launch_parameters,
-        );
-    let params = crate::service::SpawnAgentParams {
-        agent: Some(provider_id.clone()),
-        agent_name: launch_parameters.agent_name.clone(),
-        args: launch_parameters.args.clone(),
-        cwd: launch.cwd,
-        skip_permissions: Some(skip_permissions),
-        permission_bypass_authorization,
-        model: model.clone(),
-        reasoning_effort: reasoning_effort.clone(),
-        system_prompt: system_prompt_capable.then(|| launch_task.clone()).flatten(),
-        resume_session_id: launch.session_id,
-        role: launch.role,
-        role_profile: launch.role_profile,
-        starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
-        ..Default::default()
-    };
-    launch_parameters.captured = true;
-    launch_parameters.identity_instructions =
-        system_prompt_capable.then(|| launch_task.clone()).flatten();
-    launch_parameters.model = model;
-    if launch_parameters.requested_model.is_none() {
-        launch_parameters.requested_model = params.model.clone();
-    }
-    if launch_parameters.requested_reasoning_effort.is_none() {
-        launch_parameters.requested_reasoning_effort = reasoning_effort.clone();
-    }
-    launch_parameters.resolved_reasoning_effort = reasoning_effort;
-    if legacy_snapshot {
-        launch_parameters.permission_bypass_requested = skip_permissions;
-    }
+    let input = crate::service::restored_launch::restored_fresh_launch_input(
+        registry,
+        crate::service::SpawnAgentParams {
+            agent: Some(launch.provider_id),
+            cwd: launch.cwd,
+            model: launch.model,
+            role: launch.role,
+            role_profile: launch.role_profile,
+            resume_session_id: launch.session_id,
+            skip_permissions: Some(permission_bypass_authorization.is_some()),
+            permission_bypass_authorization,
+            ..Default::default()
+        },
+        launch.launch_parameters,
+    );
     RestoredSnapshotLaunchInput {
-        params,
-        launch_parameters,
-        launch_task,
+        params: input.params,
+        launch_parameters: input.launch_parameters,
+        launch_task: input.launch_task,
         fallback_spec: None,
         origin: crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
     }
@@ -204,6 +170,18 @@ fn restored_snapshot_launch_command_inner(
     }
 }
 
+fn require_restored_launch_command(command: &str, session_id: Option<&str>) -> Result<(), String> {
+    if !command.trim().is_empty() {
+        return Ok(());
+    }
+    Err(match session_id {
+        Some(session) => format!(
+            "restored_session_unavailable: Saved session {session} exists, but the provider cannot resume it"
+        ),
+        None => "restored_session_unavailable: The provider cannot build a launch command".into(),
+    })
+}
+
 pub(crate) fn claim_restored_pty_boot(
     mux: &MuxState,
     tab_id: &str,
@@ -242,6 +220,17 @@ pub(crate) fn claim_restored_launch(
         || tab.cwd.as_deref() != observed_cwd
     {
         return Ok(None);
+    }
+    if tab.restored_from_snapshot
+        && tab
+            .close_restore
+            .as_ref()
+            .is_some_and(|state| state.exact_session)
+        && (!session_valid || tab.agent_session_id.is_none())
+    {
+        return Err(format!(
+            "The exact saved session for Tab {tab_id} is unavailable"
+        ));
     }
     let Some(mode) = restored_agent_materialization(
         tab.restored_from_snapshot,
@@ -296,10 +285,18 @@ pub(crate) fn restore_failure_boot_stage(pty_live: bool) -> Option<BootStage> {
     (!pty_live).then_some(BootStage::SpawnFailed)
 }
 
-/// Proven reattach of a live PTY must clear a stale failure; every other stage
-/// already describes the tab honestly and is left alone.
-pub(crate) fn reattach_boot_stage(current: Option<BootStage>) -> Option<BootStage> {
-    matches!(current, Some(BootStage::SpawnFailed)).then_some(BootStage::PtyReattached)
+/// Reattach clears stale launch failures but preserves restore failures that explain an unavailable agent.
+pub(crate) fn reattach_boot_stage(
+    current: Option<BootStage>,
+    failure_reason: Option<&str>,
+) -> Option<BootStage> {
+    let restore_failure = failure_reason.is_some_and(|reason| {
+        reason.starts_with("restored_provider_unresolved:")
+            || reason.starts_with("restored_role_without_provider:")
+            || reason.starts_with("restored_session_unavailable:")
+    });
+    (current == Some(BootStage::SpawnFailed) && !restore_failure)
+        .then_some(BootStage::PtyReattached)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -344,7 +341,7 @@ where
 impl ServiceContext {
     pub(crate) fn recover_missing_restored_provider(&self, tab_id: &str) -> Result<(), String> {
         use crate::agent::provider_identity::{
-            provider_for_claimed_session, ProviderIdentityEvidence,
+            provider_for_restored_session, ProviderIdentityEvidence,
         };
         use crate::session::lifecycle::AgentTypeWriteOrigin;
 
@@ -368,9 +365,15 @@ impl ServiceContext {
                 tab.pty_id.clone(),
             )
         };
-        let provider = evidence.cwd.as_deref().zip(evidence.session_id.as_deref())
-            .and_then(|(cwd, session)| provider_for_claimed_session(&self.agent_registry, cwd, session))
-            .ok_or_else(|| format!("restored_provider_unresolved: Tab {tab_id} retains its session but has no unique provider owner"))?;
+        let journal = crate::session::lifecycle::TabLifecycleJournal::shared().load();
+        let Some(provider) = provider_for_restored_session(&journal, tab_id, &evidence) else {
+            let reason = format!(
+                "restored_provider_unresolved: Tab {tab_id} retains its session but has no unique lifecycle journal owner"
+            );
+            self.emit_boot_stage(tab_id, BootStage::SpawnFailed, Some(reason.as_str()));
+            self.emit_state_changed();
+            return Err(reason);
+        };
         let result = self.commit_verified_tab_agent_type_with_origin(
             tab_id,
             provider,
@@ -452,6 +455,9 @@ impl ServiceContext {
         if self.tab_chat_backing(&resolved).is_some() {
             return Ok(());
         }
+        if let Some(refusal) = self.tab_surface_input_refusal(&resolved) {
+            return Err(refusal);
+        }
         let pty_claim = self.pty_ownership.acquire(&resolved);
         self.ensure_tab_pty_for_send_inner(&resolved, &pty_claim)
     }
@@ -461,18 +467,30 @@ impl ServiceContext {
         tab_id: &str,
         pty_claim: &crate::service::pty_ownership::TabPtyClaim,
     ) -> Result<(), String> {
+        if self.mux.read().get_tab(tab_id).is_some_and(|tab| {
+            tab.close_restore
+                .as_ref()
+                .is_some_and(|state| state.stopped)
+        }) {
+            return Err("Restored shell is stopped; use Rerun command or Start shell".into());
+        }
         if self.resolve_pty_id(tab_id).is_ok() {
             self.emit_pty_reattached(tab_id);
             self.materialize_restored_agent_for_send(tab_id)?;
             return Ok(());
         }
 
-        let (cwd, protected, agent_type) = {
+        let (cwd, protected, agent_type, profile) = {
             let mux = self.mux.read();
             let tab = mux
                 .get_tab(tab_id)
                 .ok_or_else(|| format!("Tab {} not found or has no PTY", tab_id))?;
-            (tab.cwd.clone(), tab.protected, tab.agent_type.clone())
+            (
+                tab.cwd.clone(),
+                tab.protected,
+                tab.agent_type.clone(),
+                tab.shell_profile.clone(),
+            )
         };
         if protected {
             return Err(format!(
@@ -489,8 +507,15 @@ impl ServiceContext {
         };
         let t0 = std::time::Instant::now();
         let spawn_gate = self.pty.lock().spawn_gate();
-        let built =
-            crate::pty::manager::build_session(spawn_gate, None, cwd.clone(), cols, 40, env_vars)?;
+        let built = crate::pty::manager::build_session_with_profile(
+            spawn_gate,
+            None,
+            cwd.clone(),
+            cols,
+            40,
+            env_vars,
+            profile.as_ref().filter(|_| agent_type.is_none()),
+        )?;
         let (pty_id, _) = self.pty.lock().register_session(None, built);
         self.screen_state.lock().resize(&pty_id, cols, 40);
         log::info!(
@@ -512,15 +537,20 @@ impl ServiceContext {
     }
 
     fn emit_pty_reattached(&self, tab_id: &str) {
-        let current = self.mux.read().get_tab(tab_id).and_then(|p| p.boot_stage);
-        if let Some(stage) = reattach_boot_stage(current) {
+        let (current, failure_reason) = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .map(|tab| (tab.boot_stage, tab.boot_failure_reason.clone()))
+            .unwrap_or((None, None));
+        if let Some(stage) = reattach_boot_stage(current, failure_reason.as_deref()) {
             self.emit_boot_stage(tab_id, stage, None);
         }
     }
 
     pub(crate) fn materialize_restored_agent_for_send(&self, tab_id: &str) -> Result<(), String> {
         self.recover_missing_restored_provider(tab_id)?;
-        let (provider_id, session_id, cwd, launch_parameters) = {
+        let (provider_id, mut session_id, cwd, launch_parameters, exact_session, session_cwd) = {
             let mux = self.mux.read();
             let tab = mux
                 .get_tab(tab_id)
@@ -530,33 +560,75 @@ impl ServiceContext {
                 tab.agent_session_id.clone(),
                 tab.cwd.clone(),
                 restorable_launch_parameters(tab),
+                tab.restored_from_snapshot
+                    && tab
+                        .close_restore
+                        .as_ref()
+                        .is_some_and(|state| state.exact_session),
+                tab.close_restore
+                    .as_ref()
+                    .and_then(|state| state.session_cwd.clone())
+                    .or_else(|| tab.cwd.clone()),
             )
         };
         let Some(provider_id) = provider_id else {
             return Ok(());
         };
-        let session_valid = session_id
-            .as_deref()
-            .zip(cwd.as_deref())
-            .map(|(sid, dir)| {
+        let resume_enabled = exact_session || crate::config::resume_sessions_enabled(&provider_id);
+        let resume_session_id = crate::service::restored_launch::restored_resume_session_id(
+            resume_enabled,
+            session_id.as_deref(),
+        );
+        let session_exists = resume_session_id
+            .zip(if exact_session {
+                session_cwd.as_deref()
+            } else {
+                cwd.as_deref()
+            })
+            .and_then(|(sid, dir)| {
                 self.agent_registry
                     .with_provider(&provider_id, |p| p.session_exists(dir, sid))
-                    .unwrap_or(false)
-            })
-            .unwrap_or(false);
+            });
+        let permission_bypass_authorization =
+            crate::service::restored_launch::restore_permission_bypass_authorization(
+                &self.app_handle,
+                &self.agent_registry,
+                tab_id,
+                &provider_id,
+                &launch_parameters,
+            )?;
+        let session_valid = session_exists == Some(true);
+        let permissions_preserved = launch_parameters.permission_bypass_requested
+            == permission_bypass_authorization.is_some();
+        let restored_empty = exact_session
+            && permissions_preserved
+            && !session_valid
+            && self.prepare_empty_session_restore(
+                tab_id,
+                &provider_id,
+                session_id.as_deref(),
+                session_exists,
+            );
+        if restored_empty {
+            session_id = None;
+        }
+        if exact_session && !session_valid && !restored_empty {
+            let missing = if session_exists == Some(false) {
+                "session_missing: "
+            } else {
+                ""
+            };
+            let reason = format!("restored_session_unavailable: {missing}The exact saved session for Tab {tab_id} is unavailable; restore will not launch another session");
+            self.refuse_restored_launch(tab_id, &reason);
+            return Err(reason);
+        }
         let _workspace_id = self.restored_tab_context(tab_id).ok_or_else(|| {
             format!(
                 "Tab {} is a restored agent Tab but has no tab context for materialization",
                 tab_id
             )
         })?;
-        let permission_bypass_authorization =
-            crate::service::restored_launch::restore_permission_bypass_authorization(
-                &self.agent_registry,
-                tab_id,
-                &provider_id,
-                &launch_parameters,
-            )?;
+        let mut command_error = None;
         let scheduled = restore_materialization_core(
             &self.mux,
             tab_id,
@@ -600,24 +672,51 @@ impl ServiceContext {
                     &provider_id,
                     &input,
                 );
-                crate::service::orchestrator::launch_agent_in_background(
+                if let Err(reason) = require_restored_launch_command(
+                    &launch_cmd,
+                    input.params.resume_session_id.as_deref(),
+                ) {
+                    self.refuse_restored_launch(tab_id, &reason);
+                    command_error = Some(reason);
+                    return;
+                }
+                crate::service::orchestrator::launch_agent_in_background_with_env(
                     self.clone(),
                     tab_id.to_string(),
                     launch_cmd,
                     provider_id,
                     input.origin,
+                    false,
+                    None,
                     input.launch_task,
                     input.fallback_spec,
+                    Default::default(),
                     None,
                     None,
+                    input.params.resume_session_id,
                 );
             },
         );
+        if let Some(error) = command_error {
+            return Err(error);
+        }
         if scheduled?.is_none() {
             return Ok(());
         }
+        if restored_empty {
+            self.emit_empty_restore_notice(tab_id);
+        }
         self.emit_state_changed();
         Ok(())
+    }
+
+    fn refuse_restored_launch(&self, tab_id: &str, reason: &str) {
+        self.void_launch_session_proof(tab_id);
+        if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
+            tab.agent_booting = false;
+        }
+        self.emit_boot_stage(tab_id, BootStage::SpawnFailed, Some(reason));
+        self.emit_state_changed();
     }
 
     pub fn resize_tab(&self, tab_id: &str, cols: u16, rows: u16) -> Result<(), String> {
@@ -642,7 +741,11 @@ impl ServiceContext {
     /// which is also what arms the existing guarded-input refusal.
     /// Identity teardown only, and deliberately blind to a booting tab. Launch
     /// readiness is settled by the caller before this, never behind this gate.
-    pub(crate) fn note_provider_exit_in_surviving_shell(&self, tab_id: &str) -> bool {
+    pub(crate) fn note_provider_exit_in_surviving_shell(
+        &self,
+        tab_id: &str,
+        proof: &crate::service::launch_readiness::LaunchExitProof,
+    ) -> bool {
         let observed = {
             let mut mux = self.mux.write();
             let Some(tab) = mux.get_tab_mut(tab_id) else {
@@ -660,25 +763,38 @@ impl ServiceContext {
             return false;
         }
         log::info!("[agent-lifecycle] provider exited to a surviving shell: tab={tab_id}");
-        self.clear_tab_agent_identity_for_lifecycle_exit_with_cause(
+        self.clear_tab_agent_identity_after_exit_with_proof(
             tab_id,
             "provider process exited to a surviving shell",
+            proof,
         )
+    }
+
+    pub(crate) fn pty_child_is_live(&self, pty_id: &str) -> bool {
+        let session = { self.pty.lock().get_session(pty_id) };
+        let Some(session) = session else {
+            return false;
+        };
+        let Ok(mut child) = session.child.lock() else {
+            return false;
+        };
+        matches!(child.try_wait(), Ok(None))
     }
 
     /// Kill the PTY process for a tab without removing the tab from the mux.
     /// Different from `close_tab`, which both kills the PTY and removes the tab.
     pub fn kill_tab_pty(&self, tab_id: &str) -> Result<(), String> {
+        crate::service::codex_rpc::lifecycle::stop_tab(tab_id);
         // A chatBackend tab has no PTY process — close the plugin session.
         if let Some((plugin_id, session_id)) = self.tab_chat_backing(tab_id) {
             self.chatbackend_close(&plugin_id, &session_id)?;
-            self.clear_tab_agent_identity_for_lifecycle_exit(tab_id);
+            self.clear_tab_agent_identity_explicitly(tab_id, "user stopped the agent");
             return Ok(());
         }
         let pty_id = self.resolve_pty_id(tab_id)?;
         self.pty_ownership.release_pty(&pty_id);
         kill_live_tab_pty(&mut self.pty.lock(), &pty_id)?;
-        self.clear_tab_agent_identity_for_lifecycle_exit(tab_id);
+        self.clear_tab_agent_identity_explicitly(tab_id, "user stopped the agent");
         Ok(())
     }
 
@@ -739,12 +855,15 @@ impl ServiceContext {
 }
 
 #[cfg(test)]
-#[path = "lifecycle_recovery_tests.rs"]
 mod lifecycle_recovery_tests;
 
 #[cfg(test)]
 #[path = "lifecycle/restored_snapshot_launch_tests.rs"]
 mod restored_snapshot_launch_tests;
+
+#[cfg(test)]
+#[path = "lifecycle/close_restore_tests.rs"]
+mod close_restore_tests;
 
 pub(crate) fn kill_live_tab_pty(
     manager: &mut crate::pty::manager::PtyManager,
@@ -885,7 +1004,8 @@ mod restore_boot_stage_tests {
             "precondition: the Tab starts with a latched failure"
         );
 
-        let reattached = reattach_boot_stage(tab.boot_stage).expect("reattach clears the latch");
+        let reattached = reattach_boot_stage(tab.boot_stage, tab.boot_failure_reason.as_deref())
+            .expect("reattach clears the latch");
         apply_boot_stage(tab, reattached, None);
         sequence.push(tab.boot_stage.unwrap());
 
@@ -899,9 +1019,23 @@ mod restore_boot_stage_tests {
             "the latched failure reason must be cleared, not merely overdrawn"
         );
         assert!(
-            reattach_boot_stage(tab.boot_stage).is_none(),
+            reattach_boot_stage(tab.boot_stage, tab.boot_failure_reason.as_deref()).is_none(),
             "reattach is idempotent"
         );
+    }
+
+    #[test]
+    fn reattach_preserves_restore_failures_that_explain_an_unavailable_agent() {
+        for reason in [
+            "restored_provider_unresolved: no unique owner",
+            "restored_role_without_provider: no provider or session",
+        ] {
+            assert_eq!(
+                reattach_boot_stage(Some(BootStage::SpawnFailed), Some(reason)),
+                None,
+                "a shell PTY reattach must not erase its agent restore failure"
+            );
+        }
     }
 
     #[test]
@@ -914,7 +1048,7 @@ mod restore_boot_stage_tests {
             Some(BootStage::PtyReattached),
         ] {
             assert_eq!(
-                reattach_boot_stage(stage),
+                reattach_boot_stage(stage, None),
                 None,
                 "reattach must not stomp an in-flight or ready boot: {stage:?}"
             );

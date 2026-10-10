@@ -20,6 +20,7 @@ import {
 } from "./chatSendStore";
 import {
   chatWindowAnchorIdentity,
+  chatMessageAnchor,
   chatWindowProjection,
   chatWindowRange,
   rekeyedChatWindowAnchor,
@@ -154,6 +155,14 @@ export function useChatWindowView({
     updateWindowAnchor(null);
   }, [followTailRef, updateWindowAnchor]);
 
+  const prepareMessage = useCallback((messageId: string) => {
+    const anchor = chatMessageAnchor(allTimelineItems, messageId);
+    if (!anchor || loadedAnchorKey === anchor) return false;
+    followTailRef.current = false;
+    updateWindowAnchor(anchor);
+    return true;
+  }, [allTimelineItems, loadedAnchorKey, followTailRef, updateWindowAnchor]);
+
   useLayoutEffect(() => {
     if (anchorKey == null || loadedAnchorKey === anchorKey) return;
     if (loadedAnchorKey == null) showLatest();
@@ -195,6 +204,7 @@ export function useChatWindowView({
     loadOlder,
     setHistoryReading,
     showLatest,
+    prepareMessage,
     updateOptimistic,
   };
 }

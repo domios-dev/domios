@@ -51,14 +51,24 @@ fn supporter_connected_predicate_by_token_mode() {
         };
         for usable in [true, false] {
             assert_eq!(
-                supporter_connected(&cfg, &registry, &TokenSnapshot { usable }),
+                supporter_connected(
+                    &cfg,
+                    &registry,
+                    &TokenSnapshot {
+                        usable,
+                        acl_invalid: false,
+                    }
+                ),
                 mode != TokenMode::Required || usable
             );
         }
         assert!(!supporter_connected(
             &cfg,
             &SupporterRegistry::new(),
-            &TokenSnapshot { usable: true }
+            &TokenSnapshot {
+                usable: true,
+                acl_invalid: false,
+            }
         ));
         assert!(!supporter_connected(
             &SupporterConfig {
@@ -66,9 +76,38 @@ fn supporter_connected_predicate_by_token_mode() {
                 ..cfg
             },
             &registry,
-            &TokenSnapshot { usable: true }
+            &TokenSnapshot {
+                usable: true,
+                acl_invalid: false,
+            }
         ));
     }
+}
+
+#[test]
+fn supporter_invalid_token_acl_notifies_owner_once_per_invalid_period() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = SupporterRuntime::new(dir.path().into());
+    let alerts = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let captured = alerts.clone();
+    runtime.attach_alert_sink(Arc::new(move |alert| captured.lock().push(alert)));
+    let invalid = TokenSnapshot::from_status(true, Some(false), true);
+
+    assert!(!invalid.usable);
+    assert!(invalid.acl_invalid);
+    report_token_acl_state(&runtime, "typesafe-jev", &invalid);
+    report_token_acl_state(&runtime, "typesafe-jev", &invalid);
+    let repaired = TokenSnapshot::from_status(true, Some(true), true);
+    report_token_acl_state(&runtime, "typesafe-jev", &repaired);
+    report_token_acl_state(&runtime, "typesafe-jev", &invalid);
+
+    let notices = alerts.lock();
+    assert_eq!(notices.len(), 2);
+    assert_eq!(
+        notices[0].level,
+        codeterm_types::notification::NotifyLevel::Failure
+    );
+    assert!(!notices[0].title.contains("private-token-fixture"));
 }
 
 #[test]
@@ -88,7 +127,9 @@ fn supporter_required_adapter_rejects_corrupt_and_unusable_tokens() {
             std::fs::Permissions::from_mode(0o644),
         )
         .unwrap();
-        assert!(!TokenSnapshot::read(&store, "fixture").usable);
+        let snapshot = TokenSnapshot::read(&store, "fixture");
+        assert!(!snapshot.usable);
+        assert!(snapshot.acl_invalid);
     }
 }
 

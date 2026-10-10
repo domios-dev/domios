@@ -13,14 +13,27 @@ use crate::api::{
     routes::{check_auth, resolve_tab, AppState},
 };
 
+pub(crate) mod context_feed;
+mod hook_authority;
+pub(crate) mod permission_decision;
+use hook_authority::{stop_report_verdict, StopReportVerdict};
 mod provider_events;
+mod reconciliation;
+mod recording;
 mod run_session;
 mod session_ack;
 mod session_claim;
+mod session_start_payload;
+mod stop;
 pub(crate) use provider_events::hook_provider_event;
+use recording::record_hook_post;
 #[cfg(test)]
 use session_ack::acknowledge_authenticated_launch;
 use session_ack::{acknowledge_and_reconcile_session_binding, unchanged_acknowledged_hook_report};
+use session_start_payload::{
+    reported_transcript_path, session_start_session_id, session_start_string,
+};
+pub use stop::hook_stop;
 #[cfg(test)]
 #[path = "hook_routes/review_regressions.rs"]
 mod review_regressions;
@@ -249,49 +262,61 @@ pub async fn hook_permission(
     OptionalJson(body): OptionalJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = resolve_hook_tab(&state, &raw_tab_id, "permission")?;
+    record_hook_post(&state, &tab_id, "permission", body.as_ref());
+    if let Some(response) = hook_authority::telemetry_response(&tab_id, "permission") {
+        return Ok(response);
+    }
+    if let Some(raw) = body.as_ref() {
+        if let Some(response) = permission_decision::handle(&state, &tab_id, &headers, raw).await {
+            return Ok(Json(response));
+        }
+    }
     // Hook firing = authoritative proof that an agent is running in this tab.
     ensure_agent_state(&state, &tab_id);
 
-    // The per-tool payload the vendor already sent beats anything scraped back
-    // off the screen, so it is ingested before the parsing fallbacks.
-    if let Some(raw) = body.as_ref() {
-        if let Some(signal) = crate::agent::permission_request::parse_permission_request(raw) {
-            reject_foreign_binding_nonce(&state, &tab_id, &headers, raw)?;
-            let decision = state
-                .svc
-                .prompt_detector
-                .lock()
-                .hook_detected_permission_request(&tab_id, signal);
-            state.svc.apply_hook_prompt_decision(&tab_id, &decision);
-            return Ok(Json(serde_json::json!({"ok": true, "ingested": true})));
-        }
+    // The provider's request metadata is retained separately from screen choices.
+    let permission_request = body
+        .as_ref()
+        .and_then(crate::agent::permission_request::parse_permission_request);
+    let has_permission_request = permission_request.is_some();
+    if let (Some(signal), Some(raw)) = (permission_request, body.as_ref()) {
+        reject_foreign_binding_nonce(&state, &tab_id, &headers, raw)?;
+        state
+            .svc
+            .prompt_detector
+            .lock()
+            .hook_detected_permission_request(&tab_id, signal);
     }
 
-    let explicit_prompt = body.and_then(|b| {
-        let question = b.get("question")?.as_str()?.to_string();
-        let options = b
-            .get("options")?
-            .as_array()?
-            .iter()
-            .filter_map(|o| {
-                Some(crate::multiplexer::types::PromptOption {
-                    label: o.get("label")?.as_str()?.to_string(),
-                    value: o.get("value")?.as_str()?.to_string(),
+    let explicit_prompt = if has_permission_request {
+        None
+    } else {
+        body.and_then(|b| {
+            let question = b.get("question")?.as_str()?.to_string();
+            let options = b
+                .get("options")?
+                .as_array()?
+                .iter()
+                .filter_map(|o| {
+                    Some(crate::multiplexer::types::PromptOption {
+                        label: o.get("label")?.as_str()?.to_string(),
+                        value: o.get("value")?.as_str()?.to_string(),
+                    })
                 })
+                .collect::<Vec<_>>();
+            if options.is_empty() {
+                return None;
+            }
+            Some(crate::multiplexer::types::PendingPrompt {
+                question,
+                options,
+                sections: None,
+                multi_select: None,
+                submit_available: None,
+                selected_values: None,
             })
-            .collect::<Vec<_>>();
-        if options.is_empty() {
-            return None;
-        }
-        Some(crate::multiplexer::types::PendingPrompt {
-            question,
-            options,
-            sections: None,
-            multi_select: None,
-            submit_available: None,
-            selected_values: None,
         })
-    });
+    };
 
     let decision = if let Some(prompt) = explicit_prompt {
         state
@@ -381,103 +406,12 @@ pub async fn hook_permission(
 
     state.svc.apply_hook_prompt_decision(&tab_id, &decision);
 
-    Ok(Json(serde_json::json!({"ok": true})))
-}
-
-/// Verdict for a provider-reported Stop POST. A carried nonce must equal the
-/// tab's own launch nonce (completion-via-report); a nonce-less POST stays on
-/// the legacy inference-tolerant path; anything else is a foreign reporter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StopReportVerdict {
-    Verified,
-    Legacy,
-    Foreign,
-}
-
-fn stop_report_verdict(
-    launch_nonce: Option<&str>,
-    report_nonce: Option<&str>,
-) -> StopReportVerdict {
-    match (launch_nonce, report_nonce) {
-        (Some(expected), Some(got)) if got == expected => StopReportVerdict::Verified,
-        (_, Some(_)) => StopReportVerdict::Foreign,
-        (_, None) => StopReportVerdict::Legacy,
-    }
-}
-
-/// Hook endpoint: agent stopped (task complete). Called by the Stop hook of
-/// whichever provider declares the stop route in its roster.
-pub async fn hook_stop(
-    AxumState(state): AxumState<AppState>,
-    Path(raw_tab_id): Path<String>,
-    headers: HeaderMap,
-    OptionalJson(body): OptionalJson<serde_json::Value>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let tab_id = resolve_hook_tab(&state, &raw_tab_id, "stop")?;
-    log::debug!("[hook_stop] fired for Tab {}", tab_id);
-    let body = body.unwrap_or(serde_json::Value::Null);
-    let report_nonce = body
-        .get("binding_nonce")
-        .and_then(|v| v.as_str())
-        .or_else(|| header_str(&headers, "x-codeterm-binding-nonce"))
-        .map(|s| s.to_string());
-    let launch_nonce = state
-        .svc
-        .mux
-        .read()
-        .get_tab(&tab_id)
-        .and_then(|tab| tab.session_binding_nonce.clone());
-    let verdict = stop_report_verdict(launch_nonce.as_deref(), report_nonce.as_deref());
-    if verdict == StopReportVerdict::Foreign {
-        log::warn!(
-            "[hook-refusal] tab={} event=stop reason=nonce_mismatch",
-            tab_id
-        );
-        return Err((StatusCode::CONFLICT, "binding nonce mismatch".to_string()));
-    }
-    let title = state
-        .svc
-        .mux
-        .write()
-        .get_tab(&tab_id)
-        .map(|p| p.title.clone());
-    if let Some(title) = title {
-        state.svc.notify_event(
-            "agent.task_complete",
-            serde_json::json!({
-                "tab_id": &tab_id,
-                "title": format!("{} finished", title),
-                "body": "Task complete",
-            }),
-        );
-    }
-
-    // Stop = turn boundary, not exit — agent_type stays; PTY-close clears it.
-    state.svc.prompt_detector.lock().clear(&tab_id);
-    if let Some(identity) = state.svc.clear_pending_prompt(&tab_id) {
-        state.svc.resolve_prompt_notifications(&tab_id, &identity);
-    }
-    state.svc.emit_state_changed();
-
-    // A nonce-verified report is the completion-via-report path; a nonce-less legacy post keeps today's tab-keyed behavior.
-    match (verdict, report_nonce.as_deref()) {
-        (StopReportVerdict::Verified, Some(nonce)) => state
-            .svc
-            .run_watcher
-            .complete_via_stop_report(&state.svc, &tab_id, nonce),
-        _ => state
-            .svc
-            .run_watcher
-            .complete_via_stop_hook(&state.svc, &tab_id),
-    }
-    state.svc.on_agent_turn_settled(&tab_id);
-    state.svc.complete_worker_turn_without_report(
-        &tab_id,
-        crate::service::WorkerTurnSignal::ProviderStop,
-    );
-    state.svc.schedule_session_model_refresh_after_stop(&tab_id);
-
-    Ok(Json(serde_json::json!({"ok": true})))
+    let response = if has_permission_request {
+        serde_json::json!({"ok": true, "ingested": true})
+    } else {
+        serde_json::json!({"ok": true})
+    };
+    Ok(Json(response))
 }
 
 /// Hook endpoint: provider-reported SessionStart event. Body is the JSON the
@@ -489,12 +423,14 @@ pub async fn hook_session_start(
     Path(raw_tab_id): Path<String>,
     headers: HeaderMap,
     OptionalJson(body): OptionalJson<serde_json::Value>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<axum::response::Response, (StatusCode, String)> {
     let tab_id = resolve_hook_tab(&state, &raw_tab_id, "session_start")?;
+    if let Some(response) = hook_authority::telemetry_response(&tab_id, "session_start") {
+        return Ok(axum::response::IntoResponse::into_response(response));
+    }
     let body = body.unwrap_or(serde_json::Value::Null);
-    let session_id = session_start_string(&body, &["session_id"])
-        .or_else(|| session_start_string(&body, &["payload", "session_id"]))
-        .or_else(|| session_start_string(&body, &["payload", "id"]));
+    record_hook_post(&state, &tab_id, "session_start", Some(&body));
+    let session_id = session_start_session_id(&body);
     let source = body
         .get("source")
         .and_then(|v| v.as_str())
@@ -511,6 +447,12 @@ pub async fn hook_session_start(
         .and_then(|v| v.as_str())
         .or_else(|| header_str(&headers, "x-codeterm-binding-nonce"))
         .map(|s| s.to_string());
+    if marked_hook_missing_binding_nonce(&headers, report_nonce.as_deref()) {
+        return Err((
+            StatusCode::CONFLICT,
+            "CodeTerm session hook is missing its binding nonce".into(),
+        ));
+    }
     log::debug!(
         "[hook_session_start] received tab={} source={} session_id_present={} nonce_present={}",
         tab_id,
@@ -526,9 +468,9 @@ pub async fn hook_session_start(
             source
         );
         state.svc.emit_session_binding_state(&tab_id);
-        return Ok(Json(
+        return Ok(axum::response::IntoResponse::into_response(Json(
             serde_json::json!({"ok": false, "reason": "no session_id in body"}),
-        ));
+        )));
     };
 
     let (existing, cwd, current_session_id, live_owner) = state
@@ -600,7 +542,7 @@ pub async fn hook_session_start(
                     false
                 };
             if can_short_circuit_session_start(&claim, fallback_pending, fallback_retry_available) {
-                return Ok(unchanged_acknowledged_hook_report(
+                let response = unchanged_acknowledged_hook_report(
                     &state.svc,
                     &tab_id,
                     &provider_id,
@@ -608,6 +550,12 @@ pub async fn hook_session_start(
                     &source,
                     &claim,
                     report_nonce.as_deref(),
+                );
+                return Ok(reconciliation::after_response(
+                    response,
+                    state.svc,
+                    tab_id,
+                    "session_start_duplicate",
                 ));
             }
             claim
@@ -663,13 +611,15 @@ pub async fn hook_session_start(
                 return Err((StatusCode::CONFLICT, reason));
             }
             state.svc.emit_session_binding_state(&tab_id);
-            return Ok(Json(serde_json::json!({
-                "ok": true,
-                "changed": false,
-                "deferred": true,
-                "session_id": sid,
-                "current_session_id": premise.previous_session_id,
-            })));
+            return Ok(axum::response::IntoResponse::into_response(Json(
+                serde_json::json!({
+                    "ok": true,
+                    "changed": false,
+                    "deferred": true,
+                    "session_id": sid,
+                    "current_session_id": premise.previous_session_id,
+                }),
+            )));
         }
         Err((status, message, None)) => {
             let current_session_id = state
@@ -707,7 +657,7 @@ pub async fn hook_session_start(
             retry.commit();
         }
     }
-    result
+    result.map(axum::response::IntoResponse::into_response)
 }
 
 pub(crate) fn defer_session_binding(
@@ -874,6 +824,7 @@ pub(crate) async fn finish_session_binding(
     session_binding_hook_succeeded: bool,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     if claim.changed {
+        crate::service::provider_signals::refresh_auth(svc, tab_id);
         if let Some(previous_session_id) = claim.prev.as_deref() {
             crate::service::integration_silence::clear_hook_binding_fallback_session(
                 provider_id,
@@ -946,8 +897,6 @@ pub(crate) async fn finish_session_binding(
     } else {
         false
     };
-    // Authoritative identity commit: journaled only on a nonce-proven binding,
-    // so an unverified report can never become restorable authority.
     if let (true, true, Some(binding_nonce)) = (
         identity_committed,
         claim.nonce_verified,
@@ -968,6 +917,11 @@ pub(crate) async fn finish_session_binding(
             },
         );
     }
+    let relay_service = svc.clone();
+    let relay_tab = tab_id.to_string();
+    drop(tokio::task::spawn_blocking(move || {
+        relay_service.activate_bound_reply_relays(&relay_tab)
+    }));
     crate::service::general_agent::binding_wait::notify_binding_state_changed();
     let launch_identity =
         acknowledge_and_reconcile_session_binding(svc, tab_id, &claim, report_nonce);
@@ -982,13 +936,26 @@ pub(crate) async fn finish_session_binding(
             )
         }));
     }
-    // Ordering: the identity above is read from state the nonce check already
-    // committed, so an unverified report reaches this with nothing to offer.
     if let Some(evidence) = launch_identity.as_ref() {
         svc.retire_provisional_launch(tab_id, evidence);
     }
     // while it runs — not only after completion.
-    run_session::propagate(svc, tab_id, sid);
+    let service = std::sync::Arc::new(svc.clone());
+    let tab = tab_id.to_string();
+    let session = sid.to_string();
+    tokio::task::spawn_blocking(move || run_session::propagate(&service, &tab, &session))
+        .await
+        .map_err(|error| {
+            log::error!(
+                "[hook_session_start] tab={} run-session propagation failed: {}",
+                tab_id,
+                error
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to propagate session to cron run".to_string(),
+            )
+        })?;
     if let (true, Some(model)) = (claim.nonce_verified, session_start_string(body, &["model"])) {
         let (service, tab, provider) = (svc.clone(), tab_id.to_string(), provider_id.to_string());
         let session = sid.to_string();
@@ -1051,7 +1018,11 @@ pub(crate) async fn finish_session_binding(
             serde_json::json!({ "plan_id": resume.plan_id }),
         );
     }
-    svc.chat_registry.shutdown_tab(&tab_id);
+    if let Some(previous_session_id) = claim.prev.as_deref() {
+        // Binding is already visible; Chat may have subscribed to the new session.
+        svc.chat_registry
+            .shutdown_session(tab_id, previous_session_id);
+    }
     svc.bind_planner_session(&tab_id);
     svc.schedule_planner_replay(&tab_id);
     let persist_svc = svc.clone();
@@ -1144,22 +1115,9 @@ fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     headers.get(name).and_then(|v| v.to_str().ok())
 }
 
-fn session_start_string(body: &serde_json::Value, path: &[&str]) -> Option<String> {
-    let mut cur = body;
-    for key in path {
-        cur = cur.get(*key)?;
-    }
-    cur.as_str()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(String::from)
-}
-
-/// Provider-reported transcript path riding the SessionStart body. Persisted
-/// only after the report was accepted for this tab's own session above.
-fn reported_transcript_path(body: &serde_json::Value) -> Option<String> {
-    session_start_string(body, &["transcript_path"])
-        .or_else(|| session_start_string(body, &["payload", "transcript_path"]))
+fn marked_hook_missing_binding_nonce(headers: &HeaderMap, report_nonce: Option<&str>) -> bool {
+    headers.contains_key("x-codeterm-hook")
+        && !report_nonce.is_some_and(|nonce| !nonce.trim().is_empty())
 }
 
 #[cfg(test)]

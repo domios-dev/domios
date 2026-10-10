@@ -1,29 +1,37 @@
 import { invoke, listen } from "../../lib/bridge";
-import { sameScope, type AutomationGraph, type AutomationGraphAdapter, type AutomationScope } from "./types";
+import { ALL_JOBS_SCOPE, sameScope, type AutomationGraph, type AutomationGraphAdapter, type AutomationIdentity, type AutomationScope } from "./types";
 
 export const AUTOMATION_GRAPH_EVENT = "automation-graph-changed";
 
 export const hostAutomationAdapter: AutomationGraphAdapter = {
   async read(attachment, signal) {
     signal.throwIfAborted();
-    const graph = await invoke<AutomationGraph>("automation_graph_snapshot", {
-      workspaceId: attachment.workspace_id,
-      teamId: attachment.team_id,
-    });
+    const graph = attachment.team_id === ALL_JOBS_SCOPE
+      ? await invoke<AutomationGraph>("automation_graph_workspace_snapshot", { workspaceId: attachment.workspace_id })
+      : await invoke<AutomationGraph>("automation_graph_snapshot", { workspaceId: attachment.workspace_id, teamId: attachment.team_id });
     signal.throwIfAborted();
     return graph;
   },
   subscribe(attachment, changed) {
     return listen<AutomationScope & { revision: string }>(AUTOMATION_GRAPH_EVENT, ({ payload }) => {
-      if (payload && sameScope(payload, attachment)) changed();
+      if (payload && payload.workspace_id === attachment.workspace_id && (attachment.team_id === ALL_JOBS_SCOPE || sameScope(payload, attachment))) changed();
     });
   },
   async stop(attachment, identity) {
-    if (!sameScope(attachment, identity) || identity.kind !== "sentinel") throw new Error("Invalid Sentinel scope");
-    await invoke("automation_graph_stop_sentinel", {
+    if (!matchesActionScope(attachment, identity) || identity.kind !== "blueprint") throw new Error("Invalid Blueprint scope");
+    await invoke("automation_graph_stop_blueprint", {
       workspaceId: attachment.workspace_id,
-      teamId: attachment.team_id,
+      teamId: identity.team_id,
       id: identity.id,
     });
   },
+  async delete(attachment, identity) {
+    if (!matchesActionScope(attachment, identity) || identity.kind !== "blueprint") throw new Error("Invalid Blueprint scope");
+    await invoke("automation_graph_delete_blueprint", { workspaceId: attachment.workspace_id, teamId: identity.team_id, id: identity.id });
+  },
 };
+
+function matchesActionScope(attachment: AutomationScope, identity: AutomationIdentity): boolean {
+  return attachment.workspace_id === identity.workspace_id
+    && (attachment.team_id === ALL_JOBS_SCOPE || attachment.team_id === identity.team_id);
+}

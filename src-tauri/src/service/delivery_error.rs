@@ -3,9 +3,8 @@ use axum::http::StatusCode;
 use crate::multiplexer::types::PendingDeliveryState;
 use crate::service::inject_verify::InjectionError;
 
-/// Who initiated a send. The always-deliver-never-refuse policy applies only to
-/// USER sends (chat UI); programmatic agent-to-agent / mesh / CLI sends keep the
-/// honest typed outcomes.
+/// Who initiated a send. User-origin agent sends use the durable user queue;
+/// programmatic agent-to-agent / mesh / CLI sends keep typed outcomes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SendOrigin {
     User,

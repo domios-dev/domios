@@ -14,6 +14,7 @@ pub(crate) const WORKER_LOST_EVENT: &str = "worker-lost";
 pub(crate) const WORKER_LOST_CONTEXT: &str = "worker-lost";
 pub(crate) const BUSY_WORKER_CLOSE_REFUSAL_PREFIX: &str = "busy worker close refused";
 
+mod pending;
 #[cfg(test)]
 mod tests;
 
@@ -212,6 +213,7 @@ pub(crate) fn probe_lane_state(worktree_path: Option<&str>) -> LaneState {
     let output = command
         .current_dir(path)
         .args(["status", "--porcelain", "--untracked-files=all"])
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .output();
     match output {
         Err(error) => LaneState::Unknown {
@@ -244,6 +246,25 @@ fn claim_report(loss: &WorkerLoss) -> bool {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .insert(loss.dedupe_key())
+}
+
+fn release_claim(loss: &WorkerLoss) {
+    reported_losses()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .remove(&loss.dedupe_key());
+}
+
+fn log_loss_delivery(loss: &WorkerLoss, delivery: &str) {
+    log::warn!(
+        "[worker-lost] plan={} task={} worker={} orchestrator={} cause={:?} delivery={}",
+        loss.plan_id,
+        loss.task_id,
+        loss.worker_tab_id,
+        loss.orchestrator_tab_id.as_deref().unwrap_or("none"),
+        loss.cause,
+        delivery
+    );
 }
 
 impl ServiceContext {
@@ -281,9 +302,10 @@ impl ServiceContext {
         Some(loss)
     }
 
-    /// Pushes each loss once: an Orchestrator notice through the gateway and a
-    /// `worker-lost` bus event carrying the structured record and its outcome.
+    /// Pushes each loss once: an Orchestrator notice (withheld until its agent is ready)
+    /// and a `worker-lost` bus event carrying the structured record and its outcome.
     pub(crate) fn report_worker_losses(&self, losses: Vec<WorkerLoss>) {
+        let mut routed = Vec::new();
         for loss in losses {
             if !claim_report(&loss) {
                 continue;
@@ -294,23 +316,18 @@ impl ServiceContext {
                 .filter(|owner| self.mux.read().get_tab(owner).is_some());
             let delivery = match orchestrator {
                 None => "no_live_orchestrator".to_string(),
-                Some(owner) => match self.gateway.submit(self, loss.outbound_message(owner)) {
-                    Ok(_) => "delivered".to_string(),
-                    Err(error) => format!("failed: {error}"),
-                },
+                Some(owner) => {
+                    let route = self.route_worker_loss(owner, &loss);
+                    let label = route.label();
+                    routed.push((owner.to_string(), route));
+                    label
+                }
             };
-            log::warn!(
-                "[worker-lost] plan={} task={} worker={} orchestrator={} cause={:?} delivery={}",
-                loss.plan_id,
-                loss.task_id,
-                loss.worker_tab_id,
-                loss.orchestrator_tab_id.as_deref().unwrap_or("none"),
-                loss.cause,
-                delivery
-            );
+            log_loss_delivery(&loss, &delivery);
             let mut payload = serde_json::to_value(&loss).unwrap_or_default();
             payload["delivery"] = serde_json::Value::String(delivery);
             self.events.publish_generic(WORKER_LOST_EVENT, payload);
         }
+        self.alert_withheld_worker_losses_if_opened(&routed);
     }
 }

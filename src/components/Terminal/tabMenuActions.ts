@@ -1,4 +1,5 @@
 import { makeOrchestrator, makePlanner } from "../../lib/orchestratorOnboard";
+import {invoke} from "../../lib/bridge";
 import { runPluginTabMenuItem } from "../../lib/pluginTabMenu";
 import { replaceOrchestrator } from "../Sidebar/orchestratorRecoveryMenu";
 import { getTabProviderApi } from "../Sidebar/tabProviderApi";
@@ -44,6 +45,9 @@ export async function performTabMenuAction(
       return reconnectTabSession(tabId);
     case "restart":
       return restartTabSession(tabId);
+    case "fork":
+      await invoke("fork_agent_tab",{tabId});
+      return;
     case "copySessionId":
       return copyTabSessionId(action.sessionId);
     case "setAutoConfirm":

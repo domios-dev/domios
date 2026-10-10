@@ -9,7 +9,10 @@ test-support = []
 
 [dependencies]
 codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-types = { path = "../codeterm-types" }
 rusqlite = { version = "0.32", features = ["bundled", "backup"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 # Windows publication (no-replace, write-through move) and reparse-point inspection.
 [target.'cfg(windows)'.dependencies]

@@ -63,6 +63,18 @@ pub(super) fn render_agent_md(provider_name: &str, wake_up_section: &str) -> Str
 }
 
 fn render_agent_md_at(dir: &std::path::Path, provider_name: &str, wake_up_section: &str) -> String {
+    compose_system_prompt(&render_role_contract_at(
+        dir,
+        provider_name,
+        wake_up_section,
+    ))
+}
+
+fn render_role_contract_at(
+    dir: &std::path::Path,
+    provider_name: &str,
+    wake_up_section: &str,
+) -> String {
     let version = env!("CARGO_PKG_VERSION");
     let platform = if cfg!(target_os = "windows") {
         "Windows"
@@ -90,7 +102,7 @@ fn render_agent_md_at(dir: &std::path::Path, provider_name: &str, wake_up_sectio
         format!("\n## Soul\n\n{}\n", soul.trim())
     };
 
-    let role_contract = crate::prompts::GENERAL_AGENT_TEMPLATE
+    crate::prompts::GENERAL_AGENT_TEMPLATE
         .replace("{version}", version)
         .replace("{platform}", platform)
         .replace("{hostname}", &hostname)
@@ -108,8 +120,7 @@ fn render_agent_md_at(dir: &std::path::Path, provider_name: &str, wake_up_sectio
         .replace(
             "{interactive_child_pty_operation}",
             crate::prompts::INTERACTIVE_CHILD_PTY_OPERATION.trim(),
-        );
-    compose_system_prompt(&role_contract)
+        )
 }
 
 fn general_cli_reference() -> String {
@@ -143,11 +154,23 @@ pub(super) fn render_system_prompt(
 }
 
 fn compose_system_prompt(agent: &str) -> String {
+    compose_system_prompt_with_plugins(
+        agent,
+        crate::service::plugin_prompt::built_in_plugins_section().as_deref(),
+    )
+}
+
+fn compose_system_prompt_with_plugins(agent: &str, built_in_plugins: Option<&str>) -> String {
+    let primer = match built_in_plugins {
+        Some(section) => format!("{}\n{section}\n", crate::prompts::AGENT_CODETERM_PRIMER),
+        None => crate::prompts::AGENT_CODETERM_PRIMER.to_string(),
+    };
     format!(
-        "{}\n\n---\n\n{}\n\n---\n\n{}\n\n---\n\n{}",
-        crate::prompts::AGENT_CODETERM_PRIMER,
+        "{}\n\n---\n\n{}\n\n---\n\n{}\n\n---\n\n{}\n\n{}",
+        primer,
         agent,
         crate::prompts::CODETERM_RULE,
+        crate::prompts::MEM_MANAGEMENT.trim(),
         crate::prompts::BRIDGE_MEM,
     )
 }
@@ -190,13 +213,30 @@ fn unmarked_contract_bounds(existing: &str) -> Option<(usize, usize)> {
     ]
     .into_iter()
     .find_map(|primer| {
-        let prelude = format!("{primer}\n\n---\n\n");
-        existing[..heading]
-            .strip_suffix(&prelude)
+        let prelude = existing[..heading].strip_suffix("\n\n---\n\n")?;
+        without_built_in_plugins_section(prelude)
+            .strip_suffix(primer)
             .map(|notes| notes.len())
     })
     .unwrap_or(heading);
     Some((start, end))
+}
+
+fn without_built_in_plugins_section(prelude: &str) -> &str {
+    let marker = format!(
+        "\n{}\n",
+        codeterm_plugin::agent_prompt_lines::BUILT_IN_PLUGINS_HEADING
+    );
+    match prelude.rfind(&marker) {
+        Some(index)
+            if prelude[index + marker.len()..]
+                .lines()
+                .all(|line| line.starts_with("- ")) =>
+        {
+            &prelude[..index]
+        }
+        _ => prelude,
+    }
 }
 
 fn generated_contract_file(existing: &str, contract: &str) -> String {
@@ -308,6 +348,33 @@ fn rewrite_user_file(path: &std::path::Path, render: impl FnOnce(&str) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn general_agent_memory_management_fragment_is_composed_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let rendered = render_agent_md_at(dir.path(), "OPAQUE_PROVIDER", "OPAQUE_WAKE_UP");
+        let fragment = crate::prompts::MEM_MANAGEMENT.trim();
+        assert!(!fragment.is_empty());
+        assert_eq!(rendered.matches(fragment).count(), 1);
+        assert_eq!(rendered.matches("OPAQUE_PROVIDER").count(), 1);
+        assert_eq!(rendered.matches("OPAQUE_WAKE_UP").count(), 1);
+        for slot in [
+            "{version}",
+            "{platform}",
+            "{hostname}",
+            "{provider_name}",
+            "{general_dir}",
+            "{secrets_dir}",
+            "{skills_dir}",
+            "{identity}",
+            "{soul}",
+            "{wake_up}",
+            "{codeterm_cli}",
+            "{interactive_child_pty_operation}",
+        ] {
+            assert!(!rendered.contains(slot), "unsubstituted slot {slot}");
+        }
+    }
 
     #[test]
     fn unreadable_user_file_is_never_rebuilt_from_empty() {
@@ -532,6 +599,35 @@ mod tests {
         assert_eq!(
             rewritten,
             format!("{prefix}{GENERATED_START}\nCURRENT_CONTRACT\n{GENERATED_END}{suffix}")
+        );
+    }
+
+    #[test]
+    fn built_in_plugins_section_follows_the_primer_and_strips_with_the_contract() {
+        const SECTION: &str = "Built-in plugins:\n- OPAQUE_CORE_LINE_q7";
+        let dir = tempfile::tempdir().unwrap();
+        let role = render_role_contract_at(dir.path(), "codex", "");
+        let plain = compose_system_prompt_with_plugins(&role, None);
+        assert!(!plain.contains("Built-in plugins:"));
+        let with = compose_system_prompt_with_plugins(&role, Some(SECTION));
+        assert!(with.starts_with(&format!(
+            "{}\n{SECTION}\n\n\n---\n\n",
+            crate::prompts::AGENT_CODETERM_PRIMER
+        )));
+        assert_eq!(with.replacen(&format!("\n{SECTION}\n"), "", 1), plain);
+
+        let prefix = "OPAQUE_USER_PREFIX\r\n";
+        let suffix = "\nOPAQUE_USER_SUFFIX  \r\n";
+        let rewritten =
+            generated_contract_file(&format!("{prefix}{with}{suffix}"), "CURRENT_CONTRACT");
+        assert_eq!(
+            rewritten,
+            format!("{prefix}{GENERATED_START}\nCURRENT_CONTRACT\n{GENERATED_END}{suffix}")
+        );
+        let marked = generated_contract_file("", &with);
+        assert_eq!(
+            generated_contract_file(&marked, &plain),
+            generated_contract_file("", &plain)
         );
     }
 

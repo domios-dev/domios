@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { formatDuration, formatUntil } from "../../lib/timeLabels";
 import { listen } from "../../lib/bridge";
 import {
   Moon,
@@ -16,32 +17,11 @@ import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
 import { DreamCard, DreamDetailModal, type DreamDiaryEntry } from "./DreamCard";
 import { hasRenderableDreamInsight } from "./dreamVisuals";
 import { isTerminalWorkerStatus } from "../AgentRun/workerEmptyState";
+import { workerTimeLabels } from "./workerActivityModel";
 import { diaryRecordState, dreamRunLabel, dreamRunReport } from "./dreamRunStatus";
 
 interface Props {
   api: ApiConfig;
-}
-
-function relativeTime(target: number): string {
-  const diff = target - Date.now();
-  const abs = Math.abs(diff);
-  const past = diff < 0;
-  const mins = Math.floor(abs / 60000);
-  if (mins < 1) return past ? "just now" : "in <1m";
-  if (mins < 60) return past ? `${mins}m ago` : `in ${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return past ? `${hrs}h ago` : `in ${hrs}h`;
-  const days = Math.floor(hrs / 24);
-  return past ? `${days}d ago` : `in ${days}d`;
-}
-
-function formatDuration(startMs: number, endMs: number): string {
-  const diff = endMs - startMs;
-  const secs = Math.floor(diff / 1000);
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  const rem = secs % 60;
-  return `${mins}m ${rem}s`;
 }
 
 function MemoryDreamsTabImpl({ api }: Props) {
@@ -239,9 +219,9 @@ function MemoryDreamsTabImpl({ api }: Props) {
           >
             {(() => {
               const statusText = inflight
-                ? `Dreaming now · ${formatDuration(inflight.spawned_at, Date.now())}`
+                ? `Dreaming now · ${formatDuration(Date.now() - inflight.spawned_at)}`
                 : dreamCron?.next_run
-                  ? `Next session ${relativeTime(dreamCron.next_run)}`
+                  ? `Next session ${formatUntil(dreamCron.next_run, Date.now())}`
                   : !dreamCron
                     ? "Not configured"
                     : null;
@@ -359,7 +339,6 @@ function MemoryDreamsTabImpl({ api }: Props) {
           <div
             ref={carouselRef}
             className="flex gap-4 overflow-x-auto px-5 pb-3 snap-x snap-mandatory scroll-pl-5"
-            style={{ scrollbarWidth: "thin" }}
             data-testid="memory-dream-carousel"
           >
             {diaryEntries.map((entry, index) => (
@@ -483,12 +462,8 @@ function RecentSessionsList({
   const first = capped.slice(0, 5);
   const rest = capped.slice(5);
   const renderRow = (w: GraphWorkerInfo) => {
-    const isDone = isTerminalWorkerStatus(w.status);
     const run = dreamRunLabel(w);
-    const elapsed =
-      isDone && w.done_at
-        ? formatDuration(w.spawned_at, w.done_at)
-        : formatDuration(w.spawned_at, Date.now());
+    const time = workerTimeLabels(w, Date.now());
     return (
       <div
         key={w.worker_id}
@@ -504,7 +479,7 @@ function RecentSessionsList({
           className="text-[10px] uppercase tracking-wider w-[74px] shrink-0"
           style={{ color: run.color }}
         >
-          {run.label}
+          {w.status === "orphaned" ? `orphaned · ${run.label}` : run.label}
         </span>
         <span className="text-[11px] text-[var(--ct-fg)] font-mono tabular-nums">
           {new Date(w.spawned_at).toLocaleString("en-US", {
@@ -529,7 +504,7 @@ function RecentSessionsList({
           </span>
         )}
         <span className="ml-auto text-[10px] tabular-nums text-[var(--ct-muted-fg)]">
-          {elapsed}
+          {time.age} · {time.duration}
         </span>
       </div>
     );

@@ -1,13 +1,33 @@
 use codeterm_plugin::provider::{AgentProvider, DirectoryTrustPromptResponse};
 
 use super::{
-    decide, decide_with_frame_identity, directory_trust_check_applies, directory_trust_provenance,
-    directory_trust_skip_reason, inherited_workspace_provenance, legacy_auto_approve_permitted,
-    shared_directory_trust_check_applies, DirectoryTrustRefusal, SharedTrustCache, TrustDecision,
-    TrustLedger, SHARED_TRUST,
+    decide, decide_with_frame_identity, directory_trust_check_applies, directory_trust_occurrence,
+    directory_trust_provenance, directory_trust_skip_reason, inherited_workspace_provenance,
+    legacy_auto_approve_permitted, shared_directory_trust_check_applies, DirectoryTrustRefusal,
+    SharedTrustCache, TrustDecision, TrustLedger, LEDGER, SHARED_TRUST,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
+
+fn trust_prompt() -> PendingPrompt {
+    PendingPrompt {
+        question: "directory trust question".into(),
+        options: vec![
+            PromptOption {
+                label: "Trust once".into(),
+                value: "1".into(),
+            },
+            PromptOption {
+                label: "Trust always".into(),
+                value: "2".into(),
+            },
+        ],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    }
+}
 
 fn state_with_tab(cwd: Option<&str>, provisioned: Option<&str>) -> (MultiplexerState, String) {
     let (mut state, _root) = MultiplexerState::new();
@@ -255,6 +275,17 @@ fn user_directory_never_invokes_the_provisioned_recognizer() {
 }
 
 #[test]
+fn fresh_team_role_tab_uses_the_agent_owned_trust_path() {
+    let (mut state, tab_id) = agent_tab(None, false);
+    let tab = state.get_tab_mut(&tab_id).unwrap();
+    tab.role = Some(codeterm_types::agent::roles::AgentRole::Worker);
+    tab.team_id = Some("team-fresh-repo".into());
+
+    assert!(directory_trust_check_applies(tab));
+    assert!(!shared_directory_trust_check_applies(tab));
+}
+
+#[test]
 fn mismatched_provisioned_cwd_never_uses_shared_trust() {
     let (state, tab_id) = agent_tab(Some("/srv/lanes/original"), false);
     let tab = state.get_tab(&tab_id).unwrap();
@@ -306,6 +337,7 @@ fn trusted_sibling_prompt_uses_the_bound_directory_trust_responder() {
                 step: b"\r".to_vec(),
             },
         )
+        .with_directory_trust_prompt(trust_prompt())
         .with_directory_trusted_path(r"C:\Users\owner\Trusted"),
     ));
 
@@ -326,7 +358,7 @@ fn trusted_sibling_prompt_uses_the_bound_directory_trust_responder() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn untrusted_shared_lookup_stores_one_owner_prompt_without_notification() {
+fn untrusted_shared_lookup_stores_one_owner_prompt_and_notifies_once() {
     let folder = tempfile::tempdir().expect("owner checkout");
     let cwd = folder.path().to_string_lossy().into_owned();
     let (mut mux, tab_id) = state_with_tab(Some(&cwd), None);
@@ -408,7 +440,16 @@ fn untrusted_shared_lookup_stores_one_owner_prompt_without_notification() {
             .and_then(|tab| tab.pending_prompt_kind),
         Some(codeterm_types::pty::PromptKind::DirectoryTrust)
     );
-    assert!(fixture.service.notif.lock().list(false).is_empty());
+    {
+        let notification_state = fixture.service.notif.lock();
+        let notices = notification_state.list(false);
+        assert_eq!(notices.len(), 1);
+        assert_eq!(notices[0].tab_id.as_deref(), Some(tab_id.as_str()));
+        assert_eq!(
+            notices[0].level,
+            Some(codeterm_types::notification::NotifyLevel::ActionNeeded)
+        );
+    }
     assert_eq!(
         crate::service::output::prompt_step_dispatch_count_for_test("pty-owner-trust"),
         0,
@@ -433,13 +474,25 @@ fn tab_without_agent_is_ignored() {
 }
 
 #[test]
-fn provisioned_directory_answers_one_key_per_observed_frame() {
+fn directory_trust_occurrence_is_claimed_once_until_prompt_clear() {
     let (state, tab_id) = agent_tab(Some("/srv/lanes/a"), false);
     let applies = directory_trust_check_applies(state.get_tab(&tab_id).unwrap());
     assert!(applies);
-    let ledger = parking_lot::Mutex::new(TrustLedger::default());
+    let occurrence = directory_trust_occurrence(&trust_prompt());
+    let occurrence_id = super::frame_id(&occurrence);
+    let nonce = "launch-trust-once";
+    LEDGER
+        .lock()
+        .observe_trust_prompt(&tab_id, Some(occurrence_id), true, nonce);
 
-    let first = decide(applies, &tab_id, "focus-on-exit", &ledger, |_| answer(b"j"));
+    let first = super::decide_with_occurrence(
+        applies,
+        &tab_id,
+        "focus-on-exit",
+        &occurrence,
+        &LEDGER,
+        |_| answer(b"j"),
+    );
     assert_eq!(
         first,
         TrustDecision::Answer {
@@ -447,38 +500,255 @@ fn provisioned_directory_answers_one_key_per_observed_frame() {
         }
     );
 
-    let in_flight = decide(applies, &tab_id, "focus-on-exit", &ledger, |_| answer(b"j"));
+    let redrawn = super::decide_with_occurrence(
+        applies,
+        &tab_id,
+        "focus-on-trust",
+        &occurrence,
+        &LEDGER,
+        |_| answer(b"j"),
+    );
     assert_eq!(
-        in_flight,
+        redrawn,
         TrustDecision::Waiting,
-        "no second key while one is in flight"
+        "a screen redraw does not create another prompt occurrence"
     );
 
-    ledger.lock().settle(&tab_id);
-    let same_frame = decide(applies, &tab_id, "focus-on-exit", &ledger, |_| answer(b"j"));
+    LEDGER
+        .lock()
+        .observe_trust_prompt(&tab_id, None, false, nonce);
+    assert!(super::trust_prompt_resolved_for_launch(&tab_id, nonce));
+    LEDGER
+        .lock()
+        .observe_trust_prompt(&tab_id, Some(occurrence_id), true, nonce);
     assert_eq!(
-        same_frame,
-        TrustDecision::Waiting,
-        "an unchanged frame is never answered twice"
-    );
-
-    let moved = decide(applies, &tab_id, "focus-on-trust", &ledger, |_| {
-        answer(b"\r")
-    });
-    assert_eq!(
-        moved,
+        super::decide_with_occurrence(
+            applies,
+            &tab_id,
+            "same prompt after a classified clear",
+            &occurrence,
+            &LEDGER,
+            |_| answer(b"j"),
+        ),
         TrustDecision::Answer {
-            step: b"\r".to_vec()
-        }
+            step: b"j".to_vec()
+        },
+        "a reappearing prompt after a visible clear is a new occurrence"
+    );
+    LEDGER.lock().forget(&tab_id);
+}
+
+#[test]
+fn deterministic_and_model_trust_responders_racing_claim_once() {
+    let tab_id = uuid::Uuid::new_v4().to_string();
+    let occurrence = directory_trust_occurrence(&trust_prompt());
+    let occurrence_id = super::frame_id(&occurrence);
+    let nonce = "launch-trust-race";
+    LEDGER
+        .lock()
+        .observe_trust_prompt(&tab_id, Some(occurrence_id), true, nonce);
+
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+    let deterministic_barrier = barrier.clone();
+    let deterministic_occurrence = occurrence.clone();
+    let deterministic_tab = tab_id.clone();
+    let deterministic = std::thread::spawn(move || {
+        deterministic_barrier.wait();
+        super::decide_with_occurrence(
+            true,
+            &deterministic_tab,
+            "redrawn trust screen",
+            &deterministic_occurrence,
+            &LEDGER,
+            |_| answer(b"j"),
+        )
+    });
+    let model_barrier = barrier.clone();
+    let model_occurrence = occurrence.clone();
+    let model_tab = tab_id.clone();
+    let model = std::thread::spawn(move || {
+        model_barrier.wait();
+        super::claim_model_trust_step(&model_tab, &model_occurrence)
+    });
+
+    barrier.wait();
+    let decision = deterministic.join().expect("deterministic responder");
+    let model_claimed = model.join().expect("model responder");
+    assert_eq!(
+        matches!(decision, TrustDecision::Answer { .. }) as usize + model_claimed as usize,
+        1,
+        "only one responder owns the provider-declared trust transaction"
+    );
+    if model_claimed {
+        super::finish_model_trust_step(&tab_id, &occurrence, true);
+    }
+    assert_eq!(
+        super::decide_with_occurrence(
+            true,
+            &tab_id,
+            "another redraw",
+            &occurrence,
+            &LEDGER,
+            |_| answer(b"j"),
+        ),
+        TrustDecision::Waiting
+    );
+    LEDGER
+        .lock()
+        .observe_trust_prompt(&tab_id, None, false, nonce);
+    LEDGER.lock().forget(&tab_id);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn fresh_team_directory_trust_answers_one_transaction_under_race() {
+    let (mut mux, tab_id) = state_with_tab(Some("/repo/fresh-team"), None);
+    let tab = mux.get_tab_mut(&tab_id).expect("team tab");
+    tab.agent_type = Some("claude".into());
+    tab.role = Some(codeterm_types::agent::roles::AgentRole::Worker);
+    tab.team_id = Some("team-fresh-repo".into());
+    tab.pty_id = Some("pty-fresh-team-trust".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_directory_trust_response(
+            "claude",
+            DirectoryTrustPromptResponse::Answer {
+                step: b"j".to_vec(),
+            },
+        )
+        .with_directory_trust_prompt(trust_prompt())
+        .with_live_prompt_response(1, vec![b"j".to_vec(), b"\r".to_vec()]),
+    ));
+
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+    let first_service = fixture.service.clone();
+    let first_barrier = barrier.clone();
+    let first_tab = tab_id.clone();
+    let first = std::thread::spawn(move || {
+        first_barrier.wait();
+        first_service.respond_to_directory_trust(&first_tab, Some("folder trust"))
+    });
+    let second_service = fixture.service.clone();
+    let second_barrier = barrier.clone();
+    let second_tab = tab_id.clone();
+    let second = std::thread::spawn(move || {
+        second_barrier.wait();
+        second_service.respond_to_directory_trust(&second_tab, Some("folder trust"))
+    });
+
+    barrier.wait();
+    let decisions = [
+        first.join().expect("first trust responder"),
+        second.join().expect("second trust responder"),
+    ];
+    assert_eq!(
+        decisions
+            .iter()
+            .filter(|decision| {
+                matches!(decision, &TrustDecision::Answer { step } if step.as_slice() == b"j")
+            })
+            .count(),
+        1
+    );
+    assert_eq!(
+        decisions
+            .iter()
+            .filter(|decision| matches!(decision, &&TrustDecision::Waiting))
+            .count(),
+        1
+    );
+    assert_eq!(
+        crate::service::output::prompt_step_dispatch_count_for_test("pty-fresh-team-trust"),
+        1,
+        "the Team tab receives one folder trust transaction"
+    );
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn observed_trust_clear_resolves_only_the_current_launch_binding() {
+    let trust_screen = include_str!(
+        "../../../../plugins/provider-claude/tests/fixtures/folder-trust/quick-safety-no-first.txt"
+    );
+    let (mut mux, tab_id) = agent_tab(None, false);
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.role = Some(codeterm_types::agent::roles::AgentRole::Worker);
+    tab.team_id = Some("team-fresh-repo".into());
+    tab.session_binding_nonce = Some("binding-trust-clear".into());
+    tab.pty_id = Some("pty-trust-clear-binding".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        codeterm_plugin::agent_claude::ClaudeProvider::new(),
+    ));
+
+    super::observe_directory_trust_screen(&fixture.service, &tab_id, "claude", trust_screen);
+    assert!(!super::trust_prompt_resolved_for_launch(
+        &tab_id,
+        "binding-trust-clear"
+    ));
+    super::observe_directory_trust_screen(&fixture.service, &tab_id, "claude", "composer ready");
+    assert!(super::trust_prompt_resolved_for_launch(
+        &tab_id,
+        "binding-trust-clear"
+    ));
+    assert!(!super::trust_prompt_resolved_for_launch(
+        &tab_id,
+        "a-later-launch"
+    ));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn refused_team_folder_trust_prompt_notifies_owner_once_with_tab_identity() {
+    let (mut mux, tab_id) = state_with_tab(Some("/repo/fresh-team"), None);
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("claude".into());
+    tab.role = Some(codeterm_types::agent::roles::AgentRole::Worker);
+    tab.team_id = Some("team-fresh-repo".into());
+    tab.title = "Fresh Team Worker".into();
+    tab.audience = crate::multiplexer::types::TabAudience::User;
+    tab.pty_id = Some("pty-held-team-trust".into());
+    let prompt = trust_prompt();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_directory_trust_response(
+            "claude",
+            DirectoryTrustPromptResponse::Hold,
+        )
+        .with_directory_trust_prompt(prompt.clone()),
+    ));
+
+    fixture.service.apply_prompt_decision_with_kind(
+        &crate::agent::prompt::PromptDecision::NewPrompt {
+            tab_id: tab_id.clone(),
+            prompt: prompt.clone(),
+        },
+        Some("folder trust"),
+        codeterm_types::pty::PromptKind::DirectoryTrust,
+        false,
     );
 
-    ledger.lock().settle(&tab_id);
-    let held = decide(applies, &tab_id, "permissions-variant", &ledger, |_| {
-        Some(DirectoryTrustPromptResponse::Hold)
-    });
-    assert_eq!(held, TrustDecision::Held);
-    let gone = decide(applies, &tab_id, "composer", &ledger, |_| None);
-    assert_eq!(gone, TrustDecision::NoDialog);
+    {
+        let notification_state = fixture.service.notif.lock();
+        let notices = notification_state.list(false);
+        assert_eq!(notices.len(), 1);
+        assert_eq!(notices[0].tab_id.as_deref(), Some(tab_id.as_str()));
+        assert_eq!(
+            notices[0].level,
+            Some(codeterm_types::notification::NotifyLevel::ActionNeeded)
+        );
+        assert!(notices[0]
+            .body
+            .as_deref()
+            .is_some_and(|body| body.contains(&tab_id)));
+    }
+
+    fixture.service.route_pending_prompt(
+        &tab_id,
+        &prompt,
+        codeterm_types::pty::PromptKind::DirectoryTrust,
+    );
+    assert_eq!(fixture.service.notif.lock().list(false).len(), 1);
 }
 
 #[test]
@@ -493,7 +763,8 @@ fn provisioned_directory_trust_still_uses_provenance_without_shared_trust() {
             DirectoryTrustPromptResponse::Answer {
                 step: b"\r".to_vec(),
             },
-        ),
+        )
+        .with_directory_trust_prompt(trust_prompt()),
     ));
     let decision = fixture
         .service
@@ -523,6 +794,7 @@ fn trust_trusted_dir_by_provenance_auto_answers_no_notification() {
                 step: b"\r".to_vec(),
             },
         )
+        .with_directory_trust_prompt(trust_prompt())
         .with_directory_trust_state(codeterm_plugin::provider::DirectoryTrustState::Untrusted),
     ));
     let decision = fixture
@@ -834,4 +1106,50 @@ fn trust_notes_are_logged_once_per_outcome_within_a_budget() {
         "a tab stops logging once its budget is spent"
     );
     assert!(ledger.note("other", "no trust dialog recognized", 1));
+}
+
+#[test]
+fn unattended_launch_prompt_model_trust_step_shares_the_deterministic_frame() {
+    let tab = uuid::Uuid::new_v4().to_string();
+    let occurrence = directory_trust_occurrence(&trust_prompt());
+    let occurrence_id = super::frame_id(&occurrence);
+    let nonce = "model-trust-launch";
+    LEDGER
+        .lock()
+        .observe_trust_prompt(&tab, Some(occurrence_id), true, nonce);
+    assert!(super::claim_model_trust_step(&tab, &occurrence));
+    assert_eq!(
+        super::observation_revision(&tab),
+        super::model_trust_step_revision(&occurrence)
+    );
+    assert_eq!(
+        super::decide_with_occurrence(
+            true,
+            &tab,
+            "focus on first option",
+            &occurrence,
+            &LEDGER,
+            |_| answer(b"\r"),
+        ),
+        TrustDecision::Waiting,
+        "the deterministic responder never types while the model step is in flight"
+    );
+    super::finish_model_trust_step(&tab, &occurrence, true);
+    assert_eq!(
+        super::decide_with_occurrence(true, &tab, "redrawn focus", &occurrence, &LEDGER, |_| {
+            answer(b"\r")
+        },),
+        TrustDecision::Waiting,
+        "an answered prompt occurrence is never answered twice"
+    );
+    assert!(!super::claim_model_trust_step(&tab, &occurrence));
+    LEDGER.lock().observe_trust_prompt(&tab, None, false, nonce);
+    LEDGER
+        .lock()
+        .observe_trust_prompt(&tab, Some(occurrence_id), true, nonce);
+    assert!(super::claim_model_trust_step(&tab, &occurrence));
+    super::finish_model_trust_step(&tab, &occurrence, false);
+    assert!(super::claim_model_trust_step(&tab, &occurrence));
+    super::finish_model_trust_step(&tab, &occurrence, true);
+    super::LEDGER.lock().forget(&tab);
 }

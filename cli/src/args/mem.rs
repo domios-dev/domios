@@ -3,6 +3,11 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum MemAction {
+    /// Merge an area reversibly; use taxonomy to list areas and counts.
+    Area {
+        #[command(subcommand)]
+        action: MemAreaAction,
+    },
     /// Search across mem_items (FTS5 + hybrid scoring)
     #[command(alias = "recall")]
     Search {
@@ -136,14 +141,14 @@ pub enum MemAction {
         #[arg(long, allow_hyphen_values = true)]
         changed_by: Option<String>,
     },
-    /// Restore from the audit history. An archived or merged item gets its
+    /// Undo an area merge, or restore from audit history. An archived item gets its
     /// prior kind back and its merge link invalidated (plus the --version body
     /// when given); otherwise reverts the body before the most recent change.
     Restore {
         /// Mem item id
         id: String,
-        /// History row id (from `mem history <id>`) to restore the body of.
-        /// Omit to undo the latest body change.
+        /// History row id from `mem history <id>`: undo its area merge or restore its body.
+        /// Omit to undo the latest area merge, archive, or body change.
         #[arg(long)]
         version: Option<i64>,
         /// Actor label for audit trail (defaults to "user").
@@ -961,5 +966,17 @@ pub enum MemGraphAction {
         purge_history: bool,
         #[arg(long, default_value = "user")]
         actor: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MemAreaAction {
+    /// Move every item to another area, preserving scope and audit history.
+    Merge {
+        from: String,
+        #[arg(long)]
+        into: String,
+        #[arg(long)]
+        dry_run: bool,
     },
 }

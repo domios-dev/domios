@@ -55,6 +55,25 @@ export type DevInstance = {
   webUrl: string;
 };
 
+function playwrightTarget(): "isolated" | "dev" | "named" {
+  const target = process.env.PW_TARGET;
+  if (target === undefined || target === "isolated") return "isolated";
+  if (target === "dev" || target === "named") return target;
+  throw new Error(`PW_TARGET must be absent, isolated, dev, or named; got ${target}`);
+}
+
+export function isDevTarget(): boolean {
+  return playwrightTarget() === "dev";
+}
+
+export function isNamedTarget(): boolean {
+  return playwrightTarget() === "named";
+}
+
+export function isAdoptTarget(): boolean {
+  return playwrightTarget() !== "isolated";
+}
+
 function integerEnv(name: string, fallback: number): number {
   const raw = process.env[name];
   const value = raw === undefined ? fallback : Number(raw);
@@ -69,6 +88,13 @@ function slugOffset(slug: string): number {
 }
 
 export function playwrightWorkerCount(): number {
+  if (isAdoptTarget()) {
+    const requested = process.env.CT_E2E_WORKERS;
+    if (requested !== undefined && Number(requested) !== 1) {
+      throw new Error(`PW_TARGET=${playwrightTarget()} requires CT_E2E_WORKERS=1 so one test owns the live UI`);
+    }
+    return 1;
+  }
   return integerEnv("CT_E2E_WORKERS", 1);
 }
 
@@ -148,6 +174,46 @@ export async function teardownInstances(
 }
 
 export function devInstanceForSlot(slot: number, workers = playwrightWorkerCount()): DevInstance {
+  if (isDevTarget()) {
+    if (slot !== 0 || workers !== 1) {
+      throw new Error("PW_TARGET=dev supports exactly one Playwright worker");
+    }
+    return descriptor(slot, "", 7686, 1420, 9223, ".codeterm-dev", true);
+  }
+  if (isNamedTarget()) {
+    if (slot !== 0 || workers !== 1) {
+      throw new Error("PW_TARGET=named supports exactly one Playwright worker");
+    }
+    const name = process.env.CODETERM_INSTANCE?.trim() ?? "";
+    if (!/^[a-z0-9-]+$/.test(name)) {
+      throw new Error("PW_TARGET=named requires a resolved lowercase CODETERM_INSTANCE");
+    }
+    if (!process.env.CODETERM_API_TOKEN?.trim()) {
+      throw new Error("PW_TARGET=named requires CODETERM_API_TOKEN from the bench lib resolution");
+    }
+    const apiPort = integerEnv("CODETERM_API_PORT", 0);
+    const dataDir = process.env.CODETERM_DEV_DATA_DIR?.trim();
+    const dataDirName = dataDir ? path.basename(dataDir) : "";
+    const expectedDataDir = `.codeterm-dev-${name}`;
+    if (dataDirName !== expectedDataDir) {
+      throw new Error(`PW_TARGET=named requires CODETERM_DEV_DATA_DIR for ${expectedDataDir}`);
+    }
+    const expectedSocket = `codeterm-dev-${name}.sock`;
+    const socketName = (process.env.CODETERM_SOCKET_PATH ?? "").split(/[\\/]/).at(-1);
+    if (socketName !== expectedSocket) {
+      throw new Error(`PW_TARGET=named requires the resolved socket ${expectedSocket}`);
+    }
+    const offset = slugOffset(name);
+    const vitePort = integerEnv("CODETERM_VITE_PORT", 1420 + offset);
+    if (vitePort !== 1420 + offset) {
+      throw new Error(`PW_TARGET=named resolved Vite port ${vitePort} does not match instance ${name}`);
+    }
+    const cdpPort = integerEnv("CODETERM_CDP_PORT", 9223 + offset);
+    if (cdpPort !== 9223 + offset) {
+      throw new Error(`PW_TARGET=named resolved CDP port ${cdpPort} does not match instance ${name}`);
+    }
+    return descriptor(slot, name, apiPort, vitePort, cdpPort, dataDirName);
+  }
   if (!Number.isInteger(slot) || slot < 0 || slot >= workers) {
     throw new Error(`Playwright worker slot ${slot} is outside 0..${workers - 1}`);
   }
@@ -175,6 +241,13 @@ export function devInstanceForSlot(slot: number, workers = playwrightWorkerCount
   );
 }
 
+export function isDisposableQaInstance(instance: DevInstance): boolean {
+  return (
+    instance.dataDirName === `.codeterm-dev-${instance.name}` &&
+    (instance.name === "playwright" || instance.name === "pwserial" || /^pw[1-9]\d*$/.test(instance.name))
+  );
+}
+
 function descriptor(
   slot: number,
   name: string,
@@ -182,9 +255,10 @@ function descriptor(
   vitePort: number,
   cdpPort: number,
   dataDirName: string,
+  allowDefaultDev = false,
 ): DevInstance {
   for (const port of [apiPort, vitePort, cdpPort]) {
-    if (port === 7685 || port === 7686 || port > 65_535) {
+    if (port === 7685 || (port === 7686 && !allowDefaultDev) || port > 65_535) {
       throw new Error(`refusing unsafe Playwright instance port ${port}`);
     }
   }

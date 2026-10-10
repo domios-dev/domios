@@ -24,7 +24,7 @@ use decision::{bounded_questions, classify, error_reason, suppressed};
 #[cfg(test)]
 use decision::{questions, selected_learnings};
 pub(crate) use runtime::{journal, Supporter};
-pub(crate) use snapshot::{binding_digest, collect, collect_worker_scope};
+pub(crate) use snapshot::{binding_digest, collect, collect_owner_messages, collect_worker_scope};
 #[cfg(test)]
 pub(crate) use state::Telemetry;
 pub(crate) use state::{Claim, Gate, Observation};

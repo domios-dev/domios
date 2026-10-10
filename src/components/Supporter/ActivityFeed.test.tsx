@@ -34,7 +34,7 @@ beforeEach(() => {
 });
 afterEach(async () => setup.cleanup());
 
-describe("Supporter activity", () => {
+describe("Spinal Cord activity", () => {
   it("heartbeat_wakes_and_suppressions_render_in_the_feed", async () => {
     entries = [
       { ...entry("team_aabbccdd"), kind: "heartbeat", label: "action_needed", action: "wake", reason: "hard_wake" },

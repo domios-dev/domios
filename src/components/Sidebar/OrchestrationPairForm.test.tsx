@@ -87,11 +87,11 @@ async function click(element: Element | null | undefined): Promise<void> {
   await act(async () => (element as HTMLButtonElement).click());
 }
 
-test("card layout renders PairAffordance with orchestrator and planner rows", async () => {
+test("team layout stacks orchestrator above planner as a roster", async () => {
   const { host, root } = await render(
     <OrchestrationPairForm
       providers={PROVIDERS}
-      layout="card"
+      layout="team"
       values={{
         orchestratorProviderId: "provider-a",
         orchestratorModelId: "model-a",
@@ -101,9 +101,8 @@ test("card layout renders PairAffordance with orchestrator and planner rows", as
       onChange={() => {}}
     />,
   );
-  assert(host.querySelector('[data-pair-affordance-layout="card"]'), "uses card layout");
-  assert(host.querySelector('[data-pair-role="orchestrator"]'), "orchestrator slot exists");
-  assert(host.querySelector('[data-pair-role="planner"]'), "planner slot exists");
+  const members = [...host.querySelectorAll('[role="list"][aria-label="Team"] > [role="listitem"]')];
+  assert(members.map((m) => m.getAttribute("data-pair-role")).join(",") === "orchestrator,planner", "roster lists orchestrator then planner");
   assert(host.textContent?.includes("Orchestrator"), "orchestrator label visible");
   assert(host.textContent?.includes("Planner"), "planner label visible");
   await act(async () => root.unmount());
@@ -113,7 +112,7 @@ test("disabled providers render as disabled options in the dropdown", async () =
   const { host, root } = await render(
     <OrchestrationPairForm
       providers={PROVIDERS}
-      layout="card"
+      layout="team"
       values={{
         orchestratorProviderId: "provider-a",
         orchestratorModelId: "model-a",

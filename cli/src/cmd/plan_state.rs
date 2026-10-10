@@ -19,8 +19,7 @@ fn gate_keys(val: &Value, field: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-// Regression gates block: what still needs a real QA run, what actually blocks
-// dispatch right now, and any authorized waivers standing between the two.
+// Group gate records remain visible while dispatch stays available.
 fn render_regression_gates(val: &Value, out: &mut String) {
     let pending = gate_keys(val, "pending_regression_gates");
     let blocking = gate_keys(val, "blocking_regression_gates");
@@ -45,23 +44,25 @@ fn render_regression_gates(val: &Value, out: &mut String) {
     }
     if !retrospectives.is_empty() {
         out.push_str(&format!(
-            "group retrospectives pending: {} — record each with `codeterm plan groups close {} <group> --note \"<retrospective>\"`\n",
-            retrospectives.join(", "),
-            s(val, "plan_id")
-        ));
-    }
-    if !blocking.is_empty() {
-        out.push_str(&format!(
-            "dispatch: BLOCKED by regression gate(s): {} — non-blocker tasks cannot dispatch until cleared or overridden\n",
-            blocking.join(", ")
-        ));
-    } else if !retrospectives.is_empty() {
-        out.push_str(&format!(
-            "dispatch: BLOCKED until group retrospective(s) are recorded: {}\n",
+            "group retrospectives pending: {}\n",
             retrospectives.join(", ")
         ));
+    }
+    let mut advisory = if blocking.is_empty() {
+        pending.clone()
     } else {
-        out.push_str("dispatch: unblocked (no pending regression gate blocks the frontier)\n");
+        blocking.clone()
+    };
+    advisory.extend(retrospectives);
+    advisory.sort();
+    advisory.dedup();
+    if !advisory.is_empty() {
+        out.push_str(&format!(
+            "dispatch: allowed; terminal-group gate advisory: {}\n",
+            advisory.join(", ")
+        ));
+    } else {
+        out.push_str("dispatch: allowed (no unwaived terminal-group advisory)\n");
     }
     for o in &overrides {
         let actor = o
@@ -409,6 +410,7 @@ fn lane_presentation(lane: &Value) -> String {
     match s(lane, "presentation") {
         "handoff_required" => "handoff required: sealed checkpoint awaits adoption".into(),
         "blocked_on_subtasks" => "blocked on subtasks".into(),
+        "parked_for_later_group" => "parked for later groups".into(),
         "actionable_pending" => "actionable pending".into(),
         "waiting_on_dependencies" => {
             let waits = lane
@@ -576,7 +578,7 @@ mod tests {
     }
 
     #[test]
-    fn renders_blocking_regression_gates_and_override() {
+    fn renders_pending_regression_advisory_and_override() {
         let val = json!({
             "plan_id": "pl_1",
             "title": "Gated",
@@ -590,12 +592,12 @@ mod tests {
         });
         let out = render_state(&val);
         assert!(out.contains("regression gates pending: phase-1, phase-2"));
-        assert!(out.contains("dispatch: BLOCKED by regression gate(s): phase-2"));
+        assert!(out.contains("dispatch: allowed; terminal-group gate advisory: phase-2"));
         assert!(out.contains("override by tab_o @ 42 [phase-1]: hotfix under sign-off"));
     }
 
     #[test]
-    fn renders_unblocked_when_no_blocking_gates() {
+    fn renders_waived_gate_as_a_pending_dispatch_advisory() {
         let val = json!({
             "plan_id": "pl_1",
             "title": "Cleared",
@@ -609,11 +611,11 @@ mod tests {
         });
         let out = render_state(&val);
         assert!(out.contains("regression gates pending: phase-1"));
-        assert!(out.contains("dispatch: unblocked"));
+        assert!(out.contains("dispatch: allowed; terminal-group gate advisory: phase-1"));
     }
 
     #[test]
-    fn renders_pending_group_retrospective_as_a_dispatch_block() {
+    fn renders_pending_group_retrospective_as_a_dispatch_advisory() {
         let val = json!({
             "plan_id": "pl_retro",
             "title": "Retro",
@@ -628,7 +630,7 @@ mod tests {
         let out = render_state(&val);
         assert!(out.contains("phase-1"));
         assert!(out.contains("pl_retro"));
-        assert!(!out.contains("dispatch: unblocked"));
+        assert!(out.contains("dispatch: allowed; terminal-group gate advisory: phase-1"));
     }
 
     #[test]

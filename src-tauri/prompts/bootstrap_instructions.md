@@ -52,6 +52,6 @@ Only after all five Step 4 actions succeed, add this one short note in the user'
 
 Follow the note with this standalone paragraph to open the Guide section:
 
-@ct-guide supporter-agent
+@ds-guide supporter-agent
 
 Don't mention this fragment during Steps 0–4. Don't connect anything, recap or ask another question. Stop after the note.

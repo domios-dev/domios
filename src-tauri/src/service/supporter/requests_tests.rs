@@ -108,6 +108,7 @@ fn supporter_feed_multi_question_request_one_row_expands() {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     let feed = runtime.feed(10, None).unwrap();
     assert_eq!(feed.len(), 1);
+    assert_eq!(feed[0]["decision_point"], "memory_rerank");
     let asked = feed[0]["asked"].as_array().unwrap();
     assert_eq!(asked.len(), titles.len());
     for (index, title) in titles.iter().enumerate() {
@@ -119,6 +120,35 @@ fn supporter_feed_multi_question_request_one_row_expands() {
     for private in ["private screen", "private token", "opaque"] {
         assert!(!feed[0].to_string().contains(private));
     }
+}
+
+#[test]
+fn supporter_successful_tab_state_response_keeps_decision_point() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = Arc::new(SupporterRuntime::new(dir.path().into()));
+    let model = budgeted_model_with_activity(
+        Arc::new(Model {
+            calls: Arc::default(),
+            exhausted: false,
+        }),
+        runtime.clone(),
+        0,
+        VerdictKind::TabState,
+        Some("fixture-tab".into()),
+        Some("fixture-criteria".into()),
+        Some(ActivityContext::TabState {
+            title: "fixture-tab".into(),
+            declared_safe_choice: None,
+            decision_point: "launch_ready".into(),
+        }),
+    );
+    model
+        .decide_questions(&request(1), Instant::now() + Duration::from_secs(2))
+        .unwrap();
+
+    let feed = runtime.feed(10, None).unwrap();
+    assert_eq!(feed.len(), 1);
+    assert_eq!(feed[0]["decision_point"], "launch_ready");
 }
 
 #[test]
@@ -149,12 +179,79 @@ fn supporter_feed_failed_request_preserves_fallback_and_scrubbed_question() {
     assert_eq!(feed.len(), 1);
     assert_eq!(feed[0]["fallback"], true);
     assert_eq!(feed[0]["reason"], "credit_exhausted");
+    assert_eq!(feed[0]["decision_point"], "memory_rerank");
     assert_eq!(feed[0]["asked"].as_array().unwrap().len(), 1);
     assert!(feed[0]["asked"][0]["question"]
         .as_str()
         .unwrap()
         .contains("supplied-query"));
     assert!(!feed[0].to_string().contains(secret));
+}
+
+#[test]
+fn supporter_failure_activity_labels_the_tab_state_decision_point() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = SupporterRuntime::new(dir.path().into());
+    let context = ActivityContext::TabState {
+        title: "supplied-tab".into(),
+        declared_safe_choice: None,
+        decision_point: "launch_ready".into(),
+    };
+
+    runtime.failure_with_activity(
+        VerdictKind::TabState,
+        Some("tab"),
+        &DecisionError::Transport("private detail".into()),
+        Some(&context),
+    );
+
+    let text = std::fs::read_to_string(dir.path().join("journal.jsonl")).unwrap();
+    let failure: Value = text
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .find(|line| line["action"] == "notify_only")
+        .unwrap();
+    assert_eq!(failure["decision_point"], "launch_ready");
+    assert_eq!(
+        runtime.feed(10, None).unwrap()[0]["decision_point"],
+        "launch_ready"
+    );
+    assert!(!text.contains("private detail"));
+}
+
+#[test]
+fn supporter_cold_adapter_decision_gets_a_startup_budget_until_ready() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = Arc::new(SupporterRuntime::new(dir.path().into()));
+    let model = budgeted_model_with_activity(
+        Arc::new(Model {
+            calls: Arc::default(),
+            exhausted: false,
+        }),
+        runtime.clone(),
+        0,
+        VerdictKind::TabState,
+        None,
+        None,
+        None,
+    );
+    let now = Instant::now();
+
+    assert_eq!(
+        runtime.decision_deadline("fixture", 3_000, now),
+        now + Duration::from_secs(5)
+    );
+    model
+        .decide_questions(&request(1), now + Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(
+        runtime.decision_deadline("fixture", 3_000, now),
+        now + Duration::from_secs(3)
+    );
+    assert_eq!(
+        runtime.decision_deadline("other", 3_000, now),
+        now + Duration::from_secs(5)
+    );
 }
 
 #[test]
@@ -214,7 +311,7 @@ fn supporter_shared_request_counts_once_and_journals_all_distributions_and_usage
 }
 
 #[test]
-fn supporter_402_exhaustion_alerts_once_blocks_calls_and_new_balance_rearms() {
+fn supporter_402_exhaustion_alerts_once_and_blocks_calls() {
     let dir = tempfile::tempdir().unwrap();
     let runtime = Arc::new(SupporterRuntime::new(dir.path().into()));
     let alerts = Arc::new(Mutex::new(Vec::new()));
@@ -247,63 +344,17 @@ fn supporter_402_exhaustion_alerts_once_blocks_calls_and_new_balance_rearms() {
         alerts.lock()[0].level,
         codeterm_types::notification::NotifyLevel::Failure
     );
-    runtime
-        .set_balance("fixture", model.pricing().as_ref(), Some(5.0))
-        .unwrap();
-    assert_eq!(runtime.spend_status("fixture")["exhausted"], false);
     assert_eq!(
         model.decide_questions(&request(2), Instant::now() + Duration::from_secs(2)),
         Err(DecisionError::CreditExhausted)
     );
-    assert_eq!(calls.load(Ordering::SeqCst), 2);
-    assert_eq!(alerts.lock().len(), 2);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(alerts.lock().len(), 1);
     let text = std::fs::read_to_string(dir.path().join("journal.jsonl")).unwrap();
     assert_eq!(
         text.lines()
             .map(|line| serde_json::from_str::<Value>(line).unwrap())
             .filter(|line| line["kind"] == "spend_alert")
-            .count(),
-        2
-    );
-}
-
-#[test]
-fn supporter_low_balance_owner_notification_is_journaled_once() {
-    let dir = tempfile::tempdir().unwrap();
-    let runtime = Arc::new(SupporterRuntime::new(dir.path().into()));
-    let alerts = Arc::new(Mutex::new(Vec::new()));
-    let captured = alerts.clone();
-    runtime.attach_alert_sink(Arc::new(move |alert| captured.lock().push(alert)));
-    let model = budgeted_model_with_activity(
-        Arc::new(Model {
-            calls: Arc::default(),
-            exhausted: false,
-        }),
-        runtime.clone(),
-        600,
-        VerdictKind::Rerank,
-        None,
-        None,
-        None,
-    );
-    runtime
-        .set_balance("fixture", model.pricing().as_ref(), Some(1.01))
-        .unwrap();
-    for _ in 0..2 {
-        model
-            .decide_questions(&request(36), Instant::now() + Duration::from_secs(2))
-            .unwrap();
-    }
-    assert_eq!(alerts.lock().len(), 1);
-    assert_eq!(
-        alerts.lock()[0].level,
-        codeterm_types::notification::NotifyLevel::ActionNeeded
-    );
-    let text = std::fs::read_to_string(dir.path().join("journal.jsonl")).unwrap();
-    assert_eq!(
-        text.lines()
-            .map(|line| serde_json::from_str::<Value>(line).unwrap())
-            .filter(|line| line["reason"] == "action_needed")
             .count(),
         1
     );
@@ -430,6 +481,7 @@ fn supporter_first_opinion_adapter_batch_cannot_hide_a_second_physical_request()
         Some(ActivityContext::TabState {
             title: "supplied-tab".into(),
             declared_safe_choice: None,
+            decision_point: "launch_ready".into(),
         }),
     );
     assert_eq!(

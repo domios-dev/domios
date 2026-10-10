@@ -11,20 +11,24 @@ const QUEUE_SIZE: usize = 32;
 pub(crate) const MAX_QUESTIONS: usize = 6;
 
 type Work = Box<dyn FnOnce() -> Option<ShadowVerdict> + Send>;
+pub(super) type Completion = Box<dyn FnOnce(Option<ShadowVerdict>) + Send>;
 
 struct Job {
     tab: String,
     critical: bool,
     work: Work,
+    completion: Option<Completion>,
     #[cfg(test)]
     result: mpsc::Sender<std::thread::Result<Option<ShadowVerdict>>>,
 }
 
 impl Job {
     fn cancel(self) {
+        if let Some(completion) = self.completion {
+            completion(None);
+        }
         #[cfg(test)]
         let _ = self.result.send(Ok(None));
-        drop(self);
     }
 }
 
@@ -112,6 +116,17 @@ impl Scheduler {
         questions: usize,
         work: impl FnOnce() -> Option<ShadowVerdict> + Send + 'static,
     ) -> Option<ObservationHandle> {
+        self.submit_with_completion(tab, critical, questions, work, None)
+    }
+
+    pub(crate) fn submit_with_completion(
+        &self,
+        tab: String,
+        critical: bool,
+        questions: usize,
+        work: impl FnOnce() -> Option<ShadowVerdict> + Send + 'static,
+        completion: Option<Completion>,
+    ) -> Option<ObservationHandle> {
         if questions == 0 || questions > MAX_QUESTIONS {
             return None;
         }
@@ -150,6 +165,7 @@ impl Scheduler {
             tab,
             critical,
             work: Box::new(work),
+            completion,
             #[cfg(test)]
             result: tx,
         });
@@ -207,7 +223,18 @@ fn run(shared: Arc<Shared>) {
                 shared.ready.wait(&mut queue);
             }
         };
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job.work));
+        let result = {
+            let _role =
+                codeterm_util::named_thread::Scope::enter(&format!("tab-observer:{}", job.tab));
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(job.work))
+        };
+        if let Some(completion) = job.completion {
+            let completed = match &result {
+                Ok(verdict) => verdict.clone(),
+                Err(_) => None,
+            };
+            completion(completed);
+        }
         shared.queue.lock().tabs.remove(&job.tab);
         #[cfg(test)]
         let _ = job.result.send(result);

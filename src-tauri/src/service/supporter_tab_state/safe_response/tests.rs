@@ -70,6 +70,23 @@ fn supporter_first_opinion_safe_response_never_authorizes_without_evidence() {
 }
 
 #[test]
+fn declared_option_response_refuses_multi_select_and_more_than_ten_choices() {
+    let mut target = target();
+    target.prompt.multi_select = Some(true);
+    assert!(!unique_choice(&target.prompt, &target.choice));
+
+    target.prompt.multi_select = Some(false);
+    for index in 0..9 {
+        target.prompt.options.push(PromptOption {
+            label: format!("opaque-{index}"),
+            value: format!("opaque-{index}"),
+        });
+    }
+    assert_eq!(target.prompt.options.len(), 11);
+    assert!(!unique_choice(&target.prompt, &target.choice));
+}
+
+#[test]
 fn supporter_first_opinion_safe_response_distinct_events_and_new_occurrence() {
     let mut book = Agreement::default();
     let deadline = Instant::now() + Duration::from_secs(3);
@@ -189,6 +206,57 @@ fn supporter_first_opinion_safe_response_provider_option_order_and_focus() {
         None
     );
     assert!(provider_target(&provider, "unrelated input").is_none());
+}
+
+#[test]
+fn sentinel_respond_prompt_onboarding_uses_declared_provider_choice() {
+    let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
+    let screen = include_str!("../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
+    let target = provider_target(&provider, screen).unwrap();
+    assert_eq!(target.kind, Kind::Onboarding);
+    assert!(target.kind.label_matches(LOGIN_OR_AUTH_REQUIRED));
+    assert!(!target.kind.label_matches(MODEL_UNAVAILABLE_OR_QUOTA));
+    assert!(!target.kind.label_matches(TRUST_OR_PERMISSION_PROMPT));
+    assert!(target
+        .kind
+        .sentinel_label_matches(TRUST_OR_PERMISSION_PROMPT));
+    assert!(!target.kind.sentinel_label_matches(LOGIN_OR_AUTH_REQUIRED));
+    assert!(!target
+        .kind
+        .sentinel_label_matches(MODEL_UNAVAILABLE_OR_QUOTA));
+    assert!(authorized(
+        &target,
+        &Evidence {
+            observations: 2,
+            confidence: 0.99,
+            qualified: true,
+            current: true,
+            eligible: true,
+            model_choice: Some((&target.choice, 0.99)),
+        }
+    ));
+}
+
+#[test]
+fn sentinel_respond_prompt_login_and_quota_are_never_authorized() {
+    for kind in [
+        Kind::Update,
+        Kind::Onboarding,
+        Kind::DirectoryTrust,
+        Kind::Permission,
+    ] {
+        assert!(!kind.sentinel_label_matches(LOGIN_OR_AUTH_REQUIRED));
+        assert!(!kind.sentinel_label_matches(MODEL_UNAVAILABLE_OR_QUOTA));
+    }
+    for kind in [Kind::Update, Kind::DirectoryTrust, Kind::Permission] {
+        assert!(!kind.label_matches(LOGIN_OR_AUTH_REQUIRED));
+        assert!(!kind.label_matches(MODEL_UNAVAILABLE_OR_QUOTA));
+    }
+    let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
+    let login = include_str!(
+        "../../../../../plugins/provider-claude/tests/fixtures/tab-state/auth-login.txt"
+    );
+    assert!(provider_target(&provider, login).is_none());
 }
 
 #[test]

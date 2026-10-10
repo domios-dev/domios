@@ -12,9 +12,11 @@
 
 pub mod chatbackend_history;
 pub mod context_window;
+mod file_events;
 pub mod host_context;
 pub mod raw_text_sink;
 pub mod registry;
+pub(crate) mod restore_notice;
 pub mod session_window;
 pub mod store_watch;
 pub mod structured_poller;
@@ -29,6 +31,8 @@ pub use tailer::{
     spawn_raw_tailer, spawn_tailer, DeltaSink, RawTailConfig, RawTextSink, TailConfig, TailerHandle,
 };
 
+#[cfg(test)]
+mod command_tests;
 #[cfg(test)]
 mod identity_tests;
 #[cfg(test)]
@@ -51,6 +55,31 @@ pub fn enrich_interactive(
     msg: &mut RichMessage,
     provider: &dyn crate::agent::provider::AgentProvider,
 ) {
+    if msg.role == "user"
+        && !msg.blocks.is_empty()
+        && msg.blocks.iter().all(|block| block.kind == "text")
+    {
+        if let Some(commands) = provider.model_switch_commands() {
+            let mut record = serde_json::json!({"type": commands.transcript.record_type});
+            let mut content = &mut record;
+            for key in &commands.transcript.content_path {
+                content = &mut content[key];
+            }
+            *content = serde_json::Value::Array(
+                msg.blocks
+                    .iter()
+                    .map(|block| {
+                        let mut data = block.data.clone();
+                        data["type"] = serde_json::Value::String(block.kind.clone());
+                        data
+                    })
+                    .collect(),
+            );
+            if commands.transcript.is_command_record(&record) {
+                msg.blocks.clear();
+            }
+        }
+    }
     msg.interactive = provider.parse_interactive_events(msg);
 }
 
@@ -673,6 +702,25 @@ pub fn tab_chat_snapshot(
     tab_id: &str,
     since: usize,
 ) -> Result<(Vec<ChatMsg>, usize), String> {
+    let (messages, _) = tab_transcript_snapshot(svc, tab_id, 0)?;
+    Ok(restore_notice::snapshot(tab_id, messages, since))
+}
+
+fn tab_transcript_snapshot(
+    svc: &crate::service::ServiceContext,
+    tab_id: &str,
+    since: usize,
+) -> Result<(Vec<ChatMsg>, usize), String> {
+    if crate::service::structured_endpoint::sse(tab_id).is_some() {
+        let messages = crate::service::structured_prompt::snapshot::read(svc, tab_id)?;
+        let total = messages.len();
+        return Ok((messages.into_iter().skip(since).collect(), total));
+    }
+    if crate::service::codex_rpc::lifecycle::for_tab(tab_id).is_some() {
+        let (messages, _, _) = crate::service::codex_rpc::transcript::snapshot(svc, tab_id)?;
+        let total = messages.len();
+        return Ok((messages.into_iter().skip(since).collect(), total));
+    }
     let backing = {
         let m = svc.mux.write();
         m.get_tab(tab_id).ok_or("Tab not found")?.backing.clone()
@@ -685,9 +733,10 @@ pub fn tab_chat_snapshot(
             let provider = svc
                 .chatbackend_registry
                 .get(&plugin_id)
-                .ok_or_else(|| format!("chatBackend plugin '{plugin_id}' not registered"))?;
+                .ok_or_else(|| super::tab_transport_chat::removed_chatbackend_error(&plugin_id))?;
             chatbackend_transcript_snapshot(provider.as_ref(), &session_id, since)
         }
+        crate::multiplexer::types::TabBacking::Surface(_) => Ok((Vec::new(), 0)),
         crate::multiplexer::types::TabBacking::Pty => {
             let (provider_id, cwd, session_id) = {
                 let m = svc.mux.write();
@@ -700,7 +749,11 @@ pub fn tab_chat_snapshot(
                     .ok_or("Tab has no session_id yet")?;
                 (provider, cwd, sid)
             };
-            session_chat_snapshot(svc, &provider_id, &cwd, &session_id, since)
+            let result = session_chat_snapshot(svc, &provider_id, &cwd, &session_id, since)?;
+            if result.0.iter().any(|message| message.kind == "user") {
+                svc.note_session_conversation(tab_id, &session_id);
+            }
+            Ok(result)
         }
     }
 }

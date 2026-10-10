@@ -1,3 +1,4 @@
+import { formatAttachmentMarker } from "@codeterm/chat-core";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 
@@ -60,7 +61,7 @@ async function main() {
     ],
     "the serving daemon that holds the bytes runs the handoff; nothing rides relay-to",
   );
-  assert.equal(relayed.composed, `look ${peerImage} [voice ${peerVoice}: peer transcript]`);
+  assert.equal(relayed.composed, `look ${formatAttachmentMarker(peerImage)} [voice ${peerVoice}: peer transcript]`);
   assert.ok(!relayed.composed.includes("blackstar"));
 
   calls.length = 0;
@@ -72,7 +73,7 @@ async function main() {
   calls.length = 0;
   const local = await composeAttachmentDraft("tab-7", "", [sourceImage, sourceVoice], [sourceVoice], composerAttachmentHandoff);
   assert.deepEqual(calls.map(({ url }) => url), [`${selfHost()}/api/transcribe-voice`]);
-  assert.equal(local.composed, `${sourceImage} [voice ${sourceVoice}: origin transcript]`);
+  assert.equal(local.composed, `${formatAttachmentMarker(sourceImage)} [voice ${sourceVoice}: origin transcript]`);
 }
 
 main()

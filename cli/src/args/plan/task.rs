@@ -2,6 +2,15 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum PlanTaskAction {
+    /// Replace structured task context files (relative paths resolve against the Worker cwd)
+    Files {
+        plan_id: String,
+        task_id: String,
+        #[arg(long = "edit-file", value_name = "PATH")]
+        edit: Vec<String>,
+        #[arg(long = "read-file", value_name = "PATH")]
+        read: Vec<String>,
+    },
     /// List a plan's tasks, optionally filtered by status
     List {
         plan_id: Option<String>,

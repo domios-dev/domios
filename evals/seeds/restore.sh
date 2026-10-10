@@ -4,6 +4,7 @@
 # Usage:
 #   ./restore.sh clean
 #   ./restore.sh loaded
+# Set CODETERM_INSTANCE to an isolated dev instance before running.
 #
 # After restore, dev is running with the snapshot state.
 
@@ -11,11 +12,15 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
-DEV_HOME="$HOME/.codeterm-dev"
+source "$REPO/evals/_lib/lib.sh"
+[ -n "${CODETERM_INSTANCE:-}" ] || {
+    echo "[restore] CODETERM_INSTANCE must name an isolated dev instance" >&2
+    exit 7
+}
+dev_env || exit 7
+DEV_HOME="$(dev_data_dir)" || exit 7
 DB="$DEV_HOME/mem/knowledge.db"
 BLOBS="$DEV_HOME/mem/blobs"
-
-API="http://127.0.0.1:7686"
 
 target="${1:-}"
 if [ -z "$target" ]; then
@@ -34,8 +39,7 @@ fi
 log() { printf '[restore] %s\n' "$*"; }
 
 log "killing dev instance"
-(cd "$REPO" && ./build.sh kill) >/dev/null 2>&1 || true
-sleep 1
+dev_kill_hard
 
 log "restoring $target snapshot -> $DB"
 mkdir -p "$(dirname "$DB")"
@@ -49,32 +53,19 @@ if [ -d "$SRC_BLOBS" ]; then
 else
     mkdir -p "$BLOBS"
 fi
+seed_empty_storage_root
 
 # Wipe general agent transient state so it re-boots with a fresh GA session
 # but keeps the mem snapshot
 rm -f "$DEV_HOME/general/soul.md" \
       "$DEV_HOME/general/bootstrap.md"
-# Clear GA claude session so it doesn't resume into stale context
-find "$HOME/.claude/projects/" -path "*general*"     -name "*.jsonl" -delete 2>/dev/null || true
-find "$HOME/.claude/projects/" -path "*codeterm-dev*" -name "*.jsonl" -delete 2>/dev/null || true
-if [ -f "$DEV_HOME/sessions/last.json" ]; then
-    sed -i '' 's/"claude_session_id": "[^"]*"/"claude_session_id": null/g' "$DEV_HOME/sessions/last.json"
-fi
 
 log "starting dev"
-(cd "$REPO" && ./build.sh dev) >/dev/null 2>&1 &
-
-for i in $(seq 1 30); do
-    if curl -s "$API/api/health" 2>/dev/null | grep -q ok; then
-        log "dev ready"
-        item_count=$(sqlite3 "$DB" "SELECT COUNT(*) FROM mem_items")
-        ent_count=$(sqlite3 "$DB" "SELECT COUNT(*) FROM entities")
-        rel_count=$(sqlite3 "$DB" "SELECT COUNT(*) FROM relations")
-        log "restored $target: items=$item_count entities=$ent_count relations=$rel_count"
-        exit 0
-    fi
-    sleep 2
-done
-
-echo "[restore] dev didn't come up" >&2
-exit 1
+dev_start_bg
+dev_wait_ready 120 || {
+    echo "[restore] dev didn't come up" >&2
+    exit 1
+}
+log "dev ready"
+stats="$(dev_get /api/mem/stats)"
+log "restored $target: $stats"

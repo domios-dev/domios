@@ -1,0 +1,13 @@
+Windows PowerShell
+Copyright (C) Microsoft Corporation. All rights reserved.
+PS C:\Users\User\AppData\Local\Temp\codex-remote-spike-3881ece143dc4f7c96553e0e40e4089c>  node D:/Developer/codeterm-worktrees/pl-a0rcq7-scout/evals/codex-remote-spike/launch.mjs --binary C:/Users/User/AppData/Local/Programs/OpenAI/Codex/bin/codex.exe --port 18471 --dir C:/Users/User/AppData/Local/Temp/codex-remote-spike-final-20261007
+codex app-server (WebSockets)
+  listening on: ws://127.0.0.1:18471
+  readyz: http://127.0.0.1:18471/readyz
+  healthz: http://127.0.0.1:18471/healthz
+  note: binds localhost only (use SSH port-forwarding for remote access)
+MINTED_THREAD 01a1160f-67a7-77d1-b809-a112d0b3ddeb
+Error: Failed to resume session from C:\Users\User\.codex\sessions\2026\10\07\rollout-2026-10-07T14-11-10-01a1160f-67a7-77d1-b809-a112d0b3ddeb.jsonl: thread/resume failed during TUI bootstrap: thread/resume failed: no rollout found for thread id 01a1160f-67a7-77d1-b809-a112d0b3ddeb (code -32600)
+TUI_EXIT 1
+SERVER_EXIT null
+PS C:\Users\User\AppData\Local\Temp\codex-remote-spike-3881ece143dc4f7c96553e0e40e4089c>

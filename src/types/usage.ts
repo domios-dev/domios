@@ -1,4 +1,6 @@
 export interface UsageSnapshot {
+  billing_mode: "subscription" | "api" | "unknown";
+  limits_reported: boolean;
   id: number;
   provider: string;
   account_id: string | null;

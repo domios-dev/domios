@@ -14,6 +14,7 @@ pub(crate) struct EnvelopeContext {
     pub(super) observation_id: u64,
     pub(crate) adapter: Option<Arc<dyn DecisionModel>>,
     pub(crate) policy_hash: Option<String>,
+    pub(super) pty_session_generation: Option<u64>,
 }
 
 impl std::fmt::Debug for EnvelopeContext {
@@ -31,6 +32,7 @@ struct QueuedObservation<H: ShadowHost> {
     tab: String,
     title: String,
     observation_id: u64,
+    decision_point: &'static str,
     correlation: Option<identity::correlation::Correlation>,
     pending: bool,
     source: identity::DecisionSource,
@@ -45,7 +47,8 @@ impl<H: ShadowHost> Drop for QueuedObservation<H> {
                 identity::correlation::RecordIdentity::with_correlation(
                     self.observation_id,
                     self.correlation.as_ref(),
-                ),
+                )
+                .with_fallback_decision_point(self.decision_point),
                 self.source,
                 OTHER,
                 None,
@@ -60,7 +63,7 @@ struct ObservationEnvelope {
     metadata: TabStateMetadata,
     permit: state::ObservationPermit,
     adapter: Arc<dyn DecisionModel>,
-    deadline: Instant,
+    configured_deadline_ms: u64,
     audit_only: bool,
 }
 
@@ -101,6 +104,30 @@ pub(crate) fn enqueue_prepared<H: ShadowHost>(
     structural_verdict: &str,
     prepared: (DecisionQuestionsRequest, TabStateMetadata),
 ) -> Option<scheduler::ObservationHandle> {
+    enqueue_prepared_with_completion(
+        host,
+        config,
+        adapter_id,
+        configured_deadline_ms,
+        tab_id,
+        trigger,
+        structural_verdict,
+        prepared,
+        None,
+    )
+}
+
+fn enqueue_prepared_with_completion<H: ShadowHost>(
+    host: &H,
+    config: &SupporterConfig,
+    adapter_id: &str,
+    configured_deadline_ms: u64,
+    tab_id: &str,
+    trigger: ObservationTrigger,
+    structural_verdict: &str,
+    prepared: (DecisionQuestionsRequest, TabStateMetadata),
+    completion: Option<scheduler::Completion>,
+) -> Option<scheduler::ObservationHandle> {
     if !connected(host, config, adapter_id) {
         if let Some(envelope) = prepared.1.envelope.as_ref() {
             record(
@@ -110,7 +137,7 @@ pub(crate) fn enqueue_prepared<H: ShadowHost>(
                     envelope.observation_id,
                     &envelope.correlation,
                 ),
-                identity::DecisionSource::Error,
+                identity::DecisionSource::unavailable(),
                 OTHER,
                 None,
                 &prepared.1.title,
@@ -131,17 +158,18 @@ pub(crate) fn enqueue_prepared<H: ShadowHost>(
         tab: tab.clone(),
         title: prepared.1.title.clone(),
         observation_id: prepared.1.envelope.as_ref()?.observation_id,
+        decision_point: trigger.label(),
         correlation: Some(prepared.1.envelope.as_ref()?.correlation.clone()),
         pending: true,
         source: identity::DecisionSource::Budget,
     };
-    scheduler::global().submit(
+    scheduler::global().submit_with_completion(
         tab.clone(),
         matches!(trigger, ObservationTrigger::TabExit),
         questions,
         move || {
             let mut queued = queued;
-            queued.source = identity::DecisionSource::Error;
+            queued.source = identity::DecisionSource::unavailable();
             let _restore = restore;
             let result = observe_guarded_inner(
                 &host,
@@ -156,7 +184,96 @@ pub(crate) fn enqueue_prepared<H: ShadowHost>(
             queued.pending = false;
             result
         },
+        completion,
     )
+}
+
+pub(super) fn observe_user_delivery_readiness(
+    host: &super::ServiceContext,
+    tab_id: &str,
+    expected_local: Option<&identity::LocalIdentity>,
+) -> Result<super::UserDeliveryObservation, String> {
+    let pty_session_generation = host.user_delivery_pty_session_generation(tab_id)?;
+    let config = host.supporter_decision_config();
+    let adapter_id = config
+        .active_id()
+        .filter(|adapter| !adapter.trim().is_empty())
+        .ok_or_else(|| "supporter_adapter_unavailable".to_string())?
+        .to_string();
+    let prepared = prepare_observation_with_parent_and_identity(
+        host,
+        tab_id,
+        ObservationTrigger::UserDeliveryReadiness,
+        "user_delivery_pending_binding",
+        None,
+        expected_local,
+    )?;
+    if host.user_delivery_pty_session_generation(tab_id)? != pty_session_generation {
+        return Err("supporter_pty_generation_changed_during_capture".into());
+    }
+    let adapter = host
+        .supporter_models()
+        .get(&adapter_id)
+        .ok_or_else(|| "supporter_adapter_unavailable".to_string())?;
+    let mut prepared = prepared;
+    let envelope = prepared
+        .1
+        .envelope
+        .as_mut()
+        .ok_or("supporter_observation_invalid")?;
+    envelope.adapter = Some(adapter.clone());
+    envelope.pty_session_generation = Some(pty_session_generation);
+    let metadata = prepared.1.clone();
+    let callback_metadata = metadata.clone();
+    let callback_tab = tab_id.to_string();
+    let callback_adapter = adapter_id.clone();
+    let callback_model = adapter;
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let completion: scheduler::Completion = Box::new(move |verdict| {
+        let observation_id = callback_metadata
+            .envelope
+            .as_ref()
+            .map_or(0, |envelope| envelope.observation_id);
+        let Some(verdict) = verdict else {
+            let _ = sender.send(Err("supporter_observation_unavailable".to_string()));
+            return;
+        };
+        let decided_by = identity::DecisionSource::verdict(&verdict);
+        let _ = sender.send(Ok(super::UserDeliveryObservation {
+            tab_id: callback_tab,
+            adapter_id: callback_adapter,
+            adapter: callback_model,
+            observation_id,
+            pty_session_generation,
+            decided_by,
+            metadata: callback_metadata,
+            verdict,
+        }));
+    });
+    let queued = enqueue_prepared_with_completion(
+        host,
+        &config,
+        &adapter_id,
+        config.deadline_ms,
+        tab_id,
+        ObservationTrigger::UserDeliveryReadiness,
+        "user_delivery_pending_binding",
+        prepared,
+        Some(completion),
+    );
+    if queued.is_none() {
+        return Err("supporter_observation_not_queued".into());
+    }
+    receiver
+        .recv_timeout(super::DEADLINE + Duration::from_secs(1))
+        .map_err(|error| match error {
+            std::sync::mpsc::RecvTimeoutError::Timeout => {
+                "supporter_observation_deadline".to_string()
+            }
+            std::sync::mpsc::RecvTimeoutError::Disconnected => {
+                "supporter_observation_cancelled".to_string()
+            }
+        })?
 }
 
 pub(super) fn connected<H: ShadowHost>(host: &H, config: &SupporterConfig, adapter: &str) -> bool {
@@ -168,6 +285,7 @@ pub(super) fn connected<H: ShadowHost>(host: &H, config: &SupporterConfig, adapt
         &host.supporter_models(),
         &TokenSnapshot {
             usable: host.token_available(adapter),
+            acl_invalid: false,
         },
     )
 }
@@ -216,7 +334,7 @@ fn observe_guarded_inner<H: ShadowHost>(
                     envelope.observation_id,
                     &envelope.correlation,
                 ),
-                identity::DecisionSource::Error,
+                identity::DecisionSource::unavailable(),
                 OTHER,
                 None,
                 prepared
@@ -244,7 +362,7 @@ fn observe_guarded_inner<H: ShadowHost>(
                 envelope.observation_id,
                 &envelope.correlation,
             ),
-            identity::DecisionSource::Error,
+            identity::DecisionSource::unavailable(),
             OTHER,
             None,
             &captured_title,
@@ -264,15 +382,13 @@ fn observe_guarded_inner<H: ShadowHost>(
                 envelope.observation_id,
                 &envelope.correlation,
             ),
-            identity::DecisionSource::Error,
+            identity::DecisionSource::unavailable(),
             OTHER,
             None,
             &captured_title,
         );
         return None;
     }
-    let deadline =
-        envelope.captured_at + Duration::from_millis(configured_deadline_ms.max(1)).min(DEADLINE);
     let admission = if matches!(trigger, ObservationTrigger::TabExit) {
         state::audit_permit(tab_id, &metadata.session_key, envelope.observation_id)
             .ok_or(state::PermitError::BusyAlreadyObserved)
@@ -290,7 +406,7 @@ fn observe_guarded_inner<H: ShadowHost>(
                     &envelope.correlation,
                 ),
                 if matches!(trigger, ObservationTrigger::TabExit) {
-                    identity::DecisionSource::Error
+                    identity::DecisionSource::unavailable()
                 } else {
                     identity::DecisionSource::Budget
                 },
@@ -311,7 +427,7 @@ fn observe_guarded_inner<H: ShadowHost>(
                 permit.observation_id,
                 &envelope.correlation,
             ),
-            identity::DecisionSource::Error,
+            identity::DecisionSource::unavailable(),
             OTHER,
             None,
             &captured_title,
@@ -339,7 +455,7 @@ fn observe_guarded_inner<H: ShadowHost>(
         metadata,
         permit,
         adapter,
-        deadline,
+        configured_deadline_ms,
         audit_only: matches!(trigger, ObservationTrigger::TabExit),
     };
     let model = supporter::budgeted_model_with_activity(
@@ -352,6 +468,7 @@ fn observe_guarded_inner<H: ShadowHost>(
         Some(supporter::ActivityContext::TabState {
             title: envelope.metadata.title.clone(),
             declared_safe_choice: envelope.metadata.declared_safe_choice.clone(),
+            decision_point: trigger.label().into(),
         }),
     );
     observe(host, &model, config, adapter_id, tab_id, trigger, envelope)
@@ -417,7 +534,7 @@ fn observe<H: ShadowHost>(
                 envelope.permit.observation_id,
                 &envelope.metadata,
             ),
-            identity::DecisionSource::Error,
+            identity::DecisionSource::unavailable(),
             OTHER,
             None,
             &title,
@@ -426,7 +543,12 @@ fn observe<H: ShadowHost>(
         return None;
     }
     let classified_frame_hash = envelope.metadata.envelope.as_ref()?.raw_tail_hash;
-    let response = model.decide_questions(&envelope.request, envelope.deadline);
+    let deadline = host.supporter_runtime().decision_deadline(
+        adapter_id,
+        envelope.configured_deadline_ms,
+        Instant::now(),
+    );
+    let response = model.decide_questions(&envelope.request, deadline);
     let model_verdict = response
         .as_ref()
         .ok()
@@ -444,7 +566,7 @@ fn observe<H: ShadowHost>(
                 &envelope.metadata,
             )
             .with_model_verdict(model_verdict.clone()),
-            identity::DecisionSource::Error,
+            identity::DecisionSource::unavailable(),
             OTHER,
             None,
             &title,
@@ -471,6 +593,10 @@ fn observe<H: ShadowHost>(
                 Some(verdict.confidence),
                 &title,
             );
+            if trigger == ObservationTrigger::UserDeliveryReadiness {
+                verdict.action = SignalAction::None;
+                return Some(verdict);
+            }
             if matches!(trigger, ObservationTrigger::TabExit)
                 && metadata
                     .tab_snapshot
@@ -656,9 +782,10 @@ pub(crate) fn prepare_observation_with_parent_and_identity<H: ShadowHost>(
         tab: tab_id.into(),
         title: tab_id.into(),
         observation_id: state::next_observation_id(),
+        decision_point: trigger.label(),
         correlation: None,
         pending: true,
-        source: identity::DecisionSource::Error,
+        source: identity::DecisionSource::unavailable(),
     };
     let captured_at = Instant::now();
     let local = host.local_identity(tab_id);
@@ -679,6 +806,19 @@ pub(crate) fn prepare_observation_with_parent_and_identity<H: ShadowHost>(
         return Err("stale capture".into());
     }
     let frame_hash = frame_hash(&screen.to_string());
+    if parent_observation_id.is_none()
+        && !matches!(
+            trigger,
+            ObservationTrigger::UserDeliveryReadiness
+                | ObservationTrigger::PromptEstablished
+                | ObservationTrigger::PromptConfirmation
+                | ObservationTrigger::SentinelRequest
+        )
+        && !super::admission::claim(tab_id, &metadata.session_key, frame_hash, trigger)
+    {
+        capture.pending = false;
+        return Err("unchanged frame or per-tab classification rate bound".into());
+    }
     let ledgers = host.ledger_snapshot(tab_id);
     let prompt = metadata
         .tab_snapshot
@@ -710,6 +850,7 @@ pub(crate) fn prepare_observation_with_parent_and_identity<H: ShadowHost>(
         observation_id: capture.observation_id,
         adapter: None,
         policy_hash: None,
+        pty_session_generation: None,
     });
     metadata.context = privacy::value(&metadata.context);
     let safe_screen = privacy::screen(text);
@@ -762,8 +903,9 @@ pub(super) fn observation_answers(response: DecisionResponse) -> Result<ShadowVe
     if !prompt_visible.is_finite() || !(0.0..=1.0).contains(&prompt_visible) {
         return Err("decision model gave invalid prompt_visible".into());
     }
-    let prompt_visible = match answers.remove("input_area") {
-        None => prompt_visible,
+    let reported_prompt_visible = prompt_visible;
+    let input_area = match answers.remove("input_area") {
+        None => None,
         Some(DecisionAnswer::Choice {
             choice,
             probabilities,
@@ -773,13 +915,22 @@ pub(super) fn observation_answers(response: DecisionResponse) -> Result<ShadowVe
                 .or_else(|| probabilities.get(&choice).copied())
                 .filter(|value| value.is_finite() && (0.0..=1.0).contains(value))
                 .ok_or("decision model gave invalid input_area confidence")?;
-            match choice.as_str() {
-                "active_modal" if confidence >= 0.60 => prompt_visible.min(confidence),
-                "active_modal" | "composer" | "historical_or_draft_text" | OTHER => 0.0,
-                _ => return Err("decision model gave unknown input_area".into()),
+            if !matches!(
+                choice.as_str(),
+                "active_modal" | "composer" | "historical_or_draft_text" | OTHER
+            ) {
+                return Err("decision model gave unknown input_area".into());
             }
+            Some((choice, confidence))
         }
         Some(_) => return Err("decision model gave invalid input_area".into()),
+    };
+    let prompt_visible = match input_area.as_ref() {
+        Some((area, confidence)) if area == "active_modal" && *confidence >= 0.60 => {
+            prompt_visible.min(*confidence)
+        }
+        Some(_) => 0.0,
+        None => prompt_visible,
     };
     let safe_choice = answers.remove("safe_choice").and_then(|answer| {
         let DecisionAnswer::Choice {
@@ -798,6 +949,8 @@ pub(super) fn observation_answers(response: DecisionResponse) -> Result<ShadowVe
         label,
         confidence,
         prompt_visible,
+        reported_prompt_visible,
+        input_area,
         safe_choice,
         action: SignalAction::None,
         classified_frame_hash: 0,

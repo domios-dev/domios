@@ -29,6 +29,7 @@ import { codexFileDiffs } from "./fileDiffs";
 import { editFingerprint, pairFileChange, type PendingFileChange } from "./fileChangePairing";
 import { imageGenerationEndResult, webSearchEndResult } from "./richResults";
 import { actionTitle } from "./actionTitle";
+import { codexImageBlock, parseCodexUserContent, type CodexUserImage } from "./userContent";
 import {
   codexDirectoryTrustState,
   codexProfileInstanceId,
@@ -106,6 +107,8 @@ const OUTPUT_FINGERPRINTS = [
 const TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
 const ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
 const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
+// Codex truncates AGENTS.md at 32 KiB by default; agent repos routinely exceed it.
+const CODEX_LAUNCH_CONFIG = ["-c", "check_for_update_on_startup=false", "-c", "project_doc_max_bytes=65536"];
 
 function starterPrompt(params: LaunchParams): string | undefined {
   if (params.starterPromptText) return params.starterPromptText;
@@ -129,12 +132,14 @@ function windowsProfileCommand(parts: string[], taskPath: string | null, instanc
   const quotedInstanceId = host.shell.quoteFor(instanceId, host.platform());
   const taskSetup = taskPath
     ? `$ctTaskInstructions = [System.IO.File]::ReadAllText(${host.shell.quoteFor(taskPath, host.platform())}, [System.Text.Encoding]::UTF8); `
+      + '$ctTaskInstructions = $ctTaskInstructions.Replace("`r`n", "`n").Replace("`r", "`n"); '
       + "$ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); "
     : "$ctTaskJson = $null; ";
   const profileValue = taskPath
-    ? "('# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine + 'developer_instructions = ' + $ctTaskJson)"
+    ? "('# codeterm-instance: ' + $ctInstanceId + \"`n\" + 'developer_instructions = ' + $ctTaskJson)"
     : "('# codeterm-instance: ' + $ctInstanceId)";
-  const prefix = "$ctTabId = $env:CODETERM_TAB_ID; if (-not $ctTabId) { throw 'CODETERM_TAB_ID is required for a per-tab Codex profile' }; "
+  const prefix = "$PSNativeCommandArgumentPassing = 'Standard'; "
+    + "$ctTabId = $env:CODETERM_TAB_ID; if (-not $ctTabId) { throw 'CODETERM_TAB_ID is required for a per-tab Codex profile' }; "
     + taskSetup
     + "$ctProfileSuffix = $ctTabId -replace '[^A-Za-z0-9_-]', '-'; "
     + "$ctProfileName = 'codeterm-' + $ctProfileSuffix; "
@@ -159,6 +164,11 @@ function windowsProfileCommand(parts: string[], taskPath: string | null, instanc
     + "$ctProfileReleased = [bool]$ctRelease.released } } catch { Write-Warning 'Codex profile retained because project trust could not be persisted'; }; "
     + "} } } finally { if ($ctProfileReleased -and (Test-Path -LiteralPath $ctProfilePath)) { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue } }";
   return prefix + parts.join(" ") + suffix;
+}
+
+function quoteCodexArg(value: string, platform: string): string {
+  const argument = platform === "windows" ? value.replace(/"/g, '\\"') : value;
+  return host.shell.quoteFor(argument, platform);
 }
 
 function hasPromptAndStatusFooter(screen: string): boolean {
@@ -295,6 +305,7 @@ const plugin: PluginModule = {
   sweepLaunchArtifacts(request: {
     instanceId: string;
     liveTabIds: string[];
+    goneInstanceIds?: string[];
     confirm: boolean;
     includeLegacy: boolean;
   }) {
@@ -304,19 +315,20 @@ const plugin: PluginModule = {
       request.instanceId,
       request.confirm,
       request.includeLegacy,
+      request.goneInstanceIds,
     );
   },
 
   buildLaunchCommand(params: LaunchParams): string {
     const p = params || {};
-    const parts: string[] = ["codex", "-c", "check_for_update_on_startup=false"];
+    const parts: string[] = ["codex", ...CODEX_LAUNCH_CONFIG];
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
     }
     if (p.args && p.args.length > 0) {
       // Quote each caller-supplied arg to prevent shell injection.
-      for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
+      for (let i = 0; i < p.args.length; i++) parts.push(quoteCodexArg(String(p.args[i]), host.platform()));
     }
     if (p.task?.trim()) {
       const instanceId = typeof p.instanceId === "string" && /^[A-Za-z0-9_-]+$/.test(p.instanceId)
@@ -349,7 +361,7 @@ const plugin: PluginModule = {
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
-    const parts = ["codex", "-c", "check_for_update_on_startup=false", "resume"];
+    const parts = ["codex", ...CODEX_LAUNCH_CONFIG, "resume"];
     if (skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
@@ -363,7 +375,7 @@ const plugin: PluginModule = {
   buildResumeCommandWithContext(params: ResumeParams): string {
     const p = params || ({} as ResumeParams);
     const platform = host.platform();
-    const parts = ["codex", "-c", "check_for_update_on_startup=false", "resume"];
+    const parts = ["codex", ...CODEX_LAUNCH_CONFIG, "resume"];
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
@@ -371,7 +383,7 @@ const plugin: PluginModule = {
     const uuid = extractSessionUuid(String(p.sessionId || "")) || String(p.sessionId || "");
     parts.push(host.shell.quoteFor(uuid, platform), "--no-daemon");
     if (Array.isArray(p.args)) {
-      for (const arg of p.args) parts.push(host.shell.quoteFor(String(arg), platform));
+      for (const arg of p.args) parts.push(quoteCodexArg(String(arg), platform));
     }
     if (platform === "windows") {
       const instanceId = typeof p.instanceId === "string" && /^[A-Za-z0-9_-]+$/.test(p.instanceId)
@@ -519,13 +531,21 @@ const plugin: PluginModule = {
         const role = p.role === "assistant" ? "assistant" : (p.role === "user" ? "user" : null);
         if (!role) continue; // skip developer/system noise
         let text = "";
-        if (Array.isArray(p.content)) {
+        let images: CodexUserImage[] = [];
+        if (role === "user") {
+          ({ text, images } = parseCodexUserContent(p.content));
+        } else if (Array.isArray(p.content)) {
           for (let j = 0; j < p.content.length; j++) {
             const c = p.content[j];
             if (c && typeof c.text === "string") text += c.text;
           }
         } else if (typeof p.content === "string") {
           text = p.content;
+        }
+        if (images.length > 0) {
+          const textBlocks = text ? [{ kind: "text", data: { text } }] : [];
+          out.push({ role, blocks: [...textBlocks, ...images.map(codexImageBlock)], ts, timestamp: tsIso });
+          continue;
         }
         if (!text) continue;
         const systemSubtype = classifyCodexSystemText(text);
@@ -770,7 +790,7 @@ const plugin: PluginModule = {
 
 // types shared by the parsers above
 
-interface CodexContentBlock { type?: string; text?: string }
+interface CodexContentBlock { type?: string; text?: string; image_url?: string }
 interface CodexPayload {
   item?: unknown;
   type?: string;

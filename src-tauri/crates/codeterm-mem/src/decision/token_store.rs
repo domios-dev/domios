@@ -21,6 +21,8 @@ impl fmt::Debug for ApiToken {
     }
 }
 
+const RESERVED_FILES: [&str; 3] = ["spend.json", "calls.json", "launch-origins.json"];
+
 #[derive(Debug, Clone)]
 pub struct TokenStore {
     base_dir: PathBuf,
@@ -31,6 +33,11 @@ pub struct TokenStatus {
     pub present: bool,
     pub path: PathBuf,
     pub mode_ok: Option<bool>,
+}
+
+#[cfg(windows)]
+pub fn restrict_directory_permissions(path: &std::path::Path) -> io::Result<()> {
+    windows::restrict_dir(path)
 }
 
 impl TokenStore {
@@ -46,8 +53,14 @@ impl TokenStore {
         };
         let mut ids = Vec::new();
         for entry in entries {
-            let path = entry?.path();
-            if path.file_name().is_some_and(|name| name == "spend.json")
+            let entry = entry?;
+            if !entry.file_type()?.is_file() {
+                continue;
+            }
+            let path = entry.path();
+            if path
+                .file_name()
+                .is_some_and(|name| RESERVED_FILES.iter().any(|reserved| name == *reserved))
                 || path.extension().is_none_or(|extension| extension != "json")
             {
                 continue;
@@ -79,7 +92,10 @@ impl TokenStore {
 
     fn token_path(&self, adapter_id: &str) -> io::Result<PathBuf> {
         let path = self.path(adapter_id);
-        if path.file_name().is_some_and(|name| name == "spend.json") {
+        if path
+            .file_name()
+            .is_some_and(|name| RESERVED_FILES.iter().any(|reserved| name == *reserved))
+        {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "reserved token file name",

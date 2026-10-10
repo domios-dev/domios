@@ -6,6 +6,73 @@ use crate::agent::tab_state::{
 use crate::agent::test_provider::MockProvider;
 use codeterm_types::pty::{PendingPrompt, PromptOption};
 
+#[test]
+fn non_prompt_line_composers_never_consult_display_hook() {
+    use crate::agent::offline_state_classifier::{TabVerdict, TimelineState};
+    use crate::agent::provider::ComposerCursorPosition;
+    let idle = TabVerdict {
+        state: TimelineState::Idle,
+        subtype: None,
+    };
+    for position in [
+        ComposerCursorPosition::BottomRegion,
+        ComposerCursorPosition::VisibleAnywhere,
+    ] {
+        assert_eq!(
+            display_verdict_for_composer(position, idle, || {
+                panic!("non-prompt-line display must not consult the provider hook")
+            }),
+            idle
+        );
+    }
+    let mut calls = 0;
+    let verdict = display_verdict_for_composer(ComposerCursorPosition::PromptLine, idle, || {
+        calls += 1;
+        Some(classification(TabState::Working, 1.0, None))
+    });
+    assert_eq!(calls, 1);
+    assert_eq!(verdict.state, TimelineState::Working);
+}
+
+#[test]
+fn plugin_working_verdict_updates_display_without_action() {
+    use crate::agent::offline_state_classifier::{TabVerdict, TimelineState};
+    let idle = TabVerdict {
+        state: TimelineState::Idle,
+        subtype: None,
+    };
+    let working = classification(TabState::Working, GLOBAL_THRESHOLD, None);
+    assert_eq!(
+        display_verdict(idle, Some(&working)).state,
+        TimelineState::Working
+    );
+    assert_eq!(display_verdict(idle, None), idle);
+    assert_eq!(
+        display_verdict(idle, Some(&classification(TabState::Working, 0.79, None))),
+        idle
+    );
+    assert_eq!(
+        display_verdict(idle, Some(&classification(TabState::Unknown, 1.0, None))),
+        idle
+    );
+}
+
+#[test]
+fn plugin_working_verdict_does_not_hide_structured_question() {
+    use crate::agent::offline_state_classifier::{QuestionSubtype, TabVerdict, TimelineState};
+    let question = TabVerdict {
+        state: TimelineState::Question,
+        subtype: Some(QuestionSubtype::Auth),
+    };
+    assert_eq!(
+        display_verdict(
+            question,
+            Some(&classification(TabState::Working, 1.0, None))
+        ),
+        question
+    );
+}
+
 fn classification(
     state: TabState,
     confidence: f32,
@@ -61,7 +128,7 @@ fn classified_prompt_fixture(
     (fixture, service, tab_id, pty_id)
 }
 
-fn assert_pending_prompt_without_notification(
+fn assert_pending_prompt_has_owner_notice(
     fixture: &crate::service::test_fixture::ServiceFixture,
     tab_id: &str,
     prompt: &PendingPrompt,
@@ -72,7 +139,32 @@ fn assert_pending_prompt_without_notification(
     assert_eq!(tab.pending_prompt.as_ref(), Some(prompt));
     assert_eq!(tab.pending_prompt_kind, Some(kind));
     drop(mux);
-    assert!(fixture.service.notif.lock().list(false).is_empty());
+    let notifications = fixture.service.notif.lock();
+    let open = notifications
+        .list(false)
+        .into_iter()
+        .filter(|notification| !notification.resolved)
+        .collect::<Vec<_>>();
+    assert_eq!(open.len(), 1, "one notice represents this pending prompt");
+    let notice = open[0];
+    assert_eq!(notice.tab_id.as_deref(), Some(tab_id));
+    assert_eq!(
+        notice.condition,
+        Some(crate::notification::dedupe::TabCondition::PendingPrompt)
+    );
+    assert_eq!(
+        notice.level,
+        Some(crate::notification::push::NotifyLevel::ActionNeeded)
+    );
+    let actions = notice.actions.as_deref().expect("owner response actions");
+    assert!(actions.iter().any(|action| matches!(
+        action,
+        codeterm_types::notification::NotificationAction::Answer { .. }
+    )));
+    assert!(actions.iter().any(|action| matches!(
+        action,
+        codeterm_types::notification::NotificationAction::Dismiss { .. }
+    )));
 }
 
 fn reactor_test_prompt() -> PendingPrompt {
@@ -124,7 +216,7 @@ fn state_reactor_stores_a_detected_prompt_without_notification() {
 
     react(&service, &pty_id, TabStatus::Waiting);
 
-    assert_pending_prompt_without_notification(
+    assert_pending_prompt_has_owner_notice(
         &fixture,
         &tab_id,
         &prompt,
@@ -155,7 +247,7 @@ fn classified_terminal_dialogs_are_stored_without_notifications() {
 
         react(&service, &pty_id, TabStatus::Waiting);
 
-        assert_pending_prompt_without_notification(
+        assert_pending_prompt_has_owner_notice(
             &fixture,
             &tab_id,
             &prompt,
@@ -252,6 +344,30 @@ fn waiting_on_auth_with_no_surface_still_surfaces() {
     assert_eq!(
         decide(TabStatus::Waiting, Some(&c)),
         ReactorDecision::Surface(None)
+    );
+}
+
+#[test]
+fn rate_limit_in_prompt_chain_never_auto_acts() {
+    let c = classification(
+        TabState::RateLimited,
+        1.0,
+        Some(TabStateAction {
+            keys: Some(vec!["down".into(), "enter".into()]),
+            delayed_resume: Some(DelayedResume {
+                at: "2026-06-19T16:20:00+03:00".into(),
+                text: "continue your work".into(),
+                then_keys: Some(vec!["enter".into()]),
+            }),
+            surface: Some(Surface {
+                kind: "rate_limit".to_string(),
+                payload: serde_json::json!({ "reason": "quota" }),
+            }),
+        }),
+    );
+    assert_eq!(
+        decide_prompt_chain(TabStatus::Waiting, &c),
+        ReactorDecision::Ignore
     );
 }
 
@@ -451,7 +567,7 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
         Some(codeterm_types::pty::PromptKind::DirectoryTrust)
     );
 
-    assert_pending_prompt_without_notification(
+    assert_pending_prompt_has_owner_notice(
         &fixture,
         &tab_id,
         &prompt,
@@ -459,7 +575,7 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
     );
 
     react(&service, pty_id, TabStatus::Waiting);
-    assert_pending_prompt_without_notification(
+    assert_pending_prompt_has_owner_notice(
         &fixture,
         &tab_id,
         &prompt,
@@ -476,7 +592,7 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
         codeterm_types::pty::PromptKind::DirectoryTrust,
         true,
     );
-    assert_pending_prompt_without_notification(
+    assert_pending_prompt_has_owner_notice(
         &fixture,
         &tab_id,
         &wrapped_prompt,
@@ -493,7 +609,7 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
         codeterm_types::pty::PromptKind::DirectoryTrust,
         true,
     );
-    assert_pending_prompt_without_notification(
+    assert_pending_prompt_has_owner_notice(
         &fixture,
         &tab_id,
         &selected_prompt,
@@ -539,7 +655,7 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
         .with_directory_trust_prompt(next_prompt.clone()),
     ));
     react(&service, pty_id, TabStatus::Waiting);
-    assert_pending_prompt_without_notification(
+    assert_pending_prompt_has_owner_notice(
         &fixture,
         &tab_id,
         &next_prompt,
@@ -630,7 +746,7 @@ fn live_codex_command_approval_frame_becomes_pending_prompt_through_reactor_and_
             .collect::<Vec<_>>(),
         vec!["1", "2", "3"]
     );
-    assert_pending_prompt_without_notification(
+    assert_pending_prompt_has_owner_notice(
         &fixture,
         &tab_id,
         &prompt,
@@ -648,7 +764,7 @@ fn live_codex_command_approval_frame_becomes_pending_prompt_through_reactor_and_
         codeterm_types::pty::PromptKind::Provider,
         false,
     );
-    assert_pending_prompt_without_notification(
+    assert_pending_prompt_has_owner_notice(
         &fixture,
         &tab_id,
         &output_prompt,

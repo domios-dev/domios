@@ -312,7 +312,7 @@ const SELECT_HEADER: &str = r#"SELECT id, provider, account_id, captured_at, par
         session_pct, session_resets_at,
         weekly_pct, weekly_resets_at,
         spend_cents, spend_limit_cents, spend_remaining_cents, spend_resets_at,
-        failure_reason, probe_command, raw_excerpt, debug_json
+        failure_reason, probe_command, raw_excerpt, debug_json, billing_mode, limits_reported
         FROM usage_snapshots"#;
 
 fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<UsageSnapshotRow> {
@@ -334,6 +334,12 @@ fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<UsageSnapshotRow> {
         probe_command: r.get(14)?,
         raw_excerpt: r.get(15)?,
         debug_json: r.get(16)?,
+        billing_mode: match r.get::<_, String>(17)?.as_str() {
+            "subscription" => codeterm_types::usage::BillingMode::Subscription,
+            "api" => codeterm_types::usage::BillingMode::Api,
+            _ => codeterm_types::usage::BillingMode::Unknown,
+        },
+        limits_reported: r.get(18)?,
     })
 }
 
@@ -358,8 +364,8 @@ fn insert_header(tx: &rusqlite::Transaction<'_>, snap: &UsageSnapshot) -> Result
         r#"INSERT INTO usage_snapshots
            (provider, account_id, captured_at, parsed_ok,
             session_pct, session_resets_at, weekly_pct, weekly_resets_at,
-            spend_cents, spend_limit_cents, spend_remaining_cents, spend_resets_at)
-           VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"#,
+            spend_cents, spend_limit_cents, spend_remaining_cents, spend_resets_at, billing_mode, limits_reported)
+           VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"#,
         params![
             &snap.provider,
             &snap.account_id,
@@ -372,6 +378,8 @@ fn insert_header(tx: &rusqlite::Transaction<'_>, snap: &UsageSnapshot) -> Result
             snap.spend_limit_cents,
             snap.spend_remaining_cents,
             snap.spend_resets_at_ms,
+            snap.billing_mode.as_str(),
+            snap.limits_reported,
         ],
     )
     .map_err(|e| format!("insert snapshot: {}", e))?;
@@ -389,8 +397,8 @@ fn insert_rejected_snapshot(
            (provider, account_id, captured_at, parsed_ok,
             session_pct, session_resets_at, weekly_pct, weekly_resets_at,
             spend_cents, spend_limit_cents, spend_remaining_cents, spend_resets_at,
-            failure_reason, probe_command, raw_excerpt, debug_json)
-           VALUES (?1, ?2, ?3, 0, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"#,
+            failure_reason, probe_command, raw_excerpt, debug_json, billing_mode, limits_reported)
+           VALUES (?1, ?2, ?3, 0, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)"#,
         params![
             &snap.provider,
             &snap.account_id,
@@ -407,6 +415,8 @@ fn insert_rejected_snapshot(
             probe_command,
             bounded_raw_excerpt(&snap.raw_text),
             suspicious_debug_json(reason, snap),
+            snap.billing_mode.as_str(),
+            snap.limits_reported,
         ],
     )
     .map_err(|e| format!("insert rejected snapshot: {}", e))?;
@@ -494,6 +504,8 @@ const LEGACY_COLUMNS: &[&str] = &[
 
 // (CREATE TABLE IF NOT EXISTS leaves an already-created table untouched).
 const ADDED_COLUMNS: &[(&str, &str)] = &[
+    ("billing_mode", "TEXT NOT NULL DEFAULT 'unknown'"),
+    ("limits_reported", "INTEGER NOT NULL DEFAULT 0"),
     ("spend_cents", "REAL"),
     ("spend_limit_cents", "REAL"),
     ("spend_remaining_cents", "REAL"),
@@ -894,6 +906,28 @@ mod tests {
                 "TIMEOUT: agent not ready"
             ]
         );
+    }
+
+    #[test]
+    fn subscription_billing_without_limits_roundtrips() {
+        let store = UsageStore::open_in_memory().unwrap();
+        let mut snapshot = UsageSnapshot::empty("fixture", "{}", 1000);
+        snapshot.billing_mode = codeterm_types::usage::BillingMode::Subscription;
+        store.insert_snapshot(&snapshot).unwrap();
+        let row = store.get_latest("fixture", None).unwrap().unwrap();
+        assert_eq!(
+            row.billing_mode,
+            codeterm_types::usage::BillingMode::Subscription
+        );
+        assert!(!row.limits_reported);
+        assert_eq!(row.spend_cents, None);
+        snapshot.limits_reported = true;
+        snapshot.weekly_pct = Some(0.0);
+        snapshot.captured_at_ms = 2000;
+        store.insert_snapshot(&snapshot).unwrap();
+        let row = store.get_latest("fixture", None).unwrap().unwrap();
+        assert!(row.limits_reported);
+        assert_eq!(row.weekly_pct, Some(0.0));
     }
 
     #[test]

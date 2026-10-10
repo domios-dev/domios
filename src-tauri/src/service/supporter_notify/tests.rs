@@ -1,6 +1,13 @@
 use super::*;
 
 #[test]
+fn notify_spawn_ok_does_not_deliver_a_user_turn_to_a_restored_recipient() {
+    assert!(spawn_ok_notice_allowed(Some(false)));
+    assert!(!spawn_ok_notice_allowed(Some(true)));
+    assert!(!spawn_ok_notice_allowed(None));
+}
+
+#[test]
 fn notify_user_spawned_tab_suppressed_for_trust_permission_login() {
     let facts = LaunchFacts {
         origin: LaunchOrigin::Ui,

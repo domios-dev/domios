@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::graph_nodes::GraphNodesCap;
+use super::surfaces::SurfaceDecl;
 use super::tab_menu::TabMenuItem;
 use crate::provider::ContextOwner;
 use codeterm_types::decision::TokenMode;
@@ -344,13 +346,27 @@ pub struct WebhookReceiverCap {
 #[serde(rename_all = "camelCase")]
 pub struct Capabilities {
     #[serde(default)]
+    pub structured_control: Option<crate::provider::StructuredControl>,
+    #[serde(default)]
+    pub context_attach: Option<crate::provider::ContextAttach>,
+    #[serde(default)]
     pub agent_provider: bool,
+    #[serde(default)]
+    pub reply_relay: bool,
+    #[serde(default)]
+    pub tool_less: bool,
+    #[serde(default)]
+    pub model_provider_config: bool,
     /// Bool (the plugin is the store) or `{ autoUnlock }` object (the store
     /// also declares it can restore its own session headlessly).
     #[serde(default)]
     pub secret_backend: SecretBackendCap,
     #[serde(default)]
     pub transcriber: bool,
+    /// Graph node declarations: media conversions and typed, bounded event
+    /// sources. Object only; see `graph_nodes` for the accepted subset.
+    #[serde(default, skip_serializing_if = "GraphNodesCap::is_empty")]
+    pub graph_nodes: GraphNodesCap,
     #[serde(default)]
     pub decision_model: DecisionModelCap,
     /// Renders a read-only "glance" popover (ViewNode tree) when pinned.
@@ -380,6 +396,9 @@ pub struct Capabilities {
     /// Items the host renders in every tab's kebab menu; each action is host-owned.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tab_menu: Vec<TabMenuItem>,
+    /// App tabs whose content the plugin renders; core owns the frame.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub surfaces: Vec<SurfaceDecl>,
     #[serde(default, flatten, skip_serializing)]
     pub(crate) unknown: std::collections::BTreeMap<String, serde_json::Value>,
 }

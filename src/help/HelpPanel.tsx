@@ -6,9 +6,12 @@ import {
   GitBranch,
   Layers,
   Lightbulb,
+  MessagesSquare,
   Network,
-  Plug,
+  MessageCircle,
+  Smartphone,
   Sparkles,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 import type { AppConfig } from "../lib/types";
@@ -21,10 +24,13 @@ const SECTION_ICONS: Record<HelpSectionId, LucideIcon> = {
   workspaces: Layers,
   agents: Bot,
   plans: GitBranch,
+  blueprints: Workflow,
   memory: Brain,
   "supporter-agent": Sparkles,
   mesh: Network,
-  integrations: Plug,
+  messengers: MessageCircle,
+  phone: Smartphone,
+  "messenger-plugins": MessagesSquare,
   tips: Lightbulb,
 };
 

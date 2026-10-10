@@ -162,7 +162,7 @@ function WebUiModal({
         aria-label="Web UI access"
         className="w-full max-w-[360px] overflow-hidden rounded-2xl border border-[var(--ct-border)] bg-[var(--ct-bg)] shadow-2xl"
       >
-        <div className="flex items-center justify-between border-b border-[var(--ct-border)] px-4 py-3">
+        <div className="ct-jobs-header flex items-center justify-between px-4 py-3">
           <div className="min-w-0">
             <div className="text-sm font-semibold text-[var(--ct-fg)]">Web UI</div>
             <div className={`${UI_TEXT.metaMuted} truncate`}>{hostLabel}</div>
@@ -180,7 +180,7 @@ function WebUiModal({
           {/* Domios-branded QR: gradient frame + centered logo (scan stays robust via EC level H). */}
           <div
             className="rounded-2xl p-[3px] shadow-[0_10px_30px_rgba(31,111,235,0.25)]"
-            style={{ background: "linear-gradient(135deg, var(--ct-accent, #58a6ff) 0%, #7c5cff 100%)" }}
+            style={{ background: "linear-gradient(135deg, var(--ct-accent, #58a6ff) 0%, var(--ct-magenta) 100%)" }}
           >
             <div className="relative rounded-[15px] bg-white p-3">
               {qrDataUrl ? (
@@ -486,7 +486,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
   return (
     <div className="absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)]">
       <div
-        className={`${UI_PANEL.toolbar} ct-section-toolbar gap-0 px-4 py-0 bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] text-[var(--ct-fg)] whitespace-nowrap`}
+        className={`${UI_PANEL.toolbar} ct-section-toolbar gap-0 px-4 py-0 text-[var(--ct-fg)] whitespace-nowrap`}
         style={touchUi ? { height: "auto", minHeight: "3.25rem" } : undefined}
       >
         <div className="ct-section-toolbar__identity flex items-center gap-3 mr-4 shrink-0">
@@ -546,7 +546,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
               />
             ) : (
               <div ref={mapRef} className="absolute inset-0">
-                <div className="absolute left-3 top-3 z-20 rounded-lg border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] px-2 py-1.5 shadow-sm">
+                <div className="absolute left-3 top-3 z-20 rounded-xl bg-[var(--ct-bg)] px-2 py-1.5 shadow-[var(--ct-shadow-capsule)]">
                   <MeshWebUiControl
                     snapshot={serve?.snapshot ?? null}
                     loading={serveLoading}

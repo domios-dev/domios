@@ -1,4 +1,40 @@
+mod model_switch_transcript;
+pub mod reply_relay;
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StructuredControl {
+    pub protocol: String,
+    pub min_version: String,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ContextAttach {
+    #[serde(default)]
+    pub editable: bool,
+    #[serde(default)]
+    pub read_only: bool,
+}
+
+pub use reply_relay::{
+    ReplyRelayEndedTurn, ReplyRelayEvidence, ReplyRelayOutcome, ReplyRelayTurn,
+    ReplyRelayUnavailable,
+};
 pub(crate) mod update_prompt;
+pub use codeterm_types::agent::provider_signals::{AuthStatus, SessionObservations};
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthStatusProbe {
+    pub args: Vec<String>,
+    pub timeout_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CapabilityProbe {
+    StreamJsonInitialize,
+}
 
 use std::path::PathBuf;
 
@@ -20,7 +56,22 @@ pub enum IntegrationKind {
     None,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PermissionHookCapability {
+    pub protocol: String,
+    pub options: Vec<codeterm_types::pty::PromptOption>,
+}
+
 pub use crate::directory_trust::DirectoryTrustPromptResponse;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", content = "reason", rename_all = "snake_case")]
+pub enum PreTrustOutcome {
+    AlreadyTrusted,
+    Granted,
+    Skipped(String),
+    Failed(String),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -181,8 +232,16 @@ pub use usage_snapshot::*;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderDescriptor {
+    #[serde(default)]
+    pub supports_session_fork: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_control: Option<StructuredControl>,
     pub schema_version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli_status: Option<crate::provider_cli::ProviderCliStatus>,
     pub id: String,
+    #[serde(default)]
+    pub catalogue_version: u64,
     pub display_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon_hint: Option<String>,
@@ -218,6 +277,9 @@ pub struct ProviderDescriptor {
     pub notifications_schema: Vec<SettingField>,
     pub supports_lazy_skills: bool,
     pub has_hooks: bool,
+    /// Provider writes custom model endpoints into its own config (`model_provider_config`).
+    #[serde(default)]
+    pub supports_model_endpoints: bool,
     /// Provider supplies its own explicit permission/sandbox bypass flags.
     #[serde(default)]
     pub supports_permission_bypass: bool,
@@ -317,7 +379,7 @@ pub struct ProviderUpdateAvailability {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 17;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 20;
 
 /// One provider-owned usage log to ingest for a session. `session_id` scopes a
 /// log shared by many sessions (e.g. one sqlite database); a per-session file

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 use super::*;
+
 use crate::agent::test_provider::MockProvider;
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::test_fixture::ServiceFixture;
@@ -12,6 +13,189 @@ const NONCE: &str = "nonce-7f3a";
 const PRIOR_MODEL: &str = "prior-model-a1";
 const NEXT_MODEL: &str = "next-model-b2";
 const EFFORT: &str = "effort-c3";
+
+#[test]
+fn first_post_boundary_model_confirms_match_and_rejects_old_model() {
+    let registry = crate::agent::registry::AgentRegistry::new();
+    assert_eq!(
+        model_switch_confirmation(&registry, "fixture", "vendor/target", None),
+        Ok(ModelSwitchConfirmation::Pending)
+    );
+    for actual in ["vendor/target", "vendor/old"] {
+        let result = model_switch_confirmation(
+            &registry,
+            "fixture",
+            "vendor/target",
+            Some(ModelSwitchObservation {
+                model: actual.into(),
+                evidence: ModelSwitchEvidence::FirstPostRelaunchTurn,
+            }),
+        );
+        if actual == "vendor/target" {
+            assert_eq!(
+                result,
+                Ok(ModelSwitchConfirmation::Observed {
+                    model: actual.into(),
+                    evidence: ModelSwitchEvidence::FirstPostRelaunchTurn,
+                })
+            );
+        } else {
+            assert_eq!(result, Err(actual.into()));
+        }
+    }
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn busy_switch_stages_for_every_host_owned_mode_without_provider_operation() {
+    for mode in [
+        ModelSwitchMode::Live,
+        ModelSwitchMode::LiveCommand,
+        ModelSwitchMode::RestartResume,
+        ModelSwitchMode::NextTurn,
+    ] {
+        let (mux, tab_id) = seeded_tab("staging-provider");
+        let fixture = ServiceFixture::new(mux);
+        let _pty = fixture.bind_test_pty_session(&tab_id, SESSION, NONCE);
+        let pty_id = fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .pty_id
+            .clone()
+            .unwrap();
+        fixture.service.agent_tracker.lock().set_working(&pty_id);
+        fixture.service.agent_registry.register_provider(Box::new(
+            MockProvider::with_session("staging-provider", SESSION).with_model_switch(mode),
+        ));
+        let outcome = fixture
+            .service
+            .agent_switch_model(&tab_id, NEXT_MODEL)
+            .unwrap();
+        assert_eq!(outcome.confirmation, ModelSwitchConfirmation::AfterTurn);
+        assert_eq!(outcome.mechanism, mode);
+        assert!(outcome.restart.is_none());
+        assert!(!restart_attempted(&fixture, &tab_id));
+        let replacement = fixture
+            .service
+            .agent_switch_model(&tab_id, "replacement-model")
+            .unwrap();
+        assert_eq!(replacement.confirmation, ModelSwitchConfirmation::AfterTurn);
+        assert_eq!(
+            fixture
+                .service
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .unwrap()
+                .pending_model_selection
+                .as_ref()
+                .unwrap()
+                .model,
+            "replacement-model"
+        );
+        fixture.service.cancel_staged_model_switch(&tab_id);
+        assert!(fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .pending_model_selection
+            .is_none());
+        assert!(!restart_attempted(&fixture, &tab_id));
+    }
+}
+
+#[test]
+fn live_confirmation_accepts_bare_model_alias_with_verified_binding() {
+    let registry = crate::agent::registry::AgentRegistry::new();
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("opaque-provider".into());
+    tab.agent_session_id = Some(SESSION.into());
+    tab.session_binding_nonce = Some(NONCE.into());
+    tab.reported_session_binding_nonce = Some(NONCE.into());
+    tab.agent_session_model = Some("opus".into());
+    tab.agent_session_model_identity = Some(crate::multiplexer::types::SessionModelIdentity {
+        session_id: SESSION.into(),
+        session_binding_nonce: NONCE.into(),
+        launch_report: None,
+        model_switch_turn_confirmed: false,
+    });
+    assert!(live_model_confirmation_matches(
+        &registry,
+        tab,
+        "opaque-provider",
+        SESSION,
+        NONCE,
+        "opus"
+    ));
+    assert!(!live_model_confirmation_matches(
+        &registry,
+        tab,
+        "opaque-provider",
+        SESSION,
+        NONCE,
+        "sonnet"
+    ));
+    tab.agent_session_model_identity
+        .as_mut()
+        .unwrap()
+        .session_binding_nonce = "old-nonce".into();
+    assert!(!live_model_confirmation_matches(
+        &registry,
+        tab,
+        "opaque-provider",
+        SESSION,
+        NONCE,
+        "opus"
+    ));
+}
+
+#[test]
+fn live_mode_uses_the_route_probe_and_falls_back_with_a_reason() {
+    let available = crate::service::structured_prompt::LiveModelSwitchResult::Applied {
+        observed_model: None,
+        confirmation_detail: None,
+    };
+    assert_eq!(
+        effective_model_switch_mode(ModelSwitchMode::Live, Some(&available)),
+        (ModelSwitchMode::Live, None)
+    );
+
+    let unavailable = crate::service::structured_prompt::LiveModelSwitchResult::Unsupported {
+        reason: "bound server has no model route".into(),
+    };
+    assert_eq!(
+        effective_model_switch_mode(ModelSwitchMode::LiveCommand, Some(&unavailable)),
+        (ModelSwitchMode::LiveCommand, None)
+    );
+    assert_eq!(
+        effective_model_switch_mode(ModelSwitchMode::Live, Some(&unavailable)),
+        (
+            ModelSwitchMode::RestartResume,
+            Some("bound server has no model route".into())
+        )
+    );
+    assert_eq!(
+        effective_model_switch_mode(ModelSwitchMode::RestartResume, None),
+        (ModelSwitchMode::RestartResume, None)
+    );
+    assert_eq!(
+        effective_model_switch_mode(ModelSwitchMode::RestartResume, Some(&available)),
+        (ModelSwitchMode::RestartResume, None)
+    );
+    assert_eq!(
+        effective_model_switch_mode(ModelSwitchMode::Live, None),
+        (
+            ModelSwitchMode::RestartResume,
+            Some("the live switch route was not probed".into())
+        )
+    );
+}
 
 fn seeded_tab(provider: &str) -> (MultiplexerState, String) {
     let (mut mux, tab_id) = MultiplexerState::new();
@@ -26,6 +210,9 @@ fn seeded_tab(provider: &str) -> (MultiplexerState, String) {
     tab.agent_requested_model = Some(PRIOR_MODEL.into());
     tab.agent_provider_resolved_model = Some(PRIOR_MODEL.into());
     tab.restorable_launch = crate::multiplexer::types::RestorableLaunchParameters {
+        context_files: None,
+        context_skills: None,
+        worker_restart: None,
         captured: true,
         requested_model: Some(PRIOR_MODEL.into()),
         model: Some(PRIOR_MODEL.into()),
@@ -41,11 +228,13 @@ fn snapshot(tab_id: &str, provider: &str) -> TabRestartSnapshot {
         tab_id: tab_id.into(),
         pty_id: "pty-7f3a".into(),
         provider: provider.into(),
+        target_provider: None,
         session_id: Some(SESSION.into()),
         cwd: Some(std::env::temp_dir().display().to_string()),
         auto_approve: false,
         role: None,
         role_profile: None,
+        handoff_history: None,
     }
 }
 

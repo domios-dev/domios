@@ -291,6 +291,27 @@ fn all_four_recovery_outcomes_are_reachable_from_a_stale_epoch() {
 }
 
 #[test]
+fn explicit_stale_owner_block_keeps_the_requested_reason_and_trigger() {
+    let (_dir, store, plan_id, task_id, _attempt_id) = tab_gone_task();
+    let label = "dependency unavailable; Orchestrator chooses a recovery trigger";
+
+    store
+        .retire_stale_task_owner_with_label(
+            &plan_id,
+            &task_id,
+            Some(TaskStatus::Blocked),
+            Some(label),
+            |_| false,
+            10,
+        )
+        .expect("explicit block decision should retire the stale owner");
+
+    let task = task_of(&store, &plan_id, &task_id);
+    assert_eq!(task.status, TaskStatus::Blocked);
+    assert_eq!(task.status_label.as_deref(), Some(label));
+}
+
+#[test]
 fn recovery_atomically_retires_the_stale_attempt() {
     let (_dir, store, plan_id, task_id, attempt_id) = tab_gone_task();
     let retirement = store

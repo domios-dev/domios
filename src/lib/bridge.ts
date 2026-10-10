@@ -1,3 +1,4 @@
+import { BLUEPRINT_API_BASE } from "./blueprintApi";
 /**
  * Tauri ↔ HTTP bridge — the web mirror's IPC layer.
  *
@@ -28,6 +29,7 @@ import {
 import { webListen } from "./webEvents";
 import { WEB_SPECIAL, WEB_UNSUPPORTED } from "./bridgeWebUnsupported";
 import { setClientTabUiMode } from "./clientTabUiMode";
+import { ipcLogArgs } from "./ipcLogArgs";
 import { checkBuildMismatch } from "./buildMismatchGuard";
 import type { TabInfo } from "./types";
 import { classifyTabTarget, hasCompositeTabArgument, remoteTransportCall } from "./remoteTabTransport";
@@ -120,8 +122,20 @@ async function webJsonWithCallerTab<T>(
   return JSON.parse(text) as T;
 }
 
+function previewTab(args: Args): string {
+  const tabId = s(args, "tabId");
+  if (!tabId) throw new Error("Local previews require a tab identity");
+  return enc(tabId);
+}
+
 /** Commands with a meaningful HTTP equivalent. */
 const HTTP_MAP: Record<string, Mapper> = {
+  read_local_preview_file: (a) => webJson("POST", `/api/tabs/${previewTab(a)}/preview/read`, { path: a.path, kind: a.kind }),
+  read_html_preview_file: async (a) => {
+    const file = await webJson<{ data: string }>("POST", `/api/tabs/${previewTab(a)}/preview/read`, { path: a.path, kind: "page" });
+    return file.data;
+  },
+  check_local_preview_files: (a) => webJson("POST", `/api/tabs/${previewTab(a)}/preview/check`, { paths: a.paths }),
   check_for_update: (a) =>
     webJson("GET", `/api/update/check${a.force ? "?force=true" : ""}`),
   get_update_status: () => webJson("GET", "/api/update/status"),
@@ -200,11 +214,26 @@ const HTTP_MAP: Record<string, Mapper> = {
     if (!("teamId" in a) || (a.teamId !== null && typeof a.teamId !== "string")) throw new Error("Automation Team scope is required");
     return webJson("GET", `/api/automation/graph?workspace_id=${enc(s(a, "workspaceId"))}&team_id=${enc(s(a, "teamId"))}`);
   },
-  automation_graph_stop_sentinel: (a) => {
+  automation_graph_workspace_snapshot: (a) => {
+    if (typeof a.workspaceId !== "string" || !a.workspaceId) throw new Error("Automation workspace scope is required");
+    return webJson("GET", `/api/automation/graph/workspace?workspace_id=${enc(s(a, "workspaceId"))}`);
+  },
+  blueprint_export_file: (a) => webJson("POST", `${BLUEPRINT_API_BASE}/export`, { workspace_id: a.workspaceId, team_id: a.teamId, id: a.id }),
+  blueprint_import_file: (a) => webJson("POST", `${BLUEPRINT_API_BASE}/import`, { caller_tab_id: a.callerTabId, recipe: a.recipe, assignments: a.assignments }),
+  automation_graph_stop_blueprint: (a) => {
     if (typeof a.workspaceId !== "string" || !a.workspaceId) throw new Error("Automation workspace scope is required");
     if (!("teamId" in a) || (a.teamId !== null && typeof a.teamId !== "string")) throw new Error("Automation Team scope is required");
-    if (typeof a.id !== "string" || !a.id) throw new Error("Sentinel identity is required");
-    return webJson("POST", `/api/automation/sentinels/${enc(s(a, "id"))}/stop`, { workspace_id: s(a, "workspaceId"), team_id: a.teamId });
+    if (typeof a.id !== "string" || !a.id) throw new Error("Blueprint identity is required");
+    return webJson("POST", `${BLUEPRINT_API_BASE}/${enc(s(a, "id"))}/stop`, { workspace_id: s(a, "workspaceId"), team_id: a.teamId });
+  },
+  automation_graph_delete_blueprint: (a) => {
+    if (typeof a.workspaceId !== "string" || !a.workspaceId) throw new Error("Automation workspace scope is required");
+    if (!("teamId" in a) || (a.teamId !== null && typeof a.teamId !== "string")) throw new Error("Automation Team scope is required");
+    if (typeof a.id !== "string" || !a.id) throw new Error("Blueprint identity is required");
+    return webJson("DELETE", `${BLUEPRINT_API_BASE}/${enc(s(a, "id"))}`, {
+      workspace_id: s(a, "workspaceId"),
+      team_id: a.teamId,
+    });
   },
   mux_get_state: () => webJson("GET", "/api/mux/state"),
   session_binding_state: (a) =>
@@ -257,9 +286,18 @@ const HTTP_MAP: Record<string, Mapper> = {
       },
       a.callerTabId,
     ),
+  shell_profiles: (a) => webJson("GET", `/api/shells?refresh=${a.refresh === true}`),
   mux_create_tab: (a) =>
     webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs`, {
       eager: a.eager === true,
+      shell: a.shell,
+      cwd: a.cwd,
+      purpose: a.purpose,
+      description: a.description,
+      icon: a.icon,
+      team_id: a.teamId,
+      creator_tab_id: a.creatorTabId,
+      cmd: a.cmd,
     }),
   mux_set_active_tab: (a) =>
     webJson(
@@ -284,6 +322,8 @@ const HTTP_MAP: Record<string, Mapper> = {
     }),
   mux_reopen_closed_group: (a) =>
     webJson("POST", `/api/closed-groups/${enc(s(a, "groupId"))}/reopen`),
+  mux_rerun_restored_shell: (a) =>
+    webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/rerun-restored-shell`),
   mux_restore_orphaned_tab: (a) =>
     webJson("POST", `/api/mux/restore-orphaned`, { tab_id: s(a, "tabId") }),
   mux_rename_tab: (a) =>
@@ -304,6 +344,10 @@ const HTTP_MAP: Record<string, Mapper> = {
     }),
   mux_reorder_child: (a) =>
     webJson("POST", `/api/tabs/${enc(s(a, "parentTabId"))}/children/reorder`, {
+      ordered_tab_ids: a.orderedTabIds,
+    }),
+  mux_reorder_display: (a) =>
+    webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/display-order`, {
       ordered_tab_ids: a.orderedTabIds,
     }),
   mux_reorder_workspace: (a) =>
@@ -592,7 +636,7 @@ const HTTP_MAP: Record<string, Mapper> = {
       data: a.data,
       raw: a.raw !== false,
     }),
-  interrupt_agent: (a) =>
+  interrupt_agent: (a) => a.tabId ? webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/stop`) :
     webJson("POST", `/api/pty/${enc(s(a, "ptyId"))}/write`, {
       data: "\x1b",
       raw: true,
@@ -648,16 +692,30 @@ const HTTP_MAP: Record<string, Mapper> = {
       `/api/essence-source?project=${enc(s(a, "projectPath"))}&path=${enc(s(a, "sourcePath"))}`,
     ),
   list_agent_providers: () => webJson("GET", "/api/agents/providers"),
+  refresh_provider_models: (a) =>
+    webJson("POST", "/api/agents/providers/refresh", { provider_id: s(a, "providerId") ?? s(a, "provider_id") }),
+  model_provider_manage: (a) => localJson(
+    "POST",
+    a.providerId ? `/api/model-providers?provider=${encodeURIComponent(String(a.providerId))}` : "/api/model-providers",
+    a.request,
+  ),
   get_remote_workers: () => webJson("GET", "/api/remote-workers"),
   save_session: () => webJson("POST", "/api/session/save"),
   restart_general_agent: () => webJson("POST", "/api/agents/general/restart"),
+  spawn_general_agent_session: (a) => webJson("POST", "/api/agents/general/sessions", a.params),
   restart_general_agent_tab: (a) =>
     webJson("POST", `/api/agents/general/${enc(s(a, "tabId") ?? s(a, "tab_id"))}/restart`),
   restart_agent_tab: (a) =>
-    webJson("POST", `/api/tabs/${enc(s(a, "tabId") ?? s(a, "tab_id"))}/agent/restart`),
+    webJson("POST", `/api/tabs/${enc(s(a, "tabId") ?? s(a, "tab_id"))}/agent/restart`, { fresh: a.fresh === true }),
+  refresh_provider_capabilities: (a) => webJson("POST", `/api/tabs/${enc(s(a, "tabId") ?? s(a, "tab_id"))}/agent/capabilities/refresh`),
+  fork_agent_tab: (a) => webJson("POST", `/api/tabs/${enc(s(a, "tabId") ?? s(a, "tab_id"))}/agent/fork`),
   switch_agent_model: (a) =>
     webJson("POST", `/api/tabs/${enc(s(a, "tabId") ?? s(a, "tab_id"))}/agent/model`, {
       model: s(a, "model"),
+      reasoning_effort: a.reasoningEffort,
+      runtime_mode: a.runtimeMode,
+      ...(a.cancel === true ? { cancel: true } : {}),
+      ...(a.restartResume === true ? { restart_resume: true } : {}),
     }),
   complete_general_agent_first_run: (a) =>
     webJson("POST", "/api/agents/general/complete-first-run", {
@@ -690,6 +748,7 @@ const HTTP_MAP: Record<string, Mapper> = {
     );
     return resp.path ?? "";
   },
+  provider_cli_status: (a) => webJson("GET", `/api/agents/providers/${enc(s(a, "providerId"))}/cli`),
   install_provider_in_tab: (a) =>
     webJson(
       "POST",
@@ -783,7 +842,7 @@ async function invokeRaw<T>(cmd: string, args?: Args): Promise<T> {
     return tauriInvoke<T>(cmd, args);
   }
   if (cmd === "open_url") {
-    window.open(String(args?.url ?? ""), "_blank");
+    window.open(String(args?.url ?? ""), "_blank", "noopener");
     return undefined as T;
   }
   const mapper = HTTP_MAP[cmd];
@@ -797,7 +856,7 @@ async function invokeRaw<T>(cmd: string, args?: Args): Promise<T> {
     throw new WebUnsupportedError(cmd);
   }
   const msg = `[web] command not available in browser mode: ${cmd}`;
-  console.warn(msg, args);
+  console.warn(msg, ipcLogArgs(args));
   throw new Error(msg);
 }
 
@@ -872,7 +931,7 @@ export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
       const ms = performance.now() - t0;
       if (ms >= IPC_SLOW_MS) {
         // eslint-disable-next-line no-console
-        console.warn(`[SLOW-IPC] ${cmd} ${ms.toFixed(0)}ms`, args);
+        console.warn(`[SLOW-IPC] ${cmd} ${ms.toFixed(0)}ms`, ipcLogArgs(args));
         const w = window as unknown as { __ctPerf?: IpcSample[] };
         (w.__ctPerf ??= []).push({ cmd, ms, at: Date.now() });
         if (w.__ctPerf.length > 200) w.__ctPerf.shift();

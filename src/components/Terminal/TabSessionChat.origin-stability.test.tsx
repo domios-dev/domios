@@ -82,7 +82,7 @@ function originReport(id: string, shortId: string, seq: number) {
   return {
     id,
     type: "user",
-    content: `-=-codeterm:tab label=Worker tab=${shortId}-=-report body ${seq}`,
+    content: `<domios from="tab" label="Worker" tab="${shortId}">report body ${seq}</domios>`,
     timestamp: String(1_700_000_000_000 + seq * 1000),
     seq,
     provider: "test",

@@ -1,0 +1,28 @@
+import assert from "node:assert/strict";
+import { createHintBudget, MESSAGE_HINT_KEY } from "./messageActionHint";
+
+const values = new Map<string, string>();
+const storage = () => ({ getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } });
+let budget = createHintBudget(storage);
+for (let i = 0; i < 10; i++) assert.equal(budget.claim(), true);
+assert.equal(budget.claim(), false);
+budget = createHintBudget(storage);
+assert.equal(budget.claim(), false);
+assert.equal(JSON.parse(values.get(MESSAGE_HINT_KEY)!).hints, 10);
+values.clear();
+budget = createHintBudget(storage);
+budget.opened();
+assert.equal(budget.claim(), true);
+budget.opened();
+assert.equal(budget.claim(), false);
+assert.equal(createHintBudget(storage).claim(), false);
+const unavailable = createHintBudget(() => { throw new Error("Storage denied"); });
+for (let i = 0; i < 10; i++) assert.equal(unavailable.claim(), true);
+assert.equal(unavailable.claim(), false);
+values.set(MESSAGE_HINT_KEY, '{"hints":9,"opens":0}');
+const first = createHintBudget(storage);
+const second = createHintBudget(storage);
+assert.equal(first.claim(), true);
+assert.equal(second.claim(), false);
+values.set(MESSAGE_HINT_KEY, "broken");
+assert.equal(createHintBudget(storage).claim(), true);

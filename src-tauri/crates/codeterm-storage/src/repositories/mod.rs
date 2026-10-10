@@ -1,6 +1,10 @@
 pub mod cron;
+pub mod desk;
 pub mod sentinel;
+mod team_teardown;
 pub mod workspaces;
+
+pub use team_teardown::{TeamTeardown, TeamTeardownApplied};
 
 use crate::error::StorageError;
 use crate::owner::{lock, on_owner_thread};

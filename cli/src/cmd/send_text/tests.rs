@@ -48,6 +48,18 @@ fn classify_chat_backend_and_unknown() {
     assert_eq!(classify_tab_kind(&chat), TabKind::ChatBackend);
     let unknown = serde_json::json!({"id": "t1"});
     assert_eq!(classify_tab_kind(&unknown), TabKind::Unknown);
+    let surface = serde_json::json!({"id": "t1", "backing_kind": "surface"});
+    assert_eq!(classify_tab_kind(&surface), TabKind::Surface);
+}
+
+#[test]
+fn surface_targets_refuse_text_even_with_to_shell() {
+    for to_shell in [false, true] {
+        assert!(matches!(
+            decide_send_eligibility(TabKind::Surface, "git status", false, to_shell),
+            SendEligibility::Refuse(_)
+        ));
+    }
 }
 
 #[test]

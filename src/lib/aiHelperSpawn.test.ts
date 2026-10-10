@@ -1,4 +1,4 @@
-import { AI_HELPER_SPAWN_PATH, spawnAiHelper } from "./aiHelperSpawn";
+import { AI_HELPER_CONTEXT, AI_HELPER_SPAWN_PATH, spawnAiHelper } from "./aiHelperSpawn";
 import { configureWithAI } from "./pluginConfigure";
 import { startWebAccessSetupHelper } from "./webAccess";
 
@@ -18,10 +18,10 @@ function assert(label: string, cond: boolean) {
 type Captured = { url: string; body: Record<string, unknown> };
 
 const g = globalThis as unknown as Record<string, unknown>;
-const focused: string[] = [];
+const focused: Array<{ tabId: string; workspaceId: string }> = [];
 g.window = {
-  dispatchEvent: (event: { type: string; detail?: { tabId?: string } }) => {
-    if (event.type === "codeterm:focus-tab" && event.detail?.tabId) focused.push(event.detail.tabId);
+  dispatchEvent: (event: { type: string; detail?: { tabId?: string; workspaceId?: string } }) => {
+    if (event.type === "codeterm:focus-tab" && event.detail?.tabId && event.detail.workspaceId) focused.push({ tabId: event.detail.tabId, workspaceId: event.detail.workspaceId });
     return true;
   },
 };
@@ -46,21 +46,30 @@ const api = { host: "127.0.0.1", port: 7686, token: "fixture-token" };
 const opaqueTask = "ai-helper-task-token-4d21";
 const opaquePort = 48213;
 
-const buttons: Array<{ label: string; run: () => Promise<unknown>; carries: string }> = [
+const buttons: Array<{ label: string; run: () => Promise<unknown>; carries: string; title: string; description: string; userFacing: boolean }> = [
   {
     label: "Configure with AI",
     run: () => configureWithAI("fixture-plugin", "Fixture", opaqueTask, api),
     carries: opaqueTask,
+    title: "Configure",
+    description: "Configure Fixture",
+    userFacing: true,
   },
   {
     label: "Mesh Set up with AI",
     run: () => startWebAccessSetupHelper(null, opaquePort, api),
     carries: String(opaquePort),
+    title: "WebAccess",
+    description: "Set up Web Access",
+    userFacing: true,
   },
   {
     label: "shared helper",
-    run: () => spawnAiHelper({ title: "fixture-title", task: opaqueTask }, api),
+    run: () => spawnAiHelper({ title: "FixtureHelper", description: "Fixture helper setup", task: opaqueTask }, api),
     carries: opaqueTask,
+    title: "FixtureHelper",
+    description: "Fixture helper setup",
+    userFacing: false,
   },
 ];
 
@@ -75,10 +84,15 @@ async function run() {
     assert("posts once to the daemon helper route", captured.length === 1 && request.url.endsWith(AI_HELPER_SPAWN_PATH));
     assert(
       "leaves provider, workspace and cwd to the daemon",
-      JSON.stringify(Object.keys(request.body).sort()) === JSON.stringify(["task", "title"]),
+      JSON.stringify(Object.keys(request.body).sort()) === JSON.stringify(["description", "task", "title"]),
     );
+    assert("uses a one-word title", request.body.title === button.title && !/\s/.test(String(request.body.title)));
+    assert("puts descriptive context in the description", request.body.description === button.description);
     assert("delivers its supplied content in the task", String(request.body.task).includes(button.carries));
-    assert("focuses the spawned tab", focused.length === 1 && focused[0] === "tab-helper-91");
+    if (button.userFacing) {
+      assert("carries every helper context fragment", AI_HELPER_CONTEXT.every((fragment) => String(request.body.task).includes(fragment)));
+    }
+    assert("focuses the spawned General workspace tab immediately", focused.length === 1 && focused[0].tabId === "tab-helper-91" && focused[0].workspaceId === "ws-general");
 
     const exactFailure = `fixture launch refused ${button.label.length}`;
     respond(503, { error: { message: exactFailure } });
@@ -92,14 +106,14 @@ async function run() {
   }
 
   console.log("\nresponse contract:");
-  respond(200, { id: "tab-confirmed", delivery_state: "confirmed" });
-  const confirmed = await spawnAiHelper({ title: "t", task: opaqueTask }, api);
+  respond(200, { id: "tab-confirmed", workspace_id: "ws-general", delivery_state: "confirmed" });
+  const confirmed = await spawnAiHelper({ title: "t", description: "helper", task: opaqueTask }, api);
   assert("accepts evidence-backed confirmed delivery", confirmed.deliveryState === "confirmed");
 
   const rejects = async (payload: unknown) => {
     respond(200, payload);
     focused.length = 0;
-    return spawnAiHelper({ title: "t", task: opaqueTask }, api).then(
+    return spawnAiHelper({ title: "t", description: "helper", task: opaqueTask }, api).then(
       () => false,
       () => focused.length === 0,
     );
@@ -107,10 +121,11 @@ async function run() {
   assert("refuses a success without a tab id", await rejects({ delivery_state: "launched" }));
   assert("refuses an unknown delivery state", await rejects({ id: "tab-x", delivery_state: "fixture-state" }));
   assert("refuses a missing delivery state", await rejects({ id: "tab-x" }));
+  assert("refuses a success without its workspace id", await rejects({ id: "tab-x", delivery_state: "launched" }));
 
   respond(500, null);
   let statusFailure = "";
-  await spawnAiHelper({ title: "t", task: opaqueTask }, api).catch((error: unknown) => {
+  await spawnAiHelper({ title: "t", description: "helper", task: opaqueTask }, api).catch((error: unknown) => {
     statusFailure = error instanceof Error ? error.message : String(error);
   });
   assert("names the HTTP status when the body is not JSON", statusFailure.includes("500"));

@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use codeterm_types::pty::{TabStatus, TabStatusTracker, TimelineState};
+use codeterm_types::pty::{AgentLiveState, TabStatus, TabStatusTracker, TabVerdict, TimelineState};
 use codeterm_util::lock_hold::{TimedMutex, TimedRwLock};
 
 use super::{MultiplexerSnapshot, MultiplexerState};
@@ -37,6 +37,27 @@ pub fn effective_tab_status(tab: &Tab, resolved: Option<TabStatus>) -> TabStatus
     })
 }
 
+pub(super) fn agent_state_for_status(
+    current: Option<&AgentLiveState>,
+    status: TabStatus,
+) -> AgentLiveState {
+    let state = match status {
+        TabStatus::Working => TimelineState::Working,
+        TabStatus::Waiting => TimelineState::Question,
+        TabStatus::Idle | TabStatus::Error | TabStatus::Dead => TimelineState::Idle,
+    };
+    current
+        .filter(|current| current.state == state)
+        .cloned()
+        .unwrap_or_else(|| {
+            TabVerdict {
+                state,
+                subtype: None,
+            }
+            .into()
+        })
+}
+
 pub fn tab_status_label(tab: &Tab, resolved: Option<TabStatus>) -> &'static str {
     effective_tab_status(tab, resolved).label()
 }
@@ -54,3 +75,6 @@ pub fn snapshot_with_status_until(
     let tracker = tracker.try_lock_until(deadline)?;
     Some(mux.snapshot_with_status_resolver(&tracker, resolve))
 }
+
+#[cfg(test)]
+mod tests;

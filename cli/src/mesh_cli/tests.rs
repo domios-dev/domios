@@ -573,6 +573,11 @@ fn tab_new_relays_cmd_field() {
     use crate::TabAction;
     let cmd = Commands::Tab {
         action: TabAction::New {
+            shell: None,
+            list_shells: false,
+            purpose: "shell".into(),
+            description: None,
+            icon: None,
             workspace: Some("ws_1".into()),
             cwd: Some("C:/Developer/codeterm".into()),
             title: Some("runner".into()),
@@ -1171,3 +1176,6 @@ fn mesh_tab_list_json_leaves_the_relayed_rest_body_a_bare_array() {
 
 #[path = "tests/mesh_spawn_close.rs"]
 mod mesh_spawn_close;
+
+#[path = "tests/utility_tabs.rs"]
+mod utility_tabs;

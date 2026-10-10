@@ -1,5 +1,38 @@
-import { WorkspaceCubeGrid } from "../../ds/WorkspaceCubeGrid";
+import { WorkspaceCardGrid } from "../../../../src/components/Sidebar/WorkspaceCardGrid";
+import { SidebarDnd, WS_PREFIX } from "../../../../src/components/Sidebar/sortable";
+import type { TabStatus, Workspace } from "../../../../src/lib/types";
 import { defineSpecimen } from "../types";
-const workspaces = [{id:"aa",initials:"AA",name:"Atlas",selected:true},{id:"am",initials:"AM",name:"Amber",working:true},{id:"ct",initials:"CT",name:"CodeTerm"},{id:"kp",initials:"KP",name:"Kite"}];
 
-export default defineSpecimen({ id:"workspace-cube-grid", title:"Workspace cube grid", category:"Sidebar", where:"src/components/Sidebar/WorkspaceCardGrid.tsx", notes:"Accepted reference: the current playground DS/gallery lineage. Adapt its semantics and behavior for production; scratch concepts and filmstrips remain comparison evidence, not wholesale-import sources.", states:[{id:"mixed",label:"Selected + working",props:{workspaces}},{id:"unselected",label:"Unselected",props:{workspaces:[{id:"aa",initials:"AA",name:"Atlas"},{id:"am",initials:"AM",name:"Amber"},{id:"ct",initials:"CT",name:"CodeTerm"},{id:"kp",initials:"KP",name:"Kite"}]}},{id:"working",label:"Working",props:{workspaces:[{id:"aa",initials:"AA",name:"Atlas",working:true},{id:"am",initials:"AM",name:"Amber",working:true}]}}], Component:WorkspaceCubeGrid });
+const noop = () => undefined;
+const NAMES = ["Atlas", "Amber", "CodeTerm", "Kite", "Binaura", "Rekap", "EcoIQ"];
+
+function workspaces(count: number): Workspace[] {
+  return NAMES.slice(0, count).map((name) => ({ id: `ws-${name.toLowerCase()}`, name, tabs: [], active_tab_id: null, cwd: `/Developer/${name}` }));
+}
+
+type GridProps = { count: number; selected?: string | null; working?: string[] };
+
+function GridSpecimen({ count, selected = null, working = [] }: GridProps) {
+  const list = workspaces(count);
+  const statuses: Record<string, TabStatus | null> = Object.fromEntries(list.map((workspace) => [workspace.id, working.includes(workspace.id) ? "Working" : null]));
+  return <div className="gallery-sidebar" style={{ padding: 8 }}>
+    <SidebarDnd handlers={{ reorderTabs: noop, reorderDisplay: noop, reorderWorkspaces: noop }}>
+      <WorkspaceCardGrid workspaces={list} selectedWorkspaceId={selected} statuses={statuses} sortIds={list.map((workspace) => `${WS_PREFIX}${workspace.id}`)} onSelect={noop} onCreate={noop} />
+    </SidebarDnd>
+  </div>;
+}
+
+export default defineSpecimen({
+  id: "workspace-cube-grid",
+  title: "Workspace card grid",
+  category: "Sidebar",
+  where: "src/components/Sidebar/WorkspaceCardGrid.tsx",
+  notes: "The shipped two-row workspace grid with its create card; working workspaces carry the activity-dots badge.",
+  Component: GridSpecimen,
+  states: [
+    { id: "mixed", label: "Selected + working", props: { count: 4, selected: "ws-atlas", working: ["ws-amber"] } },
+    { id: "unselected", label: "Nothing selected", props: { count: 4 } },
+    { id: "working", label: "Several working", props: { count: 3, selected: "ws-codeterm", working: ["ws-atlas", "ws-amber"] } },
+    { id: "paged", label: "Overflowing into pages", props: { count: 7, selected: "ws-kite" } },
+  ],
+});

@@ -5,8 +5,10 @@ const MAX_CLEANUP_ERRORS: usize = 8;
 const MAX_ERROR_BYTES: usize = 192;
 const MAX_REASON_BYTES: usize = 240;
 
+#[cfg(any(unix, test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum LeaderOwnership {
+    #[cfg(unix)]
     Unspawned,
     Retained(u32),
     Retired(u32),
@@ -46,6 +48,7 @@ pub(in crate::sentinel) enum ResourceState {
 pub(in crate::sentinel) struct ProbeFailure {
     pub primary: &'static str,
     pub resources: ResourceState,
+    pub processes_confirmed: bool,
     pub cleanup_errors: Vec<String>,
     pub unconfirmed: Vec<ResourceKind>,
     pub late_by: Option<Duration>,
@@ -59,6 +62,7 @@ impl ProbeFailure {
         Self {
             primary,
             resources: ResourceState::Confirmed,
+            processes_confirmed: false,
             cleanup_errors: Vec::new(),
             unconfirmed: Vec::new(),
             late_by: None,
@@ -225,6 +229,7 @@ impl Deadlines {
     }
 }
 
+#[cfg(any(unix, test))]
 pub(super) fn cancellation_target(
     ownership: LeaderOwnership,
     child_id: u32,

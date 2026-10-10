@@ -13,15 +13,22 @@ use crate::api::{
 pub async fn list_workspaces(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let result =
         crate::dispatch::dispatch(&crate::dispatch::Command::WorkspaceList, state.svc.as_ref())
-            .map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Failed to list workspaces",
-                )
+            .map_err(|error| {
+                if error == crate::startup::STORAGE_UNAVAILABLE_MESSAGE {
+                    (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        crate::startup::STORAGE_UNAVAILABLE_MESSAGE.to_string(),
+                    )
+                } else {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Failed to list workspaces".to_string(),
+                    )
+                }
             })?;
     Ok(Json(result.into_json()))
 }
@@ -37,11 +44,7 @@ pub(crate) struct CreateWorkspaceBody {
     provision: bool,
 }
 
-#[derive(Deserialize, Default)]
-pub(crate) struct CreateTabBody {
-    #[serde(default)]
-    eager: bool,
-}
+pub(crate) type CreateTabBody = crate::api::tab_routes::CreateShellTabBody;
 
 pub async fn create_workspace(
     AxumState(state): AxumState<AppState>,
@@ -226,11 +229,15 @@ pub async fn reopen_closed_group(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(group_id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
     let cmd = crate::dispatch::Command::WorkspaceReopenClosedGroup { group_id };
-    let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref())
-        .map_err(|_| (StatusCode::NOT_FOUND, "No closed group"))?;
+    let service = state.svc.clone();
+    let result =
+        tokio::task::spawn_blocking(move || crate::dispatch::dispatch(&cmd, service.as_ref()))
+            .await
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+            .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
     Ok(Json(result.into_json()))
 }
 
@@ -293,6 +300,20 @@ pub async fn reorder_children(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+pub async fn reorder_display(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(workspace_id): Path<String>,
+    Json(body): Json<ReorderTabsBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    state
+        .svc
+        .reorder_display(&workspace_id, &body.ordered_tab_ids)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to reorder display"))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
 #[derive(Deserialize)]
 pub(crate) struct ReorderWorkspacesBody {
     ordered_workspace_ids: Vec<String>,
@@ -337,37 +358,19 @@ pub async fn create_tab(
     headers: HeaderMap,
     Path(workspace_id): Path<String>,
     OptionalJson(body): OptionalJson<CreateTabBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let tab_id = state
-        .svc
-        .create_tab_with_activate(&workspace_id, false)
-        .map_err(|_| {
-            state.svc.log_workspace_not_found(&workspace_id);
-            (StatusCode::NOT_FOUND, "Workspace not found")
-        })?;
-    let eager = body.map(|b| b.eager).unwrap_or(false);
-    let pty_id = if eager {
-        state
-            .svc
-            .ensure_tab_pty_for_send(&tab_id)
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to spawn PTY"))?;
-        state
-            .svc
-            .mux
-            .write()
-            .get_tab(&tab_id)
-            .and_then(|p| p.pty_id.clone())
-    } else {
-        None
-    };
-    let title = state.svc.mux.read().display_label_for_tab(&tab_id);
-    Ok(Json(serde_json::json!({
-        "id": tab_id.clone(),
-        "title": title,
-        "tab_id": tab_id,
-        "pty_id": pty_id
-    })))
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let mut body = body.unwrap_or_default();
+    body.workspace_id = Some(workspace_id);
+    let response =
+        crate::api::tab_routes::create_shell_tab(AxumState(state.clone()), headers, Json(body))
+            .await?;
+    let mut value = response.0;
+    let tab_id = value["tab_id"].as_str().map(str::to_owned);
+    if let Some(tab_id) = tab_id {
+        value["title"] =
+            serde_json::Value::String(state.svc.mux.read().display_label_for_tab(&tab_id));
+    }
+    Ok(Json(value))
 }
 
 #[cfg(test)]

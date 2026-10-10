@@ -6,13 +6,11 @@ use std::cell::{Cell, RefCell};
 use std::time::Duration;
 
 #[test]
-fn newer_ingress_claim_waits_for_the_prior_submit_cycle() {
+fn newer_ingress_claim_cancels_the_prior_submit_cycle() {
     let first = claim_submit_cycle("rapid-ingress-claim");
     let second = claim_submit_cycle("rapid-ingress-claim");
 
-    assert!(first.is_current());
-    assert!(!second.is_current());
-    drop(first);
+    assert!(!first.is_current());
     assert!(second.is_current());
 }
 
@@ -770,6 +768,45 @@ fn tui_composer_redraw_without_turn_is_not_submission() {
 }
 
 #[test]
+fn routed_prefix_body_and_suffix_share_one_write_before_the_submit_key() {
+    let trace = IndistinguishableTrace::swallowed();
+    let prefix = "<domios from=\"tab\" label=\"sender\" tab=\"abc12345\">";
+    let body = "opaque routed body";
+    let suffix = " [return hint] instruction</domios>";
+
+    run_with_submit_key_and_frame(
+        &trace,
+        body,
+        true,
+        b"\r",
+        Some(prefix),
+        Some(suffix),
+        VerifySubmitStrategy::None,
+        opts(),
+        |_, _| Ok(()),
+    )
+    .unwrap();
+
+    assert_eq!(trace.payload_writes.get(), 1);
+    let expected_write = format!("{prefix}{body}{suffix}");
+    assert_eq!(
+        trace.payload.borrow().as_deref(),
+        Some(expected_write.as_str())
+    );
+    assert_eq!(trace.submit_key_writes.get(), 1);
+    let writes = trace.observations.borrow();
+    let payload = writes
+        .iter()
+        .position(|write| write == "write_paste")
+        .unwrap();
+    let key = writes
+        .iter()
+        .position(|write| write == "write_submit_key")
+        .unwrap();
+    assert!(payload < key);
+}
+
+#[test]
 fn typed_follow_up_is_written_once_between_the_paste_and_submit_key() {
     let trace = IndistinguishableTrace::swallowed();
     let body = "alpha\nbeta\ngamma\ndelta\nepsilon\nzeta";
@@ -1106,7 +1143,7 @@ fn complete_echo_is_diagnostic_but_not_required_for_enter() {
 #[test]
 #[ignore = "synthetic TUI model is not a real PTY delivery oracle"]
 fn spawn_introduction_uses_the_same_paste_then_enter_contract() {
-    let intro = "-=-codeterm:tab label=CodeTerm tab=system-=-You are the Orchestrator of this team. Your Planner counterpart is Rodin.";
+    let intro = "You are the Orchestrator of this team. Your Planner counterpart is Rodin.";
     let io = ControlledTransport::new("> [Pasted Content 128 chars]");
 
     let result = submit_entry(PtySubmitEntry::Messenger, intro, |body| {

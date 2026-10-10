@@ -4,7 +4,6 @@ import { isMac } from "../../lib/keybindings";
 import type { LucideIcon } from "lucide-react";
 import { UI_PANEL } from "../shared/design";
 import { Button } from "../shared/Button";
-import { Card } from "../shared/Card";
 import { Chip, type ChipVariant } from "../shared/Chip";
 import { FormRow } from "../shared/FormRow";
 import { LiquidToggle, LiquidToggleTrack, useLiquidTravel } from "../shared/LiquidToggle";
@@ -24,11 +23,9 @@ export function Group({ title, children }: { title: string; children: React.Reac
 
 export function SettingsPage({
   title,
-  subtitle,
   children,
 }: {
   title: string;
-  subtitle?: ReactNode;
   children: ReactNode;
 }) {
   const titleId = useId();
@@ -36,15 +33,11 @@ export function SettingsPage({
     <div
       role="region"
       aria-labelledby={titleId}
-      className="max-w-[720px] mx-auto flex flex-col gap-5"
+      className="ct-settings-page"
       data-testid="settings-page"
       data-settings-page={testIdPart(title)}
     >
-      {/* Title already shown in the nav header — keep it for screen readers only, no visual duplicate. */}
       <h1 id={titleId} className="sr-only">{title}</h1>
-      {subtitle && (
-        <p className="text-sm text-[var(--ct-muted-fg)] -mt-1">{subtitle}</p>
-      )}
       {children}
     </div>
   );
@@ -67,24 +60,22 @@ export function SettingsCard({
 }) {
   const titleId = useId();
   return (
-    <Card
+    <section
       role="group"
       aria-labelledby={titleId}
-      className={`p-4 ${className ?? ""}`}
+      className={`ct-card ct-card--static ct-settings-card ${className ?? ""}`}
       data-testid="settings-card"
     >
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-[var(--ct-fg)] text-sm font-medium min-w-0">
-          {icon}
-          <span id={titleId} className="truncate">{title}</span>
+      <header className="ct-settings-card__head">
+        {icon && <span className="ct-settings-card__icon" aria-hidden="true">{icon}</span>}
+        <div className="ct-settings-card__heading">
+          <h3 id={titleId} className="ct-settings-card__title">{title}</h3>
+          {description && <p className="ct-settings-card__desc">{description}</p>}
         </div>
-        {headerRight && <div className="shrink-0">{headerRight}</div>}
-      </div>
-      {description && (
-        <p className="text-xs text-[var(--ct-muted-fg)] mt-2 leading-relaxed">{description}</p>
-      )}
-      {children && <div className="mt-3 space-y-2.5">{children}</div>}
-    </Card>
+        {headerRight && <div className="ct-settings-card__aside">{headerRight}</div>}
+      </header>
+      {children && <div className="ct-settings-card__body">{children}</div>}
+    </section>
   );
 }
 
@@ -130,8 +121,8 @@ export function Label({ text, children }: { text: string; children: React.ReactN
 
 export function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
-    <label className="flex items-center justify-between cursor-pointer" data-testid="settings-toggle-row" data-settings-toggle={testIdPart(label)}>
-      <span className="text-xs text-[var(--ct-muted-fg)]">{label}</span>
+    <label className="ct-settings-toggle" data-testid="settings-toggle-row" data-settings-toggle={testIdPart(label)}>
+      <span>{label}</span>
       <LiquidToggle
         // A role="switch" button is not labelable, so the wrapping <label> never named it.
         aria-label={label}
@@ -266,12 +257,23 @@ export function InfoRow({ label, value, mono }: { label: string; value: string; 
 }
 
 /** An in-app navigation link: a button styled as a link, since it routes rather than loads a URL. */
-export function InlineLinkButton({ label, onClick, testId }: { label: string; onClick: () => void; testId?: string }) {
+export function InlineLinkButton({
+  label,
+  onClick,
+  testId,
+  disabled,
+}: {
+  label: string;
+  onClick: () => void;
+  testId?: string;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="text-[11px] text-[var(--ct-accent)] underline underline-offset-2 hover:text-[var(--ct-fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]"
+      disabled={disabled}
+      className="ct-bar-pill ct-settings-link disabled:cursor-not-allowed disabled:opacity-50"
       data-testid={testId}
     >
       {label}

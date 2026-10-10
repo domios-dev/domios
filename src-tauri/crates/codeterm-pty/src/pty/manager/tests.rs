@@ -46,7 +46,7 @@ fn backend_channel_claim_is_visible_and_idempotent() {
         "claim must be visible immediately (read_pty guard keys on this)"
     );
     assert!(
-        session.backend_reader_rx.lock().unwrap().is_some(),
+        session.backend_output.is_configured(),
         "rx side must exist for the frontend to consume"
     );
 
@@ -751,4 +751,20 @@ fn pty_env_adds_the_cli_dir_when_the_inherited_path_lacks_it() {
         spawned.first().map(std::path::PathBuf::as_path),
         Some(cli_dir)
     );
+}
+
+#[cfg(windows)]
+#[test]
+fn pty_env_defaults_python_to_utf8_but_keeps_an_explicit_choice() {
+    let mut cmd = CommandBuilder::new("agent");
+    cmd.env_remove("PYTHONUTF8");
+    apply_pty_env(&mut cmd, &HashMap::new());
+    assert_eq!(cmd.get_env("PYTHONUTF8"), Some(std::ffi::OsStr::new("1")));
+
+    let mut cmd = CommandBuilder::new("agent");
+    apply_pty_env(
+        &mut cmd,
+        &HashMap::from([("PYTHONUTF8".to_string(), "0".to_string())]),
+    );
+    assert_eq!(cmd.get_env("PYTHONUTF8"), Some(std::ffi::OsStr::new("0")));
 }

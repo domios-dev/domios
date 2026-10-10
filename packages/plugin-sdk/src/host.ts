@@ -117,6 +117,7 @@ export interface HostFs {
   makeDirs(path: string): boolean;
   fileExists(path: string): boolean;
   isSymlink(path: string): boolean | null;
+  /** `~/.codeterm/...` resolves inside the running instance's data dir (`~/.codeterm-dev` on dev). */
   expandHome(path: string): string | null;
   writeTempFile(contents: string, suffix?: string): string | null;
   readDir(path: string): DirEntry[];
@@ -163,6 +164,8 @@ export interface TabRef {
 
 // Read-only mirror of the host's parseUsage output (tokens/cost); loosely typed since provider shapes vary.
 export interface UsageSnapshot {
+  billing_mode: "subscription" | "api" | "unknown";
+  limits_reported: boolean;
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
@@ -357,6 +360,12 @@ export interface HostReceiverTarget {
   clear(): ReceiverTargetView | ReceiverTargetRefusal | null;
 }
 
+// Acts on the calling agent's own stream surface; only inside onAgentCommand, with the `surfaces` grant.
+export interface HostSurface {
+  // Returns the JSON text `{ "result": string }` or `{ "error": string }`.
+  call(verb: string, argsJson: string): string;
+}
+
 export interface HostProgressOpts {
   label: string;
   percent?: number;
@@ -365,10 +374,12 @@ export interface HostProgressOpts {
 }
 
 export interface Host {
+  commandTranscriptStdout(recordJson: string, declarationJson: string): string | null;
   platform(): string;
   homeDir(): string | null;
   expandHome(path: string): string | null;
   envGet(name: string): string | null;
+  providerVersionJson(): string;
   // Non-secret fields of a manifest-declared credential, as a JSON object.
   // Secret fields are never returned — see `FetchOpts.credential`.
   credentialPublic(id: string): string | null;
@@ -382,6 +393,8 @@ export interface Host {
   readFileTail(path: string, maxBytes: number): string | null;
   writeFile(path: string, contents: string): boolean;
   writeFileAtomic(path: string, contents: string): boolean;
+  canonicalPath(path: string): string | null;
+  jsonBooleanRecord(path: string, keysJson: string, grant: boolean): string;
   lockFile(path: string): string | null;
   unlockFile(id: string): boolean;
   removeFile(path: string): boolean;
@@ -436,6 +449,8 @@ export interface Host {
   receiverTargetGet(): string;
   receiverTargetClear(): string;
   receiverTarget: HostReceiverTarget;
+  surfaceCall(verb: string, argsJson: string): string;
+  surface: HostSurface;
 }
 
 declare global {

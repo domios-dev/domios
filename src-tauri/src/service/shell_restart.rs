@@ -64,6 +64,7 @@ impl ServiceContext {
         if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
             tab.cwd = resolved_cwd.clone();
             tab.restored_from_snapshot = false;
+            tab.shell_command_state = Default::default();
         }
         self.ensure_tab_pty_for_send(tab_id)?;
         let new_pty_id = self.resolve_pty_id(tab_id)?;

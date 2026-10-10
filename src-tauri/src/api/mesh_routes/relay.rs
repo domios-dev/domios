@@ -1,4 +1,5 @@
 use crate::api::routes::{check_auth, AppState};
+use crate::api::stream_census::{track, StreamGuard, StreamKind};
 use axum::{
     body::Body,
     extract::{Path as AxumPath, Query, State as AxumState},
@@ -659,6 +660,18 @@ async fn perform_relay(
     sender_id: &str,
     cmd: &crate::mesh::types::RelayCommand,
 ) -> Result<crate::mesh::types::RelayResponse, (StatusCode, String)> {
+    let mut response = perform_relay_unredacted(state, sender_id, cmd).await?;
+    if let Some(data) = response.data.as_mut() {
+        crate::api::peer_redaction::redact_for_peer(data);
+    }
+    Ok(response)
+}
+
+async fn perform_relay_unredacted(
+    state: &AppState,
+    sender_id: &str,
+    cmd: &crate::mesh::types::RelayCommand,
+) -> Result<crate::mesh::types::RelayResponse, (StatusCode, String)> {
     // debug, not info — polling peers once put 285k of these in a single
     // rotated log generation, the largest contributor to a 250 MB log dir.
     log::debug!(
@@ -679,7 +692,7 @@ async fn perform_relay(
             .get(sender_id)
             .map(|peer| (peer.access_level.clone(), peer.relay_protocol_version))
             .unwrap_or((crate::mesh::types::AccessLevel::ReadOnly, 0));
-        if protocol_version != crate::mesh::types::RELAY_PROTOCOL_VERSION {
+        if !crate::mesh::types::is_supported_relay_protocol(protocol_version) {
             return Ok(relay_failure(
                 StatusCode::UPGRADE_REQUIRED.as_u16(),
                 codeterm_types::mesh::delivery::PEER_RELAY_PROTOCOL_MISMATCH,
@@ -937,7 +950,7 @@ pub async fn mesh_relay_stream(
                 "remote tab unavailable".into(),
             ));
         }
-        if peer.relay_protocol_version != crate::mesh::types::RELAY_PROTOCOL_VERSION {
+        if !crate::mesh::types::is_supported_relay_protocol(peer.relay_protocol_version) {
             return Err((
                 StatusCode::UPGRADE_REQUIRED,
                 format!(
@@ -970,9 +983,13 @@ pub async fn mesh_relay_stream(
             q.tab.clone().unwrap_or_else(|| "*".into()),
             stream_tab_id,
             q.since.as_deref(),
+            StreamGuard::relayed(StreamKind::Output, q.peer.clone()),
         )
     } else {
-        Body::from_stream(resp.bytes_stream())
+        Body::from_stream(track(
+            resp.bytes_stream(),
+            StreamGuard::relayed(StreamKind::Events, q.peer.clone()),
+        ))
     };
     let mut out = Response::new(body);
     out.headers_mut().insert(header::CONTENT_TYPE, content_type);
@@ -1013,7 +1030,7 @@ pub async fn mesh_relay_asset(
             .paired_peers
             .get(&peer)
             .ok_or_else(|| peer_not_paired_error(&peer))?;
-        if paired.relay_protocol_version != crate::mesh::types::RELAY_PROTOCOL_VERSION {
+        if !crate::mesh::types::is_supported_relay_protocol(paired.relay_protocol_version) {
             return Err((
                 StatusCode::UPGRADE_REQUIRED,
                 format!(

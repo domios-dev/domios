@@ -97,6 +97,60 @@ fn plan_mutation_requires_plan_role() {
     }
 }
 
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn worker_block_update_is_refused_but_plan_owner_may_explicitly_block() {
+    let harness = authority_fixture();
+    let worker = live_tab(&harness.fixture, "worker-session", "worker-nonce");
+    bind_owner(
+        &harness.fixture,
+        &harness.plan_id,
+        &harness.task_id,
+        &worker,
+        "worker-session",
+    );
+    let service = Arc::new(harness.fixture.service.clone());
+    let params = caller_params(
+        &worker,
+        "worker-session",
+        "worker-nonce",
+        &harness.plan_id,
+        &harness.task_id,
+        OWNER_EPOCH,
+    );
+    let mut params = params.unwrap();
+    params["status"] = json!("blocked");
+    params["status_label"] = json!("dependency unavailable; owner must choose a trigger");
+
+    let error = verify_owner_epoch_for_task_mutation("plan.task.update", &Some(params), &service)
+        .expect_err("a Worker may propose a block only through its report");
+    assert_eq!(
+        refusal_type(&error),
+        TaskAuthorityRefusal::BlockAuthorityRequired.discriminant()
+    );
+    assert_eq!(
+        task_record(&harness.fixture, &harness.plan_id, &harness.task_id).status,
+        TaskStatus::InProgress
+    );
+
+    let owner = caller_params(
+        &harness.owner_tab,
+        "owner-session",
+        "owner-nonce",
+        &harness.plan_id,
+        &harness.task_id,
+        OWNER_EPOCH,
+    );
+    let mut owner = owner.unwrap();
+    owner["status"] = json!("blocked");
+    owner["status_label"] = json!("dependency unavailable; Orchestrator chooses a trigger");
+    verify_owner_epoch_for_task_mutation("plan.task.update", &Some(owner), &service)
+        .expect("the live Plan owner may make an explicit reasoned block decision");
+}
+
 struct AuthorityFixture {
     fixture: ServiceFixture,
     plan_id: String,

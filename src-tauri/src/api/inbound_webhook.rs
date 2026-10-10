@@ -309,10 +309,10 @@ fn sanitize_event_text(text: &str) -> String {
         .chars()
         .filter(|c| *c == '\n' || *c == '\t' || !c.is_control())
         .collect();
-    // One pass can splice a new marker opening out of overlapping fragments.
-    while clean.contains(crate::message_markers::OPEN) {
-        clean = clean.replace(crate::message_markers::OPEN, "codeterm:");
+    while clean.contains("<domios") {
+        clean = clean.replace("<domios", "domios:");
     }
+    clean = clean.replace(codeterm_types::domios::DOMIOS_CLOSE_TAG, "");
     clean.trim().to_string()
 }
 

@@ -1,4 +1,6 @@
 ---
+name: gap-analysis
+description: Audit a cut plan against the real codebase before any lane is dispatched, catching tasks that assume missing code or rebuild what already exists. Use between structure_ready and approved.
 title: Gap analysis — verify-before-claim audit of a plan before execution
 area: planning
 tags: [planning, review, verify-before-claim, pre-execution]

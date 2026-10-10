@@ -73,8 +73,14 @@
   },
   {
     "id": 13,
-    "start": 37.302,
-    "end": 42.678,
+    "start": 37.18666666666667,
+    "end": 46.14966666666667,
+    "text": "Every agent on this machine shares one memory. Facts, decisions, and skills stay with Domios, so the next agent can pick up where you left off."
+  },
+  {
+    "id": 14,
+    "start": 46.635333333333335,
+    "end": 52.01133333333333,
     "text": "Your next idea. A whole team behind it. Domios."
   }
 ]

@@ -1,6 +1,6 @@
 ---
 name: dev-testing
-description: Test Domios dev instance via API. Use when testing memory, GA interactions, skills, bootstrap, recall quality. Covers tab send, mem check, worker status, file verification.
+description: Test Domios dev instance via API and look at its UI. Use when you need to see the running dev window (screenshot), or test memory, GA interactions, skills, bootstrap, recall quality. Covers screenshots, tab send, mem check, worker status, file verification.
 ---
 
 # Dev Testing
@@ -31,6 +31,22 @@ TOKEN=$(grep -A1 '^\[api\]' ~/.codeterm-dev/config.toml | grep token | sed 's/.*
 API="http://127.0.0.1:7686"
 H="Authorization: Bearer $TOKEN"
 ```
+
+## Look at the UI (screenshot)
+
+The dev window exposes Chrome DevTools Protocol; the port comes from `/api/health` (`instance.cdp_port`, 9223 by default). One command, no Playwright:
+
+```bash
+node scripts/dev-screenshot.mjs /tmp/dev.png                       # whole window
+node scripts/dev-screenshot.mjs /tmp/sidebar.png '[data-testid=general-section]'  # one element
+node scripts/dev-screenshot.mjs /tmp/prod.png '' --api-port 7685   # another instance
+```
+
+It prints the file path and the running build SHA; open the PNG with your file-read/image tool to see it. Check the build SHA before judging a change: the screenshot shows what is running, not what is merged. For state the picture cannot show (counts, attributes), evaluate DOM over the same port (`Runtime.evaluate`) instead of guessing from pixels.
+
+DEV flow tracing writes bounded, rotated `~/.codeterm-dev/logs/trace.jsonl`; production writes no trace events. Unledgered PTY input uses a fresh trace ID; existing sends retain their IDs.
+From a DEV-bound shell, use `codeterm trace recent --limit 20`, then `codeterm trace show <trace_id|tab_id> --since 1h` to see ordered stages and gaps in the retained window.
+Exact protocol-turn and append-window source links join assistant appends, including late links; a missing assistant stage means pending or missing evidence, not a delivery verdict.
 
 ## Find GA tab
 

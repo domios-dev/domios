@@ -565,7 +565,8 @@ fn team_pair_with_unknown_provider_creates_no_tab() {
     let workspace_id = mux.list_workspaces()[0].id.clone();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(
-        crate::agent::test_provider::MockProvider::new("valid-orchestrator"),
+        crate::agent::test_provider::MockProvider::new("valid-orchestrator")
+            .with_launch_binary(if cfg!(windows) { "cmd.exe" } else { "sh" }),
     ));
     let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
     let teams_before = fixture.service.mux.read().team_count();
@@ -680,7 +681,8 @@ fn pair_orchestrator_launch_failure_leaves_no_pair_tabs() {
         .with_launch_binary("powershell"),
     ));
     fixture.service.agent_registry.register_provider(Box::new(
-        crate::agent::test_provider::MockProvider::new("pair-valid-planner"),
+        crate::agent::test_provider::MockProvider::new("pair-valid-planner")
+            .with_launch_binary(if cfg!(windows) { "cmd.exe" } else { "sh" }),
     ));
     let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
     let teams_before = fixture.service.mux.read().team_count();
@@ -725,7 +727,8 @@ fn pair_orchestrator_launch_failure_preserves_claimed_tab() {
         .with_launch_binary("powershell"),
     ));
     fixture.service.agent_registry.register_provider(Box::new(
-        crate::agent::test_provider::MockProvider::new("pair-valid-planner-claimed"),
+        crate::agent::test_provider::MockProvider::new("pair-valid-planner-claimed")
+            .with_launch_binary(if cfg!(windows) { "cmd.exe" } else { "sh" }),
     ));
     let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
     let teams_before = fixture.service.mux.read().team_count();

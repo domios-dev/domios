@@ -1,6 +1,6 @@
 /** chatBackend model picker backed by the live provider catalog and session API. */
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronUp } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { Check, ChevronUp } from "lucide-react";
 import type { ModelInfo } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { getChatModelBubbleApi } from "./chatModelBubbleApi";
@@ -154,14 +154,13 @@ export function ChatModelBubble({
         <div
           role="menu"
           aria-label="Available models"
-          className="absolute bottom-full left-0 mb-1 grid gap-0.5 rounded-md border p-1 shadow-lg"
+          className="ct-menu absolute bottom-full left-0 mb-1"
           style={{
-            minWidth: 180,
             maxHeight: 260,
             overflowY: "auto",
-            background: "color-mix(in srgb, var(--ct-bg, #0d1117) 94%, black 6%)",
-            borderColor: "color-mix(in srgb, var(--ct-accent, #5b8cff) 35%, transparent)",
-          }}
+            "--ct-menu-origin": "bottom left",
+            "--ct-menu-shift": "6px",
+          } as CSSProperties}
         >
           {models.map((model) => {
             const selected = model.id === currentModel;
@@ -175,20 +174,13 @@ export function ChatModelBubble({
                 onClick={() => void choose(model)}
                 role="menuitemradio"
                 aria-checked={selected}
-                className="w-full grid grid-cols-[0.75rem_minmax(0,1fr)] gap-2 rounded px-2 py-1 text-left text-xs"
-                style={{
-                  background: selected
-                    ? "color-mix(in srgb, var(--ct-accent, #5b8cff) 18%, transparent)"
-                    : "transparent",
-                  color: selected ? "var(--ct-fg)" : "var(--ct-muted-fg)",
-                  border: "none",
-                  cursor: "pointer",
-                }}
+                aria-label={model.display_name}
+                className="ct-menu-row"
               >
-                <span className="text-center font-mono">{selected ? ">" : ""}</span>
-                <span className="min-w-0">
-                  <span className="block truncate font-medium">{model.display_name}</span>
-                  <span className="block truncate opacity-60 font-mono">{model.id}</span>
+                <span className="ct-menu-row__icon">{selected && <Check size={14} />}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{model.display_name}</span>
+                  <span className="ct-menu-row__description font-mono">{model.id}</span>
                 </span>
               </button>
             );

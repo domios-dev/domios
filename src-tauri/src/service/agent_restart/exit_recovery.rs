@@ -99,6 +99,38 @@ pub(super) fn select_recovery_session(
     ))
 }
 
+pub(super) fn select_journal_recovery_session(
+    records: &[JournalRecord],
+    tab_id: &str,
+    current_session: Option<&str>,
+    lineage: &[PriorBindingNonce],
+) -> Result<String, AgentRestartError> {
+    let candidates = records
+        .iter()
+        .filter(|record| record.tab_id() == tab_id)
+        .filter_map(|record| match record {
+            JournalRecord::Transition { entry } => match &entry.transition {
+                LifecycleTransition::SessionBound { session_id, .. }
+                | LifecycleTransition::ResumeTargetRecorded { session_id }
+                | LifecycleTransition::RestoreAwaitingAgentRestart { session_id } => {
+                    Some(session_id.clone())
+                }
+                _ => None,
+            },
+            JournalRecord::Checkpoint { checkpoint } => {
+                Some(checkpoint.authority.session_id.clone())
+            }
+        })
+        .collect::<Vec<_>>();
+    if let Some(session_id) = current_session {
+        return candidates.iter().any(|candidate| candidate == session_id)
+            .then(|| session_id.to_string())
+            .ok_or_else(|| refusal(EXIT_RECOVERY_NO_VERIFIED_SESSION,
+                format!("session {session_id} has no launch target or binding provenance in this Tab")));
+    }
+    select_recovery_session(lineage, &candidates)
+}
+
 pub(super) fn recovery_provider(
     registry: &crate::agent::registry::AgentRegistry,
     cwd: Option<&str>,
@@ -165,7 +197,7 @@ impl ServiceContext {
         &self,
         exited: &Tab,
     ) -> Result<RestartOutcome, RestartAttemptError> {
-        if !crate::service::general_agent::is_general_agent(exited) {
+        if !crate::service::general_agent::session_contract::owns_main(&self.mux.read(), exited) {
             return Err(AgentRestartError::BadRequest(
                 "exit recovery target is not the General Agent".into(),
             )
@@ -187,11 +219,12 @@ impl ServiceContext {
     ) -> Result<RestartOutcome, RestartAttemptError> {
         let shell = self.exited_shell(tab_id, attempt)?;
         let restart_claim = self.claim_restart(tab_id, automatic)?;
-        let verified = verified_session_ids(&TabLifecycleJournal::shared().load().records, tab_id);
-        let recovery = select_recovery_session(&shell.lineage, &verified).and_then(|session_id| {
-            recovery_provider(&self.agent_registry, shell.cwd.as_deref(), &session_id)
-                .map(|provider| (provider, Some(session_id)))
-        });
+        let records = TabLifecycleJournal::shared().load().records;
+        let recovery = select_journal_recovery_session(&records, tab_id, None, &shell.lineage)
+            .and_then(|session_id| {
+                recovery_provider(&self.agent_registry, shell.cwd.as_deref(), &session_id)
+                    .map(|provider| (provider, Some(session_id)))
+            });
         let (provider, session_id) = recovery_target(recovery, fresh_provider)?;
         let auto_approve = crate::service::permission_policy::configured_permission_bypass(
             &self.agent_registry,
@@ -203,11 +236,13 @@ impl ServiceContext {
             tab_id: tab_id.to_string(),
             pty_id: shell.pty_id,
             provider,
+            target_provider: None,
             session_id,
             cwd: shell.cwd,
             auto_approve,
             role: shell.role,
             role_profile: shell.role_profile,
+            handoff_history: None,
         };
         if snap.session_id.is_none() && fresh_provider.is_some() {
             return self.recover_general_agent_fresh(&snap, force);

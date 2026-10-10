@@ -7,20 +7,20 @@
     {
       "id": "claude",
       "path": "provider-claude",
-      "version": "1.12.3",
-      "minCodeterm": "1.12.3"
+      "version": "1.14.0",
+      "minCodeterm": "1.14.0"
     },
     {
       "id": "codex",
       "path": "provider-codex",
-      "version": "1.12.3",
-      "minCodeterm": "1.12.3"
+      "version": "1.14.0",
+      "minCodeterm": "1.14.0"
     },
     {
       "id": "opencode",
       "path": "provider-opencode",
-      "version": "1.12.3",
-      "minCodeterm": "1.12.3"
+      "version": "1.14.0",
+      "minCodeterm": "1.14.0"
     },
     {
       "id": "cursor",
@@ -39,6 +39,12 @@
       "path": "analytics",
       "version": "1.10.20",
       "minCodeterm": "1.10.20"
+    },
+    {
+      "id": "browser",
+      "path": "browser",
+      "version": "1.12.4",
+      "minCodeterm": "1.12.4"
     }
   ]
 }

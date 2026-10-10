@@ -160,6 +160,12 @@ struct Emitted {
     emission: Emission,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct NotifiedBlocker {
+    owner_tab: String,
+    notice: BlockedNotice,
+}
+
 /// Real plans and multiplexer tabs; owner observations and composed text are
 /// opaque test inputs, and the emitter only counts what it is handed.
 struct FakeHost {
@@ -172,6 +178,7 @@ struct FakeHost {
     mux: Mutex<MultiplexerState>,
     owner_view: Mutex<Snapshot>,
     emits: Mutex<Vec<Emitted>>,
+    notices: Mutex<Vec<NotifiedBlocker>>,
     emit_error: Mutex<Option<String>>,
     compose_hook: Mutex<Option<fn(&FakeHost)>>,
     dir: tempfile::TempDir,
@@ -188,6 +195,7 @@ impl ReminderHost for FakeHost {
             cfg: self.cfg.lock().clone(),
             token: TokenSnapshot {
                 usable: self.token_usable.load(Ordering::SeqCst),
+                acl_invalid: false,
             },
             registry: &self.registry,
             runtime: self.runtime.clone(),
@@ -235,6 +243,19 @@ impl ReminderHost for FakeHost {
         (snapshot, observed)
     }
 
+    fn observe_worker(
+        &self,
+        plan: &Plan,
+        scope: &Scope,
+        previous: &crate::service::hierarchy::heartbeat_gate::Observation,
+        _: u64,
+    ) -> (
+        Snapshot,
+        crate::service::hierarchy::heartbeat_gate::Observation,
+    ) {
+        crate::service::hierarchy::heartbeat_gate::collect_worker_scope(plan, scope, previous)
+    }
+
     fn compose(&self, plan: &Plan, scope: &Scope, _: &Snapshot, decision: &Decision) -> Emission {
         let hook = self.compose_hook.lock().take();
         if let Some(hook) = hook {
@@ -254,14 +275,27 @@ impl ReminderHost for FakeHost {
         }
     }
 
-    fn emit(&self, plan_id: &str, scope: &Scope, emission: &Emission) -> Result<(), String> {
+    fn emit(
+        &self,
+        plan_id: &str,
+        scope: &Scope,
+        emission: &Emission,
+        _observer: Option<crate::service::messenger::DeliveryWriteObserver>,
+    ) -> Result<bool, String> {
         assert!(self.gate.unlocked(), "gate lock held across the emitter");
         self.emits.lock().push(Emitted {
             plan_id: plan_id.into(),
             scope: scope.clone(),
             emission: emission.clone(),
         });
-        self.emit_error.lock().clone().map_or(Ok(()), Err)
+        self.emit_error.lock().clone().map_or(Ok(true), Err)
+    }
+
+    fn notify_blocked(&self, owner_tab: &str, notice: &BlockedNotice) {
+        self.notices.lock().push(NotifiedBlocker {
+            owner_tab: owner_tab.into(),
+            notice: notice.clone(),
+        });
     }
 }
 
@@ -357,6 +391,7 @@ fn host(plans: Vec<Plan>, mux: MultiplexerState, reply: Reply) -> (FakeHost, Arc
         mux: Mutex::new(mux),
         owner_view: Mutex::new(owner_view()),
         emits: Mutex::default(),
+        notices: Mutex::default(),
         emit_error: Mutex::default(),
         compose_hook: Mutex::default(),
         dir,
@@ -523,6 +558,7 @@ fn plan_reminder_choice_unavailable_zero_call_zero_emit() {
             }
             assert_eq!(f.model.calls(), 0, "{kind:?}/{name}");
             assert_eq!(f.emits(), 0, "{kind:?}/{name}");
+            assert!(f.host.notices.lock().is_empty(), "{kind:?}/{name}");
             assert!(f.host.gate.observation(&f.key(kind)).projection.is_none());
             assert_eq!(f.telemetry(kind), (2, 0, 0, 0), "{kind:?}/{name}");
             assert!(f.decisions().is_empty(), "{kind:?}/{name}");
@@ -567,6 +603,7 @@ fn plan_reminder_choice_invalid_or_unavailable_zero_emit() {
             );
             assert_eq!(f.model.calls(), 1, "{case}");
             assert_eq!(f.emits(), 0, "{case}");
+            assert!(f.host.notices.lock().is_empty(), "{case}");
             assert_eq!(f.telemetry(kind), (2, 0, 0, 0), "{case}");
             assert!(
                 f.decisions()
@@ -1107,3 +1144,5 @@ fn plan_reminder_choice_bounded_claim_cleanup_and_failure() {
         assert_eq!(f.telemetry(kind), (1, 1, 0, 1), "{kind:?}");
     }
 }
+
+mod blocked;

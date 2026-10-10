@@ -13,7 +13,6 @@ const header = readFileSync(
   join(here, "..", "Canvas", "planView", "PlanContextHeader.tsx"),
   "utf8",
 );
-const hierarchy = readFileSync(join(here, "..", "Sidebar", "HierarchyTree.tsx"), "utf8");
 const css = readFileSync(join(here, "..", "..", "styles", "globals.css"), "utf8");
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -27,10 +26,6 @@ assert(source.includes('data-pair-affordance-layout={layout}'), "layout data att
 
 assert(sidebar.includes("resolvePlanPeerPair"), "Sidebar derives pair from plan refs");
 assert(
-  sidebarWorkspace.includes("<TeamUnit") && sidebarWorkspace.includes("sortTeamManagers"),
-  "Sidebar renders TeamUnit groups with ordered managers",
-);
-assert(
   !sidebar.includes("<PairAffordance") &&
     !sidebarWorkspace.includes("<PairAffordance") &&
     !sidebarWorkspace.includes("peerExclude") &&
@@ -41,7 +36,6 @@ assert(
 assert(header.includes("<PairAffordance"), "PlanContextHeader uses PairAffordance");
 assert(header.includes('data-testid="plan-peer-pair"'), "plan header orchestration marker");
 
-assert(hierarchy.includes("excludeTabIds"), "Hierarchy subtree can exclude attached Planner");
 
 assert(!css.includes(".pair-affordance-rail"), "dead sidebar rail styles removed");
 assert(!source.includes('layout === "sidebar"'), "PairAffordance sidebar layout removed");

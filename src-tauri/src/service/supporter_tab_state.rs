@@ -32,20 +32,27 @@ use super::tab_transport::TabTransport;
 use super::ServiceContext;
 use crate::api::mem_routes::decision::SupporterRegistry;
 
+mod admission;
 mod candidates;
 pub(crate) mod coordinator;
 pub(crate) use candidates::{allows_prompt as candidate_allows_prompt, CandidateVerdict};
 mod delivery;
 mod identity;
+mod idle_readiness;
 mod observer;
 mod privacy;
 pub(super) mod scheduler;
+pub(crate) mod sentinel_request;
 
 pub(crate) use identity::correlation::project_diagnostics as project_observation_diagnostics;
 #[cfg(test)]
 use observer::{choice_model, observation_answers, observe_guarded};
 pub(crate) use observer::{prepare_observation, spawn_observer};
+pub(crate) fn forget_observations(tab: &str) {
+    admission::forget(tab);
+}
 pub(crate) use privacy::value as redact_decision_diagnostic;
+pub(crate) use privacy::{screen as redact_screen, text as redact_text};
 mod questions;
 pub(crate) mod safe_choice;
 mod safe_response;
@@ -73,9 +80,12 @@ pub(crate) const ERROR_LOOP: &str = "error_loop";
 pub(crate) const OTHER: &str = "other";
 pub(crate) const STILL_STARTING: &str = "still_starting";
 
+#[cfg(test)]
+#[path = "supporter_tab_state/user_delivery_readiness_tests.rs"]
+mod user_delivery_readiness_tests;
+
 const CRITERIA_JSON: &str = include_str!("../../../evals/tab-state-jev/criteria.json");
 const SPAWN_OK_LINE: &str = "spawn ok";
-const WEAK_HINT_PREFIX: &str = "Tab-state hint";
 
 pub(crate) fn criteria_version() -> String {
     supporter::criteria_hash(CRITERIA_JSON.as_bytes())
@@ -93,14 +103,17 @@ pub(crate) enum ObservationTrigger {
     SpawnReady,
     SpawnDeadline,
     StartupEscalation,
+    #[cfg(test)]
     PromptCandidate,
     OutputCandidate,
     ParkedEdge,
     PromptEstablished,
     PromptConfirmation,
+    SentinelRequest,
     WorkerIdle,
     BusyNoOutput,
     TabExit,
+    UserDeliveryReadiness,
 }
 
 impl ObservationTrigger {
@@ -109,14 +122,17 @@ impl ObservationTrigger {
             Self::SpawnReady => ObservationEvent::SpawnReady,
             Self::SpawnDeadline => ObservationEvent::SpawnDeadline,
             Self::StartupEscalation => ObservationEvent::StartupEscalation,
-            Self::PromptCandidate
-            | Self::OutputCandidate
+            #[cfg(test)]
+            Self::PromptCandidate => ObservationEvent::PromptCandidate,
+            Self::OutputCandidate
             | Self::ParkedEdge
             | Self::PromptEstablished
-            | Self::PromptConfirmation => ObservationEvent::PromptCandidate,
+            | Self::PromptConfirmation
+            | Self::SentinelRequest => ObservationEvent::PromptCandidate,
             Self::WorkerIdle => ObservationEvent::WorkerIdle,
             Self::BusyNoOutput => ObservationEvent::BusyNoOutput,
             Self::TabExit => ObservationEvent::TabExit,
+            Self::UserDeliveryReadiness => ObservationEvent::PromptCandidate,
         }
     }
 
@@ -125,14 +141,17 @@ impl ObservationTrigger {
             Self::SpawnReady => "launch_ready",
             Self::SpawnDeadline => "startup_deadline",
             Self::StartupEscalation => "startup_escalation",
-            Self::PromptCandidate
-            | Self::OutputCandidate
+            #[cfg(test)]
+            Self::PromptCandidate => "prompt_candidate",
+            Self::OutputCandidate
             | Self::ParkedEdge
             | Self::PromptEstablished
-            | Self::PromptConfirmation => "prompt_candidate",
+            | Self::PromptConfirmation
+            | Self::SentinelRequest => "prompt_candidate",
             Self::WorkerIdle => "worker_idle_without_report",
             Self::BusyNoOutput => "busy_without_output",
             Self::TabExit => "tab_exit",
+            Self::UserDeliveryReadiness => "user_delivery_readiness",
         }
     }
 
@@ -147,23 +166,29 @@ impl ObservationTrigger {
             Self::ParkedEdge => Producer::ParkedEdge,
             Self::PromptEstablished => Producer::PromptEstablished,
             Self::PromptConfirmation => Producer::PromptConfirmation,
+            Self::SentinelRequest => Producer::SentinelRequest,
             _ => Producer::LifecycleEvent,
         }
     }
 
     fn is_prompt_candidate(self) -> bool {
-        matches!(
-            self,
-            Self::PromptCandidate
-                | Self::OutputCandidate
-                | Self::ParkedEdge
-                | Self::PromptEstablished
-                | Self::PromptConfirmation
-        )
+        match self {
+            #[cfg(test)]
+            Self::PromptCandidate => true,
+            Self::OutputCandidate
+            | Self::ParkedEdge
+            | Self::PromptEstablished
+            | Self::PromptConfirmation
+            | Self::SentinelRequest => true,
+            _ => false,
+        }
     }
 
     fn is_internal_candidate(self) -> bool {
-        matches!(self, Self::PromptEstablished | Self::PromptConfirmation)
+        matches!(
+            self,
+            Self::PromptEstablished | Self::PromptConfirmation | Self::SentinelRequest
+        )
     }
 
     fn after_startup_deadline(self) -> bool {
@@ -200,6 +225,8 @@ pub(crate) struct ShadowVerdict {
     pub(crate) label: String,
     pub(crate) confidence: f64,
     pub(crate) prompt_visible: f64,
+    pub(crate) reported_prompt_visible: f64,
+    pub(crate) input_area: Option<(String, f64)>,
     pub(crate) safe_choice: Option<(String, f64)>,
     pub(crate) action: SignalAction,
     pub(crate) classified_frame_hash: u64,
@@ -267,24 +294,6 @@ pub(crate) trait ShadowHost: Clone + Send + 'static {
 }
 
 impl ShadowHost for ServiceContext {
-    fn local_identity(&self, tab: &str) -> Option<identity::LocalIdentity> {
-        self.mux
-            .read()
-            .get_tab(tab)
-            .map(identity::LocalIdentity::of_tab)
-    }
-    fn ledger_snapshot(&self, tab: &str) -> coordinator::LedgerSnapshot {
-        coordinator::LedgerSnapshot::capture(self, tab)
-    }
-    fn connection_is_current(&self, adapter: &str) -> bool {
-        let settings = self.supporter_decision_config();
-        settings.active_id() == Some(adapter)
-            && supporter::supporter_connected(
-                &settings,
-                &self.supporter_models,
-                &TokenSnapshot::read(&crate::api::mem_routes::decision::token_store(), adapter),
-            )
-    }
     fn observation_is_current(&self, tab: &str, metadata: &TabStateMetadata) -> bool {
         let Some(envelope) = metadata.envelope.as_ref() else {
             return false;
@@ -300,6 +309,20 @@ impl ShadowHost for ServiceContext {
         if !self.observation_identity_is_current(tab, local) {
             return false;
         }
+        if envelope.pty_session_generation.is_some_and(|generation| {
+            metadata
+                .tab_snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.pty_id.as_deref())
+                .is_none_or(|pty_id| {
+                    !self
+                        .pty
+                        .lock()
+                        .session_generation_matches(pty_id, generation)
+                })
+        }) {
+            return false;
+        }
         if metadata
             .tab_snapshot
             .as_ref()
@@ -313,8 +336,38 @@ impl ShadowHost for ServiceContext {
             .and_then(|transport| transport.read_screen(false));
         frame.is_ok_and(|frame| frame_hash(&frame.to_string()) == envelope.frame_hash)
             && self.observation_identity_is_current(tab, local)
+            && envelope.pty_session_generation.is_none_or(|generation| {
+                metadata
+                    .tab_snapshot
+                    .as_ref()
+                    .and_then(|snapshot| snapshot.pty_id.as_deref())
+                    .is_some_and(|pty_id| {
+                        self.pty
+                            .lock()
+                            .session_generation_matches(pty_id, generation)
+                    })
+            })
     }
 
+    fn local_identity(&self, tab: &str) -> Option<identity::LocalIdentity> {
+        self.mux
+            .read()
+            .get_tab(tab)
+            .map(identity::LocalIdentity::of_tab)
+    }
+    fn ledger_snapshot(&self, tab: &str) -> coordinator::LedgerSnapshot {
+        coordinator::LedgerSnapshot::capture(self, tab)
+    }
+    fn connection_is_current(&self, adapter: &str) -> bool {
+        let settings = self.supporter_decision_config();
+        let token = supporter::read_token_snapshot(
+            &self.supporter_runtime(),
+            &crate::api::mem_routes::decision::token_store(),
+            adapter,
+        );
+        settings.active_id() == Some(adapter)
+            && supporter::supporter_connected(&settings, &self.supporter_models, &token)
+    }
     fn supporter_runtime(&self) -> Arc<SupporterRuntime> {
         #[cfg(test)]
         if let Some((_, runtime)) = TEST_SUPPORTER_OVERRIDES
@@ -334,7 +387,12 @@ impl ShadowHost for ServiceContext {
     }
 
     fn token_available(&self, adapter_id: &str) -> bool {
-        TokenSnapshot::read(&crate::api::mem_routes::decision::token_store(), adapter_id).usable
+        supporter::read_token_snapshot(
+            &self.supporter_runtime(),
+            &crate::api::mem_routes::decision::token_store(),
+            adapter_id,
+        )
+        .usable
     }
 
     fn metadata(
@@ -483,7 +541,11 @@ impl ShadowHost for ServiceContext {
             prompt_options,
         };
         if trigger.is_prompt_candidate() {
-            self.add_safe_response_metadata(tab_id, screen, &mut metadata);
+            if trigger == ObservationTrigger::SentinelRequest {
+                self.add_sentinel_safe_response_metadata(tab_id, screen, &mut metadata);
+            } else {
+                self.add_safe_response_metadata(tab_id, screen, &mut metadata);
+            }
         }
         Ok(metadata)
     }
@@ -538,6 +600,20 @@ impl ShadowHost for ServiceContext {
 }
 
 impl ServiceContext {
+    pub(crate) fn user_delivery_pty_session_generation(&self, tab_id: &str) -> Result<u64, String> {
+        let pty_id = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.pty_id.clone())
+            .ok_or_else(|| "user delivery PTY identity unavailable".to_string())?;
+        self.pty
+            .lock()
+            .get_session(&pty_id)
+            .map(|session| session.generation)
+            .ok_or_else(|| "user delivery PTY session generation unavailable".to_string())
+    }
+
     pub(crate) fn supporter_decision_config(&self) -> SupporterConfig {
         #[cfg(test)]
         if let Some((config, _)) = TEST_SUPPORTER_OVERRIDES
@@ -607,12 +683,45 @@ impl ServiceContext {
         );
     }
 
+    pub(crate) fn observe_user_delivery_readiness(
+        &self,
+        tab_id: &str,
+        previous: Option<&UserDeliveryObservation>,
+    ) -> Result<UserDeliveryObservation, String> {
+        let expected_local = previous
+            .and_then(|observation| observation.metadata.envelope.as_ref())
+            .and_then(|envelope| envelope.local.as_ref());
+        observer::observe_user_delivery_readiness(self, tab_id, expected_local)
+    }
+
+    pub(crate) fn user_delivery_observation_is_current(
+        &self,
+        observation: &UserDeliveryObservation,
+    ) -> bool {
+        observation.decided_by == identity::DecisionSource::Adapter
+            && self.connection_is_current(&observation.adapter_id)
+            && self
+                .supporter_models()
+                .get(&observation.adapter_id)
+                .is_some_and(|current| Arc::ptr_eq(&current, &observation.adapter))
+            && self.observation_is_current(&observation.tab_id, &observation.metadata)
+            && observation
+                .metadata
+                .envelope
+                .as_ref()
+                .and_then(|envelope| envelope.pty_session_generation)
+                == Some(observation.pty_session_generation)
+            && self.user_delivery_pty_session_generation(&observation.tab_id)
+                == Ok(observation.pty_session_generation)
+    }
+
     pub(crate) fn capture_exit_tab_observation(
         &self,
         tab_id: &str,
     ) -> Option<(DecisionQuestionsRequest, TabStateMetadata)> {
         let config = self.supporter_decision_config();
-        let tokens = TokenSnapshot::read(
+        let tokens = supporter::read_token_snapshot(
+            &supporter::runtime_with_notifications(self),
             &crate::api::mem_routes::decision::token_store(),
             config.active_id().unwrap_or(""),
         );
@@ -661,27 +770,22 @@ impl ServiceContext {
     }
 
     pub(crate) fn observe_worker_idle_without_report(&self, tab_id: &str) {
-        let general = {
-            self.mux
-                .read()
-                .get_tab(tab_id)
-                .is_some_and(super::general_agent::is_general_agent)
-        };
-        if general {
-            self.observe_tab_state(tab_id, ObservationTrigger::WorkerIdle, "general_agent_idle");
-            return;
-        }
-        let snapshot = {
+        let (general, role, task_binding, parent_tab_id, plan_id) = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(tab_id) else {
                 return;
             };
-            if tab.role != Some(codeterm_types::agent::AgentRole::Worker)
-                || tab.task_binding.is_none()
-            {
+            if !idle_readiness::idle_observation_ready(
+                tab.launch_session_authenticated(),
+                tab.agent_booting,
+                tab.boot_stage,
+            ) {
                 return;
             }
             (
+                super::general_agent::is_general_agent(tab),
+                tab.role,
+                tab.task_binding.is_some(),
                 tab.parent_tab_id
                     .clone()
                     .or_else(|| tab.spawned_by_tab_id.clone()),
@@ -690,12 +794,18 @@ impl ServiceContext {
                     .and_then(|binding| binding.plan_id.clone()),
             )
         };
-        let parent = snapshot
-            .1
+        if general {
+            self.observe_tab_state(tab_id, ObservationTrigger::WorkerIdle, "general_agent_idle");
+            return;
+        }
+        if role != Some(codeterm_types::agent::AgentRole::Worker) || !task_binding {
+            return;
+        }
+        let parent = plan_id
             .as_deref()
             .and_then(|plan_id| self.plan_store.get(plan_id))
             .and_then(|plan| plan.owner.tab_id)
-            .or(snapshot.0);
+            .or(parent_tab_id);
         let last_turn_output = state::last_output_epoch_seconds(tab_id);
         if parent.as_deref().is_some_and(|parent| {
             self.report_store
@@ -710,6 +820,151 @@ impl ServiceContext {
             "worker_idle_without_report",
         );
     }
+}
+
+#[derive(Clone)]
+pub(crate) struct UserDeliveryObservation {
+    pub(crate) tab_id: String,
+    pub(crate) adapter_id: String,
+    adapter: Arc<dyn DecisionModel>,
+    pub(crate) observation_id: u64,
+    pub(super) pty_session_generation: u64,
+    pub(crate) decided_by: identity::DecisionSource,
+    pub(crate) metadata: TabStateMetadata,
+    pub(crate) verdict: ShadowVerdict,
+}
+
+#[derive(Clone)]
+pub(crate) struct UserDeliveryReadiness {
+    observations: [UserDeliveryObservation; 2],
+}
+
+impl UserDeliveryReadiness {
+    pub(crate) fn new(
+        first: UserDeliveryObservation,
+        second: UserDeliveryObservation,
+    ) -> Result<Self, &'static str> {
+        if first.observation_id == second.observation_id {
+            return Err("observations_not_distinct");
+        }
+        let first_local = first
+            .metadata
+            .envelope
+            .as_ref()
+            .and_then(|envelope| envelope.local.as_ref());
+        let second_local = second
+            .metadata
+            .envelope
+            .as_ref()
+            .and_then(|envelope| envelope.local.as_ref());
+        if first.tab_id != second.tab_id
+            || first.adapter_id != second.adapter_id
+            || !Arc::ptr_eq(&first.adapter, &second.adapter)
+            || !user_delivery_pair_has_same_generation(
+                first.observation_id,
+                second.observation_id,
+                first.pty_session_generation,
+                second.pty_session_generation,
+                first_local,
+                second_local,
+            )
+        {
+            return Err("observation_generation_changed");
+        }
+        if !first.qualifies() || !second.qualifies() {
+            return Err(first
+                .pending_reason()
+                .or_else(|| second.pending_reason())
+                .unwrap_or("supporter_verdict_not_ready_idle"));
+        }
+        Ok(Self {
+            observations: [first, second],
+        })
+    }
+
+    pub(crate) fn current_observation(&self) -> &UserDeliveryObservation {
+        &self.observations[1]
+    }
+}
+
+fn user_delivery_pair_has_same_generation(
+    first_id: u64,
+    second_id: u64,
+    first_pty_session_generation: u64,
+    second_pty_session_generation: u64,
+    first: Option<&identity::LocalIdentity>,
+    second: Option<&identity::LocalIdentity>,
+) -> bool {
+    first_id != second_id
+        && first_pty_session_generation == second_pty_session_generation
+        && first
+            .zip(second)
+            .is_some_and(|(first, second)| first == second)
+}
+
+impl UserDeliveryObservation {
+    pub(crate) fn qualifies(&self) -> bool {
+        user_delivery_verdict_qualifies(
+            self.decided_by,
+            &self.verdict.label,
+            self.verdict.confidence,
+            self.verdict.reported_prompt_visible,
+            self.verdict
+                .input_area
+                .as_ref()
+                .map(|(area, confidence)| (area.as_str(), *confidence)),
+        )
+    }
+
+    pub(crate) fn pending_reason(&self) -> Option<&'static str> {
+        let source_reason = match self.decided_by {
+            identity::DecisionSource::Adapter => None,
+            identity::DecisionSource::NoAdapter => Some("supporter_no_adapter"),
+            identity::DecisionSource::Timeout => Some("supporter_timeout"),
+            identity::DecisionSource::Error(_) => Some("supporter_error"),
+            identity::DecisionSource::Budget => Some("supporter_budget"),
+            identity::DecisionSource::Other => Some("supporter_other"),
+            identity::DecisionSource::LowConfidence => Some("supporter_low_confidence"),
+        };
+        source_reason
+            .or_else(|| {
+                (self.verdict.label != READY_IDLE).then_some("supporter_verdict_not_ready_idle")
+            })
+            .or_else(|| {
+                (self.verdict.confidence < 0.90).then_some("supporter_confidence_below_threshold")
+            })
+            .or_else(|| {
+                (self.verdict.reported_prompt_visible > 0.10).then_some("supporter_prompt_visible")
+            })
+            .or_else(|| {
+                self.verdict.input_area.as_ref().map_or(
+                    Some("supporter_input_area_unavailable"),
+                    |(area, confidence)| {
+                        if area != "composer" {
+                            Some("supporter_input_area_not_composer")
+                        } else if *confidence < 0.90 {
+                            Some("supporter_input_area_low_confidence")
+                        } else {
+                            None
+                        }
+                    },
+                )
+            })
+    }
+}
+
+fn user_delivery_verdict_qualifies(
+    decided_by: identity::DecisionSource,
+    label: &str,
+    confidence: f64,
+    prompt_visible: f64,
+    input_area: Option<(&str, f64)>,
+) -> bool {
+    decided_by == identity::DecisionSource::Adapter
+        && label == READY_IDLE
+        && confidence >= 0.90
+        && prompt_visible <= 0.10
+        && input_area.is_some_and(|(area, confidence)| area == "composer" && confidence >= 0.90)
 }
 
 pub(crate) fn screen_tail(text: &str) -> String {

@@ -15,7 +15,7 @@ pub enum IntegrationAction {
         #[arg(long)]
         provider: String,
     },
-    /// Preview or remove dead provider launch artifacts owned by this instance.
+    /// Preview dead provider launch artifacts; only the machine owner may remove them.
     SweepProfiles {
         /// Provider id (e.g. codex)
         #[arg(long)]
@@ -23,7 +23,7 @@ pub enum IntegrationAction {
         /// Remove the profiles listed by this instance's scan.
         #[arg(long)]
         confirm: bool,
-        /// Include every unmarked legacy profile, regardless of tab liveness.
+        /// Include exact-pattern unmarked legacy profiles whose tabs are not live here.
         #[arg(long)]
         include_legacy: bool,
     },
