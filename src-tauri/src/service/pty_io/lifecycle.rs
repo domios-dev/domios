@@ -517,7 +517,7 @@ impl ServiceContext {
             profile.as_ref().filter(|_| agent_type.is_none()),
         )?;
         let (pty_id, _) = self.pty.lock().register_session(None, built);
-        self.screen_state.lock().resize(&pty_id, cols, 40);
+        super::super::pty_resize::resize(&self.pty, &self.screen_state, &pty_id, None)?;
         log::info!(
             "[ensure-pty] Tab {} activated backend pty {} (build={}ms)",
             tab_id,
@@ -725,13 +725,7 @@ impl ServiceContext {
             return Ok(());
         }
         let pty_id = self.resolve_pty_id(tab_id)?;
-        self.pty
-            .lock()
-            .resize(&pty_id, cols, rows)
-            .map_err(|e| e.to_string())?;
-        self.screen_state.lock().resize(&pty_id, cols, rows);
-        crate::pty::capture::CaptureRegistry::global().tap_resize(&pty_id, cols, rows);
-        Ok(())
+        super::super::pty_resize::resize(&self.pty, &self.screen_state, &pty_id, Some((cols, rows)))
     }
 
     /// The shell reported its foreground command finished (OSC 633 `D`) while

@@ -1080,7 +1080,7 @@ impl ServiceContext {
         let pty_claim = self.pty_ownership.acquire(tab_id);
         // Hidden agents now launch as ordinary interactive claude (no -p/stream-json), so use the same 120x40 PTY a visible agent gets.
         let candidate = self.pty.lock().spawn(None, cwd, 120, 40, env_vars)?.0;
-        self.screen_state.lock().resize(&candidate, 120, 40);
+        super::pty_resize::resize(&self.pty, &self.screen_state, &candidate, None)?;
         let selection = self.link_pty_with_claim(&pty_claim, tab_id, candidate, true);
         if !selection.linked {
             return Err(format!("Tab {tab_id} closed before PTY link"));

@@ -149,7 +149,7 @@ pub async fn spawn_pty_core(
     let build_ms = t0.elapsed().as_millis();
 
     let (mut pty_id, _session) = state.lock().register_session(predicted_id, built);
-    svc.screen_state.lock().resize(&pty_id, cols, rows);
+    crate::service::pty_resize::resize(&svc.pty, &svc.screen_state, &pty_id, None)?;
     log::info!("PTY {} spawned (build={}ms)", pty_id, build_ms);
 
     let reader_pty_id = if let Some(ref pid) = tab_id {
@@ -770,17 +770,7 @@ pub fn resize_pty_core(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
-    let session = {
-        let manager = state.lock();
-        manager
-            .get_session(&pty_id)
-            .ok_or_else(|| format!("PTY not found: {}", pty_id))?
-    };
-
-    let _ = session.resize(cols, rows)?;
-    screen_state.lock().resize(&pty_id, cols, rows);
-    crate::pty::capture::CaptureRegistry::global().tap_resize(&pty_id, cols, rows);
-    Ok(())
+    crate::service::pty_resize::resize(state, screen_state, &pty_id, Some((cols, rows)))
 }
 
 #[tauri::command]
