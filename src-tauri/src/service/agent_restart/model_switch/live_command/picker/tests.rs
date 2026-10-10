@@ -32,6 +32,7 @@ fn target() -> CommandTarget {
         binding_nonce: "owned-nonce".into(),
         cwd: None,
         model: "opus".into(),
+        readiness: None,
         display_name: "Opus 5.5".into(),
     }
 }

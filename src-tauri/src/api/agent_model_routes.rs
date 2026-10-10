@@ -144,9 +144,9 @@ pub(crate) fn model_switch_error_status(error: &ModelSwitchError) -> StatusCode 
         } => StatusCode::GATEWAY_TIMEOUT,
         ModelSwitchError::RelaunchFailed { .. } => StatusCode::INTERNAL_SERVER_ERROR,
         ModelSwitchError::ModelMismatch { .. } => StatusCode::BAD_GATEWAY,
-        ModelSwitchError::LiveSwitchFailed(_) | ModelSwitchError::LiveCommandFailed(_) => {
-            StatusCode::BAD_GATEWAY
-        }
+        ModelSwitchError::LiveSwitchFailed(_)
+        | ModelSwitchError::LiveCommandFailed(_)
+        | ModelSwitchError::InputNotReady(_) => StatusCode::BAD_GATEWAY,
     }
 }
 
@@ -162,6 +162,7 @@ pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::V
         ModelSwitchError::ModelMismatch { .. } => "model_mismatch",
         ModelSwitchError::LiveSwitchFailed(_) => "live_switch_failed",
         ModelSwitchError::LiveCommandFailed(_) => "live_command_failed",
+        ModelSwitchError::InputNotReady(_) => "input_not_ready",
     };
     let mut body = serde_json::json!({
         "ok": false,
@@ -171,7 +172,10 @@ pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::V
     if matches!(error, ModelSwitchError::LiveSwitchFailed(_)) {
         body["mode_used"] = "live".into();
     }
-    if matches!(error, ModelSwitchError::LiveCommandFailed(_)) {
+    if matches!(
+        error,
+        ModelSwitchError::LiveCommandFailed(_) | ModelSwitchError::InputNotReady(_)
+    ) {
         body["mode_used"] = "live_command".into();
         body["restart_fallback_available"] = true.into();
     }
@@ -203,7 +207,8 @@ pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::V
         ModelSwitchError::NotFound(_)
         | ModelSwitchError::NotSwitchable(_)
         | ModelSwitchError::LiveSwitchFailed(_)
-        | ModelSwitchError::LiveCommandFailed(_) => {}
+        | ModelSwitchError::LiveCommandFailed(_)
+        | ModelSwitchError::InputNotReady(_) => {}
     }
     body
 }

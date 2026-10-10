@@ -51,6 +51,7 @@ fn prompt(model: &str) -> CommandPrompt {
             binding_nonce: "nonce".into(),
             cwd: None,
             model: model.into(),
+            readiness: None,
             display_name: model.into(),
         },
         None,
