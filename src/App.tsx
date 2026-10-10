@@ -2,7 +2,8 @@ import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke, IS_WEB } from "./lib/bridge";
 import { buildTeamActions } from "./lib/teamActions";
 import { selectAiHelperTab } from "./lib/aiHelperFocus";
-import { getCurrentTabUiMode } from "./lib/clientTabUiMode";
+import { getCurrentTabUiMode, resolveInitialTabUiMode } from "./lib/clientTabUiMode";
+import { tabChatCapable } from "./lib/chatUiMode";
 import { pruneOrphanComposerDrafts } from "./lib/composerDraftGc";
 import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
@@ -567,12 +568,11 @@ function AppInner() {
       const active = document.activeElement;
       if (stateRef.current.focused_tab_id) {
         const focusedTabId = stateRef.current.focused_tab_id;
-        const tabUiMode = getCurrentTabUiMode(focusedTabId)
-          ?? (stateRef.current.tabs[focusedTabId]?.chat_view ? "chat" : "terminal");
-        if (tabUiMode === "chat") return;
         const tab = stateRef.current.tabs[focusedTabId];
         if (tab?.pty_id) {
-          forwardTerminalFallback(e, active, (data) => writeTerminalInput(tab.pty_id!, data));
+          const tabUiMode = getCurrentTabUiMode(focusedTabId)
+            ?? resolveInitialTabUiMode(focusedTabId, { chatCapable: tabChatCapable(tab) });
+          forwardTerminalFallback(e, active, (data) => writeTerminalInput(tab.id, tab.pty_id!, data), tabUiMode);
         }
       }
     };
