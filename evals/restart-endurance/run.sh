@@ -24,13 +24,17 @@ if [ "${1:-}" = --dc ]; then
   if dc "$@"; then exit 0; else exit "$?"; fi
 fi
 OUT= NOTICE_HOOK=
+MODELS=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --out) OUT="${2:?missing output directory}"; shift 2 ;;
     --notice-hook) NOTICE_HOOK="${2:?missing notice hook}"; shift 2 ;;
+    --model) MODELS+=("${2:?missing provider=model override}"); shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
 done
+ENDURE_MODEL_OVERRIDES="$(node -e 'const models = {}; for (const value of process.argv.slice(1)) { const split = value.indexOf("="); if (split < 1 || split === value.length - 1) throw new Error("Expected provider=model"); models[value.slice(0, split)] = value.slice(split + 1); } process.stdout.write(JSON.stringify(models));' "${MODELS[@]}")"
+export ENDURE_MODEL_OVERRIDES
 [ -n "$OUT" ] && [ -f "$NOTICE_HOOK" ] || {
   echo 'Both --out DIR and --notice-hook FILE are required; see --help.' >&2
   exit 2
