@@ -497,6 +497,8 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | `check-tests` fails at catalogue watcher `targets.sort()` / `dedup()` | The watcher parameter was immutable. | Declare `mut targets` in `ProviderBinaryWatchers::watch`; rerun the authorized `check-tests` and focused catalogue gates. |
 | A release-time test fails in `#[cfg(test)]` code while `check` was green | `check` compiles the production profile only, so test-only code is never type-checked | Run `./build.ps1 check-tests`, which compiles `--all-targets` for both workspaces without the build gateway. A stale generated map or a document over its reading boundary is a different cause: use the matching row above. |
 
+| Plugin test compilation cannot read an include_str! fixture | The relative fixture path traversed one directory beyond the repository root. | Resolve the path from the owning Rust source directory, correct the traversal, and rerun the same focused plugin gate before proceeding. |
+
 ## Related documents
 
 Tooling, outputs, platform notes, and repository layout: `.agents/skills/build-reference/SKILL.md`. Test workflows: `.agents/skills/testing/SKILL.md`.

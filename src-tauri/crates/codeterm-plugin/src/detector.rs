@@ -101,6 +101,9 @@ pub fn detect_interactive_prompt(text: &str) -> bool {
     if option_indices.len() < 2 {
         return false;
     }
+    if has_input_prompt_after(tail_lines, *option_indices.last().unwrap()) {
+        return false;
+    }
 
     // or selector).
     let anchor = footer_idx.or(selector_idx);
@@ -201,6 +204,9 @@ pub fn parse_interactive_picker(text: &str) -> Option<InteractivePicker> {
     }
     let first_opt = options.first()?.2;
     let last_opt = options.last()?.2;
+    if has_input_prompt_after(&lines, last_opt) {
+        return None;
+    }
 
     let has_selector = options
         .iter()
@@ -260,6 +266,12 @@ pub fn parse_interactive_picker(text: &str) -> Option<InteractivePicker> {
         options: result_options,
         selected_index,
     })
+}
+
+fn has_input_prompt_after(lines: &[&str], option_row: usize) -> bool {
+    lines[option_row + 1..]
+        .iter()
+        .any(|line| matches!(line.trim(), "❯" | "›"))
 }
 
 #[cfg(test)]

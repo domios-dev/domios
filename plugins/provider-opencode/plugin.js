@@ -164,36 +164,28 @@ function parseModelVariants(stdout) {
 function bindingModelSwitchSource() {
   return [
     "let controlsWarningReported = false;",
+    "",
     "async function applyTurnModel(input, output, signal) {",
     "  if (!output?.message || !normalizeSessionID(input?.sessionID)) return;",
     "  const hookURL = endpoint();",
     "  if (!hookURL) return;",
     '  const base = hookURL.slice(0, hookURL.indexOf("/api/tabs/"));',
-    "  const url = `${base}/api/tabs/inspect?tab_ids=${encodeURIComponent(process.env.CODETERM_TAB_ID)}`;",
-    "  try {",
+    "  const url = `${base}/api/tabs/${encodeURIComponent(process.env.CODETERM_TAB_ID)}/turn-controls?session_id=${encodeURIComponent(input.sessionID)}`;",
     "  const response = await fetch(url, {",
-    "    headers: { authorization: `Bearer ${process.env.CODETERM_API_TOKEN}` },",
+    "    headers: { authorization: `Bearer ${process.env.CODETERM_API_TOKEN}`, 'x-codeterm-binding-nonce': process.env.CODETERM_SESSION_BINDING_NONCE },",
     "    signal,",
     "  });",
-    '  if (!response.ok) throw new Error("CodeTerm turn controls unavailable");',
-    "  const tabs = await response.json();",
-    '  if (!Array.isArray(tabs) || tabs.length !== 1) throw new Error("CodeTerm turn controls invalid");',
-    "  const tab = tabs[0];",
+    "  if (!response.ok) throw new Error(`CodeTerm turn controls refused: HTTP ${response.status}`);",
+    "  const tab = await response.json();",
     "  const nonce = process.env.CODETERM_SESSION_BINDING_NONCE;",
-    "  if (tab.id !== process.env.CODETERM_TAB_ID || tab.agent_session_id !== input.sessionID || tab.session_binding_nonce !== nonce || tab.reported_session_binding_nonce !== nonce) return;",
-    "  const requested = tab.agent_provider_resolved_model;",
+    '  if (tab?.id !== process.env.CODETERM_TAB_ID || tab.agent_session_id !== input.sessionID || tab.session_binding_nonce !== nonce || tab.reported_session_binding_nonce !== nonce) throw new Error("CodeTerm turn controls binding is not current");',
+    "  const requested = tab.model;",
     '  if (typeof requested !== "string") return;',
     '  const slash = requested.indexOf("/");',
     '  if (slash <= 0 || slash === requested.length - 1) throw new Error("CodeTerm model must be provider/model");',
     "  output.message.model = { providerID: requested.slice(0, slash), modelID: requested.slice(slash + 1) };",
-    "  const effort = tab.reasoning_effort_identity?.resolved;",
+    "  const effort = tab.effort;",
     '  output.message.variant = effort && effort !== "default" ? effort : undefined;',
-    "  } catch (error) {",
-    "    if (!controlsWarningReported) {",
-    "      controlsWarningReported = true;",
-    '      console.warn("CodeTerm model override skipped: turn controls unavailable");',
-    "    }",
-    "  }",
     "}",
     ""
   ];
@@ -304,7 +296,7 @@ function opencodeFileDiffs(path, edits, metadata) {
 }
 
 // plugins/provider-opencode/src/helpers.ts
-var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v7";
+var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v8";
 var CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-session-binding-v";
 var QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 var QUESTION_MENU_SELECTORS = [">", "\u276F", "\u25B6", "\u27A4", "\u2192", "\u25CF"];
@@ -971,9 +963,15 @@ function opencodeBindingPluginSource() {
     "      }",
     "    },",
     '    async "chat.message"(input, output) {',
-    "      const signal = AbortSignal.timeout(200);",
-    '      await report(input?.sessionID, "chat.message", directory, signal);',
-    "      await applyTurnModel(input, output, signal);",
+    '      await report(input?.sessionID, "chat.message", directory, AbortSignal.timeout(200));',
+    "      try {",
+    "        await applyTurnModel(input, output, AbortSignal.timeout(200));",
+    "      } catch (error) {",
+    "        if (!controlsWarningReported) {",
+    "          controlsWarningReported = true;",
+    '          console.warn("CodeTerm model switch did not apply; continuing on the current model. Pending selection is retained.", error?.message || error);',
+    "        }",
+    "      }",
     "    },",
     '    async "tool.execute.before"(input) {',
     '      await report(input?.sessionID, "tool.execute.before", directory);',
