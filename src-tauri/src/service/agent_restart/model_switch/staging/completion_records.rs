@@ -11,6 +11,7 @@ pub(super) struct RecordBoundary {
     active_turn: Option<String>,
     more: bool,
     started: bool,
+    in_progress: bool,
 }
 
 impl RecordBoundary {
@@ -27,6 +28,7 @@ impl RecordBoundary {
             active_turn: None,
             more: false,
             started: false,
+            in_progress: false,
         };
         let start = offset.saturating_sub(512 * 1024);
         let mut file = std::fs::File::open(&boundary.path).ok()?;
@@ -67,6 +69,10 @@ impl RecordBoundary {
 
     pub(super) fn started(&self) -> bool {
         self.started
+    }
+
+    pub(super) fn in_progress(&self) -> bool {
+        self.in_progress
     }
 
     pub(super) fn completed(&mut self, session: &str) -> Result<bool, String> {
@@ -110,6 +116,7 @@ impl RecordBoundary {
                 .and_then(serde_json::Value::as_str);
             if event == Some(&self.declaration.start_event_value) {
                 self.started = true;
+                self.in_progress = true;
                 self.active_turn = None;
                 completed = false;
             }
@@ -120,6 +127,7 @@ impl RecordBoundary {
             {
                 if self.active_turn.as_deref() != Some(turn) {
                     self.started |= self.active_turn.is_some();
+                    self.in_progress = true;
                     completed = false;
                 }
                 self.active_turn = Some(turn.into());
@@ -132,6 +140,7 @@ impl RecordBoundary {
                     == self.active_turn.as_deref()
             {
                 completed = true;
+                self.in_progress = false;
             }
         }
         completed

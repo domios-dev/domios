@@ -104,3 +104,25 @@ fn captured_grok_busy_prompt_completes_only_on_its_matching_update() {
     writeln!(file, "{}", serde_json::json!({"timestamp":1791588642,"method":"_x.ai/session/update","params":{"sessionId":session,"update":{"sessionUpdate":"turn_completed","prompt_id":prompt,"stop_reason":"end_turn"},"_meta":{"agentTimestampMs":1791588642873u64}}})).unwrap();
     assert!(boundary.completed(session).unwrap());
 }
+
+#[test]
+fn captured_start_after_accepted_stop_blocks_reuse_before_the_new_completion() {
+    let session = "01a123ba-0840-7101-9fb5-3bdb4745a9e3";
+    let captured = include_str!("fixtures/grok-start-after-stop.jsonl");
+    let lines = captured.lines().collect::<Vec<_>>();
+    let mut file = tempfile::NamedTempFile::new().unwrap();
+    writeln!(file, "{}\n{}", lines[0], lines[1]).unwrap();
+    let completed = RecordBoundary::capture(file.path().into(), declaration(), session).unwrap();
+    assert!(!completed.in_progress());
+    writeln!(file, "{}", lines[2]).unwrap();
+    let mut active = RecordBoundary::capture(file.path().into(), declaration(), session).unwrap();
+    assert!(active.in_progress());
+    assert!(!active.observe(lines[1].as_bytes(), session));
+    assert!(active.in_progress());
+    let prompt = "bb318ab2-57d1-4554-9d3f-1f11104c2084";
+    let started = serde_json::json!({"params":{"sessionId":session,"_meta":{"promptId":prompt}}});
+    assert!(!active.observe(started.to_string().as_bytes(), session));
+    let completion = serde_json::json!({"params":{"sessionId":session,"update":{"sessionUpdate":"turn_completed","prompt_id":prompt}}});
+    assert!(active.observe(completion.to_string().as_bytes(), session));
+    assert!(!active.in_progress());
+}
