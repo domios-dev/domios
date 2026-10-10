@@ -2,10 +2,11 @@ use super::OwnerThread;
 use std::{
     cell::Cell,
     rc::Rc,
-    sync::{Arc, Barrier, Mutex},
+    sync::{mpsc, Arc, Barrier, Mutex},
     thread::{self, ThreadId},
 };
 
+#[derive(Clone)]
 struct NativeOwner {
     count: Rc<Cell<usize>>,
     drops: Arc<Mutex<Vec<ThreadId>>>,
@@ -113,4 +114,58 @@ fn windows_rc_ownership_regression_worker_unwind_retains_native_payload() {
     });
     assert!(worker.join().is_err());
     assert!(drops.lock().unwrap().is_empty());
+}
+
+#[derive(Clone)]
+struct ContextOwnership<C> {
+    main_thread: C,
+}
+
+fn assert_context_clone_keeps_native_count<C: Clone + Send + 'static>(
+    wrap: impl FnOnce(NativeOwner) -> C,
+) {
+    let count = Rc::new(Cell::new(0));
+    let context = ContextOwnership {
+        main_thread: wrap(NativeOwner {
+            count: count.clone(),
+            drops: Arc::new(Mutex::new(Vec::new())),
+        }),
+    };
+    let before = Rc::strong_count(&count);
+    let (cloned_tx, cloned_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        let clone = context.clone();
+        let _ = &clone.main_thread;
+        cloned_tx.send(()).unwrap();
+        release_rx.recv().unwrap();
+        drop(clone);
+        context
+    });
+    cloned_rx.recv().unwrap();
+    let during = Rc::strong_count(&count);
+    release_tx.send(()).unwrap();
+    let returned = worker.join().unwrap();
+    let after = Rc::strong_count(&count);
+    drop(returned);
+    assert_eq!(Rc::strong_count(&count), 1);
+    assert_eq!(after, before);
+    assert_eq!(
+        during, before,
+        "worker Context clone changed native Rc count"
+    );
+}
+
+#[test]
+fn windows_rc_ownership_regression_context_field_shared_count_invariant() {
+    assert_context_clone_keeps_native_count(|native| Arc::new(OwnerThread::new(native)));
+}
+
+#[test]
+fn windows_rc_ownership_regression_context_field_by_value_count_invariant_fails() {
+    let result =
+        std::panic::catch_unwind(|| assert_context_clone_keeps_native_count(|native| native));
+    let failure = result.expect_err("pinned by-value dispatcher clone must violate the invariant");
+    let message = failure.downcast_ref::<String>().unwrap();
+    assert!(message.contains("worker Context clone changed native Rc count"));
 }
