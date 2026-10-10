@@ -337,7 +337,7 @@ where
     R: FnOnce(
         Option<&crate::multiplexer::types::PendingDeliveryRecord>,
     ) -> Result<Option<String>, String>,
-    B: FnOnce(BootStage, &str),
+    B: FnOnce(BootStage, &str, &crate::multiplexer::types::Tab),
     L: FnOnce(RestoredLaunch, Option<String>),
 {
     let authority = {
@@ -357,10 +357,11 @@ where
     let payload = match resolve_payload(authority.pending.as_ref()) {
         Ok(payload) => payload,
         Err(error) => {
-            if !restore_payload::commit_restore_failure(mux, tab_id, &authority, &error) {
+            if !restore_payload::commit_restore_failure(mux, tab_id, &authority, &error, |tab| {
+                boot_stage(BootStage::SpawnFailed, &error, tab)
+            }) {
                 return Ok(None);
             }
-            boot_stage(BootStage::SpawnFailed, &error);
             return Err(error);
         }
     };
@@ -679,16 +680,8 @@ impl ServiceContext {
             cwd.as_deref(),
             session_valid,
             restore_payload::resolve_restored_payload,
-            |stage, error| {
-                crate::api::events::emit_everywhere(
-                    &self.app_handle,
-                    "tab-boot-stage",
-                    serde_json::json!({ "tab_id": tab_id, "stage": stage, "reason": error }),
-                );
-                super::super::boot_wait::notify_boot_changed();
-                crate::service::general_agent::binding_wait::notify_binding_state_changed();
-                self.emit_session_binding_state(tab_id);
-                self.settle_restore_report();
+            |stage, error, tab| {
+                self.publish_boot_stage_transition(tab_id, tab, stage, Some(error));
             },
             |launch, restored_task| {
                 let input = restored_snapshot_launch_input(
@@ -740,6 +733,12 @@ impl ServiceContext {
                 );
             },
         );
+        if scheduled.is_err() {
+            super::super::boot_wait::notify_boot_changed();
+            crate::service::general_agent::binding_wait::notify_binding_state_changed();
+            self.emit_session_binding_state(tab_id);
+            self.settle_restore_report();
+        }
         if let Some(error) = command_error {
             return Err(error);
         }
@@ -985,7 +984,7 @@ mod restore_boot_stage_tests {
                     .map(Some)
                     .map_err(|error| error.to_string())
             },
-            |stage, reason| emitted.lock().push((stage, reason.to_string())),
+            |stage, reason, _| emitted.lock().push((stage, reason.to_string())),
             |_, _| *launched.lock() = true,
         );
         let stages = emitted.lock().clone();

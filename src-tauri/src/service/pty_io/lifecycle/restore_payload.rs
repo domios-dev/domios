@@ -77,21 +77,25 @@ pub(super) fn commit_restore_failure(
     tab_id: &str,
     authority: &RestoreAuthority,
     reason: &str,
+    publish: impl FnOnce(&crate::multiplexer::types::Tab),
 ) -> bool {
-    let mut mux = mux.write();
-    let Some(tab) = mux.get_tab_mut(tab_id) else {
-        return false;
-    };
-    if !authority.matches(tab) {
-        return false;
-    }
-    tab.reported_session_binding_nonce = None;
-    crate::service::boot_stage::apply_boot_stage(
-        tab,
-        crate::service::boot_stage::BootStage::SpawnFailed,
-        Some(reason),
-    );
-    true
+    crate::service::boot_stage::commit_boot_stage_transition(
+        mux,
+        tab_id,
+        |tab| {
+            if !authority.matches(tab) {
+                return false;
+            }
+            tab.reported_session_binding_nonce = None;
+            crate::service::boot_stage::apply_boot_stage(
+                tab,
+                crate::service::boot_stage::BootStage::SpawnFailed,
+                Some(reason),
+            );
+            true
+        },
+        publish,
+    )
 }
 
 #[cfg(test)]

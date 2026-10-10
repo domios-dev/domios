@@ -476,7 +476,7 @@ fn concurrent_ready_and_deadline_commits_keep_generation_evidence_atomic() {
                     DEADLINE_REASON,
                 )
             },
-            || {
+            |_| {
                 deadline_events
                     .lock()
                     .push(BootStage::LaunchDeadlineElapsed)
@@ -511,7 +511,7 @@ fn concurrent_ready_and_deadline_commits_keep_generation_evidence_atomic() {
                 apply_boot_stage(tab, BootStage::AgentReady, None);
                 true
             },
-            || ready_events.lock().push(BootStage::AgentReady),
+            |_| ready_events.lock().push(BootStage::AgentReady),
         )
     });
 
