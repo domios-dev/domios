@@ -5,7 +5,7 @@ import {createHarness,switchPeer,selectTab,capture,observe,activity,waitDom,dead
 import {validateManifest,validateOutput,cheap,claim,matrix,convergence,checks} from './model.mjs';
 import {snapshot} from './records.mjs';
 import {selectedChatSurface} from './chat-selection.mjs';
-export function createCaseRunner({manifest,out,directionFilter,providerFilter,promptPad,desktopView=null,snapshotRecord=snapshot}) {
+export function createCaseRunner({manifest,out,directionFilter,providerFilter,promptPad,desktopView=null,snapshotRecord=snapshot,homeWeb=false}) {
   const pad = promptPad;
   assert.ok(pad, 'Authored provider prompts require the calling agent pad');
 const rows = [];
@@ -122,7 +122,7 @@ async function provider(page,home,direction,machine,tab) {
   await check(page,direction,tab,'status-done',async()=>{
     assert.ok(turns.every(t=>t.web.at(-1)?.state==='idle'));return turns.map(t=>t.web);
   });
-  if (desktopView) await policyReceipt(tab,'sync-within-1s','BLOCKED','No concurrent HOME desktop comparator; Mac desktop OWNER_MANUAL');
+  if (desktopView || homeWeb) await policyReceipt(tab,'sync-within-1s','BLOCKED',homeWeb ? 'Mac-home web-only run has no remote/home comparison' : 'No concurrent HOME desktop comparator; Mac desktop OWNER_MANUAL');
   else await check(page,direction,tab,'sync-within-1s',async()=>{
     return turns.map(convergence);
   });
@@ -272,6 +272,18 @@ async function policyReceipt(tab, name, status, reason) {
     async runWebCase(sharedHarness) { harness=sharedHarness;
       if(directionFilter==='mac-web-to-windows') await runDirection('mac','windows',directionFilter);
       else await runDirection('windows','mac',directionFilter);
+    },
+    async runHomeWebCase(sharedHarness) {
+      assert.ok(homeWeb && !desktopView);
+      harness=sharedHarness;
+      const tab=manifest.mac.tabs.find(t=>t.provider===providerFilter);
+      assert.ok(tab && !tab.doNotTouch);
+      const {page}=await harness.openGateway('mac',{diagnosticsDirectory:path.join(out,'diagnostics-home-web')});
+      const selectedPeer=await page.evaluate(()=>localStorage.getItem(`codeterm-web-relay-peer:${location.origin}`));
+      assert.equal(selectedPeer,null,'Home-web run requires the local Mac gateway view');
+      await policyReceipt(tab,'peer-switch','NOT_IN_SCOPE','Home-web run has no peer-switch action');
+      await policyReceipt(tab,'gateway-return','NOT_IN_SCOPE','Home-web run stays on the Mac gateway');
+      await provider(page,null,directionFilter,'mac',tab);
     },
     async runDesktopCase(page,machine) {
       const tab=manifest[machine].tabs.find(t=>t.provider===providerFilter);
