@@ -20,8 +20,8 @@ try {
   const proof=await snapshot(manifest,'mac',tab);
   await writeFile(path.join(out,'readiness-native.json'),JSON.stringify(proof,null,2),{flag:'wx'});
   assert.equal(proof.binding.after.agent_session_id,tab.sessionId);
-  assert.equal(proof.binding.after.agent_lifecycle,'agent_ready');
-  assert.equal(proof.binding.after.agent_state,'idle');
+  assert.equal(proof.binding.after.boot_stage,'agent_ready');
+  assert.equal(proof.binding.after.agent_state.state,'idle');
   assert.ok(proof.binding.after.pty_id);
   await engine.policyReceipt(tab,'model-switch','NOT_IN_SCOPE','Owner delegated model switch to task_m2rx0n');
   harness=await createHarness(manifest,out);
