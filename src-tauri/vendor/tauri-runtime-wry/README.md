@@ -56,7 +56,7 @@ The fixture mirrors the existing native context Send/Sync boundary.
 bash ./build.sh test-one app windows_rc_ownership_regression
 ```
 
-Expected: exactly four executed passing cases, no ignored/failures, exit 0.
+Expected: exactly six executed passing cases, no ignored/failures, exit 0.
 A controlled source red check can remove the helper's owner-thread Drop condition:
 the late-worker case then observes a native destructor on the worker and fails.
 Restore the condition for green. This tests the destructor policy without racing
@@ -72,3 +72,46 @@ with accepted thread-affine final-drop behavior and successful focused/live proo
 A merged PR alone is insufficient. Rollback reverts the primary vendor/Cargo
 patch/lockfile/test-import commit, preserving separate diagnostic ancestry and
 all crash evidence.
+
+## Paired deterministic Context-field oracle
+
+`ContextOwnership<C>` isolates the one ownership field used by derived Context
+Clone. The shared case uses the real production `Arc<OwnerThread<NativeOwner>>`;
+the counterfactual uses the pinned by-value, derived-Clone payload shape. A single
+worker clones once, signals completion, waits for release, drops the clone and
+returns the original for owner disposal. Rc count observations occur only between
+those acknowledged phases; there is no unsynchronized native count concurrency.
+The same unchanged-count assertion passes for shared ownership (2 -> 2 -> 2)
+and fails for by-value ownership (2 -> 3 -> 2). The normal counterfactual test
+catches that expected assertion failure; it is not itself an uncaught red run.
+
+The source-only patch changes only the shared test's payload wrapper to by-value,
+so canonical can expose the same invariant as an ordinary failing test:
+
+```bash
+git apply --ignore-space-change src-tauri/vendor/tauri-runtime-wry/src/owner_thread/pinned-by-value-red.patch
+bash ./build.sh test-one app windows_rc_ownership_regression_context_field_shared_count_invariant
+```
+
+Expected red: one executed failing case, count 3 versus 2, nonzero gate exit.
+Record that result, then restore before green (even if the red command fails):
+
+```bash
+git apply -R --ignore-space-change src-tauri/vendor/tauri-runtime-wry/src/owner_thread/pinned-by-value-red.patch
+bash ./build.sh test-one app windows_rc_ownership_regression_context_field_shared_count_invariant
+bash ./build.sh test-one app windows_rc_ownership_regression_context_field_by_value_count_invariant_fails
+bash ./build.sh test-one app windows_rc_ownership_regression
+```
+
+Expected green: one passing case in each focused command and six passing cases in
+the complete selector, zero ignored/failures. These commands have not run in the
+Worker lane. The patch modifies test coverage only, never production ownership.
+
+This is a production-holder/field-boundary oracle, not full native Context
+construction. Real `DispatcherMainThreadContext` requires Tao
+`EventLoopWindowTarget<Message<T>>`, obtained from a platform event loop; full
+Context additionally needs its live proxy/window stores. Fabricating those values
+would require invalid native state or runtime setup. The pure fixture substitutes
+an Rc-bearing target side and models the exact changed field/derived Clone shape;
+it does not instantiate native Tao/COM/GDK state or prove the original crash race.
+Owner judgment, immutable source review and DEV workload evidence remain required.
