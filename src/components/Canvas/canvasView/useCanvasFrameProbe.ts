@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { ViewportTransform } from "../useCanvasViewport";
+import { DEV_BUILD } from "../../../lib/devBuild";
 
 
 export interface FrameProbeStats {
@@ -13,7 +14,7 @@ export interface FrameProbeStats {
 
 function isDevBuild(): boolean {
   try {
-    return import.meta.env.DEV;
+    return DEV_BUILD;
   } catch {
     return false;
   }

@@ -6,6 +6,7 @@ import type {
   TabStatus,
   Team,
 } from "../../lib/types";
+import { DEV_BUILD } from "../../lib/devBuild";
 
 export interface ExtendedState extends MultiplexerState {
   teams: Team[];
@@ -41,7 +42,7 @@ export function displayTitleForTab(tab: Tab): string {
   const title = tab.title?.trim();
   if (title) return title;
   const prefix = tab.id.slice(0, 8);
-  return import.meta.env?.DEV ? `[tab:${prefix}]` : prefix;
+  return DEV_BUILD ? `[tab:${prefix}]` : prefix;
 }
 
 export function highestTitleLevel(a: TitleLevel, b: TitleLevel): TitleLevel {

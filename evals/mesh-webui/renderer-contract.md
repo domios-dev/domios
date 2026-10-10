@@ -6,7 +6,7 @@ B2 owns the single browser driver: browser/context launch, allowed origins, auth
 
 Exports: readTerminalState (serializable DOM evaluator, reusable through CDP Runtime.evaluate), armTerminalEvents(page, tabId), waitTerminalEvent(page, probeId, {type, after, deadlineMs}), captureTerminal(page, {tabId, probeId, directory, provenance}), releaseTerminalEvents(page, probeId).
 
-Source-backed hook: src/hooks/terminal/useXterm.ts sets host.__codetermTerminal only for viteEnv.DEV. Root identity is terminal-tab[data-tab-id], host terminal-xterm-host. Composite mesh tab identities must be passed verbatim from DOM. No xterm hook means capture fails; accessibility-mode DOM text would change truecolor behavior and is not used as a fallback.
+Source-backed hook: src/hooks/terminal/useXterm.ts sets host.__codetermTerminal only for DEV_BUILD (src/lib/devBuild.ts, the compile-time __CODETERM_DEV__ flag). Root identity is terminal-tab[data-tab-id], host terminal-xterm-host. Composite mesh tab identities must be passed verbatim from DOM. No xterm hook means capture fails; accessibility-mode DOM text would change truecolor behavior and is not used as a fallback.
 
 Read state captures actual xterm buffer text and cell colors/width/rendition, rows/cols, cursor coordinates, alternate/normal buffer, viewport/history and wrapping. Cursor hidden is internal diagnostic access; if null, use screenshot + read-only CDP inspection to resolve, never invent visibility. 10000-line cap fails if truncated. Screenshot is full page to preserve peer/tab provenance. State before/after brackets screenshot; a changed state fails and preserves both states/screenshots. onRender is evidence of an event, not turn readiness or success. Await a render event after the action and verify the required result separately. B2 must bound page.evaluate/session calls externally too, because a hung CDP connection cannot be bounded by a renderer AbortSignal. Failure deadlines are the only timers; no delays or polling.
 
@@ -78,10 +78,10 @@ Symptom: phase-B web terminal captures fail with `Cannot arm missing DEV xterm`
 (or `DEV xterm instance unavailable`) although the desktop DEV has the hook.
 The DEV daemon serves `CODETERM_WEB_DIST`; its watcher previously ran Vite's
 production build defaults. `CODETERM_FRONTEND_DEV` supplies the DEV titlebar
-label only. `build.sh start_web_watch` now supplies command-local
-`NODE_ENV=development` and `--mode development` for both Windows and Unix.
-Both are intentional: Vite mode alone does not override production `NODE_ENV`
-for a build. Production `pnpm build` and release preparation are unchanged.
+label only, through the compile-time `__CODETERM_DEV__`. The hook now gates on that
+flag (`DEV_BUILD`), so the watcher keeps Vite's production mode; development mode
+was dropped after it drove native renderer growth on Windows. Production `pnpm build`
+never sets the flag.
 
 Recovery belongs to the Orchestrator after merge: restart the affected DEV
 through its scoped launcher, confirm the watcher completed a fresh bundle,

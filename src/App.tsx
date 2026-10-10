@@ -67,6 +67,7 @@ import { writeTerminalInput } from "./hooks/terminal/terminalInputWrite";
 import { cacheThemeSnapshot, isLightColor, themeToCSS } from "./lib/themeCss";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { fontSizeToUiFontScale } from "./lib/uiFontScale";
+import { DEV_BUILD } from "./lib/devBuild";
 // TODO: Agent Swarm Visualization — future feature import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
 
 /** One stable empty list, so a config still loading does not hand the chime a
@@ -304,7 +305,7 @@ function AppInner() {
         setSettingsSection(panel.slice("settings:".length) as SettingsLinkId);
         setSettingsOpen(true);
       } else if (panel === "memory") {
-        if (import.meta.env.DEV && import.meta.env.VITE_CODETERM_TEST === "1") setMemoryInitial(detail?.memoryState);
+        if (DEV_BUILD && import.meta.env.VITE_CODETERM_TEST === "1") setMemoryInitial(detail?.memoryState);
         setMemoryOpen(true);
       }
     };

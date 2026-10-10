@@ -31,6 +31,7 @@ import {
   createRemoteChannelRecovery, createSilenceDeadline, REMOTE_SILENCE_TIMEOUT_MS, streamResponseFailureReason,
   type RemoteChannelRecovery, type StreamEndReason,
 } from "./remoteChannelRecovery";
+import { DEV_BUILD } from "./devBuild";
 
 export interface TabOutputSink {
   onOutput(text: string): void;
@@ -126,7 +127,7 @@ function sinceCursor(): string {
 function outputStreamUrl(): string {
   const cursor = sinceCursor();
   const url = `${apiHost()}/api/output/stream?since=${cursor}`;
-  if (import.meta.env?.DEV) console.debug("[output-stream] local aggregate stream", { url });
+  if (DEV_BUILD) console.debug("[output-stream] local aggregate stream", { url });
   return url;
 }
 
@@ -357,7 +358,7 @@ function openRemoteOutputConnection(ordinaryTabId: string, record: RemoteOutputR
   const cursor = record.recovery.currentCursor();
   const since = cursor?.boot ? remoteOutputSinceCursor(remoteTabId, cursor.boot, cursor.offset) : undefined;
   const path = remoteTabStreamPath({ peerId: record.peerId, tabId: remoteTabId }, since);
-  if (import.meta.env?.DEV) console.debug("[output-stream] remote tab stream", { ordinaryTabId, path, generation });
+  if (DEV_BUILD) console.debug("[output-stream] remote tab stream", { ordinaryTabId, path, generation });
   const transport = remoteTabTransportHttp();
   let reason: StreamEndReason = "error";
   void fetch(`${transport.base}${path}`, {

@@ -6,6 +6,7 @@ import {
   type LayoutStrategy,
 } from "./settings";
 import { useCanvasSettings } from "./useCanvasSettings";
+import { DEV_BUILD } from "../../lib/devBuild";
 
 const PANEL_OPEN_KEY = "codeterm:canvas-debug-panel-open";
 
@@ -27,7 +28,7 @@ function numericMeta(key: NumericSettingKey): { min: number; max: number; step: 
 
 function isDevBuild(): boolean {
   try {
-    return import.meta.env.DEV;
+    return DEV_BUILD;
   } catch {
     return false;
   }
