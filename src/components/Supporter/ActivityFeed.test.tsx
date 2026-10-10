@@ -107,6 +107,7 @@ describe("Spinal Cord activity", () => {
     expect(setup.listeners.size).toBe(0);
   });
   it("feed_recovers_after_fetch_failure_on_journal_event", async () => {
+    entries[1] = { ...entries[1], label: "ready_idle" };
     vi.mocked(fetch).mockRejectedValueOnce(new Error("offline"));
     const host = await setup.render(<ActivityFeed api={API} />);
     expect(host.querySelector('[role="status"]')).not.toBeNull();
