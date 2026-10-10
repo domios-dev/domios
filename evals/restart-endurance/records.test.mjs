@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, appendFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -40,7 +40,38 @@ test("Grok proof takes the model from the own completed turn", () => {
     { params: { update: { sessionUpdate: "user_message_chunk", content: { text: marker }, _meta: { modelId: "new" } } } },
     { params: { update: { sessionUpdate: "agent_message_chunk", content: { text: marker } } } },
     { params: { update: { sessionUpdate: "turn_completed" } } },
-  ], (boundary) => assert.equal(nextTurnModel(boundary, marker).model, "new"));
+  ], (boundary) => {
+    const proof = nextTurnModel(boundary, marker);
+    assert.equal(proof.model, "new");
+    assert.equal(proof.turn_completed, true);
+  });
+});
+
+test("Grok assistant text without its completion event is insufficient", () => {
+  withLines("grok", [
+    { params: { update: { sessionUpdate: "user_message_chunk", content: { text: marker }, _meta: { modelId: "new" } } } },
+    { params: { update: { sessionUpdate: "agent_message_chunk", content: { text: marker } } } },
+  ], (boundary) => assert.equal(nextTurnModel(boundary, marker), null));
+});
+
+test("an old completed Grok turn cannot complete an appended unfinished turn", () => {
+  const rows = [
+    { params: { update: { sessionUpdate: "user_message_chunk", content: { text: marker }, _meta: { modelId: "old" } } } },
+    { params: { update: { sessionUpdate: "agent_message_chunk", content: { text: marker } } } },
+    { params: { update: { sessionUpdate: "turn_completed" } } },
+  ];
+  withLines("grok", rows, (boundary) => {
+    boundary.bytes = Buffer.byteLength(rows.map((row) => JSON.stringify(row)).join("\n") + "\n");
+    appendFileSync(boundary.path, JSON.stringify({ params: { update: {
+      sessionUpdate: "user_message_chunk", content: { text: marker }, _meta: { modelId: "new" },
+    } } }) + "\n");
+    appendFileSync(boundary.path, JSON.stringify({ params: { update: {
+      sessionUpdate: "agent_message_chunk", content: { text: marker },
+    } } }) + "\n");
+    assert.equal(nextTurnModel(boundary, marker), null);
+    appendFileSync(boundary.path, JSON.stringify({ params: { update: { sessionUpdate: "turn_completed" } } }) + "\n");
+    assert.equal(nextTurnModel(boundary, marker).model, "new");
+  });
 });
 
 test("OpenCode proof excludes baseline messages and requires completion", () => {
