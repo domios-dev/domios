@@ -71,11 +71,15 @@ is bounded at 30 seconds by the runner and must not ask an interactive question.
    and no pending prompt authorize the first probe. After sending, the eval
    requires a bound session before starting transcript streaming and accepting
    the exact answer. It saves that session and requires it unchanged before
-   every subsequent probe. Phase and send-response fields distinguish a probe
+   every subsequent probe. A fresh empty session may receive a new ID on
+   restore; continuity starts with its first persisted probe turn. Phase and
+   send-response fields distinguish a probe
    that never reached send from a sent turn awaiting binding or an answer.
 4. Announces and performs three provenance-checked DEV restarts. After each,
-   probes all created fixtures concurrently with the corresponding round
-   marker. Waits use an SSE subscription established before sending, a single
+   focuses Endure to materialize inactive-workspace PTYs, waits for every
+   fixture's launch readiness, then probes fixtures serially with the round
+   marker. Readiness failures are retained without another wait or a send.
+   Waits use an SSE subscription established before sending, a single
    120-second failure deadline per observation, and event-triggered snapshot
    reads. There are no fixed-delay warmups or probe retries. Sends read their
    authored prompt from the target tab's private pad and use the user send API,
