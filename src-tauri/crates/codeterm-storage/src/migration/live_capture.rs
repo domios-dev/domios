@@ -1,7 +1,9 @@
 use super::manifest::{bounded, uncaptured, ImportRefusal, MigrationError};
 use super::source_inventory;
+#[cfg(feature = "test-support")]
+use super::CaptureStep;
 use super::{
-    CaptureLimits, CaptureStep, Captured, EntryKind, ImportDomain, ImportOutcome, ImportPlan,
+    CaptureLimits, Captured, EntryKind, ImportDomain, ImportOutcome, ImportPlan,
     LegacyDecoder, Sha256Digest, SourceCapture, SourceFile, SourceRole, Storage,
     IMPORT_MANIFEST_FORMAT,
 };
