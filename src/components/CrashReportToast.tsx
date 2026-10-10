@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "../lib/bridge";
 import { listen } from "../lib/bridge";
-import { AlertTriangle, FolderOpen, X } from "lucide-react";
+import { useMultiplexer } from "../store/multiplexer";
 
 const PRESENTED_CRASH_KEY = "codeterm.recovery.last-presented-crash";
 
@@ -49,7 +49,8 @@ interface RecoveryState {
 export function RecoveryStatusBanner() {
   const [payload, setPayload] = useState<CrashPayload | null>(null);
   const [recovery, setRecovery] = useState<RecoveryState | null>(null);
-  const [dismissedCrashKey, setDismissedCrashKey] = useState(loadPresentedCrashKey);
+  const previouslyPresented = useRef(loadPresentedCrashKey());
+  const { upsertToast, dismissToast } = useMultiplexer();
 
   useEffect(() => {
     let cancelled = false;
@@ -102,95 +103,28 @@ export function RecoveryStatusBanner() {
     ? `${crash.previous.epoch}:${crash.previous.pid}:${crash.new_epoch}`
     : null;
 
+  const payloadKey = payload ? `${payload.dir ?? ""}|${payload.files.join("|")}` : null;
+  const latest = useRef({ crash, payload });
+  latest.current = { crash, payload };
+
   useEffect(() => {
-    if (!crashKey || recovery?.crash_presentation !== "active" || dismissedCrashKey === crashKey) return;
+    const { crash, payload } = latest.current;
+    if (!crash || !crashKey || previouslyPresented.current === crashKey) return;
+    if (recovery?.crash_presentation !== "active") { dismissToast(`crash:${crashKey}`); return; }
     persistPresentedCrashKey(crashKey);
-  }, [crashKey, dismissedCrashKey, recovery?.crash_presentation]);
+    upsertToast({
+      id: `crash:${crashKey}`, tab_id: null, workspace_id: null,
+      title: crash.supervisor_action.loop_protected ? "Crash recovery stopped" : "Crash recovery recorded",
+      body: [
+        `${crash.classification.replaceAll("_", " ")} | previous pid ${crash.previous.pid}`,
+        `Backoff ${crash.supervisor_action.backoff_ms}ms | count ${crash.supervisor_action.crash_count_in_window}`,
+        payload?.files.join(", "),
+        crash.work_policy.ambiguous_execution ? `Ambiguous work: ${crash.work_policy.ambiguous_execution.missing_bindings} bindings not restored | ${crash.work_policy.ambiguous_execution.disposition}` : null,
+      ].filter(Boolean).join("\n"),
+      severity: "Error", level: "failure", lifetime_ms: 15_000, update_only: true,
+      local_actions: payload?.dir ? [{ label: "Open folder", run: () => invoke<void>("open_folder", { path: payload.dir }) }] : undefined,
+    });
+  }, [crashKey, payloadKey, recovery?.crash_presentation, upsertToast, dismissToast]);
 
-  if (!crash || !crashKey || recovery?.crash_presentation !== "active") return null;
-  if (dismissedCrashKey === crashKey) return null;
-
-  const openFolder = () => {
-    if (payload?.dir) invoke("open_folder", { path: payload.dir }).catch(() => {});
-  };
-
-  const count = payload?.files.length ?? 0;
-  const lead = crash.supervisor_action.loop_protected
-    ? "Crash recovery stopped"
-    : "Crash recovery recorded";
-  const reportText = count > 0
-    ? `${payload?.files[0]}${count > 1 ? ` + ${count - 1} more` : ""}`
-    : `previous pid ${crash.previous.pid}, epoch ${crash.previous.epoch.slice(0, 8)}`;
-
-  return (
-    <aside
-      data-testid="recovery-status-banner"
-      role="status"
-      aria-label="Crash recovery status"
-      aria-live="polite"
-      className="fixed right-3 top-20 z-40 pointer-events-none"
-    >
-      <div
-        className="pointer-events-auto w-[min(340px,calc(100vw-1.5rem))] rounded-lg border px-3 py-3 shadow-2xl ct-float"
-        style={{
-          background: "color-mix(in srgb, var(--ct-red) 12%, var(--ct-surface))",
-          borderColor: "color-mix(in srgb, var(--ct-red) 35%, transparent)",
-        }}
-      >
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--ct-red)]/15 text-[var(--ct-red)]">
-            <AlertTriangle size={16} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-[var(--ct-fg)]">
-                  {lead}
-                </div>
-                <div className="mt-1 text-[11px] leading-relaxed text-[var(--ct-muted-fg)]">
-                  {crash.classification.replaceAll("_", " ")} · backoff {crash.supervisor_action.backoff_ms}ms · count {crash.supervisor_action.crash_count_in_window}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  persistPresentedCrashKey(crashKey);
-                  setDismissedCrashKey(crashKey);
-                }}
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-                title="Dismiss"
-                aria-label="Dismiss crash recovery"
-              >
-                <X size={14} />
-              </button>
-            </div>
-            <div className="mt-1 truncate text-[11px] text-[var(--ct-muted-fg)]">
-              {reportText}
-            </div>
-            {crash.work_policy.ambiguous_execution && (
-              <div className="mt-1 text-[11px] leading-relaxed text-[var(--ct-muted-fg)]">
-                Ambiguous work: {crash.work_policy.ambiguous_execution.missing_bindings} binding
-                {crash.work_policy.ambiguous_execution.missing_bindings === 1 ? "" : "s"} not restored ·{" "}
-                {crash.work_policy.ambiguous_execution.disposition}
-              </div>
-            )}
-            {payload?.dir && (
-              <button
-                onClick={openFolder}
-                className="mt-2 inline-flex h-6 items-center gap-1 rounded border px-2 text-[11px]"
-                style={{
-                  color: "var(--ct-fg)",
-                  borderColor: "var(--ct-border)",
-                  background: "var(--ct-surface)",
-                }}
-              >
-                <FolderOpen size={12} />
-                Open folder
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    </aside>
-  );
+  return null;
 }

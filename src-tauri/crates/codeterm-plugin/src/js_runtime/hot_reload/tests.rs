@@ -5,17 +5,17 @@ use crate::host_traits::PluginProviderRegistrar;
 use crate::provider::AgentProvider;
 use crate::webhook::WebhookReceiveContext;
 
-struct TestRegistrar {
+pub(super) struct TestRegistrar {
     providers: parking_lot::Mutex<Vec<(String, Box<dyn AgentProvider>)>>,
 }
 
 impl TestRegistrar {
-    fn new() -> Arc<Self> {
+    pub(super) fn new() -> Arc<Self> {
         Arc::new(Self {
             providers: parking_lot::Mutex::new(Vec::new()),
         })
     }
-    fn provider_count(&self) -> usize {
+    pub(super) fn provider_count(&self) -> usize {
         self.providers.lock().len()
     }
     fn with_provider<F: FnOnce(&dyn AgentProvider) -> bool>(&self, id: &str, f: F) -> Option<bool> {
@@ -45,10 +45,13 @@ impl PluginProviderRegistrar for TestRegistrar {
     }
 }
 
-fn test_caps() -> CapabilityRegistries {
+pub(super) fn test_caps() -> CapabilityRegistries {
     let capabilities = CapabilityRegistries {
         decision_model: Arc::new(crate::capability::CapabilityRegistry::new()),
         transcribe: Arc::new(crate::transcribe::TranscribeRegistry::new()),
+        converter: Arc::new(crate::converter::ConverterRegistry::new()),
+        graph_nodes: Arc::new(crate::graph_nodes::GraphNodeRegistry::default()),
+        event_source: Arc::new(crate::event_source::EventSourceRegistry::default()),
         glance: Arc::new(crate::glance::GlanceRegistry::new()),
         bubble: Arc::new(crate::bubble::BubbleRegistry::new()),
         view: Arc::new(crate::view_host::ViewRegistry::new()),
@@ -57,6 +60,7 @@ fn test_caps() -> CapabilityRegistries {
         agent_command: Arc::new(crate::agent_commands::AgentCommandRegistry::new()),
         webhook_receiver: Arc::new(crate::webhook::WebhookRegistry::new()),
         tab_menu: Arc::new(crate::tab_menu::TabMenuRegistry::new()),
+        surfaces: Arc::new(crate::surfaces::SurfaceRegistry::new()),
         secret: None,
     };
     let _ = capabilities.chatbackend.start_discovery();
@@ -65,7 +69,7 @@ fn test_caps() -> CapabilityRegistries {
 
 // Poll tick() until `condition` holds instead of assuming one tick is enough;
 // bounded so a genuine regression still fails instead of hanging.
-fn tick_until<F: Fn() -> bool>(watcher: &HotReloadRegistry, condition: F) -> bool {
+pub(super) fn tick_until<F: Fn() -> bool>(watcher: &HotReloadRegistry, condition: F) -> bool {
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     loop {
         watcher.tick();
@@ -79,7 +83,7 @@ fn tick_until<F: Fn() -> bool>(watcher: &HotReloadRegistry, condition: F) -> boo
     }
 }
 
-fn write(path: &std::path::Path, contents: &str) {
+pub(super) fn write(path: &std::path::Path, contents: &str) {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).unwrap();
     }
@@ -88,7 +92,7 @@ fn write(path: &std::path::Path, contents: &str) {
 
 // Windows refuses to stamp file times through a read-only handle, so open for
 // write rather than File::open.
-fn set_mtime(path: &std::path::Path, mtime: std::time::SystemTime) {
+pub(super) fn set_mtime(path: &std::path::Path, mtime: std::time::SystemTime) {
     std::fs::OpenOptions::new()
         .write(true)
         .open(path)
@@ -97,7 +101,7 @@ fn set_mtime(path: &std::path::Path, mtime: std::time::SystemTime) {
         .unwrap();
 }
 
-fn manifest_for(id: &str) -> String {
+pub(super) fn manifest_for(id: &str) -> String {
     use crate::js_runtime::host_api::HOST_API_VERSION;
     format!(
         r#"{{"id":"{id}","version":"0","displayName":"{id}","hostApi":{HOST_API_VERSION},
@@ -130,7 +134,7 @@ fn webhook_manifest_for(id: &str) -> String {
     )
 }
 
-fn spawnable_chatbackend_manifest(id: &str) -> String {
+pub(super) fn spawnable_chatbackend_manifest(id: &str) -> String {
     use crate::js_runtime::host_api::HOST_API_VERSION;
     format!(
         r#"{{"id":"{id}","version":"0","displayName":"{id}","hostApi":{HOST_API_VERSION},
@@ -154,7 +158,7 @@ fn chatbackend_with_model(model: &str) -> String {
     )
 }
 
-fn plugin_for(id: &str) -> String {
+pub(super) fn plugin_for(id: &str) -> String {
     format!(
         r#"module.exports.default = {{ detectFromTitle: function(t) {{ return t.indexOf("{id}") !== -1; }} }};"#
     )
@@ -423,40 +427,47 @@ fn tick_registers_new_plugins_added_after_start() {
 fn hot_reload_reaches_provider_integration_refresh_without_restart() {
     let mut env = codeterm_util::test_env::EnvGuard::lock();
     env.set("CODETERM_API_PORT", "7686");
-    let root = tempfile::tempdir().unwrap();
-    let registrar = TestRegistrar::new();
-    let watcher = HotReloadRegistry::new(
-        vec![root.path().to_path_buf()],
-        registrar.clone(),
-        test_caps(),
-    );
-    let dir = root.path().join("refreshable");
-    write(&dir.join("plugin.json"), &manifest_for("refreshable"));
-    write(
+    for owner in [false, true] {
+        env.set(
+            "CODETERM_MACHINE_OWNER",
+            if owner { "true" } else { "false" },
+        );
+        let root = tempfile::tempdir().unwrap();
+        let registrar = TestRegistrar::new();
+        let watcher = HotReloadRegistry::new(
+            vec![root.path().to_path_buf()],
+            registrar.clone(),
+            test_caps(),
+        );
+        let dir = root.path().join("refreshable");
+        write(&dir.join("plugin.json"), &manifest_for("refreshable"));
+        write(
         &dir.join("plugin.js"),
         "module.exports.default = { ensureIntegrationOnStartup() {}, detectFromTitle() { return false; } };",
     );
-    watcher.tick();
-    assert!(!registrar
-        .with_provider("refreshable", |p| p.detect_from_title("refresh"))
-        .unwrap_or(true));
+        watcher.tick();
+        assert!(!registrar
+            .with_provider("refreshable", |p| p.detect_from_title("refresh"))
+            .unwrap_or(true));
 
-    write(
+        write(
         &dir.join("plugin.js"),
         "let refreshed = false; module.exports.default = { ensureIntegrationOnStartup() { refreshed = true; }, detectFromTitle() { return refreshed; } };",
     );
-    set_mtime(
-        &dir.join("plugin.js"),
-        SystemTime::now() + Duration::from_secs(1),
-    );
-    watcher.tick();
+        set_mtime(
+            &dir.join("plugin.js"),
+            SystemTime::now() + Duration::from_secs(1),
+        );
+        watcher.tick();
 
-    assert!(
-        registrar
-            .with_provider("refreshable", |p| p.detect_from_title("refresh"))
-            .unwrap_or(false),
-        "hot reload must call the provider refresh seam"
-    );
+        assert_eq!(
+            registrar
+                .with_provider("refreshable", |p| p.detect_from_title("refresh"))
+                .unwrap_or(false),
+            owner,
+            "only the machine owner may call the integration refresh seam"
+        );
+    }
 }
 
 #[test]
@@ -1015,7 +1026,7 @@ fn reloading_a_view_plugin_announces_it_so_an_open_iframe_can_rebuild() {
 
 // `load_count` is incremented on the same statement that calls
 // `audit::append_daemon_reloaded`, so it counts daemon-reloaded events 1:1.
-fn bump_mtime(path: &std::path::Path) {
+pub(super) fn bump_mtime(path: &std::path::Path) {
     let current = std::fs::metadata(path).unwrap().modified().unwrap();
     set_mtime(path, current + Duration::from_secs(10));
 }

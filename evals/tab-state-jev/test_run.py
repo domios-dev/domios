@@ -1,7 +1,12 @@
+"""WHAT: classifier math, preflight and CLI consumers.
+WHY: source preparation must preserve thresholds and refuse partial inference.
+ORACLE: supplied mechanism values round-trip; no network admission on gaps.
+Synthetic mechanism inputs only, never current event records.
+"""
+
 import unittest
 import json
-import tempfile
-from pathlib import Path
+from unittest.mock import patch
 
 import capture_screen
 from prepare_fixtures import scrub_context
@@ -11,9 +16,11 @@ from run import (
     aggregate_precision,
     band_for_confidence,
     coverage_gaps,
+    call_jev,
     gate_verdict,
-    read_dataset,
     request_body,
+    evaluate,
+    parse_args,
 )
 
 
@@ -41,39 +48,20 @@ class CaptureScreenImportTests(unittest.TestCase):
 
 
 class BandMathTests(unittest.TestCase):
-    def test_incomplete_coverage_is_opt_in_for_exploratory_runs(self):
-        capability = {"transport": "pty", "display_name": "Claude"}
-        row = {
-            "id": "sample",
-            "provider": "claude",
-            "transport": "pty",
-            "provider_capability": capability,
-            "label": "ready_idle",
-            "labelled_by": "watchman",
-            "source": "dev-capture: test fixture",
-            "screen": "ready",
-            "context": {
-                "provider_capability": capability,
-                "requested_model": None,
-                "session_model": None,
-                "role": None,
-                "plan_id": None,
-                "task_id": None,
-                "spawned_by_tab": "<id>",
-                "seconds_since_spawn": 1,
-                "seconds_since_last_output": 0,
-                "structural_verdict": None,
-                "pending_prompt_kind": None,
-                "screen_changed": False,
-            },
-        }
+    def test_incomplete_coverage_rejects_inference(self):
+        samples = [{"label": "ready_idle", "transport": "pty"}]
+        with patch("run.JevTransport") as transport:
+            with self.assertRaisesRegex(ValueError, "incomplete_dataset"):
+                evaluate(samples, arm="screen", criteria={}, token="synthetic-token",
+                         endpoint="https://api.typesafe.ai/v1/systemone", model="fixture", timeout=60)
+        transport.assert_not_called()
 
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "screens.jsonl"
-            path.write_text(json.dumps(row) + "\n", encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "at least 4 real frames per label"):
-                read_dataset(path)
-            self.assertEqual(len(read_dataset(path, require_coverage=False)), 1)
+    def test_cli_defaults_to_canonical_and_refuses_old_acceptance_override(self):
+        args = parse_args(["--source-sha", "a" * 40])
+        self.assertEqual(args.criteria_mode, "canonical")
+        self.assertIsNone(args.criteria_file)
+        with patch("sys.stderr"), self.assertRaises(SystemExit):
+            parse_args(["--source-sha", "a" * 40, "--allow-incomplete"])
 
     def test_coverage_pools_label_support_across_providers(self):
         samples = [
@@ -180,6 +168,35 @@ class BandMathTests(unittest.TestCase):
 
         self.assertEqual(screen_only["state"], "screen text")
         self.assertEqual(contextual["state"], {"screen": "screen text", "context": context})
+        self.assertEqual(set(screen_only["questions"]), {"q"})
+        self.assertEqual(set(contextual["questions"]), {"label", "prompt_visible"})
+        self.assertEqual(contextual["questions"]["label"]["criteria"], criteria)
+        self.assertEqual(contextual["questions"]["prompt_visible"]["type"], "noul")
+
+    def test_context_answers_require_both_named_answers(self):
+        from jev_transport import TransportResult
+        payload = {"answers": {
+            "label": {"type": "choice", "choice": "ready_idle", "probabilities": {"ready_idle": 0.95}},
+            "prompt_visible": {"type": "noul", "noul": 0.1},
+        }}
+        for missing in (False, True):
+            with self.subTest(missing=missing):
+                if missing:
+                    del payload["answers"]["prompt_visible"]
+                transport = unittest.mock.Mock()
+                transport.send.return_value = TransportResult(payload, {"fixture_type": "synthetic_mechanism"})
+                answer, _, error = call_jev(
+                    "opaque screen", {}, arm="context", criteria={label: "opaque" for label in LABELS},
+                    token="synthetic-token", endpoint="https://api.typesafe.ai/v1/systemone",
+                    model="fixture", timeout=60, transport=transport,
+                )
+                if missing:
+                    self.assertIsNone(answer)
+                    self.assertEqual(error, "invalid_answer_set")
+                else:
+                    self.assertIsNone(error)
+                    self.assertEqual(answer["prediction"], "ready_idle")
+                    self.assertEqual(answer["prompt_visible"], 0.1)
 
 
 if __name__ == "__main__":

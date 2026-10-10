@@ -128,3 +128,13 @@ fn token_store_debug_and_errors_are_redacted() {
     let error = store.load("typesafe-jev").unwrap_err();
     assert!(!error.to_string().contains(TOKEN));
 }
+
+#[test]
+fn token_store_adapters_skip_sidecar_json_without_a_token() {
+    let (_dir, store) = store();
+    store.set("typesafe-jev", TOKEN).unwrap();
+    fs::write(store.base_dir.join("calls.json"), r#"{"calls":[]}"#).unwrap();
+    fs::write(store.base_dir.join("launch-origins.json"), "[]").unwrap();
+    assert_eq!(store.adapters().unwrap(), vec!["typesafe-jev".to_string()]);
+    assert!(store.set("calls", TOKEN).is_err());
+}

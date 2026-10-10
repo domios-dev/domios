@@ -127,7 +127,7 @@ export function PwaSetup() {
           <div className="mx-auto max-w-md rounded-lg border border-[var(--ct-border,#30363d)] bg-[var(--ct-titlebar-bg,#161b22)] text-[var(--ct-fg,#e6edf3)] p-3 shadow-xl flex items-start gap-3 pointer-events-auto">
             <img src="./icons/pwa-192.png" alt="" className="w-9 h-9 rounded-lg shrink-0" />
             <div className="flex-1 text-xs leading-relaxed">
-              <div className="font-semibold mb-0.5">Install CodeTerm</div>
+              <div className="font-semibold mb-0.5">Install Domios</div>
               <span className="opacity-80">
                 Add to your home screen or app dock for fullscreen access and faster
                 startup.
@@ -161,7 +161,7 @@ export function PwaSetup() {
           <div className="mx-auto max-w-md rounded-lg border border-[var(--ct-border,#30363d)] bg-[var(--ct-titlebar-bg,#161b22)] text-[var(--ct-fg,#e6edf3)] p-3 shadow-xl flex items-start gap-3 pointer-events-auto">
             <img src="./icons/pwa-192.png" alt="" className="w-9 h-9 rounded-lg shrink-0" />
             <div className="flex-1 text-xs leading-relaxed">
-              <div className="font-semibold mb-0.5">Install CodeTerm</div>
+              <div className="font-semibold mb-0.5">Install Domios</div>
               <span className="opacity-80">
                 Tap <ShareGlyph /> Share, then &ldquo;Add to Home Screen&rdquo; — opens
                 fullscreen with its own icon, no address bar.

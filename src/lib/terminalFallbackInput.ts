@@ -1,8 +1,12 @@
+import type { TabUiMode } from "./chatUiMode";
+
 export type FallbackKeyEvent = Pick<KeyboardEvent, "altKey" | "ctrlKey" | "isComposing" | "key" | "metaKey" | "shiftKey"> & {
   keyCode?: number;
 };
 
-type FallbackDispatchEvent = FallbackKeyEvent & Pick<KeyboardEvent, "preventDefault">;
+type FallbackDispatchEvent = FallbackKeyEvent & Pick<KeyboardEvent, "preventDefault"> & {
+  defaultPrevented?: boolean;
+};
 
 const interactiveRoles = new Set([
   "button", "checkbox", "combobox", "link", "listbox", "menuitem", "menuitemcheckbox", "menuitemradio",
@@ -19,8 +23,13 @@ export function blocksTerminalFallback(active: Element | null): boolean {
   return role !== null && role !== undefined && interactiveRoles.has(role);
 }
 
-export function forwardTerminalFallback(event: FallbackDispatchEvent, active: Element | null, write: (data: string) => void): boolean {
-  if (blocksTerminalFallback(active)) return false;
+export function forwardTerminalFallback(
+  event: FallbackDispatchEvent,
+  active: Element | null,
+  write: (data: string) => void,
+  mode: TabUiMode = "terminal",
+): boolean {
+  if (mode !== "terminal" || event.defaultPrevented || blocksTerminalFallback(active)) return false;
   const data = terminalFallbackData(event);
   if (!data) return false;
   event.preventDefault();

@@ -6,106 +6,76 @@ CLI identity rules, environment variables, agent integration, and desktop behavi
 
 Use `codeterm <command> --help` for the installed CLI contract.
 
-Message and pad file options accept `-` as UTF-8 stdin, including
-`plan task dispatch --message-file -`, `send --from-file -`, and `--from-pad -`.
-For `plan create`, an implicit project path from a Team-bound caller is the
-caller Team workspace cwd; explicit `--project` remains an override.
+Plugin outbound hosts can be granted per plugin with `codeterm plugin settings <id> --allow-host <host[:port]>`; remove a user grant with `--disallow-host`. A host without a port covers that exact hostname on any port; a host:port grant is scoped to that port. Schemes, paths, credentials, wildcards, and subdomains are not accepted. The manifest's `permissions.network.allow` entries remain unchanged and combine with user grants when the plugin loads.
+
+### Provider plugins and their CLIs
+
+`codeterm plugin install` and `codeterm plugin update` report each provider's CLI status from the installed manifest. Missing CLIs produce a warning with the exact installer for this OS and the management verb. Plugin installation and CLI installation are separate operations; chat backends require no CLI. When connected to the daemon, plugin install/update waits for live provider registration acknowledgement before returning. JSON `provider_registration` is `acknowledged`, or `offline` when no daemon connection is available. An offline install takes effect when the daemon loads plugins.
+
+```bash
+codeterm agent cli status <provider>
+codeterm agent cli install <provider>
+codeterm agent cli update <provider>
+```
+
+The `agent cli` verbs are local-only; run them in a tab on the target peer. Status returns `required`, `installed` (true/false/null for unknown), `binary`, `resolved_path`, `availability`, `searched`, `installer`, and `updater`. Status also includes `installer_prerequisites` and `updater_prerequisites`: detected command runners with `binary`, `installed` (true/false/null), and a setup `hint`. Simple command runners and explicit `command -v`, `which`, or `Get-Command` checks are detected from the manifest command. This is diagnostic, not a full shell parser. Missing runners produce warnings and setup guidance; conditional commands may select an available alternative. The host does not install prerequisites or alter manifest commands. Install/update dispatch JSON adds `warnings`, and completion retains prerequisite diagnostics. Install and update refuse if that OS has no manifest command. They open a visible utility tab in the caller's workspace and Team and return `tab_id` with `launch_state: "command_dispatched"`. Shell completion or exit produces a routed report for an agent caller or a kept notification record for a shell caller. Completion prose is never sent as shell input. It also retains the result in the utility tab description and emits a `provider-cli-completed` event with a fresh status. A completion deadline reports uncertainty; dispatch alone never means installation succeeded. Settings > Agents and provider plugin views use the same status and Install action. `agent providers` names missing CLIs; `agent spawn` refuses before creating a tab and names the installer and CLI fix. REST: `GET /api/agents/providers/{id}/cli` returns status; `POST` accepts `{operation: "install"|"update", caller_tab_id?}`. Plugin `--json` responses add `cli_status`, keyed by installed provider id.
+
+Message and pad file options accept `-` as UTF-8 stdin, including `plan task remote-report --message-file -`, `send --from-file -`, and `--from-pad -`. For `plan create`, an implicit project path from a Team-bound caller is the caller Team workspace cwd; explicit `--project` remains an override.
+
+### Plugin update diagnostics
+
+`codeterm plugin list` shows `update=<reason>` and `channel_version=<version>`. With `--json`, each installed row includes `update.available`, `update.reason`, `update.channel`, `update.remote_version`, and `update.basis` (`channel_cache`). Listing is offline: refresh a named channel with `codeterm plugin channel refresh <name>` to check its current offer. `codeterm plugin update <id>` refreshes the recorded channel and installs only a newer compatible semantic version whose channel and plugin manifests agree. Bulk update skips plugins that are not updatable.
+
+Same-version manifest hash drift remains a diagnostic in `plugin channel diff`; it does not produce an UPDATE badge or count. Local directory installs and source tree plugins have no channel update. Reinstall local changes with `codeterm plugin install --from-dir <path>`. Unknown install provenance or a missing channel cannot authorize an update. `plugin update-system` remains the explicit system synchronization and same-version repair operation; it preserves newer installed versions.
 
 ### CLI JSON ID Contract
 
-Planner mutation commands emit one JSON envelope:
-`{ok, kind, id, data, hints?, error?}`. `id` is the primary created or mutated
-entity id, and `data` contains the raw daemon payload with typed fields such as
-`plan_id`, `task_id`, `spec_id`, and `section_id`. For example,
-`spec create --json` returns `kind == "spec"` and `id == spec_id`,
-`plan create --json` returns `kind == "plan"` and `id == plan_id`, and
-`plan task add --json` returns `kind == "task"` and `id == task_id`.
+Planner mutation commands emit one JSON envelope: `{ok, kind, id, data, hints?, error?}`. `id` is the primary created or mutated entity id, and `data` contains the raw daemon payload with typed fields such as `plan_id`, `task_id`, `spec_id`, and `section_id`. For example, `spec create --json` returns `kind == "spec"` and `id == spec_id`, `plan create --json` returns `kind == "plan"` and `id == plan_id`, and `plan task add --json` returns `kind == "task"` and `id == task_id`.
 
-`plan task dispatch <plan> <task> --mesh <peer-instance-id> --execution-intent mutating`
-starts origin-owned remote work. The Worker ACKs and reports to that attempt;
-after the Orchestrator accepts the report, run
-`plan task merge-remote-lane <plan> <task> <attempt>` on the origin to fetch the
-authenticated peer lane at the accepted report SHA and create a real merge
-commit into the clean dispatch-time branch.
+`plan task dispatch <plan> <task> --mesh <peer-instance-id> --execution-intent mutating` starts origin-owned remote work. The Worker ACKs and reports to that attempt; after the Orchestrator accepts the report, run `plan task merge-remote-lane <plan> <task> <attempt>` on the origin to fetch the authenticated peer lane at the accepted report SHA and create a real merge commit into the clean dispatch-time branch.
 
 ### CLI JSON Errors
 
-With `--json` every command prints exactly one JSON object on stdout for success
-and for failure, including argument errors; stderr stays empty. A failure is
-`{"ok":false,"kind":"error","id":null,"data":...,"hints":[],"error":{"code","message","hint","rpc_code"}}`
-and the command exits non-zero. `error.code` is one of `not_found`,
-`invalid_argument`, `conflict`, `rate_limited`, `refused`, `unavailable`,
-`internal`, or a command-specific snake_case code; a missing tab, plan, cron job,
-peer, or plugin is always `not_found`. `rpc_code` is the raw daemon code or null.
-Exit codes: `0` success, `1` failure, `2` invalid arguments, and the
-command-specific codes named in `SECRETS` and `MESH-BRIDGE`. Structured daemon error data stays under `data`, including
-`invalid_model` fields such as the provider, requested id, closest catalogue
-ids, and refresh command. An ambiguous bare id uses `ambiguous_model` with the
-provider choices and a message asking for `--agent`. Mesh relay failures keep
-the peer's own delivery `code` inside `error`.
+With `--json` every command prints exactly one JSON object on stdout for success and for failure, including argument errors; stderr stays empty. A failure is `{"ok":false,"kind":"error","id":null,"data":...,"hints":[],"error":{"code","message","hint","rpc_code"}}` and the command exits non-zero. `error.code` is one of `not_found`, `invalid_argument`, `conflict`, `rate_limited`, `refused`, `unavailable`, `internal`, or a command-specific snake_case code; a missing tab, plan, cron job, peer, or plugin is always `not_found`. `rpc_code` is the raw daemon code or null. Exit codes: `0` success, `1` failure, `2` invalid arguments, and the command-specific codes named in `SECRETS` and `MESH-BRIDGE`. Structured daemon error data stays under `data`, including `invalid_model` fields such as the provider, requested id, closest catalogue ids, and refresh command. An ambiguous bare id uses `ambiguous_model` with the provider choices and a message asking for `--agent`. Mesh relay failures keep the peer's own delivery `code` inside `error`.
 
 ### Sandboxed CLI transport
 
-The CLI uses the local named pipe or Unix socket first. If that transport cannot
-be discovered or connected, socket RPC and REST-backed CLI commands can use the
-authenticated `POST /api/cli/rpc` loopback endpoint. The fallback needs
-`CODETERM_API_TOKEN` and either `CODETERM_API_PORT` or `CODETERM_API_URL`; it
-always targets `http://127.0.0.1:<port>`, disables proxies and redirects, and
-refuses any configured URL that is not exactly an HTTP IPv4 loopback origin.
-The endpoint dispatches the same RPC methods as the local socket. This includes
-`api.request`, used for REST-backed commands such as plan reads, tab inspection,
-notifications, and agent-pad access. The token must be the local API
-token and the TCP peer must be loopback; mesh peer credentials are refused.
-HTTP success wraps the daemon value in `{result: ...}`, so result objects may
-contain their own `error` field without being mistaken for transport failures.
+The CLI uses the local named pipe or Unix socket first. If that transport cannot be discovered or connected, socket RPC and REST-backed CLI commands can use the authenticated `POST /api/cli/rpc` loopback endpoint. The fallback needs `CODETERM_API_TOKEN` and either `CODETERM_API_PORT` or `CODETERM_API_URL`; it always targets `http://127.0.0.1:<port>`, disables proxies and redirects, and refuses any configured URL that is not exactly an HTTP IPv4 loopback origin. Custom dev ports also need `CODETERM_INSTANCE` or an explicit socket path, so the CLI never guesses the default DEV socket for a named target. The endpoint dispatches the same RPC methods as the local socket. This includes `api.request`, used for REST-backed commands such as plan reads, tab inspection, notifications, and agent-pad access. The token must be the local API token and the TCP peer must be loopback; mesh peer credentials are refused. HTTP success wraps the daemon value in `{result: ...}`, so result objects may contain their own `error` field without being mistaken for transport failures.
 
 ### Mesh CLI failures
 
-`codeterm mesh discover`, `codeterm mesh broadcast`, and
-`codeterm mesh stop-broadcast` check the HTTP result before printing success.
-When the listener is not remotely ready, the daemon returns HTTP 409 and the
-CLI exits non-zero with that refusal. Run these commands again after the mesh
-listener is ready.
+`codeterm mesh discover`, `codeterm mesh broadcast`, and `codeterm mesh stop-broadcast` check the HTTP result before printing success. When the listener is not remotely ready, the daemon returns HTTP 409 and the CLI exits non-zero with that refusal. Run these commands again after the mesh listener is ready.
 
-`codeterm tab list --mesh <peer>` exits non-zero when the peer has no online
-mesh route; `(no tabs)` is reserved for a successful response from an online
-peer. `codeterm tab get-text --mesh <peer>` requires a PTY-backed remote tab.
-If the tab has no PTY, the CLI reports that condition and suggests choosing a
-PTY-backed tab.
+`codeterm tab list --mesh <peer>` exits non-zero when the peer has no online mesh route; `(no tabs)` is reserved for a successful response from an online peer. `codeterm tab get-text --mesh <peer>` requires a PTY-backed remote tab. If the tab has no PTY, the CLI reports that condition and suggests choosing a PTY-backed tab.
 
 Use the CLI or documented REST routes; desktop-only controls are available through the desktop UI.
 
 ## Environment Variables
 
-Set automatically in every PTY spawned by CodeTerm:
+Set automatically in every PTY spawned by Domios:
 
 | Variable | Example | Description |
 |----------|---------|-------------|
-| `CODETERM` | `1` | Running inside CodeTerm |
+| `CODETERM` | `1` | Running inside Domios |
 | `CODETERM_VERSION` | `0.4.0` | App version |
-| `CODETERM_SOCKET_PATH` | `\\.\pipe\codeterm-1234` | Socket path |
+| `CODETERM_SOCKET_PATH` | `\\.\pipe\codeterm-1234` | Explicit socket path; it wins over socket derivation. Named dev sockets also select their matching data directory. |
+| `CODETERM_INSTANCE` | `coreqa` | Named dev instance. Pair it with that instance's API port; a conflicting default port or socket is refused. |
 | `CODETERM_TAB_ID` | `a3f1b2c7` | Current tab ID (8-char hex) |
 | `CODETERM_WORKSPACE_ID` | `b4e2c8d1` | Current workspace ID (8-char hex) |
 | `CODETERM_ROLE` | `Manager` | Structural agent role: `Manager` or `Worker` (empty if no role). The finer kind (`orchestrator`, `planner`, `watcher`, …) lives in `role_profile`, not here; display surfaces render that kind's label. Set at PTY spawn. |
 | `CODETERM_PARENT_TAB_ID` | `b4e2c8d1` | Parent Tab ID in hierarchy (empty for a Team anchor or no role). Set at PTY spawn. |
-| `CODETERM_API_PORT` | `7685` | API port for the running instance. Set by CodeTerm so CLI and hooks use the correct port (dev: 7686, prod: 7685). |
+| `CODETERM_API_PORT` | `7685` | API port for the running instance. Set by Domios so CLI and hooks use the correct port (default dev: 7686, prod: 7685). A custom dev port needs `CODETERM_INSTANCE` or an explicit matching `CODETERM_SOCKET_PATH`. |
 | `CODETERM_API_URL` | `http://127.0.0.1:7685` | Optional API origin for local CLI fallback; fallback accepts only the exact IPv4 loopback host. |
-| `CODETERM_API_TOKEN` | `your-secret-token` | Bearer token for the API. Injected into every PTY when `[api].token` is set, so CLI subcommands and the auth-enforced hook callbacks (`/api/tabs/*/hook/*`, `/api/mem/flush`) can authenticate without per-call wiring. |
+| `CODETERM_API_TOKEN` | `your-secret-token` | Bearer token for the API. Injected into every PTY when `[api].token` is set, so CLI subcommands and the auth-enforced hook callbacks (`/api/tabs/*/hook/*`) can authenticate without per-call wiring. |
 | `TERM` | `xterm-256color` | Terminal type |
 | `COLORTERM` | `truecolor` | Color support |
 | `TERM_PROGRAM` | `CodeTerm` | Terminal name |
 
 ## Agent Integration
 
-When a readiness report is refused locally, `codeterm agent report` prints
-`REPORT NOT SENT` and sends a diagnostic to the parent. In JSON output,
-`refused_report_diagnostic_sent`, `diagnostic_target_tab_id`, and
-`diagnostic_error` describe that diagnostic. The former
-`diagnostic_report_sent` and `diagnostic_report_id` keys and `report_outcome`
-field are not emitted. A refused report remains absent from task history and
-does not change task status.
+When a readiness report is refused locally, `codeterm agent report` prints `REPORT NOT SENT` and sends a diagnostic to the parent. In JSON output, `refused_report_diagnostic_sent`, `diagnostic_target_tab_id`, and `diagnostic_error` describe that diagnostic. The former `diagnostic_report_sent` and `diagnostic_report_id` keys and `report_outcome` field are not emitted. A refused report remains absent from task history and does not change task status.
 
-CodeTerm automatically detects Claude Code and other agents:
+Domios automatically detects Claude Code and other agents:
 - **Permission requests** → in-app toast + Windows notification + webhook
 - **Task completion** → in-app toast + Windows notification + webhook
 - **Agent icon** on tab (orange ✻ for Claude Code)
@@ -113,55 +83,24 @@ CodeTerm automatically detects Claude Code and other agents:
 
 Skills for Claude Code are in `skills/` directory. Install via Settings → Agents & Skills.
 
-Choose a model with `codeterm agent models <provider>`, which first refreshes a
-catalogue that requires live discovery and, when no new snapshot publishes,
-warns and lists the registered one. Pass the id with `codeterm agent spawn
-[provider] --model <id>`. Without a provider, a uniquely advertised bare id
-selects its provider; otherwise spawn uses the configured default provider.
-Authoritative catalogues refuse unknown ids before creating a tab and list the
-valid ids in the error. Free-form providers validate ids against a published
-live model list and pass the id through unchanged when none exists.
-Provider-qualified ids select their provider; an unqualified id advertised by
-one provider routes to it. If several advertise it, `plan task dispatch`
-requires `--agent` and `agent spawn` requires the positional provider.
-Ambiguous ids and aliases advertised by another provider are refused instead of
-falling through or crossing providers.
+`codeterm agent models <provider> --json` returns that provider's model rows,
+including over `--mesh <peer>`; an unknown provider returns a typed `not_found`
+error. `codeterm agent providers` lists provider summaries and returns the full
+descriptor array with `--json` in both local and mesh mode.
 
-Task attempt inspection keeps `requested_model`, `provider_resolved_model`, and
-`session_model` separate. The resolved field stays null until launch resolution
-identifies the model; the session field stays null until detection reads that
-attempt's bound session. A different detected model is stored in
-`model_identity_mismatch` and raises one dispatcher notice.
+Choose a model with `codeterm agent models <provider>`, which first refreshes a catalogue that requires live discovery and, when no new snapshot publishes, warns and lists the registered one. Pass the id with `codeterm agent spawn [provider] --model <id>`. Without a provider, a uniquely advertised bare id selects its provider; otherwise spawn uses the configured default provider. Authoritative catalogues refuse unknown ids before creating a tab and list the valid ids in the error. Free-form providers validate ids against a published live model list and pass the id through unchanged when none exists. Provider-qualified ids select their provider; an unqualified id advertised by one provider routes to it. If several advertise it, `plan task dispatch` requires `--agent` and `agent spawn` requires the positional provider. Ambiguous ids and aliases advertised by another provider are refused instead of falling through or crossing providers.
+
+Task attempt inspection keeps `requested_model`, `provider_resolved_model`, and `session_model` separate. The resolved field stays null until launch resolution identifies the model; the session field stays null until detection reads that attempt's bound session. A different detected model is stored in `model_identity_mismatch` and raises one dispatcher notice.
 
 ### Open agent shells (`chatBackend`)
 
-Beyond PTY agents, a tab can host an **open agent shell** — a non-PTY chat tab
-driven by a `chatBackend` plugin that talks to a local LLM, runs its own ReAct
-tool loop inside the plugin sandbox, and renders its active system prompt as an
-observable first-message card. Shells are discovered and spawned through the same
-surfaces as agents:
+Beyond PTY agents, a tab can host an **open agent shell** — a non-PTY chat tab driven by a `chatBackend` plugin that talks to a local LLM, runs its own ReAct tool loop inside the plugin sandbox, and renders its active system prompt as an observable first-message card. Shells are discovered and spawned through the same surfaces as agents:
 
-- **Discover:** `GET /api/agents/providers` (CLI `codeterm agent providers`) lists
-  installed shells alongside PTY agents, tagged `kind: "shell"`. There is no
-  hardcoded shell list — core enumerates the `chatBackend` registry. Every row
-  carries `availability` (`available` / `unavailable` / `unknown`); the CLI marks
-  the latter two inline, and the UI provider picker reads the same field.
-- **Spawn:** `codeterm agent spawn <shell-id> [--system TEXT] [--preset ID] [--model M]`
-  (or `POST /api/agents/spawn`) routes by capability to the shell. `--system`
-  overrides the preset's system prompt for that session, `--preset` picks a preset,
-  no flag → the plugin's `defaultPreset`. These and the watcher flags are refused
-  for a PTY agent, which has no use for them.
-- **Watcher spawn:** `codeterm agent spawn <shell-id> --role Watcher --parent-tab <orchestrator-tab> --charter <TEXT|charter:id> [--interval 30s] [--nudge-cooldown 10m] [--max-actions 3]`.
-  `--charter-file PATH` may be used instead of `--charter`. The REST body fields
-  are `charter`, `tick_interval_secs`, `nudge_cooldown_secs`, and
-  `max_actions_per_tick`. The host opens the shell with `mode: "watcher"` and
-  `engine: { kind: "machine", charter, tickIntervalSecs }`, rejects direct sends
-  into the watcher tab, schedules `watcherTick`, parses `watcher_verdict`
-  messages, and executes only host-allowlisted verdict actions.
+- **Discover:** `GET /api/agents/providers` (CLI `codeterm agent providers`) lists installed shells alongside PTY agents, tagged `transport: "chat_backend"`. There is no hardcoded shell list — core enumerates the `chatBackend` registry. Every row carries `availability` (`available` / `unavailable` / `unknown`); the CLI marks the latter two inline, and the UI provider picker reads the same field. `cli_status.detected_version`, `version_probe`, and `compatibility` expose the cached CLI version and declared compatibility verdict with typed reasons. The first observation can be `pending` with an unknown verdict while a bounded worker probes the binary. Unknown versions never authorize a declared direct sqlite reader.
+- **Spawn:** `codeterm agent spawn <shell-id> [--system TEXT] [--preset ID] [--model M]` (or `POST /api/agents/spawn`) routes by capability to the shell. `--system` overrides the preset's system prompt for that session, `--preset` picks a preset, no flag → the plugin's `defaultPreset`. These and the watcher flags are refused for a PTY agent, which has no use for them.
+- **Watcher spawn:** `codeterm agent spawn <shell-id> --role Watcher --parent-tab <orchestrator-tab> --charter <TEXT|charter:id> [--interval 30s] [--nudge-cooldown 10m] [--max-actions 3]`. `--charter-file PATH` may be used instead of `--charter`. The REST body fields are `charter`, `tick_interval_secs`, `nudge_cooldown_secs`, and `max_actions_per_tick`. The host opens the shell with `mode: "watcher"` and `engine: { kind: "machine", charter, tickIntervalSecs }`, rejects direct sends into the watcher tab, schedules `watcherTick`, parses `watcher_verdict` messages, and executes only host-allowlisted verdict actions.
 - **Open directly:** `POST /api/tabs {chat_backend, system_prompt?, preset?, model?}`.
-- **Observe:** the shell emits a `system_prompt` marker message rendered as a
-  collapsible "System prompt" card; tool-call / tool-result messages render via the
-  existing chat-UI message rendering.
+- **Observe:** the shell emits a `system_prompt` marker message rendered as a collapsible "System prompt" card; tool-call / tool-result messages render via the existing chat-UI message rendering.
 
 
 
@@ -171,7 +110,7 @@ Command-palette shortcuts and agent-control workflows: `codeterm docs AGENT-CONT
 
 ## System Tray
 
-CodeTerm hides to the system tray on window close instead of quitting. To fully quit, use the tray menu. This ensures cron jobs and background agents continue running when the window is closed.
+Domios hides to the system tray on window close instead of quitting. To fully quit, use the tray menu. This ensures cron jobs and background agents continue running when the window is closed.
 
 ## Dev/Prod Isolation
 
@@ -193,8 +132,6 @@ A launch's role text comes from its role preset; task personality, `role_guidanc
 | `codeterm persona show --role <Manager\|Worker> [--kind <id>] [--guidance <text>] [--occasion <id>]` | `persona.show` | The exact text each occasion emits, its fragments, and their provenance |
 | `codeterm persona reload` | `persona.reload` | Re-read `<data-dir>/role-presets/*.toml` without a restart or rebuild |
 
-Overlay files add leaf kinds only. Declaring capability, claiming an anchoring or
-Team-authority base, overriding a builtin kind, or asking to own a contract
-without the coordination core is refused with a named reason and skipped.
+Overlay files add leaf kinds only. Declaring capability, claiming an anchoring or Team-authority base, overriding a builtin kind, or asking to own a contract without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 22 -->
+<!-- revision: 34 -->

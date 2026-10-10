@@ -44,9 +44,41 @@ pub fn render_task_brief(
     plan_skills: &[crate::plan::PlanSkillManifestEntry],
     authorized_gates: &[String],
 ) -> String {
-    let mut out = String::new();
     let identity =
         super::worker_identity::compose_task_worker_identity(task, effective_personality);
+    let assignment = render_task_assignment(
+        task,
+        sections,
+        orchestrator_instruction,
+        plan_id,
+        plan_skills,
+        authorized_gates,
+    );
+    super::worker_identity::attach_worker_identity(&identity, &assignment)
+}
+
+pub fn render_tool_less_task_brief(
+    task: &Task,
+    sections: &[TaskSection],
+    effective_personality: Option<&str>,
+    orchestrator_instruction: Option<&str>,
+) -> String {
+    let identity =
+        super::worker_identity::compose_task_worker_identity(task, effective_personality);
+    let assignment =
+        render_task_assignment(task, sections, orchestrator_instruction, None, &[], &[]);
+    [identity, assignment].join("\n\n")
+}
+
+fn render_task_assignment(
+    task: &Task,
+    sections: &[TaskSection],
+    orchestrator_instruction: Option<&str>,
+    plan_id: Option<&str>,
+    plan_skills: &[crate::plan::PlanSkillManifestEntry],
+    authorized_gates: &[String],
+) -> String {
+    let mut out = String::new();
     out.push_str(&format!("# {}\n\n", task.name));
 
     if let Some(parent_task_id) = &task.parent_task_id {
@@ -125,12 +157,27 @@ pub fn render_task_brief(
         out.push_str(&render_plan_skill_manifest(plan_id, plan_skills));
     }
 
-    super::worker_identity::attach_worker_identity(&identity, &out)
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tool_less_task_brief_preserves_task_and_instruction_without_cli_lifecycle_fragments() {
+        let task: Task = serde_json::from_value(serde_json::json!({"id":"task-fixture", "name":"opaque title", "body":"opaque task payload", "type":"research", "status":"pending"})).unwrap();
+        let brief = render_tool_less_task_brief(
+            &task,
+            &[],
+            Some("opaque persona"),
+            Some("opaque dispatch instruction"),
+        );
+        assert_eq!(brief.matches("opaque task payload").count(), 1);
+        assert_eq!(brief.matches("opaque dispatch instruction").count(), 1);
+        assert!(!brief.contains(super::super::worker_identity::WORKER_ACK_INSTRUCTION));
+        assert!(brief.contains("opaque persona"));
+    }
 
     #[test]
     fn dispatched_worker_brief_requires_applicable_plan_skills_before_actions() {

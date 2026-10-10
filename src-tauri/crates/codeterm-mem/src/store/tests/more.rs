@@ -564,3 +564,24 @@ fn list_pinned_respects_limit() {
     let pinned = list_pinned(&conn, &blobs, 3).unwrap();
     assert_eq!(pinned.len(), 3, "limit must cap result");
 }
+
+#[test]
+fn list_by_source_prefix_matches_kind_and_literal_prefix() {
+    let (conn, blobs) = fresh();
+    let with = |kind: MemKind, title: &str, source: Option<&str>| {
+        let mut item = mk_item(title, "body");
+        item.kind = kind;
+        item.source = source.map(str::to_string);
+        insert(&conn, &item, &blobs).unwrap()
+    };
+    let hit = with(MemKind::Skill, "hit", Some("pfx_a:one"));
+    with(MemKind::Skill, "wildcard lookalike", Some("pfxXa:two"));
+    with(MemKind::Fact, "other kind", Some("pfx_a:three"));
+    with(MemKind::Skill, "no source", None);
+
+    let found = list_by_source_prefix(&conn, &blobs, "skill", "pfx_a:").unwrap();
+    assert_eq!(
+        found.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
+        vec![hit.as_str()]
+    );
+}

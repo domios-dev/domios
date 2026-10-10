@@ -76,9 +76,8 @@ export function SpendChart({
               ) : (
                 <div className="mc-board-chart-track">{stack}</div>
               )}
-              <span aria-hidden="true" className="mc-board-chart-label">
+              <span aria-hidden="true" className="mc-board-chart-label" title={day.note ?? undefined}>
                 {day.label}
-                {day.note && <span className="mc-board-chart-note">{day.note}</span>}
               </span>
             </div>
           );

@@ -15,31 +15,17 @@ import {
 import { PluginList } from "./PluginList";
 import { PluginDetailPanel, type ActionKind, type ActionOptions } from "./PluginDetailPanel";
 import { type AppConfigShape } from "./shared";
+import { pluginActionPayload } from "./pluginActions";
 import type { ChannelRecord } from "./types";
 import type { AppConfig, PluginActivity } from "../../lib/types";
 import type { PluginActivityDisplayMap } from "../../lib/usePluginActivity";
-import { SELECT_EXTENSION_EVENT } from "../Titlebar/extensionsTrayLogic";
+import { SELECT_EXTENSION_EVENT, takePendingExtensionSelection } from "../Titlebar/extensionsTrayLogic";
 import { ArrowLeft, Plus, RefreshCw } from "lucide-react";
 import {
   ensurePluginSnapshot,
   runPluginSnapshotAction,
   usePluginSnapshotStore,
 } from "../../lib/pluginSnapshotStore";
-
-function actionPayload(
-  kind: ActionKind,
-  entry: CatalogEntry,
-  options: ActionOptions = {},
-): Record<string, unknown> {
-  switch (kind) {
-    case "install":
-      return { kind: "install", pluginId: entry.id, channel: entry.channel ?? undefined };
-    case "update":
-      return { kind: "update", pluginId: entry.id };
-    case "remove":
-      return { kind: "remove", pluginId: entry.id, removeData: options.removeData ?? false };
-  }
-}
 
 export function ExtensionsView({
   visible,
@@ -57,10 +43,11 @@ export function ExtensionsView({
   const [filter, setFilter] = useState<CatalogFilter>("all");
   const [localError, setLocalError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [initialSelection] = useState(() => takePendingExtensionSelection() ?? null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialSelection);
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
   const [addChannelOpen, setAddChannelOpen] = useState(false);
-  const [narrowDetailOpen, setNarrowDetailOpen] = useState(false);
+  const [narrowDetailOpen, setNarrowDetailOpen] = useState(initialSelection !== null);
 
   const refreshConfig = useCallback(async () => {
     try {
@@ -82,6 +69,7 @@ export function ExtensionsView({
 
   useEffect(() => {
     const onSelect = (e: Event) => {
+      takePendingExtensionSelection();
       const id = (e as CustomEvent<{ id: string | null }>).detail?.id ?? null;
       setSelectedId(id);
       setSelectedChannel(null);
@@ -128,7 +116,7 @@ export function ExtensionsView({
 
   const onPluginAction = useCallback(
     (kind: ActionKind, entry: CatalogEntry, options?: ActionOptions) => {
-      void runAction(`${kind}:${entry.id}`, actionPayload(kind, entry, options));
+      void runAction(`${kind}:${entry.id}`, pluginActionPayload(kind, entry, options));
     },
     [runAction],
   );
@@ -311,6 +299,14 @@ export function ExtensionsView({
                 activity={pluginActivities.get(selected.id)}
                 activityDisplayMap={pluginActivityDisplayMap}
                 onAction={onPluginAction}
+                onHostGrant={(pluginId, host, allow) => {
+                  void runAction(`settings:${pluginId}`, {
+                    kind: "settings",
+                    pluginId,
+                    allowHosts: allow ? [host] : [],
+                    disallowHosts: allow ? [] : [host],
+                  });
+                }}
                 onSave={saveSetting}
                 onUpdateFullConfig={async (next: AppConfig) => {
                   try {

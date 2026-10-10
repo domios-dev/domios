@@ -143,6 +143,7 @@ pub(super) struct ChannelPlugin {
 
 #[derive(Debug, Serialize)]
 pub(super) struct InstalledPluginRow {
+    pub(super) update: serde_json::Value,
     pub(super) id: String,
     pub(super) version: Option<String>,
     pub(super) display_name: Option<String>,
@@ -172,6 +173,7 @@ pub(super) struct LastChange {
 
 #[derive(Debug, Serialize)]
 pub(super) struct ChannelDiffRow {
+    pub(super) payload_version: Option<String>,
     pub(super) channel: String,
     pub(super) id: String,
     pub(super) local_version: Option<String>,

@@ -1,4 +1,4 @@
-Verification runs in the canonical checkout:
-- An isolated Worker lane is source-only: it does not build, run project tests, start dev services, or execute validation gates, whatever their cost or scope. The Worker authors the coverage and lists exact commands and expected observations under GATES REQUESTED.
-- After an ancestry-preserving merge, the Orchestrator runs focused and broad verification in canonical. A Worker runs a gate only when assigned to canonical and authorized for that exact command.
-- Authorized runs use the repository's bounded runner; a failure deadline is never permission to raise the cap or retry blindly.
+Verification is sized to cost, so lanes never contend for full builds:
+- A Worker may run isolated checks in its lane: a type check, affected tests, a linter, a small standalone package, via the build queue if any. A whole-project or main-app build is a full rebuild left to canonical; lanes start no dev servers and run no full suites, packaging or self-install.
+- The Orchestrator accepts on review, real-merges, then reruns each merged wave's focused selectors once in canonical; a failure there is a bounce or fix task. The broad gate runs once, on the release SHA.
+- Runs stay bounded; a deadline never licenses a higher cap or blind retry.

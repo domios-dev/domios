@@ -1,3 +1,9 @@
+import { returnToOrigin, type ReturnTo } from "../../lib/returnTo";
+import { useReturnToChat } from "../../hooks/useReturnToChat";
+import { chatDocumentsStore } from "../Terminal/chatDocumentsStore";
+import { TabSidePanel } from "../Terminal/tabPanel/TabSidePanel";
+import { tabPanelNavigationStore } from "../Terminal/tabPanel/tabPanelNavigation";
+import { chatChangesStore } from "../Terminal/chatChangesStore";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ApiConfig, Tab } from "../../lib/types";
 import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
@@ -22,6 +28,7 @@ export interface PlanSidePanelLayerProps {
   onOpenTab?: (tabId: string) => void;
   onOpenPlanTarget: (target: PlanTarget) => void;
   onExited?: () => void;
+  onReturnTo?: (origin: ReturnTo) => boolean;
 }
 
 /** A plan outside the loaded list, such as an archived one, is read on demand. */
@@ -41,7 +48,7 @@ function useUnlistedPlan(api: ApiConfig | undefined, planId: string | null) {
   return { plan: settled ? result.plan : null, loading: Boolean(api && planId && !settled) };
 }
 
-export function PlanSidePanelLayer({ plans, loading = false, api, tabs, onOpenTab, onOpenPlanTarget, onExited }: PlanSidePanelLayerProps) {
+export function PlanSidePanelLayer({ plans, loading = false, api, tabs, onOpenTab, onOpenPlanTarget, onExited, onReturnTo }: PlanSidePanelLayerProps) {
   const entry = usePlanSidePanelEntry();
   const returnFocusTo = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
@@ -60,16 +67,18 @@ export function PlanSidePanelLayer({ plans, loading = false, api, tabs, onOpenTa
   const presence = usePresence<PlanSidePanelTarget>(entry?.target ?? null, PLAN_SIDE_PANEL_MOTION, finishExit);
   const target = presence.item;
   const dismiss = useCallback(() => {
+    returnToOrigin(planSidePanelStore.get()?.target, onReturnTo ?? (() => false));
     const closed = planSidePanelStore.close();
     if (closed) returnFocusTo.current = closed.opener;
-  }, []);
+  }, [onReturnTo]);
 
   const listed = target ? plans.find((plan) => plan.id === target.planId) ?? null : null;
-  const unlisted = useUnlistedPlan(api, target && !listed ? target.planId : null);
+  const unlisted = useUnlistedPlan(api, target && !listed && !target.documentsTabId ? target.planId : null);
   if (!target || !presence.state) return null;
   return (
     <div className="plan-side-panel-layer" data-testid="plan-side-panel-layer">
-      <PlanSidePanel
+      {target.documentsTabId
+        ? <TabSidePanel key={target.documentsTabId} tabId={target.documentsTabId} view={target.tabView ?? "documents"} cwd={tabs?.[target.documentsTabId]?.cwd} state={presence.state} panelRef={presence.ref} onClose={dismiss} /> : <PlanSidePanel
         target={target}
         plan={listed ?? unlisted.plan}
         loading={!listed && (loading || unlisted.loading)}
@@ -80,7 +89,7 @@ export function PlanSidePanelLayer({ plans, loading = false, api, tabs, onOpenTa
         onClose={dismiss}
         state={presence.state}
         panelRef={presence.ref}
-      />
+      />}
     </div>
   );
 }
@@ -88,6 +97,7 @@ export function PlanSidePanelLayer({ plans, loading = false, api, tabs, onOpenTa
 const selectTabRecord = (state: ExtendedState) => state.tabs;
 
 function OpenPlanSidePanel({ api, onExited }: { api: ApiConfig; onExited: () => void }) {
+  const activateReturnTo = useReturnToChat();
   const { plans, loading } = useFullPlans();
   const openPlanTarget = usePlanTargetNavigation();
   const tabs = useMuxSelector(selectTabRecord);
@@ -106,6 +116,7 @@ function OpenPlanSidePanel({ api, onExited }: { api: ApiConfig; onExited: () => 
       onOpenTab={onOpenTab}
       onOpenPlanTarget={openPlanTarget}
       onExited={onExited}
+      onReturnTo={activateReturnTo}
     />
   );
 }
@@ -118,7 +129,11 @@ export function PlanSidePanelHost({ api }: { api: ApiConfig }) {
   const onExited = useCallback(() => setMounted(false), []);
   useEffect(() => {
     const reset = () => {
-      planSidePanelStore.close();
+      planSidePanelStore.suspend();
+      planSidePanelStore.resetCache();
+      chatDocumentsStore.clear();
+      chatChangesStore.clear();
+      tabPanelNavigationStore.resetCache();
       setMounted(false);
     };
     window.addEventListener("codeterm-peer-switch-reset", reset);

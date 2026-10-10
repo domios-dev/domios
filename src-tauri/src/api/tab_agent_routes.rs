@@ -10,6 +10,10 @@ use super::{
 
 pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
     router
+        .route(
+            "/api/tabs/{id}/agent/capabilities/refresh",
+            post(super::capability_probe_routes::refresh),
+        )
         .route("/api/tabs/{id}/send", post(tab_routes::send_text))
         .route("/api/tabs/{id}/chat", get(tab_chat_routes::snapshot))
         .route(
@@ -23,8 +27,20 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             )),
         )
         .route("/api/tabs/{id}/stop", post(tab_routes::stop_tab))
+        .route(
+            "/api/tabs/{id}/rerun-restored-shell",
+            post(tab_routes::rerun_restored_shell),
+        )
+        .route(
+            "/api/tabs/{id}/agent/fork",
+            post(super::agent_fork_routes::fork),
+        )
         .route("/api/tabs/{id}/focus", post(tab_routes::focus_tab))
         .route("/api/tabs/{id}/close", post(tab_routes::close_tab))
+        .route(
+            "/api/tabs/{id}/release-ownership",
+            post(tab_routes::release_remote_ownership),
+        )
         .route(
             "/api/tabs/{id}/restart",
             post(tab_routes::restart_shell_tab),
@@ -61,6 +77,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             post(pty_routes::claim_resize_owner),
         )
         .route("/api/tabs/{id}/link-pty", post(tab_routes::link_pty))
+        .route(
+            "/api/agents/providers/{id}/cli",
+            get(super::provider_cli_routes::status).post(super::provider_cli_routes::run),
+        )
         .route(
             "/api/agents/providers/{id}/install-in-tab",
             post(agent_routes::install_provider_in_tab),
@@ -126,6 +146,11 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             post(hook_routes::hook_permission),
         )
         .route("/api/tabs/{id}/hook/stop", post(hook_routes::hook_stop))
+        .route(
+            "/api/tabs/{id}/hook/context",
+            post(hook_routes::context_feed::ingest)
+                .layer(axum::extract::DefaultBodyLimit::max(65_536)),
+        )
         .route(
             "/api/tabs/{id}/hook/session_start",
             post(hook_routes::hook_session_start),

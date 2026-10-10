@@ -8,57 +8,23 @@
 
 use crate::agent::registry::AgentRegistry;
 use crate::service::chat_send_transaction::{
-    normalize_turn_evidence_with, ChatSendLedger, ChatSendStatus, EvidenceWindow,
-    SendEvidenceAnchor, SendLiveBinding,
+    normalize_turn_evidence_with, ChatSendLedger, ChatSendStatus, DeferredFirstTurnEvidence,
+    EvidenceWindow, SendEvidenceAnchor, SendLiveBinding,
 };
+use crate::service::tab_chat::registry::{JsonlSource, SourceCapture};
 use crate::service::ServiceContext;
+use std::collections::HashMap;
+use std::sync::Arc;
 
-fn window_user_turns(registry: &AgentRegistry, anchor: &SendEvidenceAnchor) -> Vec<String> {
-    match &anchor.window {
-        EvidenceWindow::Jsonl { transcript_offset } => {
-            let Some(path) = registry
-                .with_provider(&anchor.provider_id, |provider| {
-                    provider.session_jsonl_path(&anchor.cwd, &anchor.session_id)
-                })
-                .flatten()
-            else {
-                return Vec::new();
-            };
-            if !path.exists() {
-                return Vec::new();
-            }
-            registry
-                .with_provider(&anchor.provider_id, |provider| {
-                    provider.parse_session_delta(&path, *transcript_offset)
-                })
-                .map(|delta| {
-                    delta
-                        .messages
-                        .iter()
-                        .enumerate()
-                        .flat_map(|(index, rich)| {
-                            crate::service::tab_chat::rich_to_chat_msgs(rich, index)
-                        })
-                        .filter(|msg| msg.kind == "user")
-                        .map(|msg| msg.content)
-                        .collect()
-                })
-                .unwrap_or_default()
-        }
-        EvidenceWindow::Structured { cursor } => registry
-            .with_provider(&anchor.provider_id, |provider| {
-                provider.read_structured_chat(&anchor.cwd, &anchor.session_id, cursor.as_deref())
-            })
-            .map(|chat| {
-                chat.messages
-                    .into_iter()
-                    .filter(|msg| msg.kind == "user")
-                    .map(|msg| msg.content)
-                    .collect()
-            })
-            .unwrap_or_default(),
-    }
-}
+mod deferred_first_turn;
+mod turn_window;
+
+use turn_window::{structured_user_turns, StructuredUserTurn};
+pub(crate) use turn_window::{window_has_foreign_user_turn, window_user_turns};
+
+#[cfg(test)]
+#[path = "chat_send_evidence/deferred_first_turn_tests.rs"]
+mod deferred_first_turn_tests;
 
 #[cfg(test)]
 pub(crate) fn contains_exact_user_turn(
@@ -77,6 +43,7 @@ pub(crate) fn contains_exact_user_turn(
 pub(crate) struct ExactTurnCursor {
     jsonl_offset: Option<u64>,
     confirmed: bool,
+    pub(crate) matched_user_id: Option<String>,
 }
 
 impl ExactTurnCursor {
@@ -127,11 +94,24 @@ pub(crate) fn contains_exact_user_turn_since(
                 crate::service::tab_chat::rich_to_chat_msgs(rich, index)
                     .iter()
                     .any(|message| {
-                        message.kind == "user"
+                        let matched = message.kind == "user"
                             && normalize_turn_evidence_with(
                                 &message.content,
                                 anchor.turn_normalization,
-                            ) == expected
+                            ) == expected;
+                        if matched && crate::flow_trace::enabled() {
+                            cursor.matched_user_id =
+                                (rich.uuid.as_ref().is_some_and(|id| !id.is_empty())
+                                    || rich.record_start.is_some())
+                                .then(|| {
+                                    crate::service::tab_chat::rich_to_chat_msgs_live(rich, index)
+                                        .into_iter()
+                                        .find(|message| message.kind == "user")
+                                        .map(|message| message.id)
+                                })
+                                .flatten();
+                        }
+                        matched
                     })
             })
         }
@@ -156,9 +136,24 @@ pub(crate) fn structured_boundary(
     })
 }
 
-fn jsonl_boundary(path: Option<std::path::PathBuf>) -> Option<EvidenceWindow> {
-    let transcript_offset = std::fs::metadata(path?).ok()?.len();
-    Some(EvidenceWindow::Jsonl { transcript_offset })
+fn jsonl_boundary(
+    path: Option<std::path::PathBuf>,
+    source: &JsonlSource,
+    session_id: &str,
+) -> (Option<EvidenceWindow>, Option<Arc<str>>) {
+    let Some(path) = path else {
+        return (None, None);
+    };
+    match source.capture(session_id, &path) {
+        SourceCapture::Present { len } => (
+            Some(EvidenceWindow::Jsonl {
+                transcript_offset: len,
+            }),
+            None,
+        ),
+        SourceCapture::Absent { witness } => (None, Some(witness)),
+        SourceCapture::Unreadable => (None, None),
+    }
 }
 
 #[derive(Clone, Default)]
@@ -166,28 +161,95 @@ pub(crate) struct CapturedSendEvidence {
     pub(crate) anchor: Option<SendEvidenceAnchor>,
     pub(crate) live_binding: Option<SendLiveBinding>,
     pub(crate) turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
+    pub(crate) absence_witness: Option<Arc<str>>,
+    pub(crate) session_starts_on_first_user_turn: bool,
+    pub(crate) deferred_first_turn: Option<DeferredFirstTurnEvidence>,
 }
 
-/// One turn instance confirms at most one send: a scan may only confirm when
-/// the append window holds MORE matching user turns than sends already
-/// confirmed for the same tab+session+payload.
+/// Exact payloads consume one send each; an anchored turn may also confirm one
+/// ordered group when its content is the concatenation of those payloads.
 pub(crate) fn scan_transcript_evidence(
     registry: &AgentRegistry,
     ledger: &ChatSendLedger,
     tab_id: &str,
     mut on_confirmed: impl FnMut(ChatSendStatus),
 ) {
+    let candidates = ledger.evidence_candidates(tab_id);
+    let structured_windows = candidates
+        .iter()
+        .map(|candidate| structured_user_turns(registry, &candidate.anchor))
+        .collect::<Vec<_>>();
+    for (candidate_index, candidate) in candidates.iter().enumerate() {
+        let turns = structured_windows[candidate_index]
+            .as_ref()
+            .map(|turns| {
+                turns
+                    .iter()
+                    .cloned()
+                    .map(|turn| (turn, true))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_else(|| {
+                window_user_turns(registry, &candidate.anchor)
+                    .into_iter()
+                    .map(|content| (StructuredUserTurn::without_identity(content), false))
+                    .collect()
+            });
+        for (turn, has_structured_identity) in turns {
+            let eligible_send_ids = if has_structured_identity && turn.id.is_some() {
+                candidates
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, other)| {
+                        same_evidence_source(&candidate.anchor, &other.anchor)
+                            && structured_windows[*index].as_ref().is_some_and(|window| {
+                                window.iter().any(|other_turn| {
+                                    other_turn.id == turn.id && other_turn.content == turn.content
+                                })
+                            })
+                    })
+                    .map(|(_, other)| other.send_id.clone())
+                    .collect::<Vec<_>>()
+            } else {
+                candidates
+                    .iter()
+                    .filter(|other| other.anchor == candidate.anchor)
+                    .map(|other| other.send_id.clone())
+                    .collect::<Vec<_>>()
+            };
+            let confirmed = ledger.confirm_merged_evidence_turn(
+                tab_id,
+                &candidate.anchor,
+                &turn.content,
+                &eligible_send_ids,
+            );
+            for status in confirmed {
+                on_confirmed(status);
+            }
+        }
+    }
     for candidate in ledger.evidence_candidates(tab_id) {
         let anchor = &candidate.anchor;
-        let matching_turns = window_user_turns(registry, anchor)
-            .iter()
-            .filter(|content| {
-                normalize_turn_evidence_with(content, anchor.turn_normalization)
-                    == candidate.payload
-            })
-            .count();
-        let claimed = ledger.claimed_turn_count(tab_id, &anchor.session_id, &candidate.payload);
-        if matching_turns > claimed {
+        let matching_turns =
+            unconsumed_matching_turns(registry, ledger, tab_id, anchor, &candidate.payload);
+        let claimed = ledger.claimed_turn_anchors(tab_id, &anchor.session_id, &candidate.payload);
+        let assignable = matching_turns > claimed.len()
+            || nested_windows_assign_every_send(
+                claimed
+                    .iter()
+                    .map(|claimed| {
+                        unconsumed_matching_turns(
+                            registry,
+                            ledger,
+                            tab_id,
+                            claimed,
+                            &candidate.payload,
+                        )
+                    })
+                    .chain(std::iter::once(matching_turns))
+                    .collect(),
+            );
+        if assignable {
             if let Some(status) = ledger.confirm_send(&candidate.send_id) {
                 on_confirmed(status);
             }
@@ -195,9 +257,51 @@ pub(crate) fn scan_transcript_evidence(
     }
 }
 
+fn unconsumed_matching_turns(
+    registry: &AgentRegistry,
+    ledger: &ChatSendLedger,
+    tab_id: &str,
+    anchor: &SendEvidenceAnchor,
+    payload: &str,
+) -> usize {
+    let turn_contents = structured_user_turns(registry, anchor)
+        .map(|turns| turns.into_iter().map(|turn| turn.content).collect())
+        .unwrap_or_else(|| window_user_turns(registry, anchor));
+    let mut matching_turns = 0;
+    let mut seen_turns = HashMap::<String, usize>::new();
+    for content in &turn_contents {
+        if normalize_turn_evidence_with(content, anchor.turn_normalization) != payload {
+            continue;
+        }
+        let occurrence = seen_turns.entry(content.clone()).or_default();
+        *occurrence += 1;
+        if *occurrence > ledger.consumed_merged_turn_count(tab_id, anchor, content) {
+            matching_turns += 1;
+        }
+    }
+    matching_turns
+}
+
+/// Same-session append windows are nested suffixes, so every send owns a distinct
+/// turn iff the k-th smallest window holds at least k matching turns.
+fn nested_windows_assign_every_send(mut window_turns: Vec<usize>) -> bool {
+    window_turns.sort_unstable();
+    window_turns
+        .iter()
+        .enumerate()
+        .all(|(rank, turns)| *turns > rank)
+}
+
+fn same_evidence_source(left: &SendEvidenceAnchor, right: &SendEvidenceAnchor) -> bool {
+    left.provider_id == right.provider_id
+        && left.cwd == right.cwd
+        && left.session_id == right.session_id
+        && left.turn_normalization == right.turn_normalization
+}
+
 impl ServiceContext {
-    /// Capture the bound session plus its safe append-window anchor, if one
-    /// exists. An unbounded or not-yet-materialized store stays live-sink-only.
+    /// Capture an append-window anchor or capability-scoped first-turn evidence.
+    /// Sessionless evidence resolves only after the tab authenticates its launch session.
     pub(crate) fn chat_send_anchor(&self, tab_id: &str) -> CapturedSendEvidence {
         let captured = {
             let mux = self.mux.read();
@@ -226,25 +330,51 @@ impl ServiceContext {
                 })
             })
             .unwrap_or_default();
+        let session_starts_on_first_user_turn = provider_id
+            .as_deref()
+            .and_then(|provider_id| {
+                self.agent_registry.with_provider(provider_id, |provider| {
+                    provider.session_starts_on_first_user_turn()
+                })
+            })
+            .unwrap_or(false);
+        let deferred_first_turn = match (&provider_id, &session_id, &binding_nonce) {
+            (Some(provider_id), None, Some(binding_nonce)) if session_starts_on_first_user_turn => {
+                Some(DeferredFirstTurnEvidence {
+                    provider_id: provider_id.clone(),
+                    cwd: cwd.clone(),
+                    binding_nonce: binding_nonce.clone(),
+                })
+            }
+            _ => None,
+        };
         let (Some(provider_id), Some(session_id)) = (provider_id, session_id) else {
             return CapturedSendEvidence {
                 anchor: None,
                 live_binding,
                 turn_normalization,
+                absence_witness: None,
+                session_starts_on_first_user_turn,
+                deferred_first_turn,
             };
         };
         let structured = self
             .agent_registry
             .with_provider(&provider_id, |provider| provider.uses_structured_chat())
             .unwrap_or(false);
-        let window = if structured {
+        let (window, absence_witness) = if structured {
             let chat = self
                 .agent_registry
                 .with_provider(&provider_id, |provider| {
                     provider.read_structured_chat(&cwd, &session_id, None)
                 })
                 .unwrap_or_default();
-            structured_boundary(&chat)
+            (
+                chat.cursor
+                    .as_ref()
+                    .and_then(|_| structured_boundary(&chat)),
+                None,
+            )
         } else {
             let path = self
                 .agent_registry
@@ -252,7 +382,8 @@ impl ServiceContext {
                     provider.session_jsonl_path(&cwd, &session_id)
                 })
                 .flatten();
-            jsonl_boundary(path)
+            let source = self.chat_registry.jsonl_source(tab_id);
+            jsonl_boundary(path, &source, &session_id)
         };
         let anchor = window.map(|window| SendEvidenceAnchor {
             provider_id,
@@ -265,6 +396,9 @@ impl ServiceContext {
             anchor,
             live_binding,
             turn_normalization,
+            absence_witness,
+            session_starts_on_first_user_turn,
+            deferred_first_turn,
         }
     }
 
@@ -276,6 +410,12 @@ impl ServiceContext {
             &self.chat_send_ledger,
             tab_id,
             |status| {
+                let session_id = self
+                    .chat_send_ledger
+                    .evidence_session_for_send(&status.send_id);
+                if let Some(session_id) = session_id {
+                    self.note_session_conversation(tab_id, &session_id);
+                }
                 log::info!(
                     "[chat-send] send_id={} tab={} confirmed by persisted session turn evidence",
                     status.send_id,
@@ -284,658 +424,31 @@ impl ServiceContext {
                 crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
             },
         );
+        for (status, session_id) in deferred_first_turn::reconcile(self, tab_id) {
+            self.note_session_conversation(tab_id, &session_id);
+            log::info!(
+                "[chat-send] send_id={} tab={} session={} confirmed by persisted session turn evidence",
+                status.send_id,
+                status.tab_id,
+                session_id
+            );
+            crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+        }
+    }
+
+    pub(crate) async fn reconcile_chat_send_hook(&self, tab_id: &str) {
+        let service = self.clone();
+        let tab_id = tab_id.to_string();
+        if let Err(error) = tokio::task::spawn_blocking(move || {
+            service.reconcile_chat_send_evidence(&tab_id);
+            service.record_provider_conversation(&tab_id);
+        })
+        .await
+        {
+            log::warn!("[chat-send] hook reconciliation failed: {}", error);
+        }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::agent::chat_types::{MessageBlock, RichMessage, SessionDelta};
-    use crate::agent::provider::AgentProvider;
-    use crate::service::chat_send_transaction::ChatSendState;
-    use std::path::PathBuf;
-    use std::sync::{Arc, Mutex};
-
-    /// Honest byte-window JSONL provider: parses `{"role":"user","content":..}`
-    /// lines strictly from `from_offset`, so the boundary semantics under test
-    /// are the real append-window semantics, not a mock's.
-    struct WindowedJsonlProvider {
-        root: PathBuf,
-        parse_offsets: Arc<Mutex<Vec<u64>>>,
-    }
-
-    impl AgentProvider for WindowedJsonlProvider {
-        fn id(&self) -> &str {
-            "windowed"
-        }
-        fn display_name(&self) -> &str {
-            "Windowed JSONL"
-        }
-        fn build_launch_command(&self, _: &crate::agent::provider::AgentLaunchParams) -> String {
-            String::new()
-        }
-        fn readiness_strategy(&self) -> crate::agent::provider::ReadinessStrategy {
-            crate::agent::provider::ReadinessStrategy::FixedDelay {
-                duration: std::time::Duration::ZERO,
-            }
-        }
-        fn task_delivery(&self) -> crate::agent::provider::TaskDelivery {
-            crate::agent::provider::TaskDelivery::PtyInput
-        }
-        fn detect_from_title(&self, _: &str) -> bool {
-            false
-        }
-        fn detect_from_output(&self, _: &str) -> bool {
-            false
-        }
-        fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> {
-            None
-        }
-        fn detect_session_id(
-            &self,
-            _: &str,
-            _: &[String],
-            _: Option<std::time::Duration>,
-        ) -> Option<String> {
-            None
-        }
-        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
-            None
-        }
-        fn session_jsonl_path(&self, _cwd: &str, session_id: &str) -> Option<PathBuf> {
-            Some(self.root.join(format!("{session_id}.jsonl")))
-        }
-        fn parse_session_delta(&self, path: &std::path::Path, from_offset: u64) -> SessionDelta {
-            self.parse_offsets.lock().unwrap().push(from_offset);
-            use std::io::{Read, Seek, SeekFrom};
-            let mut file = std::fs::File::open(path).unwrap();
-            file.seek(SeekFrom::Start(from_offset)).unwrap();
-            let mut window = Vec::new();
-            file.read_to_end(&mut window).unwrap();
-            let messages = window
-                .split(|byte| *byte == b'\n')
-                .filter_map(|line| serde_json::from_slice::<serde_json::Value>(line).ok())
-                .filter_map(|value| {
-                    let role = value.get("role")?.as_str()?.to_string();
-                    let content = value.get("content")?.as_str()?.to_string();
-                    Some(RichMessage {
-                        role,
-                        blocks: vec![MessageBlock {
-                            kind: "text".into(),
-                            data: serde_json::json!({ "text": content }),
-                        }],
-                        ..Default::default()
-                    })
-                })
-                .collect();
-            SessionDelta {
-                new_offset: from_offset + window.len() as u64,
-                messages,
-            }
-        }
-    }
-
-    struct Fixture {
-        _tmp: tempfile::TempDir,
-        root: PathBuf,
-        registry: AgentRegistry,
-        ledger: ChatSendLedger,
-        parse_offsets: Arc<Mutex<Vec<u64>>>,
-    }
-
-    impl Fixture {
-        fn new() -> Self {
-            let tmp = tempfile::tempdir().unwrap();
-            let root = tmp.path().to_path_buf();
-            let registry = AgentRegistry::new();
-            let parse_offsets = Arc::new(Mutex::new(Vec::new()));
-            registry.register_provider(Box::new(WindowedJsonlProvider {
-                root: root.clone(),
-                parse_offsets: Arc::clone(&parse_offsets),
-            }));
-            Self {
-                _tmp: tmp,
-                root,
-                registry,
-                ledger: ChatSendLedger::default(),
-                parse_offsets,
-            }
-        }
-
-        fn session_path(&self, session_id: &str) -> PathBuf {
-            self.root.join(format!("{session_id}.jsonl"))
-        }
-
-        fn append_user_turn(&self, session_id: &str, content: &str) {
-            use std::io::Write;
-            let mut file = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(self.session_path(session_id))
-                .unwrap();
-            writeln!(
-                file,
-                "{}",
-                serde_json::json!({ "role": "user", "content": content })
-            )
-            .unwrap();
-        }
-
-        fn anchor_now(&self, session_id: &str) -> SendEvidenceAnchor {
-            let transcript_offset = std::fs::metadata(self.session_path(session_id))
-                .map_or(0, |metadata| metadata.len());
-            SendEvidenceAnchor {
-                provider_id: "windowed".into(),
-                cwd: "/proj".into(),
-                session_id: session_id.into(),
-                window: EvidenceWindow::Jsonl { transcript_offset },
-                turn_normalization: Default::default(),
-            }
-        }
-
-        fn scan(&self, tab_id: &str) -> Vec<ChatSendStatus> {
-            let mut confirmed = Vec::new();
-            scan_transcript_evidence(&self.registry, &self.ledger, tab_id, |status| {
-                confirmed.push(status)
-            });
-            confirmed
-        }
-    }
-
-    fn fail_send(ledger: &ChatSendLedger, status: &ChatSendStatus) {
-        ledger
-            .finish(
-                &status.send_id,
-                Err("pty_unavailable: false failure".into()),
-            )
-            .unwrap();
-    }
-
-    #[test]
-    fn missing_jsonl_store_has_no_unbounded_evidence_window() {
-        let tmp = tempfile::tempdir().unwrap();
-        let path = tmp.path().join("not-materialized.jsonl");
-
-        assert_eq!(jsonl_boundary(Some(path.clone())), None);
-
-        std::fs::write(&path, b"existing-history").unwrap();
-        assert_eq!(
-            jsonl_boundary(Some(path)),
-            Some(EvidenceWindow::Jsonl {
-                transcript_offset: 16
-            })
-        );
-    }
-
-    #[test]
-    fn chat_closed_delivery_reconciles_from_persisted_turn_on_read() {
-        let fx = Fixture::new();
-        let send = fx
-            .ledger
-            .try_start("tab-1", "deploy the fix", Some(fx.anchor_now("sess-a")))
-            .unwrap();
-        fail_send(&fx.ledger, &send);
-        // Chat was closed: no live sink ran. The turn persisted to the session.
-        fx.append_user_turn("sess-a", "deploy the fix");
-        // RED shape without the scan: the false failure would persist forever.
-        assert_eq!(fx.ledger.reconcile("tab-1")[0].state, ChatSendState::Failed);
-
-        let confirmed = fx.scan("tab-1");
-        assert_eq!(confirmed.len(), 1);
-        assert_eq!(confirmed[0].send_id, send.send_id);
-        assert_eq!(confirmed[0].state, ChatSendState::Sent);
-        assert_eq!(fx.ledger.reconcile("tab-1")[0].state, ChatSendState::Sent);
-    }
-
-    #[test]
-    fn exact_turn_lookup_requires_the_anchored_session_append_window() {
-        let fx = Fixture::new();
-        fx.append_user_turn("sess-a", "prior session A turn");
-        fx.append_user_turn("sess-other", "prior session B turn");
-        let anchor = fx.anchor_now("sess-a");
-        let other_anchor = fx.anchor_now("sess-other");
-        fx.append_user_turn("sess-other", "payload");
-
-        assert!(!contains_exact_user_turn(&fx.registry, &anchor, "payload"));
-        assert!(contains_exact_user_turn(
-            &fx.registry,
-            &other_anchor,
-            "payload"
-        ));
-    }
-
-    #[test]
-    fn provider_normalization_never_matches_a_turn_from_another_session() {
-        let fx = Fixture::new();
-        fx.append_user_turn("sess-other", "inspect  logs");
-        let mut anchor = fx.anchor_now("sess-a");
-        anchor.turn_normalization = crate::agent::provider::TurnEvidenceNormalization {
-            drop_supplementary_characters: true,
-            ..Default::default()
-        };
-
-        assert!(!contains_exact_user_turn(
-            &fx.registry,
-            &anchor,
-            "inspect 🚀 logs"
-        ));
-
-        fx.append_user_turn("sess-a", "inspect  logs");
-        assert!(contains_exact_user_turn(
-            &fx.registry,
-            &anchor,
-            "inspect 🚀 logs"
-        ));
-    }
-
-    #[test]
-    fn submit_turn_cursor_reads_only_appended_jsonl_since_last_wake() {
-        let fx = Fixture::new();
-        let anchor = fx.anchor_now("sess-a");
-        let mut cursor = ExactTurnCursor::for_anchor(Some(&anchor));
-        fx.append_user_turn("sess-a", "unrelated turn");
-
-        assert!(!contains_exact_user_turn_since(
-            &fx.registry,
-            &anchor,
-            "payload",
-            &mut cursor,
-        ));
-        let expected_offset = std::fs::metadata(fx.session_path("sess-a")).unwrap().len();
-        fx.append_user_turn("sess-a", "payload");
-
-        assert!(contains_exact_user_turn_since(
-            &fx.registry,
-            &anchor,
-            "payload",
-            &mut cursor,
-        ));
-        assert_eq!(fx.parse_offsets.lock().unwrap()[1], expected_offset);
-        assert!(contains_exact_user_turn_since(
-            &fx.registry,
-            &anchor,
-            "payload",
-            &mut cursor,
-        ));
-        assert_eq!(fx.parse_offsets.lock().unwrap().len(), 2);
-    }
-
-    #[test]
-    fn identical_turn_before_send_boundary_never_confirms() {
-        let fx = Fixture::new();
-        fx.append_user_turn("sess-a", "deploy the fix");
-        let send = fx
-            .ledger
-            .try_start("tab-1", "deploy the fix", Some(fx.anchor_now("sess-a")))
-            .unwrap();
-        fail_send(&fx.ledger, &send);
-
-        assert!(fx.scan("tab-1").is_empty());
-        let retained = fx.ledger.reconcile("tab-1");
-        assert_eq!(retained[0].state, ChatSendState::Failed);
-        assert!(retained[0].error.is_some(), "real loss stays actionable");
-    }
-
-    #[test]
-    fn same_payload_in_another_session_never_confirms() {
-        let fx = Fixture::new();
-        let send = fx
-            .ledger
-            .try_start("tab-1", "deploy the fix", Some(fx.anchor_now("sess-a")))
-            .unwrap();
-        fail_send(&fx.ledger, &send);
-        fx.append_user_turn("sess-other", "deploy the fix");
-
-        assert!(fx.scan("tab-1").is_empty());
-        assert_eq!(fx.ledger.reconcile("tab-1")[0].state, ChatSendState::Failed);
-    }
-
-    #[test]
-    fn scan_is_idempotent_and_one_turn_confirms_at_most_one_send() {
-        let fx = Fixture::new();
-        let first = fx
-            .ledger
-            .try_start("tab-1", "same text", Some(fx.anchor_now("sess-a")))
-            .unwrap();
-        let second = fx
-            .ledger
-            .try_start("tab-1", "same text", Some(fx.anchor_now("sess-a")))
-            .unwrap();
-        fail_send(&fx.ledger, &first);
-        fail_send(&fx.ledger, &second);
-        fx.append_user_turn("sess-a", "same text");
-
-        let confirmed = fx.scan("tab-1");
-        assert_eq!(confirmed.len(), 1, "one turn confirms exactly one send");
-        assert_eq!(confirmed[0].send_id, first.send_id, "oldest first");
-        assert!(fx.scan("tab-1").is_empty(), "re-scan consumes nothing new");
-
-        fx.append_user_turn("sess-a", "same text");
-        let confirmed = fx.scan("tab-1");
-        assert_eq!(confirmed.len(), 1);
-        assert_eq!(confirmed[0].send_id, second.send_id);
-    }
-
-    #[test]
-    fn live_confirmation_counts_as_consumed_evidence_for_the_scan() {
-        let fx = Fixture::new();
-        let first = fx
-            .ledger
-            .try_start("tab-1", "same text", Some(fx.anchor_now("sess-a")))
-            .unwrap();
-        let second = fx
-            .ledger
-            .try_start("tab-1", "same text", Some(fx.anchor_now("sess-a")))
-            .unwrap();
-        fx.append_user_turn("sess-a", "same text");
-        // The live delta sink already consumed the turn for the oldest send.
-        let live = fx
-            .ledger
-            .confirm_delivered_user_turn("tab-1", "sess-a", "same text")
-            .unwrap();
-        assert_eq!(live.send_id, first.send_id);
-        fail_send(&fx.ledger, &second);
-
-        assert!(
-            fx.scan("tab-1").is_empty(),
-            "the single persisted turn was already claimed by the live path"
-        );
-        assert_eq!(fx.ledger.reconcile("tab-1")[0].send_id, second.send_id);
-        assert_eq!(fx.ledger.reconcile("tab-1")[0].state, ChatSendState::Failed);
-    }
-
-    #[test]
-    fn scan_confirmation_wins_over_a_late_transport_failure() {
-        let fx = Fixture::new();
-        let send = fx
-            .ledger
-            .try_start("tab-1", "restart dev", Some(fx.anchor_now("sess-a")))
-            .unwrap();
-        fx.append_user_turn("sess-a", "restart dev");
-
-        let confirmed = fx.scan("tab-1");
-        assert_eq!(confirmed.len(), 1);
-
-        let finished = fx
-            .ledger
-            .finish(
-                &send.send_id,
-                Err("pty_unavailable: late classification".into()),
-            )
-            .unwrap();
-        assert_eq!(finished.state, ChatSendState::Sent);
-        assert_eq!(finished.error, None);
-    }
-
-    #[test]
-    fn sends_without_an_anchor_are_never_scanned() {
-        let fx = Fixture::new();
-        let send = fx
-            .ledger
-            .try_start("tab-1", "deploy the fix", None)
-            .unwrap();
-        fail_send(&fx.ledger, &send);
-        fx.append_user_turn("sess-a", "deploy the fix");
-
-        assert!(fx.scan("tab-1").is_empty());
-    }
-
-    #[test]
-    fn missing_store_anchor_is_live_only_and_keeps_session_identity() {
-        let fx = Fixture::new();
-        let send = fx
-            .ledger
-            .try_start_scoped(
-                "tab-1",
-                "deploy the fix",
-                None,
-                Some(SendLiveBinding {
-                    session_id: Some("sess-a".into()),
-                    binding_nonce: Some("binding-a".into()),
-                }),
-            )
-            .unwrap();
-        fail_send(&fx.ledger, &send);
-        fx.append_user_turn("sess-a", "deploy the fix");
-
-        assert!(fx.scan("tab-1").is_empty());
-        assert!(fx
-            .ledger
-            .confirm_delivered_user_turn_scoped(
-                "tab-1",
-                "sess-other",
-                Some("binding-a"),
-                "deploy the fix",
-            )
-            .is_none());
-        let confirmed = fx
-            .ledger
-            .confirm_delivered_user_turn_scoped(
-                "tab-1",
-                "sess-a",
-                Some("binding-a"),
-                "deploy the fix",
-            )
-            .unwrap();
-        assert_eq!(confirmed.state, ChatSendState::Sent);
-    }
-
-    /// Honest cursor-window structured store (the `uses_structured_chat`
-    /// shape, e.g. opencode's sqlite): `read_structured_chat` returns rows
-    /// strictly after the numeric cursor and the next cursor. No provider-id
-    /// branches anywhere — the scan picks this path purely from the anchor's
-    /// capability-typed window.
-    #[derive(Clone)]
-    struct StructuredStoreProvider {
-        rows: std::sync::Arc<
-            parking_lot::Mutex<
-                std::collections::HashMap<String, Vec<crate::agent::chat_types::ChatMsg>>,
-            >,
-        >,
-    }
-
-    impl StructuredStoreProvider {
-        fn new() -> Self {
-            Self {
-                rows: std::sync::Arc::default(),
-            }
-        }
-    }
-
-    impl AgentProvider for StructuredStoreProvider {
-        fn id(&self) -> &str {
-            "structured-store"
-        }
-        fn display_name(&self) -> &str {
-            "Structured Store"
-        }
-        fn build_launch_command(&self, _: &crate::agent::provider::AgentLaunchParams) -> String {
-            String::new()
-        }
-        fn readiness_strategy(&self) -> crate::agent::provider::ReadinessStrategy {
-            crate::agent::provider::ReadinessStrategy::FixedDelay {
-                duration: std::time::Duration::ZERO,
-            }
-        }
-        fn task_delivery(&self) -> crate::agent::provider::TaskDelivery {
-            crate::agent::provider::TaskDelivery::PtyInput
-        }
-        fn detect_from_title(&self, _: &str) -> bool {
-            false
-        }
-        fn detect_from_output(&self, _: &str) -> bool {
-            false
-        }
-        fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> {
-            None
-        }
-        fn detect_session_id(
-            &self,
-            _: &str,
-            _: &[String],
-            _: Option<std::time::Duration>,
-        ) -> Option<String> {
-            None
-        }
-        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
-            None
-        }
-        fn uses_structured_chat(&self) -> bool {
-            true
-        }
-        fn read_structured_chat(
-            &self,
-            _cwd: &str,
-            session_id: &str,
-            cursor: Option<&str>,
-        ) -> crate::agent::chat_types::StructuredChat {
-            let rows = self.rows.lock();
-            let all = rows.get(session_id).cloned().unwrap_or_default();
-            let from = cursor.and_then(|c| c.parse::<usize>().ok()).unwrap_or(0);
-            crate::agent::chat_types::StructuredChat {
-                cursor: Some(all.len().to_string()),
-                messages: all.into_iter().skip(from).collect(),
-                done: None,
-            }
-        }
-    }
-
-    struct StructuredFixture {
-        provider: StructuredStoreProvider,
-        registry: AgentRegistry,
-        ledger: ChatSendLedger,
-    }
-
-    impl StructuredFixture {
-        fn new() -> Self {
-            let provider = StructuredStoreProvider::new();
-            let registry = AgentRegistry::new();
-            registry.register_provider(Box::new(provider.clone()));
-            Self {
-                provider,
-                registry,
-                ledger: ChatSendLedger::default(),
-            }
-        }
-
-        fn append_user_row(&self, session_id: &str, content: &str) {
-            self.provider
-                .rows
-                .lock()
-                .entry(session_id.to_string())
-                .or_default()
-                .push(crate::agent::chat_types::ChatMsg {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    kind: "user".into(),
-                    content: content.into(),
-                    ..Default::default()
-                });
-        }
-
-        fn anchor_now(&self, session_id: &str) -> SendEvidenceAnchor {
-            let chat = self
-                .provider
-                .read_structured_chat("/proj", session_id, None);
-            SendEvidenceAnchor {
-                provider_id: "structured-store".into(),
-                cwd: "/proj".into(),
-                session_id: session_id.into(),
-                window: structured_boundary(&chat).expect("cursor-bearing store"),
-                turn_normalization: Default::default(),
-            }
-        }
-
-        fn scan(&self, tab_id: &str) -> Vec<ChatSendStatus> {
-            let mut confirmed = Vec::new();
-            scan_transcript_evidence(&self.registry, &self.ledger, tab_id, |status| {
-                confirmed.push(status)
-            });
-            confirmed
-        }
-    }
-
-    #[test]
-    fn structured_store_detached_delivery_reconciles_on_read() {
-        let fx = StructuredFixture::new();
-        fx.append_user_row("sess-s", "earlier unrelated turn");
-        let send = fx
-            .ledger
-            .try_start("tab-1", "deploy the fix", Some(fx.anchor_now("sess-s")))
-            .unwrap();
-        fail_send(&fx.ledger, &send);
-        // Chat detached before evidence: no poller subscription survived. The
-        // exact turn still persisted to the structured store.
-        fx.append_user_row("sess-s", "deploy the fix");
-
-        let confirmed = fx.scan("tab-1");
-        assert_eq!(confirmed.len(), 1);
-        assert_eq!(confirmed[0].send_id, send.send_id);
-        assert_eq!(fx.ledger.reconcile("tab-1")[0].state, ChatSendState::Sent);
-    }
-
-    #[test]
-    fn structured_pre_send_and_foreign_session_rows_never_confirm() {
-        let fx = StructuredFixture::new();
-        fx.append_user_row("sess-s", "deploy the fix");
-        let send = fx
-            .ledger
-            .try_start("tab-1", "deploy the fix", Some(fx.anchor_now("sess-s")))
-            .unwrap();
-        fail_send(&fx.ledger, &send);
-        fx.append_user_row("sess-other", "deploy the fix");
-
-        assert!(
-            fx.scan("tab-1").is_empty(),
-            "pre-send + foreign rows are not evidence"
-        );
-        let retained = fx.ledger.reconcile("tab-1");
-        assert_eq!(retained[0].state, ChatSendState::Failed);
-        assert!(
-            retained[0].error.is_some(),
-            "absent evidence stays actionable"
-        );
-    }
-
-    #[test]
-    fn structured_one_turn_confirms_one_send_and_rescan_is_idempotent() {
-        let fx = StructuredFixture::new();
-        let first = fx
-            .ledger
-            .try_start("tab-1", "same text", Some(fx.anchor_now("sess-s")))
-            .unwrap();
-        let second = fx
-            .ledger
-            .try_start("tab-1", "same text", Some(fx.anchor_now("sess-s")))
-            .unwrap();
-        fail_send(&fx.ledger, &first);
-        fail_send(&fx.ledger, &second);
-        fx.append_user_row("sess-s", "same text");
-
-        let confirmed = fx.scan("tab-1");
-        assert_eq!(confirmed.len(), 1);
-        assert_eq!(confirmed[0].send_id, first.send_id, "oldest first");
-        assert!(fx.scan("tab-1").is_empty(), "re-scan consumes nothing new");
-
-        fx.append_user_row("sess-s", "same text");
-        let confirmed = fx.scan("tab-1");
-        assert_eq!(confirmed.len(), 1);
-        assert_eq!(confirmed[0].send_id, second.send_id);
-    }
-
-    #[test]
-    fn cursorless_nonempty_structured_store_mints_no_boundary() {
-        let populated = crate::agent::chat_types::StructuredChat {
-            cursor: None,
-            messages: vec![crate::agent::chat_types::ChatMsg::default()],
-            done: None,
-        };
-        assert_eq!(structured_boundary(&populated), None);
-
-        let empty = crate::agent::chat_types::StructuredChat::default();
-        assert_eq!(
-            structured_boundary(&empty),
-            Some(EvidenceWindow::Structured { cursor: None }),
-            "an empty store is a valid boundary: every future row is post-send"
-        );
-    }
-}
+mod tests;

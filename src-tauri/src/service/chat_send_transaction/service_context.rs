@@ -1,0 +1,295 @@
+use super::*;
+use tauri::Manager;
+
+impl crate::service::ServiceContext {
+    pub(crate) fn start_chat_send(
+        &self,
+        tab_id: &str,
+        text: String,
+        submit_claim: Option<crate::service::pty_io::submit_transaction::SubmitCycleClaim>,
+        client_token: Option<String>,
+    ) -> Result<ChatSendStatus, String> {
+        if self.tab_chat_backing(tab_id).is_none() {
+            drop(submit_claim);
+            let reservation = self.reserve_user_send(tab_id, client_token)?;
+            return self
+                .admit_prepared_user_send(reservation, &text, &text, None)
+                .map(|(status, _)| status);
+        }
+        let evidence = self.chat_send_anchor(tab_id);
+        let turn_evidence_text = self.chat_send_turn_evidence(tab_id, &text);
+        let pending = self.chat_send_ledger.try_start_scoped_with_normalization(
+            tab_id,
+            &turn_evidence_text,
+            evidence.anchor.clone(),
+            evidence.live_binding.clone(),
+            evidence.turn_normalization,
+        )?;
+        if let Some(deferred) = evidence.deferred_first_turn.clone() {
+            self.chat_send_ledger
+                .set_deferred_first_turn_evidence(&pending.send_id, deferred);
+        }
+        let pending = match client_token {
+            Some(token) => self
+                .chat_send_ledger
+                .attach_client_token(&pending.send_id, token)
+                .unwrap_or(pending),
+            None => pending,
+        };
+        let response = pending.clone();
+        let send_id = pending.send_id.clone();
+        let svc = self.clone();
+        let tab_id = tab_id.to_string();
+        std::thread::spawn(move || {
+            let status = run_chat_send(&svc.chat_send_ledger, pending, &text, |text| {
+                // User-origin always-deliver: a transient pre-write unlink or an
+                // unconfirmed submit degrades to pending-until-link, never a refusal.
+                svc.send_chat_text_claimed(&tab_id, text, submit_claim)
+                    .or_else(|err| {
+                        log::info!(
+                            "[chat-send] user send to Tab {tab_id} degraded to pending ({})",
+                            err.code()
+                        );
+                        svc.park_refused_user_send(&tab_id, &send_id, text, &err);
+                        err.into_surfaced(crate::service::delivery_error::SendOrigin::User)
+                    })
+            });
+            crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
+            if let Some(error) = status.error.as_deref() {
+                log::warn!(
+                    "[chat-send] send_id={} tab={} failed: {}",
+                    status.send_id,
+                    status.tab_id,
+                    error
+                );
+            }
+        });
+        Ok(response)
+    }
+
+    pub(crate) fn reserve_user_send(
+        &self,
+        tab_id: &str,
+        client_token: Option<String>,
+    ) -> Result<UserReservation, String> {
+        self.reserve_user_send_with_replay_only(tab_id, client_token, false)
+    }
+
+    pub(crate) fn reserve_user_send_with_replay_only(
+        &self,
+        tab_id: &str,
+        client_token: Option<String>,
+        replay_only: bool,
+    ) -> Result<UserReservation, String> {
+        let authority = self.user_send_authority(tab_id)?;
+        if let Some(service) = self.app_handle.try_state::<super::super::ServiceState>() {
+            let weak = Arc::downgrade(service.inner());
+            *self.chat_send_ledger.owner.lock() = Some(weak.clone());
+            let tab = tab_id.to_string();
+            self.pending_delivery_payloads
+                .user_sends
+                .set_admission_wake(
+                    tab_id,
+                    Arc::new(move || {
+                        if let Some(service) = weak.upgrade() {
+                            service.wake_user_owner(
+                                &tab,
+                                super::super::parked_user_delivery::UserWake::Housekeeping,
+                            );
+                        }
+                    }),
+                );
+        }
+        // This short reservation is the service ordering point, before asynchronous preparation.
+        self.pending_delivery_payloads
+            .user_sends
+            .reserve_with_replay_only(authority, client_token, replay_only, || {
+                self.chat_send_ledger.reserve_identity()
+            })
+    }
+
+    pub(crate) fn prepare_and_admit_user_send(
+        &self,
+        reservation: UserReservation,
+        original: String,
+        run_stages: bool,
+    ) -> Result<super::super::agent_pad::ChatSendResult, String> {
+        if reservation.wait_existing()? {
+            let status = self
+                .chat_send_ledger
+                .status(&reservation.send_id)
+                .ok_or("admission_unknown: original token has no retained ledger result")?;
+            return Ok(super::super::agent_pad::ChatSendResult::new(status, None));
+        }
+        if original.len() > MAX_PREPARED_BYTES {
+            return Err("user original exceeds 4 MiB storage bound".into());
+        }
+        let (prepared, returned) = self.prepare_chat_send_text(
+            &reservation.authority.tab_id,
+            original.clone(),
+            run_stages,
+        )?;
+        let body = returned
+            .as_ref()
+            .map(|path| self.capture_prepared_user_body(&reservation.authority.tab_id, path))
+            .transpose()?;
+        let (status, owned) =
+            self.admit_prepared_user_send(reservation, &original, &prepared, body)?;
+        Ok(super::super::agent_pad::ChatSendResult::new(status, owned))
+    }
+
+    fn capture_prepared_user_body(
+        &self,
+        tab_id: &str,
+        returned: &std::path::Path,
+    ) -> Result<PreparedUserBody, String> {
+        let pad_root = self.agent_pad_data_dir.join("runtime").join("agent-pads");
+        let pad = pad_root.join(tab_id);
+        let inbox = pad.join("inbox");
+        if returned.parent() != Some(inbox.as_path())
+            || !std::fs::symlink_metadata(&pad)
+                .map_err(|_| "prepared tab scope unavailable")?
+                .file_type()
+                .is_dir()
+            || !std::fs::symlink_metadata(&inbox)
+                .map_err(|_| "prepared inbox scope unavailable")?
+                .file_type()
+                .is_dir()
+        {
+            return Err("prepared body does not belong to the exact returned tab inbox".into());
+        }
+        let root = pad_root
+            .canonicalize()
+            .map_err(|_| "prepared root scope unavailable")?;
+        let canonical_pad = pad
+            .canonicalize()
+            .map_err(|_| "prepared tab scope unavailable")?;
+        if canonical_pad.parent() != Some(root.as_path()) {
+            return Err("prepared tab escaped its owner scope".into());
+        }
+        let expected = inbox
+            .canonicalize()
+            .map_err(|_| "prepared inbox scope unavailable")?;
+        if expected.parent() != Some(canonical_pad.as_path()) {
+            return Err("prepared inbox escaped its tab scope".into());
+        }
+        if !std::fs::symlink_metadata(returned)
+            .map_err(|_| "prepared body unavailable")?
+            .file_type()
+            .is_file()
+        {
+            return Err("prepared body is not an owned regular file".into());
+        }
+        let actual = returned
+            .canonicalize()
+            .map_err(|_| "prepared body scope unavailable")?;
+        if actual.parent() != Some(expected.as_path()) {
+            return Err("prepared body escaped the returned inbox scope".into());
+        }
+        let bytes = super::super::pending_delivery_payloads::user_sends::read_bounded(
+            &actual,
+            MAX_PREPARED_BYTES as u64,
+        )?;
+        Ok(PreparedUserBody {
+            returned_path: returned.to_path_buf(),
+            bytes,
+        })
+    }
+
+    fn admit_prepared_user_send(
+        &self,
+        reservation: UserReservation,
+        original: &str,
+        prepared: &str,
+        body: Option<PreparedUserBody>,
+    ) -> Result<(ChatSendStatus, Option<std::path::PathBuf>), String> {
+        if reservation.wait_existing()? {
+            let status = self
+                .chat_send_ledger
+                .status(&reservation.send_id)
+                .ok_or("admission_unknown: original token has no retained ledger result")?;
+            return Ok((status, None));
+        }
+        let store = &self.pending_delivery_payloads.user_sends;
+        let final_transport = store.final_transport(&reservation, prepared, body.as_ref())?;
+        let follow_up = self
+            .agent_registry
+            .with_provider(&reservation.authority.provider_id, |provider| {
+                provider.paste_capability().and_then(|capability| {
+                    capability
+                        .typed_follow_up_for(&final_transport)
+                        .map(str::to_string)
+                })
+            })
+            .flatten();
+        let held_before_readiness = !self.user_authority_is_ready(&reservation.authority);
+        let record = store.admit_with_follow_up(
+            &reservation,
+            original,
+            prepared,
+            body,
+            follow_up,
+            held_before_readiness,
+        )?;
+        let status = self.chat_send_ledger.admit_user(&record);
+        let status = if held_before_readiness {
+            self.chat_send_ledger
+                .set_user_pending_reason(&record.send_id, Some("awaiting_agent_ready"))
+                .unwrap_or(status)
+        } else {
+            status
+        };
+        let path = store
+            .body_path(&record)?
+            .map(|path| {
+                path.to_str()
+                    .map(|text| {
+                        std::path::PathBuf::from(codeterm_paths::strip_verbatim_prefix(text))
+                    })
+                    .ok_or_else(|| {
+                        "admission_unknown: durable body path cannot be represented".to_string()
+                    })
+            })
+            .transpose()?;
+        crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+        let tab = record.authority.tab_id.clone();
+        if self.user_authority_is_ready(&record.authority) {
+            if let Some(pty_id) = record.authority.pty_id.as_deref() {
+                let claim = super::super::pty_io::submit_transaction::claim_submit_cycle(pty_id);
+                self.chat_send_ledger
+                    .store_user_submit_claim(&record.send_id, claim);
+            }
+        }
+        drop(reservation);
+        self.wake_user_owner(
+            &tab,
+            super::super::parked_user_delivery::UserWake::Admission,
+        );
+        Ok((status, path))
+    }
+
+    pub(crate) fn chat_send_turn_evidence(&self, tab_id: &str, text: &str) -> String {
+        let provider_id = self.mux.read().get_tab(tab_id).and_then(|tab| {
+            matches!(&tab.backing, crate::multiplexer::types::TabBacking::Pty)
+                .then(|| tab.agent_type.clone())
+                .flatten()
+        });
+        let Some(provider_id) = provider_id else {
+            return text.to_string();
+        };
+        let sanitized = crate::service::pty_io::sanitize_agent_prompt_input(text);
+        let follow_up = self
+            .agent_registry
+            .with_provider(&provider_id, |provider| {
+                provider
+                    .paste_capability()?
+                    .typed_follow_up_for(&sanitized)
+                    .map(str::to_string)
+            })
+            .flatten();
+        follow_up.map_or_else(
+            || text.to_string(),
+            |follow_up| format!("{sanitized}{follow_up}"),
+        )
+    }
+}

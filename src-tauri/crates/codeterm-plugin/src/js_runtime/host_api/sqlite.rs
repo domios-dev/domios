@@ -12,6 +12,7 @@ const SQLITE_RESULT_MAX_BYTES: usize = 64 << 20;
 pub(super) fn host_query(
     ctx: &rquickjs::Ctx<'_>,
     sandbox: &super::PluginSandbox,
+    observation: &super::super::provider_observation::ProviderObservation,
     db: &str,
     sql: &str,
     params_json: Option<&str>,
@@ -19,6 +20,16 @@ pub(super) fn host_query(
     if !sandbox.can_read(db) {
         log::warn!("[plugin] denied sqliteQuery outside sandbox: {db}");
         return Ok(None);
+    }
+    if let Some(compatibility) = observation.sqlite_compatibility(sandbox) {
+        if compatibility.verdict != crate::provider_compat::CompatibilityVerdict::Supported {
+            log::warn!(
+                "[provider-compatibility] direct_sqlite disabled verdict={:?} reasons={:?}",
+                compatibility.verdict,
+                compatibility.reasons
+            );
+            return Ok(None);
+        }
     }
     query_all_json(db, sql, params_json, SQLITE_RESULT_MAX_BYTES).map_err(|error| {
         log::warn!("[plugin] {error} (db {db})");
@@ -41,19 +52,27 @@ fn query_all_json(
         },
         None => Vec::new(),
     };
-    let Ok(conn) = rusqlite::Connection::open_with_flags(
+    let conn = match rusqlite::Connection::open_with_flags(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    ) else {
-        return Ok(None);
+    ) {
+        Ok(conn) => conn,
+        Err(error) => {
+            log::debug!("[sqlite-session-probe] stage=open db={db_path} error={error}");
+            return Ok(None);
+        }
     };
     // SQLite refuses to load a value past this length instead of allocating it.
     conn.set_limit(
         Limit::SQLITE_LIMIT_LENGTH,
         i32::try_from(max_bytes).unwrap_or(i32::MAX),
     );
-    let Ok(mut stmt) = conn.prepare(sql) else {
-        return Ok(None);
+    let mut stmt = match conn.prepare(sql) {
+        Ok(stmt) => stmt,
+        Err(error) => {
+            log::debug!("[sqlite-session-probe] stage=prepare db={db_path} error={error}");
+            return Ok(None);
+        }
     };
     let col_names: Vec<String> = (0..stmt.column_count())
         .map(|i| {
@@ -64,8 +83,12 @@ fn query_all_json(
         .collect();
     let bound: Vec<Box<dyn rusqlite::ToSql>> = params.into_iter().map(bind_param).collect();
     let bound_refs: Vec<&dyn rusqlite::ToSql> = bound.iter().map(|b| b.as_ref()).collect();
-    let Ok(mut rows) = stmt.query(rusqlite::params_from_iter(bound_refs)) else {
-        return Ok(None);
+    let mut rows = match stmt.query(rusqlite::params_from_iter(bound_refs)) {
+        Ok(rows) => rows,
+        Err(error) => {
+            log::debug!("[sqlite-session-probe] stage=query db={db_path} error={error}");
+            return Ok(None);
+        }
     };
 
     let mut out: Vec<u8> = vec![b'['];
@@ -74,7 +97,10 @@ fn query_all_json(
             Ok(Some(row)) => row,
             Ok(None) => break,
             Err(error) if is_too_big(&error) => return Err(value_too_big(max_bytes)),
-            Err(_) => break,
+            Err(error) => {
+                log::debug!("[sqlite-session-probe] stage=row db={db_path} error={error}");
+                return Ok(None);
+            }
         };
         if out.len() > 1 {
             out.push(b',');

@@ -1,12 +1,12 @@
 [package]
 name = "codeterm"
-version = "1.12.3"
+version = "1.14.0"
 edition = "2021"
 default-run = "codeterm"
 
 [workspace]
-members = [".", "crates/codeterm-types", "crates/codeterm-util", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins"]
-exclude = ["pty-fork"]
+members = [".", "crates/codeterm-types", "crates/codeterm-util", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage"]
+exclude = ["pty-fork", "vendor/tauri-runtime-wry"]
 resolver = "2"
 
 [dependencies]
@@ -36,7 +36,8 @@ codeterm-plan = { path = "crates/codeterm-plan" }
 codeterm-bridge = { path = "crates/codeterm-bridge" }
 codeterm-pty = { path = "crates/codeterm-pty" }
 codeterm-plugin = { path = "crates/codeterm-plugin" }
-log = "0.4"
+codeterm-storage = { path = "crates/codeterm-storage" }
+log = { version = "0.4", features = ["release_max_level_info"] }
 fern = "0.7"
 parking_lot = "0.12"
 base64 = "0.22"
@@ -57,6 +58,8 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 async-stream = "0.3"
 futures-core = "0.3"
 futures-util = "0.3"
+# Native async WebSocket framing shares Tokio's runtime; sidecars use loopback without TLS.
+tokio-tungstenite = "0.28"
 futures-executor = "0.3"
 png = "0.17"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
@@ -122,14 +125,17 @@ fastembed = { version = "5", optional = true, features = ["ort-load-dynamic"] }
 [target.'cfg(windows)'.dependencies]
 conpty = "0.7"
 clipboard-win = "5"
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
+codeterm-types = { path = "crates/codeterm-types", features = ["decision-fixture-clock"] }
 mockito = "1"
 filetime = "0.2.29"
 vt100 = "0.16"
 # Enables PlanStore::new_for_test + TestSearchPort in the app's test build only.
 codeterm-plan = { path = "crates/codeterm-plan", features = ["test-support"] }
+# Writer hold gates and fault injection for the storage_contract_ tests only.
+codeterm-storage = { path = "crates/codeterm-storage", features = ["test-support"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -163,6 +169,10 @@ path = "src/bin/codeterm_embed.rs"
 name = "parser-eval"
 path = "src/bin/parser_eval.rs"
 
+[[bin]]
+name = "storage-verify"
+path = "src/bin/storage-verify.rs"
+
 # Build-speed profiles (round-16 build audit). dev: unpacked split-debuginfo
 # skips dSYM packing on macOS (faster links); line-tables keep usable
 # backtraces at a fraction of the debuginfo; deps carry no debuginfo at all.
@@ -185,3 +195,6 @@ debug = false
 [[bin]]
 name = "convert-plan-storage"
 path = "../scripts/convert-plan-storage.rs"
+
+[patch.crates-io]
+tauri-runtime-wry = { path = "vendor/tauri-runtime-wry" }

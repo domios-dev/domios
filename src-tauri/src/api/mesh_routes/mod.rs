@@ -123,23 +123,14 @@ pub async fn mesh_add_manual(
     Json(body): Json<AddManualBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let peer = crate::mesh::types::DiscoveredPeer {
-        instance_id: format!("manual-{}", uuid::Uuid::new_v4()),
-        instance_name: format!("{}:{}", body.address, body.port),
-        addresses: vec![crate::mesh::types::PeerAddress::from_ip(&body.address)],
-        api_port: body.port,
-        discovery_method: crate::mesh::types::DiscoveryMethod::Manual,
-        last_seen: now,
-        dev: false,
-        mesh_id: None,
-        vouched_by: Vec::new(),
-    };
-    let id = peer.instance_id.clone();
-    state.mesh.lock().discovered_peers.insert(id.clone(), peer);
+    let ip = body
+        .address
+        .parse::<std::net::IpAddr>()
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid peer IP"))?;
+    let address = std::net::SocketAddr::new(ip, body.port);
+    let id = crate::mesh::manual::discover_at(&state.mesh, address, None)
+        .await
+        .map_err(|_| (StatusCode::BAD_GATEWAY, "Peer identity discovery refused"))?;
     crate::api::events::emit_everywhere(
         &state.svc.app_handle,
         "mesh-state-changed",

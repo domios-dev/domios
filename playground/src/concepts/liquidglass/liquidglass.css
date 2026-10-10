@@ -6,7 +6,7 @@
 @import "tailwindcss/utilities.css" layer(utilities);
 @source ".";
 
-/* Faithful CodeTerm design tokens (github-dark defaults + timing), scoped so
+/* Faithful Domios design tokens (github-dark defaults + timing), scoped so
    nothing leaks into the sibling playground. See src/styles/tokens.css and
    src/lib/themeCss.ts for the source of truth. */
 .lg-lab {

@@ -14,14 +14,22 @@ pub(super) fn tab_pending_prompt_kind(
         .and_then(|tab| tab.pending_prompt_kind)
 }
 
+pub(super) fn tab_trust_has_provenance(svc: &ServiceContext, tab_id: &str) -> bool {
+    svc.mux
+        .read()
+        .get_tab(tab_id)
+        .is_some_and(|tab| crate::service::directory_trust::directory_trust_provenance(tab).is_ok())
+}
+
 pub(super) fn should_end_on_blocking_prompt(
     kind: &AgentRunKind,
     provider_prompt_pending: bool,
     pending_prompt_kind: Option<codeterm_types::pty::PromptKind>,
+    trust_has_provenance: bool,
 ) -> bool {
     matches!(kind, AgentRunKind::MemWorker { .. })
         && match pending_prompt_kind {
-            Some(codeterm_types::pty::PromptKind::DirectoryTrust) => true,
+            Some(codeterm_types::pty::PromptKind::DirectoryTrust) => !trust_has_provenance,
             Some(
                 codeterm_types::pty::PromptKind::Provider
                 | codeterm_types::pty::PromptKind::Structured,

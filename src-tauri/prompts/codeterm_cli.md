@@ -1,9 +1,9 @@
-# CodeTerm CLI reference
+# Domios CLI reference
 
 <!-- Do not document commands or flags that don't exist. Full generated
      reference: generated/cli/cli.md; the validation contract is .agents/skills/cli-contributor/SKILL.md. -->
 
-You are inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `codeterm`. Detail is discoverable: run `codeterm <cmd> --help` for flags. Use codeterm docs <NAME>; it returns the complete document. Use codeterm docs or codeterm docs --help to discover available names. This section carries only invariants and the capability map.
+You are inside Domios, an AI-first terminal multiplexer. CLI binary: `codeterm`. Detail is discoverable: run `codeterm <cmd> --help` for flags. Use codeterm docs <NAME>; it returns the complete document. Use `codeterm docs` or `codeterm docs --help` to discover available names. This section carries only invariants and the capability map.
 
 Env vars ALWAYS set in every tab: `$CODETERM=1`, `$CODETERM_TAB_ID` (your internal tab id), `$CODETERM_SOCKET_PATH`, `$CODETERM_API_URL`, `$CODETERM_API_PORT`, `$CODETERM_SESSION_BINDING_NONCE`.
 
@@ -11,101 +11,76 @@ Env vars set CONDITIONALLY, only when the tab actually has that identity — tes
 
 ## Hard invariants
 
-- DISCOVERY HABIT: CLI FIRST, ALWAYS. For anything CodeTerm-related, run `codeterm <cmd> --help` and read the owning document BEFORE curling APIs, grepping source, or reading repo/doc files. If a `codeterm` verb exists for it, the verb is the answer — never raw `curl /api/...`, never spelunking `~/.codeterm*` internals.
+- DISCOVERY HABIT: CLI FIRST, ALWAYS. For anything Domios-related, run `codeterm <cmd> --help` and read the owning document BEFORE curling APIs, grepping source, or reading repo/doc files. If a `codeterm` verb exists for it, the verb is the answer — never raw `curl /api/...`, never spelunking `~/.codeterm*` internals.
 - INTERACTIVE DISCOVERY STAYS HUMAN-READABLE. Use plain `codeterm tab list` for the complete local workspace → Team/Plan → Tab map, including empty workspaces, and preserve `(self)`; pass `--workspace <id>` when one workspace's scoped tree is intended. Inspect one selected tab with `codeterm tab inspect <id>`; add `--lifecycle` only for its journal telemetry. Never request whole-list JSON merely to orient yourself; it is an automation contract.
+- `codeterm tab release-ownership` frees a local tab from stale remote control.
 - TAB IDENTITY: a tab title is one word with no whitespace. Put activity prose in `description`, using `--description` when spawning an agent or `codeterm tab describe` for an existing tab.
 - ROUTING: Follow the host-supplied return hint (see `codeterm docs ROUTING`): agent senders use its command; shell senders get a reply in your own chat/output.
 - WORKSPACE INHERITANCE IS AUTOMATIC. `tab new`, `agent spawn`, and `cron create` land in YOUR workspace — the one that owns your tab — never in the workspace the user happens to have selected in the UI. Pass `--workspace <id>` only to place work in a different workspace on purpose.
+- UTILITY SHELL PURPOSE: `tab new --purpose build|dev|qa|deploy|logs|db|shell` labels the shell in the sidebar (default `shell`). Use build for builds, dev for servers, qa for checks, deploy for releases, logs for tails, db for database consoles. Purpose survives `tab restart` and desk restore. Running/idle and last exit come only from shell command marks; no evidence stays unknown.
+- LINUX TOOLING: when a task needs Linux tooling or reproduces a Linux-only failure, open a utility shell with `tab new --shell wsl:<distro>` (`tab new --list-shells` lists options); agents themselves run natively.
 - TEAM CONTAINMENT IS AUTOMATIC. From a live Team tab, ordinary `tab new` shells and `cron create` jobs inherit that Team. Use `--no-team` only when the work must deliberately outlive Team cleanup; `--team <id>` remains the explicit cross-check for a named Team.
 - `chat_backend` TABS HAVE NO SHELL. Check `backing.kind` in `tab list` before instructing a tab to run commands; send chat text instead.
 - DELAYED SEND IS NOT THE DEFAULT. `codeterm send` is immediate; `--delay`/`--at` are for user-requested future delivery. `send --every` repeats into an EXISTING tab (monitor/watcher); cron spawns a FRESH agent per scheduled run. With `--mesh`, recurring delays require the target to advertise `delayed_recurrence`; an incapable peer is refused, so update it or send a one-shot explicitly.
-- NEVER HARDCODE MODEL IDS. Discover with `codeterm agent providers` / `codeterm agent models <provider>`.
-- `codeterm agent models <provider>` refreshes catalogues that require live discovery before listing them.
+- NEVER HARDCODE MODEL IDS. Discover with `codeterm agent providers` / `codeterm agent models <provider>`, which refreshes live-discovery catalogues before listing.
 - MODEL SELECTION: `--model` is validated through each provider's catalogue capability. Authoritative catalogues refuse unknown ids before creating a tab and show close ids; free-form providers keep provider-owned ids. If a required live catalogue is unavailable, the requested id is preserved and the response carries a warning.
-- LIVE MODEL SWITCH: `codeterm agent model --tab TAB MODEL` relaunches that idle tab on its own verified session. A ready relaunch succeeds with `model_confirmation: "pending"` if no model is reported by the current launch report or first post-relaunch turn before the deadline; its label follows the first turn when it arrives.
+- LIVE MODEL SWITCH: `codeterm agent model --tab TAB MODEL` relaunches that idle tab on its own verified session; `model_confirmation: "pending"` means no model was reported before the deadline, and the label follows the first turn.
+- SESSION FORK: `codeterm agent fork --tab TAB` opens a separate tab when its provider declares forking. Its session stays pending until that new launch supplies its own evidence. With `background_work_guard` enabled, model switches refuse running background work; an explicit `--force` override reports the affected items.
 - Version/quota questions: `codeterm identify` (not `--version`, not curl) and `codeterm usage latest` (never `ccusage` or parsing `~/.claude`).
 - System sleep: `codeterm keepawake ...` — never `caffeinate`/`powercfg`/`systemd-inhibit`.
 - AGENT-TO-AGENT TRAFFIC IS ENGLISH (task bodies, reports, cron tasks, mesh messages); only user-facing channels carry the user's language.
 - SECRETS NEVER GO TO MEM — `codeterm mem secret` / `codeterm docs SECRETS`.
+- Message and pad file options accept `-` for UTF-8 stdin: `send --from-file -`, `--from-pad -`, `plan task remote-report --message-file -`.
 
 ## Capability map — where to look when the task mentions…
 
-| Domain / trigger | Commands | Depth |
+Each command's `--help` has the flags; the Docs column has the depth.
+
+| Task mentions… | Use | Docs |
 |---|---|---|
-| Environment, version, what-can-this-do | `codeterm identify`, `capabilities`, `docs` | — |
-| Tabs, sending text, reading a tab | Plain `tab list` first for the complete local workspace map; use `--workspace <id>` for a scoped tree, then inspect one selected tab with `tab inspect --tab <ID>` and `tab get-text --tab <ID>`. Answer only a numbered prompt confirmed by the tab's declared provider classifier and current screen with `tab respond OPTION --tab <ID>`; if it remains, reread and escalate without raw keys. Use `tab chat` for chat backends and `tab exec` only for explicitly authorized commands. Recover stale provider-session binding with `tab rebind SESSION_ID --tab <ID>`. When the user reports that this live tab has the wrong provider identity, run `codeterm tab repair --from-evidence`; use `--from-journal` when prior lifecycle provenance is the intended source. Repair verifies the tab's own session, does not restart it, and only self or the task's Plan owner may target it. To keep a live foreign agent PTY and make `send --from-pad` a routed agent message, run `codeterm tab adopt-agent --tab ID --provider <id>`; a login shell is refused unless the owner passes `--force`. Never inject task or ACK prose into an unverified shell or picker. | `docs ROUTING` |
-| Long-running processes (servers, watchers) | `tab new --cmd "..."`; later use `tab restart --tab ID --cmd "..."` to replace that shell without creating another tab | — |
-| Scheduled/future message to a tab | `send --delay/--at`, `delayed --help` | — |
-| Spawning agents, worker/orchestrator shapes, reports | `agent spawn --help`, `agent startup-ack`, `agent startup-hold`, `agent report`, `agent providers/models` | `codeterm docs ORCHESTRATION` |
-| Becoming an Orchestrator | You are not automatically an Orchestrator. Use the tab menu Make Orchestrator action or the `--role Orchestrator` flag. | as above |
-| Plans, specs, tasks, strides, canvas | `plan --help`, `spec --help`, `task --help` | as above |
-| Recurring/oneshot jobs | `cron create --help` (read it first — flags evolve) | `docs CONFIG` |
-| Telegram / bridges | `bridge send --to ID --service telegram "..."`; long answers: first send, then `--append` parts. A tab's send lands in its own topic; `bridge thread open` prints one relayable sentence; only the General Agent may add `--tab ID` for another tab | `docs TELEGRAM-SETUP` |
-| Remote machines (mesh) | see Mesh block below | `docs MESH` |
-| Memory, remember/recall, skills | see Mem block below | `docs MEMORY` |
-| Past chat sessions | `sessions search/get/resume` (resume handles cwd — never hand-craft `--resume`) | — |
-| Services/daemons registry | `service --help` | `docs MESH` |
-| Config keys | `config get <key>` (dot-notation) or bare `config get` to dump the whole redacted config; `config set` (JSON values) | `docs CONFIG` |
-| Desktop notifications | `notify send "title" [--from-pad PATH] [--severity info\|warning\|error] [--level verbose\|action_needed\|failure] [--event-key ..] [--choice LABEL]...` is canonical; `notify list` / `notify clear`. `send` is required — there is no bare `notify "title"`. The body is read only from the calling tab's AgentPad; an inline body is refused at parse time. `--level` takes only those three values; `verbose` is progress, `action_needed` is waiting on the user, `failure` is a stop | `docs CONFIG` |
+| Version, abilities, documents | `identify`, `capabilities`, `docs` | — |
+| Tabs: list, read, search, send | `tab list`, then `tab inspect` / `tab get-text --tab <ID>`; `tab search <PATTERN>` spans every workspace; `send`; chat backends: `tab chat`; a numbered prompt the provider classifier confirmed: `tab respond OPTION --tab <ID>` | `docs ROUTING` |
+| A tab with a wrong or stale agent binding | `tab rebind`, `tab repair --from-evidence`, `tab adopt-agent` (read `--help` first). Never type task or ACK text into an unverified shell or picker | `docs ROUTING` |
+| Servers, watchers | `tab new --purpose dev --cmd "..."`; replace it with `tab restart --tab ID --cmd "..."` | — |
+| Agents: spawn, restart, switch provider, report | `agent spawn`, `agent restart`, `agent report`, `agent providers` / `agent models` | `docs ORCHESTRATION` |
+| Becoming an Orchestrator | Tab menu Make Orchestrator, or `--role Orchestrator` | `docs ORCHESTRATION` |
+| Plans, specs, tasks | `plan --help`, `spec --help`, `task --help` | `docs PLAN-EDITING` |
+| Delayed or repeated message to a tab | `send --delay` / `--at` / `--every`, `delayed --help` | — |
+| Scheduled jobs (fresh agent per run) | `cron create --help`; a short meaningful name is required | `docs CONFIG` |
+| Watch CI, builds, files, agents and act | `blueprint recipe`, then `--dry-run` | `docs BLUEPRINTS` |
+| Telegram | `bridge send --to ID --service telegram "..."`; long answers continue with `--append` | `docs TELEGRAM-SETUP` |
+| Remote machines | Mesh block below | `docs MESH` |
+| Memory, skills | Memory block below | `docs MEMORY` |
+| Spinal Cord (Supporter Agent): explain, connect, verify, disconnect | `supporter --help` (`spinal-cord` alias) | `codeterm docs SPINAL-CORD` |
+| Past chats | `sessions search` / `get` / `resume` (never hand-craft `--resume`) | — |
+| Config | `config get [key]`, `config set` | `docs CONFIG` |
+| Notifying the user | `notify send "title" --from-pad PATH --level verbose\|action_needed\|failure` | `docs CONFIG` |
+| Plugins, provider CLIs | `plugin list` / `install` / `update`, `agent cli status <provider>` | `docs API-CLI` |
+| Plugin app tabs (surfaces) | `surface list`, `surface open <plugin>:<surface>`, `surface close --tab <ID>`; surfaces take no `send` | `docs SURFACES` |
+| Model endpoints, presets | `model-provider --help`; keys go in on stdin only | `docs INTEGRATIONS` |
 | Updates | `update check`, `update install --auto` | — |
-| Source-backed essence map | `essence-map generate`, `essence-map validate`, `essence-map record --summary .. --reason ..`, `essence-map release-summary [--since decision-N]`, `essence-map revert --to decision-N`; validates stable essence `map` anchors against the generated node ids | `docs ESSENCE-MAP` |
-| Plugins/providers | `plugin list/install/update/update-system` | `codeterm docs API-CLI` |
-| Provider launch artifacts | `codeterm integration sweep-profiles --provider <id> [--confirm] [--include-legacy]` | Dry run lists this instance's dead artifacts and unmarked legacy files; deletion requires `--confirm`. `--include-legacy` also deletes every unmarked file regardless of tab liveness |
-| Cross-machine payload handoff | `paste put`, then `paste get <id>` / `paste rm <id>` (id may be bare `fpu2zp` or `paste:fpu2zp` — both resolve); `--pop` for one-shot (in-memory, TTL) — not `mem save` | — |
-| Keep system awake | `keepawake start/stop/status` | — |
+| Payload between machines | `paste put`, `paste get <id>` (not `mem save`) | — |
+| Services registry | `service --help` | `docs MESH` |
+| Essence map | `essence-map --help` | `docs ESSENCE-MAP` |
+| Provider launch leftovers | `integration sweep-profiles --provider <id>` is a dry run; only the owner adds `--confirm` | — |
+| Keep the machine awake | `keepawake start` / `stop` / `status` | — |
 
-## Plan/task quick flags — the intuitive guesses that are WRONG
+Plans, tasks, Teams: `codeterm plan --help` / `codeterm task --help` / `codeterm team --help`, with the full rules in `codeterm docs PLAN-EDITING` and `codeterm docs ORCHESTRATION`. Orchestrator, Planner and Worker launches carry their own flag contract.
 
-These are the plan/task flags agents most often guess by analogy and get wrong.
-Verified against the clap tree; `codeterm <cmd> --help` has the rest. The command
-words below resolve; the flags are the corrections.
-
-Task-bound Workers use `codeterm agent ack` to move their assigned task to in-progress. A repeated acknowledgement reports already acknowledged for the same task and attempt, without changing the assignment.
-
-- `codeterm plan create --title "..."` — NO `--goal`. Optional `--from-spec <id>`, `--kinds`, `--project`. The goal is set separately, after creation. A Team-bound caller without `--project` uses its Team workspace cwd.
-- Message and pad file options accept `-` to read UTF-8 stdin, including `plan task dispatch --message-file -`, `send --from-file -`, and `--from-pad -`.
-- `codeterm plan goal set <plan> "<goal>" --vector "<how success is proven>"` — the goal text is an optional trailing positional; `--vector` is REQUIRED. `--vision`/`--vision-file`, `--constraint`, `--postulate` are optional.
-- `codeterm plan task add <plan> --name "..." --sections <csv> --criterion "..."` — the flags are `--name` (NOT --title), `--sections` (NOT --section), `--criterion` (repeatable; NOT --acceptance). Body: `--body`/`--body-file`. Quality (each has a `-file` twin): `--test-plan`/`--test-plan-file`, `--correctness`/`--correctness-file`, `--qa-plan`/`--qa-plan-file`, `--criterion-file`. Worker contract: `--executor-role`, `--personality`, and `--role-guidance`/`--role-guidance-file` are REQUIRED, and `update` refuses to blank any of them. Routing stays optional: `--model <provider>:<model>`, `--why`, `--intent`. Here `--execution-intent` is the enum `repository_mutation|non_repository`.
-- `codeterm plan task dispatch <plan> <task> --execution-intent read_only|mutating` — NO `--brief`. The brief IS the task body (delivered on dispatch); to add more, pass `--from-pad` on the spawned agent. `--execution-intent` is a REQUIRED enum (`read_only|mutating`, distinct from task-add's enum), not free text. Repeat `--authorized-gate <token>` to grant exact gate-claim tokens; omit it to grant none. `--canonical-writer` (mutating only) is the explicit opt-in that places this one Worker in the canonical checkout as its exclusive writer: never inferred, refused while another live attempt occupies canonical, and lane acceptance waits for its verdict. Its readiness report is validated against the plan's canonical checkout by the attempt placement, requires its SHA to match canonical `HEAD`, and refuses any dirt even with `--acknowledge-dirty`; an unresolved lane attempt still gets the lane worktree refusal.
-- For a paired peer, add global `--mesh <peer>` to `plan task dispatch` with `--execution-intent mutating`. The attempt, ACK, report, and review stay on the origin; after accepting the report, run `codeterm plan task merge-remote-lane <plan> <task> <attempt>` on the origin to fetch the authenticated lane bundle and create a real merge commit.
-- `codeterm agent spawn <provider> --role Worker --unplanned --reason "<why>" [--task "<brief>"]` — exceptional dispatch for small, urgent, or exploratory work. The daemon creates a visible `unplanned: <reason>` task in the caller's bound Plan and dispatches it through the task lifecycle. A reason is required; a Team without a bound Plan and non-Orchestrator callers are refused.
-- `codeterm plan task update <plan> <task> --model <provider>:<model>` — `--model` is a free-form routing string stored verbatim (e.g. `claude:haiku`); a bare provider like `claude` is accepted but only resolves to a concrete model later, at dispatch. Same quality/persona flags as add, EXCEPT `--criterion`/`--criterion-file`: on `update` they APPEND to the existing acceptance-criteria array by default — pass `--replace-criteria` to explicitly replace it wholesale instead (reports before/after counts).
-- `codeterm agent spawn <provider> --role Worker --plan <plan> --execution-intent read_only --authorized-gate "<command>"` — the canonical verification Worker. `--plan-task` is NOT required and must NOT be passed: the plan's implementation task keeps its own owner. It owns no task, so it reports to `--parent-tab`/`--report-to` WITHOUT `--status` (a report naming a task it does not hold is refused and writes nothing), and repeated `--authorized-gate` is its whole command scope, delivered in its brief. A plain Worker with `--execution-intent mutating` and no task binding is REFUSED; `--unplanned --reason` is the exceptional dispatched-task path.
-- `codeterm plan review authorize-reporter <plan> <tab> --class review|canonical_qa` — the live Plan owner grants a task-less tab evidence-only reporting authority tied to its current session and binding nonce. That tab reports with `codeterm agent report --plan <plan>` and no `--task`/`--status`; success appends a plan stride and reaches the Orchestrator without granting Planner edits, task ownership, or a transition. A rebound session must be authorized again.
-- `codeterm agent spawn --role Planner --plan <plan>` — `--parent-tab` is optional here: when omitted, the parent is resolved from the plan's live Orchestrator owner instead of being refused. An explicit `--parent-tab` still wins when given.
-- `codeterm plan task show <plan> <task>` (or `codeterm task show <task>`) — the task-body reader (body, criteria, test_plan, correctness, executor_role, sections). Every `<task>` argument accepts the `task_xxxxxx` id, the handle, or the human key (`COD-12`); an ambiguous reference is refused, never guessed.
-- `codeterm plan task split <plan> <task> --child "name" [--child "name" ...]` or `--from-file children.json` — the file is a JSON array of child objects with `name`, optional `body`, `criteria` string array, `test_plan`, `sections` (array or CSV), and routing overrides; omitted fields inherit from the parent. Dispatch children separately. Workers propose splits in reports and never spawn sub-Workers.
-- `codeterm plan mode <plan> <mode>` — the mode is a trailing positional OR `--set <mode>`; values `planning|approved|execution|complete`.
-- `codeterm plan review accept <plan> <task> --note "..."`, `codeterm plan review bounce <plan> <task> --note "..."`, `codeterm plan review hold <plan> <task> --note "..."` — every review verdict requires `--note`, never `--reason`; `bounce` returns work to the Worker when its continuation is available, or reopens the task as pending with its attempt history and lane when the Worker is gone; `hold` preserves its assignment while the review remains open.
-- `codeterm plan in-progress [PLAN_ID]` — the bare form scopes to the current directory's project; a named plan ignores that ambient project, and `--all` lists every project.
-- `codeterm tab search <PATTERN>` — searches every workspace and labels each hit with its workspace; `--mesh PEER` applies the same rule on that peer.
-- `codeterm team pair --orchestrator <provider[:model]> --planner <provider[:model]>` — there is NO `team create`; a Team is minted at plan creation or via `team pair`. Team verbs: `list|show|rename|close|adopt-plan|adopt-agent|attach-cartographer|pair`. `codeterm team close <team>` is the Team teardown path: it inventories lanes from every Team-owned task, removes clean lanes whose branch tip is an ancestor of the recorded destination, retains dirty or unmerged lanes as cleanup debt, and reports removed, kept, and worktree-less branches. It also removes every member, finalizes open attempts, deletes Team crons, and clears Team and plan routing. Closing a workspace with Team members runs this same Team teardown before closing the remaining tabs. The desktop and web close dialogs show the members, crons, and lanes affected; the REST route refuses headerless destructive close requests without a force flag and matching confirmation of the target. A Manager or Worker tab (a Team leaf) is refused unless it also passes `--acknowledge-leaf`, which attributes the new Team to that calling tab rather than to some other intermediary.
-- Agents CAN join a Team. `codeterm agent spawn <provider> --team <team-id>` attaches a fresh roleless agent (mirrors `tab new --team`); `codeterm team adopt-agent <team-id> <tab-id>` attaches one that is already running. Both authorize on YOUR OWN membership — `$CODETERM_TEAM_ID` must already be that Team — and refuse a non-member caller. `--team` is rejected with `--plan-task` (that binding carries its own Team) and is local-only, never with `--mesh`. Adopting a tab that already has a Team or a role is refused; `codeterm team show <team-id>` lists the member tabs.
-- A Team whose Orchestrator is gone gets a new one with `codeterm agent spawn <provider> --team <team-id> --role Orchestrator`. Removing the final Orchestrator retains the discoverable Team and active Plan identity/history so that command can still name them. It is the ONLY `--role` `--team` accepts, needs no `--workspace`, and carries no other spawn flag. The new Orchestrator takes the Team's active Plan over — owner and owner history move; descendant role bindings follow ordinary unlink rules. A takeover failure removes the spawned replacement and its lane without changing that retained Team or Plan history. A Team that still HAS a live Orchestrator refuses the second one by error code (`team_orchestrator_already_live`); a removed or dead Orchestrator does not count as live.
-
-Source of truth: this file (`src-tauri/prompts/codeterm_cli.md`) plus the generated `generated/cli/cli.md`; `~/.claude/skills/codeterm` mirrors the repo `skills/codeterm`.
+The owner's explicit `codeterm agent restart --tab <ID> --fresh` starts a new session in the same tab with its recorded model and effort. An existing exact restored session is refused; a live agent requires `--force`. Restore never makes this choice automatically.
 
 ## Mesh (remote peers)
 
-Flat peer model: paired = trusted. Most tab/agent/workspace commands accept `--mesh PEER` = "run against that peer's daemon". Flow: `mesh peers` → `tab list --mesh PEER` → act on remote ids. A peer's General Agent is always `--tab main --mesh PEER`; remote agents don't auto-reply — say "report back" explicitly. Pairing: `mesh connect|approve|reject|disconnect`; disconnect revokes the peer identity by default. Only the local owner can explicitly lift that revocation with `codeterm mesh unrevoke <instance-id>`; pairing never clears revocation implicitly. Make this machine discoverable to a NEW device with `mesh broadcast` (requires `mesh online`; tell the user when you toggle it). Visibility: `mesh offline` / `mesh online` (hot-reload, Tailscale untouched). Mesh spawn requires peer `--cwd`; it sends locally read `--task-file` contents.
+Flat peer model: paired = trusted. Most tab/agent/workspace commands accept `--mesh PEER` = "run against that peer's daemon". Flow: `mesh peers` → `tab list --mesh PEER` → act on remote ids. A peer's General Agent is always `--tab main --mesh PEER`; remote agents don't auto-reply — say "report back" explicitly. Pairing: `mesh connect|approve|reject|disconnect`; for differing API ports use `codeterm mesh connect <instance-id-or-name> --addr <ip:port>` to read the identity and send an owner-approved request; disconnect revokes the peer (only the local owner lifts it with `mesh unrevoke <instance-id>`). Make this machine discoverable to a NEW device with `mesh broadcast` (requires `mesh online`; tell the user when you toggle it). Visibility: `mesh offline` / `mesh online` (hot-reload, Tailscale untouched). Mesh spawn requires peer `--cwd`; it sends locally read `--task-file` contents.
 
 ## Memory (mem)
 
-Persistent vector + keyword store; hybrid search fuses FTS5 + embeddings on every query. Protocol:
-- All mem content is English (titles, bodies, queries) — the embedder is English-dominant; translate before saving, reply to the user in their language.
-- "Remember" (in any language) = run `mem save` now — acknowledging without saving loses it. Background workers handle classification/graph/dedup.
-- Search before answering about any person, project, or past event: `mem search "<query>"`; reformulate once (keyword → natural phrase) before giving up. Identity questions: `mem wake-up`.
-- Never guess ids — search first, then `mem get <real-id>`.
-- Facts change → save the new fact; no dates in bodies (timestamps are tracked).
+The Domios memory protocol is in your provider rules. Commands: `codeterm mem --help`; depth: `codeterm docs MEMORY`. Past conversations are not mem: `codeterm sessions search`.
 
-```bash
-codeterm mem search "<query>" [--kind K] [--limit N]
-codeterm mem save --kind fact|note|learning|skill|rule|preference --title "..." "<body>"
-codeterm mem get <id> · mem wake-up · mem save-preference --title "..." --replace "<body>"
-codeterm mem skill new <slug>        # skills are FOLDERS with SKILL.md; never write to ~/.claude/skills
-```
-Past conversations are NOT mem: `codeterm sessions search`. Kinds, graph, pin/learn, calibration, and the Dreamer are in the document the capability map already names.
+Use `codeterm mem taxonomy` for area counts and `codeterm mem area merge <from> --into <to> --dry-run` to preview a reversible area move; omit `--dry-run` to apply. Undo per item with `codeterm mem restore <id> --version <history-row>`.
 
 ## Platform notes
 
-Forward slashes in paths (CLI normalizes); `/tmp/` works everywhere; macOS maps config `Ctrl` to `Cmd`.
+Paths: use forward slashes; the CLI normalizes them on every OS.
+
+Blueprint terminal adapters: `codeterm blueprint create --observe tab:<id> --output-settled 300 --session` watches same-Team utility or agent PTY output without polling; supply the required name, question, buckets and routes. `send:<tab>` delivers the stage text body. `codeterm blueprint input <id> --from-pad <path>` delivers another text body to an input stage. Follow `codeterm docs BLUEPRINT-RECIPES` for the Terminal adapter recipe.

@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/logo.png" alt="CodeTerm" width="128" />
+  <img src="assets/logo.png" alt="Domios" width="128" />
 </p>
 
-<h1 align="center">CodeTerm</h1>
+<h1 align="center">Domios</h1>
 > Перевод README.md может отставать. Английская версия является канонической.
 
 <p align="center">
@@ -31,7 +31,7 @@
 </p>
 
 <!-- SCREENSHOT PLACEHOLDER: Add screenshots here -->
-<!-- ![CodeTerm Screenshot](assets/screenshot.png) -->
+<!-- ![Domios Screenshot](assets/screenshot.png) -->
 <!-- TRANSLATION-TODO (2026-04-29 review): translation lags README.md — please mirror these sections from English:
      1. The two top-of-features GIF subsections (`### Agent Orchestration`, `### Cron Jobs`) shown right after the language nav.
      2. Per-OS install subsections instead of one combined "Скачать": `### macOS (Homebrew)`, `### Windows (Scoop)`, `### Windows (installer)`, `### Linux`.
@@ -39,11 +39,11 @@
 
 ---
 
-## Что такое CodeTerm?
+## Что такое Domios?
 
-CodeTerm — это кроссплатформенный терминальный мультиплексор, спроектированный с нуля для разработки с помощью AI. Он сочетает мощь терминального мультиплексора (вроде tmux) с полноценной поддержкой AI-агентов, таких как Claude Code.
+Domios — это кроссплатформенный терминальный мультиплексор, спроектированный с нуля для разработки с помощью AI. Он сочетает мощь терминального мультиплексора (вроде tmux) с полноценной поддержкой AI-агентов, таких как Claude Code.
 
-**Ключевое отличие от других терминалов:** CodeTerm предоставляет полноценный REST API, CLI и Socket API — AI-агенты могут создавать рабочие пространства, разделять панели, выполнять команды, читать вывод и управлять терминалом программно. Ваш AI-ассистент становится полноправным участником рабочего процесса в терминале.
+**Ключевое отличие от других терминалов:** Domios предоставляет полноценный REST API, CLI и Socket API — AI-агенты могут создавать рабочие пространства, разделять панели, выполнять команды, читать вывод и управлять терминалом программно. Ваш AI-ассистент становится полноправным участником рабочего процесса в терминале.
 
 Построен на **Tauri v2** (Rust) + **React** + **xterm.js**.
 
@@ -165,7 +165,7 @@ cd cli && cargo build --release
 
 ## API
 
-CodeTerm предоставляет три API для интеграции:
+Domios предоставляет три API для интеграции:
 
 ### REST API (порт 7685)
 
@@ -218,11 +218,11 @@ codeterm browser open "http://localhost:3000"
 
 ### Переменные окружения
 
-CodeTerm устанавливает следующие переменные в каждой PTY-сессии:
+Domios устанавливает следующие переменные в каждой PTY-сессии:
 
 | Переменная | Описание |
 |------------|----------|
-| `CODETERM` | Всегда `1` — определяет, запущен ли процесс внутри CodeTerm |
+| `CODETERM` | Всегда `1` — определяет, запущен ли процесс внутри Domios |
 | `CODETERM_TAB_ID` | UUID текущей панели |
 | `CODETERM_SOCKET_PATH` | Путь к сокету для JSON-RPC API |
 | `TERM_PROGRAM` | `CodeTerm` |
@@ -262,7 +262,7 @@ port = 7685
 
 ```
 ┌─────────────────────────────────────────────┐
-│                  CodeTerm                    │
+│                  Domios                    │
 │  ┌──────────┐  ┌──────────┐  ┌───────────┐  │
 │  │ React UI │  │ xterm.js │  │  Browser   │  │
 │  │ Sidebar  │  │ Terminal │  │    Tabs    │  │

@@ -57,3 +57,85 @@ pub(super) fn parsed_prompt_from_js(obj: Value) -> Option<PendingPrompt> {
             }),
     })
 }
+
+impl super::JsProvider {
+    pub(super) fn live_prompt_response_from_js(
+        &self,
+        option_index: usize,
+        screen: &str,
+    ) -> Option<Vec<Vec<u8>>> {
+        let steps = self.try_call::<Vec<String>>(
+            "buildPromptResponse",
+            &[serde_json::json!(option_index), serde_json::json!(screen)],
+        )?;
+        use base64::Engine;
+        let decoded: Option<Vec<_>> = steps
+            .into_iter()
+            .map(|step| {
+                base64::engine::general_purpose::STANDARD
+                    .decode(step.as_bytes())
+                    .ok()
+                    .filter(|bytes| !bytes.is_empty())
+            })
+            .collect();
+        decoded.filter(|steps| !steps.is_empty())
+    }
+
+    pub(super) fn launch_onboarding_response_from_js(
+        &self,
+        screen: &str,
+    ) -> Option<crate::provider::ProviderPromptKeyStep> {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct WireResponse {
+            frame_key: String,
+            step: String,
+        }
+        let response = self.try_call::<Option<WireResponse>>(
+            "launchOnboardingResponse",
+            &[serde_json::json!(screen)],
+        )??;
+        use base64::Engine;
+        let step = base64::engine::general_purpose::STANDARD
+            .decode(response.step.as_bytes())
+            .ok()
+            .filter(|bytes| !bytes.is_empty())?;
+        (!response.frame_key.is_empty()).then_some(crate::provider::ProviderPromptKeyStep {
+            frame_key: response.frame_key,
+            step,
+        })
+    }
+
+    pub(super) fn update_prompt_availability_from_js(
+        &self,
+        screen: &str,
+    ) -> Option<crate::provider::ProviderUpdateAvailability> {
+        if self.has_js("updatePromptAvailability") {
+            self.try_call("updatePromptAvailability", &[serde_json::json!(screen)])
+        } else {
+            crate::provider::update_prompt::availability(screen)
+        }
+    }
+
+    pub(super) fn update_prompt_safe_choice_from_js(
+        &self,
+        prompt: &PendingPrompt,
+    ) -> Option<String> {
+        let parsed = serde_json::json!({
+            "question": prompt.question,
+            "options": prompt.options.iter().map(|option| [&option.label, &option.value]).collect::<Vec<_>>(),
+        });
+        if let Some(value) = self.try_call::<Option<String>>("updatePromptSafeChoice", &[parsed]) {
+            return value.filter(|value| {
+                prompt
+                    .options
+                    .iter()
+                    .filter(|option| &option.value == value)
+                    .count()
+                    == 1
+            });
+        }
+        self.native()
+            .and_then(|provider| provider.update_prompt_safe_choice(prompt))
+    }
+}

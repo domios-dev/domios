@@ -1,6 +1,6 @@
 use clap::{Subcommand, ValueEnum};
 
-/// Per-request override of `[supporter.memory_rerank].enabled`.
+/// Per-request diagnostic override of the connected Supporter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub enum SupporterMode {
     On,
@@ -15,27 +15,18 @@ impl SupporterMode {
 
 #[derive(Subcommand)]
 pub enum SupporterAction {
-    /// Enable both Supporter Agent features.
-    Enable,
-    /// Disable both Supporter Agent features.
-    Disable,
-    /// Show the selected adapter, model, token state and feature state.
+    /// Show connection, activity, token state and budget.
     Status,
     /// List registered adapters and their discovered models.
     Models,
-    /// Select a registered adapter and optionally one of its listed models.
+    /// Connect or activate an adapter, remembering its own model and token.
     Use {
         adapter: String,
         #[arg(long)]
         model: Option<String>,
     },
-    /// Read or change the feature switches.
-    Features {
-        #[arg(long, value_enum, value_name = "on|off")]
-        memory_rerank: Option<SupporterMode>,
-        #[arg(long, value_enum, value_name = "on|off")]
-        tab_state: Option<SupporterMode>,
-    },
+    /// Remove a saved connection and its token; removing the active one stops the Supporter.
+    Disconnect { adapter: String },
     /// Manage the selected adapter's API token. The value is read from stdin
     /// only and is never printed.
     Token {

@@ -55,7 +55,7 @@ pub async fn exec_in_tab(
         .resolve_pty_id(&tab_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found or has no PTY"))?;
 
-    let start_offset = output_len(&state, &pty_id);
+    let start_offset = state.svc.output_buf.lock().total_written(&pty_id);
     let waiter = ExecWaiter::register(&pty_id);
     let svc = state.svc.clone();
     let spawn_pty = pty_id.clone();
@@ -70,25 +70,12 @@ pub async fn exec_in_tab(
         .wait(std::time::Duration::from_millis(timeout_ms))
         .await;
 
-    let text = state
-        .svc
-        .output_buf
-        .lock()
-        .get_text(&pty_id)
-        .unwrap_or_default();
-    let offset = text.len();
-    let raw_output = text.get(start_offset..).unwrap_or_default().to_string();
+    let (raw_output, offset, truncated) =
+        output_since(&state.svc.output_buf.lock(), &pty_id, start_offset);
     let output = if body.strip_ansi.unwrap_or(false) {
-        // Re-emulate at the pty's REAL width: shell partial-line redraws
-        // (zsh's % padding) erase the last output line at any other width.
-        let cols = state
-            .svc
-            .pty
-            .lock()
-            .size(&pty_id)
-            .map(|(c, _)| c)
-            .unwrap_or(200);
-        crate::pty::ansi::clean_terminal_output_sized(&raw_output, 500, cols)
+        // ConPTY cursor addresses and shell redraws refer to the real viewport.
+        let (cols, rows) = state.svc.pty.lock().size(&pty_id).unwrap_or((200, 50));
+        crate::pty::ansi::clean_terminal_output_sized(&raw_output, rows, cols)
     } else {
         raw_output
     };
@@ -99,6 +86,12 @@ pub async fn exec_in_tab(
         "exit_code": completion.and_then(|c| c.exit_code()),
         "completion": completion.map_or("timeout", |c| c.label()),
     });
+    if truncated {
+        log::warn!(
+            "[api/exec] output exceeded the retained ring for pty={pty_id}; front truncated"
+        );
+        resp["output_truncated"] = serde_json::json!(true);
+    }
     if completion.is_none() {
         resp["timeout"] = serde_json::json!(true);
         let integrated = state.svc.shell_caps.lock().integration_observed(&pty_id);
@@ -115,12 +108,52 @@ fn tab_shell_exited(state: &AppState, tab_id: &str) -> bool {
     })
 }
 
-fn output_len(state: &AppState, pty_id: &str) -> usize {
-    state
-        .svc
-        .output_buf
-        .lock()
-        .get_text(pty_id)
-        .map(|text| text.len())
-        .unwrap_or(0)
+// The retained ring stops growing at its cap, so only the monotonic total is a stable cursor;
+// fewer bytes than the cursor gap means the front was evicted and the output is incomplete.
+fn output_since(
+    buf: &codeterm_pty::pty::manager::OutputBuffer,
+    pty_id: &str,
+    start: u64,
+) -> (String, u64, bool) {
+    let (bytes, total) = buf.read_since(pty_id, start);
+    exec_output(&bytes, total, start)
+}
+
+fn exec_output(bytes: &[u8], total: u64, start: u64) -> (String, u64, bool) {
+    let truncated = total.saturating_sub(start) > bytes.len() as u64;
+    (
+        String::from_utf8_lossy(bytes).into_owned(),
+        total,
+        truncated,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{exec_output, output_since};
+    use codeterm_pty::pty::manager::OutputBuffer;
+
+    #[test]
+    fn exec_output_survives_a_full_retained_ring() {
+        let mut buf = OutputBuffer::new(64);
+        buf.append("pty", &[b'x'; 64]);
+        let start = buf.total_written("pty");
+        let ring_len_before = buf.get_text("pty").map_or(0, |t| t.len());
+        buf.append("pty", b"resource-json");
+        assert_eq!(buf.get_text("pty").map_or(0, |t| t.len()), ring_len_before);
+        let (output, offset, truncated) = output_since(&buf, "pty", start);
+        assert_eq!(output, "resource-json");
+        assert_eq!(offset, start + 13);
+        assert!(!truncated);
+    }
+
+    #[test]
+    fn exec_output_with_an_evicted_front_reports_truncation() {
+        let (output, offset, truncated) = exec_output(&[b'y'; 16], 140, 100);
+        assert_eq!(output.len(), 16);
+        assert_eq!(offset, 140);
+        assert!(truncated);
+        let (_, _, truncated) = exec_output(&[b'y'; 40], 140, 100);
+        assert!(!truncated);
+    }
 }

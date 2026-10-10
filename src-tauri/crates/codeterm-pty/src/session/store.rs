@@ -1,5 +1,6 @@
 use codeterm_types::team::Team;
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -63,6 +64,9 @@ pub struct AgentIdentitySnapshot {
     pub reported_session_binding_nonce: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_state: Option<codeterm_types::pty::AgentLiveState>,
+    /// Kept whether or not the session claim restores, so an owed continue is settled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_resume: Option<crate::multiplexer::types::TurnResumeMark>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub boot_stage: Option<codeterm_types::pty::BootStage>,
     #[serde(
@@ -88,6 +92,8 @@ pub struct AgentIdentitySnapshot {
     /// Whether this pane is a tracked roleless agent (parent + audit assigned).
     #[serde(default)]
     pub roleless_tracked: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub managed: Option<crate::multiplexer::types::ManagedTab>,
     /// Lifecycle lineage this snapshot was written under. Recovery matches it
     /// against the journal; absent lineage is unproven, never permissive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -107,6 +113,7 @@ pub struct PersistedAgentSessionIdentity {
     pub can_spawn: bool,
 }
 
+#[cfg(test)]
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct AgentSessionIdentityCatalog {
     #[serde(default)]
@@ -117,6 +124,16 @@ struct AgentSessionIdentityCatalog {
 #[serde(tag = "type")]
 pub enum SplitNodeSnapshot {
     Leaf {
+        #[serde(default)]
+        purpose: crate::multiplexer::types::ShellPurpose,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        icon: Option<String>,
+        #[serde(default)]
+        utility_created_at: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        close_restore: Option<crate::multiplexer::types::CloseRestoreTabState>,
+        #[serde(default)]
+        shell_profile: Option<crate::pty::shell_profiles::ShellProfile>,
         tab_id: String,
         cwd: Option<String>,
         /// Tab title.
@@ -218,6 +235,9 @@ pub enum SplitNodeSnapshot {
         chatbackend_plugin_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         chatbackend_session_id: Option<String>,
+        /// Plugin surface backing; `None` for PTY and chatBackend tabs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        surface: Option<crate::multiplexer::types::SurfaceBacking>,
         /// Watcher-mode machine state for chatBackend tabs.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         watcher: Option<crate::multiplexer::types::WatcherSpec>,
@@ -228,9 +248,12 @@ pub enum SplitNodeSnapshot {
         orientation: String,
         ratio: f64,
         children: Vec<SplitNodeSnapshot>,
+        #[serde(default, flatten)]
+        extra_fields: serde_json::Map<String, serde_json::Value>,
     },
 }
 
+#[cfg(test)]
 const MAX_REDUCED_QUARANTINE: usize = 20;
 
 /// Whether a snapshot that drops workspaces/tabs vs the persisted state may be
@@ -283,24 +306,33 @@ pub struct SessionBackupInfo {
 
 pub struct SessionStore {
     pub(crate) session_dir: PathBuf,
+    pub(crate) scrollback_writes: parking_lot::Mutex<super::scrollback::ScrollbackWriteCache>,
 }
 
 impl SessionStore {
     pub fn new() -> Self {
         let dir = codeterm_paths::data_dir().join("sessions");
         let _ = fs::create_dir_all(&dir);
-        Self { session_dir: dir }
+        Self {
+            session_dir: dir,
+            scrollback_writes: Default::default(),
+        }
     }
 
     pub fn for_test_dir(dir: PathBuf) -> Self {
         let _ = fs::create_dir_all(&dir);
-        Self { session_dir: dir }
+        Self {
+            session_dir: dir,
+            scrollback_writes: Default::default(),
+        }
     }
 
+    #[cfg(test)]
     pub fn save(&self, snapshot: &SessionSnapshot) -> Result<SaveOutcome, String> {
         self.save_with_intent(snapshot, SaveIntent::PreserveDesk)
     }
 
+    #[cfg(test)]
     pub fn save_with_intent(
         &self,
         snapshot: &SessionSnapshot,
@@ -328,6 +360,7 @@ impl SessionStore {
     /// Some(refusal) when `snapshot` drops workspaces/tabs vs the persisted
     /// `last.json`; the rejected snapshot is quarantined next to it and the
     /// refusal logged at error before returning.
+    #[cfg(test)]
     fn detect_reducing_snapshot(&self, snapshot: &SessionSnapshot) -> Option<ReductionRefusal> {
         let path = self.session_dir.join("last.json");
         let Ok(json) = fs::read_to_string(&path) else {
@@ -377,6 +410,7 @@ impl SessionStore {
         Some(refusal)
     }
 
+    #[cfg(test)]
     fn quarantine_reduced_snapshot(&self, snapshot: &SessionSnapshot) -> String {
         let epoch_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -397,6 +431,7 @@ impl SessionStore {
         }
     }
 
+    #[cfg(test)]
     fn evict_old_reduced_quarantine(&self) {
         let mut entries: Vec<_> = fs::read_dir(&self.session_dir)
             .into_iter()
@@ -418,6 +453,7 @@ impl SessionStore {
         }
     }
 
+    #[cfg(test)]
     pub fn load_agent_session_identity(
         &self,
         provider: &str,
@@ -429,6 +465,7 @@ impl SessionStore {
             .cloned()
     }
 
+    #[cfg(test)]
     fn merge_agent_session_identities(&self, snapshot: &SessionSnapshot) -> Result<(), String> {
         let mut catalog = self.load_agent_session_identity_catalog();
         for workspace in &snapshot.workspaces {
@@ -457,6 +494,7 @@ impl SessionStore {
         Ok(())
     }
 
+    #[cfg(test)]
     fn load_agent_session_identity_catalog(&self) -> AgentSessionIdentityCatalog {
         let path = self.session_dir.join("agent-session-identities.json");
         let backup = self.session_dir.join("agent-session-identities.json.bak");
@@ -476,6 +514,7 @@ impl SessionStore {
         AgentSessionIdentityCatalog::default()
     }
 
+    #[cfg(test)]
     fn rotate_backup(&self, last_json: &std::path::Path) -> Result<(), String> {
         let backup_dir = self.session_dir.join("backups");
         let _ = fs::create_dir_all(&backup_dir);
@@ -491,6 +530,7 @@ impl SessionStore {
         Ok(())
     }
 
+    #[cfg(test)]
     fn evict_old_backups(&self, backup_dir: &std::path::Path) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -610,6 +650,7 @@ impl SessionStore {
         Ok(None)
     }
 
+    #[cfg(test)]
     pub fn save_named(&self, name: &str, snapshot: &SessionSnapshot) -> Result<(), String> {
         let safe_name = name.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
         if safe_name == "agent-session-identities" {
@@ -654,6 +695,7 @@ impl SessionStore {
             .collect())
     }
 
+    #[cfg(test)]
     pub fn delete_saved(&self, name: &str) -> Result<(), String> {
         if name == "agent-session-identities" {
             return Err("reserved session identity catalog".into());
@@ -666,10 +708,12 @@ impl SessionStore {
     }
 }
 
+#[cfg(test)]
 fn agent_session_identity_key(provider: &str, session_id: &str) -> String {
     format!("{}:{provider}{session_id}", provider.len())
 }
 
+#[cfg(test)]
 fn collect_agent_session_identities(
     node: &SplitNodeSnapshot,
     sessions: &mut HashMap<String, PersistedAgentSessionIdentity>,
@@ -873,7 +917,12 @@ fn parse_tab_record(
     }
 }
 
+pub mod legacy_decode;
+#[cfg(test)]
 mod retention;
+mod storage_adapter;
+
+pub use storage_adapter::{orphan_teams, project_snapshot, prune_orphan_teams, StorageDeskAdapter};
 
 #[cfg(test)]
 mod tests;

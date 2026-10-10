@@ -19,8 +19,6 @@ const remote = (role?: Tab["role"], roleProfile?: string): Tab => ({
   remote_channels: { control: "available", output: "available", chat: "available" },
 });
 
-finish();
-
 describe("remote tab metadata", () => {
   it("keeps peer identity and controller attribution on separate lines", () => {
     expect(remoteIdentity(remote("Worker"))).toEqual({ role: null, peer: "@ROG" });
@@ -34,10 +32,22 @@ describe("remote tab metadata", () => {
       .toEqual({ role: null, peer: "@ROG" });
   });
 
-  it("renders peer and managed-by as two distinct visual rows", () => {
+  it("renders a named network badge only for physical remotes", () => {
+    for (const remotePeer of ["peer", undefined]) {
+      const tab = { ...remote("Worker"), remote_peer_id: remotePeer };
+      const html = renderToStaticMarkup(<TabItem tab={tab} index={0} isActive onClick={() => {}} onClose={() => {}} canClose workspaceId="workspace" />);
+      const badge = 'role="img" aria-label="on @ROG"';
+      expect(html.includes(badge)).toBe(Boolean(remotePeer));
+      expect(html).toContain(managedByLabel(tab)!);
+    }
+  });
+
+  it("removes managed-by after ownership is released", () => {
+    const released = { ...remote("Worker"), ownership: undefined };
+    expect(managedByLabel(released)).toBeNull();
     const html = renderToStaticMarkup(
       <TabItem
-        tab={remote("Manager", "planner")}
+        tab={released}
         index={0}
         isActive
         onClick={() => undefined}
@@ -47,10 +57,9 @@ describe("remote tab metadata", () => {
         hasAgent
       />,
     );
-    expect(html).toContain('data-testid="remote-tab-identity"');
-    expect(html).toContain("PLANNER");
-    expect(html).toContain("@ROG");
-    expect(html).toContain('data-testid="remote-managed-by"');
-    expect(html).toContain("managed by Hubble");
+    expect(html).toContain('role="img" aria-label="on @ROG"');
+    expect(html).not.toContain("managed by Hubble");
   });
 });
+
+finish();

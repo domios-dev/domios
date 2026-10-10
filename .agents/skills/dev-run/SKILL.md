@@ -1,11 +1,11 @@
 ---
 name: dev-run
-description: Start, restart, kill, and verify the CodeTerm dev instance from inside this repo. Use whenever the user says "start dev", "restart dev", "dev up", "kill dev", "rebuild dev", asks to open/reload the app after code changes, reports the dev window is broken/not launching, or you need to verify that the running binary matches the source after an edit to src-tauri/ or src/. Covers build.sh commands, port 7686 health checks, log locations, clean-config resets, and platform-specific quirks.
+description: Start, restart, kill, and verify the Domios dev instance from inside this repo. Use whenever the user says "start dev", "restart dev", "dev up", "kill dev", "rebuild dev", asks to open/reload the app after code changes, reports the dev window is broken/not launching, or you need to verify that the running binary matches the source after an edit to src-tauri/ or src/. Covers build.sh commands, port 7686 health checks, log locations, clean-config resets, and platform-specific quirks.
 ---
 
-# Dev Run — CodeTerm dev instance
+# Dev Run — Domios dev instance
 
-Run, restart, and diagnose the CodeTerm dev instance inside this repo. Dev is isolated from production: different config dir, different port, different data.
+Run, restart, and diagnose the Domios dev instance inside this repo. Dev is isolated from production: different config dir, different port, different data.
 
 **Never touch prod.** Prod listens on 7685, dev on 7686. If you ever kill a process, verify by port first.
 
@@ -47,7 +47,7 @@ For dev readiness reports routed to the calling agent tab, see [`utility-shell-r
 
 `build.sh kill` guarantees the old dev is dead before `build.sh dev` starts the new one — so any `/api/health` response after restart is from the fresh build.
 
-When running from inside a production CodeTerm tab, the shell may inherit
+When running from inside a production Domios tab, the shell may inherit
 `CODETERM_API_PORT=7685`. `build.sh dev`, `build.sh kill`, and e2e commands
 guard against that and switch the canonical dev instance back to 7686; do not
 override that guard unless you are intentionally running a named non-prod
@@ -114,7 +114,7 @@ The build.sh bg task's own output stream also contains the Rust compile log and 
 
 ### Explicit named-dev tailnet access
 
-Keep `api.host` on loopback. A named development instance may opt into an
+Keep `api.host` on loopback. Any development instance (default or named) may opt into an
 additional listener with `api.mesh_tailnet_host` set to its locally assigned
 Tailscale IPv4 address. Use the named instance and port with the dev wrapper
 for `dc config set api.mesh_tailnet_host '"<tailnet-ip>"'`; never a bare CLI
@@ -123,6 +123,10 @@ Restart only that named instance through the documented launcher. Verify both
 loopback health and tailnet health, the build identity, and
 `dc config get api_listener.ready_addresses` before `dc mesh broadcast`.
 Removing the opt-in uses JSON `null` and another scoped restart.
+
+To join two DEV consoles on different machines over the mesh (pairing,
+managed-by tabs, web UI peer picker, leak and sync checks), follow
+`evals/mesh-two-dev/RUNBOOK.md`.
 
 A failed secondary bind starts neither listener; no wildcard or LAN fallback
 is allowed. A later secondary listener exit keeps local HTTP serving but clears
@@ -203,6 +207,43 @@ lsof -nP -iTCP:7685 -sTCP:LISTEN -t
 If the failure is caused by the dev-run procedure itself, fix the procedure as
 well as the immediate environment before declaring recovery complete.
 
+### DEV browser terminal diagnostics (all platforms)
+
+- **2026-10-10: `Cannot arm missing DEV xterm` or `DEV xterm instance unavailable`
+  in a DEV web terminal capture** — the browser serves the watched `dist/`
+  bundle through `CODETERM_WEB_DIST`. A default `vite build --watch` uses
+  production `NODE_ENV`, so `import.meta.env.DEV` is false. DEV-only
+  diagnostics therefore gate on `DEV_BUILD` (`src/lib/devBuild.ts`), the
+  compile-time `__CODETERM_DEV__` that `CODETERM_FRONTEND_DEV=1` sets in
+  `vite.config.ts`, never on `import.meta.env.DEV`. The watcher stays a
+  production-mode build: a 2026-10-10 switch to `--mode development` (React
+  development build) grew the Windows WebView2 renderer by about 0.5 GB/min of
+  native memory. Release `pnpm build` leaves the flag false.
+- **Recovery** — after canonical integration, restart only the affected DEV
+  through its existing scoped launcher (`./build.sh kill`, then `./build.sh dev`;
+  Windows uses `build.ps1`). Preserve any named-instance/port settings. Confirm
+  the watcher finished a new bundle in `/tmp/codeterm-web-watch<SUFFIX>.log`,
+  reload that DEV browser, select the exact fixture in Terminal mode, and verify
+  its xterm host has `__codetermTerminal`. The desktop alone is not proof of the
+  browser bundle. Isolated Workers defer this lifecycle and live check to the
+  Orchestrator.
+- **Wrong `selectedTabId` in capture metadata** — hidden tab roots remain
+  mounted and can have client rectangles. Pass the fixture's exact DOM
+  `data-tab-id`, including any mesh prefix, to the shared capture helper.
+  It requires one matching root with visible CSS and positive geometry;
+  a missing or hidden fixture fails instead of falling back to General Agent.
+  Select that fixture on the intended peer before retrying in a fresh evidence
+  directory; retain the failed run.
+
+- **2026-10-10: web capture cannot click an existing fixture row** — its
+  workspace is inactive, so the row is hidden. Copy the fixture inventory's
+  `workspace_id` into that fixture's optional manifest `workspaceId` field.
+  The shared selector activates that workspace through its visible Select
+  workspace UI control, observes the selected state, then clicks the visible
+  row. Hidden controls fail explicitly; never force-click.
+  Verify the selected workspace and exact fixture before retrying in a fresh
+  evidence directory, preserving the failed run.
+
 ### macOS
 
 - **`build.sh dev` hangs during link, then SIGKILL** — usually not enough RAM (linker eats a lot). Close other heavy apps, retry. If it repeats, `./build.sh clean && ./build.sh dev`.
@@ -241,8 +282,8 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 - "start dev", "restart dev", "dev up", "kill dev", "rebuild"
 - "the app isn't loading", "dev window broke", "can't connect to 7686"
-- anything that implies running or diagnosing the local CodeTerm dev instance
+- anything that implies running or diagnosing the local Domios dev instance
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 2 -->
+<!-- revision: 5 -->

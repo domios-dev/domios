@@ -1,3 +1,4 @@
+import { ConnectBlock, PluginBlock } from "@codeterm/chat-ui";
 import type { AppConfig } from "../lib/types";
 import { renderKbd } from "../components/Settings/shared";
 import { resolveHelpShortcut } from "./shortcuts";
@@ -61,6 +62,10 @@ export function HelpBlockView({ block, config, onOpenSettings }: HelpBlockViewPr
       return onOpenSettings ? (
         <SettingsLinkButton label={block.label} target={block.target} onOpen={onOpenSettings} />
       ) : null;
+    case "plugin":
+      return <PluginBlock pluginId={block.pluginId} source={`@ds-plugin ${block.pluginId}`} />;
+    case "connect":
+      return <ConnectBlock bridgeId={block.bridgeId} source={`@ds-connect ${block.bridgeId}`} />;
     case "details":
       return (
         <HelpDetails summary={block.summary}>
@@ -74,7 +79,7 @@ export function HelpBlockView({ block, config, onOpenSettings }: HelpBlockViewPr
     case "shortcut-table":
       return (
         <div
-          className="rounded-xl border border-[var(--ct-border)] overflow-hidden"
+          className="ct-card ct-card--quiet ct-rows"
           data-testid="help-shortcut-table"
         >
           {block.rows.map((row) => {
@@ -82,7 +87,7 @@ export function HelpBlockView({ block, config, onOpenSettings }: HelpBlockViewPr
             return (
               <div
                 key={row.label}
-                className="flex items-center justify-between gap-3 px-3 py-2 border-b border-[var(--ct-border)] last:border-b-0 bg-[var(--ct-bg)]/30"
+                className="ct-row flex items-center justify-between gap-3 px-3 py-2"
                 data-testid="help-shortcut-row"
                 data-help-shortcut={row.label}
               >

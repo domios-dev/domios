@@ -47,6 +47,16 @@ fn fixture(source: &str) -> Value {
     serde_json::from_str(source).unwrap()
 }
 
+#[test]
+fn typesafe_jev_declares_a_required_token() {
+    let adapter = TypeSafeAdapter::new(
+        TokenStore::new(std::env::temp_dir().join("typesafe-token-mode-fixture")),
+        None,
+        None,
+    );
+    assert_eq!(adapter.token_mode(), TokenMode::Required);
+}
+
 fn request_from_fixture(source: &str) -> (DecisionRequest, Value) {
     let body = fixture(source);
     let question_body = &body["questions"]["q"];
@@ -232,6 +242,13 @@ fn adapter(endpoint: String, with_token: bool) -> (tempfile::TempDir, TypeSafeAd
     (dir, TypeSafeAdapter::new(store, Some(endpoint), None))
 }
 
+#[test]
+fn typesafe_adapter_builds_http_client_before_its_first_decision() {
+    let (_dir, adapter) = adapter("http://127.0.0.1:1/".into(), false);
+
+    assert!(adapter.client.is_ok());
+}
+
 fn read_head(stream: &mut std::net::TcpStream) -> String {
     let mut bytes = Vec::new();
     let mut buf = [0u8; 512];
@@ -323,18 +340,224 @@ fn typesafe_missing_token_is_unavailable_without_network() {
 }
 
 #[test]
-fn typesafe_models_returns_configured_model() {
+fn typesafe_models_list_the_default_plus_a_configured_jev_version() {
     let dir = tempfile::tempdir().unwrap();
     let adapter = TypeSafeAdapter::new(
         TokenStore::new(dir.path().join("tokens")),
         None,
-        Some("fixture-model".into()),
+        Some("jev-1.13.0".into()),
+    );
+    let ids: Vec<String> = adapter.models().into_iter().map(|model| model.id).collect();
+    assert_eq!(ids, ["jev-latest", "jev-1.13.0"]);
+}
+
+#[test]
+fn typesafe_ignores_another_adapters_model_and_keeps_jev_selectable() {
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = TypeSafeAdapter::new(
+        TokenStore::new(dir.path().join("tokens")),
+        None,
+        Some("local-decision-model".into()),
+    );
+    let ids: Vec<String> = adapter.models().into_iter().map(|model| model.id).collect();
+    assert_eq!(ids, ["jev-latest"]);
+    assert!(!adapter.select_model("local-decision-model"));
+    assert!(adapter.select_model("jev-1.13.0"));
+    assert_eq!(adapter.model_id().as_deref(), Some("jev-1.13.0"));
+}
+
+fn multi_request() -> DecisionQuestionsRequest {
+    DecisionQuestionsRequest {
+        state: serde_json::json!({ "fixture": "shared" }),
+        questions: BTreeMap::from([
+            (
+                "label".into(),
+                NamedDecisionQuestion {
+                    instructions: "opaque-label-instructions".into(),
+                    question: DecisionQuestion::Choice {
+                        options: BTreeMap::from([
+                            ("yes".into(), "opaque-yes".into()),
+                            ("no".into(), "opaque-no".into()),
+                        ]),
+                    },
+                },
+            ),
+            (
+                "prompt_visible".into(),
+                NamedDecisionQuestion {
+                    instructions: "opaque-prompt-instructions".into(),
+                    question: DecisionQuestion::Noul { criteria: None },
+                },
+            ),
+            (
+                "relevance".into(),
+                NamedDecisionQuestion {
+                    instructions: "opaque-score-instructions".into(),
+                    question: DecisionQuestion::Score {
+                        levels: vec!["opaque-low".into(), "opaque-high".into()],
+                    },
+                },
+            ),
+        ]),
+    }
+}
+
+#[test]
+fn typesafe_multi_question_request_matches_fixture() {
+    assert_eq!(
+        TypeSafeAdapter::build_questions_body("jev-latest", &multi_request()),
+        fixture(include_str!("../fixtures/request_multi.json"))
+    );
+}
+
+#[test]
+fn typesafe_usage_parsing_and_declared_pricing() {
+    assert_eq!(
+        TypeSafeAdapter::parse_usage(
+            &serde_json::json!({ "usage": { "input_tokens": 1200, "output_tokens": 15 } })
+        )
+        .unwrap(),
+        Some(DecisionUsage {
+            input_tokens: 1200,
+            output_tokens: 15
+        })
     );
     assert_eq!(
-        adapter.models(),
-        vec![DecisionModelInfo {
-            id: "fixture-model".into(),
-            display_name: "fixture-model".into(),
-        }]
+        TypeSafeAdapter::parse_usage(&serde_json::json!({})).unwrap(),
+        None
     );
+    for invalid in [
+        serde_json::json!({ "input_tokens": -1, "output_tokens": 3 }),
+        serde_json::json!({ "input_tokens": 1 }),
+    ] {
+        assert!(TypeSafeAdapter::parse_usage(&serde_json::json!({ "usage": invalid })).is_err());
+    }
+    let (_dir, adapter) = adapter("http://127.0.0.1:1".into(), false);
+    let price = adapter.pricing().unwrap();
+    assert_eq!(
+        price.estimated_usd(DecisionUsage {
+            input_tokens: 1_000_000,
+            output_tokens: 1_000_000
+        }),
+        Some(0.042)
+    );
+}
+
+#[test]
+fn typesafe_multi_answer_is_named_and_all_or_nothing() {
+    let request = multi_request();
+    let mut body = serde_json::json!({ "answers": {
+        "label": { "type": "choice", "choice": "yes", "probabilities": { "yes": 0.8, "no": 0.2 } },
+        "prompt_visible": { "type": "noul", "noul": 0.7 },
+        "relevance": { "type": "score", "score": 1, "probabilities": { "0": 0.2, "1": 0.8 } }
+    }});
+    let answers = TypeSafeAdapter::parse_answers(&request, &body).unwrap();
+    assert_eq!(answers.len(), 3);
+    assert_eq!(answers["prompt_visible"], DecisionAnswer::Noul { p: 0.7 });
+    body["answers"].as_object_mut().unwrap().remove("label");
+    assert!(TypeSafeAdapter::parse_answers(&request, &body).is_err());
+    body["answers"]["unexpected"] = serde_json::json!({ "type": "noul", "noul": 0.9 });
+    assert!(TypeSafeAdapter::parse_answers(&request, &body).is_err());
+}
+
+#[test]
+fn typesafe_returns_usage_with_one_multi_request_and_credit_errors() {
+    use codeterm_types::decision::physical;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    struct Meter(AtomicUsize);
+    impl physical::RequestObserver for Meter {
+        fn before_request(&self) -> Result<(), DecisionError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+    let request = DecisionQuestionsRequest {
+        state: serde_json::json!("shared"),
+        questions: BTreeMap::from([
+            (
+                "first".into(),
+                NamedDecisionQuestion {
+                    instructions: "a".into(),
+                    question: question("noul"),
+                },
+            ),
+            (
+                "second".into(),
+                NamedDecisionQuestion {
+                    instructions: "b".into(),
+                    question: question("noul"),
+                },
+            ),
+        ]),
+    };
+    for (status, body) in [
+        (
+            200,
+            serde_json::json!({ "answers": { "first": { "type": "noul", "noul": 0.8 }, "second": { "type": "noul", "noul": 0.4 } }, "usage": { "input_tokens": 123, "output_tokens": 45 } }),
+        ),
+        (402, serde_json::json!({})),
+        (
+            403,
+            serde_json::json!({ "error": { "code": "out_of_credits" } }),
+        ),
+        (
+            200,
+            serde_json::json!({ "error": { "code": "insufficient_credits" } }),
+        ),
+    ] {
+        let meter = Arc::new(Meter(AtomicUsize::new(0)));
+        let _scope = physical::RequestScope::enter(meter.clone());
+        let credit_error = status == 402 || body.get("error").is_some();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let (_dir, adapter) = adapter(format!("http://{}/", listener.local_addr().unwrap()), true);
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            read_head(&mut stream);
+            let body = body.to_string();
+            write!(stream, "HTTP/1.1 {status} fixture\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+        });
+        let response = adapter.decide_questions(&request, Instant::now() + Duration::from_secs(2));
+        server.join().unwrap();
+        assert_eq!(meter.0.load(Ordering::SeqCst), 1);
+        if credit_error {
+            assert_eq!(response, Err(DecisionError::CreditExhausted));
+        } else {
+            let response = response.unwrap();
+            assert_eq!(response.answers.len(), 2);
+            assert_eq!(
+                response.usage,
+                Some(DecisionUsage {
+                    input_tokens: 123,
+                    output_tokens: 45
+                })
+            );
+        }
+    }
+}
+
+#[test]
+fn typesafe_physical_request_missing_token_does_not_count() {
+    use codeterm_types::decision::physical;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    struct Meter(AtomicUsize);
+    impl physical::RequestObserver for Meter {
+        fn before_request(&self) -> Result<(), DecisionError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+    let meter = Arc::new(Meter(AtomicUsize::new(0)));
+    let _scope = physical::RequestScope::enter(meter.clone());
+    let (_dir, model) = adapter("http://127.0.0.1:1/".into(), false);
+    assert!(model.supports_question_batch());
+    assert!(model
+        .decide(&request("noul"), Instant::now() + Duration::from_secs(2))
+        .is_err());
+    assert_eq!(meter.0.load(Ordering::SeqCst), 0);
 }

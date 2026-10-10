@@ -5,6 +5,20 @@ use crate::service::spawn_capability::MissingSpawnCapability;
 
 const TASK: &str = "extract entities from the queued item";
 
+#[test]
+fn memory_worker_long_intent_uses_valid_short_title() {
+    let chatbackends = ChatBackendRegistry::new();
+    let mut args = inputs("pty-agent");
+    args.intent = format!("extract:{}", "item ".repeat(100));
+    let expected_description = args.intent.clone();
+    let spec = build_mem_worker_spawn_spec(&chatbackends, worker_cwd(), args).unwrap();
+    crate::service::tab::validate_tab_title(spec.title.as_deref().unwrap()).unwrap();
+    assert_eq!(
+        spec.description.as_deref(),
+        Some(expected_description.as_str())
+    );
+}
+
 fn inputs(agent: &str) -> MemWorkerSpawnInputs {
     MemWorkerSpawnInputs {
         agent_provider: agent.into(),
@@ -25,11 +39,12 @@ fn worker_cwd() -> std::path::PathBuf {
 /// The spec `spawn_headless_worker` hand-built before the routing seam existed.
 fn legacy_pty_spec() -> SpawnTabSpec {
     SpawnTabSpec {
+        shell: None,
         cwd: Some(worker_cwd().to_string_lossy().into_owned()),
         visibility: TabVisibility::Hidden,
         audience: TabAudience::Automation,
-        title: Some("mem:extract".into()),
-        description: None,
+        title: Some("Memory".into()),
+        description: Some("extract".into()),
         command: TabCommand::Agent(AgentSpawnSpec {
             provider: "pty-agent".into(),
             planned_model: None,
@@ -37,6 +52,7 @@ fn legacy_pty_spec() -> SpawnTabSpec {
             task: Some(TASK.into()),
             worker_id: Some("wk-42".into()),
             spawned_by: Some("mem:auto".into()),
+            provisioned_cwd: Some(worker_cwd().to_string_lossy().into_owned()),
             ..Default::default()
         }),
         ..Default::default()
@@ -103,6 +119,10 @@ fn headless_mem_worker_cwd_is_instance_owned() {
     let root = crate::paths::data_dir().join("workers");
 
     assert!(std::path::Path::new(&cwd).starts_with(root));
+    let TabCommand::Agent(agent) = &spec.command else {
+        panic!("memory worker spec launches an agent");
+    };
+    assert_eq!(agent.provisioned_cwd.as_deref(), Some(cwd.as_str()));
     assert!(!std::path::Path::new(&cwd).starts_with(std::env::current_dir().unwrap()));
 }
 

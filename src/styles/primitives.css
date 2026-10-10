@@ -1,40 +1,45 @@
 /* Shared UI primitives: imported by globals.css and by core plugin views that render the same components. */
 
-/* Thin scrollbars that stay out of sight until the pointer is on the thing that
-   scrolls. Lives here, not in globals.css, so plugin views get them too. */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
-}
-
-*:hover {
-  scrollbar-color: var(--ct-muted, #484f58) transparent;
+/* Chromium ignores ::-webkit-scrollbar once scrollbar-width/scrollbar-color is set, so
+   views never set them; data-scrolling comes from installScrollActivity. */
+:root {
+  --ct-scrollbar-thumb: color-mix(in srgb, var(--ct-bg) 80%, var(--ct-fg));
 }
 
 ::-webkit-scrollbar {
-  width: 3px;
-  height: 3px;
+  width: 4px;
+  height: 4px;
 }
 
-::-webkit-scrollbar-track {
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+::-webkit-scrollbar-button {
+  display: none;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: transparent;
+  border: 1px solid transparent;
   border-radius: 99px;
+  background-color: transparent;
+  background-clip: padding-box;
 }
 
-*:hover::-webkit-scrollbar-thumb {
-  background: rgba(128, 128, 128, 0.3);
+[data-scrolling]::-webkit-scrollbar-thumb {
+  background-color: var(--ct-scrollbar-thumb);
 }
 
-*:hover::-webkit-scrollbar-thumb:hover {
-  background: rgba(128, 128, 128, 0.5);
-}
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
 
-::-webkit-scrollbar-corner {
-  background: transparent;
+  [data-scrolling] {
+    scrollbar-color: var(--ct-scrollbar-thumb) transparent;
+  }
 }
 
 .ct-panel-card {

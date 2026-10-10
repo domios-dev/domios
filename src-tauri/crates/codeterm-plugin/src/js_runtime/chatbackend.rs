@@ -4,6 +4,7 @@
 //! Plugin surface: `openSession` / `sendMessage` / `watcherTick` / `poll` / `closeSession` / `listModels` / `listPresets`.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::Deserialize;
@@ -15,7 +16,7 @@ use crate::chatbackend_provider::{
     ChatBackendError, ChatBackendProvider, ChatSessionInfo, HostTurn, PresetInfo,
     CONTEXT_OWNER_UNSUPPORTED,
 };
-use crate::provider::{ContextOwner, ModelInfo};
+use crate::provider::{ContextOwner, ModelCatalogueCapability, ModelInfo};
 use codeterm_types::agent::chat_types::{ChatMsg, StructuredChat};
 
 pub struct JsChatBackend {
@@ -29,6 +30,8 @@ pub struct JsChatBackend {
     watcher_capable: bool,
     session_config: bool,
     context_owner: ContextOwner,
+    model_catalogue: ModelCatalogueCapability,
+    model_catalogue_input_files: Vec<PathBuf>,
     session_exec_env: parking_lot::Mutex<HashMap<String, HashMap<String, String>>>,
 }
 
@@ -45,6 +48,8 @@ impl JsChatBackend {
             watcher_capable: false,
             session_config: false,
             context_owner: ContextOwner::Plugin,
+            model_catalogue: ModelCatalogueCapability::default(),
+            model_catalogue_input_files: Vec::new(),
             session_exec_env: parking_lot::Mutex::new(HashMap::new()),
         }
     }
@@ -60,6 +65,10 @@ impl JsChatBackend {
             watcher_capable: manifest.capabilities.chat_backend_watcher_capable(),
             session_config: manifest.capabilities.chat_backend.session_config(),
             context_owner: manifest.capabilities.chat_backend.context_owner(),
+            model_catalogue: manifest.model_catalogue.clone(),
+            model_catalogue_input_files: manifest.model_catalogue.fingerprint_files(
+                super::host_credentials::declared_files(&manifest.credentials),
+            ),
             session_exec_env: parking_lot::Mutex::new(HashMap::new()),
         }
     }
@@ -210,6 +219,14 @@ impl ChatBackendProvider for JsChatBackend {
         self.icon_color.as_deref()
     }
 
+    fn model_catalogue_capability(&self) -> ModelCatalogueCapability {
+        self.model_catalogue.clone()
+    }
+
+    fn model_catalogue_input_files(&self) -> Vec<PathBuf> {
+        self.model_catalogue_input_files.clone()
+    }
+
     fn open_session(&self, ctx: serde_json::Value) -> Result<String, ChatBackendError> {
         let exec_env = chatbackend_host_exec_env(&self.vm, &ctx);
         let out: OpenOut =
@@ -322,6 +339,7 @@ impl ChatBackendProvider for JsChatBackend {
                 description: m.description,
                 available: m.available,
                 availability: None,
+                primary: None,
                 featured: None,
                 badge: None,
                 group: m.group,

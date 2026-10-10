@@ -107,12 +107,14 @@ fn render_qa_queue(plan: &Plan, out: &mut String) {
         .iter()
         .filter(|task| {
             task.status == TaskStatus::InReview
+                && crate::plan::reconcile::active_review_hold_note(task).is_none()
                 && task.review_stage == ReviewStage::Qa
                 && task.qa_state == Some(QaState::Queued)
         })
         .count();
     let running = plan.tasks.iter().find(|task| {
         task.status == TaskStatus::InReview
+            && crate::plan::reconcile::active_review_hold_note(task).is_none()
             && task.review_stage == ReviewStage::Qa
             && task.qa_state == Some(QaState::Running)
     });
@@ -131,7 +133,11 @@ fn render_qa_queue(plan: &Plan, out: &mut String) {
 }
 
 fn render_review_gate(plan: &Plan, out: &mut String) {
-    let status = super::review_gate::review_gate_status(plan);
+    let mut active = plan.clone();
+    active
+        .tasks
+        .retain(|task| crate::plan::reconcile::active_review_hold_note(task).is_none());
+    let status = super::review_gate::review_gate_status(&active);
     if status.reason.is_none() {
         return;
     }
@@ -147,22 +153,14 @@ fn render_regression_gates(plan: &Plan, out: &mut String) {
     if gates.is_empty() {
         return;
     }
-    out.push_str(super::prompts_plan::MILESTONE_GATE_HEARTBEAT_TITLE);
-    out.push('\n');
-    for gate in gates {
-        out.push_str("- ");
-        out.push_str(&super::prompts_plan::milestone_gate_suggestion(
-            &gate.key,
-            &gate.label,
-        ));
-        out.push('\n');
-    }
-}
-
-static REFLECT_EVERY_GATES: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
-
-pub fn init_reflect_every(every_gates: u32) {
-    REFLECT_EVERY_GATES.get_or_init(|| every_gates);
+    let groups = gates
+        .iter()
+        .map(|gate| gate.key.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    out.push_str(&format!(
+        "Regression records pending (advisory; dispatch allowed): {groups}\n"
+    ));
 }
 
 fn render_group_retrospectives(plan: &Plan, out: &mut String) {
@@ -170,21 +168,14 @@ fn render_group_retrospectives(plan: &Plan, out: &mut String) {
     if pending.is_empty() {
         return;
     }
-    out.push_str(super::prompts_plan::GROUP_RETROSPECTIVE_HEARTBEAT_TITLE);
-    out.push('\n');
-    for gate in pending {
-        out.push_str("- ");
-        out.push_str(&super::prompts_plan::group_retrospective_suggestion(
-            &plan.id,
-            &gate.key,
-            &gate.label,
-        ));
-        out.push('\n');
-    }
-}
-
-fn reflect_every_gates() -> u32 {
-    *REFLECT_EVERY_GATES.get().unwrap_or(&5)
+    let groups = pending
+        .iter()
+        .map(|gate| gate.key.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    out.push_str(&format!(
+        "Group retrospectives pending (advisory; dispatch allowed): {groups}\n"
+    ));
 }
 
 // Render gated or blocked work in the heartbeat so a plan with no other notable state is not silently omitted.
@@ -282,8 +273,6 @@ fn render_heartbeat(
     let has_review_gate = super::review_gate::review_gate_status(plan)
         .reason
         .is_some();
-    let has_reflection =
-        !super::reflection::pending_reflections(plan, reflect_every_gates()).is_empty();
     let has_digests = !extra_digest_lines.is_empty();
     let has_outstanding_gated = super::state::outstanding_blocked_count(plan) > 0;
     if !has_learnings
@@ -293,7 +282,6 @@ fn render_heartbeat(
         && !has_open_gates
         && !has_regression_gates
         && !has_review_gate
-        && !has_reflection
         && !has_digests
         && !has_outstanding_gated
     {
@@ -318,7 +306,6 @@ fn render_heartbeat(
     render_review_gate(plan, &mut out);
     render_regression_gates(plan, &mut out);
     render_group_retrospectives(plan, &mut out);
-    super::reflection::render_reflection(plan, reflect_every_gates(), &mut out);
     render_competitive_attempts(plan, &mut out);
     render_running_loops(loops, &mut out);
     render_open_gates(plan, now_ms(), &mut out);
@@ -581,6 +568,25 @@ impl PlanStore {
             blocked_or_gated_count: super::state::outstanding_blocked_count(&plan),
             heartbeat,
         })
+    }
+
+    pub fn prepend_heartbeat_with_selected_learnings(
+        &self,
+        plan_id: &str,
+        text: &str,
+        digests: &[String],
+        learning_ids: Option<&[String]>,
+    ) -> String {
+        let Some(mut plan) = self.get(plan_id) else {
+            return text.to_string();
+        };
+        if let Some(ids) = learning_ids {
+            let allowed: Vec<_> = ids.iter().take(3).collect();
+            plan.heartbeat
+                .learnings
+                .retain(|learning| allowed.contains(&&learning.id));
+        }
+        prepend_plan_heartbeat_with_digests(&plan, text, digests)
     }
 
     pub fn prepend_heartbeat_for_plan(&self, plan_id: &str, text: &str) -> String {

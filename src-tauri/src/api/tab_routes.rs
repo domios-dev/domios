@@ -11,6 +11,10 @@ use send::wait_for_pty_link as await_pty_link;
 mod exec;
 mod send;
 mod stop;
+mod turn_controls;
+pub use turn_controls::turn_controls;
+#[cfg(test)]
+mod utility_tests;
 
 pub use exec::exec_in_tab;
 pub use send::{chat_send_status, chat_send_text, send_text};
@@ -51,6 +55,11 @@ pub async fn list_tabs(
                 (
                     StatusCode::SERVICE_UNAVAILABLE,
                     crate::dispatch::TAB_SUMMARY_BUSY_ERROR,
+                )
+            } else if error == crate::startup::STORAGE_UNAVAILABLE_MESSAGE {
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    crate::startup::STORAGE_UNAVAILABLE_MESSAGE,
                 )
             } else {
                 (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list Tabs")
@@ -225,8 +234,12 @@ pub async fn inspect_tabs(
     Ok(Json(result.into_json()))
 }
 
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 pub struct CreateShellTabBody {
+    pub shell: Option<String>,
+    #[serde(default)]
+    pub purpose: crate::multiplexer::types::ShellPurpose,
+    pub icon: Option<String>,
     pub workspace_id: Option<String>,
     pub cwd: Option<String>,
     pub title: Option<String>,
@@ -271,6 +284,19 @@ pub async fn create_shell_tab(
         body.creator_tab_id = caller_tab_header(&headers);
     }
     use crate::service::spawn::{SpawnTabSpec, TabCommand, TabVisibility};
+    if body.shell.is_some() && body.chat_backend.is_some() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "shell profiles require PTY backing".into(),
+        ));
+    }
+    if body.purpose != crate::multiplexer::types::ShellPurpose::Shell && body.chat_backend.is_some()
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "utility shell purpose requires PTY shell backing".into(),
+        ));
+    }
     if body.team_id.is_some() && body.chat_backend.is_some() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -310,46 +336,49 @@ pub async fn create_shell_tab(
         }
         None => TabCommand::Shell,
     };
-    let handle = state
-        .svc
-        .spawn_tab(SpawnTabSpec {
-            workspace_id: body.workspace_id,
-            team_id: body.team_id,
-            creator_tab_id: body.creator_tab_id,
-            detach_from_team: body.detach_from_team,
-            cwd: body.cwd,
-            title: body.title,
-            description: body
-                .description
-                .map(|s| crate::service::normalize_tab_description(&s))
-                .transpose()
-                .map_err(|e| (StatusCode::BAD_REQUEST, e))?
-                .flatten(),
-            visibility: TabVisibility::Visible,
-            eager: body.eager,
-            command,
-            ..Default::default()
-        })
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    if let Some(cmd) = body.cmd {
-        // bare shells which haven't armed DECSET ?2004 yet.
-        state
-            .svc
-            .send_shell_cmd(&handle.tab_id, &cmd)
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Tab created (id={}) but --cmd failed: {}", handle.tab_id, e),
-                )
-            })?;
-    }
-    // per-resource naming. Both fields hold the same value.
+    let spec = SpawnTabSpec {
+        shell: body.shell,
+        purpose: body.purpose,
+        icon: body.icon,
+        cmd: body.cmd,
+        workspace_id: body.workspace_id,
+        team_id: body.team_id,
+        creator_tab_id: body.creator_tab_id,
+        detach_from_team: body.detach_from_team,
+        cwd: body.cwd,
+        title: body.title,
+        description: body
+            .description
+            .map(|s| crate::service::normalize_tab_description(&s))
+            .transpose()
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?
+            .flatten(),
+        visibility: TabVisibility::Visible,
+        eager: body.eager,
+        command,
+        ..Default::default()
+    };
+    let svc = state.svc.clone();
+    let handle = tokio::task::spawn_blocking(move || svc.spawn_tab(spec))
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .map_err(|error| {
+            let status = if error.starts_with("utility_tab_limit:") {
+                StatusCode::CONFLICT
+            } else if error.starts_with("Unknown Lucide icon") {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (status, error)
+        })?;
+
     let mut resp = serde_json::json!({
         "id": handle.tab_id,
         "tab_id": handle.tab_id,
         "workspace_id": handle.workspace_id,
-        "tab_id": handle.tab_id,
         "pty_id": handle.pty_id,
+        "description": handle.description,
     });
     if let Some(ref notice) = handle.budget_notice {
         resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();
@@ -456,9 +485,61 @@ pub async fn close_tab(
     Ok(Json(result))
 }
 
+pub async fn release_remote_ownership(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_tab_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if !crate::api::auth::is_local_caller(&state, &headers) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "remote peers cannot release local tab ownership".into(),
+        ));
+    }
+    let tab_id = resolve_tab(&state, &raw_tab_id)
+        .map_err(|(status, message)| (status, message.to_string()))?;
+    let caller_tab_id = caller_tab_header(&headers);
+    let service = state.svc.clone();
+    let release = tokio::task::spawn_blocking(move || {
+        service.release_remote_ownership(&tab_id, caller_tab_id.as_deref())
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    .map_err(|error| {
+        let status = if error.starts_with("Tab ") && error.contains(" not found") {
+            StatusCode::NOT_FOUND
+        } else if error.contains("not authorized") {
+            StatusCode::FORBIDDEN
+        } else {
+            StatusCode::INTERNAL_SERVER_ERROR
+        };
+        (status, error)
+    })?;
+    let mut response = serde_json::json!({"ok": true, "released": release.is_some()});
+    if let Some(ownership) = release {
+        response["peer_id"] = serde_json::json!(ownership.peer_id);
+        response["peer_name"] = serde_json::json!(ownership.peer_name);
+    }
+    Ok(Json(response))
+}
+
 #[derive(Deserialize)]
 pub(crate) struct RestartShellTabBody {
     cwd: Option<String>,
+}
+
+pub async fn rerun_restored_shell(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(tab_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
+    let service = state.svc.clone();
+    tokio::task::spawn_blocking(move || service.rerun_restored_shell(&tab_id))
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    Ok(Json(serde_json::json!({"ok": true})))
 }
 
 pub async fn restart_shell_tab(
@@ -891,3 +972,26 @@ mod tests_create_tab;
 
 #[cfg(test)]
 mod tests_close_error;
+
+#[derive(Default, Deserialize)]
+pub struct ShellProfilesQuery {
+    #[serde(default)]
+    pub refresh: bool,
+}
+
+pub async fn list_shell_profiles(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ShellProfilesQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_owned()))?;
+    let result = crate::dispatch::dispatch_blocking(
+        crate::dispatch::Command::ShellProfiles {
+            refresh: query.refresh,
+        },
+        state.svc.clone(),
+    )
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    Ok(Json(result.into_json()))
+}

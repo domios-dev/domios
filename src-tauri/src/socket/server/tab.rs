@@ -24,6 +24,23 @@ pub(super) fn dispatch(
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     match method {
+        "tab.shells" => {
+            let refresh = params
+                .as_ref()
+                .and_then(|p| p.get("refresh"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::ShellProfiles { refresh },
+                svc.as_ref(),
+            )
+            .map(|result| result.into_json())
+            .map_err(|message| JsonRpcError {
+                code: -32603,
+                message,
+                data: None,
+            })
+        }
         "tab.list" => {
             let workspace_id = opt_string_param(params, "workspace_id");
             let caller_tab_id = opt_string_param(params, "caller_tab_id");
@@ -129,6 +146,18 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("title"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
+            let purpose = params
+                .as_ref()
+                .and_then(|p| p.get("purpose"))
+                .cloned()
+                .map(serde_json::from_value)
+                .transpose()
+                .map_err(|error| JsonRpcError {
+                    code: -32602,
+                    message: format!("invalid shell purpose: {error}"),
+                    data: None,
+                })?
+                .unwrap_or_default();
             let team_id = opt_string_param(params, "team_id");
             let creator_tab_id = opt_string_param(params, "creator_tab_id");
             let detach_from_team = params
@@ -143,6 +172,9 @@ pub(super) fn dispatch(
                 .unwrap_or(false);
             let handle = svc
                 .spawn_tab(crate::service::spawn::SpawnTabSpec {
+                    shell: opt_string_param(params, "shell"),
+                    cmd: opt_string_param(params, "cmd"),
+                    purpose,
                     workspace_id,
                     team_id,
                     creator_tab_id,
@@ -207,6 +239,42 @@ pub(super) fn dispatch(
             })
         }
 
+        "agents.cli_run" => {
+            let provider = get_string_param(params, "provider")?;
+            let raw = get_string_param(params, "operation")?;
+            let operation = serde_json::from_value::<
+                crate::service::provider_cli_actions::CliOperation,
+            >(Value::String(raw))
+            .map_err(|error| JsonRpcError {
+                code: -32602,
+                message: error.to_string(),
+                data: None,
+            })?;
+            let caller = opt_string_param(params, "caller_tab_id");
+            crate::service::provider_cli_actions::launch(svc, &provider, operation, caller)
+                .and_then(|result| serde_json::to_value(result).map_err(|e| e.to_string()))
+                .map_err(|message| JsonRpcError {
+                    code: -32602,
+                    message,
+                    data: None,
+                })
+        }
+
+        "agents.cli_status" => {
+            let provider = get_string_param(params, "provider")?;
+            crate::service::provider_cli::provider_cli_status(
+                &svc.provider_registry,
+                &provider,
+                crate::agent::provider::current_platform_tag(),
+            )
+            .and_then(|status| serde_json::to_value(status).map_err(|e| e.to_string()))
+            .map_err(|message| JsonRpcError {
+                code: -32602,
+                message,
+                data: None,
+            })
+        }
+
         "agents.list_providers" => {
             crate::dispatch::dispatch(&crate::dispatch::Command::ListAgentProviders, svc.as_ref())
                 .map(|r| r.into_json())
@@ -236,6 +304,13 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
                 .and_then(|s| mux.write().resolve_tab_id(&s));
+            svc.as_ref()
+                .require_managed_send_allowed(&resolved_target, source_tab.as_deref())
+                .map_err(|message| JsonRpcError {
+                    code: -32603,
+                    message,
+                    data: None,
+                })?;
             let writes_pty = svc.as_ref().tab_chat_backing(&resolved_target).is_none();
             if writes_pty && svc.as_ref().has_public_send_launch_gate(&resolved_target) {
                 if let Err(detail) = svc.as_ref().await_public_send_readiness(
@@ -427,12 +502,17 @@ fn gateway_send_response(
     let mut value = match delivery {
         crate::service::messenger::Delivery::Pty { .. } => serde_json::json!({
             "ok": true,
-            "delivery": "pending",
-            "bytes_written": false,
+            "delivery": "sent",
+            "bytes_written": true,
         }),
         crate::service::messenger::Delivery::ChatBackend { .. } => serde_json::json!({
             "ok": true,
             "delivery": "sent",
+        }),
+        crate::service::messenger::Delivery::Pending { .. } => serde_json::json!({
+            "ok": true,
+            "delivery": "pending",
+            "bytes_written": false,
         }),
     };
     if let Some(path) = pad_file {
@@ -530,13 +610,30 @@ mod tests {
     }
 
     #[test]
-    fn enveloped_pty_send_remains_pending_until_background_write() {
+    fn enveloped_pty_send_reports_a_completed_write() {
         assert_eq!(
             gateway_send_response(
                 Delivery::Pty {
                     text: "body".into()
                 },
                 None
+            ),
+            serde_json::json!({
+                "ok": true,
+                "delivery": "sent",
+                "bytes_written": true,
+            }),
+        );
+    }
+
+    #[test]
+    fn queued_agent_delivery_reports_pending_without_written_bytes() {
+        assert_eq!(
+            gateway_send_response(
+                Delivery::Pending {
+                    delivery_id: "delivery-1".into(),
+                },
+                None,
             ),
             serde_json::json!({
                 "ok": true,

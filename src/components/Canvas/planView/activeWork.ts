@@ -1,7 +1,7 @@
 import type { Tab } from "../../../lib/types";
 import { buildTaskPresence } from "../taskPresence";
 import { resolvePlanExclusiveTabTasks, taskBoundToTab } from "../tabCurrentTask";
-import { formatRelativeAge } from "./planListModel";
+import { activityAge } from "./planListModel";
 import type { PlanSwitcherOption } from "./PlanSwitcher";
 import { TaskStatus, type Plan, type Task, type TaskStatus as TaskStatusType } from "../types";
 
@@ -89,7 +89,7 @@ function buildEntry(plan: Plan, task: Task, tabs: Record<string, Tab>, now: numb
     executorLabel: executorLabel(tabId, tabs),
     executorPresent: present,
     freshnessTs: freshTs,
-    freshnessLabel: formatRelativeAge(freshTs, now),
+    freshnessLabel: activityAge(freshTs, now),
     stale: isActiveWorkStale(task, now),
   };
 }

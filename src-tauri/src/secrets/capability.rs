@@ -15,7 +15,7 @@ pub const AUTO_UNLOCK_CREDENTIAL_KEY: &str = "master_password";
 /// The host-owned secret bucket for one plugin id. `host.secretGet/secretSet`
 /// from inside a plugin resolve to exactly this file+service pair.
 pub fn plugin_secret_bucket(plugin_id: &str) -> SecretFile {
-    SecretFile::new(&format!("codeterm.plugin.{plugin_id}"))
+    codeterm_util::secret_file::plugin_secret_bucket(crate::paths::data_dir(), plugin_id)
 }
 
 /// Capabilities a backend declares about itself.

@@ -233,7 +233,7 @@ fn no_window(command: &mut Command) {
 #[cfg(not(windows))]
 fn no_window(_command: &mut Command) {}
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests;
 
 pub(super) fn system_channel_url() -> String {
@@ -271,23 +271,15 @@ pub(super) fn compat_check(min: Option<&str>) -> Result<(), String> {
     let Some(app) = app_version() else {
         return Ok(());
     };
-    if version_cmp(&app, min).is_lt() {
+    let app_version =
+        semver::Version::parse(&app).map_err(|_| format!("invalid CodeTerm version: {app}"))?;
+    let minimum =
+        semver::Version::parse(min).map_err(|_| format!("invalid minCodeterm version: {min}"))?;
+    if app_version.cmp_precedence(&minimum).is_lt() {
         Err(compat_reason(min, Some(&app)))
     } else {
         Ok(())
     }
-}
-
-// cache manifest if it has already been fetched. Never triggers a network call.
-pub(super) fn system_channel_version(id: &str) -> Option<String> {
-    let reg = read_channel_registry().ok()?;
-    let ch = reg.channels.get(SYSTEM_CHANNEL_NAME)?;
-    let manifest = read_channel_manifest(Path::new(&ch.path)).ok()?;
-    manifest
-        .plugins
-        .into_iter()
-        .find(|p| p.id == id)
-        .and_then(|p| p.version)
 }
 
 pub(super) fn is_verified_install(id: &str, record: Option<&InstallRecord>) -> bool {

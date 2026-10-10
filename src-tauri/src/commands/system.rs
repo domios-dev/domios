@@ -45,7 +45,7 @@ pub fn test_notification(_app: tauri::AppHandle) {
         let _ = std::process::Command::new("osascript")
             .args([
                 "-e",
-                "display notification \"Notifications are working!\" with title \"CodeTerm\"",
+                "display notification \"Notifications are working!\" with title \"Domios\"",
             ])
             .spawn();
     }
@@ -55,7 +55,7 @@ pub fn test_notification(_app: tauri::AppHandle) {
         let _ = _app
             .notification()
             .builder()
-            .title("CodeTerm")
+            .title("Domios")
             .body("Notifications are working!")
             .show();
     }

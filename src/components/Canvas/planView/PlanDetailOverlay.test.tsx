@@ -272,7 +272,7 @@ test("open-tab action invokes callback", async () => {
     />,
   );
   const btn = host.querySelector('[data-testid="plan-detail-open-tab"]') as HTMLButtonElement;
-  assert(btn?.textContent?.includes("Open tab"), "open tab button visible");
+  assert(btn?.textContent?.includes("Open chat"), "open chat button visible");
   await act(async () => {
     btn.click();
   });
@@ -411,7 +411,7 @@ test("task detail renders milestone activity timeline", async () => {
   );
   assert(host.querySelector('[data-testid="plan-task-activity"]'), "activity section");
   assert(host.querySelector('[data-testid="plan-task-activity-entry"]')?.getAttribute("data-milestone-id") === "ms-detail", "task milestone");
-  assert(host.querySelector('[data-testid="plan-task-activity-age"]')?.textContent === "1m", "relative age in detail");
+  assert(host.querySelector('[data-testid="plan-task-activity-age"]')?.textContent === "1m ago", "relative age in detail");
   assert(host.querySelector('[data-testid="plan-task-activity-timestamp"]')?.textContent, "absolute timestamp in detail");
 });
 

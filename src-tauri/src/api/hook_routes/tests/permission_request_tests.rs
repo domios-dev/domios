@@ -2,6 +2,8 @@
 use super::*;
 use crate::agent::permission_request::parse_permission_request;
 use crate::agent::prompt::{PromptDecision, PromptDetector};
+use crate::agent::provider::AgentProvider;
+use crate::plugin::agent_claude::ClaudeProvider;
 
 fn agent_tab() -> (MuxState, String) {
     let (state, tab_id) = MultiplexerState::new();
@@ -49,19 +51,30 @@ fn permission_request_payload_lands_intact_from_the_hook_body() {
     });
     let signal = parse_permission_request(&posted).expect("hook body parses");
 
+    let screen = "opaque-question-token?\n❯ 1. screen-option-one\n  2. screen-option-two\nEnter to confirm · Esc to cancel";
+    let rendered = ClaudeProvider::new()
+        .parse_prompt(screen)
+        .expect("rendered prompt parses");
     let mut detector = PromptDetector::new();
     let decision = detector.hook_detected_permission_request("tab-a", signal);
+    assert!(matches!(decision, PromptDecision::None));
+    assert!(detector.active_prompt("tab-a").is_none());
+    let decision = detector.hook_detected_scraped("tab-a", rendered.clone());
     match decision {
         PromptDecision::NewPrompt { prompt, .. } => {
-            assert_eq!(prompt.question, "Bash");
+            assert_eq!(prompt.question, "opaque-question-token?");
             assert_eq!(
                 prompt
                     .options
                     .iter()
-                    .map(|o| o.label.as_str())
+                    .map(|option| option.label.as_str())
                     .collect::<Vec<_>>(),
-                vec!["Allow Bash(git status:*)", "Deny once"]
+                ["screen-option-one", "screen-option-two"]
             );
+            assert!(!prompt
+                .options
+                .iter()
+                .any(|option| option.label == "Allow Bash(git status:*)"));
         }
         other => panic!("expected a surfaced prompt, got {other:?}"),
     }

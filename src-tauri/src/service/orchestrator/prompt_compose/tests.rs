@@ -276,3 +276,166 @@ fn the_roleless_fallback_shape_carries_no_worker_doctrine() {
         "a roleless spawn carries no Worker doctrine, which is why it is not the mesh shape"
     );
 }
+
+#[test]
+fn mesh_spawn_return_route_reaches_the_launch_prompt_once() {
+    const PEER: &str = "opaque-origin-peer-7da32";
+    const TAB: &str = "opaque-origin-tab-b8219";
+    const ASSIGNMENT: &str = "opaque-assignment-936ac";
+    for (role, capable) in [
+        (Some("Orchestrator"), true),
+        (Some("Worker"), true),
+        (None, false),
+    ] {
+        let params = SpawnAgentParams {
+            role: role.map(str::to_string),
+            task: Some(ASSIGNMENT.into()),
+            report_target_mesh_peer: Some(PEER.into()),
+            report_target_tab_id: Some(TAB.into()),
+            ..Default::default()
+        };
+        let prompt = super::spawn_launch_task(&params, capable).expect("launch prompt");
+        assert_eq!(prompt.matches(PEER).count(), 1);
+        assert_eq!(prompt.matches(TAB).count(), 1);
+        assert_eq!(prompt.matches(ASSIGNMENT).count(), 1);
+    }
+}
+
+#[test]
+fn mesh_spawn_return_route_does_not_guess_partial_or_local_targets() {
+    for (peer, tab) in [
+        (None, Some("opaque-local-tab")),
+        (Some("opaque-peer"), None),
+        (Some(" "), Some("opaque-tab")),
+    ] {
+        let params = SpawnAgentParams {
+            task: Some("opaque-assignment".into()),
+            report_target_mesh_peer: peer.map(str::to_string),
+            report_target_tab_id: tab.map(str::to_string),
+            ..Default::default()
+        };
+        assert_eq!(
+            super::spawn_launch_task(&params, true),
+            super::role_launch_task(params.task.as_deref(), None, None, true),
+        );
+    }
+}
+
+#[test]
+fn mesh_spawn_return_route_prefers_the_matching_owned_peer_identity() {
+    const PEER_NAME: &str = "opaque-peer-alias";
+    const PEER_ID: &str = "opaque-stable-peer-id";
+    let mut params = SpawnAgentParams {
+        task: Some("opaque-assignment".into()),
+        report_target_mesh_peer: Some(PEER_NAME.into()),
+        report_target_tab_id: Some("opaque-recipient".into()),
+        ownership: Some(codeterm_types::pty::RemoteOwnership {
+            controller_title: "opaque-controller".into(),
+            controller_tab_id: None,
+            peer_id: PEER_ID.into(),
+            peer_name: PEER_NAME.into(),
+            team: None,
+        }),
+        ..Default::default()
+    };
+    let prompt = super::spawn_launch_task(&params, true).unwrap();
+    assert_eq!(prompt.matches(PEER_ID).count(), 1);
+    assert!(!prompt.contains(PEER_NAME));
+    params.report_target_mesh_peer = Some("opaque-other-peer".into());
+    let prompt = super::spawn_launch_task(&params, true).unwrap();
+    assert!(prompt.contains("opaque-other-peer"));
+    assert!(!prompt.contains(PEER_ID));
+}
+
+#[test]
+fn tool_less_capability_selects_assignment_without_cli_contract_fragments() {
+    let registry = crate::agent::registry::AgentRegistry::new();
+    let task = crate::service::plan::worker_identity::attach_worker_identity(
+        "opaque identity",
+        "opaque assignment",
+    );
+    let params = SpawnAgentParams {
+        agent: Some("opaque-provider".into()),
+        role: Some("Worker".into()),
+        task: Some(task),
+        ..Default::default()
+    };
+    registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("opaque-provider").with_tool_less(true),
+    ));
+    assert_eq!(
+        super::spawn_launch_task_for_provider(&registry, &params, false),
+        Some("opaque identity\n\nopaque assignment".into())
+    );
+    assert_eq!(
+        super::provider_launch_task(
+            &registry,
+            "opaque-provider",
+            params.task.as_deref(),
+            Some("Worker"),
+            None
+        ),
+        Some("opaque identity\n\nopaque assignment".into())
+    );
+    registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+        "opaque-provider",
+    )));
+    let ordinary = super::spawn_launch_task_for_provider(&registry, &params, false).unwrap();
+    assert!(ordinary.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+    assert!(ordinary.contains(crate::service::plan::worker_identity::WORKER_ACK_INSTRUCTION));
+}
+
+#[test]
+fn tool_less_composition_excludes_memory_management() {
+    let rendered = super::tool_less_prompt(Some("OPAQUE_TOOL_LESS")).expect("assignment");
+    assert_eq!(rendered, "OPAQUE_TOOL_LESS");
+    assert_eq!(
+        rendered
+            .matches(crate::prompts::MEM_MANAGEMENT.trim())
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn utility_guidance_reaches_managers_and_roleless_but_not_workers() {
+    for (role, profile) in [
+        (None, None),
+        (Some("Orchestrator"), None),
+        (Some("Manager"), Some("planner")),
+    ] {
+        let prompt = super::role_onboarding_task(Some("opaque-task"), role, profile).unwrap();
+        assert_eq!(
+            prompt
+                .matches(crate::prompts::UTILITY_TAB_GUIDANCE.trim())
+                .count(),
+            1
+        );
+    }
+    let worker = super::role_onboarding_task(Some("opaque-task"), Some("Worker"), None).unwrap();
+    assert!(!worker.contains(crate::prompts::UTILITY_TAB_GUIDANCE.trim()));
+    assert!(crate::prompts::UTILITY_TAB_GUIDANCE.lines().count() <= 3);
+}
+
+#[test]
+fn built_in_plugins_section_follows_the_primer_and_is_absent_without_contributors() {
+    const SECTION: &str = "Built-in plugins:\n- OPAQUE_CORE_LINE_q7";
+    let primer = crate::prompts::AGENT_CODETERM_PRIMER.trim();
+    let after_primer = format!("{primer}\n\n{SECTION}\n\n");
+
+    let plain = super::agent_system_prompt_with_plugins(Some("opaque-task"), None);
+    assert!(!plain.contains("Built-in plugins:"));
+    let with = super::agent_system_prompt_with_plugins(Some("opaque-task"), Some(SECTION));
+    assert!(with.starts_with(&after_primer));
+    assert_eq!(with.replacen(&format!("{SECTION}\n\n"), "", 1), plain);
+
+    let worker_plain = super::worker_agent_system_prompt_with_plugins(None, "opaque", None, None);
+    assert!(!worker_plain.contains("Built-in plugins:"));
+    let worker =
+        super::worker_agent_system_prompt_with_plugins(None, "opaque", None, Some(SECTION));
+    assert_eq!(worker.matches(&after_primer).count(), 1);
+    assert_eq!(
+        worker.replacen(&format!("{SECTION}\n\n"), "", 1),
+        worker_plain
+    );
+}

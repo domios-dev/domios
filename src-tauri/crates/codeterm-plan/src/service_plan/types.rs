@@ -252,7 +252,7 @@ impl fmt::Display for PlanError {
             ),
             PlanError::BlockedRequiresLabel => write!(
                 f,
-                "blocked is a claim, not a holding state: pass --status-label \"<what unblocks it>\" or open a decision gate"
+                "a task block needs an explicit Plan owner or Planner update with --status-label \"<reason; owner trigger>\"; a Worker blocked report is only a proposal"
             ),
             PlanError::ExecutorRoleRequired => write!(
                 f,
@@ -667,6 +667,7 @@ impl PlanError {
 }
 
 pub struct NewTask {
+    pub files: crate::plan::TaskFiles,
     pub name: String,
     pub kind: String,
     pub section_ids: Vec<String>,
@@ -698,6 +699,7 @@ pub struct NewTask {
 impl Default for NewTask {
     fn default() -> Self {
         Self {
+            files: Default::default(),
             name: String::new(),
             kind: "task".into(),
             section_ids: Vec::new(),

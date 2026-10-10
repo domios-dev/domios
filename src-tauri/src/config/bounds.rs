@@ -4,6 +4,7 @@ use serde_json::Value;
 #[derive(Clone, Copy)]
 enum ValueKind {
     Integer,
+    OptionalInteger,
     Number,
     Enum(&'static [&'static str]),
 }
@@ -22,6 +23,13 @@ const fn integer(path: &'static str, min: f64, max: f64) -> ConfigBound {
         kind: ValueKind::Integer,
         min: Some(min),
         max: Some(max),
+    }
+}
+
+const fn optional_integer(path: &'static str, min: f64, max: f64) -> ConfigBound {
+    ConfigBound {
+        kind: ValueKind::OptionalInteger,
+        ..integer(path, min, max)
     }
 }
 
@@ -92,6 +100,11 @@ const CONFIG_BOUNDS: &[ConfigBound] = &[
     integer("supporter.memory_rerank.sources.docs", 0.0, 10.0),
     integer("supporter.memory_rerank.sources.sessions", 0.0, 5.0),
     integer("supporter.memory_rerank.max_concurrency", 1.0, 32.0),
+    enumeration(
+        "supporter.memory_rerank.request_mode",
+        &["per_candidate", "shared_state"],
+    ),
+    optional_integer("supporter.calls_per_hour", 0.0, 100000.0),
     integer("supporter.deadline_ms", 100.0, 30000.0),
     integer("supporter.memory_rerank.candidates", 1.0, 50.0),
     number("supporter.memory_rerank.low_confidence_threshold", 0.0, 1.0),
@@ -214,8 +227,11 @@ pub fn validate_config_text(text: &str) -> Result<(), String> {
 }
 
 fn validate_bound(bound: &ConfigBound, value: &Value) -> Result<(), String> {
+    if value.is_null() && matches!(bound.kind, ValueKind::OptionalInteger) {
+        return Ok(());
+    }
     match bound.kind {
-        ValueKind::Integer => {
+        ValueKind::Integer | ValueKind::OptionalInteger => {
             let numeric = value
                 .as_i64()
                 .or_else(|| value.as_u64().and_then(|number| i64::try_from(number).ok()))
@@ -301,5 +317,4 @@ fn values_at_segments<'a>(value: &'a Value, segments: &[&str]) -> Vec<&'a Value>
 }
 
 #[cfg(test)]
-#[path = "bounds_tests.rs"]
 mod tests;

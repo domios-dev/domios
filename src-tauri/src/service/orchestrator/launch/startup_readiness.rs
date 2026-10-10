@@ -54,9 +54,13 @@ pub(super) fn finish_waiting_for_first_turn(
     launch: &mut LaunchGeneration,
     settlement: &LaunchSettlement,
     svc: &ServiceContext,
+    origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
 ) -> Option<bool> {
     if !matches!(settlement, LaunchSettlement::AwaitingFirstTurn) {
         return None;
+    }
+    if let Some(finished) = super::resume_binding::finish_unbound_relaunch(launch, svc, origin) {
+        return Some(finished);
     }
     let finished = LAUNCH_REGISTRY.lock().finish(launch);
     if let Some(attempt) = launch.attempt() {

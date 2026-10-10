@@ -1,13 +1,12 @@
-/// `-=-codeterm:tab label=X tab=Y ...-=-body` → (Some("X"), "body"). Plain text → (None, text).
+/// `<domios from="tab" label="X" ...>body</domios>` → (Some("X"), "body").
+/// Plain text or an embedded tag remains unchanged.
 fn strip_origin_marker(s: &str) -> (Option<String>, String) {
-    if let Some(rest) = s.strip_prefix("-=-codeterm:") {
-        if let Some(end) = rest.find("-=-") {
-            let label = rest[..end]
-                .split_whitespace()
-                .find_map(|kv| kv.strip_prefix("label="))
-                .map(|l| l.replace("%20", " "));
-            return (label, rest[end + 3..].to_string());
-        }
+    if let Some(parsed) = codeterm_types::domios::parse_message(s) {
+        let label = parsed
+            .attr("label")
+            .or_else(|| parsed.attr("source"))
+            .map(str::to_string);
+        return (label, parsed.body);
     }
     (None, s.to_string())
 }

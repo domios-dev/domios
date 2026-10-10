@@ -8,10 +8,8 @@ import {
   uninstallProviderIntegration,
 } from "../../lib/bridge";
 import type { ProviderDescriptor } from "../../lib/types";
-import {
-  ProviderIntegrationHealthCard,
-  providersWithIntegrationHealth,
-} from "./ProviderIntegrationHealthCard";
+import { ProviderIntegrationHealthCard } from "./ProviderIntegrationHealthCard";
+import { providerPageSections } from "./providerPageSections";
 
 function assert(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
@@ -70,18 +68,14 @@ async function testCapabilitySelectsIntegrationProviders() {
     display_name: id,
     has_hooks: hasHooks,
   } as ProviderDescriptor);
-  const selected = providersWithIntegrationHealth([
-    provider("provider-with-hooks", true),
-    provider("provider-without-hooks", false),
-  ]);
-  assert(selected.length === 1, "only providers declaring the hook capability get a health surface");
-  assert(selected[0]?.id === "provider-with-hooks", "selection follows capability instead of provider identity");
+  assert(providerPageSections(provider("provider-with-hooks", true)).integration, "the hook capability places the integration section");
+  assert(!providerPageSections(provider("provider-without-hooks", false)).integration, "no hook capability, no integration section");
 }
 
 async function testStaleHookIsActionable() {
   await withInvoke(async (command) => {
     assert(command === "check_provider_integration", "mount must read real provider integration health");
-    return { hooks_installed: false, precompact_hook: true, session_start_hook: false };
+    return { hooks_installed: false, session_start_hook: false };
   }, async () => {
     const { host, root } = await renderCard();
     await flush();
@@ -165,7 +159,6 @@ async function testMissingStopHookIsDegraded() {
   await withInvoke(async () => (
     {
       hooks_installed: false,
-      precompact_hook: true,
       stop_hook: false,
       session_start_hook: true,
       repair_requires_consent: true,
@@ -233,7 +226,7 @@ async function testRepairRefetchesIntoHealthyState() {
     if (command === "check_provider_integration") {
       checks += 1;
       return checks === 1
-        ? { hooks_installed: false, precompact_hook: true, session_start_hook: false }
+        ? { hooks_installed: false, session_start_hook: false }
         : { hooks_installed: true, session_start_hook: true };
     }
     if (command === "install_provider_integration") {
@@ -253,7 +246,7 @@ async function testRepairRefetchesIntoHealthyState() {
       "repair must invoke install once and then re-check once",
     );
     assert(installArgs?.consent === true, "repair must send explicit user consent to the existing installer");
-    assert(installArgs?.precompactMemoryExport === undefined, "repair delegates PreCompact preservation to the daemon");
+    assert(!("precompactMemoryExport" in (installArgs ?? {})), "repair sends no retired export option");
     assert(host.querySelector('[data-provider-integration-state="healthy"]'), "refetched health must update the UI without remounting");
     assert(!host.querySelector('[data-provider-integration-action="repair"]'), "reactive healthy state must remove the repair control");
     await cleanup(root);
@@ -267,7 +260,7 @@ async function testBridgeWrappersUseRegisteredCommands() {
     return command === "check_provider_integration" ? { session_start_hook: true } : undefined;
   }, async () => {
     await checkProviderIntegration("provider-beta");
-    await installProviderIntegration("provider-beta", true);
+    await installProviderIntegration("provider-beta");
     await installProviderIntegration("provider-beta");
     await uninstallProviderIntegration("provider-beta");
   });
@@ -278,7 +271,7 @@ async function testBridgeWrappersUseRegisteredCommands() {
   );
   assert(calls.every((call) => call.args?.providerId === "provider-beta"), "wrappers must forward the selected provider id");
   assert(calls[1]?.args?.consent === true, "the user-triggered install wrapper must record explicit consent");
-  assert(calls[1]?.args?.precompactMemoryExport === true, "repair must preserve the checked pre-compact hook state");
+  assert(!("precompactMemoryExport" in (calls[1]?.args ?? {})), "install has no raw export option");
   assert(calls[2]?.args?.precompactMemoryExport === undefined, "an omitted choice stays omitted through the bridge");
 }
 

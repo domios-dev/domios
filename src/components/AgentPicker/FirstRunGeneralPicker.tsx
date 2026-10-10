@@ -23,7 +23,7 @@ export function FirstRunGeneralPicker({ providers }: { providers: ProviderDescri
   return (
     <div className="h-full w-full bg-[var(--ct-bg)]" data-testid="first-run-general-picker">
       <AgentProviderPicker
-        headline="Welcome to CodeTerm"
+        headline="Welcome to Domios"
         subhead="Pick the agent that runs your General tab. You can change it later in Settings."
         providers={eligibleProviders}
         confirmLabel="Start General agent"

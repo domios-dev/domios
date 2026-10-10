@@ -324,11 +324,33 @@ test("a burst of toasts cannot strand its own overflow", () => {
   for (let i = 0; i < 40; i += 1) {
     state = reducer(state, { type: "UPSERT_TOAST", toast: toast(i) });
   }
-  assert(state.toasts.length <= 12, `queue stays bounded, got ${state.toasts.length}`);
+  assert(state.toasts.length === 3, `queue stays bounded, got ${state.toasts.length}`);
   assert(state.toasts[state.toasts.length - 1].id === "t-39", "the newest toast survives");
 });
 
-test("a toast awaiting an answer is never dropped to make room", () => {
+test("expired local notices retain their actions in the bell; ephemeral ones do not", () => {
+  const toast: Notification = { id: "local", title: "opaque", body: null, tab_id: null, workspace_id: null, timestamp: 1, severity: "Info", read: false, local_actions: [{ label: "Restore", run: () => undefined }] };
+  let state = reducer(base(), { type: "UPSERT_TOAST", toast });
+  state = reducer(state, { type: "DISMISS_TOAST", id: "local" });
+  assert(state.toasts.length === 0, "expired toast leaves the screen");
+  assert(state.notifications[0].local_actions?.[0].label === "Restore", "the action remains in the bell");
+  state = reducer(state, { type: "UPSERT_TOAST", toast: { ...toast, id: "copied", ephemeral: true } });
+  state = reducer(state, { type: "DISMISS_TOAST", id: "copied" });
+  assert(state.notifications.length === 1, "purely ephemeral content is not archived");
+});
+
+test("progress updates cannot resurrect a dismissed activity", () => {
+  const toast: Notification = { id: "progress", key: "operation-1", title: "opaque", body: null, tab_id: null, workspace_id: null, timestamp: 1, severity: "Info", read: false, update_only: true };
+  let state = reducer(base(), { type: "UPSERT_TOAST", toast });
+  state = reducer(state, { type: "DISMISS_TOAST", id: toast.id });
+  state = reducer(state, { type: "UPSERT_TOAST", toast: { ...toast, body: "updated" } });
+  assert(state.toasts.length === 0, "no fresh lifetime for progress");
+  assert(state.notifications[0].body === "updated", "the bell receives progress updates");
+  state = reducer(state, { type: "UPSERT_TOAST", toast: { ...toast, id: "progress-2", key: "operation-2" } });
+  assert(state.toasts.length === 1, "a distinct operation can announce itself");
+});
+
+test("an unanswered toast moves to the bell when newer notices fill the stack", () => {
   const owed = {
     id: "owed",
     title: "question",
@@ -343,7 +365,8 @@ test("a toast awaiting an answer is never dropped to make room", () => {
       toast: { id: `t-${i}`, title: "x", body: "y", timestamp: i + 1 } as unknown as Notification,
     });
   }
-  assert(state.toasts.some((t) => t.id === "owed"), "the unanswered question survives the cap");
+  assert(!state.toasts.some((t) => t.id === "owed"), "the oldest toast leaves the stack");
+  assert(state.notifications.some((t) => t.id === "owed"), "the unanswered question survives in the bell");
 });
 
 test("SET_STATE drops a stale Waiting once pending_prompt clears and no fresh status is reported", () => {
@@ -1082,6 +1105,33 @@ test("SET_STATE does not thrash agent_type on an unrelated snapshot", () => {
     unrelated.tabs.ga.agent_session_model === "sonnet",
     "non-provider fields still flow through the merge",
   );
+});
+
+test("provider update summary changes one existing row and preserves read state", () => {
+  const item: Notification = { id: "update", tab_id: null, workspace_id: null, title: "v1 -> v2", body: "pending", severity: "Info", level: "verbose", timestamp: 5, read: true };
+  const state = { ...base(), notifications: [item], toasts: [] };
+  const next = reducer(state, { type: "UPDATE_NOTIFICATION_SUMMARY", id: "update", title: "updated", body: "complete" });
+  assert(next.notifications.length === 1, "one summary row");
+  assert(next.notifications[0].body === "complete", "new counts reach the panel");
+  assert(next.notifications[0].read && next.notifications[0].timestamp === 5, "existing read state and timestamp retained");
+  assert(next.toasts.length === 0, "a completed summary does not recreate a dismissed toast");
+  const missing = reducer(next, { type: "UPDATE_NOTIFICATION_SUMMARY", id: "missing", title: "absent", body: "absent" });
+  assert(missing.notifications.length === 1, "missing ids never create a notice");
+});
+
+test("REORDER_DISPLAY assigns sort_order by list position across tab levels", () => {
+  const tab = (id: string, sort_order: number, parent_tab_id: string | null = null) =>
+    ({ id, title: id, sort_order, parent_tab_id }) as unknown as Tab;
+  const state = {
+    ...base(),
+    tabs: { lead: tab("lead", 5), worker: tab("worker", 0, "lead"), loose: tab("loose", 1), other: tab("other", 7) },
+  };
+  const next = reducer(state, { type: "REORDER_DISPLAY", orderedTabIds: ["loose", "lead", "worker", "gone"] });
+  assert(next.tabs.loose.sort_order === 0, "loose first");
+  assert(next.tabs.lead.sort_order === 1, "lead second");
+  assert(next.tabs.worker.sort_order === 2, "child follows its parent in the same sequence");
+  assert(next.tabs.other.sort_order === 7, "unlisted tabs are untouched");
+  assert(!("gone" in next.tabs), "unknown ids never create tabs");
 });
 
 console.log(failures === 0 ? "✓ reducer tests green" : `✗ ${failures} failure(s)`);

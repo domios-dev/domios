@@ -1,3 +1,5 @@
+import {parseSessionObservations} from "./signals";
+import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
 import type {
   LaunchParams,
   LaunchSessionDetection,
@@ -25,8 +27,10 @@ import { patchEdits } from "./patchEdits";
 import { completedActivity } from "./activity";
 import { agentMessageRow, reasoningResponseRow, subAgentRow } from "./agentActivity";
 import { codexFileDiffs } from "./fileDiffs";
+import { editFingerprint, pairFileChange, type PendingFileChange } from "./fileChangePairing";
 import { imageGenerationEndResult, webSearchEndResult } from "./richResults";
 import { actionTitle } from "./actionTitle";
+import { codexImageBlock, parseCodexUserContent, type CodexUserImage } from "./userContent";
 import {
   codexDirectoryTrustState,
   codexProfileInstanceId,
@@ -104,6 +108,8 @@ const OUTPUT_FINGERPRINTS = [
 const TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
 const ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
 const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
+// Codex truncates AGENTS.md at 32 KiB by default; agent repos routinely exceed it.
+const CODEX_LAUNCH_CONFIG = ["-c", "check_for_update_on_startup=false", "-c", "project_doc_max_bytes=65536"];
 
 function starterPrompt(params: LaunchParams): string | undefined {
   if (params.starterPromptText) return params.starterPromptText;
@@ -127,12 +133,14 @@ function windowsProfileCommand(parts: string[], taskPath: string | null, instanc
   const quotedInstanceId = host.shell.quoteFor(instanceId, host.platform());
   const taskSetup = taskPath
     ? `$ctTaskInstructions = [System.IO.File]::ReadAllText(${host.shell.quoteFor(taskPath, host.platform())}, [System.Text.Encoding]::UTF8); `
+      + '$ctTaskInstructions = $ctTaskInstructions.Replace("`r`n", "`n").Replace("`r", "`n"); '
       + "$ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); "
     : "$ctTaskJson = $null; ";
   const profileValue = taskPath
-    ? "('# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine + 'developer_instructions = ' + $ctTaskJson)"
+    ? "('# codeterm-instance: ' + $ctInstanceId + \"`n\" + 'developer_instructions = ' + $ctTaskJson)"
     : "('# codeterm-instance: ' + $ctInstanceId)";
-  const prefix = "$ctTabId = $env:CODETERM_TAB_ID; if (-not $ctTabId) { throw 'CODETERM_TAB_ID is required for a per-tab Codex profile' }; "
+  const prefix = "$PSNativeCommandArgumentPassing = 'Standard'; "
+    + "$ctTabId = $env:CODETERM_TAB_ID; if (-not $ctTabId) { throw 'CODETERM_TAB_ID is required for a per-tab Codex profile' }; "
     + taskSetup
     + "$ctProfileSuffix = $ctTabId -replace '[^A-Za-z0-9_-]', '-'; "
     + "$ctProfileName = 'codeterm-' + $ctProfileSuffix; "
@@ -157,6 +165,11 @@ function windowsProfileCommand(parts: string[], taskPath: string | null, instanc
     + "$ctProfileReleased = [bool]$ctRelease.released } } catch { Write-Warning 'Codex profile retained because project trust could not be persisted'; }; "
     + "} } } finally { if ($ctProfileReleased -and (Test-Path -LiteralPath $ctProfilePath)) { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue } }";
   return prefix + parts.join(" ") + suffix;
+}
+
+function quoteCodexArg(value: string, platform: string): string {
+  const argument = platform === "windows" ? value.replace(/"/g, '\\"') : value;
+  return host.shell.quoteFor(argument, platform);
 }
 
 function hasPromptAndStatusFooter(screen: string): boolean {
@@ -240,6 +253,8 @@ const plugin: PluginModule = {
     return events;
   },
 
+  updatePromptSafeChoice,
+
   parsePrompt(text: string): ParsedPrompt | null {
     return parseCodexPrompt(String(text || ""));
   },
@@ -291,6 +306,7 @@ const plugin: PluginModule = {
   sweepLaunchArtifacts(request: {
     instanceId: string;
     liveTabIds: string[];
+    goneInstanceIds?: string[];
     confirm: boolean;
     includeLegacy: boolean;
   }) {
@@ -300,19 +316,20 @@ const plugin: PluginModule = {
       request.instanceId,
       request.confirm,
       request.includeLegacy,
+      request.goneInstanceIds,
     );
   },
 
   buildLaunchCommand(params: LaunchParams): string {
     const p = params || {};
-    const parts: string[] = ["codex", "-c", "check_for_update_on_startup=false"];
+    const parts: string[] = ["codex", ...CODEX_LAUNCH_CONFIG];
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
     }
     if (p.args && p.args.length > 0) {
       // Quote each caller-supplied arg to prevent shell injection.
-      for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
+      for (let i = 0; i < p.args.length; i++) parts.push(quoteCodexArg(String(p.args[i]), host.platform()));
     }
     if (p.task?.trim()) {
       const instanceId = typeof p.instanceId === "string" && /^[A-Za-z0-9_-]+$/.test(p.instanceId)
@@ -345,7 +362,7 @@ const plugin: PluginModule = {
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
-    const parts = ["codex", "-c", "check_for_update_on_startup=false", "resume"];
+    const parts = ["codex", ...CODEX_LAUNCH_CONFIG, "resume"];
     if (skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
@@ -359,7 +376,7 @@ const plugin: PluginModule = {
   buildResumeCommandWithContext(params: ResumeParams): string {
     const p = params || ({} as ResumeParams);
     const platform = host.platform();
-    const parts = ["codex", "-c", "check_for_update_on_startup=false", "resume"];
+    const parts = ["codex", ...CODEX_LAUNCH_CONFIG, "resume"];
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
@@ -367,7 +384,7 @@ const plugin: PluginModule = {
     const uuid = extractSessionUuid(String(p.sessionId || "")) || String(p.sessionId || "");
     parts.push(host.shell.quoteFor(uuid, platform), "--no-daemon");
     if (Array.isArray(p.args)) {
-      for (const arg of p.args) parts.push(host.shell.quoteFor(String(arg), platform));
+      for (const arg of p.args) parts.push(quoteCodexArg(String(arg), platform));
     }
     if (platform === "windows") {
       const instanceId = typeof p.instanceId === "string" && /^[A-Za-z0-9_-]+$/.test(p.instanceId)
@@ -400,6 +417,8 @@ const plugin: PluginModule = {
   },
 
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts.
+  parseSessionObservations,
+
   parseSessionDelta(chunk: string, context?: SessionDeltaContext): unknown {
     const out: unknown[] = [];
     const commandPairing = commandPairingState(context);
@@ -479,7 +498,7 @@ const plugin: PluginModule = {
       }
       if (v.type === "event_msg" && v.payload?.type === "item_completed") {
         if (pairCommandExecution(v.payload.item, v.payload.turn_id, commandPairing)) continue;
-        pushOnce(completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id));
+        pushOnce(pairFileChange(completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id), v.payload.turn_id, commandPairing.fileChanges));
         continue;
       }
       if (v.type === "event_msg" && v.payload?.type === "sub_agent_activity") {
@@ -515,13 +534,21 @@ const plugin: PluginModule = {
         const role = p.role === "assistant" ? "assistant" : (p.role === "user" ? "user" : null);
         if (!role) continue; // skip developer/system noise
         let text = "";
-        if (Array.isArray(p.content)) {
+        let images: CodexUserImage[] = [];
+        if (role === "user") {
+          ({ text, images } = parseCodexUserContent(p.content));
+        } else if (Array.isArray(p.content)) {
           for (let j = 0; j < p.content.length; j++) {
             const c = p.content[j];
             if (c && typeof c.text === "string") text += c.text;
           }
         } else if (typeof p.content === "string") {
           text = p.content;
+        }
+        if (images.length > 0) {
+          const textBlocks = text ? [{ kind: "text", data: { text } }] : [];
+          out.push({ role, blocks: [...textBlocks, ...images.map(codexImageBlock)], ts, timestamp: tsIso });
+          continue;
         }
         if (!text) continue;
         const systemSubtype = classifyCodexSystemText(text);
@@ -554,6 +581,7 @@ const plugin: PluginModule = {
       } else if (p.type === "function_call_output" || p.type === "custom_tool_call_output") {
         const callId = typeof p.call_id === "string" ? p.call_id : "";
         const pending = p.type === "custom_tool_call_output" ? commandPairing.pending.get(callId) : undefined;
+        commandPairing.fileChanges.delete(callId);
         if (pending) commandPairing.pending.delete(callId);
         out.push({
           role: "assistant",
@@ -599,6 +627,12 @@ const plugin: PluginModule = {
           ? execScriptCommands(input.raw)
           : [];
         out.push(message);
+        const patchTurn = callTurnId(p);
+        const fingerprint = typeof input.patch === "string" ? editFingerprint(patchEdits(input.patch)) : "";
+        if (callId && patchTurn && fingerprint) {
+          commandPairing.fileChanges.set(callId, { turnId: patchTurn, fingerprint });
+          trimPendingCalls(commandPairing);
+        }
         if (commands.length > 0) {
           const turnId = callTurnId(p);
           if (!turnId) continue;
@@ -614,7 +648,7 @@ const plugin: PluginModule = {
         }
       }
     }
-    if (commandPairing.sessionKey && commandPairing.pending.size === 0) {
+    if (commandPairing.sessionKey && commandPairing.pending.size === 0 && commandPairing.fileChanges.size === 0) {
       commandPairingSessions.delete(commandPairing.sessionKey);
     }
     stampRows(lines.length - 1);
@@ -759,7 +793,7 @@ const plugin: PluginModule = {
 
 // types shared by the parsers above
 
-interface CodexContentBlock { type?: string; text?: string }
+interface CodexContentBlock { type?: string; text?: string; image_url?: string }
 interface CodexPayload {
   item?: unknown;
   type?: string;
@@ -798,6 +832,7 @@ interface PendingCommandPairing {
 
 interface CommandPairingState {
   pending: Map<string, PendingCommandPairing>;
+  fileChanges: Map<string, PendingFileChange>;
   sessionKey?: string;
   lastOffset?: number;
 }
@@ -810,14 +845,14 @@ function commandPairingState(context?: SessionDeltaContext): CommandPairingState
   const sessionKey = typeof context?.session_key === "string" ? context.session_key : "";
   const offset = context?.from_offset;
   if (!sessionKey || typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0) {
-    return { pending: new Map() };
+    return { pending: new Map(), fileChanges: new Map() };
   }
   let state = commandPairingSessions.get(sessionKey);
   if (state && state.lastOffset !== undefined && offset <= state.lastOffset) {
     commandPairingSessions.delete(sessionKey);
     state = undefined;
   }
-  if (!state) state = { pending: new Map(), sessionKey };
+  if (!state) state = { pending: new Map(), fileChanges: new Map(), sessionKey };
   state.lastOffset = offset;
   commandPairingSessions.delete(sessionKey);
   commandPairingSessions.set(sessionKey, state);
@@ -830,6 +865,11 @@ function commandPairingState(context?: SessionDeltaContext): CommandPairingState
 }
 
 function trimPendingCalls(state: CommandPairingState): void {
+  while (state.fileChanges.size > MAX_PENDING_CALLS_PER_SESSION) {
+    const oldest = state.fileChanges.keys().next().value;
+    if (typeof oldest !== "string") break;
+    state.fileChanges.delete(oldest);
+  }
   while (state.pending.size > MAX_PENDING_CALLS_PER_SESSION) {
     const oldest = state.pending.keys().next().value;
     if (typeof oldest !== "string") break;
@@ -838,6 +878,9 @@ function trimPendingCalls(state: CommandPairingState): void {
 }
 
 function clearTurnPairings(state: CommandPairingState, turnId: string): void {
+  for (const [callId, call] of state.fileChanges) {
+    if (call.turnId === turnId) state.fileChanges.delete(callId);
+  }
   for (const [callId, call] of state.pending) {
     if (call.turnId === turnId) state.pending.delete(callId);
   }

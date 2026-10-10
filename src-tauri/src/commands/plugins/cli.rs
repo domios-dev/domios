@@ -53,6 +53,11 @@ fn parse_plugin_args(parts: &[&str]) -> Result<PluginAction, String> {
             force: has_flag(rest, "--force"),
             remove_data: has_flag(rest, "--remove-data"),
         }),
+        "settings" => Ok(PluginAction::Settings {
+            id: first_positional(rest).ok_or("plugin settings requires an id")?,
+            allow_host: flag_values(rest, "--allow-host"),
+            disallow_host: flag_values(rest, "--disallow-host"),
+        }),
         "channel" => parse_channel_args(rest),
         other => Err(format!("unsupported in-process plugin command: {other}")),
     }
@@ -94,6 +99,15 @@ fn flag_value(rest: &[&str], flag: &str) -> Option<String> {
         .position(|x| *x == flag)
         .and_then(|i| rest.get(i + 1))
         .map(|s| s.to_string())
+}
+
+fn flag_values(rest: &[&str], flag: &str) -> Vec<String> {
+    rest.iter()
+        .enumerate()
+        .filter(|(_, value)| **value == flag)
+        .filter_map(|(index, _)| rest.get(index + 1))
+        .map(|value| (*value).to_string())
+        .collect()
 }
 
 fn has_flag(rest: &[&str], flag: &str) -> bool {
@@ -185,6 +199,33 @@ mod tests {
                 assert_eq!(id, "demo");
                 assert!(force);
                 assert!(remove_data);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn settings_parses_repeated_host_grants() {
+        match parse(&[
+            "plugin",
+            "settings",
+            "demo",
+            "--allow-host",
+            "api.example.test",
+            "--allow-host",
+            "api.example.test:8443",
+            "--disallow-host",
+            "old.example.test",
+            "--json",
+        ]) {
+            PluginAction::Settings {
+                id,
+                allow_host,
+                disallow_host,
+            } => {
+                assert_eq!(id, "demo");
+                assert_eq!(allow_host, ["api.example.test", "api.example.test:8443"]);
+                assert_eq!(disallow_host, ["old.example.test"]);
             }
             other => panic!("{other:?}"),
         }

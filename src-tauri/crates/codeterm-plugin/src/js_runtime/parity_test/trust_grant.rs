@@ -17,7 +17,7 @@ use super::{load_js, require_plugins, JsProvider};
 fn install_options() -> IntegrationInstallOptions {
     IntegrationInstallOptions {
         consent: true,
-        precompact_memory_export: false,
+
         repair: false,
     }
 }

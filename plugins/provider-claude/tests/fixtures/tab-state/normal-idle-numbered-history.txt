@@ -1,0 +1,50 @@
+  - Ferro: новый converter.rs (366 строк) и converter/tests.rs (399), плюс +124 строки в манифесте. Схему graphNodes начал встраивать.
+  - Mason: только чистая модель в sentinel_input.rs (+378 строк) и ещё один файл. Storage, CLI и граф не начаты. Это медленно: впереди самая большая
+    часть, миграция, store.rs split, amend, CLI и consumer audit.
+  Варианты:
+  1. Оставить как есть. Код у них пока в нормальном направлении, а тесты-первыми, как требовал бриф, Ferro реально делает. Цена — время.
+  2. Перезапустить на mimo-v2.6-flash (тот же xiaomi-token-plan-sgp). Думает меньше, но и качество на таком объёме ниже. Особенно рискованно для Mason
+     с миграцией SQLite.
+  3. Сменить провайдера (Claude или Codex) хотя бы для Mason. Ты сам задал MiMo, так что без твоего слова не трогаю.
+  Я бы оставил Ferro как есть: его задача уже наполовину сделана. Mason держал бы до первого отчёта или явного зависания. Скажи, если хочешь вариант 2
+  или 3, и для кого из них.
+  Ещё жду твоего ответа по одобрению новых задач Signal, Herald и Telly.
+✻ Cooked for 19s · done 17:52
+❯ а если на 2.5 переключить?
+● PowerShell(codeterm plan task respawn --help 2>&1 | Select-Object -First 30)
+  ⎿  Respawn a worker from one prior execution attempt
+     Usage: codeterm.exe plan task respawn [OPTIONS] --attempt <ATTEMPT> <PLAN_ID> <TASK_ID>
+     … +15 lines (ctrl+o to expand)
+● Можно, технически это просто. Есть xiaomi-token-plan-sgp/mimo-v2.5 и mimo-v2.5-pro, а codeterm plan task respawn <plan> <task> --attempt <id>
+  --model ... перезапускает воркера в том же лейне. Незакоммиченный код в worktree остаётся, новый воркер продолжает с него.
+  Но честно: я не знаю, думает ли 2.5 меньше. У меня нет данных, что 2.5-pro короче рассуждает, чем 2.6-pro. Вполне может быть то же самое, только
+  слабее. mimo-v2.5 без -pro, скорее всего, думает меньше, но для Mason с миграцией SQLite и сплитом store.rs я бы его побоялся.
+  Есть и цена перезапуска: новый воркер теряет весь контекст, который старый уже набрал (прочитанные файлы, план в голове). Ему придётся заново читать
+  бриф и разбираться в полусделанном диффе.
+  Если хочешь попробовать, я бы сделал так:
+  - Ferro не трогать: он уже глубоко в задаче, а перезапуск выкинет его контекст.
+  - Mason перезапустить на mimo-v2.5-pro: он пока сделал только чистую модель, так что теряем мало. Заодно сравним темп на живой задаче.
+  Перезапускаем Mason на 2.5-pro? И не забудь про одобрение новых задач (Signal, Herald и припаркованный Telly).
+✻ Cogitated for 10s · done 17:53
+❯ внутри того же таба нельзя переключить чтоле?
+● PowerShell(codeterm agent --help 2>&1 | Select-String -Pattern "model|switch"; codeterm tab --help 2>&1 | Select-String -Pattern "model|switch")
+  ⎿    ledger            List an orchestrator's workers from the durable ledger (survives daemon restart): branch / model /
+     status / last-seen, one row per worker
+       model             Switch one idle agent Tab to another model. Only that Tab changes: it is relaunched on its own sess
+     … +7 lines (ctrl+o to expand)
+● PowerShell(codeterm agent model --help 2>&1 | Select-Object -First 20)
+  ⎿  Switch one idle agent Tab to another model. Only that Tab changes: it is relaunched on its own session and the command returns once the prov
+     ider reports the new model. Providers without a live switch refuse; respawn them with `agent spawn PROVIDER --model X`
+     … +10 lines (ctrl+o to expand)
+● Можно. Есть codeterm agent model <id> --tab <tab>: он перезапускает тот же таб на его же сессии, так что контекст и история разговора сохраняются.
+  Если провайдер не умеет живое переключение, команда откажет.
+  Есть два ограничения:
+  - Только когда агент idle. Mason сейчас в работе, так что посреди хода переключить не выйдет, надо ловить паузу между ходами.
+  - Плановая запись не обновится. В attempt останется mimo-v2.6-pro, а реально будет 2.5. Это я запишу заметкой в задачу, чтобы история не врала.
+  Это лучше respawn: Mason не теряет набранный контекст.
+  Переключаю Mason на xiaomi-token-plan-sgp/mimo-v2.5-pro, как только он станет idle? И Ferro тоже, или его оставляем на 2.6?
+✻ Sautéed for 10s · done 17:55
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ нахуй мне блять перезагружать сука табу мне надо переключить внутри модель
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle)

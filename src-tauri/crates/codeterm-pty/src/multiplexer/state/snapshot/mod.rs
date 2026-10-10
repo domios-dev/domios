@@ -70,14 +70,23 @@ impl MultiplexerState {
             .generation
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
             .wrapping_add(1);
+        let mut tabs = self.tabs.clone();
+        for tab in tabs.values_mut() {
+            if let Some(managed) = &mut tab.managed {
+                if !self.tabs.contains_key(&managed.manager_tab_id) {
+                    managed.manager_closed = true;
+                }
+            }
+        }
         MultiplexerSnapshot {
             workspaces: self.live_workspace_tabs(),
-            tabs: self.tabs.clone(),
+            tabs,
             teams: self.list_teams(),
             active_workspace_id: self.active_workspace_id.clone(),
             focused_tab_id: self.focused_tab_id.clone(),
             generation,
             recently_closed: self.recent_closed_view(),
+            closed_structures: self.closed_structure_views(),
             tab_statuses: HashMap::new(),
         }
     }
@@ -116,6 +125,20 @@ impl MultiplexerState {
                     .map(|status| (tab_id.clone(), status))
             })
             .collect();
+        for (tab_id, status) in &snap.tab_statuses {
+            if let Some(tab) = snap
+                .tabs
+                .get_mut(tab_id)
+                .filter(|tab| tab.agent_type.is_some())
+            {
+                tab.agent_state = tab.provider_signals.access_state().or_else(|| {
+                    Some(super::status_view::agent_state_for_status(
+                        tab.agent_state.as_ref(),
+                        *status,
+                    ))
+                });
+            }
+        }
         snap
     }
 
@@ -134,6 +157,16 @@ impl MultiplexerState {
                 _ => (None, None),
             };
             SplitNodeSnapshot::Leaf {
+                purpose: tab.map(|p| p.purpose).unwrap_or_default(),
+                icon: tab.and_then(|p| p.icon.clone()),
+                shell_profile: tab.and_then(|p| p.shell_profile.clone()),
+                utility_created_at: tab.map(|p| p.utility_created_at).unwrap_or_default(),
+                close_restore: tab.and_then(|p| {
+                    p.close_restore.clone().map(|mut state| {
+                        state.paired_planner_tab_id = p.pending_paired_planner_tab_id.clone();
+                        state
+                    })
+                }),
                 tab_id: tab_id.to_string(),
                 cwd: tab.and_then(|p| normalized_snapshot_cwd(p.cwd.as_deref())),
                 title: tab.map(|p| p.title.clone()),
@@ -147,6 +180,7 @@ impl MultiplexerState {
                     session_binding_nonce: p.session_binding_nonce.clone(),
                     reported_session_binding_nonce: p.reported_session_binding_nonce.clone(),
                     agent_state: p.agent_state.clone(),
+                    turn_resume: p.turn_resume.clone(),
                     boot_stage: p.boot_stage,
                     reasoning_effort: p.reasoning_effort_identity.clone(),
                     restorable_launch: p.restorable_launch.clone(),
@@ -154,6 +188,7 @@ impl MultiplexerState {
                     prior_session_bindings: p.prior_session_binding_nonces.clone(),
                     task_binding: p.task_binding.clone(),
                     roleless_tracked: p.roleless_tracked,
+                    managed: p.managed.clone(),
                     lifecycle_epoch: p.lifecycle_epoch,
                     lifecycle_operation_id: p.lifecycle_operation_id.clone(),
                 }),
@@ -180,6 +215,7 @@ impl MultiplexerState {
                 model_identity_mismatch: tab.and_then(|p| p.model_identity_mismatch.clone()),
                 chatbackend_plugin_id,
                 chatbackend_session_id,
+                surface: tab.and_then(|p| p.surface().cloned()),
                 watcher: tab.and_then(|p| p.watcher.clone()),
                 pending_delivery: tab.and_then(|p| p.pending_delivery.clone()),
             }
@@ -189,38 +225,41 @@ impl MultiplexerState {
             .live_workspace_tabs()
             .iter()
             .map(|ws| {
+                let tabs: Vec<TabSnapshot> = ws
+                    .tabs
+                    .iter()
+                    .filter(|tab_id| {
+                        let tab = self.tabs.get(*tab_id);
+                        !tab.map(|tab| tab.hidden || tab.skip_snapshot)
+                            .unwrap_or(false)
+                    })
+                    .map(|tab_id| TabSnapshot {
+                        id: tab_id.clone(),
+                        title: self.display_label_for_tab(tab_id),
+                        description: self
+                            .tabs
+                            .get(tab_id)
+                            .and_then(|tab| tab.description.clone()),
+                        split_tree: tab_to_leaf_snapshot(tab_id, &self.tabs),
+                        sort_order: self.tabs.get(tab_id).map(|tab| tab.sort_order).unwrap_or(0),
+                    })
+                    .collect();
+                let active_tab_id = ws
+                    .active_tab_id
+                    .as_ref()
+                    .filter(|active| tabs.iter().any(|tab| &tab.id == *active))
+                    .cloned()
+                    .or_else(|| tabs.first().map(|tab| tab.id.clone()));
                 WorkspaceSnapshot {
                     task_keys: ws.task_keys.clone(),
                     id: ws.id.clone(),
                     name: ws.name.clone(),
-                    active_tab_id: ws.active_tab_id.clone(),
+                    active_tab_id,
                     cwd: normalized_snapshot_cwd(ws.cwd.as_deref()),
                     provisioned_cwd: normalized_snapshot_cwd(ws.provisioned_cwd.as_deref()),
                     protected: ws.protected,
                     sort_order: ws.sort_order,
-                    tabs: ws
-                        .tabs
-                        .iter()
-                        .filter(|tab_id| {
-                            // Exclude hidden worker tabs and ephemeral picker tabs from persisting across restarts.
-                            let tab = self.tabs.get(*tab_id);
-                            !tab.map(|p| p.hidden || p.skip_snapshot).unwrap_or(false)
-                        })
-                        .map(|tab_id| TabSnapshot {
-                            id: tab_id.clone(),
-                            title: self.display_label_for_tab(tab_id),
-                            description: self
-                                .tabs
-                                .get(tab_id)
-                                .and_then(|tab| tab.description.clone()),
-                            split_tree: tab_to_leaf_snapshot(tab_id, &self.tabs),
-                            sort_order: self
-                                .tabs
-                                .get(tab_id)
-                                .map(|tab| tab.sort_order)
-                                .unwrap_or(0),
-                        })
-                        .collect(),
+                    tabs,
                 }
             })
             .collect();
@@ -235,7 +274,7 @@ impl MultiplexerState {
             timestamp,
             workspaces,
             active_workspace_id: self.active_workspace_id.clone(),
-            teams: self.teams.values().cloned().collect(),
+            teams: self.list_teams(),
         }
     }
 
@@ -292,10 +331,12 @@ impl MultiplexerState {
             pty_to_tab: HashMap::new(),
             tab_aliases: HashMap::new(),
             teams,
+            team_order: snapshot.teams.iter().map(|team| team.id.clone()).collect(),
             generation: std::sync::atomic::AtomicU64::new(0),
             // startup), not the session snapshot.
             closed_store: super::ClosedTabsStore::in_memory(),
             workspace_close_reservations: HashMap::new(),
+            tab_close_reservations: HashMap::new(),
         }
     }
 
@@ -413,6 +454,24 @@ pub struct SnapshotMergeReport {
     pub tabs_already_present: usize,
 }
 
+/// Every surface restore policy re-renders the view today, so the backing restores as persisted.
+fn restored_leaf_backing(
+    chatbackend_plugin_id: Option<&str>,
+    chatbackend_session_id: Option<&str>,
+    surface: Option<&crate::multiplexer::types::SurfaceBacking>,
+) -> TabBacking {
+    if let Some(surface) = surface {
+        return TabBacking::Surface(surface.clone());
+    }
+    match (chatbackend_plugin_id, chatbackend_session_id) {
+        (Some(plugin_id), Some(session_id)) => TabBacking::ChatBackend {
+            plugin_id: plugin_id.to_string(),
+            session_id: session_id.to_string(),
+        },
+        _ => TabBacking::default(),
+    }
+}
+
 /// Walk an old SplitNodeSnapshot looking for the first Leaf. Anything
 /// past the first leaf in a Split branch is discarded — those tabs
 /// will come back as a single-tab after restore.
@@ -433,6 +492,11 @@ fn install_leaf(
 ) -> Option<String> {
     use crate::session::store::*;
     let SplitNodeSnapshot::Leaf {
+        purpose,
+        icon,
+        utility_created_at,
+        close_restore,
+        shell_profile,
         tab_id,
         cwd,
         title,
@@ -464,6 +528,7 @@ fn install_leaf(
         model_identity_mismatch,
         chatbackend_plugin_id,
         chatbackend_session_id,
+        surface,
         watcher,
         pending_delivery,
     } = leaf
@@ -471,13 +536,11 @@ fn install_leaf(
         return None;
     };
 
-    let restored_backing = match (chatbackend_plugin_id, chatbackend_session_id) {
-        (Some(plugin_id), Some(session_id)) => TabBacking::ChatBackend {
-            plugin_id: plugin_id.clone(),
-            session_id: session_id.clone(),
-        },
-        _ => TabBacking::default(),
-    };
+    let restored_backing = restored_leaf_backing(
+        chatbackend_plugin_id.as_deref(),
+        chatbackend_session_id.as_deref(),
+        surface.as_ref(),
+    );
 
     // Literal legacy migration: `Orchestrator`/`Conductor` rows carried
     // no profile, so their anchoring kind is re-materialized here.
@@ -553,6 +616,13 @@ fn install_leaf(
             pty_id: None,
             backing: restored_backing,
             tab_type: TabType::Terminal,
+            purpose: *purpose,
+            icon: icon.clone(),
+            shell_profile: shell_profile.clone(),
+            utility_created_at: *utility_created_at,
+            close_restore: close_restore.clone(),
+            utility_command_pending: false,
+            shell_command_state: Default::default(),
             pending_delivery: pending_delivery.clone(),
             title: restored_title,
             description: description.clone(),
@@ -565,11 +635,17 @@ fn install_leaf(
             agent_type_locked: restored_locked,
             agent_session_id: restored_session_id,
             agent_session_name: None,
+            context: None,
+            provider_signals: Default::default(),
+            fork_source_session_id: None,
             agent_session_model: agent_session_model.clone(),
             agent_session_model_identity: None,
             pending_model_switch_observation: None,
+            pending_model_selection: None,
             agent_planned_model: agent_planned_model.clone(),
             agent_requested_model: agent_requested_model.clone(),
+            structured_control_active: false,
+            structured_runtime_mode: restorable_launch.structured_runtime_mode.clone(),
             agent_provider_resolved_model: agent_provider_resolved_model.clone(),
             model_fallback: model_fallback.clone(),
             model_identity_mismatch: model_identity_mismatch.clone(),
@@ -592,6 +668,9 @@ fn install_leaf(
             lifecycle_operation_id: restored_identity
                 .and_then(|identity| identity.lifecycle_operation_id.clone()),
             task_binding: restored_identity.and_then(|identity| identity.task_binding.clone()),
+            managed: agent_identity
+                .as_ref()
+                .and_then(|identity| identity.managed.clone()),
             roleless_tracked: restored_identity
                 .map(|identity| identity.roleless_tracked)
                 .unwrap_or(false),
@@ -600,7 +679,9 @@ fn install_leaf(
             team_id: team_id.clone(),
             watcher: watcher.clone(),
             parent_tab_id: parent_tab_id.clone(),
-            pending_paired_planner_tab_id: None,
+            pending_paired_planner_tab_id: close_restore
+                .as_ref()
+                .and_then(|state| state.paired_planner_tab_id.clone()),
             can_spawn: if codeterm_types::agent::is_legacy_cartographer_worker_binding(
                 role.as_deref(),
                 role_profile.as_deref(),
@@ -620,6 +701,9 @@ fn install_leaf(
             pending_prompt: None,
             pending_prompt_kind: None,
             agent_state: restored_identity.and_then(|identity| identity.agent_state.clone()),
+            turn_resume: agent_identity
+                .as_ref()
+                .and_then(|identity| identity.turn_resume.clone()),
             auto_approve: false,
             permission_auto_confirm: *permission_auto_confirm,
             permission_auto_confirmations: Vec::new(),

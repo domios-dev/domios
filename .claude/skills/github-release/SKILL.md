@@ -1,6 +1,6 @@
 ---
 name: github-release
-description: End-to-end GitHub release workflow for CodeTerm. Use when asked to release, ship, tag, publish, bump a version, trigger the self-hosted build machine, monitor release CI, produce signed/notarized macOS/Linux/Windows artifacts, update the public updater mirror, or debug the CodeTerm release pipeline.
+description: End-to-end GitHub release workflow for Domios. Use when asked to release, ship, tag, publish, bump a version, trigger the self-hosted build machine, monitor release CI, produce signed/notarized macOS/Linux/Windows artifacts, update the public updater mirror, or debug the Domios release pipeline.
 ---
 
 # github-release

@@ -1,11 +1,10 @@
 use super::*;
 
 #[test]
-fn messenger_report_planner_send_share_submit_transaction() {
+fn messenger_report_and_direct_send_share_submit_transaction() {
     for entry in [
         PtySubmitEntry::Messenger,
         PtySubmitEntry::Report,
-        PtySubmitEntry::Planner,
         PtySubmitEntry::Direct,
     ] {
         let mut submit_calls = 0;

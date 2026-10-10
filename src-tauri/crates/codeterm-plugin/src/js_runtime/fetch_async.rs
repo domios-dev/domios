@@ -89,7 +89,11 @@ async fn fetch_async_releases_vm_during_request() {
         )
         .expect("vm"),
     );
-    let model = Arc::new(JsDecisionModel::new(vm, "decision-fetch-concurrency"));
+    let model = Arc::new(JsDecisionModel::new(
+        vm,
+        "decision-fetch-concurrency",
+        codeterm_types::decision::TokenMode::Optional,
+    ));
     let test_lock = super::PROCESS_TEST_LOCK.lock();
     let (result_tx, result_rx) = std::sync::mpsc::channel();
     let start = Arc::new(std::sync::Barrier::new(3));
@@ -164,7 +168,11 @@ async fn js_decision_model_models_resolves_fetch_continuation() {
         )
         .expect("vm"),
     );
-    let model = Arc::new(JsDecisionModel::new(vm, "decision-models-fetch"));
+    let model = Arc::new(JsDecisionModel::new(
+        vm,
+        "decision-models-fetch",
+        codeterm_types::decision::TokenMode::Optional,
+    ));
 
     let models = tokio::time::timeout(
         Duration::from_secs(7),

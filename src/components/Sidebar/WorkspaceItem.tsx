@@ -1,13 +1,16 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import { invoke } from "../../lib/bridge";
-import { Map as MapIcon, X, TerminalSquare, FolderOpen, Sparkles, SquarePlus } from "lucide-react";
+import { X, TerminalSquare, FolderOpen, Sparkles, SquarePlus } from "lucide-react";
 import { isMac } from "../../lib/keybindings";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
+import { useShellProfiles } from "../../hooks/useShellProfiles";
 import { useConfig } from "../../hooks/useConfig";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
+import { RowMenuButton } from "../shared/RowMenuButton";
 import { FolderIcon, ShieldCheckIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { SidebarDisclosure } from "./SidebarDisclosure";
+import { LiveWorkspaceNavigationActions, WorkspaceNavigationActions } from "./WorkspaceNavigationActions";
 import type { TabStatus, Workspace } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 
@@ -19,9 +22,10 @@ interface WorkspaceItemProps {
   onToggleExpand: () => void;
   onClose: () => void;
   onRename: (name: string) => void;
-  onNewTerminal: () => void;
+  onNewTerminal: (shell?: string) => void;
   onNewSession: () => void;
   onOpenMap?: () => void;
+  onOpenAutomation?: () => void;
   newSessionDisabled?: boolean;
   onNewAgent: (agentId: string) => void;
   canClose: boolean;
@@ -29,6 +33,7 @@ interface WorkspaceItemProps {
   showDisclosure?: boolean;
   detailHeader?: boolean;
   touchMode?: boolean;
+  countActiveJobs?: boolean;
   uiFontScale?: number;
 }
 
@@ -43,6 +48,7 @@ function WorkspaceItemInner({
   onNewTerminal,
   onNewSession,
   onOpenMap,
+  onOpenAutomation,
   newSessionDisabled = false,
   onNewAgent,
   canClose: _canClose,
@@ -50,6 +56,7 @@ function WorkspaceItemInner({
   showDisclosure = true,
   detailHeader = false,
   touchMode = false,
+  countActiveJobs = false,
   uiFontScale,
 }: WorkspaceItemProps) {
   const [editing, setEditing] = useState(false);
@@ -74,6 +81,7 @@ function WorkspaceItemInner({
     if (e.key === "Escape") { setEditing(false); }
   }, [commitRename]);
 
+  const { profiles, refresh: refreshShells, loading: shellsLoading, error: shellsError } = useShellProfiles();
   const { config } = useConfig();
   const agentsConfig = config.agents ?? {};
   // plugins with a `src/index.ts` FE module, which left drop-in `~/.codeterm/plugins/<id>/plugin.js` plugins invisible in the workspace menu.
@@ -129,7 +137,14 @@ function WorkspaceItemInner({
       {
         label: "New Terminal",
         icon: <TerminalSquare size={11} strokeWidth={1.5} />,
-        onClick: onNewTerminal,
+        submenu: {
+          label: "New Terminal",
+          items: [
+            { label: "Default shell", onClick: () => onNewTerminal() },
+            ...profiles.map((profile) => ({ label: profile.name, onClick: () => onNewTerminal(profile.id) })),
+            { label: shellsError ? "Retry shell detection" : "Refresh shells", disabled: shellsLoading, onClick: () => void refreshShells() },
+          ],
+        },
       },
     ];
     if (workspace.cwd) {
@@ -150,9 +165,9 @@ function WorkspaceItemInner({
       });
     }
     return items;
-  }, [onNewTerminal, onNewSession, newSessionDisabled, onNewAgent, onClose, workspace.protected, workspace.cwd, agentsConfig, providers]);
+  }, [onNewTerminal, onNewSession, newSessionDisabled, onNewAgent, onClose, workspace.protected, workspace.cwd, agentsConfig, providers, profiles, refreshShells, shellsLoading, shellsError]);
 
-  return (
+  return <>
     <div
       data-testid="workspace-item"
       data-workspace-id={workspace.id}
@@ -238,21 +253,6 @@ function WorkspaceItemInner({
       </div>
       {/* 3-dot menu — visible on hover */}
       <div className="flex shrink-0 items-center gap-0.5">
-        {onOpenMap && (
-          <button
-            type="button"
-            data-testid="workspace-map-action"
-            aria-label={`Open essence map for ${workspace.name}`}
-            className={`${touchMode ? "h-11 w-11" : "w-5 h-5 opacity-0 group-hover:opacity-60 focus-visible:opacity-100 hover:!opacity-100"} flex items-center justify-center rounded text-[var(--ct-muted-fg)] transition-opacity hover:bg-[var(--ct-border)] hover:text-[var(--ct-fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]`}
-            title="Open workspace essence map"
-            onClick={(event) => {
-              event.stopPropagation();
-              onOpenMap();
-            }}
-          >
-            <MapIcon size={touchMode ? 17 : 13} strokeWidth={1.6} aria-hidden="true" />
-          </button>
-        )}
         <DropdownMenu
           items={menuItems}
           className={
@@ -260,19 +260,14 @@ function WorkspaceItemInner({
               ? "shrink-0 flex h-11 w-11 items-center justify-center"
               : "shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
           }
-          trigger={
-            <button
-              aria-label={`Actions for ${workspace.name}`}
-              className={`${touchMode ? "h-11 w-11" : "w-5 h-5"} flex items-center justify-center rounded hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors`}
-              title="Workspace actions"
-            >
-              <span className={`${touchMode ? "text-[20px]" : "text-[13px]"} leading-none font-bold`}>⋮</span>
-            </button>
-          }
+          trigger={<RowMenuButton label={`Actions for ${workspace.name}`} title="Workspace actions" touchMode={touchMode} />}
         />
       </div>
     </div>
-  );
+    {detailHeader && (onOpenMap || onOpenAutomation) && (countActiveJobs && onOpenAutomation
+      ? <LiveWorkspaceNavigationActions scope={{ workspaceId: workspace.id, teamId: null }} workspaceId={workspace.id} workspaceName={workspace.name} onOpenMap={onOpenMap ? () => onOpenMap() : undefined} onOpenJobs={onOpenAutomation ? () => onOpenAutomation() : undefined} touchMode={touchMode} />
+      : <WorkspaceNavigationActions workspaceId={workspace.id} workspaceName={workspace.name} onOpenMap={onOpenMap ? () => onOpenMap() : undefined} onOpenJobs={onOpenAutomation ? () => onOpenAutomation() : undefined} touchMode={touchMode} />)}
+  </>;
 }
 
 function workspacePropsEqual(prev: WorkspaceItemProps, next: WorkspaceItemProps): boolean {
@@ -284,7 +279,9 @@ function workspacePropsEqual(prev: WorkspaceItemProps, next: WorkspaceItemProps)
     prev.showDisclosure === next.showDisclosure &&
     prev.detailHeader === next.detailHeader &&
     prev.onOpenMap === next.onOpenMap &&
+    prev.onOpenAutomation === next.onOpenAutomation &&
     prev.touchMode === next.touchMode &&
+    prev.countActiveJobs === next.countActiveJobs &&
     prev.uiFontScale === next.uiFontScale &&
     prev.workspace.id === next.workspace.id &&
     prev.workspace.name === next.workspace.name &&

@@ -1,3 +1,5 @@
+import type { ChatMsg } from "./gen/ChatMsg";
+
 export type ChatMessageKind =
   | "user"
   | "assistant"
@@ -94,6 +96,9 @@ export interface FileDiffHunk {
 /** One changed file; counts are the marked lines of its own hunks. */
 export interface FileDiff {
   path: string;
+  kind?: "add" | "modify" | "delete" | "rename";
+  binary?: boolean;
+  truncated?: boolean;
   movePath?: string;
   additions: number;
   deletions: number;
@@ -137,7 +142,7 @@ export interface ChatSessionIntent {
 /** Discriminated union, open for future interactive session-event kinds. */
 export type InteractiveElement = InteractiveQuestion;
 
-export interface NormalizedChatMessage {
+export interface NormalizedChatMessage extends Omit<Partial<ChatMsg>, "pluginIconSvg"> {
   id: string;
   /** The id the source emitted before the transcript re-keyed the row; never a render key. */
   sourceMessageId?: string;
@@ -211,6 +216,10 @@ export interface NormalizedChatMessage {
   fromModel?: string;
   fromMesh?: string;
   inboundKind?: "tab" | "report" | "reminder" | "system" | "mesh" | "telegram" | "pebble" | "plugin";
+  /** Utility-shell purpose of the sender (build, dev, qa, …). */
+  fromPurpose?: string;
+  /** System-notice context, e.g. `blueprint:<id>:result` or `cron:<job>:<status>`. */
+  fromContext?: string;
   fromPlugin?: string;
   pluginIconSvg?: string | null;
   /** Interactive prompts the provider extracted from this message (answerable widgets). */
@@ -250,6 +259,20 @@ export type ChatOrigin =
   | { kind: "service"; service: string; userId: string }
   | { kind: "plugin_config"; pluginId: string; name: string }
   | { kind: "system"; context?: string }
+  | {
+      kind: "automation";
+      /** Who sent it: a cron run, a blueprint, or a utility shell (build/dev/qa/…). */
+      source: "cron" | "blueprint" | "utility";
+      /** Job name, blueprint id, or the shell's title. */
+      name: string;
+      /** Trailing context such as `result`, `lifecycle:failed`, or a cron run status. */
+      detail?: string;
+      /** Utility-shell purpose. */
+      purpose?: string;
+      tabIdShort?: string;
+      model?: string;
+      report?: boolean;
+    }
   | { kind: "system_prompt" }
   | {
       kind: "reminder";

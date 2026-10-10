@@ -1,8 +1,24 @@
 use super::*;
 use crate::api::events::SystemEvent;
 
+#[test]
+fn tab_state_weak_hint_event_marks_it_non_actionable() {
+    let event = super::weak_hint_event("tab-1", ERROR_LOOP, 0.72, 5);
+
+    assert_eq!(event["tab_id"], "tab-1");
+    assert_eq!(event["label"], ERROR_LOOP);
+    assert_eq!(event["confidence"], 0.72);
+    assert_eq!(event["band"], "weak");
+    assert_eq!(event["actionable"], false);
+    assert_eq!(event["episode"], 5);
+}
+
 fn metadata(options: Vec<NumberedPromptOption>) -> TabStateMetadata {
     TabStateMetadata {
+        declared_safe_choice: None,
+        tab_snapshot: None,
+        process_tree_key: None,
+        envelope: None,
         context: Value::Null,
         session_key: "session".into(),
         title: "worker".into(),
@@ -90,4 +106,34 @@ fn tab_state_strong_auth_emits_orchestrator_event() {
     assert_eq!(event_type, "tab_state_auth_required");
     assert_eq!(data["tab_id"], tab_id);
     assert_eq!(data["label"], LOGIN_OR_AUTH_REQUIRED);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn tab_state_single_strong_hint_is_marked_non_actionable() {
+    let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let mut events = fixture.service.events.subscribe();
+    let launch_key = super::super::state::launch_episode_key(&tab_id, Some("pty-launch"), None);
+    let action =
+        super::super::state::apply_verdict(&tab_id, &launch_key, LOGIN_OR_AUTH_REQUIRED, 0.92);
+    assert_eq!(action, SignalAction::WeakHint);
+
+    deliver(
+        &fixture.service,
+        &tab_id,
+        &metadata(Vec::new()),
+        4,
+        ObservationTrigger::WorkerIdle,
+        LOGIN_OR_AUTH_REQUIRED,
+        0.92,
+        action,
+    );
+
+    let event = events.try_recv().expect("informational hint is published");
+    let SystemEvent::Generic { event_type, data } = event.event else {
+        panic!("tab-state hint is a generic event");
+    };
+    assert_eq!(event_type, "tab-state-signal");
+    assert_eq!(data["actionable"], false);
 }

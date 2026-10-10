@@ -125,6 +125,54 @@ fn plan_task_dispatch_json_error_keeps_invalid_model_details() {
     assert_eq!(output["error"]["code"], "invalid_argument");
 }
 
+fn dispatch_action(cwd: &str) -> PlanTaskAction {
+    PlanTaskAction::Dispatch {
+        plan_id: "plan_a".into(),
+        task_id: Some("task_a".into()),
+        agent: None,
+        authorized_gates: Vec::new(),
+        canonical_writer: false,
+        model: None,
+        reasoning_effort: None,
+        parent: None,
+        workspace: None,
+        cwd: Some(cwd.into()),
+        execution_intent: "mutating".into(),
+        provider_reserve_pct: 0.0,
+    }
+}
+
+fn owner_epoch_task() -> Value {
+    json!({ "task": { "interruption": { "owner_epoch": 1 } } })
+}
+
+fn dispatched_cwd(client: &FakeRpc) -> String {
+    client
+        .calls
+        .iter()
+        .find(|(method, _)| method == "plan.task.dispatch")
+        .and_then(|(_, params)| params.as_ref()?["cwd"].as_str().map(str::to_string))
+        .expect("dispatch carries the cwd")
+}
+
+#[test]
+fn plan_task_dispatch_resolves_a_relative_local_cwd_against_the_caller() {
+    let mut client = FakeRpc::scripted([owner_epoch_task()]);
+    let _ = run_dispatch(&mut client, true, dispatch_action("lane-rel-9e"), None);
+    let sent = std::path::PathBuf::from(dispatched_cwd(&client));
+    assert!(sent.is_absolute(), "{}", sent.display());
+    assert!(sent.ends_with("lane-rel-9e"), "{}", sent.display());
+
+    let mut remote = FakeRpc::scripted([owner_epoch_task()]);
+    let _ = run_dispatch(
+        &mut remote,
+        true,
+        dispatch_action("lane-rel-9e"),
+        Some("peer"),
+    );
+    assert_eq!(dispatched_cwd(&remote), "lane-rel-9e");
+}
+
 fn list_action(status: Option<&str>) -> PlanTaskAction {
     PlanTaskAction::List {
         plan_id: Some("pl_1".into()),
@@ -572,4 +620,30 @@ fn attempt_detail_labels_dispatched_and_session_models() {
         "{rendered}"
     );
     assert!(rendered.contains("model_identity_mismatch: {\"actual_model\":\"other-model\",\"provider_resolved_model\":\"gpt-6-luna\",\"reason\":\"runtime_session_model_mismatch\",\"requested_model\":\"gpt-6-luna\"}\n"), "{rendered}");
+}
+
+#[test]
+fn structured_task_files_use_authorized_update_and_preserve_paths() {
+    let mut client = FakeRpc::scripted([
+        json!({"task": {"interruption": {"owner_epoch": 17}}}),
+        json!({"ok": true}),
+    ]);
+    run_task(
+        &mut client,
+        true,
+        PlanTaskAction::Files {
+            plan_id: "pl_1".into(),
+            task_id: "task_1".into(),
+            edit: vec!["new file.rs".into()],
+            read: vec!["context.md".into()],
+        },
+    )
+    .unwrap();
+    assert_eq!(client.methods(), ["task.show", "plan.task.update"]);
+    let params = client.calls[1].1.as_ref().unwrap();
+    assert_eq!(params["owner_epoch"], 17);
+    assert_eq!(
+        params["files"],
+        json!({"edit":["new file.rs"],"read":["context.md"]})
+    );
 }

@@ -134,17 +134,17 @@ async function main() {
   }
 
   async function openMenu(host: Element) {
-    const trigger = host.querySelector('[aria-label="Tab actions"]')?.parentElement;
-    assert(trigger, "kebab trigger is missing");
+    const target = host.querySelector('[data-testid="tab-item"]');
+    assert(target, "tab row is missing");
     await act(async () => {
-      trigger.dispatchEvent(
-        new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }) as unknown as Event,
+      target.dispatchEvent(
+        new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true }) as unknown as Event,
       );
     });
     // Portals append in order, so the newest open menu is the last match.
     const menus = document.querySelectorAll('[role="menu"][aria-label="Tab actions"]');
     const menu = menus[menus.length - 1];
-    assert(menu, "menu did not open from the keyboard");
+    assert(menu, "menu did not open from the context menu");
     return menu;
   }
 

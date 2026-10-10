@@ -14,11 +14,27 @@ const TASK_LOCAL_ONLY: &str = "task management is local-only — run it on the t
 /// Column 0 is the clap name, so coverage can be compared against the parser.
 const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
     (
+        "trace",
+        &["codeterm", "trace", "recent"],
+        Local::PreSocket,
+        MeshRelay::Fallthrough,
+        ApiVerdict::Unsupported("trace files are local-only; run on the owning instance"),
+    ),
+    (
         "identify",
         &["codeterm", "identify"],
         Local::Socket,
         MeshRelay::Fallthrough,
         ApiVerdict::Rest,
+    ),
+    (
+        "model-provider",
+        &["codeterm", "model-provider", "list"],
+        Local::Socket,
+        MeshRelay::Fallthrough,
+        ApiVerdict::Unsupported(
+            "model provider secrets and configuration are local-only; run on the target machine",
+        ),
     ),
     (
         "capabilities",
@@ -40,6 +56,13 @@ const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
         Local::PreMesh,
         MeshRelay::Fallthrough,
         ApiVerdict::Unsupported("plugin management is local-only — run it on the target machine"),
+    ),
+    (
+        "blueprint",
+        &["codeterm", "blueprint", "list"],
+        Local::Socket,
+        MeshRelay::Fallthrough,
+        ApiVerdict::Unsupported("blueprints are creator-local; run on the owning machine"),
     ),
     (
         "supporter",
@@ -164,6 +187,15 @@ const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
         Local::Socket,
         MeshRelay::Fallthrough,
         ApiVerdict::Rest,
+    ),
+    (
+        "surface",
+        &["codeterm", "surface", "list"],
+        Local::Socket,
+        MeshRelay::Fallthrough,
+        ApiVerdict::Unsupported(
+            "surface tabs are owned by a local tab — run it on the target machine",
+        ),
     ),
     (
         "agent",
@@ -399,7 +431,7 @@ fn mesh_unsupported_reasons_are_preserved() {
         assert!(body.is_none(), "`{name}` refusal must carry no body");
         checked += 1;
     }
-    assert_eq!(checked, 18, "unsupported command count changed");
+    assert_eq!(checked, 22, "unsupported command count changed");
 }
 
 #[test]
@@ -584,6 +616,8 @@ fn team_pair_exception_is_declared() {
             "team_1",
             "--provider",
             "provider-neutral",
+            "--brief-file",
+            "brief.json",
         ],
     ] {
         let command = parse(&argv);

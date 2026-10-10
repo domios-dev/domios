@@ -1,27 +1,29 @@
-//! One-tab JSONL tailer. Owns a thread that polls the session file,
-//! parses deltas via the agent provider plugin, and emits via the
-//! supplied sink. Stops when [`TailerHandle::shutdown`] is called
-//! or when a session file that was PREVIOUSLY OBSERVED TO EXIST goes
-//! missing for >10 consecutive polls (provider rotated/closed the
-//! session — no point spinning). A file that has never yet appeared
-//! (agent hasn't completed its first turn) is never reaped this way —
-//! see the W3-A regression (commit 05576a7d9): reaping on first-ever
-//! absence left chat empty forever on a slow first turn.
-
 use parking_lot::Mutex;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{self, SyncSender};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use super::registry::{JsonlSource, SourceIncarnation, SourceObservation};
 use crate::agent::chat_types::RichMessage;
 use crate::agent::registry::AgentRegistry;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceRange {
+    pub start_offset: u64,
+    pub offset: u64,
+    pub incarnation: Option<SourceIncarnation>,
+}
 
 /// Caller-supplied sink. Real impl emits a Tauri event with the
 /// messages; tests pass a `Vec<RichMessage>` collector.
 pub trait DeltaSink: Send + Sync {
     fn emit(&self, tab_id: &str, messages: Vec<RichMessage>, start_offset: u64, offset: u64);
+
+    fn emit_sourced(&self, tab_id: &str, messages: Vec<RichMessage>, range: SourceRange) {
+        self.emit(tab_id, messages, range.start_offset, range.offset);
+    }
 }
 
 /// Sink for raw JSONL text deltas. The chat UI uses this — frontend
@@ -35,6 +37,7 @@ pub struct TailerHandle {
     stop_flag: Arc<AtomicBool>,
     offset: Arc<AtomicU64>,
     join: Mutex<Option<thread::JoinHandle<()>>>,
+    wake: Option<SyncSender<()>>,
 }
 
 impl TailerHandle {
@@ -44,11 +47,6 @@ impl TailerHandle {
         self.offset.load(Ordering::Acquire)
     }
 
-    /// True while the polling thread is still running. A tailer can die on its
-    /// own (a previously-seen session file vanished for >10 consecutive polls,
-    /// or provider path went None) yet stay registered — the registry uses
-    /// this to detect such a corpse and respawn a fresh tailer instead of
-    /// handing back a dead stream.
     pub fn is_alive(&self) -> bool {
         self.join
             .lock()
@@ -61,6 +59,9 @@ impl TailerHandle {
     /// the handle by consumption.
     pub fn shutdown(self) {
         self.stop_flag.store(true, Ordering::Release);
+        if let Some(wake) = &self.wake {
+            let _ = wake.try_send(());
+        }
         if let Some(j) = self.join.lock().take() {
             let _ = j.join();
         }
@@ -77,19 +78,35 @@ impl TailerHandle {
             stop_flag,
             offset,
             join: Mutex::new(Some(join)),
+            wake: None,
+        }
+    }
+
+    pub(crate) fn session_owned(&self) -> bool {
+        self.wake.is_some()
+    }
+
+    pub(crate) fn event_driven(
+        stop_flag: Arc<AtomicBool>,
+        offset: Arc<AtomicU64>,
+        join: thread::JoinHandle<()>,
+        wake: SyncSender<()>,
+    ) -> Self {
+        Self {
+            stop_flag,
+            offset,
+            join: Mutex::new(Some(join)),
+            wake: Some(wake),
         }
     }
 }
 
 impl Drop for TailerHandle {
-    /// A dropped handle MUST stop its polling thread. `ChatRegistry::insert`
-    /// drops the losing handle on an idempotent skip, and remount churn
-    /// (StrictMode / HMR) can race two `chat_start`s; without this the loser's
-    /// thread keeps polling and emitting deltas, so every chat message is
-    /// appended once per orphaned tailer — the "same bubble repeated N times"
-    /// bug. Setting the flag (no join) lets the thread exit on its next poll.
     fn drop(&mut self) {
         self.stop_flag.store(true, Ordering::Release);
+        if let Some(wake) = &self.wake {
+            let _ = wake.try_send(());
+        }
     }
 }
 
@@ -102,20 +119,19 @@ pub struct TailConfig {
     /// initial snapshot (`parse_session_delta` from `len - snapshot_window`
     /// to `len`) so the tailer only emits truly new content.
     pub start_offset: u64,
-    pub poll_interval: Duration,
 }
-
-/// A session file that was previously seen to exist and then goes missing
-/// for more than this many consecutive polls is treated as gone for good
-/// (provider rotated/closed the session) — the tailer thread exits so
-/// [`crate::service::tab_chat::ChatRegistry`] can detect the corpse via
-/// [`TailerHandle::is_alive`] and spawn a fresh tailer on the next attach.
-/// Does NOT apply before the file has ever been observed to exist — see
-/// the module doc for the W3-A regression this must not reintroduce.
-const MAX_CONSECUTIVE_MISSING_POLLS: u32 = 10;
 
 pub fn spawn_tailer(
     cfg: TailConfig,
+    registry: Arc<AgentRegistry>,
+    sink: Arc<dyn DeltaSink>,
+) -> TailerHandle {
+    spawn_sourced_tailer(cfg, None, registry, sink)
+}
+
+pub(crate) fn spawn_sourced_tailer(
+    cfg: TailConfig,
+    source: Option<Arc<JsonlSource>>,
     registry: Arc<AgentRegistry>,
     sink: Arc<dyn DeltaSink>,
 ) -> TailerHandle {
@@ -124,86 +140,97 @@ pub fn spawn_tailer(
 
     let stop = stop_flag.clone();
     let off = offset.clone();
-    let join = thread::spawn(move || {
-        let mut cached_path: Option<PathBuf> = None;
-        let mut ever_existed = false;
-        let mut missing_polls: u32 = 0;
-        while !stop.load(Ordering::Acquire) {
-            // rotation. The `cached_path` is only for logging — we always re-ask the plugin.
-            let path: Option<PathBuf> = registry
-                .with_provider(&cfg.provider_id, |p| {
-                    p.session_jsonl_path(&cfg.cwd, &cfg.session_id)
+    let (wake, events) = mpsc::sync_channel(1);
+    let thread_wake = wake.clone();
+    let join = thread::Builder::new()
+        .name(format!("chat-jsonl-{}", cfg.tab_id))
+        .spawn(move || {
+            let path = registry
+                .with_provider(&cfg.provider_id, |provider| {
+                    provider.session_jsonl_path(&cfg.cwd, &cfg.session_id)
                 })
                 .flatten();
-            let path = match path {
-                Some(p) => p,
-                None => {
-                    if cached_path.is_some() {
-                        log::warn!(
-                            "[tab_chat] tab={} provider={} sid={} previously had a path but now returns None — stopping",
-                            cfg.tab_id, cfg.provider_id, cfg.session_id
-                        );
-                    } else {
-                        log::warn!(
-                            "[tab_chat] no JSONL path for tab={} provider={} sid={}",
-                            cfg.tab_id,
-                            cfg.provider_id,
-                            cfg.session_id
-                        );
-                    }
+            let Some(path) = path else {
+                log::warn!("[tab_chat] no JSONL path for tab={}", cfg.tab_id);
+                return;
+            };
+            let _watcher = match super::file_events::watch(&path, thread_wake.clone()) {
+                Ok(watcher) => watcher,
+                Err(error) => {
+                    log::error!("[tab_chat] tab={} watcher failed: {}", cfg.tab_id, error);
                     return;
                 }
             };
-            if cached_path.as_ref() != Some(&path) {
-                log::info!("[tab_chat] tab={} tailing {}", cfg.tab_id, path.display());
-                cached_path = Some(path.clone());
-                // tailer. Today the session_id is fixed at spawn.
-            }
-            if !path.exists() {
-                if ever_existed {
-                    missing_polls += 1;
-                    if missing_polls > MAX_CONSECUTIVE_MISSING_POLLS {
-                        log::warn!(
-                            "[tab_chat] tab={} provider={} sid={} session file missing for {} consecutive polls — stopping",
-                            cfg.tab_id, cfg.provider_id, cfg.session_id, missing_polls
-                        );
-                        return;
+            log::info!("[tab_chat] tab={} tailing {}", cfg.tab_id, path.display());
+            let _ = thread_wake.try_send(());
+            let mut source_incarnation: Option<SourceIncarnation> = None;
+            while events.recv().is_ok() {
+                if stop.load(Ordering::Acquire) {
+                    return;
+                }
+                let observation = source.as_ref().map(|source| {
+                    source.observe(
+                        &cfg.session_id,
+                        &path,
+                        source_incarnation.as_ref(),
+                        off.load(Ordering::Acquire),
+                    )
+                });
+                let (exists, restart) = match observation {
+                    Some(SourceObservation::Present {
+                        incarnation,
+                        restart,
+                    }) => {
+                        source_incarnation = incarnation;
+                        (true, restart)
+                    }
+                    Some(SourceObservation::Absent) => (false, false),
+                    None => (path.exists(), false),
+                };
+                if !exists {
+                    continue;
+                }
+                if restart {
+                    off.store(0, Ordering::Release);
+                }
+                let from = off.load(Ordering::Acquire);
+                // I4: parse_session_delta is fault-tolerant — it advances offset past chunks the plugin couldn't handle, so we never busy-loop on broken bytes.
+                let delta = registry
+                    .with_provider(&cfg.provider_id, |p| {
+                        let mut delta = p.parse_session_delta(&path, from);
+                        for m in &mut delta.messages {
+                            crate::service::tab_chat::enrich_interactive(m, p);
+                        }
+                        delta
+                    })
+                    .unwrap_or_else(|| crate::agent::chat_types::SessionDelta {
+                        new_offset: from,
+                        messages: vec![],
+                    });
+                if delta.new_offset != from {
+                    off.store(delta.new_offset, Ordering::Release);
+                    if delta.new_offset > from
+                        && std::fs::metadata(&path).is_ok_and(|file| file.len() > delta.new_offset)
+                    {
+                        let _ = thread_wake.try_send(());
                     }
                 }
-                thread::sleep(cfg.poll_interval);
-                continue;
+                if !delta.messages.is_empty() {
+                    sink.emit_sourced(
+                        &cfg.tab_id,
+                        delta.messages,
+                        SourceRange {
+                            start_offset: from,
+                            offset: delta.new_offset,
+                            incarnation: source_incarnation.clone(),
+                        },
+                    );
+                }
             }
-            ever_existed = true;
-            missing_polls = 0;
-            let from = off.load(Ordering::Acquire);
-            // I4: parse_session_delta is fault-tolerant — it advances offset past chunks the plugin couldn't handle, so we never busy-loop on broken bytes.
-            let delta = registry
-                .with_provider(&cfg.provider_id, |p| {
-                    let mut delta = p.parse_session_delta(&path, from);
-                    for m in &mut delta.messages {
-                        crate::service::tab_chat::enrich_interactive(m, p);
-                    }
-                    delta
-                })
-                .unwrap_or_else(|| crate::agent::chat_types::SessionDelta {
-                    new_offset: from,
-                    messages: vec![],
-                });
-            if delta.new_offset != from {
-                off.store(delta.new_offset, Ordering::Release);
-            }
-            if !delta.messages.is_empty() {
-                sink.emit(&cfg.tab_id, delta.messages, from, delta.new_offset);
-            }
-            thread::sleep(cfg.poll_interval);
-        }
-    });
+        })
+        .expect("chat worker thread could not start");
 
-    TailerHandle {
-        stop_flag,
-        offset,
-        join: Mutex::new(Some(join)),
-    }
+    TailerHandle::event_driven(stop_flag, offset, join, wake)
 }
 
 // Raw-text tailer emits byte chunks only; JS parses JSONL via `parseJsonlSession`.

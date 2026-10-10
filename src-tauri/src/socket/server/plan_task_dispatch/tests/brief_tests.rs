@@ -26,7 +26,7 @@ fn dispatched_worker_launch_prompt_carries_ack_instruction_persona_and_brief() {
         ..Default::default()
     };
 
-    set_dispatch_task_brief(&mut spawn_params, brief);
+    set_dispatch_task_brief(&mut spawn_params, brief, &[]);
 
     let launch_prompt = spawn_params
         .task
@@ -422,4 +422,21 @@ fn remote_worker_brief_replaces_the_local_ack_with_the_origin_remote_ack() {
     assert!(brief.contains("body_token_22019"));
     assert_eq!(brief.matches(origin).count(), 2);
     assert!(brief.find(origin).unwrap() < brief.find("body_token_22019").unwrap());
+}
+
+#[test]
+fn dispatch_context_carries_exact_manifest_separately_from_whole_brief() {
+    let manifest = vec![crate::plan::PlanSkillManifestEntry {
+        slug: "opaque".into(),
+        title: "title".into(),
+        purpose: "purpose".into(),
+        content_digest: "sha256:opaque".into(),
+    }];
+    let mut params = crate::service::SpawnAgentParams::default();
+    set_dispatch_task_brief(&mut params, "opaque\nwhole\nbrief".into(), &manifest);
+    assert_eq!(params.task.as_deref(), Some("opaque\nwhole\nbrief"));
+    assert_eq!(
+        params.plan_skill_manifest.as_deref(),
+        Some(manifest.as_slice())
+    );
 }

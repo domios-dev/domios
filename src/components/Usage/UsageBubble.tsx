@@ -8,7 +8,8 @@ import { formatSpend } from "./format";
 import { groupSpendSnapshot, hasGroupSpend } from "./groupSpend";
 import { UsageDetail, UsageSpendDetail } from "./UsageDetail";
 import { UsageHistoryModal } from "./UsageHistoryModal";
-import { usageMetricsAriaLabel, visibleUsageMetrics, type VisibleUsageMetric } from "./metrics";
+import { unreportedBillingLabel, usageMetricsAriaLabel, visibleUsageMetrics, type VisibleUsageMetric } from "./metrics";
+import { formatAge } from "../../lib/timeLabels";
 
 interface UsageBubbleProps {
   /** Provider id — required, no default. The component is hosted by a
@@ -87,9 +88,9 @@ export function UsageBubble({
     setFlipUp(room < 360);
   }, [open]);
 
-  if (!trackingEnabled) return null;
-  if (!active) return null;
-  const ageMs = Date.now() - active.captured_at;
+  if (!trackingEnabled || !active) return null;
+  const now = Date.now();
+  const ageMs = now - active.captured_at;
   if (!active.parsed_ok && ageMs > ONE_HOUR_MS) return null;
 
   const isStale = ageMs > STALE_MS;
@@ -101,6 +102,7 @@ export function UsageBubble({
   const sessionState = classify(active.session_pct);
   const weeklyState = classify(active.weekly_pct);
   const metrics = visibleUsageMetrics(active);
+  const billingLabel = unreportedBillingLabel(active);
   const worst: "neutral" | "warn" | "danger" = isSpend
     ? "neutral"
     : sessionState === "danger" || weeklyState === "danger"
@@ -119,7 +121,7 @@ export function UsageBubble({
   };
 
   const bubbleClass = [
-    "ct-usage-bubble",
+    "ct-bar-pill ct-usage-bubble",
     worst === "warn" ? "is-warn" : "",
     worst === "danger" ? "is-danger" : "",
     isStale ? "is-stale" : "",
@@ -139,16 +141,16 @@ export function UsageBubble({
         type="button"
         className={bubbleClass}
         aria-label={
-          isSpend
+          billingLabel ?? (isSpend
             ? `usage ${spendLabel}`
-            : usageMetricsAriaLabel(metrics)
+            : usageMetricsAriaLabel(metrics))
         }
         onClick={(e) => {
           e.stopPropagation();
           setOpen((v) => !v);
         }}
       >
-        {isSpend ? (
+        {billingLabel ? <span>{billingLabel}</span> : isSpend ? (
           <span className="glyph neutral">
             <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M6 1.6v8.8M8 3.2H4.9a1.4 1.4 0 0 0 0 2.8h2.2a1.4 1.4 0 0 1 0 2.8H3.8" />
@@ -165,7 +167,7 @@ export function UsageBubble({
             />
           ))
         )}
-        {isStale && <span className="stale-age">·{formatAgeShort(ageMs)}</span>}
+        {isStale && <span className="stale-age">·{formatAge(active.captured_at, now)}</span>}
       </button>
 
       {open && isSpend && (
@@ -237,8 +239,3 @@ function formatPct(pct: number | null | undefined): string {
   return `${Math.round(pct)}%`;
 }
 
-function formatAgeShort(ms: number): string {
-  const m = Math.floor(ms / 60_000);
-  if (m < 60) return `${m}m`;
-  return `${Math.floor(m / 60)}h`;
-}

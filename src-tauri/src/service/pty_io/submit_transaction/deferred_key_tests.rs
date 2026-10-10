@@ -21,6 +21,9 @@ struct State {
     deferred_ready_seen: bool,
     draft_visible: bool,
     paste_marks_working: bool,
+    working_after_swallowed_key: bool,
+    modal_after_swallowed_key: bool,
+    modal_closes_composer_after_swallowed_key: bool,
     pause_after_paste: bool,
 }
 
@@ -61,6 +64,9 @@ impl EventTransport {
                     deferred_ready_seen: false,
                     draft_visible: false,
                     paste_marks_working: false,
+                    working_after_swallowed_key: false,
+                    modal_after_swallowed_key: false,
+                    modal_closes_composer_after_swallowed_key: false,
                     pause_after_paste: false,
                 }),
                 event_tx,
@@ -96,6 +102,10 @@ impl EventTransport {
 
     fn connect_submit_cycle(&self, pty_id: &str) {
         let claim = claim_submit_cycle(pty_id);
+        self.connect_submit_cycle_claim(claim);
+    }
+
+    fn connect_submit_cycle_claim(&self, claim: SubmitCycleClaim) {
         let (sender, receiver) = mpsc::sync_channel(1);
         claim.cycle.install_waiter(claim.generation, sender);
         *self.cycle_events.lock().unwrap() = Some((claim, receiver));
@@ -131,6 +141,39 @@ impl SubmitTransport for EventTransport {
 
     fn wait_change(&self, _generation: u64, _deadline: Instant) -> bool {
         false
+    }
+
+    fn wait_retry_deadline_for_turn(&self, deadline: Instant, text: &str) -> bool {
+        let _ = self.event_wait_tx.send(());
+        loop {
+            if self.exact_user_turn_present(text) {
+                return true;
+            }
+            let cycle_wait = {
+                let cycle_events = self.cycle_events.lock().unwrap();
+                cycle_events.as_ref().map(|(claim, receiver)| {
+                    claim
+                        .cycle
+                        .wait_for_wake_until(claim.generation, deadline, receiver)
+                })
+            };
+            match cycle_wait {
+                Some(CycleWait::Event) => continue,
+                Some(CycleWait::Deadline | CycleWait::Inactive) => return false,
+                None => {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    if self
+                        .event_rx
+                        .lock()
+                        .unwrap()
+                        .recv_timeout(remaining)
+                        .is_err()
+                    {
+                        return self.exact_user_turn_present(text);
+                    }
+                }
+            }
+        }
     }
 
     fn turn_started(&self) -> bool {
@@ -224,6 +267,14 @@ impl SubmitTransport for EventTransport {
         state.generation += 1;
         if state.swallowed_keys > 0 {
             state.swallowed_keys -= 1;
+            if state.working_after_swallowed_key {
+                state.busy = true;
+                state.turn_started = true;
+            }
+            if state.modal_after_swallowed_key {
+                state.dialog = true;
+                state.composer_ready = !state.modal_closes_composer_after_swallowed_key;
+            }
             return Ok(());
         }
         state.draft_visible = false;
@@ -232,6 +283,14 @@ impl SubmitTransport for EventTransport {
         state.turn_generation += 1;
         state.exact_turn_seen = true;
         Ok(())
+    }
+
+    fn retry_active(&self) -> bool {
+        self.cycle_events
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_none_or(|(claim, _)| claim.is_current())
     }
 }
 
@@ -271,14 +330,16 @@ fn run_with_readiness_guard_and_follow_up(
         typed_follow_up,
         tui_strategy(),
         opts(),
-        |_initial_key, turn_was_started| {
+        |initial_key, turn_was_started| {
             let state = transport.state.lock().unwrap();
-            if state.dialog {
+            if state.dialog && !state.composer_ready {
                 return Err(InjectionError::AgentTuiPresent {
                     pty_id: "test-pty".into(),
                 });
             }
-            if !submit_key_readiness(turn_was_started, state.turn_started, state.composer_ready) {
+            if initial_key
+                && !submit_key_readiness(turn_was_started, state.turn_started, state.composer_ready)
+            {
                 return Err(InjectionError::AgentInputUnavailable {
                     pty_id: "test-pty".into(),
                 });
@@ -380,6 +441,123 @@ fn active_turn_wait_expires_without_an_idle_event() {
 }
 
 #[test]
+fn active_turn_deadline_never_submits_into_a_dialog() {
+    let (transport, paste_rx, _, event_wait_rx) = EventTransport::new(true, 0);
+    let send_transport = Arc::clone(&transport);
+    let send = std::thread::spawn(move || run_with_readiness_guard(&send_transport, "busy"));
+
+    paste_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("the payload reaches the composer once");
+    event_wait_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("the first key waits for turn end");
+    transport.state.lock().unwrap().dialog = true;
+
+    let result = join(send, "active turn modal guard").unwrap().unwrap_err();
+    assert!(matches!(
+        result,
+        InjectionError::SubmitNeverConfirmed { .. }
+    ));
+    assert_eq!(transport.state.lock().unwrap().writes, ["paste:busy"]);
+}
+
+#[test]
+fn busy_ready_composer_hands_off_payload_once_before_dialog_stops_recovery_keys() {
+    let (transport, paste_rx, _, _) = EventTransport::new(true, 1);
+    {
+        let mut state = transport.state.lock().unwrap();
+        state.composer_ready = true;
+        state.modal_after_swallowed_key = true;
+        state.modal_closes_composer_after_swallowed_key = true;
+    }
+    let send_transport = Arc::clone(&transport);
+    let send = std::thread::spawn(move || run_with_readiness_guard(&send_transport, "follow-up"));
+
+    paste_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("the ready busy composer receives the payload before key recovery");
+    match join(send, "busy ready payload handoff").unwrap() {
+        Err(error) => assert!(matches!(error, InjectionError::SubmitNeverConfirmed { .. })),
+        Ok(result) => assert!(
+            !result.submit_observed && result.submit_anomaly && result.submit_key_writes == 1,
+            "a dialog after the first key must leave the send unconfirmed without recovery keys: {result:?}"
+        ),
+    }
+    assert_eq!(
+        transport.state.lock().unwrap().writes,
+        ["paste:follow-up", "enter"]
+    );
+}
+
+#[test]
+fn swallowed_enter_retries_after_working_status_without_turn_evidence() {
+    let (transport, paste_rx, _, _) = EventTransport::new(false, 1);
+    transport.state.lock().unwrap().working_after_swallowed_key = true;
+    let send_transport = Arc::clone(&transport);
+    let send = std::thread::spawn(move || run_with_readiness_guard(&send_transport, "message"));
+
+    paste_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("the payload reaches the composer once");
+    let result = join(send, "working status submit retry").unwrap().unwrap();
+
+    assert!(result.submit_observed);
+    assert!(!result.submit_anomaly);
+    assert_eq!(result.submit_key_writes, 2);
+    let state = transport.state.lock().unwrap();
+    assert!(state.exact_turn_seen);
+    assert!(!state.draft_visible);
+    assert_eq!(state.writes, ["paste:message", "enter", "enter"]);
+}
+
+#[test]
+fn swallowed_enter_retries_past_a_codex_prompt_lookalike_in_the_ready_composer() {
+    const CODEX_COMPOSER_FIXTURE: &str =
+        include_str!("../../../../../plugins/provider-codex/tests/fixtures/tab-state/recovery-dialog-lookalike.txt");
+
+    let (transport, paste_rx, _, _) = EventTransport::new(false, 1);
+    {
+        let mut state = transport.state.lock().unwrap();
+        state.working_after_swallowed_key = true;
+        state.modal_after_swallowed_key = true;
+    }
+    let send_transport = Arc::clone(&transport);
+    let send = std::thread::spawn(move || {
+        run_with_readiness_guard(&send_transport, CODEX_COMPOSER_FIXTURE)
+    });
+
+    paste_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("the Codex prompt-shaped payload reaches the composer once");
+    let result = join(send, "Codex composer modal lookalike retry")
+        .unwrap()
+        .unwrap();
+
+    assert!(result.submit_observed);
+    assert!(!result.submit_anomaly);
+    assert_eq!(result.submit_key_writes, 2);
+    let state = transport.state.lock().unwrap();
+    assert!(
+        state.dialog,
+        "the provider still reports the screen-shaped modal"
+    );
+    assert!(
+        state.composer_ready,
+        "VT cursor evidence locates the composer"
+    );
+    assert!(state.exact_turn_seen);
+    assert_eq!(
+        state.writes,
+        [
+            format!("paste:{CODEX_COMPOSER_FIXTURE}"),
+            "enter".into(),
+            "enter".into()
+        ]
+    );
+}
+
+#[test]
 fn composer_ready_event_issues_one_key_after_the_bounded_schedule() {
     let (transport, paste_rx, deferred_wait_rx, _) =
         EventTransport::new(false, MAX_SUBMIT_KEY_WRITES);
@@ -425,7 +603,7 @@ fn composer_ready_event_issues_one_key_after_the_bounded_schedule() {
         .writes
         .iter()
         .position(|write| write == "follow_up: follow-up")
-        .expect("follow-up precedes the first submit key");
+        .expect("typed follow-up precedes the first submit key");
     let first_key = state
         .writes
         .iter()
@@ -438,15 +616,7 @@ fn composer_ready_event_issues_one_key_after_the_bounded_schedule() {
             .filter(|write| write.starts_with("follow_up:"))
             .count(),
         1,
-        "recovery and the deferred key do not repeat the typed line"
-    );
-    assert!(
-        state
-            .writes
-            .iter()
-            .position(|write| write == "paste:slow-paste")
-            .unwrap()
-            < follow_up
+        "the typed line is not replayed during recovery"
     );
     assert!(follow_up < first_key);
 }
@@ -492,55 +662,88 @@ fn start_claimed_send(
         if let Some(started_tx) = started_tx {
             let _ = started_tx.send(());
         }
-        claim.wait_until_active(Instant::now() + Duration::from_secs(2));
+        let _ = claim.is_current();
         let result = run_with_readiness_guard(&transport, text);
         drop(claim);
         result
     })
 }
 
+fn start_claimed_send_with_recovery_window(
+    claim: SubmitCycleClaim,
+    transport: Arc<EventTransport>,
+    text: &'static str,
+) -> std::thread::JoinHandle<Result<InjectionResult, InjectionError>> {
+    std::thread::spawn(move || {
+        let mut options = opts();
+        options.submit_timeout = Duration::from_secs(2);
+        let result = run_with_submit_key_and_follow_up(
+            transport.as_ref(),
+            text,
+            true,
+            b"\r",
+            None,
+            VerifySubmitStrategy::TuiInputDrained {
+                initial_key_delay: Duration::ZERO,
+                retry_offsets: [Duration::from_secs(1); 6],
+            },
+            options,
+            |_initial_key, turn_was_started| {
+                let state = transport.state.lock().unwrap();
+                if state.dialog && !state.composer_ready {
+                    return Err(InjectionError::AgentTuiPresent {
+                        pty_id: "test-pty".into(),
+                    });
+                }
+                if !submit_key_readiness(turn_was_started, state.turn_started, state.composer_ready)
+                {
+                    return Err(InjectionError::AgentInputUnavailable {
+                        pty_id: "test-pty".into(),
+                    });
+                }
+                Ok(())
+            },
+        );
+        drop(claim);
+        result
+    })
+}
+
 #[test]
-fn a_second_message_waits_for_the_open_cycle_and_keeps_its_own_turn() {
+fn a_new_send_cancels_remaining_keys_and_writes_while_the_prior_cycle_is_open() {
     let pty_id = "two-messages-one-pty-cycle";
     let first_claim = claim_submit_cycle(pty_id);
-    let second_claim = claim_submit_cycle(pty_id);
     assert!(first_claim.is_current());
-    assert!(!second_claim.is_current());
 
-    let (first, first_paste_rx, first_deferred_rx, _) =
-        EventTransport::new(false, MAX_SUBMIT_KEY_WRITES);
-    let (second, second_paste_rx, _, _) = EventTransport::new(false, 0);
-    let first_send = start_claimed_send(first_claim, Arc::clone(&first), "first", None);
+    let (first, first_paste_rx, _, first_retry_wait_rx) =
+        EventTransport::new(true, MAX_SUBMIT_KEY_WRITES);
+    first.state.lock().unwrap().composer_ready = true;
+    first.connect_submit_cycle_claim(first_claim.clone());
+    let (second, second_paste_rx, _, _) = EventTransport::new(true, 0);
+    second.state.lock().unwrap().composer_ready = true;
+    let first_send =
+        start_claimed_send_with_recovery_window(first_claim.clone(), Arc::clone(&first), "first");
     first_paste_rx
         .recv_timeout(Duration::from_secs(2))
         .expect("first payload is written once");
-
-    let (second_started_tx, second_started_rx) = mpsc::channel();
-    let second_send = start_claimed_send(
-        second_claim,
-        Arc::clone(&second),
-        "second",
-        Some(second_started_tx),
-    );
-    second_started_rx
+    first_retry_wait_rx
         .recv_timeout(Duration::from_secs(2))
-        .expect("the second send is waiting for the active PTY cycle");
-    assert!(second_paste_rx.try_recv().is_err());
-    first_deferred_rx
+        .expect("the first cycle reaches its remaining-key wait");
+    let second_claim = claim_submit_cycle(pty_id);
+    assert!(!first_claim.is_current());
+    assert!(second_claim.is_current());
+    second.connect_submit_cycle_claim(second_claim.clone());
+    let second_send = start_claimed_send(second_claim, Arc::clone(&second), "second", None);
+    second_paste_rx
         .recv_timeout(Duration::from_secs(2))
-        .expect("the first send exhausts its bounded schedule");
-    first.state.lock().unwrap().composer_ready = true;
-    first.signal();
-
-    assert!(
-        join(first_send, "first active cycle send")
-            .unwrap()
-            .unwrap()
-            .submit_observed
-    );
+        .expect("the second payload writes without waiting for the first cycle");
+    let first_result = join(first_send, "cancelled prior cycle send")
+        .unwrap()
+        .unwrap();
+    assert!(!first_result.submit_observed);
     {
         let state = first.state.lock().unwrap();
-        assert_eq!(state.turn_generation, 1);
+        assert_eq!(state.turn_generation, 0);
         assert_eq!(
             state
                 .writes
@@ -549,10 +752,15 @@ fn a_second_message_waits_for_the_open_cycle_and_keeps_its_own_turn() {
                 .count(),
             1
         );
+        assert_eq!(
+            state
+                .writes
+                .iter()
+                .filter(|write| write.as_str() == "enter")
+                .count(),
+            1,
+        );
     }
-    second_paste_rx
-        .recv_timeout(Duration::from_secs(2))
-        .expect("second payload starts only after the first cycle finishes");
     assert!(
         join(second_send, "second active cycle send")
             .unwrap()
@@ -563,6 +771,28 @@ fn a_second_message_waits_for_the_open_cycle_and_keeps_its_own_turn() {
     assert_eq!(
         second.state.lock().unwrap().writes,
         ["paste:second", "enter"]
+    );
+}
+
+#[test]
+fn superseding_a_written_payload_preserves_its_initial_enter() {
+    let pty_id = "superseded-written-initial-enter";
+    let first_claim = claim_submit_cycle(pty_id);
+    let (transport, pasted, _, _) = EventTransport::new(true, 0);
+    transport.state.lock().unwrap().composer_ready = true;
+    transport.pause_after_paste();
+    transport.connect_submit_cycle_claim(first_claim.clone());
+    let sender = Arc::clone(&transport);
+    let send = std::thread::spawn(move || run_with_readiness_guard(&sender, "first"));
+    pasted.recv_timeout(Duration::from_secs(2)).unwrap();
+    let _newer = claim_submit_cycle(pty_id);
+    assert!(!first_claim.is_current());
+    transport.release_paste();
+    let result = join(send, "superseded initial Enter").unwrap().unwrap();
+    assert!(result.submit_observed);
+    assert_eq!(
+        transport.state.lock().unwrap().writes,
+        ["paste:first", "enter"]
     );
 }
 
@@ -581,7 +811,7 @@ fn deferred_key_is_not_written_when_the_readiness_event_is_a_dialog() {
     {
         let mut state = transport.state.lock().unwrap();
         state.dialog = true;
-        state.composer_ready = true;
+        state.composer_ready = false;
     }
     transport.signal();
     let result = join(send, "dialog readiness send").unwrap().unwrap();

@@ -1,0 +1,32 @@
+{
+  "baseline": {
+    "path": "C:\\Users\\User\\.codeterm\\runtime\\agent-pads\\2652c9dc\\owner-memory-full-1\\silent\\trailer.mp4",
+    "sha256": "e29e6c9fb4e9d1c7b36cd055cade06b9601fa8eefe4340357e090c8f6a4fdc87"
+  },
+  "originalDecodedPrefixFrames": 1112,
+  "originalDecodedPrefixRgbSha256": "5ddd1894dd165bdc33b582c1f26d54c9956cdf7cdc231641ef94096efb1991fa",
+  "preservation": "Original decoded RGB prefix fed unchanged into the extended render; reencoded compressed streams are not claimed identical",
+  "memorySource": {
+    "path": "C:\\Users\\User\\Desktop\\memory.mp4",
+    "sha256": "b99f5e730a844ef2d7d69f2f5f0acb54b9be2ec212c22d220af7f729c25f4393",
+    "firstSourceFrame": 186,
+    "sourceFrames": 280,
+    "outputFrames": [
+      1112,
+      1392
+    ]
+  },
+  "finaleFrames": [
+    1392,
+    1630
+  ],
+  "outputFrames": 1630,
+  "outputMp4": {
+    "path": "C:\\Users\\User\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\silent\\trailer.mp4",
+    "sha256": "49b03f514c52a62aac9c334d9e309700be6fd7d0b3d32c14dfb0eda6ca3a4f07"
+  },
+  "outputWebm": {
+    "path": "C:\\Users\\User\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\silent\\trailer.webm",
+    "sha256": "6df82c01cba3f3abf32b42a5858f3e116be1754bc883549b3101bc9ac3209e7d"
+  }
+}

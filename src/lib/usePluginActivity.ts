@@ -136,7 +136,7 @@ export function usePluginActivity(): {
       if (activity.status === "running") {
         upsertToast(pluginActivityToast(activity, displayMapRef.current));
       } else {
-        dismissToast(pluginActivityToastId(activity.pluginId));
+        dismissToast(pluginActivityToastId(activity));
       }
     })
       .then((unlisten) => {
@@ -160,8 +160,8 @@ function pluginActivityToast(
 ): Omit<Notification, "timestamp" | "read"> {
   const display = resolvePluginActivityDisplay(activity.pluginId, displayMap);
   return {
-    id: pluginActivityToastId(activity.pluginId),
-    key: pluginActivityToastId(activity.pluginId),
+    id: pluginActivityToastId(activity),
+    key: pluginActivityToastId(activity),
     tab_id: null,
     workspace_id: null,
     title: display.displayName,
@@ -169,10 +169,11 @@ function pluginActivityToast(
     icon_svg: display.iconSvg ?? null,
     severity: "Info",
     level: "verbose",
-    sticky: true,
+    lifetime_ms: 15_000,
+    update_only: true,
   };
 }
 
-function pluginActivityToastId(pluginId: string): string {
-  return `plugin-activity:${pluginId}`;
+function pluginActivityToastId(activity: PluginActivity): string {
+  return `plugin-activity:${activity.pluginId}:${activity.id}:${activity.startedAt}`;
 }

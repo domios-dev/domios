@@ -7,7 +7,7 @@ parser duplicate is used by the runner.
 
 An isolated run is a small `input -> real library -> expected output` loop. The
 input is checked in beside its oracle, so parser and unit work can iterate in
-milliseconds without booting CodeTerm or waiting for a provider. Live agents are
+milliseconds without booting Domios or waiting for a provider. Live agents are
 used only to refresh the corpus; the normal bench is offline and deterministic.
 
 The core rule: the runner is a thin harness. It may discover cases, normalize

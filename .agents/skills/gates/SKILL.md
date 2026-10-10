@@ -1,6 +1,6 @@
 ---
 name: gates
-description: Run CodeTerm's verification gates without burning a session on them. Focused checks run here; the full suite, the broad gate and a release run in a sub-agent that reports a summary. Read before `build.ps1 test`, `release-preflight`, or any release.
+description: Run Domios's verification gates without burning a session on them. Focused checks run here; the full suite, the broad gate and a release run in a sub-agent that reports a summary. Read before `build.ps1 test`, `release-preflight`, or any release.
 ---
 
 # Gates
@@ -16,9 +16,11 @@ Two shapes, and picking the wrong one is what costs hours.
 | A release | Delegate, then verify its SHA yourself |
 
 A per-task Rust test-profile change uses `.\build.ps1 check-tests`, which
-compiles all targets in both the app and CLI workspaces. `.\build.ps1 check`
-does not compile `#[cfg(test)]` code, so a green `check` alone does not cover
-test-only Rust changes.
+compiles all test targets in both the app and CLI workspaces without running
+them. A following `test-one app` or `test-one cli` reuses those artifacts.
+It runs outside the build gateway and refuses `--wait-build`.
+`.\build.ps1 check` does not compile `#[cfg(test)]` code, so a green `check`
+alone does not cover test-only Rust changes.
 
 A focused check is one test module, one type check, one file's lint. It
 answers in seconds and you read its output directly. Anything that takes
@@ -44,6 +46,11 @@ bash scripts/check-file-sizes.sh --fail
 ```
 
 Run these from the PowerShell tool directly. They are short enough to read.
+
+In a Worker lane only the isolated ones run: `tsc`, a single node test file,
+`test-one plan`, `test-one pty` and the file-size script. `check`, `check-tests`
+and `test-one app` compile the app crate, a full rebuild; report them as
+deferred selectors for the Orchestrator's canonical wave batch.
 
 ## Broad, delegate
 
@@ -112,4 +119,4 @@ size check after any fmt.
 fixes where the gate sits in it: after the version bump, on the exact SHA you
 are about to tag, once.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

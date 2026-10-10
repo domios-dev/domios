@@ -1,4 +1,6 @@
-import React from "react";
+import type { CSSProperties } from "react";
+import { actionVisual } from "../toolcard/CodetermActionCard";
+import { ToolCardActionButton } from "../toolcard/ToolCardFrame";
 import type { CodetermInvocation } from "./recognize";
 import { renderTemplate, isSend, type TabNameResolver } from "./templates";
 import { SentMessageBubble } from "./SentMessageBubble";
@@ -32,69 +34,40 @@ export function CodetermCard({ inv, result, expanded, onToggle, resolveTabName, 
 
   const card = renderTemplate(inv, result, resolveTabName);
   const canOpenPlan = card.link != null && onOpenPlan != null;
+  const visual = actionVisual(inv);
+  const Glyph = visual.glyph;
+  const showDetail = Boolean(card.detail) && !expanded;
   return (
-    <React.Fragment>
-      <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
-        <div className="inline-flex flex-col max-w-[min(52rem,100%)]">
-          <button
-            onClick={onToggle}
-            className="inline-flex min-w-0 items-center gap-1.5 text-left rounded-md border px-2.5 py-1 text-xs transition-colors duration-150 hover:brightness-110"
-            style={{ background: "transparent", borderColor: "var(--ct-border)", color: "var(--ct-fg)" }}
-          >
-            <span className="flex-shrink-0" style={{ color: "var(--ct-accent, #6ea8fe)" }}>
-              ⬡
+    <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
+      <div className={`ct-card${expanded ? "" : " ct-card--quiet"}`} style={{ "--ct-card-tone": visual.color } as CSSProperties}>
+        <button type="button" aria-expanded={expanded} onClick={onToggle} className="ct-card__head">
+          <span className="ct-card__icon"><Glyph size={14} aria-hidden="true" /></span>
+          <span className="ct-card__title min-w-0 flex-1"><span className="truncate">{card.title}</span></span>
+          {card.status && (
+            <span className="ct-card__chip" style={{ color: card.status.ok ? "var(--ct-ok)" : "var(--ct-err)" }}>
+              {card.status.label}
             </span>
-            <span className="font-medium" style={{ color: "var(--ct-accent, #6ea8fe)" }}>
-              CodeTerm
-            </span>
-            <span className="flex-shrink-0">{card.icon}</span>
-            <span className="truncate">{card.title}</span>
-            {card.status && (
-              <span
-                className="flex-shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px]"
-                style={{
-                  background: card.status.ok
-                    ? "color-mix(in srgb, var(--ct-ok, #41d18a) 10%, transparent)"
-                    : "color-mix(in srgb, var(--ct-err, #ff6b6b) 10%, transparent)",
-                  color: card.status.ok ? "var(--ct-ok, #41d18a)" : "var(--ct-err, #ff6b6b)",
-                }}
-              >
-                {card.status.ok ? "✓" : "✗"} {card.status.label}
-              </span>
+          )}
+        </button>
+        {(showDetail || canOpenPlan || expanded) && (
+          <div className="ct-card__body grid gap-1.5">
+            {showDetail && (
+              <div className="truncate" style={{ color: "var(--ct-muted-fg)" }}>
+                {hasPlanRefs(card.detail!) ? <LinkedText text={card.detail!} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /> : card.detail}
+              </div>
             )}
-          </button>
-          {canOpenPlan && (
-            <button
-              type="button"
-              data-testid="chat-open-plan"
-              data-plan-id={card.link!.planId}
-              data-task-id={card.link!.taskId}
-              onClick={() => onOpenPlan!(card.link!.planId, card.link!.taskId)}
-              className="mt-0.5 self-start text-[11px] underline"
-              style={{ color: "var(--ct-accent, #6ea8fe)" }}
-            >
-              open in plan →
-            </button>
-          )}
-          {card.detail && !expanded && (
-            <div className="px-2.5 py-1 text-xs truncate" style={{ color: "var(--ct-muted-fg)" }}>
-              {hasPlanRefs(card.detail) ? (
-                <LinkedText text={card.detail} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
-              ) : (
-                card.detail
-              )}
-            </div>
-          )}
-          {expanded && (
-            <div className="mt-1 rounded-md border px-2.5 py-1.5 text-xs" style={{ borderColor: "var(--ct-border)" }}>
-              <pre className="whitespace-pre-wrap break-all" style={{ color: "var(--ct-muted-fg)" }}>
-                {inv.raw}
-              </pre>
-              {result && <pre className="mt-1 whitespace-pre-wrap break-all" style={{ color: "var(--ct-fg)" }}>{result}</pre>}
-            </div>
-          )}
-        </div>
+            {expanded && (
+              <div className="ct-card__body--reveal grid gap-1 font-mono text-[11px]">
+                <pre className="m-0 whitespace-pre-wrap break-all" style={{ color: "var(--ct-muted-fg)" }}>{inv.raw}</pre>
+                {result && <pre className="m-0 whitespace-pre-wrap break-all" style={{ color: "var(--ct-fg)" }}>{result}</pre>}
+              </div>
+            )}
+            {canOpenPlan && (
+              <ToolCardActionButton primary testId="chat-open-plan" label="Open in plan" onClick={() => onOpenPlan!(card.link!.planId, card.link!.taskId)} />
+            )}
+          </div>
+        )}
       </div>
-    </React.Fragment>
+    </div>
   );
 }

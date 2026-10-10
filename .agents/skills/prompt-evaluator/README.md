@@ -1,12 +1,12 @@
 # prompt-evaluator
 
-Maintainer skill for testing CodeTerm prompt files (system prompts, suffixes,
+Maintainer skill for testing Domios prompt files (system prompts, suffixes,
 rules, agent definitions) without manually spawning agents.
 
-This is a **Claude Code skill**, not a CodeTerm feature. It lives in
+This is a **Claude Code skill**, not a Domios feature. It lives in
 `.agents/skills/` of the codeterm repo, which is the single source. A pointer in
 `.claude/skills/` lets Claude Code discover it; the pointer never carries procedure.
-this project. It is **not** bundled into the CodeTerm binary.
+this project. It is **not** bundled into the Domios binary.
 
 ## TL;DR
 
@@ -28,11 +28,17 @@ python .agents/skills/prompt-evaluator/runner.py \
 
 Exit code 0 = all good, 1 = failures (single mode) or regressions (A/B mode).
 
+Each case selects `response_mode: commands` (default) or `text`. The selected
+mode reaches both the actor and judge; text answers may describe decisions in
+prose, while explicit command requirements still apply. Judge cache keys include
+the rendered mode-specific prompt. A/B exit zero means no measured regression,
+not that either variant passed every case.
+
 ## Files
 
 - `SKILL.md` — full skill description with triggers, methodology, tips for writing good evals
 - `runner.py` — orchestration: spawns `claude` CLI per eval, collects results, renders markdown report
-- `matcher.py` — hybrid expectation matcher (substring + LLM-as-judge)
+- `matcher.py` — mode-aware LLM judge
 - `reports/` — output directory (gitignored)
 
 ## Requirements

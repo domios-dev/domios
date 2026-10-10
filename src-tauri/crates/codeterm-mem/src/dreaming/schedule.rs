@@ -12,8 +12,7 @@ pub const DREAMING_CRON_NAME: &str = "mem-dreaming-auto";
 /// The nightly optimizer task. `mem dream run` (phase=all) runs the SQL
 /// phases + calibration and spawns the REM graph worker that writes the
 /// daily_dream diary. Bare `mem dream` only prints help (no subcommand).
-const DREAMING_TASK: &str =
-    "codeterm mem dream run && codeterm agent report \"dreaming complete\"\n";
+const DREAMING_TASK: &str = "codeterm mem dream run\n";
 
 /// Create the bundled dreaming cron if it doesn't exist already.
 /// - Schedule: "0 6 * * *" (6 AM)

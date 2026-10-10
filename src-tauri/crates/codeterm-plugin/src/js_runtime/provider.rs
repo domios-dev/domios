@@ -5,9 +5,11 @@ use serde_json::{json, Value};
 
 mod agent_provider;
 mod command_template;
+mod integration_rules;
 mod launch_artifacts;
 mod manifest_sessions;
 mod prompt_parse;
+mod reply_relay;
 mod session_content;
 mod session_delta;
 mod wire;
@@ -42,6 +44,8 @@ pub struct JsProvider {
     /// them through QuickJS every time — a profiled CPU hot path. Compute once.
     schema_cache: std::sync::OnceLock<(Vec<SettingField>, Vec<SettingField>)>,
     has_custom_settings_schema: bool,
+    has_launch_session_detection: bool,
+    has_reply_relay: bool,
     /// VM-backed usage parser, built once when the plugin exports `parseUsage`.
     /// `usage_parser()` hands out a reference, so the adapter must live on the
     /// provider.
@@ -60,10 +64,14 @@ impl JsProvider {
     ) -> Self {
         // Register the plugin's models with the catalog so settings UI and `default_model()` resolve through the same plumbing as native providers.
         if !manifest.models.is_empty() {
+            let models = call_json::<Vec<super::SerdeModelInfo>>(&vm, "modelCatalogueSeed", &[])
+                .ok()
+                .map(|models| models.iter().map(ModelInfo::from).collect())
+                .unwrap_or_else(|| manifest.models.iter().map(ModelInfo::from).collect());
             crate::model_catalog::register(
                 &manifest.id,
                 crate::model_catalog::RegisteredDefaults {
-                    models: manifest.models.iter().map(ModelInfo::from).collect(),
+                    models,
                     default: manifest.default_model.clone(),
                 },
             );
@@ -78,6 +86,9 @@ impl JsProvider {
             manifest.default_reasoning_effort.clone(),
         );
         let has_custom_settings_schema = super::vm::has_method(&vm, "settingsSchema");
+        let has_launch_session_detection = super::vm::has_method(&vm, "detectLaunchSession");
+        let has_reply_relay =
+            manifest.capabilities.reply_relay && super::vm::has_method(&vm, "readReplyRelayTurn");
         Self {
             vm,
             manifest,
@@ -85,6 +96,8 @@ impl JsProvider {
             registry: None,
             schema_cache: std::sync::OnceLock::new(),
             has_custom_settings_schema,
+            has_launch_session_detection,
+            has_reply_relay,
             usage_parser_cell: std::sync::OnceLock::new(),
         }
     }

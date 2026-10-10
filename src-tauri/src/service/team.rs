@@ -9,6 +9,7 @@ use crate::service::ServiceContext;
 
 mod close;
 mod close_busy;
+mod storage_teardown;
 #[cfg(test)]
 pub(crate) use close::close_team_with_state_change;
 #[cfg(test)]
@@ -122,36 +123,41 @@ impl ServiceContext {
         } else {
             None
         };
-        let classified = {
+        let (classified, existing) = {
             let mux = self.mux.read();
             let prepared = prepare_team_member_spawn(&mux, team_id, caller_tab_id, params.clone())?;
-            if is_cartographer {
-                if let Some(existing) = staffing::existing_cartographer_attachment(&mux, team_id) {
-                    return Ok(existing);
-                }
-            }
-            prepared
+            let existing = is_cartographer
+                .then(|| staffing::existing_cartographer_attachment(&mux, team_id))
+                .flatten();
+            (prepared, existing)
         };
+        if let Some(existing) = existing {
+            return self
+                .reuse_cartographer_with_brief(existing, params.task)
+                .await;
+        }
         self.classify_spawn_target_for_params(
             classified.spawn_params.agent.as_deref().unwrap_or_default(),
             &classified.spawn_params,
         )?;
-        let (prepared, detached_failed_anchor) = {
+        let brief = params.task.clone();
+        let (prepared, detached_failed_anchor, existing) = {
             let mut mux = self.mux.write();
             let prepared = prepare_team_member_spawn(&mux, team_id, caller_tab_id, params)?;
-            if is_cartographer {
-                if let Some(existing) = staffing::existing_cartographer_attachment(&mux, team_id) {
-                    return Ok(existing);
-                }
-            }
+            let existing = is_cartographer
+                .then(|| staffing::existing_cartographer_attachment(&mux, team_id))
+                .flatten();
             let anchors = staffing::role_anchors_team(
                 &prepared.expected_role,
                 prepared.expected_profile.as_deref(),
             );
             let detached =
                 anchors && staffing::detach_spawn_failed_team_orchestrators(&mut mux, team_id);
-            (prepared, detached)
+            (prepared, detached, existing)
         };
+        if let Some(existing) = existing {
+            return self.reuse_cartographer_with_brief(existing, brief).await;
+        }
         if detached_failed_anchor {
             crate::service::publish_mux_state_changed(&self.events);
             crate::service::session_persist::persist_session_after_close(self);
@@ -314,6 +320,10 @@ impl ServiceContext {
         let team = rename_team_with_state_change(&mut mux, &self.events, team_id, name, &caller)?;
         drop(mux);
         self.emit_state_changed_after_bus_publish();
+        let _ = crate::service::session_persist::persist_session_after_mutation(
+            self,
+            crate::service::session_persist::SessionPersistUrgency::Prompt,
+        );
         Ok(team)
     }
 
@@ -326,7 +336,25 @@ impl ServiceContext {
         force: bool,
     ) -> Result<TeamCloseResult, String> {
         let caller_kind = caller.kind();
+        let workspace = self
+            .mux
+            .read()
+            .get_team(team_id)
+            .ok_or_else(|| format!("Team {team_id} not found"))?
+            .workspace_id
+            .clone();
+        let service = self.clone();
+        let capture_team = team_id.to_string();
+        let inventory = tokio::task::spawn_blocking(move || {
+            service.capture_close_inventory(&workspace, Some(&capture_team))
+        })
+        .await
+        .map_err(|error| error.to_string())??;
         let result = self.close_team_inner(team_id, caller, force).await;
+        let service = self.clone();
+        tokio::task::spawn_blocking(move || service.settle_close_inventory(inventory.as_deref()))
+            .await
+            .map_err(|error| error.to_string())??;
         if let Err(error) = &result {
             log::warn!("[team-close] caller={caller_kind} team={team_id} failed: {error}");
         }
@@ -340,10 +368,8 @@ impl ServiceContext {
         force: bool,
     ) -> Result<TeamCloseResult, String> {
         let close_at = now_ms();
-        let prepared = {
-            let mux = self.mux.read();
-            prepare_team_close(&mux, team_id, &caller)?
-        };
+        let (prepared, storage_teardown) =
+            self.prepare_storage_team_teardown(team_id, &caller).await?;
         let lane_plan_store = std::sync::Arc::clone(&self.plan_store);
         let plans = tokio::task::spawn_blocking(move || lane_plan_store.list_full())
             .await
@@ -370,9 +396,72 @@ impl ServiceContext {
         .map_err(|error| format!("Team plan close task failed: {error}"))?
         .map_err(|error| error.to_string())?;
         let changed_plan_ids = plan_transaction.changed_plan_ids().to_vec();
+        let storage_commit = if let Some(teardown) = &storage_teardown {
+            let completion = teardown.storage.team_teardown(teardown.request.clone());
+            #[cfg(test)]
+            if let Some(probe) = self
+                .app_handle
+                .try_state::<storage_teardown::StorageTeardownSubmitted>()
+            {
+                let _ = probe.0.send(());
+            }
+            match completion.await {
+                Ok(committed) => Some(committed),
+                Err(error) => {
+                    let rollback_store = std::sync::Arc::clone(&self.plan_store);
+                    let rollback = tokio::task::spawn_blocking(move || {
+                        rollback_store.rollback_team_plan_archive(plan_transaction)
+                    })
+                    .await;
+                    let impact = match rollback {
+                        Ok(Ok(())) => error.to_string(),
+                        Ok(Err(rollback)) => {
+                            format!("{error}; plan rollback failed: {rollback}")
+                        }
+                        Err(rollback) => {
+                            format!("{error}; plan rollback task failed: {rollback}")
+                        }
+                    };
+                    self.notify_event(
+                        "coordination-incident",
+                        serde_json::json!({
+                            "kind": "team_teardown_storage_commit_failed",
+                            "impact": impact,
+                            "fallback": "The Team and desk, cron and Sentinel rows remain active; retry after storage recovers."
+                        }),
+                    );
+                    return Err(format!("Team storage teardown failed: {impact}"));
+                }
+            }
+        } else {
+            None
+        };
+        if let (Some(teardown), Some(committed)) = (&storage_teardown, &storage_commit) {
+            {
+                teardown.cron.lock().publish_external(
+                    &teardown.cron_changes,
+                    &committed.value.cron,
+                    committed.receipt.revision,
+                );
+            }
+            let sentinel_commit = crate::storage::Committed {
+                value: committed.value.sentinel.clone(),
+                receipt: committed.receipt,
+            };
+            teardown
+                .sentinel
+                .store
+                .lock()
+                .adopt_external_commit(&sentinel_commit)?;
+        }
         let commit = {
             let mut mux = self.mux.write();
-            commit_prepared_team_close(&mut mux, team_id, &caller, &prepared)
+            if storage_commit.is_some() {
+                let current = prepare_team_close(&mux, team_id, &caller)?;
+                commit_prepared_team_close(&mut mux, team_id, &caller, &current)
+            } else {
+                commit_prepared_team_close(&mut mux, team_id, &caller, &prepared)
+            }
         };
         let (team, cleanup) = match commit {
             Ok(closed) => closed,
@@ -387,7 +476,9 @@ impl ServiceContext {
                 return Err(error);
             }
         };
-        crate::service::publish_mux_state_changed(&self.events);
+        if storage_commit.is_none() {
+            crate::service::publish_mux_state_changed(&self.events);
+        }
         // Persist the authorized reduction before any fallible cleanup can
         // early-return and leave last.json still holding the member tabs.
         crate::service::session_persist::persist_session_after_close(self);
@@ -406,6 +497,7 @@ impl ServiceContext {
             self.remote_workers.forget_orchestrator(tab_id);
         }
         self.kill_ptys(&cleanup.pty_ids);
+        self.dispose_closed_surface_runtimes();
         let registry = std::sync::Arc::clone(&self.agent_registry);
         let closed_tabs = cleanup.agent_providers;
         if let Err(error) = tokio::task::spawn_blocking(move || {
@@ -442,11 +534,12 @@ impl ServiceContext {
         for tab_id in &cleanup.member_tab_ids {
             self.revoke_agent_pad(tab_id)?;
         }
-        self.delete_team_crons(team_id);
-        if let Err(error) = crate::delayed_send::delete_team_series(self, team_id) {
-            log::error!("Failed to delete Team delayed series {team_id}: {error}");
+        if let Some(teardown) = &storage_teardown {
+            self.finish_storage_team_teardown(team_id, teardown).await;
+            crate::service::publish_mux_state_changed(&self.events);
+        } else {
+            self.finish_team_teardown(team_id).await?;
         }
-        self.emit_state_changed_after_bus_publish();
         let inventory = lane_cleanup?;
         if !busy.is_empty() {
             log::warn!(
@@ -482,6 +575,27 @@ impl ServiceContext {
                 log::error!("Failed to delete Team cron {job_id}: {error}");
             }
         }
+    }
+
+    async fn finish_team_teardown(&self, team_id: &str) -> Result<(), String> {
+        let service = self.clone();
+        let team_id = team_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            service.delete_team_crons(&team_id);
+            if let Some(sentinels) = service
+                .app_handle
+                .try_state::<crate::sentinel::scheduler::Handle>()
+            {
+                sentinels.remove_team(&team_id)?;
+            }
+            if let Err(error) = crate::delayed_send::delete_team_series(&service, &team_id) {
+                log::error!("Failed to delete Team delayed series {team_id}: {error}");
+            }
+            service.emit_state_changed_after_bus_publish();
+            Ok(())
+        })
+        .await
+        .map_err(|error| format!("Team cron and Sentinel teardown task failed: {error}"))?
     }
 
     pub(crate) fn adopt_plan_for_team(
@@ -885,7 +999,7 @@ pub(crate) fn reconcile_dangling_team_plan_bindings(
     plan_store.archive_active_plans_without_live_team(&live_team_ids, now_ms)
 }
 
-fn now_ms() -> u64 {
+pub(super) fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -1021,16 +1135,18 @@ fn authorize_team_mutation(
 
 mod membership;
 pub(crate) use membership::{
-    adopt_agent_into_team, apply_team_attachment, resolve_inherited_team_attachment,
-    resolve_spawn_attachment,
+    adopt_agent_into_team, apply_team_attachment, apply_team_attachment_under,
+    authorize_team_attachment, resolve_inherited_team_attachment, resolve_spawn_attachment,
+    AttachmentParent,
 };
 
 mod staffing;
 #[cfg(test)]
 pub(crate) use staffing::prepare_team_member_spawn_with_provider_validation;
 pub(crate) use staffing::{
-    commit_team_member_spawn, prepare_team_member_spawn, take_over_team_plan, AddTeamMemberParams,
-    AddTeamMemberResult, TeamCartographerAttachLocks, TeamOrchestratorAttachLocks,
+    commit_team_member_spawn, prepare_team_member_spawn, take_over_team_plan, team_member_brief,
+    AddTeamMemberParams, AddTeamMemberResult, TeamCartographerAttachLocks,
+    TeamOrchestratorAttachLocks,
 };
 
 #[cfg(test)]

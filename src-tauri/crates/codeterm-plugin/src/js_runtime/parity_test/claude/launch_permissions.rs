@@ -32,6 +32,9 @@ fn resume_quotes_only_args_a_shell_would_reinterpret() {
     let (n, j) = pair();
     let spaced = "Rule(opaque token:*)";
     let params = crate::provider::AgentResumeParams {
+        cwd: None,
+        context_files: None,
+        tool_less_instructions_path: None,
         session_id: "abc-def-123-456".into(),
         skip_permissions: false,
         agent_name: None,

@@ -40,6 +40,10 @@ impl ServiceContext {
         timeout: std::time::Duration,
         require_composer: bool,
     ) -> bool {
+        let composer_position = self
+            .agent_registry
+            .with_provider(agent_id, |provider| provider.composer_cursor_position())
+            .unwrap_or(crate::agent::provider::ComposerCursorPosition::BottomRegion);
         let signal = self.screen_state.lock().arm_screen_change_signal(pty_id);
         let deadline = std::time::Instant::now() + timeout;
         let generation = std::cell::Cell::new(signal.generation());
@@ -64,7 +68,9 @@ impl ServiceContext {
                 let tui_ready =
                     provider_or_generic_tui(provider_screen_has_tui, generic_screen_has_agent_tui);
                 let alternate_screen = input.is_some_and(|input| input.alternate_screen);
-                let composer_ready = input.is_some_and(composer_input_ready);
+                let composer_ready = input.is_some_and(|input| {
+                    composer_input_ready_for_position(input, composer_position, prompt_ready)
+                });
                 let visible_cursor_bottom_region = input.is_some_and(|input| {
                     crate::agent::offline_state_classifier::composer_cursor_ready(
                         input.cursor_visible,
@@ -187,3 +193,26 @@ pub(super) fn provider_frame_ready(
     (structural_tui_ready && (!require_composer || composer_ready))
         || (!require_composer && prompt_ready)
 }
+
+pub(crate) fn composer_input_ready_for_position(
+    input: codeterm_pty::pty::screen_state::ComposerInputState,
+    position: crate::agent::provider::ComposerCursorPosition,
+    modal_or_question: bool,
+) -> bool {
+    if position == crate::agent::provider::ComposerCursorPosition::VisibleAnywhere {
+        return input.cursor_visible;
+    }
+    if position == crate::agent::provider::ComposerCursorPosition::PromptLine {
+        return !crate::agent::offline_state_classifier::composer_evidence_excluded(
+            modal_or_question,
+        ) && crate::agent::offline_state_classifier::prompt_line_cursor_ready(
+            input.cursor_visible,
+            input.cursor_row,
+            input.last_nonblank_row,
+        );
+    }
+    composer_input_ready(input)
+}
+
+#[cfg(test)]
+mod tests;

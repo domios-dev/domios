@@ -1,6 +1,6 @@
 {
   "name": "codeterm",
-  "version": "1.12.3",
+  "version": "1.14.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -40,6 +40,9 @@
     "test:provider-matrix": "node evals/manager-bootstrap/provider-matrix.mjs",
     "test:general-agent-provider": "node evals/general-agent/provider-matrix.mjs",
     "check:unused-exports": "knip --workspace @codeterm/chat-core --exports",
+    "types:export": "node scripts/export-chat-types.mjs",
+    "types:check": "pnpm types:export && node scripts/check-generated-chat-types.mjs && git diff --exit-code -- gen/ packages/chat-core/src/gen/ packages/plugin-sdk/src/gen/",
+    "knip:report": "knip --reporter compact --no-progress --no-exit-code",
     "test:unused-exports-gate": "node scripts/test-unused-exports-gate.mjs",
     "lint": "biome check .",
     "sync:versions": "node scripts/sync-plugin-versions.mjs",

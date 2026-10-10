@@ -2,132 +2,96 @@
 
 Contracts for plan-owned task structure, goals, lanes, and executors, as the CLI and socket surface enforce them.
 
+### Same-attempt Worker authority restoration
+
+`codeterm plan rebind <plan> --task <task> --attempt <attempt>` restores the current authenticated binding on the exact existing Worker attempt. The CLI reads that task once for its current `owner_epoch`; the daemon then requires the caller's own live local PTY session, issued and provider-reported binding, original provider/session/tab assignment, current epoch, a unique acknowledged `in_progress` or `in_review` attempt, and an ordered host-owned lineage suffix beginning with the old nonce entry actually bound to that same session. A missing, foreign, ambiguous or unqualified retained suffix refuses with `data.type = "attempt_binding_restore_refused"`; task-targeted requests never fall back to the planning-session rebind path.
+
+The successful response is `{ok, plan_id, task_id, attempt_id, status}`, where `status` is `restored` or `already_current`. It contains no nonce. One serialized PlanStore write changes the attempt's active nonce and appends a typed digest receipt. Assignment, ACK, report, review, status, lane, model and loaded-skill history remain unchanged; the receipt does not claim a new ACK, skill read or report. Existing skill-load and report guards keep comparing against the single active nonce. The retained suffix proves only its entries from the matched old nonce onward; restoration makes no claim about history before that entry. A daemon that does not return the typed response has not confirmed the targeted operation.
+
+After a committed restoration, rollback must preserve the current nonce and receipt. Do not downgrade to a daemon that drops unknown receipt fields when rewriting the plan.
+
 ### Durable task keys and references
 
-Every socket, REST, and CLI argument that names a task accepts its `task_xxxxxx`
-id, its handle, or its human key (`PREFIX-N`, any case). The id stays primary.
-A new key is issued once from the plan's owning local workspace: a 2-4 character
-uppercase prefix derived from the workspace name (collisions take the next
-deterministic candidate), fixed by the first key, plus a counter that never
-decreases or reuses a number. A legacy task stores no `key`; its display key is
-its id without `task_`, uppercased. An exact id wins; a handle and key naming
-different tasks are refused as `ref_ambiguous`. Task list/detail JSON carries
-`display_key` beside `task.id` (`task.key` only when stored), sibling/parent
-labels carry `display_key`, and `plan.task.add`, `POST /api/plans/{id}/tasks`,
-and `POST /api/tasks` return `key`.
+Every socket, REST, and CLI argument that names a task accepts its `task_xxxxxx` id, its handle, or its human key (`PREFIX-N`, any case). The id stays primary. A new key is issued once from the plan's owning local workspace: a 2-4 character uppercase prefix derived from the workspace name (collisions take the next deterministic candidate), fixed by the first key, plus a counter that never decreases or reuses a number. A legacy task stores no `key`; its display key is its id without `task_`, uppercased. An exact id wins; a handle and key naming different tasks are refused as `ref_ambiguous`. Task list/detail JSON carries `display_key` beside `task.id` (`task.key` only when stored), sibling/parent labels carry `display_key`, and `plan.task.add`, `POST /api/plans/{id}/tasks`, and `POST /api/tasks` return `key`.
 
-`plan task add|update --group <key>` declares an unknown group with its key as
-label (`plan groups set` relabels), so `plan groups close` accepts every group a
-heartbeat names.
+`plan task add|update --group <key>` declares an unknown group with its key as label (`plan groups set` relabels), so `plan groups close` accepts every group a heartbeat names.
 
-Task text is capped at 256 KiB per task (all fields together), every other plan
-text field at 256 KiB, and stored plan text at 16 MiB. Control bytes such as ESC
-and BEL are refused (bodies and narratives keep line breaks). Plan, section, and
-task names are required, one line, and at most 256 characters.
+Task text is capped at 256 KiB per task (all fields together), every other plan text field at 256 KiB, and stored plan text at 16 MiB. Control bytes such as ESC and BEL are refused (bodies and narratives keep line breaks). Plan, section, and task names are required, one line, and at most 256 characters.
 
 ### Planner authority over task structure
 
-A tab bound as a plan's Planner (`role = Manager`, `role_profile = planner`, same
-Team as the plan) holds **durable** authority over task *structure* for the plan's
-whole life — name, body, sections, acceptance criteria, test plan, QA plan,
-correctness, tags, dependencies and routing. That authority does not lapse when a
-task is dispatched: it applies to a `pending` task and an `in_progress` one alike.
-Fresh pair Planners are bound to their first Plan from live Team membership.
-Each write still requires that Planner tab's current session and binding nonce;
-when startup binding is pending, the write waits for that event instead of
-requiring `plan rebind`.
+A tab bound as a plan's Planner (`role = Manager`, `role_profile = planner`, same Team as the plan) holds **durable** authority over task *structure* for the plan's whole life — name, body, sections, acceptance criteria, test plan, QA plan, correctness, tags, dependencies and routing. That authority does not lapse when a task is dispatched: it applies to a `pending` task and an `in_progress` one alike. Fresh pair Planners are bound to their first Plan from live Team membership. Each write still requires that Planner tab's current session and binding nonce; when startup binding is pending, the write waits for that event instead of requiring `plan rebind`.
 
-It stops at execution. A Planner is refused for `status`, `status_label`, `lane`,
-`tab`/`assign_tab`/`assigned_tab_id`, `peer`, attempt fields, `competition`,
-`review_stage` and `qa_state`, and it may not assign, dispatch or approve. One field list bounds
-the Planner on every write path.
+It stops at execution, except that the Plan owner or Planner may deliberately block a task by passing `status=blocked` with a fresh nonblank `status_label` containing its reason and owner trigger. A Planner is refused for other `status` or `status_label` changes, `lane`, `tab`/`assign_tab`/`assigned_tab_id`, `peer`, attempt fields, `competition`, `review_stage` and `qa_state`, and it may not assign, dispatch or approve. A Worker's `agent report --status blocked` is a proposal: it persists the evidence and leaves task state unchanged. One field list bounds Planner authority on every write path.
 
-Refusals carry a stable `data.type`: `caller_is_not_task_owner_or_plan_owner`
-when the caller holds no authority over the task at all, and a `-32003`
-`plan_role_authorization_required` when the binding is live but the role is not.
+Refusals carry a stable `data.type`: `caller_is_not_task_owner_or_plan_owner` when the caller holds no authority over the task at all, and a `-32003` `plan_role_authorization_required` when the binding is live but the role is not.
 
 ### `plan goal set` is a partial update
 
-`codeterm plan goal set <plan> [--vector V] [--vision T] [--vision-file P]
-[--constraint C ...] [--postulate P ...]`
+`codeterm plan goal set <plan> [--vector V] [--vision T] [--vision-file P] [--constraint C ...] [--postulate P ...]`
 
-**A field you do not pass is kept.** Setting `--vector` alone leaves the vision,
-constraints and postulates exactly as they were; setting `--constraint` alone
-leaves the vector. Passing a repeatable flag replaces that whole list; passing it
-with an empty value clears the list. There is no wholesale-replacement mode:
-naming every field is how you replace everything.
+**A field you do not pass is kept.** Setting `--vector` alone leaves the vision, constraints and postulates exactly as
+they were; setting `--constraint` alone leaves the vector. Passing a repeatable flag replaces that whole list; passing
+it with an empty value clears the list. There is no wholesale-replacement mode: naming every field is how you replace
+everything.
 
-`--vector` is required only when the plan has no goal yet, and when it is missing
-the refusal names the flag: `data.type = "goal_vector_required"`, with
-`data.remedy.flag = "--vector"`.
+`--vector` is required only when the plan has no goal yet, and when it is missing the refusal names the flag: `data.type
+= "goal_vector_required"`, with `data.remedy.flag = "--vector"`.
 
 ### Dispatch stores the lane it reports
 
-`plan.task.dispatch` onto a **pre-created worktree** (`--cwd <path>`) records
-`lane.branch`, `lane.worktree_path` and `lane.base` in the same transition that
-emits the `dispatch_ready` block, so the stored lane equals the reported one.
-Every candidate checkout is verified against the plan's canonical project path,
-never against itself; collapsing those two made a resolved lane look like the
-canonical checkout and dropped it (codeterm#425). A readiness report is no longer
+`plan.task.dispatch` onto a **pre-created worktree** (`--cwd <path>`) records `lane.branch`, `lane.worktree_path` and
+`lane.base` in the same transition that emits the `dispatch_ready` block, so the stored lane equals the reported one.
+Every candidate checkout is verified against the plan's canonical project path, never against itself; collapsing those
+two made a resolved lane look like the canonical checkout and dropped it (codeterm#425). A readiness report is no longer
 refused with "cannot locate your lane worktree" for a task dispatched this way.
 
 ### A mutating dispatch with no lane provisions one
 
-A repository-mutating `plan.task.dispatch` whose task records no lane no longer
-resolves the canonical checkout as the worker checkout. The dispatcher branches
-one sibling lane off the plan's canonical project, commits its worktree, branch,
-base and Team workspace identity as a single value, and only then spawns. A lane
-the task already records is still used as-is, and a recorded lane that names the
-canonical checkout or another task's lane is refused before any tab is created
-(`data.type = "unsafe_mutating_lane"`). A recorded lane that fails verification
-is refused with `checkout_required` rather than replaced by a fresh one.
+A repository-mutating `plan.task.dispatch` whose task records no lane no longer resolves the canonical checkout as the
+worker checkout. The dispatcher branches one sibling lane off the plan's canonical project, commits its worktree,
+branch, base and Team workspace identity as a single value, and only then spawns. A lane the task already records is
+still used as-is, and a recorded lane that names the canonical checkout or another task's lane is refused before any tab
+is created (`data.type = "unsafe_mutating_lane"`). A recorded lane that fails verification is refused with
+`checkout_required` rather than replaced by a fresh one.
 
-Both payloads that report the lane — the synchronous dispatch response and the
-`dispatch_ready` block — carry `lane.canonical_project_path` as the **plan's**
-canonical checkout and `lane.worktree_path` as the **worker's** lane, for a
-provisioned and a pre-created lane alike.
+Both payloads that report the lane — the synchronous dispatch response and the `dispatch_ready` block — carry
+`lane.canonical_project_path` as the **plan's** canonical checkout and `lane.worktree_path` as the **worker's** lane,
+for a provisioned and a pre-created lane alike.
 
 ### Canonical writer placement is an explicit dispatch parameter
 
-`plan.task.dispatch` accepts `placement: "isolated_lane" | "canonical_writer"`;
-absent or null is `isolated_lane`, and nothing else ever selects the canonical
-placement. `canonical_writer` requires `execution_intent: "mutating"`, a
-repository task, and no recorded lane (otherwise `invalid_task_dispatch`). It
-verifies canonical as an attached checkout, skips lane provisioning, and runs the
-checkout occupancy preflight against canonical, so any live attempt there refuses
-it with `checkout_occupied`. The attempt persists `placement`; readiness reports
-use that placement to validate `--sha` against the plan's canonical checkout,
-including when the attempt has no `worktree_path`. Canonical reports keep no base,
-so they require the reported commit to match canonical `HEAD` and refuse any dirty
-checkout, even with `--acknowledge-dirty`. `task.lane` stays empty, so lane cleanup
-never touches canonical. The dispatch response echoes `placement`.
+`plan.task.dispatch` accepts `placement: "isolated_lane" | "canonical_writer"`; absent or null is `isolated_lane`, and
+nothing else ever selects the canonical placement. `canonical_writer` requires `execution_intent: "mutating"`, a
+repository task, and no recorded lane (otherwise `invalid_task_dispatch`). It verifies canonical as an attached
+checkout, skips lane provisioning, and runs the checkout occupancy preflight against canonical, so any live attempt
+there refuses it with `checkout_occupied`. The attempt persists `placement`; readiness reports use that placement to
+validate `--sha` against the plan's canonical checkout, including when the attempt has no `worktree_path`. Canonical
+reports keep no base, so they require the reported commit to match canonical `HEAD` and refuse any dirty checkout, even
+with `--acknowledge-dirty`. `task.lane` stays empty, so lane cleanup never touches canonical. The dispatch response
+echoes `placement`.
 
-While such an attempt is live, `plan.review.accept` on another task that records
-a lane is refused with code `-32015`, `data.type = "canonical_writer_holds_checkout"`,
-`violation_id = "lane.integration_while_canonical_writer_holds_checkout"`, and the
-holder task and attempt ids. Gate claims stay bound to the attempt's exact
-`authorized_gates`.
+While such an attempt is live, `plan.review.accept` on another task that records a lane is refused with code `-32015`,
+`data.type = "canonical_writer_holds_checkout"`, `violation_id =
+"lane.integration_while_canonical_writer_holds_checkout"`, and the holder task and attempt ids. Gate claims stay bound
+to the attempt's exact `authorized_gates`.
 
 ### Recording an executor that runs elsewhere
 
-A task executed by an agent on another machine records its executor with the
-owner-side verb that already exists:
+A task executed by an agent on another machine records its executor with the owner-side verb that already exists:
 
 ```
 codeterm plan task assign <plan> <task> --tab <tab-id> [--mesh <peer>]
 ```
 
-This stores `assigned_tab_id`, `lane.tab_id` and `peer` as structured fields and
-reads them back. An explicit remote peer has no local-liveness requirement and
-never inherits the identity of a same-named local tab. A local assignment
-requires the target's verified live session binding and a pending task before
-creating its attempt; missing binding or an active/review-held task refuses
-without mutation. Ordinary assignment never clears a review hold; use review
-continuation or the genuine respawn lifecycle. A fresh attempt still requires
-its own task ACK. `codeterm plan task show` renders an
-`executor: tab <id> on peer <peer> (role <role>)` line. Never record an executor
-in a pause reason or other free text; nothing reads it. `plan task update` has
-no assign flag: assignment is execution authority, outside Planner writes.
+This stores `assigned_tab_id`, `lane.tab_id` and `peer` as structured fields and reads them back. An explicit remote
+peer has no local-liveness requirement and never inherits the identity of a same-named local tab. A local assignment
+requires the target's verified live session binding and a pending task before creating its attempt; missing binding or
+an active/review-held task refuses without mutation. Ordinary assignment never clears a review hold; use review
+continuation or the genuine respawn lifecycle. A fresh attempt still requires its own task ACK. `codeterm plan task
+show` renders an `executor: tab <id> on peer <peer> (role <role>)` line. Never record an executor in a pause reason or
+other free text; nothing reads it. `plan task update` has no assign flag: assignment is execution authority, outside
+Planner writes.
 
 ### Recovering a tab-gone task
 
@@ -169,6 +133,39 @@ binding event through the startup deadline. A timed-out write returns
 launch without a registered session remains the distinct
 `plan_binding_session_unregistered` error.
 
+### Bouncing a cleaned terminal review generation
+
+The existing authenticated review-bounce transition can recover a cleaned terminal
+generation when its original closed-attempt selector finds zero candidates. A unique
+original match keeps its existing behavior, and multiple original matches remain an
+ambiguity refusal.
+
+The recovery requires an `in_review` task with no assigned executor, peer, or remaining
+lane tab, workspace, worktree, or branch, and `cleanup_status: done`. Every attempt
+must be closed and noncompetitive. Persisted attempt order must agree with strictly
+increasing, present assignment times; duplicate identities, overlapping generations,
+and contradictory times refuse selection. Only the last appended generation is
+considered, and it must have a nonblank executor session and binding nonce, an ACK, a
+persisted own-session `in_review` report, and ordered assignment, ACK, report, closure,
+and retirement facts. Continuation round metadata must describe the current review
+round, and replay labels or continuation-state conflicts refuse the fallback. An
+incomplete terminal generation blocks the transition even when an earlier generation
+has a valid report.
+
+A successful bounce records one review evidence item and milestone, advances the review
+round and credit through the existing transaction, marks the selected predecessor
+`executor_gone`, and returns the task to pending with no continuation. The transaction
+preserves historical reports, launch metadata, and closure and retirement times. The
+retired executor receives no delivery; fresh placement follows ordinary dispatch.
+Refusals leave task, review credit, and milestones unchanged. This contract adds no
+command or wire fields.
+
+This verb requires the live owning Orchestrator's top-level `caller_tab_id` and
+`session_binding_nonce`; `session_id` is optional under existing current-tab
+resolution. `from` remains attribution only and never supplies authority. The v3 gate
+refuses v2 clients before dispatch with `-32002`, `data.type = "version_skew"`, and
+the recovery command.
+
 ### Review credit repair and evidence reporters
 
 Historical review credit leaked by older builds is repaired auditably with:
@@ -194,13 +191,17 @@ refuses with the Plan identity and creates no tab, and an explicit parent wins.
 
 ### Task-bound plan skill reads
 
-A task-bound `plan skill show` is proven by the caller's live tab, not by an
-environment secret: the tab supplies its id and launch binding nonce, and the
-daemon derives the session id only when that nonce is both the tab's current
-nonce and the one its running session echoed back. A Worker therefore reads its
-mandatory skills as soon as it launches, before any session id exists, while
-stale, mismatched, partial, or foreign identities are refused. Reading a plan
-skill as evidence still requires a current task binding for that plan.
+An omitted `--plan` on `codeterm plan skill` uses the authenticated caller's Team active plan. Inherited launch plan, task, and attempt values do not override that live binding.
+An explicit `--plan` reads the named plan without rebinding the Team; a read of another plan records no current-task skill-load receipt.
+
+The caller supplies its tab and binding nonce. The daemon derives its session only when the issued and session-reported nonces match; a supplied session must match too.
+Same-plan task evidence requires exactly one current assignment and an exact announced content digest. Explicit task or attempt conflicts, ambiguous assignments, unannounced skills, and changed bytes refuse.
+
+Dispatch announces the manifest in its brief. For a supported existing-tab assignment, an authenticated `codeterm agent ack` returns the current manifest and its brief, recording that announcement on the current attempt before a load can be recorded.
+Repeating ACK retains an existing announcement and ACK; it never copies predecessor loads or replaces an announced digest. A startup ACK can still precede runtime binding; the first ACK returns only the manifest already announced by dispatch.
+Repeated ACK can complete both missing attempt binding fields only with retained launch authority for the exact creator, Team, task/attempt, owner epoch, PTY and nonce, plus the current session's matching issued and reported nonce. A verified session occupying the tab cannot mint that authority.
+The guarded write preserves ACK/timestamps, history, manifest, loads, status and lane. Exact already-bound equality is idempotent; partial, foreign, ambiguous, closed or retired ownership, absent/finalized launch proof and unannounced or changed manifests refuse without repair.
+A refusal returns `plan_skill_attempt_binding_missing`, the retained ACK timestamp, and the plan, task and attempt identifiers. Report those identifiers to the Orchestrator for launch-proven binding repair; this operation never rearms finalized launches or assigns a replacement attempt.
 
 ### A spawned Worker is not an accepted dispatch
 
@@ -217,7 +218,7 @@ Only a confirmed-gone tab fails the dispatch.
 `plan.task.merge_remote_lane` requires the authenticated origin Orchestrator,
 an origin-accepted remote attempt, and a persisted Worker report. The origin
 requests a Git bundle from the recorded paired peer over signed mesh transport,
-fetches the recorded branch into a CodeTerm-owned ref, then runs a real
+fetches the recorded branch into a Domios-owned ref, then runs a real
 `git merge --no-ff`. It persists the lane tip and merge commit after
 `git merge-base --is-ancestor <lane-tip> <target>` succeeds. Repeating an
 already-recorded integration is idempotent.
@@ -226,13 +227,14 @@ already-recorded integration is idempotent.
 
 The Plan Orchestrator can create child tasks beneath an in-progress task with
 `codeterm plan task split <plan> <task> --child <name>` or a JSON child file.
-Children inherit the parent's sections, executor role, model routing, and
-quality fields unless overridden. They retain the same plan approval and may
-be dispatched while the parent remains in progress; each dispatch provisions
-the child's own lane. Task detail and plan state expose child statuses, and the
+Children inherit the parent's sections, tags (including its `work:<value>`),
+executor role, model routing, and quality fields unless overridden; a child tag
+replaces the inherited tag of the same facet key. They retain the same plan
+approval and may be dispatched while the parent remains in progress; each
+dispatch provisions the child's own lane. Task detail and plan state expose child statuses, and the
 parent presents as `blocked_on_subtasks` while any child is open. Marking the
 parent done or cancelled is refused until all children are done or cancelled.
 Worker briefs carry the parent task id; a Worker may propose children in its
 report but cannot dispatch or spawn them.
 
-<!-- revision: 19 -->
+<!-- revision: 27 -->

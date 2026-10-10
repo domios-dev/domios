@@ -2,6 +2,8 @@ use super::{AgentRegistry, ServiceContext};
 use crate::agent::provider::AgentLaunchParams;
 use crate::service::orchestrator::types::SpawnAgentParams;
 
+mod selection_args;
+
 pub(crate) fn build_agent_command(
     agent_cmd: &str,
     params: &SpawnAgentParams,
@@ -88,7 +90,15 @@ fn build_agent_command_inner(
     registry: &AgentRegistry,
     launch_marker: Option<&str>,
 ) -> String {
-    let mut args: Vec<String> = params.args.clone().unwrap_or_default();
+    if let Some((service, tab_id)) = notice_context {
+        crate::service::directory_pre_trust::for_tab(
+            service,
+            registry,
+            agent_cmd,
+            tab_id,
+            params.cwd.as_deref(),
+        );
+    }
     let resolved_model = params
         .model
         .as_deref()
@@ -120,6 +130,47 @@ fn build_agent_command_inner(
                 (!model.trim().is_empty()).then_some(model)
             }
         });
+    let mut resolved_params = params.clone();
+    resolved_params.model = resolved_model.clone();
+    let model_arguments = params.model.as_deref().and_then(|model| {
+        registry.with_provider(agent_cmd, |provider| provider.model_launch_args(model))
+    });
+    resolved_params.args = selection_args::without_managed_arguments(
+        params.args.as_deref(),
+        model_arguments.as_deref().unwrap_or_default(),
+    );
+    let mut args = resolved_params.args.clone().unwrap_or_default();
+    if let Some((service, tab_id)) = notice_context {
+        if let Some(session) = params
+            .resume_session_id
+            .as_deref()
+            .filter(|_| !params.fork_session)
+        {
+            crate::service::launch_session_detection::register_resume_launch_marker(
+                tab_id, session,
+            );
+        }
+        if let Some(command) = crate::service::codex_rpc::launch::defer(
+            service,
+            tab_id,
+            agent_cmd,
+            &resolved_params,
+            task,
+            injected_session_id,
+        ) {
+            return command;
+        }
+    }
+    let structured_prompt_server = params.structured_prompt_server.clone().or_else(|| {
+        notice_context.and_then(|(service, tab_id)| {
+            crate::service::structured_prompt::ensure_for_spawn(
+                service,
+                agent_cmd,
+                tab_id,
+                params.cwd.as_deref().unwrap_or_default(),
+            )
+        })
+    });
     if let Some(model) = resolved_model.as_deref() {
         let model_args = registry
             .with_provider(agent_cmd, |provider| provider.model_launch_args(model))
@@ -141,10 +192,10 @@ fn build_agent_command_inner(
         } else {
             match registry.with_provider(agent_cmd, |provider| {
                 let supported = provider.reasoning_efforts_for_model(resolved_model.as_deref());
-                supported
-                    .iter()
-                    .any(|level| level.id == effort)
-                    .then(|| provider.reasoning_effort_launch_args(effort))
+                supported.iter().any(|level| level.id == effort).then(|| {
+                    provider
+                        .reasoning_effort_launch_args_for_model(resolved_model.as_deref(), effort)
+                })
             }) {
                 Some(Some(args)) => args,
                 _ => {
@@ -212,8 +263,31 @@ fn build_agent_command_inner(
         );
     }
 
-    if let Some(session_id) = &params.resume_session_id {
+    if let Some((service, tab_id)) = notice_context {
+        if let Some(tab) = service.mux.write().get_tab_mut(tab_id) {
+            tab.restorable_launch.context_files = params.context_files.clone();
+            tab.restorable_launch.context_skills = params.context_skills.clone();
+        }
+    }
+
+    if params.resume_session_id.is_some() && params.fork_session {
+        let Some(fork_args) = registry
+            .with_provider(agent_cmd, |provider| provider.fork_session_args())
+            .flatten()
+        else {
+            return String::new();
+        };
+        args.extend(fork_args);
+    }
+    if let Some(session_id) = params
+        .resume_session_id
+        .as_ref()
+        .filter(|_| structured_prompt_server.is_none())
+    {
         let resume = crate::agent::provider::AgentResumeParams {
+            cwd: params.cwd.clone(),
+            context_files: params.context_files.clone(),
+            tool_less_instructions_path: None,
             session_id: session_id.clone(),
             skip_permissions,
             agent_name: params.agent_name.clone(),
@@ -227,24 +301,32 @@ fn build_agent_command_inner(
             crate::service::task_files::capture(service, tab_id, || {
                 registry
                     .with_provider(agent_cmd, |provider| {
-                        provider.build_resume_command_with_context(&resume)
+                        crate::service::context_bundle::build_resume(
+                            provider,
+                            &resume,
+                            params.context_skills.as_deref(),
+                        )
                     })
                     .flatten()
             })
         } else {
             registry
                 .with_provider(agent_cmd, |provider| {
-                    provider.build_resume_command_with_context(&resume)
+                    crate::service::context_bundle::build_resume(
+                        provider,
+                        &resume,
+                        params.context_skills.as_deref(),
+                    )
                 })
                 .flatten()
         };
-        if let Some(command) = command {
-            return command;
-        }
+        return command.unwrap_or_default();
     }
 
     let launch_task = command_task.and_then(|task| task.text);
     let launch_params = AgentLaunchParams {
+        context_files: params.context_files.clone(),
+        tool_less_instructions_path: None,
         agent_name: params.agent_name.clone(),
         task: launch_task,
         starter_prompt: params.starter_prompt,
@@ -254,20 +336,31 @@ fn build_agent_command_inner(
             Some(args.clone())
         },
         skip_permissions,
-        session_id: injected_session_id.map(str::to_string),
-        structured_prompt_server: params.structured_prompt_server.clone(),
+        session_id: params
+            .resume_session_id
+            .clone()
+            .or_else(|| injected_session_id.map(str::to_string)),
+        structured_prompt_server,
         launch_marker: launch_marker.map(str::to_string),
         instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
     };
     let command = if let Some((service, tab_id)) = notice_context {
         crate::service::task_files::capture(service, tab_id, || {
             registry.with_provider(agent_cmd, |provider| {
-                provider.build_launch_command(&launch_params)
+                crate::service::context_bundle::build(
+                    provider,
+                    &launch_params,
+                    params.context_skills.as_deref(),
+                )
             })
         })
     } else {
         registry.with_provider(agent_cmd, |provider| {
-            provider.build_launch_command(&launch_params)
+            crate::service::context_bundle::build(
+                provider,
+                &launch_params,
+                params.context_skills.as_deref(),
+            )
         })
     };
     match command {
@@ -280,3 +373,6 @@ fn build_agent_command_inner(
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

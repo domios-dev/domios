@@ -8,37 +8,33 @@ pub(crate) mod scrollback_restore;
 pub(crate) mod scrollback_sync;
 pub mod store;
 
+use crate::multiplexer::commands::MuxState;
+pub use store::{SessionSnapshot, SessionStore};
+
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-
-use crate::multiplexer::commands::MuxState;
-pub use store::{SessionSnapshot, SessionStore};
+use tauri::Manager;
 
 pub type SessionState = Arc<Mutex<SessionStore>>;
 
 #[tauri::command]
-pub fn save_session(
+pub async fn save_session(
     app: tauri::AppHandle,
     mux: tauri::State<'_, MuxState>,
-    session: tauri::State<'_, SessionState>,
+    _session: tauri::State<'_, SessionState>,
 ) -> Result<(), String> {
-    let snapshot = mux.write().to_session_snapshot();
-    // A refused reduction is the guard working (logged by the store), not a
-    // command failure — the sidecar gate decides whether it may prune.
-    let outcome = session.lock().save(&snapshot)?;
-    scrollback_sync::sync_scrollback_sidecars_after_save(&app, &outcome);
+    let app = app.clone();
+    let mux = mux.inner().clone();
+    let outcome = tokio::task::spawn_blocking(move || {
+        crate::service::session_persist::write_session_snapshot(&app, &mux)
+    })
+    .await
+    .map_err(|error| format!("session persistence task failed: {error}"))??;
+    if let store::SaveOutcome::RefusedReduction(refusal) = outcome {
+        log::error!("[session] explicit save preserved the fuller desk: {refusal}");
+    }
     Ok(())
-}
-
-#[tauri::command]
-pub fn save_session_named(
-    mux: tauri::State<'_, MuxState>,
-    session: tauri::State<'_, SessionState>,
-    name: String,
-) -> Result<(), String> {
-    let snapshot = mux.write().to_session_snapshot();
-    session.lock().save_named(&name, &snapshot)
 }
 
 #[tauri::command]
@@ -48,12 +44,83 @@ pub fn list_saved_sessions(session: tauri::State<'_, SessionState>) -> Result<Ve
 
 #[tauri::command]
 pub fn load_session(
+    app: tauri::AppHandle,
     session: tauri::State<'_, SessionState>,
     name: Option<String>,
 ) -> Result<Option<SessionSnapshot>, String> {
-    let store = session.lock();
     match name {
-        Some(n) => store.load_named(&n),
-        None => store.load_last(),
+        Some(name) => session.lock().load_named(&name),
+        None => {
+            let authority = app
+                .try_state::<crate::startup::StorageAuthority>()
+                .ok_or_else(|| crate::startup::STORAGE_UNAVAILABLE_MESSAGE.to_string())?;
+            load_current_session_from_storage(authority.inner())
+        }
+    }
+}
+
+fn load_current_session_from_storage(
+    authority: &crate::startup::StorageAuthority,
+) -> Result<Option<SessionSnapshot>, String> {
+    let storage = authority
+        .require_ready()
+        .map_err(|error| error.to_string())?;
+    crate::session::store::StorageDeskAdapter::from_storage(storage.clone())
+        .snapshot()
+        .map(Some)
+}
+
+#[cfg(test)]
+mod storage_cutover_tests {
+    use super::load_current_session_from_storage;
+    use crate::startup::StorageAuthority;
+    use crate::storage::{Storage, StorageConfig};
+    use std::fs;
+    use std::time::Duration;
+
+    #[test]
+    fn storage_cutover_load_session_without_name_uses_storage_instead_of_legacy_json() {
+        let temp = tempfile::tempdir().unwrap();
+        let legacy_dir = temp.path().join("sessions");
+        fs::create_dir_all(&legacy_dir).unwrap();
+        fs::write(
+            legacy_dir.join("last.json"),
+            br#"{"version":"1","timestamp":1,"active_workspace_id":"legacy","teams":[],"workspaces":[{"id":"legacy","name":"Legacy desk","tabs":[],"active_tab_id":null}]}"#,
+        )
+        .unwrap();
+
+        let storage = Storage::open(temp.path(), StorageConfig::default()).unwrap();
+        let stored_snapshot = super::SessionSnapshot {
+            version: "storage-authority".into(),
+            timestamp: 42,
+            workspaces: Vec::new(),
+            active_workspace_id: None,
+            teams: Vec::new(),
+        };
+        crate::session::store::StorageDeskAdapter::from_storage(storage.clone())
+            .import_snapshot(&stored_snapshot, Vec::new())
+            .expect("persist Storage desk snapshot");
+        let authority = StorageAuthority::Ready(storage.clone());
+        let loaded = load_current_session_from_storage(&authority)
+            .unwrap()
+            .expect("Storage desk snapshot");
+
+        assert_eq!(loaded.version, "storage-authority");
+        assert_eq!(loaded.timestamp, 42);
+        assert!(loaded.workspaces.is_empty());
+        storage
+            .shutdown()
+            .wait(Duration::from_secs(30))
+            .expect("Storage shutdown");
+    }
+
+    #[test]
+    fn storage_cutover_load_session_without_name_reports_unavailable_authority() {
+        let authority = StorageAuthority::Unavailable {
+            storage: None,
+            reason: "database failed".into(),
+        };
+        let error = load_current_session_from_storage(&authority).unwrap_err();
+        assert_eq!(error, crate::startup::STORAGE_UNAVAILABLE_MESSAGE,);
     }
 }

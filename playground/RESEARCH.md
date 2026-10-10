@@ -2,7 +2,7 @@
 
 ## Decision
 
-Start with a focused Vite lab inside the repository. It gives CodeTerm one dense comparison canvas, shared animation controls, HMR, and no additional dependency. Keep experiments isolated from production code until a concept wins.
+Start with a focused Vite lab inside the repository. It gives Domios one dense comparison canvas, shared animation controls, HMR, and no additional dependency. Keep experiments isolated from production code until a concept wins.
 
 Promote the lab to Ladle or React Cosmos when it becomes a broader component catalog. Choose Storybook when visual regression, interaction tests, and published component documentation become primary requirements.
 

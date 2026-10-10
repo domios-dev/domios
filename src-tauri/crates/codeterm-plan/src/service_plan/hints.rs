@@ -256,6 +256,7 @@ mod tests {
         tab: Option<&str>,
     ) -> crate::plan::Task {
         crate::plan::Task {
+            files: Default::default(),
             id: id.into(),
             name: id.into(),
             kind: kind.into(),

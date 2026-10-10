@@ -62,7 +62,16 @@ fn resolve_local(
     client: &mut dyn RpcClient,
     plan: Option<String>,
 ) -> Result<(String, std::path::PathBuf), String> {
-    let response = call(client, "plan.files", plan_rpc_params(plan))?;
+    let mut params = plan_rpc_params(plan)?;
+    if params.get("plan_id").is_none() {
+        let resolved = call(client, "plan.skills.list", params.clone())?;
+        let plan_id = resolved
+            .get("plan_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "plan.skills.list returned no authoritative plan_id".to_string())?;
+        params["plan_id"] = json!(plan_id);
+    }
+    let response = call(client, "plan.files", params)?;
     let index_path = response
         .get("index_path")
         .and_then(Value::as_str)
@@ -85,19 +94,16 @@ fn resolve_local(
     Ok((plan_id, plan_dir))
 }
 
-fn plan_rpc_params(plan: Option<String>) -> Value {
-    let plan_id = plan.filter(|value| !value.trim().is_empty()).or_else(|| {
-        std::env::var("CODETERM_PLAN_ID")
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-    });
+fn plan_rpc_params(plan: Option<String>) -> Result<Value, String> {
     let mut params = json!({});
-    if let Some(plan_id) = plan_id {
+    if let Some(plan_id) = plan.filter(|value| !value.trim().is_empty()) {
         params["plan_id"] = json!(plan_id);
-    } else {
-        crate::cmd::plan::maybe_inject_caller_tab(&mut params);
+    } else if identity_env("CODETERM_TAB_ID").is_some() {
+        apply_caller_identity(&mut params)?;
+    } else if let Some(plan_id) = identity_env("CODETERM_PLAN_ID") {
+        params["plan_id"] = json!(plan_id);
     }
-    params
+    Ok(params)
 }
 
 fn call(client: &mut dyn RpcClient, method: &str, params: Value) -> Result<Value, String> {
@@ -131,7 +137,7 @@ fn new_skill(
     check: Option<String>,
     rationale: Option<String>,
 ) -> Result<Option<Value>, String> {
-    let mut params = plan_rpc_params(plan);
+    let mut params = plan_rpc_params(plan)?;
     params["slug"] = json!(slug);
     if let Some(value) = title {
         params["title"] = json!(value);
@@ -213,7 +219,7 @@ fn list_skills(
     json: bool,
     plan: Option<String>,
 ) -> Result<Option<Value>, String> {
-    let response = call(client, "plan.skills.list", plan_rpc_params(plan))?;
+    let response = call(client, "plan.skills.list", plan_rpc_params(plan)?)?;
     if json {
         return Ok(Some(response));
     }
@@ -273,14 +279,8 @@ fn apply_caller_identity(params: &mut Value) -> Result<(), String> {
     };
     params["caller_tab_id"] = json!(tab_id);
     params["session_binding_nonce"] = json!(session_binding_nonce);
-    for (key, value) in [
-        ("caller_session_id", caller_session_id),
-        ("task_id", task_id),
-        ("attempt_id", attempt_id),
-    ] {
-        if let Some(value) = value {
-            params[key] = json!(value);
-        }
+    if let Some(session_id) = caller_session_id {
+        params["caller_session_id"] = json!(session_id);
     }
     Ok(())
 }
@@ -291,7 +291,7 @@ fn show_skill(
     slug: String,
     plan: Option<String>,
 ) -> Result<Option<Value>, String> {
-    let mut params = plan_rpc_params(plan);
+    let mut params = plan_rpc_params(plan)?;
     params["slug"] = json!(slug);
     apply_caller_identity(&mut params)?;
     let response = call(client, "plan.skills.show", params)?;

@@ -67,6 +67,22 @@ fn folder_trust_native_js_parity_on_shared_fixtures() {
 }
 
 #[test]
+fn transcript_quote_has_no_native_or_js_live_trust_prompt() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    let screen =
+        std::fs::read_to_string(fixtures_dir().join("claude-transcript-quotes-trust-dialog.txt"))
+            .expect("quoted trust fixture");
+    for provider in [&native as &dyn AgentProvider, &js as &dyn AgentProvider] {
+        assert_eq!(provider.directory_trust_prompt_response(&screen), None);
+        assert_eq!(provider.parse_directory_trust_prompt(&screen), None);
+        assert_eq!(provider.parse_prompt(&screen), None);
+    }
+}
+
+#[test]
 fn trust_context_above_bypass_has_no_native_or_js_folder_trust_response() {
     if require_plugins().is_none() {
         return;
@@ -166,6 +182,83 @@ fn quick_safety_prompt_and_response_native_js_parity() {
     }
 }
 
+fn focus_option(screen: &str, labels: &[String], target: &str) -> String {
+    screen
+        .lines()
+        .map(|line| {
+            let normalized = line.replace('│', "").replace('┃', "").replace('║', "");
+            let label = normalized
+                .trim()
+                .trim_start_matches(|character| character == '❯' || character == '>')
+                .trim();
+            if !labels.iter().any(|option| option == label) {
+                return line.to_string();
+            }
+            let mut row = line.replace('❯', " ").replace('>', " ");
+            if label == target {
+                let position = row.find(label).expect("parsed option remains on screen");
+                row.insert_str(position, "❯ ");
+            }
+            row
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn preapproved_folder_trust_selects_the_declared_option_from_live_focus() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    let screen =
+        std::fs::read_to_string(fixtures_dir().join("trust-local-preapproved-no-first.txt"))
+            .expect("pre-approved folder trust fixture");
+    let native_prompt = native
+        .parse_directory_trust_prompt(&screen)
+        .expect("native parses pre-approved folder trust");
+    let js_prompt = js
+        .parse_directory_trust_prompt(&screen)
+        .expect("plugin parses pre-approved folder trust");
+    assert_eq!(native_prompt, js_prompt);
+    let affirmative = native_prompt
+        .options
+        .iter()
+        .position(|option| {
+            option.label.to_ascii_lowercase().starts_with("yes")
+                && option.label.to_ascii_lowercase().contains("trust")
+        })
+        .expect("declared affirmative option");
+    let down_enter = vec![b"j".to_vec(), b"\r".to_vec()];
+    assert_eq!(
+        native.build_prompt_response(affirmative, &screen),
+        down_enter
+    );
+    assert_eq!(js.build_prompt_response(affirmative, &screen), down_enter);
+
+    let labels = native_prompt
+        .options
+        .iter()
+        .map(|option| option.label.clone())
+        .collect::<Vec<_>>();
+    let focused = focus_option(&screen, &labels, &native_prompt.options[affirmative].label);
+    let enter = vec![b"\r".to_vec()];
+    assert_eq!(native.build_prompt_response(affirmative, &focused), enter);
+    assert_eq!(js.build_prompt_response(affirmative, &focused), enter);
+    assert_eq!(
+        native.directory_trust_prompt_response(&focused),
+        Some(DirectoryTrustPromptResponse::Answer {
+            step: b"\r".to_vec(),
+        })
+    );
+    assert_eq!(
+        js.directory_trust_prompt_response(&focused),
+        Some(DirectoryTrustPromptResponse::Answer {
+            step: b"\r".to_vec(),
+        })
+    );
+}
+
 #[test]
 fn numbered_trust_prompt_and_response_native_js_parity() {
     if require_plugins().is_none() {
@@ -195,4 +288,80 @@ fn numbered_trust_prompt_and_response_native_js_parity() {
     let js_steps = js.build_prompt_response(0, &screen);
     assert_eq!(native_steps, js_steps);
     assert_eq!(native_steps, vec![b"\r".to_vec()]);
+}
+
+type DeclaredTrustOption = (Vec<String>, Vec<u8>, Vec<Option<Vec<u8>>>);
+
+fn declared_trust_option(
+    provider: &dyn AgentProvider,
+    screen: &str,
+) -> Option<DeclaredTrustOption> {
+    let prompt = provider.parse_directory_trust_prompt(screen)?;
+    let Some(DirectoryTrustPromptResponse::Answer { step }) =
+        provider.directory_trust_prompt_response(screen)
+    else {
+        return None;
+    };
+    let first_keys = (0..prompt.options.len())
+        .map(|index| {
+            provider
+                .live_prompt_response(index, screen)
+                .and_then(|steps| steps.into_iter().next())
+        })
+        .collect();
+    Some((
+        prompt
+            .options
+            .into_iter()
+            .map(|option| option.value)
+            .collect(),
+        step,
+        first_keys,
+    ))
+}
+
+#[test]
+fn parity_directory_trust_claude_declared_option_matches_native() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    let cases: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(fixtures_dir().join("cases.json")).expect("cases.json"),
+    )
+    .expect("cases.json parses");
+    let mut declared = 0;
+    for case in cases.as_array().expect("case list") {
+        let file = case["file"].as_str().expect("file");
+        let screen = std::fs::read_to_string(fixtures_dir().join(file)).expect("fixture");
+        let native_option = declared_trust_option(&native, &screen);
+        assert_eq!(
+            native_option,
+            declared_trust_option(&js, &screen),
+            "declared trust option {file}"
+        );
+        let Some((_, step, first_keys)) = native_option else {
+            continue;
+        };
+        let advanced = first_keys
+            .iter()
+            .enumerate()
+            .filter(|(_, first)| first.as_deref() == Some(step.as_slice()))
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        assert_eq!(advanced.len(), 1, "one option per trust key {file}");
+        let prompt = native.parse_directory_trust_prompt(&screen).unwrap();
+        assert!(
+            prompt.options[advanced[0]]
+                .label
+                .to_ascii_lowercase()
+                .starts_with("yes"),
+            "the trust key advances toward the affirmative option {file}"
+        );
+        declared += 1;
+    }
+    assert!(
+        declared >= 3,
+        "several captured trust frames declare an option"
+    );
 }

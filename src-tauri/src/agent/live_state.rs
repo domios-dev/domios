@@ -1,47 +1,18 @@
-//! Two things live here, both about what is actually running in a tab.
-//!
-//! [`observe_tab_liveness`] is THE observation: whether an agent process is
-//! live behind a tab. It reads only facts — a PtyManager session that exists, a
-//! plugin session binding, a boot stage emitted at a real launch transition, a
-//! shell that reported its foreground command finished — and hands them to the
-//! pure classifier in `codeterm_types::pty::agent_liveness`. Restore reporting,
-//! record reconciliation, lifecycle teardown and every state label read it.
-//!
-//! `start` is the pre-existing live 3-state sweep. `process_pty_output`
-//! recomputes a tab's agent state on every output chunk, but the working→idle
-//! edge has no output to ride on: when a turn ends the agent goes silent, so a
-//! periodic sweep is what lets the quiescence clocks cross their thresholds.
-//! Pairs with the output-driven path through the shared
-//! `ServiceContext::recompute_agent_state`.
-
 use std::collections::BTreeMap;
-use std::time::Duration;
 
 use codeterm_types::pty::{classify_agent_liveness, AgentBacking, AgentLiveness, LivenessEvidence};
 
 use crate::service::{ServiceContext, ServiceState};
 
+mod quiescence;
+pub(crate) use quiescence::schedule;
+
 #[cfg(test)]
 #[path = "live_state/tests.rs"]
 mod tests;
 
-/// How often the sweep re-runs the classifier per tab. Fast enough that the
-/// "your turn" indicator appears promptly after a turn settles (DONE_MS = 800),
-/// cheap enough to run over every tracked pty (one grid read + a pure classify).
-const POLL_INTERVAL: Duration = Duration::from_millis(350);
-
-/// Spawn the live-state sweep on its own thread. Each tick re-classifies every
-/// tracked tab; `recompute_agent_state` gates to agent tabs and emits only on
-/// a real change.
 pub fn start(svc: ServiceState) {
-    std::thread::spawn(move || loop {
-        std::thread::sleep(POLL_INTERVAL);
-        let pty_ids = svc.agent_tracker.lock().all_ids();
-        for pty_id in pty_ids {
-            svc.recompute_agent_state(&pty_id);
-            svc.run_watcher.complete_via_semantic_idle(&svc, &pty_id);
-        }
-    });
+    quiescence::start(svc);
 }
 
 /// Gather the observable evidence for one tab. Returns `None` when the tab does
@@ -115,6 +86,7 @@ impl ServiceContext {
     pub(crate) fn settle_restore_report(&self) {
         let tab_ids = crate::crash::restore_report::pending_tab_ids();
         if tab_ids.is_empty() {
+            crate::service::supporter_notify::restore_complete(self);
             return;
         }
         let restored_ids: std::collections::BTreeSet<String> = {
@@ -129,6 +101,9 @@ impl ServiceContext {
         let observed = observe_tabs(self, &tab_ids);
         if !crate::crash::restore_report::settle(&restored_ids, observed.clone()) {
             return;
+        }
+        if crate::crash::restore_report::wave_is_settled() {
+            crate::service::supporter_notify::restore_complete(self);
         }
         for (tab_id, liveness) in observed {
             if liveness == AgentLiveness::Absent {

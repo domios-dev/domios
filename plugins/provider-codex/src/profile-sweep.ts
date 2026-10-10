@@ -24,6 +24,24 @@ export interface ProfileSweepReport {
 
 const CODEX_PROFILE_NAME_RE = /^codeterm-([A-Za-z0-9_-]+?)(?:-(?:preserved(?:-\d+-\d+)?|retry-\d+-\d+))?\.config\.toml$/;
 const INSTANCE_MARKER_RE = /^# codeterm-instance: ([A-Za-z0-9_-]+)$/;
+const LEGACY_PROFILE_NAME_RE = /^codeterm-([a-f0-9]{8})(?:-(?:preserved(?:-\d+-\d+)?|retry-\d+-\d+))?\.config\.toml$/;
+
+export function classifyCodexProfile(
+  name: string,
+  contents: string,
+  liveTabIds: ReadonlySet<string>,
+  instanceId: string,
+  goneInstanceIds: ReadonlySet<string>,
+): "dead" | "legacy" | null {
+  const tabId = codexProfileTabId(name);
+  if (tabId === null) return null;
+  const owner = codexProfileInstanceId(contents);
+  if (owner === instanceId) return liveTabIds.has(tabId) ? null : "dead";
+  if (owner !== null) return goneInstanceIds.has(owner) ? "dead" : null;
+  if (contents.includes("# codeterm-instance:")) return null;
+  const legacyTabId = LEGACY_PROFILE_NAME_RE.exec(name)?.[1];
+  return legacyTabId && !liveTabIds.has(legacyTabId) ? "legacy" : null;
+}
 
 function codexConfigPath(host: ProfileSweepHost, home: string): string {
   const separator = host.platform() === "windows" ? "\\" : "/";
@@ -227,11 +245,11 @@ function removeProfile(host: ProfileSweepHost, path: string): boolean {
   }
 }
 
-function removeProfileAfterTrustCarry(host: ProfileSweepHost, path: string): boolean {
+function removeProfileAfterTrustCarry(host: ProfileSweepHost, path: string, expected: string): boolean {
   const home = host.homeDir();
   if (!home) return false;
   const original = readProfile(host, path);
-  if (original === null) return false;
+  if (original === null || original !== expected) return false;
   const configPath = codexConfigPath(host, home);
   if (!carryCodexProjectTrust(host, path, configPath)) return false;
   return readProfile(host, path) === original && removeProfile(host, path);
@@ -268,10 +286,12 @@ export function inspectCodexProfiles(
   host: ProfileSweepHost,
   liveTabIds: readonly string[],
   instanceId: string,
+  goneInstanceIds: readonly string[] = [],
 ): Pick<ProfileSweepReport, "dead" | "legacy"> {
   const listing = profiles(host);
   if (!listing) return { dead: [], legacy: [] };
   const live = new Set(liveTabIds);
+  const gone = new Set(goneInstanceIds);
   const dead: string[] = [];
   const legacy: string[] = [];
   for (const name of listing) {
@@ -281,9 +301,9 @@ export function inspectCodexProfiles(
     if (!path) continue;
     const contents = readProfile(host, path);
     if (contents === null) continue;
-    const owner = codexProfileInstanceId(contents);
-    if (owner === instanceId && !live.has(tabId)) dead.push(name);
-    else if (owner === null) legacy.push(name);
+    const classification = classifyCodexProfile(name, contents, live, instanceId, gone);
+    if (classification === "dead") dead.push(name);
+    else if (classification === "legacy") legacy.push(name);
   }
   return { dead, legacy };
 }
@@ -304,20 +324,23 @@ export function manageCodexProfiles(
   instanceId: string,
   confirm: boolean,
   includeLegacy: boolean,
+  goneInstanceIds: readonly string[] = [],
 ): ProfileSweepReport {
-  const candidates = inspectCodexProfiles(host, liveTabIds, instanceId);
+  const candidates = inspectCodexProfiles(host, liveTabIds, instanceId, goneInstanceIds);
   const removed: string[] = [];
   if (!confirm) return { ...candidates, removed };
   const targets = [...candidates.dead, ...(includeLegacy ? candidates.legacy : [])];
-  for (const name of targets.slice(0, MAX_SWEEP_REMOVALS)) {
+  const live = new Set(liveTabIds);
+  const gone = new Set(goneInstanceIds);
+  for (const name of targets) {
+    if (removed.length >= MAX_SWEEP_REMOVALS) break;
     const path = profilePath(host, name);
     if (!path) continue;
     const contents = readProfile(host, path);
     if (contents === null) continue;
-    const owner = codexProfileInstanceId(contents);
-    const stillOwned = owner === instanceId;
-    const stillLegacy = includeLegacy && owner === null;
-    if ((stillOwned || stillLegacy) && removeProfileAfterTrustCarry(host, path)) removed.push(name);
+    const classification = classifyCodexProfile(name, contents, live, instanceId, gone);
+    if ((classification === "dead" || (includeLegacy && classification === "legacy"))
+      && removeProfileAfterTrustCarry(host, path, contents)) removed.push(name);
   }
   return { ...candidates, removed };
 }
@@ -338,7 +361,9 @@ export function releaseCodexProfile(
   if (ownedPaths.length === 0) return false;
   let released = true;
   for (const path of ownedPaths) {
-    if (!removeProfileAfterTrustCarry(host, path)) released = false;
+    const contents = readProfile(host, path);
+    if (contents === null || codexProfileInstanceId(contents) !== instanceId
+      || !removeProfileAfterTrustCarry(host, path, contents)) released = false;
   }
   return released;
 }

@@ -1,6 +1,6 @@
 # Worker handoff
 
-This prompt eval proves that a Worker records a structured CodeTerm report for
+This prompt eval proves that a Worker records a structured Domios report for
 partial, review-ready, read-only, conflicting, and concurrent-advance outcomes
 instead of ending with unreported prose.
 
@@ -18,4 +18,4 @@ python .agents/skills/prompt-evaluator/runner.py \
 The report shows all six cases passing for all three samples and the runner
 exits zero.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

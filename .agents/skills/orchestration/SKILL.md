@@ -1,11 +1,11 @@
 ---
 name: orchestration
-description: "Assign agent roles, delegate CodeTerm work, manage worktrees, and report verification."
+description: "Assign agent roles, delegate Domios work, manage worktrees, and report verification."
 ---
 
 # Agent Roles And Orchestration
 
-CodeTerm uses a two-level agent hierarchy: **Orchestrator -> Worker**.
+Domios uses a two-level agent hierarchy: **Orchestrator -> Worker**.
 The shape is intentionally flat. An Orchestrator owns decomposition and
 integration; Workers own bounded execution tasks. Workers do not create
 sub-workers.
@@ -21,7 +21,7 @@ the onboarding prompt, default model routing, and presence label without
 changing hierarchy semantics. The first named profile is **Planner** (1.6.2): a
 high-reasoning Worker the Orchestrator spawns (`agent spawn claude --model
 fable --role Planner`) to author or refine GOAL/Spec/Plan/Tasks and sequencing
-in the CodeTerm planner, then report back with `in_review`. The Planner never
+in the Domios planner, then report back with `in_review`. The Planner never
 spawns agents, assigns Tabs, or accepts work — execution and acceptance stay
 with the Orchestrator. Per-task free-form role guidance lives on the task
 (`role_guidance`) and is prepended to the worker brief at dispatch; there is no
@@ -69,7 +69,7 @@ This split keeps the tree shallow and makes ownership clear:
 
 ## Role Assignment
 
-CodeTerm records the structural role when an agent Tab is spawned. Prompt text
+Domios records the structural role when an agent Tab is spawned. Prompt text
 can also describe the intended role, but the product-level hierarchy is the
 `AgentRole` value.
 
@@ -79,7 +79,7 @@ which imports the same rules with Claude-specific additions. This document
 describes the architecture and operating model; it is not a prompt template.
 
 Role-specific launch text is kept inline with the spawned task. The repo docs
-and prompt templates are the source of truth for CodeTerm orchestration
+and prompt templates are the source of truth for Domios orchestration
 behavior.
 
 ## Delegation Model
@@ -161,7 +161,7 @@ until their diffs have been integrated, reviewed, or intentionally discarded.
 
 ## Tab Type Awareness
 
-CodeTerm Tabs can have different backing kinds:
+Domios Tabs can have different backing kinds:
 
 | `backing.kind` | Meaning | Shell | Interaction model |
 | --- | --- | --- | --- |
@@ -174,7 +174,7 @@ execute shell commands; a `chat_backend` Tab cannot.
 ## Dogfooding
 
 Agent orchestration is also product testing. Spawning workers, receiving
-reports, switching Tabs, and running dev servers through CodeTerm exercises the
+reports, switching Tabs, and running dev servers through Domios exercises the
 same UX being built. Friction in that loop is useful product feedback and should
 be captured as a bug, follow-up, or docs gap when it affects the work.
 
@@ -185,6 +185,6 @@ full source and loader map is `.agents/skills/prompts/inventory.md`.
 
 ## Internal references
 
-Moved out of the embedded `codeterm docs` pages because they describe CodeTerm's own source:
+Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
 
 - [references/attempt-retirement.md](references/attempt-retirement.md) — the attempt retirement fence

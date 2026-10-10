@@ -1,0 +1,74 @@
+[
+  {
+    "parentUuid": "a7c50219-b994-45a3-b59e-5851ce9f9161",
+    "isSidechain": false,
+    "promptId": "4a74c65e-eb84-4f29-87c5-5b4105f16621",
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": "<command-name>/model</command-name>\n            <command-message>model</command-message>\n            <command-args></command-args>"
+    },
+    "uuid": "a85f40e5-40ca-4363-acf9-a7156e7944f6",
+    "timestamp": "2026-10-09T20:02:33.767Z",
+    "userType": "external",
+    "entrypoint": "cli",
+    "cwd": "C:\\Users\\User\\.codeterm-dev\\provisioned-workspaces\\switchqa-1791576128433-1-a8d91e61d4ba",
+    "sessionId": "5ed67a8f-582d-4406-806c-e2a7118f7093",
+    "version": "2.1.296",
+    "gitBranch": "HEAD"
+  },
+  {
+    "parentUuid": "a85f40e5-40ca-4363-acf9-a7156e7944f6",
+    "isSidechain": false,
+    "promptId": "4a74c65e-eb84-4f29-87c5-5b4105f16621",
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": "<local-command-stdout>Set model to `Opus 5.5` for this session only</local-command-stdout>"
+    },
+    "uuid": "49ba368a-6d55-4d8b-975a-0c1d1bec9885",
+    "timestamp": "2026-10-09T20:02:33.767Z",
+    "userType": "external",
+    "entrypoint": "cli",
+    "cwd": "C:\\Users\\User\\.codeterm-dev\\provisioned-workspaces\\switchqa-1791576128433-1-a8d91e61d4ba",
+    "sessionId": "5ed67a8f-582d-4406-806c-e2a7118f7093",
+    "version": "2.1.296",
+    "gitBranch": "HEAD"
+  },
+  {
+    "parentUuid": "2fd31e2e-94f0-4a35-92a6-48214f765759",
+    "isSidechain": false,
+    "promptId": "dde956a6-82ac-4bda-8d5c-4ff3c350a9b7",
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": "<command-name>/effort</command-name>\n            <command-message>effort</command-message>\n            <command-args>low</command-args>"
+    },
+    "uuid": "6e216407-73b1-49b6-869c-c988c0e01be1",
+    "timestamp": "2026-10-09T20:02:36.274Z",
+    "userType": "external",
+    "entrypoint": "cli",
+    "cwd": "C:\\Users\\User\\.codeterm-dev\\provisioned-workspaces\\switchqa-1791576128433-1-a8d91e61d4ba",
+    "sessionId": "5ed67a8f-582d-4406-806c-e2a7118f7093",
+    "version": "2.1.296",
+    "gitBranch": "HEAD"
+  },
+  {
+    "parentUuid": "6e216407-73b1-49b6-869c-c988c0e01be1",
+    "isSidechain": false,
+    "promptId": "dde956a6-82ac-4bda-8d5c-4ff3c350a9b7",
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": "<local-command-stdout>Set effort level to low (saved as your default for new sessions): Quick, straightforward implementation with minimal overhead</local-command-stdout>"
+    },
+    "uuid": "742b0cdb-602e-4c4e-8292-f115dd3a3d5f",
+    "timestamp": "2026-10-09T20:02:36.274Z",
+    "userType": "external",
+    "entrypoint": "cli",
+    "cwd": "C:\\Users\\User\\.codeterm-dev\\provisioned-workspaces\\switchqa-1791576128433-1-a8d91e61d4ba",
+    "sessionId": "5ed67a8f-582d-4406-806c-e2a7118f7093",
+    "version": "2.1.296",
+    "gitBranch": "HEAD"
+  }
+]

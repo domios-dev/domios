@@ -108,7 +108,7 @@ test("notification_markdown toast renders the shared markdown result", async () 
   setupDom();
   const item = notification(MARKDOWN);
   const { host, root } = await render(
-    <NotificationToastContainer toasts={[item]} onDismiss={() => {}} embedded />,
+    <NotificationToastContainer toasts={[item]} onDismiss={() => {}} />,
   );
   const toast = host.querySelector('[data-testid="notification-toast"]') as HTMLElement | null;
   assert(toast, "the toast must exist");
@@ -119,7 +119,7 @@ test("notification_markdown toast renders the shared markdown result", async () 
 
   const plain = notification("plain body unchanged");
   await act(async () => root.render(
-    <NotificationToastContainer toasts={[plain]} onDismiss={() => {}} embedded />,
+    <NotificationToastContainer toasts={[plain]} onDismiss={() => {}} />,
   ));
   assert(host.textContent?.includes("plain body unchanged"), "plain toast text must stay unchanged");
   await act(async () => root.unmount());

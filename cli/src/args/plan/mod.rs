@@ -97,6 +97,9 @@ pub enum PlanAction {
         /// Lane branch to delete after worktree removal, if merged into project HEAD
         #[arg(long, value_name = "BRANCH")]
         branch: Option<String>,
+        /// Force removal, discarding uncommitted and untracked lane content
+        #[arg(long)]
+        force: bool,
         /// Canonical checkout (needed for a missing worktree unless its task identifies the project)
         #[arg(long, value_name = "PATH")]
         project: Option<String>,
@@ -237,11 +240,16 @@ pub enum PlanAction {
     Approve { plan_id: String },
     /// Return an approved/execution plan to planning mode
     Unapprove { plan_id: String },
-    /// Re-sync a planning binding nonce that went stale after an agent relaunch,
-    /// recovering plan mutation/approve/dispatch without a full `agent restart`.
+    /// Re-sync this planning binding, or restore its original Worker attempt with --task and --attempt.
     Rebind {
-        /// Optional plan id for context; the rebind re-syncs this tab's binding.
+        /// Optional plan id for context; required with --task and --attempt.
         plan_id: Option<String>,
+        /// Exact task whose existing Worker attempt should regain its authenticated binding.
+        #[arg(long = "task", requires = "attempt_id")]
+        task_id: Option<String>,
+        /// Exact attempt id assigned to --task.
+        #[arg(long = "attempt", requires = "task_id")]
+        attempt_id: Option<String>,
     },
     /// Return a draft to drafting; approval uses `plan approve`
     PlanningState {
@@ -418,7 +426,7 @@ pub enum PlanSkillAction {
     /// Create a new plan skill folder (SKILL.md + scripts/)
     New {
         slug: String,
-        /// Plan id (omit to use $CODETERM_PLAN_ID or the single active plan)
+        /// Plan id (omit for the caller Team's active plan; outside a tab, $CODETERM_PLAN_ID)
         #[arg(long)]
         plan: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
@@ -562,7 +570,7 @@ pub enum PlanGroupsAction {
         #[arg(long)]
         groups: String,
     },
-    /// Record a group's retrospective stride: closes its reflection window and clears its retrospective dispatch gate
+    /// Record an optional retrospective stride for a completed group
     Close {
         plan_id: String,
         key: String,
@@ -621,6 +629,53 @@ pub enum PlanLoopAction {
 mod tests {
     use crate::Cli;
     use clap::CommandFactory;
+
+    #[test]
+    fn plan_rebind_attempt_target_requires_paired_flags() {
+        use crate::args::cli::Commands;
+        use crate::args::plan::PlanAction;
+        use clap::Parser;
+
+        let parsed = Cli::try_parse_from([
+            "codeterm",
+            "plan",
+            "rebind",
+            "pl_exact",
+            "--task",
+            "task_exact",
+            "--attempt",
+            "attempt_exact",
+        ])
+        .unwrap();
+        assert!(matches!(
+            parsed.command,
+            Commands::Plan {
+                action: PlanAction::Rebind {
+                    plan_id: Some(plan_id),
+                    task_id: Some(task_id),
+                    attempt_id: Some(attempt_id),
+                }
+            } if plan_id == "pl_exact" && task_id == "task_exact" && attempt_id == "attempt_exact"
+        ));
+        assert!(Cli::try_parse_from([
+            "codeterm",
+            "plan",
+            "rebind",
+            "pl_exact",
+            "--task",
+            "task_exact",
+        ])
+        .is_err());
+        assert!(Cli::try_parse_from([
+            "codeterm",
+            "plan",
+            "rebind",
+            "pl_exact",
+            "--attempt",
+            "attempt_exact",
+        ])
+        .is_err());
+    }
 
     #[test]
     fn plan_delete_help_documents_owned_spec_cascade() {

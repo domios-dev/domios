@@ -11,6 +11,28 @@ struct AgentOnly {
     action: AgentAction,
 }
 
+#[test]
+fn fresh_restart_parses_and_rejects_provider_handoff() {
+    let parsed = AgentOnly::try_parse_from([
+        "codeterm", "restart", "--tab", "tab-id", "--fresh", "--force",
+    ])
+    .unwrap();
+    assert!(
+        matches!(parsed.action, AgentAction::Restart { fresh: true, force: true, tab: Some(tab), .. } if tab == "tab-id")
+    );
+    assert!(AgentOnly::try_parse_from([
+        "codeterm",
+        "restart",
+        "--fresh",
+        "--provider",
+        "fixture-provider"
+    ])
+    .is_err());
+    assert!(
+        AgentOnly::try_parse_from(["codeterm", "restart", "--fresh", "--handoff-history"]).is_err()
+    );
+}
+
 /// Pull help from the Clap definition itself — mechanism, not shelled prose.
 #[test]
 fn parent_tab_help_names_planners() {

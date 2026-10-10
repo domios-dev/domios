@@ -1,6 +1,6 @@
 {
   "name": "@codeterm/provider-codex",
-  "version": "1.12.3",
+  "version": "1.14.0",
   "private": true,
   "type": "module",
   "description": "CodeTerm provider plugin for OpenAI Codex CLI.",
@@ -18,5 +18,8 @@
   },
   "peerDependencies": {
     "react": "^19.0.0"
+  },
+  "scripts": {
+    "test": "bash ../../scripts/plugin-tests.sh provider-codex"
   }
 }

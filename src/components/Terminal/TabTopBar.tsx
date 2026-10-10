@@ -1,8 +1,15 @@
+import { tabActivity } from "../../lib/tabActivity";
+import { ComposerContextMeter } from "./ComposerContextMeter";
+import { DocumentsButton } from "./DocumentsPanel";
+import { ChangesButton } from "./ChangesPanel";
+import { planSidePanelStore } from "../Canvas/planSidePanelStore";
+import { ShellPurposeIcon, ShellStatus } from "../shared/ShellStatus";
+import { isUtilityShell } from "../../lib/shellCommandState";
 import { useCallback, useEffect, useState } from "react";
 import { TabModeSwitch } from "./TabModeSwitch";
 import { UsageBubble } from "../Usage/UsageBubble";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
-import type { ApiConfig, ModelGroup, Tab } from "../../lib/types";
+import type { ModelGroup, Tab } from "../../lib/types";
 import { TAB_BAR_CONTROL_H } from "./tabBarConstants";
 import { WatcherStatusBadge } from "./WatcherStatusBadge";
 import { TabActionsMenu } from "./TabActionsMenu";
@@ -14,6 +21,9 @@ import { buildTabMenu, type TabMenuAction, type TabMenuContext } from "./tabMenu
 import { performTabMenuAction } from "./tabMenuActions";
 import { useTelegramThreadMenu } from "./useTelegramThreadMenu";
 import { ReceiverTargetMarks } from "./ReceiverTargetMark";
+import { BlueprintOwnerCloseDialog } from "../Sidebar/BlueprintOwnerCloseDialog";
+import { readWorkspaceBlueprints } from "../Automation/blueprintOwner";
+import { runningBlueprintNamesForOwner } from "../Automation/blueprintOwnerModel";
 
 /** Single height rhythm for every control in the bar (switch + pills). */
 export { TAB_BAR_CONTROL_H };
@@ -27,6 +37,7 @@ export interface HeaderTabMenu {
 
 interface TabTopBarProps {
   tabId: string;
+  shellTab?: Tab;
   cwd: string | null;
   /** Show the Terminal | Chat switch (chat-capable PTY tabs only). */
   showSwitch: boolean;
@@ -37,11 +48,11 @@ interface TabTopBarProps {
    *  capsule shows for the upstream the tab is actually running. */
   usageModelId?: string | null;
   usageModelGroups?: ModelGroup[];
-  api?: ApiConfig;
   /** Watcher tabs surface health from `tab.watcher.last_status` in the header. */
   watcherLastStatus?: string | null;
   isWatcherTab?: boolean;
   isActive?: boolean;
+  workspaceId?: string | null;
   tabMenu?: HeaderTabMenu;
 }
 
@@ -79,6 +90,7 @@ function TabRenameField({ title, onDone }: { title: string; onDone: (title: stri
  */
 export function TabTopBar({
   tabId,
+  shellTab,
   cwd,
   showSwitch,
   usageProvider,
@@ -88,12 +100,15 @@ export function TabTopBar({
   watcherLastStatus,
   isWatcherTab = false,
   isActive = false,
+  workspaceId,
   tabMenu,
 }: TabTopBarProps) {
+  useEffect(() => { if (isActive) planSidePanelStore.activateTab(tabId); }, [isActive, tabId]);
   const [reconnecting, setReconnecting] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [reconnectError, setReconnectError] = useState<string | null>(null);
+  const [closeBlueprints, setCloseBlueprints] = useState<string[] | null>(null);
   const menuTab = tabMenu?.tab ?? null;
   const onRename = tabMenu?.onRename;
   const canReconnect = menuTab ? tabSessionActionView(menuTab).canReconnect : false;
@@ -160,6 +175,24 @@ export function TabTopBar({
       void restartSession();
       return;
     }
+    if (action.type === "close") {
+      void (async () => {
+        if (!tabMenu?.onClose) return;
+        if (!workspaceId) {
+          setReconnectError("Could not read Blueprint close inventory: workspace unavailable.");
+          return;
+        }
+        try {
+          const blueprints = await readWorkspaceBlueprints(workspaceId);
+          const running = runningBlueprintNamesForOwner(blueprints, "tab", tabId);
+          if (running.length > 0) setCloseBlueprints(running);
+          else tabMenu.onClose?.();
+        } catch (error) {
+          setReconnectError(errorMessage(error));
+        }
+      })();
+      return;
+    }
     setReconnectError(null);
     performTabMenuAction(tabId, action, { rename: () => setRenaming(true), close: tabMenu?.onClose })
       .catch((error) => setReconnectError(errorMessage(error)));
@@ -168,13 +201,11 @@ export function TabTopBar({
   return (
     <div
       data-testid="tab-top-bar"
-      className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-1.5 px-2 sm:flex-nowrap sm:gap-2"
+      className="ct-tab-top-bar flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-1.5 px-2 sm:flex-nowrap sm:gap-2"
       style={{
         ["--ct-tab-pill-h" as string]: `${TAB_BAR_CONTROL_H}px`,
         paddingTop: 6,
         paddingBottom: 6,
-        background: "color-mix(in srgb, var(--ct-fg, #c9d1d9) 3%, transparent)",
-        borderBottom: "1px solid var(--ct-border, #30363d)",
       }}
     >
       <div className="flex min-w-0 shrink items-center gap-1.5 sm:gap-2">
@@ -204,6 +235,10 @@ export function TabTopBar({
             {reconnectError}
           </span>
         )}
+        {shellTab && isUtilityShell(shellTab) && <>
+          <ShellPurposeIcon purpose={shellTab.purpose} icon={shellTab.icon} running={tabActivity(shellTab).active} />
+          <ShellStatus tab={shellTab} />
+        </>}
         {isWatcherTab && <WatcherStatusBadge lastStatus={watcherLastStatus} />}
         <ReceiverTargetMarks menu={pluginTabMenu} tabId={tabId} surface="header" />
         <PluginBubbles cwd={cwd} tabId={tabId} isActive={isActive} />
@@ -215,6 +250,11 @@ export function TabTopBar({
             modelGroups={usageModelGroups}
           />
         )}
+        <ComposerContextMeter tabId={tabId} />
+        <div className="ct-bar-pill-group">
+          <DocumentsButton tabId={tabId} />
+          <ChangesButton tabId={tabId} />
+        </div>
         {entries.length > 0 && (
           <TabActionsMenu
             entries={entries}
@@ -224,6 +264,12 @@ export function TabTopBar({
           />
         )}
       </div>
+      {closeBlueprints && tabMenu && <BlueprintOwnerCloseDialog
+        owner={`Tab ${menuTab?.title ?? "Tab"}`}
+        blueprints={closeBlueprints}
+        onCancel={() => setCloseBlueprints(null)}
+        onConfirm={() => { setCloseBlueprints(null); tabMenu.onClose?.(); }}
+      />}
     </div>
   );
 }

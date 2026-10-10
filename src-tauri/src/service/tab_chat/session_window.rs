@@ -16,6 +16,8 @@ pub const SNAPSHOT_CAP_BYTES: u64 = 10 * 1024 * 1024;
 pub const SNAPSHOT_WINDOW_BYTES: u64 = 4 * 1024 * 1024;
 
 pub struct SessionSnapshot {
+    pub runtime_observations: Vec<RichMessage>,
+    pub context_usage: Option<codeterm_types::agent::context::TurnContext>,
     pub messages: Vec<ChatMsg>,
     /// File size at snapshot time.
     pub total: u64,
@@ -132,6 +134,25 @@ pub fn snapshot(registry: &Arc<AgentRegistry>, provider_id: &str, path: &Path) -
     let (rich, end) = parse_window(registry, provider_id, path, start_offset, total);
     let messages = super::rich_rows_to_chat_msgs(&rich, start_offset);
     SessionSnapshot {
+        runtime_observations: rich
+            .iter()
+            .map(|row| RichMessage {
+                provider_session_id: row.provider_session_id.clone(),
+                provider_observations: row.provider_observations.clone(),
+                background_work: row.background_work.clone(),
+                blocks: row
+                    .blocks
+                    .iter()
+                    .filter(|block| block.data.get("tool_background_task_id").is_some())
+                    .cloned()
+                    .collect(),
+                ..Default::default()
+            })
+            .collect(),
+        context_usage: rich
+            .iter()
+            .rev()
+            .find_map(|message| message.context_usage.clone()),
         messages,
         total,
         start_offset,

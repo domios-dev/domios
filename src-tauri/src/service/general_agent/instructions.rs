@@ -63,6 +63,18 @@ pub(super) fn render_agent_md(provider_name: &str, wake_up_section: &str) -> Str
 }
 
 fn render_agent_md_at(dir: &std::path::Path, provider_name: &str, wake_up_section: &str) -> String {
+    compose_system_prompt(&render_role_contract_at(
+        dir,
+        provider_name,
+        wake_up_section,
+    ))
+}
+
+fn render_role_contract_at(
+    dir: &std::path::Path,
+    provider_name: &str,
+    wake_up_section: &str,
+) -> String {
     let version = env!("CARGO_PKG_VERSION");
     let platform = if cfg!(target_os = "windows") {
         "Windows"
@@ -90,7 +102,7 @@ fn render_agent_md_at(dir: &std::path::Path, provider_name: &str, wake_up_sectio
         format!("\n## Soul\n\n{}\n", soul.trim())
     };
 
-    let role_contract = crate::prompts::GENERAL_AGENT_TEMPLATE
+    crate::prompts::GENERAL_AGENT_TEMPLATE
         .replace("{version}", version)
         .replace("{platform}", platform)
         .replace("{hostname}", &hostname)
@@ -108,8 +120,7 @@ fn render_agent_md_at(dir: &std::path::Path, provider_name: &str, wake_up_sectio
         .replace(
             "{interactive_child_pty_operation}",
             crate::prompts::INTERACTIVE_CHILD_PTY_OPERATION.trim(),
-        );
-    compose_system_prompt(&role_contract)
+        )
 }
 
 fn general_cli_reference() -> String {
@@ -143,11 +154,23 @@ pub(super) fn render_system_prompt(
 }
 
 fn compose_system_prompt(agent: &str) -> String {
+    compose_system_prompt_with_plugins(
+        agent,
+        crate::service::plugin_prompt::built_in_plugins_section().as_deref(),
+    )
+}
+
+fn compose_system_prompt_with_plugins(agent: &str, built_in_plugins: Option<&str>) -> String {
+    let primer = match built_in_plugins {
+        Some(section) => format!("{}\n{section}\n", crate::prompts::AGENT_CODETERM_PRIMER),
+        None => crate::prompts::AGENT_CODETERM_PRIMER.to_string(),
+    };
     format!(
-        "{}\n\n---\n\n{}\n\n---\n\n{}\n\n---\n\n{}",
-        crate::prompts::AGENT_CODETERM_PRIMER,
+        "{}\n\n---\n\n{}\n\n---\n\n{}\n\n---\n\n{}\n\n{}",
+        primer,
         agent,
         crate::prompts::CODETERM_RULE,
+        crate::prompts::MEM_MANAGEMENT.trim(),
         crate::prompts::BRIDGE_MEM,
     )
 }
@@ -155,16 +178,64 @@ fn compose_system_prompt(agent: &str) -> String {
 const GENERATED_START: &str = "<!-- CODETERM-GENERATED-START -->";
 const GENERATED_END: &str = "<!-- CODETERM-GENERATED-END -->";
 const LEGACY_CONTRACT_START: &str = "# CodeTerm General Agent (v";
+const LEGACY_CONTRACT_MEMORY: &str = include_str!("legacy_contract_memory.txt");
+const LEGACY_CONTRACT_PRIMER: &str = include_str!("legacy_contract_primer.txt");
 
 fn generated_contract_bounds(existing: &str) -> Option<(usize, usize)> {
     match (existing.find(GENERATED_START), existing.find(GENERATED_END)) {
         (Some(start), Some(end)) if start < end => Some((start, end + GENERATED_END.len())),
-        _ => {
-            let start = existing.find(LEGACY_CONTRACT_START)?;
-            let memory_offset = existing[start..].find(crate::prompts::BRIDGE_MEM.trim())?;
-            let end = start + memory_offset + crate::prompts::BRIDGE_MEM.trim().len();
-            Some((start, end))
+        _ => unmarked_contract_bounds(existing),
+    }
+}
+
+fn unmarked_contract_bounds(existing: &str) -> Option<(usize, usize)> {
+    let current_heading = crate::prompts::GENERAL_AGENT_TEMPLATE
+        .split("{version}")
+        .next()?;
+    let heading = [current_heading, LEGACY_CONTRACT_START]
+        .into_iter()
+        .filter_map(|heading| existing.find(heading))
+        .min()?;
+    let end = [
+        crate::prompts::BRIDGE_MEM,
+        LEGACY_CONTRACT_MEMORY,
+        crate::prompts::BRIDGE_MEM.trim(),
+        LEGACY_CONTRACT_MEMORY.trim(),
+    ]
+    .into_iter()
+    .find_map(|memory| {
+        let offset = existing[heading..].find(memory)?;
+        Some(heading + offset + memory.len())
+    })?;
+    let start = [
+        crate::prompts::AGENT_CODETERM_PRIMER,
+        LEGACY_CONTRACT_PRIMER,
+    ]
+    .into_iter()
+    .find_map(|primer| {
+        let prelude = existing[..heading].strip_suffix("\n\n---\n\n")?;
+        without_built_in_plugins_section(prelude)
+            .strip_suffix(primer)
+            .map(|notes| notes.len())
+    })
+    .unwrap_or(heading);
+    Some((start, end))
+}
+
+fn without_built_in_plugins_section(prelude: &str) -> &str {
+    let marker = format!(
+        "\n{}\n",
+        codeterm_plugin::agent_prompt_lines::BUILT_IN_PLUGINS_HEADING
+    );
+    match prelude.rfind(&marker) {
+        Some(index)
+            if prelude[index + marker.len()..]
+                .lines()
+                .all(|line| line.starts_with("- ")) =>
+        {
+            &prelude[..index]
         }
+        _ => prelude,
     }
 }
 
@@ -279,6 +350,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn general_agent_memory_management_fragment_is_composed_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let rendered = render_agent_md_at(dir.path(), "OPAQUE_PROVIDER", "OPAQUE_WAKE_UP");
+        let fragment = crate::prompts::MEM_MANAGEMENT.trim();
+        assert!(!fragment.is_empty());
+        assert_eq!(rendered.matches(fragment).count(), 1);
+        assert_eq!(rendered.matches("OPAQUE_PROVIDER").count(), 1);
+        assert_eq!(rendered.matches("OPAQUE_WAKE_UP").count(), 1);
+        for slot in [
+            "{version}",
+            "{platform}",
+            "{hostname}",
+            "{provider_name}",
+            "{general_dir}",
+            "{secrets_dir}",
+            "{skills_dir}",
+            "{identity}",
+            "{soul}",
+            "{wake_up}",
+            "{codeterm_cli}",
+            "{interactive_child_pty_operation}",
+        ] {
+            assert!(!rendered.contains(slot), "unsubstituted slot {slot}");
+        }
+    }
+
+    #[test]
     fn unreadable_user_file_is_never_rebuilt_from_empty() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("CLAUDE.md");
@@ -351,6 +449,14 @@ mod tests {
     }
 
     #[test]
+    fn general_agent_shared_cli_fragment_is_injected_once_without_unresolved_slot() {
+        let rendered = render_agent_md("supplied-provider", "");
+        let shared = cli_without_memory_section();
+        assert_eq!(rendered.matches(shared.trim()).count(), 1);
+        assert!(!rendered.contains("{codeterm_cli}"));
+    }
+
+    #[test]
     fn general_agent_receives_shared_child_pty_operation() {
         let rendered = render_agent_md("claude", "");
         let operation = crate::prompts::INTERACTIVE_CHILD_PTY_OPERATION.trim();
@@ -361,7 +467,6 @@ mod tests {
 
     #[test]
     fn general_system_prompt_composes_each_runtime_contract_once_without_bootstrap() {
-        const DOCS_RULE: &str = "Use codeterm docs <NAME>; it returns the complete document. Use codeterm docs or codeterm docs --help to discover available names.";
         let rendered = render_system_prompt("codex", None);
         assert_eq!(
             rendered
@@ -373,24 +478,24 @@ mod tests {
             rendered.matches(crate::prompts::BRIDGE_MEM.trim()).count(),
             1
         );
-        assert!(rendered.contains("You are the General Agent"));
-        assert_eq!(rendered.matches("You are the General Agent").count(), 1);
         assert_eq!(
             rendered
                 .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
                 .count(),
             1
         );
-        assert_eq!(rendered.matches("# CodeTerm CLI reference").count(), 1);
-        assert_eq!(rendered.matches("# CodeTerm Memory Protocol").count(), 1);
-        assert_eq!(rendered.matches(DOCS_RULE).count(), 1);
+        assert_eq!(
+            rendered
+                .matches(cli_without_memory_section().trim())
+                .count(),
+            1
+        );
         assert!(!rendered.contains("<!-- bootstrap: true -->"));
-        assert!(!rendered.contains("first-ever boot"));
+        assert!(!rendered.contains(crate::prompts::BOOTSTRAP_INSTRUCTIONS_TEMPLATE.trim()));
     }
 
     #[test]
     fn generated_instruction_files_are_provider_correct_and_single_copy() {
-        const DOCS_RULE: &str = "Use codeterm docs <NAME>; it returns the complete document. Use codeterm docs or codeterm docs --help to discover available names.";
         let dir = std::env::temp_dir().join(format!("ga-instructions-{}", ulid::Ulid::new()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("identity.md"), "IDENTITY_SENTINEL").unwrap();
@@ -406,7 +511,6 @@ mod tests {
         let pad_rule = crate::prompts::AGENT_PAD_RULE.trim();
         assert!(!pad_rule.is_empty(), "an empty fragment proves nothing");
         for contract in [&agent, &agents] {
-            assert_eq!(contract.matches("You are the General Agent").count(), 1);
             assert_eq!(
                 contract
                     .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
@@ -418,14 +522,21 @@ mod tests {
                 1,
                 "the written instruction file must carry the AgentPad rule exactly once"
             );
-            assert_eq!(contract.matches("# CodeTerm CLI reference").count(), 1);
-            assert_eq!(contract.matches("# CodeTerm Memory Protocol").count(), 1);
+            assert_eq!(
+                contract
+                    .matches(cli_without_memory_section().trim())
+                    .count(),
+                1
+            );
+            assert_eq!(
+                contract.matches(crate::prompts::BRIDGE_MEM.trim()).count(),
+                1
+            );
             assert_eq!(contract.matches("IDENTITY_SENTINEL").count(), 1);
             assert_eq!(contract.matches("SOUL_SENTINEL").count(), 1);
-            assert_eq!(contract.matches(DOCS_RULE).count(), 1);
         }
         assert_eq!(claude.matches("@./AGENT.md").count(), 1);
-        assert_eq!(claude.matches(DOCS_RULE).count(), 0);
+        assert_eq!(claude.matches(crate::prompts::BRIDGE_MEM.trim()).count(), 0);
         assert!(claude.contains("USER_CLAUDE_NOTE"));
         assert!(agents.contains("USER_AGENTS_NOTE"));
 
@@ -442,9 +553,19 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("identity.md"), "LEGACY_IDENTITY").unwrap();
         std::fs::write(dir.join("soul.md"), "LEGACY_SOUL").unwrap();
-        let legacy_contract = render_agent_md_at(&dir, "codex", "");
+        let legacy_contract = format!(
+            "{LEGACY_CONTRACT_PRIMER}\n\n---\n\n{LEGACY_CONTRACT_START}0.0.0)\nOPAQUE_LEGACY_BODY\n\n{}",
+            LEGACY_CONTRACT_MEMORY,
+        );
         let prepended_notes = "USER PREFIX\r\nkeep-leading-space:  yes\n";
         let appended_notes = "\n\nUSER SUFFIX  \r\nkeep-final-newline\n";
+        assert_eq!(
+            generated_contract_file(
+                &format!("{prepended_notes}{legacy_contract}{appended_notes}"),
+                "OPAQUE_CURRENT_CONTRACT",
+            ),
+            format!("{prepended_notes}{GENERATED_START}\nOPAQUE_CURRENT_CONTRACT\n{GENERATED_END}{appended_notes}"),
+        );
         std::fs::write(
             dir.join("AGENTS.md"),
             format!("{prepended_notes}{legacy_contract}{appended_notes}"),
@@ -457,11 +578,113 @@ mod tests {
             assert!(agents.starts_with(prepended_notes));
             assert!(agents.ends_with(appended_notes));
             assert_eq!(agents.matches(GENERATED_START).count(), 1);
-            assert_eq!(agents.matches("You are the General Agent").count(), 1);
-            assert_eq!(agents.matches("# CodeTerm CLI reference").count(), 1);
-            assert_eq!(agents.matches("# CodeTerm Memory Protocol").count(), 1);
+            assert_eq!(
+                agents.matches(cli_without_memory_section().trim()).count(),
+                1
+            );
+            assert_eq!(agents.matches(crate::prompts::BRIDGE_MEM.trim()).count(), 1);
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn current_unmarked_generated_contract_preserves_notes_without_duplicate_primer() {
+        let dir = tempfile::tempdir().unwrap();
+        let contract = render_agent_md_at(dir.path(), "codex", "");
+        let prefix = "OPAQUE_USER_PREFIX\r\n";
+        let suffix = "\nOPAQUE_USER_SUFFIX  \r\n";
+        let rewritten =
+            generated_contract_file(&format!("{prefix}{contract}{suffix}"), "CURRENT_CONTRACT");
+
+        assert_eq!(
+            rewritten,
+            format!("{prefix}{GENERATED_START}\nCURRENT_CONTRACT\n{GENERATED_END}{suffix}")
+        );
+    }
+
+    #[test]
+    fn built_in_plugins_section_follows_the_primer_and_strips_with_the_contract() {
+        const SECTION: &str = "Built-in plugins:\n- OPAQUE_CORE_LINE_q7";
+        let dir = tempfile::tempdir().unwrap();
+        let role = render_role_contract_at(dir.path(), "codex", "");
+        let plain = compose_system_prompt_with_plugins(&role, None);
+        assert!(!plain.contains("Built-in plugins:"));
+        let with = compose_system_prompt_with_plugins(&role, Some(SECTION));
+        assert!(with.starts_with(&format!(
+            "{}\n{SECTION}\n\n\n---\n\n",
+            crate::prompts::AGENT_CODETERM_PRIMER
+        )));
+        assert_eq!(with.replacen(&format!("\n{SECTION}\n"), "", 1), plain);
+
+        let prefix = "OPAQUE_USER_PREFIX\r\n";
+        let suffix = "\nOPAQUE_USER_SUFFIX  \r\n";
+        let rewritten =
+            generated_contract_file(&format!("{prefix}{with}{suffix}"), "CURRENT_CONTRACT");
+        assert_eq!(
+            rewritten,
+            format!("{prefix}{GENERATED_START}\nCURRENT_CONTRACT\n{GENERATED_END}{suffix}")
+        );
+        let marked = generated_contract_file("", &with);
+        assert_eq!(
+            generated_contract_file(&marked, &plain),
+            generated_contract_file("", &plain)
+        );
+    }
+
+    #[test]
+    fn renamed_unmarked_generated_contract_preserves_notes_without_duplicate_body() {
+        let dir = tempfile::tempdir().unwrap();
+        let original = render_agent_md_at(dir.path(), "codex", "");
+        let renamed = original.replace("CodeTerm", "Domios");
+        let prefix = "USER_PREFIX\r\n";
+        let suffix = "\nUSER_SUFFIX  \r\n";
+        let existing = format!("{prefix}{renamed}{suffix}");
+        let replacement = "OPAQUE_CURRENT_CONTRACT";
+
+        let rewritten = generated_contract_file(&existing, replacement);
+
+        assert_eq!(
+            rewritten,
+            format!("{prefix}{GENERATED_START}\n{replacement}\n{GENERATED_END}{suffix}")
+        );
+        assert_eq!(generated_contract_file(&rewritten, replacement), rewritten);
+    }
+
+    #[test]
+    fn incomplete_or_foreign_unmarked_contract_is_preserved_as_notes() {
+        let current_heading = crate::prompts::GENERAL_AGENT_TEMPLATE
+            .split("{version}")
+            .next()
+            .unwrap();
+        for existing in [
+            format!("{current_heading}0.0.0)\nOPAQUE_INCOMPLETE_BODY\n"),
+            format!("# FOREIGN_HEADER\n{}\n", crate::prompts::BRIDGE_MEM.trim()),
+        ] {
+            assert_eq!(
+                generated_contract_file(&existing, "OPAQUE_REPLACEMENT"),
+                format!("{GENERATED_START}\nOPAQUE_REPLACEMENT\n{GENERATED_END}\n\n{existing}")
+            );
+        }
+    }
+
+    #[test]
+    fn nonadjacent_primer_is_preserved_as_user_notes() {
+        let heading = crate::prompts::GENERAL_AGENT_TEMPLATE
+            .split("{version}")
+            .next()
+            .unwrap();
+        let notes = format!(
+            "{}\nOPAQUE_INTERVENING_NOTE\n",
+            crate::prompts::AGENT_CODETERM_PRIMER
+        );
+        let body = format!(
+            "{heading}0.0.0)\nOPAQUE_BODY\n{}",
+            crate::prompts::BRIDGE_MEM
+        );
+        assert_eq!(
+            generated_contract_file(&format!("{notes}{body}"), "OPAQUE_REPLACEMENT"),
+            format!("{notes}{GENERATED_START}\nOPAQUE_REPLACEMENT\n{GENERATED_END}")
+        );
     }
 
     #[test]

@@ -1,5 +1,6 @@
 // plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
 import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
+import { recordedTextDiff } from "@codeterm/plugin-sdk";
 
 const TITLE_RE = /cursor/i;
 // Structural fingerprints of the cursor-agent TUI — functional UI strings, not vendor-churned marketing copy.
@@ -590,6 +591,7 @@ function blocksFromContent(content: CursorContentBlock[], role: string): unknown
           tool_summary: canonical.summary,
           tool_detail: canonical.detail,
           tool_edits: canonical.edits,
+          file_diffs: canonical.edits.flatMap(edit => recordedTextDiff(edit.path, edit.old, edit.new)),
           tool_status: "success",
         },
       });
@@ -631,7 +633,7 @@ function canonicalToolFields(name: string, input: unknown): CanonicalToolFields 
   if (lower === "bash" || lower === "shell" || lower === "exec") {
     return { kind: "command", summary: cleanToolText(command, "Command"), detail: command, edits: [] };
   }
-  if (lower === "edit" || lower === "multiedit" || lower === "write") {
+  if (lower === "edit" || lower === "strreplace" || lower === "multiedit" || lower === "write") {
     return { kind: "edit", summary: path || "File edit", detail: path, edits: edits };
   }
   if (lower === "read") {
@@ -650,7 +652,7 @@ function extractCanonicalEdits(input: Record<string, unknown>): Array<{ path: st
     const item = value as Record<string, unknown>;
     const oldValue = typeof item.old_string === "string" ? item.old_string : item.oldString;
     const newValue = typeof item.new_string === "string" ? item.new_string : item.newString;
-    if (typeof oldValue !== "string" && typeof newValue !== "string") return null;
+    if (typeof oldValue !== "string" || typeof newValue !== "string") return null;
     const path = typeof item.file_path === "string" ? item.file_path : typeof item.filePath === "string" ? item.filePath : typeof item.path === "string" ? item.path : fallbackPath;
     return { path: path, old: typeof oldValue === "string" ? oldValue : "", new: typeof newValue === "string" ? newValue : "" };
   };

@@ -8,7 +8,7 @@ import {
   type PlanLifecyclePreview,
   type PlanLifecyclePreviewLoader,
 } from "../planLifecycle";
-import { trapDialogTab } from "./dialogFocusTrap";
+import { trapDialogTab } from "../../shared/dialogFocusTrap";
 
 export interface MissionControlPlanLifecycleDialogProps {
   kind: PlanLifecycleKind;

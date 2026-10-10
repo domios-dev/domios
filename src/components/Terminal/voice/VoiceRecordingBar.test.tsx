@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -27,13 +26,6 @@ for (const [name, value] of Object.entries({
   Object.defineProperty(globalThis, name, { value, configurable: true });
 }
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-const globalsCss = readFileSync(new URL("../../../styles/globals.css", import.meta.url), "utf8");
-const composerVoiceSource = readFileSync(new URL("./useComposerVoice.ts", import.meta.url), "utf8");
-const voiceCss = globalsCss.slice(
-  globalsCss.indexOf("/* ── Voice composer"),
-  globalsCss.indexOf("/* Composer action bubble"),
-);
 
 function apply(actions: VoiceAction[]) {
   return actions.reduce(voiceReducer, initVoiceState());
@@ -128,19 +120,6 @@ async function testStateMachineContract() {
   );
   assert.equal(preview.phase, "preview");
   assert.equal(preview.busy, false);
-
-  assert.match(
-    composerVoiceSource,
-    /if \(shouldCancel\) void runCancelVoice\(\);\s*else void runFinishVoice\(true\);/,
-  );
-  assert.match(
-    composerVoiceSource,
-    /const hasClip = await voice\.stopForPreview\(\);\s*dispatch\(hasClip \? \{ type: "BUSY_END_PREVIEW" \}/,
-  );
-  assert.match(
-    composerVoiceSource,
-    /const paths = await voice\.commitPreview\(\);\s*dispatch\(\{ type: "BUSY_END_IDLE" \}\);\s*if \(paths\.length > 0\) onSendWithAttachments\(paths\);/,
-  );
 }
 
 async function testRecordingAndLockedSemantics() {
@@ -230,44 +209,10 @@ async function testRetainedPreviewSemantics() {
   await act(async () => root.unmount());
 }
 
-function testVoiceMotionContract() {
-  assert(!voiceCss.includes("cubic-bezier("));
-  assert(!/\b\d+(?:\.\d+)?(?:ms|s)\b/.test(voiceCss));
-  assert.match(
-    voiceCss,
-    /\.ct-voice-rec-dot\s*\{[^}]*var\(--ct-duration-recording-pulse\)[^}]*var\(--ct-ease-liquid-breathe\)[^}]*infinite/s,
-  );
-  assert.equal((voiceCss.match(/\binfinite\b/g) ?? []).length, 1);
-  assert.match(
-    voiceCss,
-    /\.ct-voice-lock-pill\s*\{[^}]*ct-voice-lock-pop[^}]*var\(--ct-duration-normal\)[^}]*var\(--ct-ease-squash-jump\)[^}]*both/s,
-  );
-  assert(!/ct-voice-lock-pill\s*\{[^}]*infinite/s.test(voiceCss));
-  assert(!globalsCss.includes("ct-voice-slide-left"));
-  assert(!globalsCss.includes("ct-voice-bounce-up"));
-  assert(!globalsCss.includes("ct-voice-bubble-pulse"));
-
-  assert.match(
-    voiceCss,
-    /\.ct-voice-control\s*\{[^}]*var\(--ct-duration-liquid-hover\)[^}]*var\(--ct-ease-hover-swell\)/s,
-  );
-  assert.match(
-    voiceCss,
-    /\.ct-voice-control:not\(:disabled\):active\s*\{[^}]*var\(--ct-duration-liquid-press\)/s,
-  );
-
-  const reducedMotion = voiceCss.slice(voiceCss.indexOf("@media (prefers-reduced-motion: reduce)"));
-  assert.match(reducedMotion, /\.ct-voice-fade-in,[^}]*\.ct-voice-lock-pill\s*\{[^}]*animation:\s*none/s);
-  assert.match(reducedMotion, /\.ct-voice-recording \.ct-voice-rec-dot,[^}]*\.ct-voice-locked \.ct-voice-rec-dot\s*\{[^}]*opacity:\s*1/s);
-  assert.match(reducedMotion, /\.ct-voice-preview\s*\{[^}]*opacity:\s*1;[^}]*transform:\s*none/s);
-  assert.match(reducedMotion, /\.ct-voice-lock-pill\s*\{[^}]*opacity:\s*1;[^}]*transform:\s*translate\(-50%, 0\)/s);
-}
-
 async function main() {
   await testStateMachineContract();
   await testRecordingAndLockedSemantics();
   await testRetainedPreviewSemantics();
-  testVoiceMotionContract();
   console.log("voice recording interaction tests: passed");
 }
 

@@ -35,8 +35,8 @@ assert.equal(rows[4].blocks[0].data.text, "Both files are updated.");
 
 const change = rows[0].blocks[0].data;
 assert.deepEqual(change.file_diffs, [
-  { path: "src/shared.ts", additions: 1, deletions: 1, hunks: [{ oldStart: 1, oldLines: 3, newStart: 1, newLines: 3, lines: [" a", "-b", "+c", " d"] }] },
-  { path: "src/created.ts", additions: 2, deletions: 0, hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 2, lines: ["+x", "+y"] }] },
+  { path: "src/shared.ts", kind: "modify", additions: 1, deletions: 1, hunks: [{ oldStart: 1, oldLines: 3, newStart: 1, newLines: 3, lines: [" a", "-b", "+c", " d"] }] },
+  { path: "src/created.ts", kind: "add", additions: 2, deletions: 0, hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 2, lines: ["+x", "+y"] }] },
 ], "each changed file keeps its exact path, counts, and hunks");
 assert.equal(change.id, "exec-file-change-a");
 assert.equal(change.tool_kind, "edit");
@@ -57,14 +57,14 @@ assert.deepEqual(rows[0].blocks[1].data, {
 
 const partial = rows[1].blocks[0].data;
 assert.deepEqual(partial.file_diffs, [
-  { path: "src/removed.ts", additions: 0, deletions: 1, hunks: [{ oldStart: 1, oldLines: 1, newStart: 0, newLines: 0, lines: ["-gone"] }] },
+  { path: "src/removed.ts", kind: "delete", additions: 0, deletions: 1, hunks: [{ oldStart: 1, oldLines: 1, newStart: 0, newLines: 0, lines: ["-gone"] }] },
 ], "malformed, unknown, and path-less entries drop only their own file");
 assert.equal(partial.tool_summary, "src/broken.ts +3", "the ordinary action still names every identified file");
 assert.deepEqual((partial.input as { paths: string[] }).paths, ["src/broken.ts", "src/removed.ts", "src/unknown.ts", "src/typeless.ts"]);
 
 assert.equal(rows[2].blocks[0].data.id, "call_patch_legacy");
 assert.deepEqual(rows[3].blocks[0].data.file_diffs, [
-  { path: "src/legacy.ts", movePath: "src/renamed.ts", additions: 1, deletions: 1, hunks: [{ oldStart: 2, oldLines: 1, newStart: 2, newLines: 1, lines: ["-old", "+new"] }] },
+  { path: "src/legacy.ts", kind: "rename", movePath: "src/renamed.ts", additions: 1, deletions: 1, hunks: [{ oldStart: 2, oldLines: 1, newStart: 2, newLines: 1, lines: ["-old", "+new"] }] },
 ], "a patch_apply_end changes map rides on the result linked to its call");
 assert.equal(rows[3].blocks[0].data.tool_use_id, "call_patch_legacy");
 
@@ -72,9 +72,9 @@ assert.deepEqual(codexFileDiffs(null), []);
 assert.deepEqual(codexFileDiffs([]), [], "an array is not a changes map");
 assert.deepEqual(codexFileDiffs({ "src/a.ts": { type: "update", unified_diff: "@@ -1 +1 @@\n-a\n\n+b\n" } }), [], "a bare empty line inside a hunk is malformed");
 assert.deepEqual(codexFileDiffs({ "src/a.ts": { type: "update", unified_diff: "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+b\n\\ No newline at end of file\n" } }), [
-  { path: "src/a.ts", additions: 1, deletions: 1, hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-a", "+b", "\\ No newline at end of file"] }] },
+  { path: "src/a.ts", kind: "modify", additions: 1, deletions: 1, hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-a", "+b", "\\ No newline at end of file"] }] },
 ], "file headers before the first hunk and no-newline markers are accepted");
 assert.deepEqual(codexFileDiffs({ "src/crlf.ts": { type: "update", unified_diff: "@@ -1 +1 @@\n-a\r\n+b\n" } })[0].hunks[0].lines, ["-a\r", "+b"], "carriage returns stay in the exact lines");
-assert.deepEqual(codexFileDiffs({ "src/moved.ts": { type: "update", unified_diff: "", move_path: "src/new.ts" } }), [], "a move without hunks has no diff");
+assert.deepEqual(codexFileDiffs({ "src/moved.ts": { type: "update", unified_diff: "", move_path: "src/new.ts" } }), [{ path: "src/moved.ts", movePath: "src/new.ts", kind: "rename", additions: 0, deletions: 0, hunks: [] }], "a move without hunks still records its destination");
 
 console.log("Codex file diff fixtures passed");

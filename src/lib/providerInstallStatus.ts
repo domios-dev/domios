@@ -1,10 +1,12 @@
 import { invoke } from "./bridge";
+import type { ProviderCliStatus } from "./providerCli";
 import type { ProviderDescriptor } from "./types";
 
 export async function probeProviderInstalled(provider: ProviderDescriptor): Promise<boolean> {
-  if (!provider.cli_binary) return true;
+  if (provider.transport === "chat_backend") return true;
   try {
-    return await invoke<boolean>("check_cli_installed", { binary: provider.cli_binary });
+    const status = await invoke<ProviderCliStatus>("provider_cli_status", { providerId: provider.id });
+    return !status.required || status.installed !== false;
   } catch {
     return false;
   }

@@ -49,6 +49,10 @@ pub struct PluginManagerAction {
     pub url: Option<String>,
     pub name: Option<String>,
     #[serde(default)]
+    pub allow_hosts: Vec<String>,
+    #[serde(default)]
+    pub disallow_hosts: Vec<String>,
+    #[serde(default)]
     pub force: bool,
     #[serde(default)]
     pub remove_data: bool,
@@ -282,6 +286,17 @@ fn plugin_action_activity(action: &PluginManagerAction) -> Result<PluginActionAc
                 label: format!("Removing channel {id}…"),
             })
         }
+        "settings" => {
+            let id = action
+                .plugin_id
+                .as_deref()
+                .ok_or("settings requires pluginId")?;
+            Ok(PluginActionActivity {
+                plugin_id: id.to_string(),
+                kind: "settings",
+                label: format!("Updating {id} network grants…"),
+            })
+        }
         other => Err(format!("unknown plugin manager action: {other}")),
     }
 }
@@ -345,6 +360,19 @@ fn plugin_action_args(action: &PluginManagerAction) -> Result<Vec<String>, Strin
             args.extend(["channel".into(), "remove".into(), channel]);
             if action.force {
                 args.push("--force".into());
+            }
+        }
+        "settings" => {
+            let plugin_id = action
+                .plugin_id
+                .clone()
+                .ok_or("settings requires pluginId")?;
+            args.extend(["settings".into(), plugin_id]);
+            for host in &action.allow_hosts {
+                args.extend(["--allow-host".into(), host.clone()]);
+            }
+            for host in &action.disallow_hosts {
+                args.extend(["--disallow-host".into(), host.clone()]);
             }
         }
         "install" => {
@@ -471,6 +499,8 @@ mod tests {
             name: None,
             force: false,
             remove_data: false,
+            allow_hosts: Vec::new(),
+            disallow_hosts: Vec::new(),
         };
         assert_eq!(
             plugin_action_args(&action).unwrap(),
@@ -507,10 +537,40 @@ mod tests {
             name: None,
             force: false,
             remove_data: false,
+            allow_hosts: Vec::new(),
+            disallow_hosts: Vec::new(),
         };
         assert_eq!(
             plugin_action_args(&action).unwrap(),
             vec!["plugin", "update", "--json"]
+        );
+    }
+
+    #[test]
+    fn settings_action_builds_shared_cli_args() {
+        let action = PluginManagerAction {
+            kind: "settings".into(),
+            plugin_id: Some("demo".into()),
+            channel: None,
+            url: None,
+            name: None,
+            force: false,
+            remove_data: false,
+            allow_hosts: vec!["api.example.test".into()],
+            disallow_hosts: vec!["old.example.test:8443".into()],
+        };
+        assert_eq!(
+            plugin_action_args(&action).unwrap(),
+            vec![
+                "plugin",
+                "settings",
+                "demo",
+                "--allow-host",
+                "api.example.test",
+                "--disallow-host",
+                "old.example.test:8443",
+                "--json",
+            ]
         );
     }
 
@@ -524,6 +584,8 @@ mod tests {
             name: Some("demo".into()),
             force: false,
             remove_data: false,
+            allow_hosts: Vec::new(),
+            disallow_hosts: Vec::new(),
         };
         assert!(plugin_action_args(&action).unwrap_err().contains("url"));
     }
@@ -538,6 +600,8 @@ mod tests {
             name: None,
             force: false,
             remove_data: false,
+            allow_hosts: Vec::new(),
+            disallow_hosts: Vec::new(),
         };
         assert_eq!(
             plugin_action_args(&base).unwrap(),
@@ -578,6 +642,8 @@ mod tests {
             name: None,
             force: false,
             remove_data: false,
+            allow_hosts: Vec::new(),
+            disallow_hosts: Vec::new(),
         };
         assert!(plugin_action_args(&action)
             .unwrap_err()
@@ -594,6 +660,8 @@ mod tests {
             name: None,
             force: false,
             remove_data: false,
+            allow_hosts: Vec::new(),
+            disallow_hosts: Vec::new(),
         };
         let install_activity = plugin_action_activity(&install).unwrap();
         assert_eq!(install_activity.plugin_id, "transcriber");
@@ -608,6 +676,8 @@ mod tests {
             name: None,
             force: false,
             remove_data: false,
+            allow_hosts: Vec::new(),
+            disallow_hosts: Vec::new(),
         };
         let remove_activity = plugin_action_activity(&remove).unwrap();
         assert_eq!(remove_activity.plugin_id, "transcriber");
@@ -622,6 +692,8 @@ mod tests {
             name: None,
             force: false,
             remove_data: false,
+            allow_hosts: Vec::new(),
+            disallow_hosts: Vec::new(),
         };
         let update_activity = plugin_action_activity(&update_system).unwrap();
         assert_eq!(update_activity.plugin_id, "codeterm-core");
@@ -639,6 +711,8 @@ mod tests {
             name: Some("demo".into()),
             force: false,
             remove_data: false,
+            allow_hosts: Vec::new(),
+            disallow_hosts: Vec::new(),
         };
         let add_activity = plugin_action_activity(&add).unwrap();
         assert_eq!(add_activity.plugin_id, "channel:demo");
@@ -653,6 +727,8 @@ mod tests {
             name: None,
             force: false,
             remove_data: false,
+            allow_hosts: Vec::new(),
+            disallow_hosts: Vec::new(),
         };
         let refresh_activity = plugin_action_activity(&refresh).unwrap();
         assert_eq!(refresh_activity.plugin_id, "channel:demo");

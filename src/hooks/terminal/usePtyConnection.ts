@@ -7,6 +7,7 @@ import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
 import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 import { writeTerminalHistory } from "./terminalHistoryWrite";
+import { writeTerminalOutput } from "./terminalOutputWrite";
 import { writeTerminalInput } from "./terminalInputWrite";
 import {
   captureTerminalViewport,
@@ -21,6 +22,7 @@ import {
   type TerminalHistoryClaim,
 } from "./terminalHistoryReplay";
 import { terminalHistorySource } from "./scrollbackReplay";
+import { setTerminalReadingHistory } from "./terminalHistoryReaders";
 
 async function fetchTabHistory(tabId: string): Promise<string> {
   try {
@@ -36,6 +38,13 @@ async function fetchTabHistory(tabId: string): Promise<string> {
     if (text) return text;
   } catch { /* ignore */ }
   return "";
+}
+
+// A pending fetch keeps its call stack's closures alive; starting it from a microtask keeps the reader's terminal out of that stack.
+function readPtyChunk(ptyId: string): Promise<number[]> {
+  return new Promise((resolve, reject) => {
+    queueMicrotask(() => { invoke<number[]>("read_pty", { ptyId }).then(resolve, reject); });
+  });
 }
 
 export function shouldFetchInitialTerminalHistory(
@@ -83,6 +92,9 @@ export function usePtyConnection({
     (s) => s.tabs[tabId]?.cwd ?? null,
     (a, b) => a === b,
   );
+  const wslDistro = useMuxSelector((s) => s.tabs[tabId]?.shell_profile?.wsl_distro ?? null);
+  const wslDistroRef = useRef(wslDistro);
+  wslDistroRef.current = wslDistro;
   const tabCwdRef = useRef(tabCwd);
   const hiddenViewportRef = useRef<TerminalViewport>({ followOutput: true, line: 0 });
   const cancelVisibleReplayRef = useRef<(() => void) | null>(null);
@@ -138,9 +150,13 @@ export function usePtyConnection({
     const term = termRef.current;
     const request = ++viewportRestoreRequestRef.current;
     if (!renderEnabled) {
-      if (term) hiddenViewportRef.current = captureTerminalViewport(term);
+      if (term) {
+        hiddenViewportRef.current = captureTerminalViewport(term);
+        setTerminalReadingHistory(tabId, !hiddenViewportRef.current.followOutput);
+      }
       return;
     }
+    setTerminalReadingHistory(tabId, false);
     if (term) {
       restoreTerminalViewportAfterQueue(
         term,
@@ -148,7 +164,9 @@ export function usePtyConnection({
         () => request === viewportRestoreRequestRef.current,
       );
     }
-  }, [renderEnabled, termRef]);
+  }, [renderEnabled, tabId, termRef]);
+
+  useEffect(() => () => setTerminalReadingHistory(tabId, false), [tabId]);
 
   useEffect(() => () => {
     cancelReplay();
@@ -156,8 +174,8 @@ export function usePtyConnection({
 
   const writePty = useCallback((data: string) => {
     const id = connectedPtyRef.current;
-    if (id) void writeTerminalInput(id, data);
-  }, [connectedPtyRef]);
+    if (id) void writeTerminalInput(tabId, id, data);
+  }, [tabId, connectedPtyRef]);
 
   useEffect(() => {
     const term = termRef.current;
@@ -244,6 +262,9 @@ export function usePtyConnection({
       const TRANSIENT_RETRY_BASE_MS = 500;
       const TRANSIENT_RETRY_MAX_MS = 8_000;
       let transientRetryMs = TRANSIENT_RETRY_BASE_MS;
+      // read_pty long-polls and cannot be cancelled; an unmounted loop must not stay parked on it holding the terminal.
+      let stopReading = () => {};
+      const readingStopped = new Promise<null>((resolve) => { stopReading = () => resolve(null); });
 
       const waitForDrain = (): Promise<void> => {
         if (!readPaused) return Promise.resolve();
@@ -278,7 +299,7 @@ export function usePtyConnection({
         };
         let cancelled = false;
         cancelActiveWrite = () => { cancelled = true; };
-        term.write(payload, () => {
+        writeTerminalOutput(term, payload, () => {
           if (!cancelled) completeWrite();
         });
 
@@ -327,9 +348,11 @@ export function usePtyConnection({
       const readLoop = async () => {
         while (reading) {
           try {
-            if (readPaused) await waitForDrain();
+            if (readPaused) await Promise.race([waitForDrain(), readingStopped]);
+            if (!reading || disposed) break;
 
-            const data = await invoke<number[]>("read_pty", { ptyId: predictedId });
+            const data = await Promise.race([readPtyChunk(predictedId), readingStopped]);
+            if (!reading || disposed) break;
             transientRetryMs = TRANSIENT_RETRY_BASE_MS;
 
             const truncatedFrom = takePtyTruncation(predictedId);
@@ -382,7 +405,7 @@ export function usePtyConnection({
         }
         onPtySpawned?.(tabId, spawnedId);
 
-        if (!cwd) {
+        if (!cwd && !wslDistroRef.current) {
           const defaultCwd = await invoke<string>("get_default_cwd").catch(() => null);
           if (defaultCwd) {
             invoke("mux_update_tab_cwd", { tabId, cwd: defaultCwd }).catch(() => {});
@@ -404,6 +427,9 @@ export function usePtyConnection({
           onEnded: () => {
             void respawnStalePty();
           },
+          onStreamError: () => {
+            term.writeln("\r\n\x1b[31m[Failed to connect to output stream]\x1b[0m");
+          },
         };
         unsubscribeOutputStream = subscribeTabOutput(tabId, sink);
       } else {
@@ -413,6 +439,7 @@ export function usePtyConnection({
       reportConnectionReady();
       cleanupFns.push(() => {
         reading = false;
+        stopReading();
         unsubscribeOutputStream?.();
         pendingWriteChunks = [];
         pendingWriteLength = 0;

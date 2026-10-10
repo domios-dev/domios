@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useContext, useRef } from "react";
 import type { SlashCommand, EditPair } from "@codeterm/chat-core";
 import { parseMarker } from "@codeterm/chat-core";
 import { File, Image, Info, Mic, Settings } from "lucide-react";
@@ -6,11 +6,15 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
-import { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, normalizeMultilineHtmlBlocks, rehypeScrubInlineStyles } from "./htmlSanitize";
+import { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, rehypeScrubInlineStyles } from "./htmlSanitize";
 import { HtmlPreviewBlock } from "./HtmlPreviewBlock";
 import { LocalArtifactBlock, parseLocalArtifactDirective } from "./LocalArtifactBlock";
-import { rehypeSourceOffsets } from "./sourceOffsets";
-import { Prism as SyntaxHighlighter, createElement } from "react-syntax-highlighter";
+import { parseChatBlocks } from "./blocks/registry";
+import { messageParts, normalizedMarkdown } from "./messageParts";
+import { MessagePartView, MessagePartsContext } from "./MessagePartsContext";
+import { rehypeMessageParts, rehypeSourceOffsets } from "./sourceOffsets";
+import { rehypeMarkdownLineBreaks } from "./markdownLineBreaks";
+import { SyntaxHighlighter, createElement } from "./syntaxHighlighter";
 import { CodeBlock, ChevronIcon, CODE_BLOCK_DEFAULT_MAX_HEIGHT, LONG_CODE_PREVIEW_LINES, MERMAID_BLOCK_MAX_HEIGHT, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
 import { looksLikeMermaidSource } from "./MermaidBlock";
 import { themeAwarePrismStyle, SYNTAX_HIGHLIGHT_ROOT_CLASS } from "./syntaxTheme";
@@ -62,6 +66,20 @@ function sourceForNode(source: string, node: unknown): string | null {
   return source.slice(start, end);
 }
 
+function sourceForStandaloneLine(source: string, node: unknown): string | null {
+  const position = (node as {
+    position?: { start?: { offset?: number }; end?: { offset?: number } };
+  } | undefined)?.position;
+  const start = position?.start?.offset;
+  const end = position?.end?.offset;
+  if (typeof start !== "number" || typeof end !== "number") return null;
+  const lineStart = source.lastIndexOf("\n", start - 1) + 1;
+  const nextLine = source.indexOf("\n", end);
+  const lineEnd = nextLine < 0 ? source.length : nextLine;
+  if (source.slice(lineStart, start).trim() || source.slice(end, lineEnd).trim()) return null;
+  return source.slice(start, end);
+}
+
 function isBlockCodeNode(node: unknown): boolean {
   if (!node || typeof node !== "object" || !("position" in node)) return false;
   const position = (node as { position?: { start?: { line?: number }; end?: { line?: number } } }).position;
@@ -80,10 +98,10 @@ function MarkdownCode({
   if (!language && !blockCode) {
     return (
       <code
-        className="px-1 py-0.5 rounded text-xs font-mono"
+        className="rounded-[5px] px-[0.35em] py-[0.1em] font-mono text-[0.88em]"
         style={{
-          background: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 18%, transparent)",
-          color: "var(--ct-fg, #c9d1d9)",
+          background: "color-mix(in srgb, var(--ct-fg) 7%, transparent)",
+          color: "var(--ct-fg)",
           overflowWrap: "anywhere",
           wordBreak: "break-word",
         }}
@@ -150,12 +168,14 @@ type RehypePlugins = React.ComponentProps<typeof ReactMarkdown>["rehypePlugins"]
 
 /** Raw-HTML parsing only pays for itself on messages that actually carry tags. */
 const HTML_REHYPE_PLUGINS = [
+  rehypeMarkdownLineBreaks,
   rehypeRaw,
   [rehypeSanitize, CHAT_HTML_SANITIZE_SCHEMA],
   rehypeScrubInlineStyles,
 ] as unknown as RehypePlugins;
 
-const SOURCE_OFFSET_REHYPE_PLUGINS = [rehypeSourceOffsets] as unknown as RehypePlugins;
+const LINE_BREAK_REHYPE_PLUGINS = [rehypeMarkdownLineBreaks] as unknown as RehypePlugins;
+
 
 export function RichMarkdown({
   text,
@@ -166,22 +186,23 @@ export function RichMarkdown({
   text: string;
   fontScale?: number;
   localArtifacts?: boolean;
-  /** Stamp source offsets on the rendered DOM; skipped when HTML normalization makes offsets inexact. */
+  /** Stamp original source offsets on the rendered DOM. */
   sourcePositions?: boolean;
 }) {
+  const partContext = useContext(MessagePartsContext);
+  const parts = useMemo(() => partContext?.source === text ? messageParts(partContext.id, text) : null, [partContext?.id, partContext?.source, text]);
   const h1Text = pickUiFontScaleValue(fontScale, ["text-sm", "text-base", "text-lg", "text-xl"]);
   const h2Text = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
   const h3Text = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
-  const renderedText = useMemo(() => normalizeMultilineHtmlBlocks(text), [text]);
+  const normalized = useMemo(() => normalizedMarkdown(text), [text]);
+  const renderedText = normalized.text;
   const rehypePlugins = useMemo(() => {
-    if (containsHtmlMarkup(renderedText)) return HTML_REHYPE_PLUGINS;
-    return sourcePositions && renderedText === text ? SOURCE_OFFSET_REHYPE_PLUGINS : undefined;
-  }, [renderedText, sourcePositions, text]);
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      rehypePlugins={rehypePlugins}
-      components={{
+    const plugins = containsHtmlMarkup(renderedText) ? HTML_REHYPE_PLUGINS : LINE_BREAK_REHYPE_PLUGINS;
+    return sourcePositions ? [...(plugins ?? []), [rehypeSourceOffsets, normalized]] as unknown as RehypePlugins : plugins;
+  }, [renderedText, sourcePositions, normalized]);
+  const components = useMemo<NonNullable<React.ComponentProps<typeof ReactMarkdown>["components"]>>(
+    () => ({
+        div: MessagePartView,
         h1: ({ node: _node, ...props }) => (
           <h1 className={`${h1Text} font-bold mt-3 mb-1`} style={{ color: "var(--ct-fg)" }} {...props} />
         ),
@@ -191,6 +212,15 @@ export function RichMarkdown({
         h3: ({ node: _node, ...props }) => (
           <h3 className={`${h3Text} font-medium mt-1.5 mb-0.5`} style={{ color: "var(--ct-fg)" }} {...props} />
         ),
+        h4: ({ node: _node, ...props }) => (
+          <h4 className={`${h3Text} font-semibold mt-1.5 mb-0.5`} style={{ color: "var(--ct-fg)" }} {...props} />
+        ),
+        h5: ({ node: _node, ...props }) => (
+          <h5 className={`${h3Text} font-medium mt-1 mb-0.5`} style={{ color: "var(--ct-fg)" }} {...props} />
+        ),
+        h6: ({ node: _node, ...props }) => (
+          <h6 className="text-xs font-semibold mt-1 mb-0.5" style={{ color: "var(--ct-muted-fg)" }} {...props} />
+        ),
         p: ({ node, children, ...props }) => {
           const textChild = React.Children.toArray(children).every((child) => typeof child === "string")
             ? React.Children.toArray(children).join("")
@@ -198,6 +228,11 @@ export function RichMarkdown({
           const directiveSource = textChild === null
             ? null
             : sourceForNode(renderedText, node) ?? textChild;
+          const blockSource = localArtifacts ? sourceForStandaloneLine(renderedText, node) : null;
+          const blocks = blockSource ? parseChatBlocks(blockSource) : null;
+          if (blocks) {
+            return <>{blocks.map((block, index) => <React.Fragment key={`${index}:${block.source}`}>{block.render()}</React.Fragment>)}</>;
+          }
           const directive = localArtifacts && directiveSource
             ? parseLocalArtifactDirective(directiveSource)
             : null;
@@ -213,10 +248,10 @@ export function RichMarkdown({
           }
           return <p className={`my-1 whitespace-pre-wrap ${TEXT_WRAP_CLASS}`} {...props}>{children}</p>;
         },
-        ul: ({ node: _node, ...props }) => <ul className="list-disc ml-5 my-1" {...props} />,
-        ol: ({ node: _node, ...props }) => <ol className="list-decimal ml-5 my-1" {...props} />,
+        ul: ({ node: _node, ...props }) => <ul className="my-1.5 list-disc pl-5 marker:text-[var(--ct-muted-fg)]" {...props} />,
+        ol: ({ node: _node, ...props }) => <ol className="my-1.5 list-decimal pl-5 marker:text-[var(--ct-muted-fg)]" {...props} />,
         li: ({ node: _node, children, ...props }) => (
-          <li className="my-0.5" {...props}>{children}</li>
+          <li className="my-1 pl-0.5" {...props}>{children}</li>
         ),
         table: ({ node: _node, ...props }) => (
           <div className="overflow-x-auto my-2">
@@ -247,21 +282,17 @@ export function RichMarkdown({
         code: MarkdownCode,
         pre: MarkdownPre,
         details: ({ node: _node, ...props }) => (
-          <details
-            className="my-2 rounded-md border px-2 py-1.5"
-            style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg) 25%, transparent)" }}
-            {...props}
-          />
+          <details className="ct-card my-2 px-3 py-2" {...props} />
         ),
         summary: ({ node: _node, ...props }) => (
           <summary className="cursor-pointer select-none font-medium" style={{ color: "var(--ct-fg)" }} {...props} />
         ),
         kbd: ({ node: _node, ...props }) => (
           <kbd
-            className="rounded border px-1 py-0.5 font-mono text-[0.85em]"
+            className="rounded-[5px] px-[0.35em] py-[0.1em] font-mono text-[0.85em]"
             style={{
-              borderColor: "color-mix(in srgb, var(--ct-muted-fg) 35%, transparent)",
-              background: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 14%, transparent)",
+              background: "color-mix(in srgb, var(--ct-fg) 7%, transparent)",
+              boxShadow: "inset 0 -1px 0 color-mix(in srgb, var(--ct-fg) 12%, transparent)",
             }}
             {...props}
           />
@@ -269,7 +300,7 @@ export function RichMarkdown({
         mark: ({ node: _node, ...props }) => (
           <mark
             className="rounded px-0.5"
-            style={{ background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 32%, transparent)", color: "inherit" }}
+            style={{ background: "color-mix(in srgb, var(--ct-accent) 28%, transparent)", color: "inherit" }}
             {...props}
           />
         ),
@@ -284,30 +315,76 @@ export function RichMarkdown({
           <a
             target="_blank"
             rel="noopener noreferrer"
-            className="underline"
-            style={{ color: "var(--ct-accent, #58a6ff)" }}
+            className="underline decoration-[color-mix(in_srgb,var(--ct-accent)_40%,transparent)] underline-offset-2 hover:decoration-[var(--ct-accent)]"
+            style={{ color: "var(--ct-accent)" }}
             {...props}
           />
         ),
         del: ({ node: _node, ...props }) => <del className="opacity-60" {...props} />,
         blockquote: ({ node: _node, ...props }) => (
           <blockquote
-            className="border-l-2 pl-3 my-2 italic opacity-80"
-            style={{ borderColor: "var(--ct-muted-fg, #8b949e)" }}
+            className="my-2 border-l-2 pl-3"
+            style={{ borderColor: "color-mix(in srgb, var(--ct-fg) 14%, transparent)", color: "color-mix(in srgb, var(--ct-fg) 78%, var(--ct-muted-fg))" }}
             {...props}
           />
         ),
         hr: () => (
           <hr
-            className="my-2"
-            style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg) 30%, transparent)" }}
+            className="my-3 h-px border-0"
+            style={{ background: "color-mix(in srgb, var(--ct-fg) 8%, transparent)" }}
           />
         ),
-      }}
-    >
-      {renderedText}
-    </ReactMarkdown>
+    }),
+    [fontScale, h1Text, h2Text, h3Text, localArtifacts, renderedText],
   );
+  const splitParts = parts && parts.length > 1 ? parts : null;
+  const cacheKey = JSON.stringify([renderedText, fontScale ?? null, localArtifacts, sourcePositions, splitParts ? partContext?.id ?? null : null]);
+  const cachedKeyRef = useRef<string | null>(null);
+  const rendered = useMemo(() => {
+    const previousKey = cachedKeyRef.current;
+    cachedKeyRef.current = cacheKey;
+    if (previousKey !== null && previousKey !== cacheKey) forgetMarkdownRender(previousKey);
+    return cachedMarkdownRender(cacheKey, renderedText.length, () => ReactMarkdown({
+      remarkPlugins: REMARK_PLUGINS,
+      rehypePlugins: splitParts ? [...(rehypePlugins ?? []), rehypeMessageParts(splitParts)] : rehypePlugins,
+      components,
+      children: renderedText,
+    }));
+  }, [cacheKey, renderedText, rehypePlugins, splitParts, components]);
+  return rendered;
+}
+
+const REMARK_PLUGINS = [remarkGfm];
+const MARKDOWN_RENDER_CACHE_ENTRIES = 3000;
+const MARKDOWN_RENDER_CACHE_CHARS = 500_000;
+const markdownRenderCache = new Map<string, { element: React.ReactElement; chars: number }>();
+let markdownRenderCacheChars = 0;
+
+// Remounting a transcript (tab switch, reopened panel) would otherwise re-parse every message; elements are immutable and safe to reuse.
+function cachedMarkdownRender(key: string, chars: number, render: () => React.ReactElement): React.ReactElement {
+  const hit = markdownRenderCache.get(key);
+  if (hit) {
+    markdownRenderCache.delete(key);
+    markdownRenderCache.set(key, hit);
+    return hit.element;
+  }
+  const element = render();
+  if (chars > MARKDOWN_RENDER_CACHE_CHARS / 10) return element;
+  markdownRenderCache.set(key, { element, chars });
+  markdownRenderCacheChars += chars;
+  while (markdownRenderCache.size > MARKDOWN_RENDER_CACHE_ENTRIES || markdownRenderCacheChars > MARKDOWN_RENDER_CACHE_CHARS) {
+    const oldest = markdownRenderCache.keys().next().value;
+    if (oldest === undefined) break;
+    forgetMarkdownRender(oldest);
+  }
+  return element;
+}
+
+function forgetMarkdownRender(key: string): void {
+  const entry = markdownRenderCache.get(key);
+  if (!entry) return;
+  markdownRenderCacheChars -= entry.chars;
+  markdownRenderCache.delete(key);
 }
 
 type DiffLineKind = "del" | "add";
@@ -747,28 +824,25 @@ export function CommandBody({ commands, body }: { commands: SlashCommand[]; body
   return (
     <div className="space-y-2">
       {commands.map((c, i) => (
-        <div key={i} className="space-y-1">
-          <div className="flex items-center gap-2">
+        <div key={i} className="space-y-1.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <code
-              className="px-2 py-0.5 rounded text-xs font-mono"
+              className="rounded-full px-2 py-0.5 font-mono text-xs font-medium"
               style={{
-                background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)",
-                color: "var(--ct-accent, #58a6ff)",
+                background: "color-mix(in srgb, var(--ct-accent) 14%, transparent)",
+                color: "color-mix(in srgb, var(--ct-accent) 70%, var(--ct-fg))",
               }}
             >
               {c.name}
             </code>
-            {c.args && (
-              <span className="text-xs opacity-70 font-mono">{c.args}</span>
-            )}
+            {c.args && <span className="min-w-0 break-words font-mono text-xs" style={{ color: "var(--ct-muted-fg)" }}>{c.args}</span>}
           </div>
           {c.stdout && (
             <pre
-              className={`text-xs font-mono px-2 py-1.5 rounded ${PRE_WRAP_CLASS}`}
+              className={`m-0 rounded-[10px] px-2.5 py-2 font-mono text-xs ${PRE_WRAP_CLASS}`}
               style={{
-                background: "color-mix(in srgb, var(--ct-bg, #0d1117) 70%, black 5%)",
-                color: "color-mix(in srgb, var(--ct-fg, #c9d1d9) 80%, transparent)",
-                borderLeft: "2px solid color-mix(in srgb, var(--ct-muted-fg) 40%, transparent)",
+                background: "color-mix(in srgb, var(--ct-fg) 4%, transparent)",
+                color: "color-mix(in srgb, var(--ct-fg) 82%, var(--ct-muted-fg))",
               }}
             >
               {c.stdout}
@@ -777,7 +851,7 @@ export function CommandBody({ commands, body }: { commands: SlashCommand[]; body
         </div>
       ))}
       {body.trim() && (
-        <div className="text-sm opacity-70">{body}</div>
+        <div className="text-sm" style={{ color: "var(--ct-muted-fg)" }}>{body}</div>
       )}
     </div>
   );

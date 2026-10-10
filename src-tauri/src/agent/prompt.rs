@@ -227,15 +227,13 @@ impl PromptDetector {
         )
     }
 
-    /// Entry point for a provider's immediate per-tool permission report. The
-    /// payload is stored verbatim; the surfaced prompt is built from the
-    /// vendor's own suggestions instead of re-parsed off the screen.
+    /// Entry point for a provider's immediate per-tool permission report.
+    /// Suggestions authorize no response; the rendered screen owns its options.
     pub fn hook_detected_permission_request(
         &mut self,
         tab_id: &str,
         signal: PermissionRequestSignal,
     ) -> PromptDecision {
-        let prompt = signal.to_pending_prompt();
         self.permission_requests.insert(tab_id.to_string(), signal);
         self.next_permission_request_id += 1;
         self.permission_request_instances.insert(
@@ -245,15 +243,7 @@ impl PromptDetector {
                 received_at: Instant::now(),
             },
         );
-        match prompt {
-            Some(prompt) => self.hook_detected_explicit(tab_id, prompt),
-            None => PromptDecision::None,
-        }
-    }
-
-    /// The pending permission request as its hook payload renders it.
-    pub fn permission_request_rendering(&self, tab_id: &str) -> Option<PendingPrompt> {
-        self.permission_requests.get(tab_id)?.to_pending_prompt()
+        PromptDecision::None
     }
 
     /// The last per-tool permission payload reported for a tab.
@@ -344,6 +334,13 @@ impl PromptDetector {
     pub fn active_prompt(&self, tab_id: &str) -> Option<&PendingPrompt> {
         match self.states.get(tab_id) {
             Some(TabPromptState::Active { prompt, .. }) => Some(prompt),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn active_prompt_occurrence(&self, tab_id: &str) -> Option<Instant> {
+        match self.states.get(tab_id) {
+            Some(TabPromptState::Active { detected_at, .. }) => Some(*detected_at),
             _ => None,
         }
     }

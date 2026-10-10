@@ -21,6 +21,7 @@ pub struct NotificationIdentity {
     severity: NotificationSeverity,
     title: String,
     body: String,
+    prompt_choices: Vec<String>,
 }
 
 impl NotificationIdentity {
@@ -35,7 +36,13 @@ impl NotificationIdentity {
             severity: severity.clone(),
             title: title.trim().to_string(),
             body: body.unwrap_or_default().trim().to_string(),
+            prompt_choices: Vec::new(),
         }
+    }
+
+    pub fn with_prompt_choices(mut self, choices: Vec<String>) -> Self {
+        self.prompt_choices = choices;
+        self
     }
 
     #[cfg(test)]
@@ -162,15 +169,21 @@ pub enum TabCondition {
     AgentExited,
     /// The tab's agent is blocked on an interactive prompt.
     PendingPrompt,
+    ProviderAccessLost,
 }
 
 impl TabCondition {
-    pub const ALL: [TabCondition; 2] = [TabCondition::AgentExited, TabCondition::PendingPrompt];
+    pub const ALL: [TabCondition; 3] = [
+        TabCondition::AgentExited,
+        TabCondition::PendingPrompt,
+        TabCondition::ProviderAccessLost,
+    ];
 
     pub fn as_str(self) -> &'static str {
         match self {
             Self::AgentExited => "agent-exited",
             Self::PendingPrompt => "pending-prompt",
+            Self::ProviderAccessLost => "provider-access-lost",
         }
     }
 

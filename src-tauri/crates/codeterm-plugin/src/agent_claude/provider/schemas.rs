@@ -17,7 +17,12 @@ pub(crate) fn manifest_defaults() -> crate::model_catalog::RegisteredDefaults {
         let manifest: crate::js_runtime::PluginManifest =
             serde_json::from_str(BUNDLED_MANIFEST).expect("bundled Claude manifest parses");
         crate::model_catalog::RegisteredDefaults {
-            models: manifest.models.iter().map(ModelInfo::from).collect(),
+            models: manifest
+                .models
+                .iter()
+                .map(ModelInfo::from)
+                .map(super::model_capabilities::hydrate)
+                .collect(),
             default: manifest.default_model,
         }
     })
@@ -43,10 +48,26 @@ pub(crate) fn reasoning_effort_launch_args_format() -> Vec<String> {
     manifest.commands.reasoning_effort_launch_args_format
 }
 
+pub(super) fn model_switch_commands() -> provider::ModelSwitchCommands {
+    let manifest: crate::js_runtime::PluginManifest =
+        serde_json::from_str(BUNDLED_MANIFEST).expect("bundled Claude manifest parses");
+    manifest
+        .commands
+        .model_switch_commands
+        .expect("bundled Claude manifest declares live model commands")
+}
+
 pub(super) fn launch_permissions() -> Option<provider::LaunchPermissionCapability> {
     let manifest: crate::js_runtime::PluginManifest =
         serde_json::from_str(BUNDLED_MANIFEST).expect("bundled Claude manifest parses");
     manifest.spawn.launch_permissions
+}
+
+pub(super) fn fork_session_args() -> Option<Vec<String>> {
+    serde_json::from_str::<crate::js_runtime::PluginManifest>(BUNDLED_MANIFEST)
+        .ok()?
+        .spawn
+        .fork_session_args
 }
 
 /// Resolved list — registered defaults unless the user dropped
@@ -95,24 +116,10 @@ pub(super) fn notifications_schema() -> Vec<SettingField> {
                 state_query: Some("check_provider_integration".into()),
                 args: Some(serde_json::json!({
                     "provider_id": "claude",
-                    "consent": true,
-                    "precompact_memory_export": false
+                    "consent": true
                 })),
                 confirm: Some("Review target ~/.claude/settings.json. CodeTerm will back it up, preserve foreign keys/hooks, and add Notification, Stop, and SessionStart callbacks. Continue?".into()),
                 style: ActionStyle::Primary,
-            },
-            SettingField::Action {
-                id: "install_hooks_with_memory_export".into(),
-                label: "Install with PreCompact memory export".into(),
-                command: "install_provider_integration".into(),
-                state_query: None,
-                args: Some(serde_json::json!({
-                    "provider_id": "claude",
-                    "consent": true,
-                    "precompact_memory_export": true
-                })),
-                confirm: Some("This separately opts in to exporting conversation context to CodeTerm memory before Claude compacts. The settings file will be backed up first. Continue?".into()),
-                style: ActionStyle::Secondary,
             },
             SettingField::Action {
                 id: "uninstall_hooks".into(),
@@ -138,6 +145,7 @@ pub(super) fn notifications_schema() -> Vec<SettingField> {
 
 pub(super) fn settings_schema() -> Vec<SettingField> {
     vec![
+        provider::structured_signals_section(),
         provider::session_resume_section(
             "Automatically resume Claude Code sessions when CodeTerm restarts.",
             "--dangerously-skip-permissions",
@@ -443,11 +451,6 @@ mod tests {
                                 .and_then(|v| v.get("consent"))
                                 .and_then(|v| v.as_bool())
                                 == Some(true)
-                            && args
-                                .as_ref()
-                                .and_then(|v| v.get("precompact_memory_export"))
-                                .and_then(|v| v.as_bool())
-                                == Some(false)
                         {
                             saw_action = true;
                         }
@@ -469,4 +472,11 @@ mod tests {
             _ => panic!("expected Section as top-level notifications field"),
         }
     }
+}
+
+pub(super) fn capability_probe() -> Option<crate::provider::CapabilityProbe> {
+    serde_json::from_str::<crate::js_runtime::PluginManifest>(BUNDLED_MANIFEST)
+        .ok()?
+        .spawn
+        .capability_probe
 }

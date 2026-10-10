@@ -1,0 +1,47 @@
+import assert from "node:assert/strict";
+import { documentsFromTranscript } from "./chatDocuments";
+import { createChatDocumentsModel, type DocumentFileCheck } from "./chatDocumentsModel";
+
+async function main() {
+  const calls: string[][] = [];
+  const owners: string[] = [];
+  let paths = ["/work/live.md"];
+  const model = createChatDocumentsModel(async (requested, tabId) => { calls.push(requested); owners.push(tabId); return { paths, home: "/home/ann" }; });
+  const documents = documentsFromTranscript([{ content: "@ds-document /work/missing.md\n@ds-document /work/live.md" }]);
+  model.set("a", documents);
+  assert.equal(model.get("a").documents.length, 0);
+  await model.refresh("a");
+  assert.deepEqual(calls, [["/work/live.md", "/work/missing.md"]]);
+  assert.deepEqual(model.get("a").documents.map((doc) => doc.name), ["live.md"]);
+  assert.equal(model.get("a").home, "/home/ann");
+  assert.deepEqual(owners, ["a"]);
+  model.set("a", [...documents]);
+  assert.equal(calls.length, 1);
+  paths = [];
+  await model.refresh("a");
+  assert.equal(calls.length, 2);
+  assert.equal(model.get("a").documents.length, 0);
+  const completions: ((result: DocumentFileCheck) => void)[] = [];
+  const racing = createChatDocumentsModel(() => new Promise((resolve) => completions.push(resolve)));
+  racing.set("a", documents);
+  const old = racing.refresh("a");
+  racing.set("a", [documents[1]]);
+  const fresh = racing.refresh("a");
+  completions[1]({ paths: ["/work/missing.md"], home: null });
+  await fresh;
+  completions[0]({ paths: ["/work/live.md"], home: null });
+  await old;
+  assert.deepEqual(racing.get("a").documents.map((doc) => doc.name), ["missing.md"]);
+  racing.set("a", documents);
+  const cleared = racing.refresh("a");
+  racing.clear();
+  completions[2]({ paths: ["/work/live.md"], home: null });
+  await cleared;
+  assert.equal(racing.get("a").documents.length, 0);
+  const failing = createChatDocumentsModel(async () => { throw new Error("unavailable"); });
+  failing.set("a", documents);
+  await failing.refresh("a");
+  assert.equal(failing.get("a").documents.length, 0);
+  console.log("chatDocumentsModel: passed");
+}
+void main();

@@ -1,8 +1,9 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { killDevConsole, assertDevConsoleStopped } from "../tests/playwright/helpers/dev-console";
+import { assertReusableDevConsole, killDevConsole, assertDevConsoleStopped } from "../tests/playwright/helpers/dev-console";
 import {
   devInstanceForSlot,
+  isAdoptTarget,
   teardownInstances,
   type DevInstance,
   type InstanceLifecycle,
@@ -126,6 +127,18 @@ const LIFECYCLE: InstanceLifecycle = {
 export async function main(args: string[]): Promise<void> {
   const input = parseBoundedPlaywrightArgs(args);
   const budgets = budgetsForWorkers(input.workers);
+  if (isAdoptTarget()) {
+    const instance = devInstanceForSlot(0, input.workers);
+    await assertReusableDevConsole(instance);
+    await runStreaming(
+      process.execPath,
+      boundedPlaywrightArgs(input),
+      { ...process.env, CT_E2E_WORKERS: String(input.workers) },
+      budgets.childDeadlineMs,
+      "bounded-adopt",
+    );
+    return;
+  }
   const instances = Array.from({ length: input.workers }, (_, slot) => devInstanceForSlot(slot, input.workers));
   process.stdout.write(
     `[playwright:bounded] workers=${input.workers} inner=${budgets.innerGlobalTimeoutMs}ms cleanup=${budgets.totalBudgetMs - budgets.childDeadlineMs}ms\n`,

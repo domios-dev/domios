@@ -1,9 +1,8 @@
 // Run: npx tsx src/components/Extensions/ExtensionsView.test.tsx
 
 import React, { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import { Window } from "happy-dom";
-import { ExtensionsView } from "./ExtensionsView";
 import type { PluginSnapshot } from "./types";
 import { __setInvokeForTest } from "../../lib/bridge";
 import { __resetPluginSnapshotStoreForTest } from "../../lib/pluginSnapshotStore";
@@ -37,6 +36,8 @@ function setupDom() {
 }
 
 async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
+  // React DOM detects native input-event support when its client entrypoint loads.
+  const { createRoot } = await import("react-dom/client");
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -44,6 +45,13 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; r
     root.render(ui);
   });
   return { host, root };
+}
+
+async function renderExtensionsView(): Promise<{ host: HTMLDivElement; root: Root }> {
+  const { ExtensionsView } = await import("./ExtensionsView");
+  return render(
+    <ExtensionsView visible pluginActivities={new Map()} pluginActivityDisplayMap={new Map()} />,
+  );
 }
 
 async function flush() {
@@ -97,32 +105,56 @@ const SNAPSHOT_WITH_NEW: PluginSnapshot = {
 
 const UPDATE_SNAPSHOT: PluginSnapshot = {
   plugins: [
-    { id: "git", display_name: "Git", version: "0.1.4", removable: true, capabilities: { view: true } },
+    { id: "git", display_name: "Git", version: "0.1.4", removable: true, capabilities: { view: true }, source: { kind: "channel", channel: "codeterm-plugins", path: "git" }, update: { available: true, reason: "newer_version", remote_version: "0.1.5" } },
   ],
   channels: SNAPSHOT.channels,
   diff: [],
   marketplace: [
-    { channel: "codeterm-plugins", id: "git", installed: true, local_version: "0.1.4", remote_version: "0.1.4", drift: "hash_drift" },
+    { channel: "codeterm-plugins", id: "git", installed: true, local_version: "0.1.4", remote_version: "0.1.5", drift: "update_available" },
   ],
 };
 
 const UPDATED_SNAPSHOT: PluginSnapshot = {
   ...UPDATE_SNAPSHOT,
+  plugins: UPDATE_SNAPSHOT.plugins.map((plugin) => ({ ...plugin, version: "0.1.5", update: { available: false, reason: "same_version", remote_version: "0.1.5" } })),
   marketplace: [
-    { channel: "codeterm-plugins", id: "git", installed: true, local_version: "0.1.4", remote_version: "0.1.4", drift: "up_to_date" },
+    { channel: "codeterm-plugins", id: "git", installed: true, local_version: "0.1.5", remote_version: "0.1.5", drift: "up_to_date" },
   ],
 };
 
-function installInvokeMock(snapshot: PluginSnapshot = SNAPSHOT) {
+const NETWORK_SNAPSHOT: PluginSnapshot = {
+  plugins: [{
+    id: "lmstudio",
+    display_name: "LM Studio",
+    removable: true,
+    network_allow: ["old.example.test"],
+    effective_network_allow: ["old.example.test"],
+  }],
+  channels: SNAPSHOT.channels,
+  diff: [],
+  marketplace: [{ channel: "codeterm-plugins", id: "lmstudio", installed: true, drift: "same" }],
+};
+
+function installInvokeMock(snapshot: PluginSnapshot = SNAPSHOT, config: unknown = { plugins: {} }) {
   const calls: Array<{ cmd: string; args?: Record<string, unknown> }> = [];
-  let current = snapshot;
+  let current = structuredClone(snapshot);
   __setInvokeForTest(async <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
     calls.push({ cmd, args });
-    if (cmd === "get_config") return { plugins: {} } as T;
+    if (cmd === "get_config") return config as T;
     if (cmd === "plugin_manager_snapshot") return current as T;
     if (cmd === "plugin_manager_action") {
       const action = args?.action as { kind?: string; name?: string } | undefined;
       if (action?.kind === "add-channel") current = SNAPSHOT_WITH_NEW;
+      if (action?.kind === "settings") {
+        const setting = args?.action as { pluginId: string; allowHosts?: string[]; disallowHosts?: string[] };
+        const plugin = current.plugins.find((entry) => entry.id === setting.pluginId);
+        if (plugin) {
+          const allowed = [...(plugin.network_allow ?? [])];
+          for (const host of setting.allowHosts ?? []) if (!allowed.includes(host)) allowed.push(host);
+          plugin.network_allow = allowed.filter((host) => !(setting.disallowHosts ?? []).includes(host));
+          plugin.effective_network_allow = plugin.network_allow;
+        }
+      }
       return current as T;
     }
     throw new Error(`unexpected invoke: ${cmd}`);
@@ -133,13 +165,7 @@ function installInvokeMock(snapshot: PluginSnapshot = SNAPSHOT) {
 async function renderExtensions(snapshot: PluginSnapshot = SNAPSHOT) {
   __resetPluginSnapshotStoreForTest();
   const calls = installInvokeMock(snapshot);
-  const view = await render(
-    <ExtensionsView
-      visible
-      pluginActivities={new Map()}
-      pluginActivityDisplayMap={new Map()}
-    />,
-  );
+  const view = await renderExtensionsView();
   await flush();
   return { ...view, calls };
 }
@@ -203,6 +229,51 @@ test("selecting a plugin opens its detail view and back returns to the list", as
   cleanup();
 });
 
+test("Allowed hosts editor adds and removes grants through plugin settings action", async () => {
+  __resetPluginSnapshotStoreForTest();
+  const calls = installInvokeMock(NETWORK_SNAPSHOT, {
+    plugins: { lmstudio: { baseUrl: "http://localai.example.test:1234" } },
+  });
+  const { host, root } = await renderExtensionsView();
+  await flush();
+  await act(async () => {
+    host.querySelector<HTMLElement>('[data-testid="extensions-plugin-row"][data-plugin-id="lmstudio"]')?.click();
+  });
+  assert(host.querySelector('[data-testid="extensions-allowed-hosts"]'), "allowed hosts editor should render");
+  const inlineAllow = host.querySelector<HTMLButtonElement>('[aria-label="Allow localai.example.test:1234"]');
+  assert(inlineAllow, "configured base URL host should have an inline allow action");
+  await act(async () => inlineAllow.click());
+  await flush();
+
+  const hostInput = host.querySelector<HTMLInputElement>('[aria-label="Host or host:port"]');
+  assert(hostInput, "host entry control should have an accessible name");
+  await act(async () => changeInput(hostInput, "new.example.test:9443"));
+  const allowHost = button(host, '[aria-label="Allow host"]');
+  assert(!allowHost.disabled, "typing a host should enable the allow control");
+  await act(async () => allowHost.click());
+  await flush();
+
+  const actionCalls = calls.filter((call) => call.cmd === "plugin_manager_action");
+  const add = actionCalls.find((call) => {
+    const action = call.args?.action as { kind?: string; allowHosts?: string[] } | undefined;
+    return action?.kind === "settings" && action.allowHosts?.includes("new.example.test:9443");
+  });
+  assert(add, "adding a host should call the shared settings route");
+  const remove = host.querySelector<HTMLButtonElement>('[aria-label="Remove old.example.test"]');
+  assert(remove, "the current user-granted host should have a named remove button");
+  await act(async () => remove.click());
+  await flush();
+  const removeCall = calls.filter((call) => call.cmd === "plugin_manager_action").find((call) => {
+    const action = call.args?.action as { kind?: string; disallowHosts?: string[] } | undefined;
+    return action?.kind === "settings" && action.disallowHosts?.includes("old.example.test");
+  });
+  assert(removeCall, "removing a host should call the shared settings route");
+  assert(!host.textContent?.includes("old.example.test"), "removed host should disappear from the refreshed editor");
+
+  await act(async () => root.unmount());
+  cleanup();
+});
+
 test("successful update immediately clears stale update state", async () => {
   __resetPluginSnapshotStoreForTest();
   __setInvokeForTest(async <T,>(cmd: string): Promise<T> => {
@@ -211,15 +282,13 @@ test("successful update immediately clears stale update state", async () => {
     if (cmd === "plugin_manager_action") return UPDATED_SNAPSHOT as T;
     throw new Error(`unexpected invoke: ${cmd}`);
   });
-  const { host, root } = await render(
-    <ExtensionsView visible pluginActivities={new Map()} pluginActivityDisplayMap={new Map()} />,
-  );
+  const { host, root } = await renderExtensionsView();
   await flush();
 
   await act(async () => {
     host.querySelector<HTMLElement>('[data-testid="extensions-plugin-row"]')?.click();
   });
-  assert(host.querySelector('[data-testid="extensions-plugin-update"]'), "stale hash drift should offer repair");
+  assert(host.querySelector('[data-testid="extensions-plugin-update"]'), "newer channel version should offer Update");
   await act(async () => {
     button(host, '[data-testid="extensions-plugin-update"]').click();
   });
@@ -281,6 +350,7 @@ test("Add channel toggles the inline form", async () => {
 test("opening Extensions refreshes a snapshot changed outside the view", async () => {
   __resetPluginSnapshotStoreForTest();
   const calls = installInvokeMock();
+  const { ExtensionsView } = await import("./ExtensionsView");
   const { root } = await render(
     <ExtensionsView visible pluginActivities={new Map()} pluginActivityDisplayMap={new Map()} />,
   );
@@ -364,9 +434,7 @@ test("first loading state renders before snapshot resolves", async () => {
     throw new Error(`unexpected invoke: ${cmd}`);
   });
 
-  const { host, root } = await render(
-    <ExtensionsView visible pluginActivities={new Map()} pluginActivityDisplayMap={new Map()} />,
-  );
+  const { host, root } = await renderExtensionsView();
   assert(host.querySelector('[data-testid="extensions-loading"]'), "loading state should render before first snapshot resolves");
 
   await act(async () => {
@@ -395,6 +463,7 @@ test("refresh failure preserves cached rows and shows error", async () => {
     throw new Error(`unexpected invoke: ${cmd}`);
   });
 
+  const { ExtensionsView } = await import("./ExtensionsView");
   const { host, root } = await render(
     <ExtensionsView visible pluginActivities={new Map()} pluginActivityDisplayMap={new Map()} />,
   );

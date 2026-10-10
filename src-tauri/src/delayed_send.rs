@@ -655,7 +655,7 @@ pub fn now_ms() -> u64 {
 }
 
 pub fn list_views(
-    svc: &ServiceState,
+    svc: &crate::service::ServiceContext,
     tab_id: Option<String>,
 ) -> Result<Vec<DelayedMessageView>, String> {
     let resolved = match tab_id {
@@ -671,7 +671,7 @@ pub fn list_views(
 }
 
 pub fn create_message(
-    svc: &ServiceState,
+    svc: &crate::service::ServiceContext,
     tab_id: String,
     text: String,
     scheduled_at_ms: Option<u64>,
@@ -706,7 +706,10 @@ pub fn create_message(
     Ok(to_view(svc, msg))
 }
 
-fn resolve_creator(svc: &ServiceState, created_by_tab: Option<String>) -> ReminderCreator {
+fn resolve_creator(
+    svc: &crate::service::ServiceContext,
+    created_by_tab: Option<String>,
+) -> ReminderCreator {
     let Some(raw) = created_by_tab.filter(|p| !p.trim().is_empty()) else {
         return ReminderCreator::default();
     };
@@ -724,7 +727,7 @@ fn resolve_creator(svc: &ServiceState, created_by_tab: Option<String>) -> Remind
 }
 
 pub fn update_message(
-    svc: &ServiceState,
+    svc: &crate::service::ServiceContext,
     id: String,
     text: Option<String>,
     scheduled_at_ms: Option<u64>,
@@ -749,7 +752,10 @@ pub fn update_message(
     Ok(to_view(svc, msg))
 }
 
-pub fn delete_message(svc: &ServiceState, id: String) -> Result<DelayedMessageView, String> {
+pub fn delete_message(
+    svc: &crate::service::ServiceContext,
+    id: String,
+) -> Result<DelayedMessageView, String> {
     let msg = svc.delayed_send.delete(&id)?;
     emit_changed(svc, &msg.tab_id);
     Ok(to_view(svc, msg))
@@ -765,7 +771,7 @@ pub fn delete_team_series(
     Ok(())
 }
 
-fn latest_ledger_sequence(svc: &ServiceState, tab_id: &str) -> u64 {
+fn latest_ledger_sequence(svc: &crate::service::ServiceContext, tab_id: &str) -> u64 {
     svc.chat_send_ledger
         .reconcile(tab_id)
         .iter()
@@ -783,6 +789,7 @@ fn has_unprocessed_send_after_tick(
             && matches!(
                 send.state,
                 crate::service::chat_send_transaction::ChatSendState::Pending
+                    | crate::service::chat_send_transaction::ChatSendState::Written
                     | crate::service::chat_send_transaction::ChatSendState::Unknown
                     | crate::service::chat_send_transaction::ChatSendState::Failed
             )
@@ -1038,14 +1045,20 @@ fn reminder_envelope(msg: &DelayedMessage) -> crate::service::messenger::Message
     }
 }
 
-fn resolve_tab_id(svc: &ServiceState, id_or_alias: &str) -> Result<String, String> {
+fn resolve_tab_id(
+    svc: &crate::service::ServiceContext,
+    id_or_alias: &str,
+) -> Result<String, String> {
     svc.mux
         .write()
         .resolve_tab_id(id_or_alias)
         .ok_or_else(|| "Tab not found".to_string())
 }
 
-fn tab_context(svc: &ServiceState, tab_id: &str) -> (Option<String>, Option<String>) {
+fn tab_context(
+    svc: &crate::service::ServiceContext,
+    tab_id: &str,
+) -> (Option<String>, Option<String>) {
     let mux = svc.mux.write();
     let workspace_id = mux.find_workspace_for_tab(tab_id);
     let session_id = mux
@@ -1054,7 +1067,7 @@ fn tab_context(svc: &ServiceState, tab_id: &str) -> (Option<String>, Option<Stri
     (workspace_id, session_id)
 }
 
-fn to_view(svc: &ServiceState, msg: DelayedMessage) -> DelayedMessageView {
+fn to_view(svc: &crate::service::ServiceContext, msg: DelayedMessage) -> DelayedMessageView {
     let current_session_id = svc
         .mux
         .write()

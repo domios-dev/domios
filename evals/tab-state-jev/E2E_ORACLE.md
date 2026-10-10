@@ -1,10 +1,55 @@
 # Tab-state e2e oracle transcript
 
-## Verdict
+## Latest rerun — 2026-10-02, build `fa5e163c7`
+
+### Verdict
+
+**Fail.** Only healthy OpenCode produced the required `spawn-ok`; healthy Claude and Codex were discarded as stale. The proxy and unsupported-model screens were visible, but neither produced its tab-state classification. The login case produced one strong auth classification with no tab-state action; no second agreeing observation arrived. The trust case produced no tab-state classification. No weak hint or tab-state action was observed, so the weak-hint branch and two-observation escalation were not fully exercised. Keep both shipping defaults false.
+
+### Run identity and setup
+
+- Canonical checkout remained on `release/1.12.4` and was not edited, committed, or switched by this run. The named instance health endpoint reported `tabstate`, API port `7697`, version `1.12.3`, build `fa5e163c7d9072469ef9c646804c8c4ea748bb39`.
+- The instance was restarted after canonical advanced from the earlier `e3b680069` build. All cases below ran against `fa5e163c7`.
+- Temporary Team: `team_cb9a4522`; Plan: `pl_122kvd`; Orchestrator: `4a116298`; Planner: `bce56ddb`.
+- The Jev token was piped from `~/.codeterm/supporter/typesafe-jev.json`; its value was never printed. The historical tab-state observation and signal switches were enabled only in this instance during the run, then disabled and reset to false. No shipping default changed.
+- Claude and Codex failure wrappers were temporarily disabled for the healthy launches, then restored for their targeted cases. The first Claude attempt accidentally used the proxy wrapper; it was cancelled and excluded. The clean healthy Claude rerun still had no `spawn-ok`.
+- Every `dc` command ran under Bash after exporting the named instance variables and sourcing `evals/_lib/lib.sh`. No project tests or other validation gates ran, and no source files were changed.
+- `healthy_cursor` was excluded because its earlier launch exited before readiness with no retained diagnostics. `healthy_lmstudio` was excluded because the plugin lacks `chatBackend.sessionConfig` and spawn returns `chat_backend_session_config_required`.
+
+### Per-case results
+
+| Case | Result | Evidence |
+|---|---|---|
+| Healthy Claude | **Fail** | Clean rerun tab `b57c3888` reached `agent_ready` and bound a session, then logged `stale observation discarded` at `00:16:33Z`. No `launch_ready` tab-state event or `spawn-ok` arrived. |
+| Healthy Codex | **Fail** | Tab `4cd3f743` reached `agent_ready` and bound a session, then logged `stale observation discarded` at `00:16:47Z`. No `launch_ready` tab-state event or `spawn-ok` arrived. |
+| Healthy OpenCode | **Pass** | Tab `befefab0` logged one `launch_ready` event with `ready_idle`, confidence `0.880`, episode 1 at `00:16:57Z`; the parent received one `spawn-ok`. No action was emitted. |
+| Bad-model Codex | **Fail** | Tab `68b56f5e` visibly returned HTTP 400 for `no-such-model-zzz`; tab inspection showed `runtime_session_model_mismatch`. It logged stale discards at `00:17:39Z` and `00:19:39Z`; no tab-state `model_unavailable` signal or action appeared. |
+| Closed-proxy Claude | **Fail** | Tab `068d5a7c` visibly showed `ECONNREFUSED` retries. It logged stale discards at `00:17:50Z` and `00:19:50Z`; no tab-state `error_loop` signal or action appeared. |
+| Logged-out Codex home | **Pass for the informational hint; escalation unproven** | Tab `40221cd2` showed unanswered sign-in choices. At `00:19:59Z`, one `startup_deadline` classified `login_or_auth_required` at confidence `1.000`, episode 1. No second agreeing strong observation or tab-state action was seen by `00:21:54Z`. |
+| Fresh-folder trust | **Fail / incomplete** | Tab `a4d82428` showed the unanswered DirectoryTrust choice. No tab-state trust classification appeared by `00:21:54Z`. A separate worker startup report requested parent inspection with `action_needed=true`; the Orchestrator inspected only and sent no response. |
+| Killed provider OpenCode | **Fail for the tab-state exit signal; direct-kill recovery observed** | On tab `ca32a1a2`, provider PID `6990` was confirmed in that tab's process tree as the `opencode` child of shell PID `6983`, then only PID `6990` received `SIGTERM`. The lifecycle recorded `provider process exited to a surviving shell`; the screen showed the surviving shell. No `agent restart` or post-kill tab-state crash classification/action occurred. |
+
+### Cross-case oracle checks
+
+- **Healthy spawn-ok:** 1 of 3 healthy PTY providers passed.
+- **Two agreeing strong observations before action:** not demonstrated. Login produced one strong observation and no tab-state action; trust produced no tab-state observation. No pair of agreeing strong observations was recorded. The separate worker-startup `action_needed` advisory on the trust prompt was not a tab-state action; it led only to inspection, with no prompt response.
+- **No action on a weak hint:** no weak hint and no tab-state action appeared. The weak-hint path itself was not exercised.
+- **Proxy and bad-model signals:** visible ground truth was present in both cases, but neither tab-state classifier signal was delivered.
+- **Recommendation:** keep automatic actions and hints off as the historical shipping defaults. This run does not validate the required healthy coverage or the two-observation gate.
+
+### Evidence and limits
+
+The observations above come from `~/.codeterm-dev-tabstate/logs/codeterm.log`, read-only tab lifecycle inspection, and visible terminal text. The stale-discard records for Claude/Codex remain on the build containing the merged spawn-output fix; OpenCode emitted `ready_idle` on that same build. The proxy and bad-model screens were present while their tab-state observations were discarded. This run establishes the behavior, but does not isolate why the stale checks remain provider/timing dependent.
+
+The temporary Team was closed, the `tabstate` instance was stopped, its action flags were reset, and the temporary provider wrappers, fixture directories, context files, and ignored capture files were removed. The `7697` health endpoint refused connections afterward; production on `7685` remained healthy.
+
+## Previous run — 2026-10-01 baseline
+
+### Verdict
 
 **Fail.** The runtime did not meet the e2e oracle. The healthy PTY launches produced no `spawn-ok` line because their spawn observations were discarded as stale. The closed-proxy and bad-model screens also produced no matching signal. Auth and trust each produced one strong startup-deadline classification, but neither produced a second agreeing observation. The auth hint was followed by an Orchestrator `action_needed` notification before a second strong observation. No prompt was answered.
 
-## Run identity and safety
+### Run identity and safety
 
 - Canonical source: `release/1.12.3`, fetched from origin at `fb2a932162cd347d705552b88d5c53a8df9623cb`.
 - Built instance: `tabstate`, API port `7697`; build reported `fb2a9321`.
@@ -14,7 +59,7 @@
 - LM Studio's local model endpoint was reachable and the official `lmstudio` plugin was installed. Opening its chat tab failed with `chat_backend_session_config_required`; no chat transcript tab was created.
 - Cursor exited with code 1 before launch readiness; CodeTerm rolled its tab back. No screen or observer call remained to capture.
 
-## Commands used
+### Commands used
 
 Commands below omit the token value; the token was only piped from the authorized local file into `dc` stdin. Bench calls ran under Bash with the target instance exported before sourcing the helper. A first zsh source attempt failed on `BASH_SOURCE` before issuing a `dc` command. A helper call without the target variables also failed resolution before issuing a `dc` command.
 
@@ -25,7 +70,7 @@ CODETERM_INSTANCE=tabstate CODETERM_API_PORT=7697 ./build.sh dev --wait
 # Earlier setup on the same instance; token never printed.
 python3 -c "import json,sys; sys.stdout.write(json.load(open('/Users/kandrey/.codeterm/decision-models/typesafe-jev.json'))['token'])" | dc supporter token set
 dc supporter status
-dc supporter features --tab-state on
+dc supporter use typesafe-jev
 dc plugin install lmstudio
 
 # All dc and capture-helper calls below used this instance binding.
@@ -84,7 +129,7 @@ CODETERM_INSTANCE=tabstate CODETERM_API_PORT=7697 ./build.sh kill
 
 The final capture helper `pending` query returned no unlabelled frames. No seed `frames.json` or `results.json` file is included in this transcript commit.
 
-## Per-case results
+### Per-case results
 
 | Case | Tab / visible ground truth | Runtime observation and Orchestrator delivery | Expected vs observed | Calls |
 |---|---|---|---|---:|
@@ -103,7 +148,7 @@ The final capture helper `pending` query returned no unlabelled frames. No seed 
 
 **Healthy spurious actionable signals: 0.** The three healthy PTY tabs that launched had no actionable signal, but also missed the required `spawn-ok`. Cursor and LM Studio did not reach a tab state that could be evaluated.
 
-## Evidence and limits
+### Evidence and limits
 
 **Executed results:** `/tmp/codeterm-dev-tabstate.log` records stale discards for the three healthy PTY tabs and the proxy, bad-model, and initial OpenCode observations. It records the single strong auth and trust classifications and the weak-confidence OpenCode restart classification. The Orchestrator screen showed the auth hint and notification ID `b2c66279`; the trust notification ID `ed2d4d9f` appeared before its classifier result. Screen captures above are from `capture_screen.py` and were human-labelled with `--by watchman`.
 

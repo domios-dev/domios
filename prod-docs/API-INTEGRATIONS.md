@@ -6,7 +6,7 @@ REST endpoints for bridges, setup hooks, cron, and external integrations.
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/bridge/state` | `?service=telegram` | Bridge runtime + config snapshot for live migration / health |
-| POST | `/api/bridge/start` | `{service?, ensure_token?, wait_for_lock_ms?}` | Start the messaging supervisor; optionally pull token from vault and wait for the upstream lock |
+| POST | `/api/bridge/start` | `{service?, ensure_token?, replace_token?, wait_for_lock_ms?}` | Start the messaging supervisor; optionally pull token from vault and wait for the upstream lock |
 | POST | `/api/bridge/stop` | `{service?, timeout_ms?}` | Stop the messaging supervisor and persist `telegram_enabled=false` |
 | POST | `/api/bridge/announce` | `{service?, chat_id, text}` | One-shot outbound text via the running bridge (used by `bridge migrate --announce`) |
 | POST | `/api/bridge/send` | `{text, chat_id?, service?, append?, type?, file?, caption?, filename?}` | Send message or media to external service (Telegram) |
@@ -22,6 +22,7 @@ REST endpoints for bridges, setup hooks, cron, and external integrations.
 | `active` | `bool` | Supervisor is running and the poller task is alive. |
 | `config_enabled` | `bool` | `integrations.telegram_enabled` from `config.toml`. |
 | `token_present` | `bool` | `~/.codeterm/secrets/telegram.token` exists on disk. |
+| `bot_id` | `int?` | The bot's public user id, read from the token's prefix; `null` without a token. Never the secret half. |
 | `has_secret_in_vault` | `bool` | The local secret store reports an entry named `secret_name`. Metadata only — value never decrypted. |
 | `secret_name` | `string` | Vault key the bridge would resolve to (`"telegram_bot_token"`). |
 | `started_at` | `string?` | RFC3339 timestamp of the last successful start. |
@@ -36,6 +37,7 @@ REST endpoints for bridges, setup hooks, cron, and external integrations.
 |-------|------|---------|-------------|
 | `service` | `string` | `"telegram"` | Service to start. `400` if unsupported. |
 | `ensure_token` | `bool` | `false` | If `true` and the local token file is missing, the daemon pulls `telegram_bot_token` from the local secret vault and writes it to `~/.codeterm/secrets/telegram.token` (mode `0600` on Unix). Returns `412` if the secret is not in the vault. |
+| `replace_token` | `bool` | `false` | Pull the vault token even when the token file exists, so a token just saved to the vault replaces the old file. Returns `412` if the secret is not in the vault. |
 | `wait_for_lock_ms` | `u64` | `10000` | How long to wait (ms) for the supervisor's `last_poll_ok` to advance past `started_at`, confirming the Telegram long-poll lock was claimed (no other poller fighting for it). |
 
 Side effect: persists `integrations.telegram_enabled = true` to `config.toml` (so the supervisor auto-starts on next boot). Returns `200` once `last_poll_ok >= started_at`:
@@ -100,9 +102,9 @@ text followed by labelled lines:
 | Situation | Lines after the receiver text |
 |-----------|-------------------------------|
 | No audio | `Transcript (sender): …` when the receiver returned a transcript |
-| Host transcript preferred | `Transcript (CodeTerm): …`, then `For comparison, sender transcript: …` |
-| Sender transcript preferred | `Transcript (sender): …`, then `For comparison, CodeTerm transcript: …` |
-| No Transcriber, transcription error, or audio not storable | `Transcript (sender): …` when present, then `CodeTerm transcription failed: <reason>` |
+| Host transcript preferred | `Transcript (Domios): …`, then `For comparison, sender transcript: …` |
+| Sender transcript preferred | `Transcript (sender): …`, then `For comparison, Domios transcript: …` |
+| No Transcriber, transcription error, or audio not storable | `Transcript (sender): …` when present, then `Domios transcription failed: <reason>` |
 
 Every audio case ends with `Audio file: <stored path>` once the file is stored.
 The preference is mechanical, never model-judged: a transcript is degraded when
@@ -132,7 +134,7 @@ the event text; the host transcript is clipped to 64 KiB.
 
 Success: `{"ok": true, "status": "delivered"}` (`eventId` only when supplied by the receiver). Failure: `{"ok": false, "error": {"code": "...", "message": "..."}}`. Handler rejections, including 400/415, log status and code under `[pebble-webhook]` without the secret, headers, or payload.
 
-**Delivery.** Before delivery the text loses ANSI and control characters (newline and tab stay) and every embedded `-=-codeterm:` marker opening. The message gateway delivers it to the receiver's live bound tab (see *Receiver targets* below), otherwise to the General Agent, as `-=-codeterm:pebble source=Pebble plugin=<plugin-id>-=-` followed by the text on its own line, with no reply address. The stored chat-origin metadata carries the receiver id and its host-sanitized plugin SVG; the marker carries identity only. Optional event ids are remembered in memory for the latest 512 deliveries of this daemon run; replaying an event whose delivery failed returns the same failure. CoreApp's unsigned form has no event id, so the plugin omits it and repeated requests are not deduplicated.
+**Delivery.** Before delivery the text loses ANSI and control characters (newline and tab stay) and every embedded `<domios` opening. The message gateway delivers it to the receiver's live bound tab (see *Receiver targets* below), otherwise to the General Agent, as `<domios from="pebble" source="Pebble" plugin="<plugin-id>">…</domios>`, with no reply address. The stored chat-origin metadata carries the receiver id and its host-sanitized plugin SVG; the tag carries identity only. Optional event ids are remembered in memory for the latest 512 deliveries of this daemon run; replaying an event whose delivery failed returns the same failure. CoreApp's unsigned form has no event id, so the plugin omits it and repeated requests are not deduplicated.
 
 #### Receiver targets and plugin tab menus
 
@@ -146,11 +148,11 @@ The host owns one binding per receiver plugin id, persisted in the data director
 | GET | `/api/setup/rules` | — | Check if project rules are installed |
 | POST | `/api/setup/rules/install` | — | Install project rules |
 | GET | `/api/setup/hooks` | `?provider=<id>` | Read provider integration target/status (`codeterm integration status --provider <id>`). Codex reports `repair_requires_consent: true` when its owned SessionStart/Stop contract is incomplete. |
-| POST | `/api/setup/hooks/install` | `?provider=<id>[&precompact_memory_export=<bool>]` | Authenticated install is consent. Omit `precompact_memory_export` to preserve the current CodeTerm PreCompact hook or recorded choice; pass `true` or `false` to change it. The install records consent and its timestamp like Settings, installs CodeTerm's marked entries and grants their provider trust (foreign entries untouched). Returns `{ok, provider, status}`; `404` unknown provider. CLI: `codeterm integration install --provider <id>` (works with `--mesh PEER`). |
+| POST | `/api/setup/hooks/install` | `?provider=<id>` | Authenticated install is consent. Raw memory-export hooks are removed; foreign hooks are preserved. The install records consent and its timestamp like Settings, installs Domios's marked entries and grants their provider trust (foreign entries untouched). Returns `{ok, provider, status}`; `404` unknown provider. CLI: `codeterm integration install --provider <id>` (works with `--mesh PEER`). |
 | POST | `/api/setup/hooks/uninstall` | `?provider=<id>` | Remove provider-owned integration entries while preserving foreign configuration |
-| POST | `/api/integration/sweep-profiles` | `?provider=<id>&confirm=<bool>&include_legacy=<bool>` | Preview this instance's dead provider launch artifacts and unmarked legacy files. Both flags default false; deletion requires `confirm=true`. `include_legacy=true` with confirmation deletes every unmarked file regardless of tab liveness. CLI: `codeterm integration sweep-profiles --provider <id>`. |
+| POST | `/api/integration/sweep-profiles` | `?provider=<id>&confirm=<bool>&include_legacy=<bool>` | Preview dead launch artifacts of this instance and registered foreign instances whose exclusive lifetime locks can be held, plus dead exact-pattern legacy profiles. Unknown or possibly live foreign instances are kept. Both flags default false; deletion requires `confirm=true` and the machine-owner instance. `include_legacy=true` includes eligible unmarked profiles while keeping live tabs and user files. All removals preserve project trust first, with at most 200 removals per pass. Owner startup runs the legacy migration once and reports counts. CLI: `codeterm integration sweep-profiles --provider <id>`. |
 
-With consent recorded, daemon start and provider plugin reload reconcile a missing, stale, or untrusted (`untrusted_hash`) integration by reinstalling with the trust grant. An existing CodeTerm-owned install with no consent record is treated as consent, recorded once with its timestamp, and reconciled. When neither recorded consent nor a CodeTerm ownership marker exists, nothing is rewritten or trusted.
+With consent recorded, daemon start and provider plugin reload reconcile a missing, stale, or untrusted (`untrusted_hash`) integration by reinstalling with the trust grant. An existing Domios-owned install with no consent record is treated as consent, recorded once with its timestamp, and reconciled. When neither recorded consent nor a Domios ownership marker exists, nothing is rewritten or trusted.
 
 #### Cron Jobs
 | Method | Path | Body / Query | Description |
@@ -180,6 +182,8 @@ Recurring schedules must contain exactly five fields and have a fire time within
 
 **Workspace and Team resolution:** The CLI `cron create` command resolves the workspace the same way `codeterm workspace current` does — the calling tab's own workspace, then a validated `$CODETERM_WORKSPACE_ID`, then the focused workspace. A live Team caller's job inherits that Team unless `--no-team` is explicit. Override placement with `--workspace ID` or the membership-checked `--team ID`. Closing a workspace deletes its cron jobs, run history, and log directories. **Updating cron jobs:** Use `PUT /api/crons/:id` (CLI: `codeterm cron edit ID`) to modify a cron job in-place. Do NOT delete and recreate -- that loses run history and changes the ID. **Deleting a cron job** cascades: kills all running tabs/PTYs for that job, closes their tabs, and removes the entire log directory (`~/.codeterm/crons/<job_id>/`).
 
+**CLI.** Use Domios cron, never a provider's built-in scheduler: `codeterm cron create <meaningful-name> --schedule S --task T [--cwd P] [--once]`, then `cron list|edit|enable|disable|trigger|cancel|history|delete ID`. Name a cron by what it does, such as `review-todos`. Every run prompt gets the `codeterm cron complete --run-id UUID --summary "..."` instruction appended; completing the run closes its ephemeral run tab. Successful runs notify nobody; a spawn failure, the second consecutive failed run and an auto-disable do. The sidebar cron tree shows runs and the next fire time; clicking a finished run opens its log viewer.
+
 **Tauri events:** `cron-state-changed` on any cron CRUD operation; `cron-fired` when a cron fires, payload `{cron_id, run_id, tab_id, tab_id}`.
 
 ## Permission auto-confirm
@@ -204,4 +208,4 @@ Recurring schedules must contain exactly five fields and have a fire time within
 
 Service registration, health, usage, logs, and activity: `codeterm docs API-SERVICES`. Notifications and webhooks: `codeterm docs API-TABS`. Secret storage and updates: `codeterm docs API-STATE`.
 
-<!-- revision: 25 -->
+<!-- revision: 32 -->

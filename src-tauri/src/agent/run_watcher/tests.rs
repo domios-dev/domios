@@ -456,6 +456,7 @@ fn cron_run_not_failed_before_own_launch_issued() {
         restart_count: AtomicU32::new(0),
         last_restart_at: Mutex::new(Instant::now()),
         resume_system_prompt: None,
+        cron_completion: Mutex::new(None),
     });
     fixture
         .service
@@ -516,7 +517,26 @@ fn idle_poll_stores_provider_prompt_without_notification() {
     );
     drop(mux);
 
-    assert!(fixture.service.notif.lock().list(false).is_empty());
+    let owner_notice_id = {
+        let notifications = fixture.service.notif.lock();
+        let open = notifications
+            .list(false)
+            .into_iter()
+            .filter(|notification| !notification.resolved)
+            .collect::<Vec<_>>();
+        assert_eq!(open.len(), 1, "one notice represents this pending prompt");
+        let notice = open[0];
+        assert_eq!(notice.tab_id.as_deref(), Some(tab_id.as_str()));
+        assert_eq!(
+            notice.condition,
+            Some(crate::notification::dedupe::TabCondition::PendingPrompt)
+        );
+        assert_eq!(
+            notice.level,
+            Some(crate::notification::push::NotifyLevel::ActionNeeded)
+        );
+        notice.id.clone()
+    };
 
     fixture
         .service
@@ -525,13 +545,19 @@ fn idle_poll_stores_provider_prompt_without_notification() {
             crate::multiplexer::types::TabCloseReason::AgentRunEnded,
         )
         .unwrap();
-    assert!(fixture.service.notif.lock().list(false).is_empty());
+    let notifications = fixture.service.notif.lock();
+    let notice = notifications
+        .notification(&owner_notice_id)
+        .expect("the resolved prompt notice remains auditable");
+    assert!(notice.resolved);
+    assert!(notice.read);
+    assert!(notice.actions.is_none());
 }
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn dead_cron_run_is_reaped_on_process_exit() {
-    use tauri::Manager as _;
+    use tauri::{Listener as _, Manager as _};
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let workspace_id = mux.find_workspace_for_tab(&tab_id).unwrap();
     let pty_id = "cron-process-exit-pty".to_string();
@@ -620,6 +646,7 @@ fn dead_cron_run_is_reaped_on_process_exit() {
         restart_count: AtomicU32::new(0),
         last_restart_at: parking_lot::Mutex::new(std::time::Instant::now()),
         resume_system_prompt: None,
+        cron_completion: Mutex::new(None),
     });
     fixture
         .service
@@ -628,11 +655,19 @@ fn dead_cron_run_is_reaped_on_process_exit() {
         .lock()
         .insert(pty_id.clone(), run.clone());
 
+    let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+    let listener = fixture._app.listen("cron-run-finished", move |_| {
+        let _ = finished_tx.send(());
+    });
     assert!(fixture.service.run_watcher.fail_cron_on_process_exit(
         &fixture.service,
         &pty_id,
         "process-exit-token".into(),
     ));
+    finished_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("process-exit settlement publishes the finished event");
+    fixture._app.unlisten(listener);
 
     assert!(run.completed.load(Ordering::Acquire));
     assert!(!fixture
@@ -703,6 +738,7 @@ fn dream_deadline_hook_finalizes_diary_on_hard_timeout() {
         restart_count: AtomicU32::new(0),
         last_restart_at: parking_lot::Mutex::new(std::time::Instant::now()),
         resume_system_prompt: None,
+        cron_completion: Mutex::new(None),
     };
 
     end_on_hard_timeout(svc, &run, 1800);
@@ -791,6 +827,7 @@ fn run_watcher_mem_worker_ends_on_pending_provider_prompt() {
         restart_count: AtomicU32::new(0),
         last_restart_at: Mutex::new(Instant::now()),
         resume_system_prompt: None,
+        cron_completion: Mutex::new(None),
     });
     svc.run_watcher
         .runs
@@ -845,9 +882,10 @@ fn run_watcher_mem_worker_busy_without_prompt_is_untouched() {
     assert!(!should_end_on_blocking_prompt(
         &kind,
         false,
-        Some(codeterm_types::pty::PromptKind::Provider)
+        Some(codeterm_types::pty::PromptKind::Provider),
+        false
     ));
-    assert!(!should_end_on_blocking_prompt(&kind, false, None));
+    assert!(!should_end_on_blocking_prompt(&kind, false, None, false));
 }
 
 #[test]
@@ -858,7 +896,8 @@ fn run_watcher_mem_worker_ends_on_pending_structured_prompt() {
     assert!(should_end_on_blocking_prompt(
         &kind,
         true,
-        Some(codeterm_types::pty::PromptKind::Structured)
+        Some(codeterm_types::pty::PromptKind::Structured),
+        false
     ));
 }
 
@@ -870,12 +909,20 @@ fn run_watcher_mem_worker_directory_trust_prompt_ends_run() {
     assert!(should_end_on_blocking_prompt(
         &kind,
         false,
-        Some(codeterm_types::pty::PromptKind::DirectoryTrust)
+        Some(codeterm_types::pty::PromptKind::DirectoryTrust),
+        false
+    ));
+    assert!(!should_end_on_blocking_prompt(
+        &kind,
+        false,
+        Some(codeterm_types::pty::PromptKind::DirectoryTrust),
+        true
     ));
     assert!(!should_end_on_blocking_prompt(
         &kind,
         true,
-        Some(codeterm_types::pty::PromptKind::ManualUpdate)
+        Some(codeterm_types::pty::PromptKind::ManualUpdate),
+        false
     ));
 }
 
@@ -962,6 +1009,7 @@ fn run_watcher_mem_worker_ends_on_unanswered_folder_trust() {
         restart_count: AtomicU32::new(0),
         last_restart_at: Mutex::new(Instant::now()),
         resume_system_prompt: None,
+        cron_completion: Mutex::new(None),
     });
     svc.run_watcher
         .runs
@@ -1013,17 +1061,20 @@ fn run_watcher_non_mem_worker_with_prompt_is_untouched() {
     assert!(!should_end_on_blocking_prompt(
         &kind,
         true,
-        Some(codeterm_types::pty::PromptKind::Provider)
+        Some(codeterm_types::pty::PromptKind::Provider),
+        false
     ));
     assert!(!should_end_on_blocking_prompt(
         &kind,
         true,
-        Some(codeterm_types::pty::PromptKind::Structured)
+        Some(codeterm_types::pty::PromptKind::Structured),
+        false
     ));
     assert!(!should_end_on_blocking_prompt(
         &kind,
         true,
-        Some(codeterm_types::pty::PromptKind::DirectoryTrust)
+        Some(codeterm_types::pty::PromptKind::DirectoryTrust),
+        false
     ));
 }
 
@@ -1036,7 +1087,8 @@ fn run_watcher_visible_tab_folder_trust_untouched() {
     assert!(!should_end_on_blocking_prompt(
         &kind,
         true,
-        Some(codeterm_types::pty::PromptKind::DirectoryTrust)
+        Some(codeterm_types::pty::PromptKind::DirectoryTrust),
+        false
     ));
 }
 
@@ -1058,6 +1110,7 @@ fn run_watcher_blocking_prompt_end_is_idempotent_with_hard_timeout() {
         restart_count: AtomicU32::new(0),
         last_restart_at: Mutex::new(Instant::now()),
         resume_system_prompt: None,
+        cron_completion: Mutex::new(None),
     };
 
     assert!(claim_run_end(&run));

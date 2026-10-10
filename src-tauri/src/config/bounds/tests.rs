@@ -1,0 +1,194 @@
+use super::*;
+
+#[test]
+fn config_bounds_table_enforced() {
+    let mut defaults = serde_json::to_value(AppConfig::default()).unwrap();
+    defaults["notifications"]["channels"]["test"] = serde_json::json!({"per_scope_limit": 12});
+    for bound in CONFIG_BOUNDS {
+        let values = values_at_path(&defaults, bound.path);
+        assert!(!values.is_empty(), "bound path is missing: {}", bound.path);
+        for value in values {
+            validate_bound(bound, value)
+                .unwrap_or_else(|error| panic!("default config violates {}: {error}", bound.path));
+        }
+        match bound.kind {
+            ValueKind::Integer | ValueKind::OptionalInteger | ValueKind::Number => {
+                assert!(bound.min.is_some());
+                assert!(bound.max.is_some());
+            }
+            ValueKind::Enum(values) => assert!(!values.is_empty()),
+        }
+    }
+
+    let mut config = AppConfig::default();
+    config.font.size = 0;
+    let error = validate_app_config(&config).unwrap_err();
+    assert!(error.contains("font.size"));
+    assert!(error.contains("8..=72"));
+
+    config = AppConfig::default();
+    config.font.size = 99999;
+    let error = validate_app_config(&config).unwrap_err();
+    assert!(error.contains("font.size"));
+    assert!(error.contains("8..=72"));
+
+    config = AppConfig::default();
+    config.integrations.text_hooks.fallback_on_error = "ignore".into();
+    let error = validate_app_config(&config).unwrap_err();
+    assert!(error.contains("integrations.text_hooks.fallback_on_error"));
+    assert!(error.contains("forward, drop"));
+
+    config = AppConfig::default();
+    config.agent.poll_interval_ms = 0;
+    let error = validate_app_config(&config).unwrap_err();
+    assert!(error.contains("agent.poll_interval_ms"));
+    assert!(error.contains("100..=60000"));
+
+    config = AppConfig::default();
+    config.memory.workers_per_provider = 0;
+    let error = validate_app_config(&config).unwrap_err();
+    assert!(error.contains("memory.workers_per_provider"));
+    assert!(error.contains("1..=16"));
+
+    let error = validate_config_text("[font]\nsize = 0\n").unwrap_err();
+    assert!(error.contains("font.size"));
+    assert!(error.contains("8..=72"));
+
+    let mut value = defaults;
+    value["font"]["family"] = serde_json::Value::String("x".repeat(MAX_CONFIG_STRING_BYTES + 1));
+    assert!(validate_config_value(&value)
+        .unwrap_err()
+        .contains("65536 UTF-8 bytes"));
+
+    let mut value = serde_json::to_value(AppConfig::default()).unwrap();
+    value["font"]["family"] = serde_json::Value::String("raw\u{1b}escape".into());
+    assert!(validate_config_value(&value)
+        .unwrap_err()
+        .contains("control character"));
+}
+
+#[test]
+fn supporter_bounds_reject_out_of_range() {
+    type Set = fn(&mut AppConfig);
+    let cases: [(&str, Set, Set); 6] = [
+        (
+            "supporter.memory_rerank.sources.recall",
+            |c| c.supporter.memory_rerank.sources.recall = 0,
+            |c| c.supporter.memory_rerank.sources.recall = 51,
+        ),
+        (
+            "supporter.memory_rerank.max_concurrency",
+            |c| c.supporter.memory_rerank.max_concurrency = 0,
+            |c| c.supporter.memory_rerank.max_concurrency = 33,
+        ),
+        (
+            "supporter.deadline_ms",
+            |c| c.supporter.deadline_ms = 99,
+            |c| c.supporter.deadline_ms = 30_001,
+        ),
+        (
+            "supporter.memory_rerank.candidates",
+            |c| c.supporter.memory_rerank.candidates = 0,
+            |c| c.supporter.memory_rerank.candidates = 51,
+        ),
+        (
+            "supporter.memory_rerank.low_confidence_threshold",
+            |c| c.supporter.memory_rerank.low_confidence_threshold = -0.01,
+            |c| c.supporter.memory_rerank.low_confidence_threshold = 1.01,
+        ),
+        (
+            "supporter.memory_rerank.max_body_chars",
+            |c| c.supporter.memory_rerank.max_body_chars = 255,
+            |c| c.supporter.memory_rerank.max_body_chars = 100_001,
+        ),
+    ];
+    for (path, below, above) in cases {
+        for set in [below, above] {
+            let mut config = AppConfig::default();
+            set(&mut config);
+            let error = validate_app_config(&config).unwrap_err();
+            assert!(error.contains(path), "{path}: {error}");
+        }
+    }
+
+    let mut config = AppConfig::default();
+    config.supporter.memory_rerank.sources.graph = 21;
+    let error = validate_app_config(&config).unwrap_err();
+    assert!(
+        error.contains("supporter.memory_rerank.sources.graph"),
+        "{error}"
+    );
+    config = AppConfig::default();
+    config.supporter.memory_rerank.sources.docs = 11;
+    let error = validate_app_config(&config).unwrap_err();
+    assert!(
+        error.contains("supporter.memory_rerank.sources.docs"),
+        "{error}"
+    );
+    config = AppConfig::default();
+    config.supporter.memory_rerank.sources.sessions = 6;
+    let error = validate_app_config(&config).unwrap_err();
+    assert!(
+        error.contains("supporter.memory_rerank.sources.sessions"),
+        "{error}"
+    );
+
+    let mut edges = AppConfig::default();
+    edges.supporter.memory_rerank.sources.recall = 50;
+    edges.supporter.memory_rerank.sources.graph = 20;
+    edges.supporter.memory_rerank.sources.docs = 10;
+    edges.supporter.memory_rerank.sources.sessions = 5;
+    edges.supporter.memory_rerank.max_concurrency = 1;
+    edges.supporter.deadline_ms = 100;
+    edges.supporter.memory_rerank.candidates = 50;
+    edges.supporter.memory_rerank.low_confidence_threshold = 1.0;
+    edges.supporter.memory_rerank.max_body_chars = 256;
+    validate_app_config(&edges).unwrap();
+
+    let error =
+        validate_config_text("[supporter.memory_rerank.sources]\nrecall = 0\n").unwrap_err();
+    assert!(error.contains("supporter.memory_rerank.sources.recall"));
+    validate_config_text("[supporter.memory_rerank.sources]\ngraph = 0\n").unwrap();
+    validate_config_text("[supporter.memory_rerank.sources]\ndocs = 0\n").unwrap();
+    validate_config_text("[supporter.memory_rerank.sources]\nsessions = 0\n").unwrap();
+    validate_config_text("[supporter.memory_rerank.sources]\nsessions = 5\n").unwrap();
+}
+
+#[test]
+fn supporter_calls_per_hour_bounds() {
+    for cap in [100001] {
+        let mut config = AppConfig::default();
+        config.supporter.calls_per_hour = Some(cap);
+        assert!(validate_app_config(&config)
+            .unwrap_err()
+            .contains("supporter.calls_per_hour"));
+    }
+    for cap in [0, 1, 600, 100000] {
+        let mut config = AppConfig::default();
+        config.supporter.calls_per_hour = Some(cap);
+        validate_app_config(&config).unwrap();
+    }
+}
+
+#[test]
+fn supporter_optional_cap_accepts_absent_null_and_zero() {
+    validate_app_config(&AppConfig::default()).unwrap();
+    for value in [
+        serde_json::Value::Null,
+        serde_json::json!(0),
+        serde_json::json!(100000),
+    ] {
+        validate_config_value(&serde_json::json!({ "supporter": { "calls_per_hour": value } }))
+            .unwrap();
+    }
+    for value in [
+        serde_json::json!(-1),
+        serde_json::json!(1.5),
+        serde_json::json!(100001),
+    ] {
+        assert!(validate_config_value(
+            &serde_json::json!({ "supporter": { "calls_per_hour": value } })
+        )
+        .is_err());
+    }
+}

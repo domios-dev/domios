@@ -50,6 +50,11 @@ let cachedHeadSha: string | undefined;
 /** The commit under test. Memoised: a run is about exactly one HEAD. */
 export function testedHeadSha(): string {
   if (cachedHeadSha) return cachedHeadSha;
+  const pinned = process.env.PW_SWITCH_DEV_SHA;
+  if (pinned && process.env.PW_TARGET === "dev" && process.env.PW_SWITCH_PROJECT_SELECTED === "1") {
+    if (!/^[0-9a-f]{40}$/.test(pinned)) throw new Error("PW_SWITCH_DEV_SHA must pin a full DEV commit SHA");
+    return (cachedHeadSha = pinned);
+  }
   let output: string;
   try {
     output = execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT, encoding: "utf8" }).trim();
@@ -655,17 +660,19 @@ export async function waitForServiceWorkerControl(page: Page): Promise<void> {
   );
 }
 
-async function waitForShellOnce(page: Page): Promise<void> {
+async function waitForShellOnce(page: Page, manageAppState: boolean): Promise<void> {
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
   await waitForServiceWorkerControl(page);
-  await page.evaluate(() => {
-    try {
-      localStorage.removeItem("codeterm-chat-ui-default-enabled");
-    } catch {
-      /* localStorage may be unavailable; tests that need it will surface it */
-    }
-  });
-  await completeFirstRunPickerIfPresent(page);
+  if (manageAppState) {
+    await page.evaluate(() => {
+      try {
+        localStorage.removeItem("codeterm-chat-ui-default-enabled");
+      } catch {
+        /* localStorage may be unavailable; tests that need it will surface it */
+      }
+    });
+    await completeFirstRunPickerIfPresent(page);
+  }
   await page
     .waitForSelector('.xterm:visible, [data-testid="chat-composer"]:visible', {
       state: "visible",
@@ -673,17 +680,20 @@ async function waitForShellOnce(page: Page): Promise<void> {
     });
 }
 
-async function waitForShell(page: Page): Promise<void> {
+async function waitForShell(page: Page, manageAppState: boolean): Promise<void> {
   try {
-    await waitForShellOnce(page);
+    await waitForShellOnce(page, manageAppState);
   } catch (e) {
     if (!/Execution context was destroyed|Target closed/.test(String(e))) throw e;
     await page.waitForLoadState("domcontentloaded");
-    await waitForShellOnce(page);
+    await waitForShellOnce(page, manageAppState);
   }
 }
 
-async function connectDesktopUi(instance: DevInstance): Promise<UiSession> {
+async function connectDesktopUi(
+  instance: DevInstance,
+  preserveAppState: boolean,
+): Promise<UiSession> {
   const browser = await chromium.connectOverCDP(instance.cdpBase);
   const pages = browser.contexts().flatMap((c) => c.pages()).filter((p) => !p.isClosed());
   const page =
@@ -694,16 +704,18 @@ async function connectDesktopUi(instance: DevInstance): Promise<UiSession> {
     })();
   // xterm a11y text layers (the DOM-oracle surface) are runtime-gated by
   // ?a11y — force it so oracles never depend on vite env plumbing.
-  try {
-    const url = new URL(page.url());
-    if (!url.searchParams.has("e2e")) {
-      url.searchParams.set("e2e", "1");
-      await page.goto(url.toString(), { waitUntil: "domcontentloaded" });
+  if (!preserveAppState) {
+    try {
+      const url = new URL(page.url());
+      if (!url.searchParams.has("e2e")) {
+        url.searchParams.set("e2e", "1");
+        await page.goto(url.toString(), { waitUntil: "domcontentloaded" });
+      }
+    } catch {
+      /* non-URL page (about:blank) — waitForShell will surface real problems */
     }
-  } catch {
-    /* non-URL page (about:blank) — waitForShell will surface real problems */
   }
-  await waitForShell(page);
+  await waitForShell(page, !preserveAppState);
   return { browser, page };
 }
 
@@ -721,28 +733,39 @@ async function connectWebUi(instance: DevInstance): Promise<UiSession> {
     }
   }, token);
   await page.goto(`${instance.webUrl}?e2e=1#token=${encodeURIComponent(token)}`, { waitUntil: "domcontentloaded" });
-  await waitForShell(page);
+  await waitForShell(page, true);
   return { browser, page };
 }
 
 /** Attach to the running dev console window over CDP and wait until the
  * shell has actually rendered — on a cold start the WebView is up while
  * Vite is still compiling, so the page can be blank for many seconds. */
-export async function connectUi(instance = currentDevInstance()): Promise<UiSession> {
+export async function connectUi(
+  instance = currentDevInstance(),
+  options: { safeAttach?: boolean } = {},
+): Promise<UiSession> {
+  const safeAttach = options.safeAttach ?? false;
   let lastError: unknown;
   for (let attempt = 1; attempt <= 3; attempt++) {
     let browser: Browser | undefined;
     try {
-      await ensureDevConsole(instance);
+      if (safeAttach) await assertReusableDevConsole(instance);
+      else await ensureDevConsole(instance);
       const session =
-        process.platform === "win32" ? await connectDesktopUi(instance) : await connectWebUi(instance);
+        process.platform === "win32" || safeAttach
+          ? await connectDesktopUi(instance, safeAttach)
+          : await connectWebUi(instance);
       browser = session.browser;
       return session;
     } catch (e) {
       lastError = e;
       await browser?.close().catch(() => {});
       const msg = String(e);
-      if (!/Target page|context or browser has been closed|no page exposed/.test(msg) || attempt === 3) {
+      if (
+        safeAttach ||
+        !/Target page|context or browser has been closed|no page exposed/.test(msg) ||
+        attempt === 3
+      ) {
         throw e;
       }
       killDevConsole(instance);

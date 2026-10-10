@@ -11,6 +11,7 @@ pub const STALE_REVIEW_LABEL: &str = "stale-review";
 pub const STALE_UNSTAFFED_LABEL: &str = "stale-unstaffed";
 pub const TAB_GONE_LABEL: &str = "tab-gone";
 pub const TEAM_CLOSED_LABEL: &str = "team-closed";
+pub const REPORT_TARGET_WRITE_GRACE_MS: u64 = 30_000;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AgedOpenTask {
@@ -33,15 +34,28 @@ pub fn stale_threshold_ms(status: &TaskStatus) -> Option<u64> {
     }
 }
 
-// Open tasks that have idled past their status threshold, newest drift first.
+pub fn active_review_hold_note(task: &Task) -> Option<&str> {
+    if task.status != TaskStatus::InReview {
+        return None;
+    }
+    let latest = task.review_evidence.last()?;
+    (latest.verdict == crate::plan::ReviewVerdict::Hold
+        && latest.at >= task.status_changed_at
+        && !latest.note.trim().is_empty())
+    .then_some(latest.note.as_str())
+}
+
 pub fn aged_open_tasks(plan: &Plan, now_ms: u64) -> Vec<AgedOpenTask> {
     let mut aged: Vec<AgedOpenTask> = plan
         .tasks
         .iter()
-        .filter(|task| task.status.counts_as_open_work())
+        .filter(|task| task.status.counts_as_open_work() && active_review_hold_note(task).is_none())
         .filter_map(|task| {
             let projection = task_projection(plan, task);
-            if projection.presentation == TaskPresentation::WaitingOnDependencies {
+            if matches!(
+                projection.presentation,
+                TaskPresentation::WaitingOnDependencies | TaskPresentation::ParkedForLaterGroup
+            ) {
                 return None;
             }
             let threshold = stale_threshold_ms(&task.status)?;
@@ -118,6 +132,7 @@ impl ReconcileConfig {
 pub enum DriftKind {
     InProgressTabGone,
     StaleInReview,
+    ReportTargetWriteMissing,
     StalePendingUnstaffed,
     BoundToClosedTab,
     AcceptedButNotDone,
@@ -186,6 +201,7 @@ where
         }
 
         if task.status == TaskStatus::InReview
+            && active_review_hold_note(task).is_none()
             && task.status_changed_at > 0
             && config.now_ms.saturating_sub(task.status_changed_at) > config.stale_review_ms
         {
@@ -200,6 +216,47 @@ where
                 STALE_REVIEW_LABEL,
                 not_mine,
             ));
+        }
+
+        if task.status == TaskStatus::InReview {
+            for attempt in task.execution_attempts.iter().filter(|attempt| {
+                attempt.closed_at.is_none()
+                    && attempt
+                        .report
+                        .as_ref()
+                        .and_then(|report| report.status.as_deref())
+                        == Some("in_review")
+                    && attempt.report_target_written_at.is_none()
+                    && attempt.reported_at.is_some_and(|reported_at| {
+                        config.now_ms.saturating_sub(reported_at) > REPORT_TARGET_WRITE_GRACE_MS
+                    })
+            }) {
+                let target_tab = [
+                    attempt.parent_tab_id.as_deref(),
+                    attempt.orchestrator_tab_id.as_deref(),
+                    plan.owner.tab_id.as_deref(),
+                ]
+                .into_iter()
+                .flatten()
+                .map(str::trim)
+                .find(|tab_id| !tab_id.is_empty());
+                if let Some(target_tab) = target_tab {
+                    let age_ms = config
+                        .now_ms
+                        .saturating_sub(attempt.reported_at.unwrap_or_default());
+                    items.push(item(
+                        plan,
+                        task,
+                        DriftKind::ReportTargetWriteMissing,
+                        format!(
+                            "in_review report for attempt {} was not written to target tab {} after {} ms",
+                            attempt.id, target_tab, age_ms
+                        ),
+                        &format!("deliver the report to tab {target_tab}"),
+                        not_mine,
+                    ));
+                }
+            }
         }
 
         if task.status == TaskStatus::Pending
@@ -396,10 +453,14 @@ fn item(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plan::{OrchestratorRef, Plan, Task, TaskPriority, TaskStatus};
+    use crate::plan::{
+        OrchestratorRef, Plan, Task, TaskExecutionAttempt, TaskExecutionReportSnapshot, TaskGroup,
+        TaskPriority, TaskStatus,
+    };
 
     fn task(id: &str, status: TaskStatus) -> Task {
         Task {
+            files: Default::default(),
             id: id.into(),
             name: id.into(),
             kind: "implement".into(),
@@ -484,12 +545,84 @@ mod tests {
     }
 
     #[test]
+    fn review_hold_cleared_by_state_change_or_later_verdict() {
+        let mut held = task("held", TaskStatus::InReview);
+        held.status_changed_at = 10;
+        held.review_evidence.push(crate::plan::ReviewEvidence {
+            id: "hold".into(),
+            from: crate::plan::AgentRef::default(),
+            verdict: crate::plan::ReviewVerdict::Hold,
+            note: "fixture-note".into(),
+            at: 20,
+            changed_executable_surfaces: false,
+            distinct_oracle: false,
+        });
+        assert_eq!(active_review_hold_note(&held), Some("fixture-note"));
+        held.status = TaskStatus::InProgress;
+        assert_eq!(active_review_hold_note(&held), None);
+        held.status = TaskStatus::InReview;
+        held.status_changed_at = 30;
+        assert_eq!(active_review_hold_note(&held), None);
+        held.status_changed_at = 10;
+        let mut later = held.review_evidence[0].clone();
+        later.at = 25;
+        later.verdict = crate::plan::ReviewVerdict::Accept;
+        held.review_evidence.push(later);
+        assert_eq!(active_review_hold_note(&held), None);
+        held.review_evidence.last_mut().unwrap().verdict = crate::plan::ReviewVerdict::Bounce;
+        assert_eq!(active_review_hold_note(&held), None);
+    }
+
+    #[test]
     fn detects_stale_in_review() {
         let mut t = task("t1", TaskStatus::InReview);
         t.status_changed_at = 1;
         let items = detect_plan_drift(&plan(vec![t]), &cfg(2_500), |_| TabProbe::default());
         assert_eq!(items[0].kind, DriftKind::StaleInReview);
         assert_eq!(items[0].suggested_fix, STALE_REVIEW_LABEL);
+    }
+
+    #[test]
+    fn report_delivery_is_drift_until_written() {
+        let now_ms = REPORT_TARGET_WRITE_GRACE_MS + 101;
+        let mut review = task("t1", TaskStatus::InReview);
+        review.status_changed_at = now_ms;
+        review.execution_attempts.push(TaskExecutionAttempt {
+            id: "attempt-1".into(),
+            executor_tab_id: "worker".into(),
+            parent_tab_id: Some("target-tab".into()),
+            reported_at: Some(100),
+            report: Some(TaskExecutionReportSnapshot {
+                status: Some("in_review".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        let mut plan = plan(vec![review]);
+
+        let before_grace =
+            detect_plan_drift(&plan, &cfg(100 + REPORT_TARGET_WRITE_GRACE_MS), |_| {
+                TabProbe::default()
+            });
+        assert!(before_grace
+            .iter()
+            .all(|item| item.kind != DriftKind::ReportTargetWriteMissing));
+
+        let drift = detect_plan_drift(&plan, &cfg(now_ms), |_| TabProbe::default());
+        let item = drift
+            .iter()
+            .find(|item| item.kind == DriftKind::ReportTargetWriteMissing)
+            .unwrap();
+        assert_eq!(item.task_id, "t1");
+        assert!(item.detail.contains("attempt-1"));
+        assert!(item.detail.contains("target-tab"));
+
+        plan.tasks[0].execution_attempts[0].report_target_written_at = Some(now_ms);
+        assert!(
+            detect_plan_drift(&plan, &cfg(now_ms), |_| TabProbe::default())
+                .iter()
+                .all(|item| item.kind != DriftKind::ReportTargetWriteMissing)
+        );
     }
 
     #[test]
@@ -501,6 +634,43 @@ mod tests {
         assert!(items
             .iter()
             .any(|item| item.kind == DriftKind::StalePendingUnstaffed));
+    }
+
+    #[test]
+    fn later_group_pending_task_is_not_stale_drift() {
+        let mut active = task("active", TaskStatus::InProgress);
+        active.group = Some("release".into());
+        active.assigned_tab_id = Some("worker".into());
+        let mut later = task("later", TaskStatus::Pending);
+        later.group = Some("after-release".into());
+        later.status_changed_at = 1;
+        let mut plan = plan(vec![active, later]);
+        plan.task_groups = vec![
+            TaskGroup {
+                key: "release".into(),
+                label: "Release".into(),
+                color: None,
+            },
+            TaskGroup {
+                key: "after-release".into(),
+                label: "After release".into(),
+                color: None,
+            },
+        ];
+        let now = PENDING_UNSTAFFED_STALE_MS + 10;
+        let probe: fn(&str) -> TabProbe = |_| TabProbe {
+            exists: true,
+            live_agent: true,
+            ..Default::default()
+        };
+        let items = detect_plan_drift(&plan, &cfg(now), probe);
+
+        assert!(items.iter().all(|item| {
+            item.task_id != "later" || item.kind != DriftKind::StalePendingUnstaffed
+        }));
+        assert!(aged_open_tasks(&plan, now)
+            .iter()
+            .all(|item| item.task_id != "later"));
     }
 
     #[test]

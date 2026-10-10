@@ -250,14 +250,21 @@ impl MeshManager {
             paired_peers.len()
         );
 
-        let ident = identity::IdentityManager::new(identity, instance_name);
+        let mut manager = Self::in_memory(identity, instance_name, api_port);
+        manager.paired_peers = paired_peers;
+        manager.revocation_list = revocation_list;
+        manager.disk_persist = true;
+        manager
+    }
 
+    pub fn in_memory(identity: types::MeshIdentity, instance_name: String, api_port: u16) -> Self {
+        let ident = identity::IdentityManager::new(identity, instance_name);
         Self {
             ident,
             discovered_peers: HashMap::new(),
-            paired_peers,
+            paired_peers: HashMap::new(),
             pending_requests: HashMap::new(),
-            revocation_list,
+            revocation_list: RevocationList::default(),
             discovery_active: false,
             broadcast_active: false,
             broadcast_expires_at: None,
@@ -273,7 +280,7 @@ impl MeshManager {
             udp_started: false,
             local_http_healthy: true,
             ready_listeners: Vec::new(),
-            disk_persist: true,
+            disk_persist: false,
             seen_nonces: HashMap::new(),
             gossip_generations: HashMap::new(),
             gossip_tombstones: HashMap::new(),

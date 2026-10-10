@@ -27,10 +27,11 @@ cleanup() {
 trap cleanup EXIT
 
 start_fake() {
-  local id="$1" owner="$2" worktree="$3" duration="$4" result="$5"
+  local id="$1" owner="$2" worktree="$3" duration="$4" result="$5" instance="${6:-}"
   CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$CODETERM_BUILD_GATEWAY_FIXTURE_DIR" \
     CODETERM_BUILD_GATEWAY_POLL_SECS="$CODETERM_BUILD_GATEWAY_POLL_SECS" \
     CODETERM_GATEWAY_FAKE_EVENTS="$CODETERM_GATEWAY_FAKE_EVENTS" \
+    CODETERM_INSTANCE="$instance" \
     CT_BUILD_JOB_ID="$id" CODETERM_BUILD_OWNER_ID="$owner" \
     CODETERM_BUILD_WORKTREE_ID="$worktree" \
     ./build.sh gateway-fake "$id" "$duration" "$result" \
@@ -76,9 +77,15 @@ wait_for_active() {
 start_fake overlap-first owner-a worktree-a "wait:$TEST_ROOT/release-overlap" success
 first_pid=$STARTED_PID
 wait_for_active overlap-first "$TEST_ROOT/overlap-active.json"
-start_fake overlap-second owner-b worktree-b 0.5 success
+start_fake overlap-second owner-b worktree-b 0.5 success named-qa
 second_pid=$STARTED_PID
 wait_for_queue "$TEST_ROOT/overlap-status.json"
+grep -q 'Build gateway queued: instance=named-qa job=overlap-second behind job=overlap-first owner=owner-a' \
+  "$TEST_ROOT/overlap-second.stdout.log" || {
+    echo "named queued job did not report its active gateway owner" >&2
+    cat "$TEST_ROOT/overlap-second.stdout.log" >&2
+    exit 1
+  }
 
 node - <<'JS' "$TEST_ROOT/overlap-status.json"
 const status = require(process.argv[2]);

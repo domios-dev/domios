@@ -3,6 +3,11 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum MemAction {
+    /// Merge an area reversibly; use taxonomy to list areas and counts.
+    Area {
+        #[command(subcommand)]
+        action: MemAreaAction,
+    },
     /// Search across mem_items (FTS5 + hybrid scoring)
     #[command(alias = "recall")]
     Search {
@@ -28,7 +33,7 @@ pub enum MemAction {
         #[arg(long)]
         rerank: bool,
         /// Force Supporter Agent memory re-rank on or off for this search;
-        /// omitted, `[supporter.memory_rerank].enabled` decides.
+        /// omitted, a connected Supporter runs automatically.
         #[arg(long, value_enum, value_name = "on|off")]
         supporter: Option<SupporterMode>,
     },
@@ -39,6 +44,19 @@ pub enum MemAction {
     },
     /// Delete an item by id
     Delete { id: String },
+    /// Preview or purge retained raw PreCompact payloads for one already-deleted record
+    PurgePrecompact {
+        id: String,
+        /// Apply the previewed purge; default is read-only inventory
+        #[arg(long, requires = "verified_deleted")]
+        apply: bool,
+        /// Attest prior verification of this deleted record's original flush source, summary and tags
+        #[arg(long)]
+        verified_deleted: bool,
+        /// Rebuild SQLite free pages and truncate the current WAL after purge
+        #[arg(long, requires = "apply")]
+        vacuum: bool,
+    },
     /// Archive an item without deleting it; undo with `mem restore`.
     Archive {
         id: String,
@@ -123,14 +141,14 @@ pub enum MemAction {
         #[arg(long, allow_hyphen_values = true)]
         changed_by: Option<String>,
     },
-    /// Restore from the audit history. An archived or merged item gets its
+    /// Undo an area merge, or restore from audit history. An archived item gets its
     /// prior kind back and its merge link invalidated (plus the --version body
     /// when given); otherwise reverts the body before the most recent change.
     Restore {
         /// Mem item id
         id: String,
-        /// History row id (from `mem history <id>`) to restore the body of.
-        /// Omit to undo the latest body change.
+        /// History row id from `mem history <id>`: undo its area merge or restore its body.
+        /// Omit to undo the latest area merge, archive, or body change.
         #[arg(long)]
         version: Option<i64>,
         /// Actor label for audit trail (defaults to "user").
@@ -315,16 +333,6 @@ pub enum MemAction {
     LearnList,
     /// Promote a learning to a fact (raises importance)
     LearnPromote { id: String },
-    /// Flush a tab's PTY scrollback as a kind=conversation mem_item
-    /// (called by PreCompact hook before context summarization).
-    Flush {
-        /// Tab id (default: $CODETERM_TAB_ID)
-        #[arg(long = "tab", value_name = "TAB")]
-        tab: Option<String>,
-        /// Optional title hint
-        #[arg(long)]
-        title: Option<String>,
-    },
     /// Trigger file sync for source-tracked items (Librarian)
     Sync {
         /// Sync one file by path
@@ -958,5 +966,17 @@ pub enum MemGraphAction {
         purge_history: bool,
         #[arg(long, default_value = "user")]
         actor: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MemAreaAction {
+    /// Move every item to another area, preserving scope and audit history.
+    Merge {
+        from: String,
+        #[arg(long)]
+        into: String,
+        #[arg(long)]
+        dry_run: bool,
     },
 }

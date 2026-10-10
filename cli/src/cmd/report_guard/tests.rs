@@ -2,6 +2,7 @@ use super::*;
 use crate::client::{RpcClient, SocketCallError};
 use crate::cmd::report_attribution::ReportBase;
 use std::fs;
+use std::path::PathBuf;
 use tempfile::TempDir;
 
 fn run(dir: &Path, args: &[&str]) {
@@ -16,6 +17,16 @@ fn run(dir: &Path, args: &[&str]) {
         args.join(" "),
         String::from_utf8_lossy(&out.stderr)
     );
+}
+
+fn head(dir: &Path) -> String {
+    let out = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
 fn repo() -> TempDir {
@@ -267,11 +278,15 @@ fn slash_ref_base_resolves_when_it_is_a_commit_ref() {
 fn stale_readiness_sha_is_refused() {
     let err = {
         let dir = repo();
+        let old_sha = head(dir.path());
+        fs::write(dir.path().join("README.md"), "new commit\n").unwrap();
+        run(dir.path(), &["add", "README.md"]);
+        run(dir.path(), &["commit", "-m", "new head"]);
         enrich_ready_report_in(
             dir.path(),
             Some(ReportStatusArg::InReview),
             None,
-            Some("deadbeef".into()),
+            Some(old_sha.clone()),
             None,
             None,
             false,
@@ -279,10 +294,37 @@ fn stale_readiness_sha_is_refused() {
         .unwrap_err()
     };
 
-    assert!(err
-        .message()
-        .contains("provided --sha deadbeef does not match HEAD"));
+    assert!(err.message().contains("does not match HEAD"));
     assert!(err.message().contains("--status partial"));
+}
+
+#[test]
+fn sha_outside_the_lane_does_not_claim_the_lane_head() {
+    let foreign = "0123456789abcdef0123456789abcdef01234567";
+    assert!(!lane_report_sha_is_stale(None, Some("lane-head")));
+    assert!(!lane_report_sha_is_stale(
+        Some("lane-head"),
+        Some("lane-head")
+    ));
+    assert!(lane_report_sha_is_stale(
+        Some("other-lane-commit"),
+        Some("lane-head")
+    ));
+
+    let dir = repo();
+    let (branch, reported, _) = enrich_ready_report_in(
+        dir.path(),
+        Some(ReportStatusArg::InReview),
+        None,
+        Some(foreign.into()),
+        None,
+        None,
+        false,
+    )
+    .expect("a commit from a task-declared repository is not compared to this lane");
+
+    assert_eq!(branch.as_deref(), Some("main"));
+    assert_eq!(reported.as_deref(), Some(foreign));
 }
 
 #[test]
@@ -328,7 +370,7 @@ fn partial_report_does_not_inspect_git() {
 }
 
 #[test]
-fn concurrent_foreign_head_advance_accepts_owned_sha() {
+fn lane_report_refuses_a_resolved_sha_after_lane_head_advances() {
     let dir = repo();
     let base = branch_head(dir.path());
     fs::write(dir.path().join("owned.txt"), "owned\n").unwrap();
@@ -339,7 +381,7 @@ fn concurrent_foreign_head_advance_accepts_owned_sha() {
     run(dir.path(), &["add", "foreign.txt"]);
     run(dir.path(), &["commit", "-m", "foreign"]);
 
-    let (_, reported, _) = enrich_ready_report_in(
+    let err = enrich_ready_report_in(
         dir.path(),
         Some(ReportStatusArg::InReview),
         None,
@@ -348,9 +390,9 @@ fn concurrent_foreign_head_advance_accepts_owned_sha() {
         None,
         false,
     )
-    .unwrap();
+    .unwrap_err();
 
-    assert_eq!(reported.as_deref(), Some(owned.as_str()));
+    assert!(err.message().contains("does not match HEAD"));
 }
 
 #[test]
@@ -361,9 +403,6 @@ fn shared_checkout_ignores_dirty_file_outside_owned_commit_paths() {
     run(dir.path(), &["add", "owned.txt"]);
     run(dir.path(), &["commit", "-m", "owned"]);
     let owned = branch_head(dir.path());
-    fs::write(dir.path().join("later.txt"), "foreign commit\n").unwrap();
-    run(dir.path(), &["add", "later.txt"]);
-    run(dir.path(), &["commit", "-m", "foreign"]);
     fs::write(dir.path().join("foreign.txt"), "foreign dirt\n").unwrap();
 
     let (_, reported, _) = enrich_ready_report_in(
@@ -444,9 +483,6 @@ fn dirty_owned_worktree_is_refused() {
     run(dir.path(), &["add", "owned.txt"]);
     run(dir.path(), &["commit", "-m", "owned"]);
     let owned = branch_head(dir.path());
-    fs::write(dir.path().join("foreign.txt"), "foreign\n").unwrap();
-    run(dir.path(), &["add", "foreign.txt"]);
-    run(dir.path(), &["commit", "-m", "foreign"]);
     fs::write(dir.path().join("owned.txt"), "dirty owned\n").unwrap();
 
     let err = enrich_ready_report_in(
@@ -626,12 +662,15 @@ fn dev_bound_lane_worktree_ignores_foreign_vision_outside_owned_interval() {
 }
 
 #[test]
-fn pane_cwd_head_is_never_accepted_as_the_lane_commit() {
+fn another_repository_sha_is_preserved_for_lane_readiness() {
     let (_lane_dir, lane, _base, _owned) = lane_worktree_with_owned_commit();
     let foreign = repo();
+    fs::write(foreign.path().join("plugin.ts"), "export {}\n").unwrap();
+    run(foreign.path(), &["add", "plugin.ts"]);
+    run(foreign.path(), &["commit", "-m", "plugin task commit"]);
     let foreign_head = branch_head(foreign.path());
 
-    let err = enrich_ready_report_in_scope(
+    let (branch, sha, _) = enrich_ready_report_in_scope(
         ReadinessScope {
             pane_cwd: foreign.path(),
             lane_worktree: Some(&lane),
@@ -639,14 +678,15 @@ fn pane_cwd_head_is_never_accepted_as_the_lane_commit() {
         },
         Some(ReportStatusArg::InReview),
         None,
-        Some(foreign_head),
+        Some(foreign_head.clone()),
         None,
         None,
         false,
     )
-    .expect_err("a commit that exists only in the pane cwd must never satisfy a lane report");
+    .expect("a commit from another task-declared repository is not compared to lane HEAD");
 
-    assert!(err.reason.contains("does not match HEAD"), "{}", err.reason);
+    assert_eq!(sha.as_deref(), Some(foreign_head.as_str()));
+    assert_eq!(branch.as_deref(), Some("lane/report"));
 }
 
 #[cfg(unix)]

@@ -128,6 +128,8 @@ console.log("\n--- task instructions launch ---\n");
   const cmd = p.buildLaunchCommand({ ...launch, task: hostileTask, args: ["--model", "gpt-5.5"] });
   eq((cmd.match(/-c check_for_update_on_startup=false/g) || []).length, 1,
     "Windows per-tab profile launch disables startup updates exactly once");
+  eq((cmd.match(/-c project_doc_max_bytes=65536/g) || []).length, 1,
+    "Windows per-tab profile launch raises the AGENTS.md read limit exactly once");
   assert(!cmd.includes("System.Web"), "Windows launch never references System.Web (PowerShell 7 has no .NET Framework assembly to load)");
   assert(!cmd.includes("JavaScriptSerializer"), "Windows launch never references JavaScriptSerializer (Framework-only type)");
   assert(cmd.includes("ConvertTo-Json -Compress"), "Windows serializes instructions with the built-in cmdlet available on both PowerShell editions");
@@ -138,7 +140,7 @@ console.log("\n--- task instructions launch ---\n");
   assert(cmd.includes("$ctInstanceId = 'instance-test';"), "Windows carries the writing instance into the profile");
   assert(cmd.includes("[System.IO.File]::WriteAllText($ctProfilePath,"), "Windows writes a temporary Codex profile");
   assert(cmd.includes("[System.Text.UTF8Encoding]::new($false)"), "Windows writes the profile as UTF-8 without a BOM that TOML parsers reject");
-  assert(cmd.includes("'# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine"), "the owner marker starts the TOML profile");
+  assert(cmd.includes("'# codeterm-instance: ' + $ctInstanceId + \"`n\""), "the owner marker uses an LF separator in the TOML profile");
   const profileValueAssignment = /'developer_instructions = ' \+ (\$\w+)\)/.exec(cmd);
   assert(!!profileValueAssignment, "the profile content assigns developer_instructions from a variable expression, not a bare literal");
   const jsonVarName = profileValueAssignment?.[1] ?? "";
@@ -205,7 +207,7 @@ console.log("\n--- non-Windows launch branch is unaffected by the Windows fix --
   const cmd = p.buildLaunchCommand({ task: "some task body", args: ["--model", "gpt-5.5"], starterPrompt: "no_starter" });
   eq(
     cmd,
-    'codex -c check_for_update_on_startup=false --model gpt-5.5 -c "developer_instructions=$(cat /tmp/codeterm-task.md)"',
+    'codex -c check_for_update_on_startup=false -c project_doc_max_bytes=65536 --model gpt-5.5 -c "developer_instructions=$(cat /tmp/codeterm-task.md)"',
     "the macOS/Linux launch line retains TUI animations",
   );
   assert(!cmd.includes("System.Web") && !cmd.includes("JavaScriptSerializer"), "non-Windows launch never carries the Windows-only serializer reference");
@@ -232,8 +234,9 @@ eq(plugin.meta.displayName, "Codex", "meta.displayName");
     "discoverModels", "buildLaunchCommand", "buildResumeCommand", "buildResumeCommandWithContext", "sessionFilePath", "sessionExists", "sessionJsonlPath",
     "parseSessionDelta", "detectSessionId", "checkIntegration", "installIntegration", "grantIntegrationTrust",
     "uninstallIntegration", "restoreIntegration", "ensureIntegrationOnStartup", "parseUsage", "fetchUsage",
-    "detectActiveSession", "enumerateSessions", "findSession", "folderTrustAnswered", "checkForUpdate", "isDirectoryTrusted", "detectSessionModel", "detectSessionReasoningEffort", "parseSessionMessages", "classifyTabState",
+    "detectActiveSession", "enumerateSessions", "findSession", "folderTrustAnswered", "checkForUpdate", "isDirectoryTrusted", "detectSessionModel", "detectSessionReasoningEffort", "parseSessionMessages", "parseSessionObservations", "classifyTabState",
     "detectLaunchSession", "releaseTabLaunchArtifacts", "sweepLaunchArtifacts", "classifiedPromptAutoResponse",
+    "updatePromptSafeChoice",
   ].sort();
   eq(Object.keys(loadHostPlugin()).sort(), expectedSurface, "plugin split preserves the exported API surface");
   assert(
@@ -724,7 +727,7 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
     },
   });
   const p = loadCodexWithHost(host);
-  const res = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
+  const res = p.installIntegration(7686, { consent: true });
   assert(!!res && res.ok === true, "installIntegration succeeds", JSON.stringify(res));
   const cmd = String(writtenJson?.hooks?.SessionStart?.[0]?.hooks?.[0]?.command ?? "");
   assert(
@@ -772,7 +775,7 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
   }));
   const denied = p.installIntegration(7686, { consent: false });
   assert(denied.ok === false && files.size === 1, "integration writes nothing before consent");
-  const installed = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
+  const installed = p.installIntegration(7686, { consent: true });
   assert(installed.ok === true, "consented integration install succeeds");
   eq(files.get(hooksPath + ".codeterm-backup"), original, "backup preserves original bytes");
   const merged = JSON.parse(files.get(hooksPath) || "{}");
@@ -804,7 +807,7 @@ for (const [name, fixture] of [
       removeFile: () => false,
     },
   }));
-  const result = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
+  const result = p.installIntegration(7686, { consent: true });
   assert(result.ok === false, `${name} hooks JSON is rejected`);
   eq(writes, 0, `${name} rejection has no side effects`);
   eq(files.get(hooksPath), fixture, `${name} input bytes remain unchanged`);

@@ -1,6 +1,6 @@
 ---
 name: dev-testing
-description: Test CodeTerm dev instance via API. Use when testing memory, GA interactions, skills, bootstrap, recall quality. Covers tab send, mem check, worker status, file verification.
+description: Test Domios dev instance via API. Use when testing memory, GA interactions, skills, bootstrap, recall quality. Covers tab send, mem check, worker status, file verification.
 ---
 
 # dev-testing

@@ -26,6 +26,7 @@ curl -X POST "http://host:7685/api/tabs/$TAB/exec" \
   -d '{"command": "echo hello", "timeout_ms": 5000}'
 # Response: {"output": "hello\r\n...", "offset": 1600, "exit_code": 0, "completion": "command_finished"}
 # Timeout is a failure: "completion": "timeout", "timeout": true
+# Front-truncated output adds "output_truncated": true
 ```
 
 ### SSE Output Stream
@@ -122,25 +123,26 @@ dispatch. No grace mode: update CLIs on all mesh peers with the daemon
 | `tab.send_text` | `{tab_id, text}` | Send text; returns sent only after confirmed delivery, pending when accepted in background or written without submit confirmation, and a structured pre-write refusal with `bytes_written:false` |
 | `tab.get_output` | `{tab_id, max_bytes?}` | Read terminal output |
 | `tab.rename` | `{tab_id, title}` | Rename tab (pinned) |
-| `mem.stats` | — | Memory item, vector, entity, and relation counts over the socket. |
-| `mem.search` | `{q, kind?, area?, scope?, project?, limit?, rerank?}` | Search memory and the optional project plan index over the socket. |
+| `mem.stats` | — | Item, vector, entity and relation counts. |
+| `mem.search` | `{q, kind?, area?, scope?, project?, limit?, rerank?}` | Search memory and optional project plan index. |
 | `mem.get` | `{id}` | Fetch one mem item by id. |
 | `mem.save` | `{kind, title, body, scope?, summary?, area?, tags?, importance?, source_path?, replace?, skip_extract?, pinned?}` | Create a mem item; may spawn an extraction worker. |
 | `mem.delete` | `{id}` | Delete a mem item by id. |
+| `mem.purge_precompact` | `{id, apply?, verified_deleted?, vacuum?}` | Local purge, preview by default; partial errors retain the report. |
 | `mem.forget` | `{area}` | Batch-delete every item in an area. |
-| `mem.update` | `{id, title?, summary?, area?, tags?, body?, importance?, pinned?, changed_by?}` | Partial update; also used for pin/unpin (`pinned: true/false`). |
+| `mem.update` | `{id, title?, summary?, area?, tags?, body?, importance?, pinned?, changed_by?}` | Partial update; `pinned` pins/unpins. |
 | `mem.pinned` | `{limit?}` | List pinned items |
-| `mem.append` | `{id, text, changed_by?}` | Append text to an item's body (non-destructive) |
-| `mem.restore` | `{id, version?, changed_by?}` | Restore a prior body, or an archived or merged item's kind (`codeterm docs API-MEMORY`). |
+| `mem.append` | `{id, text, changed_by?}` | Append to body. |
+| `mem.restore` | `{id, version?, changed_by?}` | Restore area, body or archived kind (API-MEMORY). |
 | `mem.merge` | `{keeper, lesser, body?, conflict?, changed_by?, worker_id?}` | Archive the lesser into the keeper; reversible. |
 | `mem.wake_up` | `{budget?, l0_only?, no_l0?, explain?, workspace?}` | L0+L1 wake-up context text. |
 | `mem.learn` | `{text, kind?, tags?}` | Capture a quick learning. |
 | `mem.learn_promote` | `{id}` | Promote a learning to a fact. |
-| `mem.flush` | `{tab, title?}` | Flush a tab's PTY scrollback into a `conversation` mem item. |
-| `mem.sync` | `{path?}` | Trigger file sync for source-tracked items (Librarian). |
+| `mem.sync` | `{path?}` | Sync source files (Librarian). |
 | `mem.reembed` | `{scope?}` | Re-embed mem items and/or graph entities. |
-| `mem.extract_pending` | `{limit?}` | Re-queue extraction workers for un-extracted items. |
+| `mem.extract_pending` | `{limit?}` | Queue un-extracted items. |
 | `mem.history` | `{id}` | Full audit trail for one item. |
+| `mem.area_merge` | `{from, into, dry_run?, worker_id?}` | Reversible area move (API-MEMORY). |
 | `mem.taxonomy` | `{workspace?}` | `{area -> {kind -> count}}` breakdown. |
 | `mem.tail` | `{since?, limit?}` | Recent mem writes, newest first. |
 | `mem.calibration.log` | `{since?, limit?, count?}` | Calibration audit log (importance/archive changes). |
@@ -189,7 +191,7 @@ dispatch. No grace mode: update CLIs on all mesh peers with the daemon
 | `agent.diagnostic` | `{tab_id, kind: "report_refused", message}` | Deliver a locally refused readiness report's reason and original text to its parent in the Worker’s report envelope, without persisting an attempt report or transitioning task status. |
 | `agent.ack` | `{tab_id, plan_id?, task_id?}` | A task-bound Worker acknowledges its live task attempt. The attempt assigned to `tab_id` is authoritative over optional plan/task fields. The ACK also resolves task startup supervision. |
 | `plan.review.authorize-reporter` | `{plan_id, reporter_tab_id, class, caller_tab_id, session_id, session_binding_nonce}` | Live Plan-owner grant of the `review` or `canonical_qa` plan-evidence capability to the target tab's exact current session/binding. The target must be live and task-less. |
-| `agent.restart` | `{tab_id, force?, grace_secs?}` | Restart the agent in a tab; resumes only when the recorded session is valid. |
+| `agent.restart` | `{tab_id, force?, grace_secs?}` | Restart the agent in a tab: resume a valid session, or fresh-launch from a confirmed bare shell; `session_action` is `resumed` or `fresh_launch`. |
 | `agent.startup_ack` | `{caller_tab_id, attempt_id, binding_nonce}` | A supervised non-task spawn acknowledges its startup turn while the caller still owns that PTY attempt and launch nonce. A current non-task caller with no armed startup waiter succeeds with `{accepted:false,state:"not_required"}`. A task-bound tab is refused with `codeterm agent ack` as its required command. |
 | `agent.startup_hold` | `{caller_tab_id, tab_id, attempt_id}` | Cancel automatic cleanup for one inspected startup attempt. Authority is the tuple `(creator_tab_id, team_id, child_tab_id, attempt_id)`: only the attempt's recorded creator may hold it, the child must still run that exact attempt, and a pair-leased attempt must still sit in its leased Team. No role bypasses this; a General Agent may hold only children it spawned. The result carries `authority: {creator_tab_id, child_tab_id, attempt_id, team_id}`; a refusal returns `-32603` whose `data` carries `{held:false, reason, caller_tab_id, child_tab_id, attempt_id, authority}` with `reason` one of `unknown_child_tab`, `no_supervised_attempt`, `creator_mismatch`, `attempt_replaced`, `team_mismatch`. |
 | `plan.task.attempts` | `{plan_id, task_id}` | List execution attempts for one plan task; each carries the requested and provider-resolved model ids, the bound session's `session_model` (null until detected), and `model_identity_mismatch` when the session reports a different model |
@@ -235,4 +237,4 @@ launch without a registered session remains the distinct
 `plan_binding_session_unregistered` error on both transports. Pending status
 never authorizes the mutation.
 
-<!-- revision: 45 -->
+<!-- revision: 52 -->

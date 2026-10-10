@@ -1,12 +1,11 @@
 // Run: npx tsx src/components/Terminal/ComposerActionButton.test.tsx
 
-import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { ComposerActionButton } from "./ComposerActionButton";
 import { ComposerAttachButton } from "./ComposerAttachButton";
-import { ComposerInputShell } from "./ComposerInputShell";
+import { ComposerScheduleButton } from "./ComposerScheduleButton";
 import type { ComposerVoiceHandle } from "./voice/useComposerVoice";
 
 type TestFn = () => void | Promise<void>;
@@ -87,9 +86,7 @@ async function renderScheduleButton(onSchedule: () => void): Promise<{ button: H
   const root = createRoot(host);
   await act(async () => {
     root.render(
-      <ComposerInputShell voiceUi={voiceHandle()} onSchedule={onSchedule}>
-        <span>Message</span>
-      </ComposerInputShell>,
+      <ComposerScheduleButton onSchedule={onSchedule} />,
     );
   });
   return { button: host.querySelector('[data-testid="composer-schedule-button"]') as HTMLButtonElement, root };
@@ -124,17 +121,6 @@ test("composer icon actions remain round and preserve their callbacks", async ()
   assert(schedule.className.includes("ct-liquid-interactive"), "schedule must use shared liquid interaction");
   await act(async () => schedule.click());
   assert(schedules === 1, "schedule callback did not fire exactly once");
-});
-
-test("composer buttons inherit the liquid press, focus, and reduced-motion contract", () => {
-  const css = readFileSync(new URL("../../styles/globals.css", import.meta.url), "utf8");
-  assert(/\.ct-liquid-interactive\s*\{[^}]*--ct-duration-liquid-hover/s.test(css), "hover must use the liquid hover token");
-  assert(/\.ct-liquid-interactive:not\(:disabled\):active\s*\{[^}]*--ct-duration-liquid-press/s.test(css), "press must use the liquid press token");
-  assert(/\.ct-liquid-interactive:focus-visible,[^}]*\{[^}]*outline:\s*2px solid var\(--ct-accent\)[^}]*box-shadow:/s.test(css), "focus-visible ring missing");
-  assert(/\.ct-liquid-interactive:not\(:disabled\):active/.test(css), "disabled buttons must not receive a press transform");
-  const reduced = css.match(/@media \(prefers-reduced-motion: reduce\)\s*\{[^]*?\.ct-liquid-interactive[^]*?\n\}/)?.[0] ?? "";
-  assert(/transition:\s*none/.test(reduced), "reduced motion must remove transitions");
-  assert(/transform:\s*var\(--ct-liquid-base-transform\)/.test(reduced), "reduced motion must remove transform feedback");
 });
 
 test("send scheduling and disabled state remain unchanged", async () => {

@@ -192,7 +192,7 @@ function startsMarkdownHtmlBlock(text: string, token: HtmlTagToken, fenced: Arra
 }
 
 /** Keep blank lines inside raw block HTML from terminating the CommonMark HTML block. */
-export function normalizeMultilineHtmlBlocks(text: string): string {
+export function normalizeMultilineHtmlBlocks(text: string, replaced?: (start: number, end: number) => void): string {
   if (!containsHtmlMarkup(text) || !/\r?\n[ \t]*\r?\n/.test(text)) return text;
   const fenced = fencedCodeRanges(text);
   const tokens = htmlTagTokens(text);
@@ -218,7 +218,10 @@ export function normalizeMultilineHtmlBlocks(text: string): string {
     const end = tokens[closingIndex].end;
     const block = text.slice(root.start, end);
     if (HTML_WHITESPACE_SENSITIVE_TAG.test(block)) continue;
-    const normalized = block.replace(/\r?\n[ \t]*\r?\n/g, "\n");
+    const normalized = block.replace(/\r?\n[ \t]*\r?\n/g, (match, offset: number) => {
+      replaced?.(root.start + offset, root.start + offset + match.length);
+      return "\n";
+    });
     if (normalized === block) continue;
     output += text.slice(cursor, root.start) + normalized;
     cursor = end;

@@ -17,29 +17,27 @@
  *
  * Fallback: the per-tab long-poll path stays behind `outputStreamEnabled()`
  * (localStorage `codeterm-web-output-stream` = "off").
- *
- * Relay: with a mesh relay target set the stream is byte-piped through the local
- * daemon's `/api/mesh/relay-stream` to the peer's own `/api/output/stream`
- * (D2 §3) — same frames, same cursor, no relay-specific loss.
  */
 import { apiHost, currentToken, IS_WEB, relayTarget } from "./webApi";
 import { onResync } from "./resync";
 import {
-  classifyTabTarget,
   onRemoteTransportCredentials,
   parseCompositeTabId,
   remoteTabTransportHttp,
 } from "./remoteTabTransport";
+import { remoteTabStreamPath, tabOutputRoute } from "./remoteTabRoute";
 import { publishRemoteTransportState } from "./remoteTabTransportState";
 import {
-  createRemoteChannelRecovery, createSilenceDeadline, REMOTE_SILENCE_TIMEOUT_MS,
+  createRemoteChannelRecovery, createSilenceDeadline, REMOTE_SILENCE_TIMEOUT_MS, streamResponseFailureReason,
   type RemoteChannelRecovery, type StreamEndReason,
 } from "./remoteChannelRecovery";
+import { DEV_BUILD } from "./devBuild";
 
 export interface TabOutputSink {
   onOutput(text: string): void;
   onTruncated(from: number): void;
   onEnded(): void;
+  onStreamError?(error: Error): void;
 }
 
 interface OutputFrame {
@@ -112,11 +110,12 @@ export function outputStreamEnabled(): boolean {
   }
 }
 
-/** True when this tab's output should come from the multiplexed stream.
- *  Relay targets now stream too (D2 §3): the local daemon byte-pipes the peer's
- *  own `/api/output/stream?since=`, so relayed cursors inherit no-loss (S2c). */
 export function webOutputStreamActive(): boolean {
-  return IS_WEB && outputStreamEnabled();
+  return webOutputTransportActive(IS_WEB, IS_WEB ? relayTarget()?.id ?? null : null, outputStreamEnabled());
+}
+
+export function webOutputTransportActive(isWeb: boolean, relayPeerId: string | null, enabled: boolean): boolean {
+  return isWeb && (relayPeerId !== null || enabled);
 }
 
 function sinceCursor(): string {
@@ -131,16 +130,9 @@ function sinceCursor(): string {
 
 function outputStreamUrl(): string {
   const cursor = sinceCursor();
-  const target = relayTarget();
-  if (target) {
-    const params = new URLSearchParams({
-      peer: target.id,
-      path: "/api/output/stream",
-      since: cursor,
-    });
-    return `${apiHost()}/api/mesh/relay-stream?${params.toString()}`;
-  }
-  return `${apiHost()}/api/output/stream?since=${cursor}`;
+  const url = `${apiHost()}/api/output/stream?since=${cursor}`;
+  if (DEV_BUILD) console.debug("[output-stream] local aggregate stream", { url });
+  return url;
 }
 
 function handleFrame(msg: OutputFrame): void {
@@ -190,6 +182,7 @@ function forceReconnect(): void {
 }
 
 async function runStream(): Promise<void> {
+  if (IS_WEB && relayTarget()) return;
   let backoffMs = 1_000;
   for (;;) {
     const abort = new AbortController();
@@ -224,8 +217,12 @@ async function runStream(): Promise<void> {
           }
         }
       }
-    } catch {
-      /* connection lost / aborted / reconnect-forced — retry below */
+    } catch (cause: unknown) {
+      if (!abort.signal.aborted) {
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        console.warn("[output-stream] local stream failed", error);
+        for (const set of sinks.values()) for (const sink of set) sink.onStreamError?.(error);
+      }
     }
     if (abort.signal.aborted && streamAbort !== abort) return; // superseded
     if (forceImmediateRetry) {
@@ -240,7 +237,7 @@ async function runStream(): Promise<void> {
 }
 
 function ensureStarted(): void {
-  if (started) return;
+  if (started || (IS_WEB && relayTarget())) return;
   started = true;
   // Small delay so simultaneous terminal mounts batch into one initial cursor.
   setTimeout(() => void runStream(), RECONNECT_DEBOUNCE_MS);
@@ -258,17 +255,8 @@ function ensureStarted(): void {
  * resume from the tracked offset (xterm is keep-alive, scrollback persists).
  */
 export function subscribeTabOutput(tabId: string, sink: TabOutputSink): () => void {
-  if (classifyTabTarget(tabId).kind === "invalid-remote") {
-    throw new Error(`Invalid remote tab id "${tabId}"; local output fallback is forbidden`);
-  }
-  const remote = parseCompositeTabId(tabId);
-  if (remote) return subscribeRemoteTabOutput(remote.ordinaryTabId, remote.peerId, sink);
-  const target = IS_WEB ? relayTarget() : null;
-  if (target) {
-    const scopedId = `mesh:${target.id}/${tabId}`;
-    if (!parseCompositeTabId(scopedId)) throw new Error(`Invalid remote tab id "${scopedId}"`);
-    return subscribeRemoteTabOutput(scopedId, target.id, sink);
-  }
+  const route = tabOutputRoute(tabId, IS_WEB ? relayTarget()?.id ?? null : null);
+  if (route) return subscribeRemoteTabOutput(`mesh:${route.peerId}/${route.tabId}`, route.peerId, sink);
   let set = sinks.get(tabId);
   if (!set) {
     set = new Set();
@@ -371,20 +359,21 @@ function openRemoteOutputConnection(ordinaryTabId: string, record: RemoteOutputR
   // Re-arm the silence deadline on every byte so a cursor-less connection cannot remain parked forever after a path drop.
   const deadline = createSilenceDeadline(record.recovery, generation, abort);
   deadline.arm();
-  const params = new URLSearchParams({
-    peer: record.peerId,
-    path: "/api/output/stream",
-    tab: ordinaryTabId,
-  });
   const cursor = record.recovery.currentCursor();
-  if (cursor?.boot) params.set("since", remoteOutputSinceCursor(remoteTabId, cursor.boot, cursor.offset));
+  const since = cursor?.boot ? remoteOutputSinceCursor(remoteTabId, cursor.boot, cursor.offset) : undefined;
+  const path = remoteTabStreamPath({ peerId: record.peerId, tabId: remoteTabId }, since);
+  if (DEV_BUILD) console.debug("[output-stream] remote tab stream", { ordinaryTabId, path, generation });
   const transport = remoteTabTransportHttp();
   let reason: StreamEndReason = "error";
-  void fetch(`${transport.base}/api/mesh/relay-stream?${params.toString()}`, {
+  void fetch(`${transport.base}${path}`, {
     headers: transport.token ? { Authorization: `Bearer ${transport.token}` } : {},
     signal: abort.signal,
   }).then(async (response) => {
-    if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) {
+      reason = streamResponseFailureReason(response.status);
+      throw new Error(`Output stream refused: HTTP ${response.status}`);
+    }
+    if (!response.body) throw new Error("Output stream has no body");
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -408,7 +397,12 @@ function openRemoteOutputConnection(ordinaryTabId: string, record: RemoteOutputR
       }
     }
     reason = "eof";
-  }).catch(() => undefined)
+  }).catch((cause: unknown) => {
+    if (abort.signal.aborted || !record.recovery.isCurrent(generation)) return;
+    const error = cause instanceof Error ? cause : new Error(String(cause));
+    console.warn("[output-stream] remote stream failed", { ordinaryTabId, generation, error });
+    for (const sink of remoteSinks.get(ordinaryTabId) ?? []) sink.onStreamError?.(error);
+  })
     .finally(() => {
       deadline.clear();
       finalizeRemoteOutputConnection(ordinaryTabId, record, generation, abort, reason);

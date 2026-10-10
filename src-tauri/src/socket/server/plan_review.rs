@@ -331,6 +331,7 @@ pub(super) fn dispatch(
         }
         "plan.review.bounce" => {
             let (plan_id, task_id) = super::plan_refs::resolve_task(store, params)?;
+            let from = authorized_orchestrator_actor(svc, &plan_id, p)?;
             if note(p).trim().is_empty() {
                 return Err(plan_rpc_err(PlanError::QaNoteRequired));
             }
@@ -349,7 +350,6 @@ pub(super) fn dispatch(
                     ));
                 }
             }
-            let from = actor(p);
             let (mut result, recorded) = store
                 .bounce_review_with_recorded_status(
                     &plan_id,
@@ -516,6 +516,9 @@ pub(super) fn dispatch(
 
 #[cfg(test)]
 mod authority_tests;
+
+#[cfg(test)]
+mod cleaned_runtime_tests;
 
 #[cfg(test)]
 mod tests {
@@ -752,6 +755,20 @@ mod tests {
         String,
     ) {
         let (mut mux, default_tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        let workspace_id = mux.list_workspaces()[0].id.clone();
+        let owner_tab_id = mux.create_tab(&workspace_id).unwrap();
+        mux.set_orchestrator_role(&owner_tab_id).unwrap();
+        let owner_team_id = mux
+            .resolve_or_mint_team_for_parent(&owner_tab_id)
+            .unwrap()
+            .team_id;
+        {
+            let owner = mux.get_tab_mut(&owner_tab_id).unwrap();
+            owner.agent_session_id = Some("review-owner-session".into());
+            owner.session_binding_nonce = Some("review-owner-nonce".into());
+            owner.reported_session_binding_nonce = Some("review-owner-nonce".into());
+            owner.team_id = Some(owner_team_id.clone());
+        }
         let worker_tab_id = if worker_present {
             let tab = mux.get_tab_mut(&default_tab_id).unwrap();
             tab.agent_type = Some("codex".into());
@@ -767,8 +784,13 @@ mod tests {
         let mut plan = Plan::new(
             "socket bounce".into(),
             fixture.temp.path().display().to_string(),
-            OrchestratorRef::from_tab("orch"),
+            OrchestratorRef {
+                tab_id: Some(owner_tab_id),
+                session_id: Some("review-owner-session".into()),
+                title: None,
+            },
         );
+        plan.team_id = Some(owner_team_id);
         store.save(&mut plan, 1).unwrap();
         let task_id = store
             .add_task(
@@ -815,11 +837,19 @@ mod tests {
         plan_id: &str,
         task_id: &str,
     ) -> Result<Value, JsonRpcError> {
+        let owner_tab_id = fixture
+            .service
+            .plan_store
+            .get(plan_id)
+            .and_then(|plan| plan.owner.tab_id)
+            .expect("fixture Plan owner");
         let params = Some(json!({
             "plan_id": plan_id,
             "task_id": task_id,
             "note": "retry the same lane",
-            "from": AgentRef::from_tab("reviewer"),
+            "caller_tab_id": owner_tab_id,
+            "session_id": "review-owner-session",
+            "session_binding_nonce": "review-owner-nonce",
         }));
         let app = fixture._app.handle().clone();
         let svc = std::sync::Arc::new(fixture.service.clone());

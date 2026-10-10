@@ -64,8 +64,11 @@ console.log("\n--- declared hook event roster (manifest data) ---\n");
     [
       { event: "SessionStart", route: "session_start" },
       { event: "Stop", route: "stop" },
+      { event: "turn/started", route: "session_state", verdict: "working" },
+      { event: "turn/completed", route: "session_state", verdict: "idle" },
+      { event: "serverRequest/pending", route: "session_state", verdict: "waiting" },
     ],
-    "manifest declares SessionStart + Stop as roster data",
+    "manifest declares session and RPC turn events as roster data",
   );
   eq(
     manifest.integration.trust_grant.managedKeys,
@@ -94,7 +97,7 @@ console.log("\n--- Stop hook install/uninstall ---\n");
     },
   }));
 
-  const installed = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
+  const installed = p.installIntegration(7686, { consent: true });
   assert(installed.ok === true, "install succeeds", JSON.stringify(installed));
   const merged = JSON.parse(files.get(hooksPath) || "{}");
   const stopEntries = merged.hooks.Stop as Array<{ hooks?: Array<{ command?: string }> }>;
@@ -144,7 +147,7 @@ console.log("\n--- Windows: one script posting the event name ---\n");
       removeFile: () => true,
     },
   }));
-  const res = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
+  const res = p.installIntegration(7686, { consent: true });
   assert(!!res && res.ok === true, "windows install succeeds", JSON.stringify(res));
   const scriptPaths = [...scripts.keys()].filter((k) => k.endsWith(".cmd"));
   eq(scriptPaths.length, 1, "exactly one hook script is written — never one per event");

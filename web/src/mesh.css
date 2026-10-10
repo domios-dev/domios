@@ -1,0 +1,116 @@
+.agent-network { position: relative; max-width: 1000px; margin: 97px auto 20px; text-align: left; }
+.mesh-desk { position: relative; height: 590px; isolation: isolate; contain: layout style; }
+.mesh-desk::before { content: ''; position: absolute; inset: 4% 0; pointer-events: none; background: radial-gradient(ellipse at 48% 48%, color-mix(in srgb, var(--ct-accent) 5%, transparent), transparent 64%); }
+.mesh-routes, .mesh-liquid { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.mesh-routes { z-index: 0; }
+.mesh-liquid { z-index: 3; }
+.mesh-channel { color: var(--ct-accent); }
+.channel-bed { stroke: currentColor; stroke-width: 8; opacity: .035; }
+.channel-thread { stroke: currentColor; stroke-width: 1; opacity: .2; }
+.channel-current { stroke: currentColor; stroke-width: 5; stroke-linecap: round; opacity: 0; }
+.channel-port { fill: var(--ct-bg); stroke: var(--ct-accent); stroke-width: 1.5; }
+.mesh-center { position: absolute; left: 44%; top: 49%; display: flex; flex-direction: column; gap: 5px; color: var(--ct-muted-fg); font-size: 11px; letter-spacing: -.15px; }
+.mesh-center > span:first-child { color: var(--ct-heading); font-size: 16px; letter-spacing: -.5px; }
+.machine-home { position: absolute; width: 25%; z-index: 1; --hardware-shell: color-mix(in srgb, var(--ct-surface) 52%, var(--ct-heading)); --hardware-edge: var(--ct-heading); --hardware-inset: color-mix(in srgb, var(--ct-bg) 56%, var(--ct-surface)); }
+.machine-body { position: relative; z-index: 1; overflow: hidden; padding: 0 15px 13px; border: 1px solid color-mix(in srgb, var(--ct-accent) 14%, var(--ct-border)); border-radius: 14px; background: var(--ct-surface); box-shadow: 0 16px 32px -22px #0005; }
+.machine-sheen { position: absolute; inset: 0; opacity: 0; pointer-events: none; border-radius: inherit; border: 1px solid var(--ct-accent); background: radial-gradient(ellipse at 80% 5%, color-mix(in srgb, var(--ct-accent) 18%, transparent), transparent 80%); }
+.machine-laptop { left: 2%; top: 60px; }
+.machine-workstation { left: 45%; top: 36px; }
+.machine-server { right: 2%; top: 324px; }
+.machine-cloud { left: 14%; top: 348px; }
+.machine-hardware { position: absolute; pointer-events: none; color: var(--hardware-edge); }
+.machine-hardware > span, .cloud-symbol { position: absolute; }
+.device-frame, .laptop-deck, .monitor-stand, .workstation-tower, .cloud-layer { border: 1px solid currentColor; background: var(--hardware-shell); }
+.hardware-laptop { inset: -12px -12px -34px; }
+.hardware-laptop .device-frame { inset: 0 4px 24px; border-radius: 19px 19px 7px 7px; box-shadow: inset 0 0 0 1px var(--hardware-inset); }
+.device-camera { top: 4px; left: calc(50% - 2px); width: 4px; height: 4px; border-radius: 50%; background: var(--ct-accent); }
+.laptop-deck { inset: auto 0 0; height: 24px; border-radius: 3px 3px 12px 12px; box-shadow: none; }
+.laptop-deck i { display: block; width: 26%; height: 6px; margin: -1px auto 0; border: 1px solid currentColor; border-top: 0; border-radius: 0 0 5px 5px; background: var(--hardware-inset); }
+.hardware-workstation { inset: -10px -48px -48px -10px; }
+.hardware-workstation .device-frame { inset: 0 38px 34px 0; border-radius: 17px 17px 9px 9px; box-shadow: inset 0 0 0 1px var(--hardware-inset); }
+.monitor-stand { bottom: 0; left: calc((100% - 38px) / 2 - 35px); width: 70px; height: 34px; border: 0; background: transparent; }
+.monitor-stand::before { content: ''; position: absolute; top: 0; bottom: 5px; left: 26px; width: 18px; background: var(--hardware-shell); border-inline: 1px solid currentColor; box-shadow: none; }
+.monitor-stand::after { content: ''; position: absolute; inset: auto 0 0; height: 7px; border: 1px solid currentColor; border-radius: 6px 6px 2px 2px; background: var(--hardware-shell); box-shadow: none; }
+.workstation-tower { right: 0; bottom: 10px; width: 29px; height: 102px; border-radius: 5px; padding: 11px 6px; box-shadow: none; }
+.workstation-tower i { display: block; height: 2px; margin-bottom: 5px; background: var(--hardware-edge); }
+.workstation-tower i:first-child { width: 4px; height: 4px; margin: 0 0 13px; border-radius: 50%; background: var(--ct-green); }
+.workstation-tower::after { content: ''; position: absolute; inset: auto 6px 10px; height: 24px; background: repeating-linear-gradient(to bottom, currentColor 0 1px, transparent 1px 4px); opacity: .55; }
+.hardware-server { inset: -12px -12px -44px; }
+.hardware-server .device-frame { inset: 0 0 8px; border-radius: 8px; box-shadow: none; }
+.server-bays { inset: auto 14px 16px; height: 22px; display: flex; gap: 5px; }
+.server-bays i { flex: 1; position: relative; border: 1px solid currentColor; border-radius: 3px; background: var(--hardware-inset); }
+.server-bays i::before { content: ''; position: absolute; top: 8px; left: 6px; width: 3px; height: 3px; border-radius: 50%; background: var(--ct-green); }
+.server-bays i::after { content: ''; position: absolute; top: 8px; left: 15px; right: 6px; height: 3px; border-block: 1px solid var(--hardware-edge); }
+.server-feet { inset: auto 17px 0; height: 8px; border-inline: 14px solid var(--hardware-edge); background: var(--hardware-inset); }
+.hardware-cloud { inset: -36px -12px -22px; }
+.hardware-cloud .device-frame { inset: 24px 0 8px; border-radius: 17px; border-style: dashed; background: color-mix(in srgb, var(--ct-accent) 4%, var(--ct-surface)); }
+.cloud-layer { inset: 34px 6px 0; border-radius: 17px; border-color: transparent; }
+.cloud-symbol { top: 0; right: 14px; width: 64px; height: 36px; stroke: var(--ct-accent); stroke-width: 1.25; stroke-linecap: round; }
+.cloud-symbol path:first-child { fill: var(--ct-bg); }
+.machine-heading { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 5px; height: 33px; margin-inline: -15px; padding-inline: 12px; border-bottom: 1px solid var(--hardware-edge); background: var(--hardware-inset); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ct-heading) 12%, transparent); font-size: 10px; letter-spacing: -.3px; }
+.machine-controls { display: flex; gap: 4px; }
+.machine-controls i { width: 6px; height: 6px; border-radius: 50%; background: #eb6b62; box-shadow: inset 0 0 0 1px #00000010; }
+.machine-controls i:nth-child(2) { background: #dfb452; }
+.machine-controls i:nth-child(3) { background: #66b97b; }
+.machine-title { display: flex; align-items: center; gap: 4px; }
+.machine-heading .brand-mark { width: 15px; height: 15px; }
+.machine-number { justify-self: end; color: var(--ct-muted-fg); font: 8px var(--ct-font-mono); }
+.machine-name { color: var(--ct-heading); font-size: 18px; letter-spacing: -.55px; margin-top: 12px; }
+.machine-kind { color: var(--ct-muted-fg); font: 8px var(--ct-font-mono); letter-spacing: .5px; margin-top: 5px; }
+.machine-agents { display: flex; gap: 6px; margin-top: 13px; }
+.machine-agent { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; padding: 6px 7px; border: 1px solid var(--ct-border); border-radius: 7px; background: var(--ct-bg); }
+.agent-name { display: flex; align-items: center; gap: 5px; font-size: 11px; }
+.agent-name i { width: 4px; height: 4px; border-radius: 50%; background: var(--ct-accent); }
+.agent-provider { display: flex; align-items: center; gap: 4px; color: var(--ct-muted-fg); font-size: 9px; white-space: nowrap; }
+.agent-logo { display: flex; align-items: center; justify-content: center; flex: 0 0 16px; height: 16px; }
+.agent-logo .provider-logo { display: block; width: 16px; height: 16px; object-fit: contain; flex: none; }
+.agent-logo .provider-logo[data-provider-logo="codex"] { width: 16px; height: 16px; padding: 2px; border-radius: 3px; background: #000; box-sizing: border-box; }
+.agent-logo .provider-logo[data-provider-logo="opencode"], .agent-logo .provider-logo[data-provider-logo="lmstudio"] { width: 100%; height: auto; max-height: 16px; }
+.agent-logo-dark { display: flex; }
+.agent-logo-light { display: none; }
+[data-theme="light"] .agent-logo-dark { display: none; }
+[data-theme="light"] .agent-logo-light { display: flex; }
+.agent-provider-name { min-width: 0; }
+.agent-provider:has([data-provider-logo="opencode"]) .agent-logo, .agent-provider:has([data-provider-logo="lmstudio"]) .agent-logo { flex-basis: 62px; }
+.agent-provider:has([data-provider-logo="opencode"]) .agent-provider-name, .agent-provider:has([data-provider-logo="lmstudio"]) .agent-provider-name { display: none; }
+.machine-agent:first-child { position: relative; }
+.machine-agent:first-child::after { content: ''; position: absolute; inset: -1px; border: 1px solid var(--ct-accent); border-radius: inherit; background: color-mix(in srgb, var(--ct-accent) 12%, transparent); opacity: var(--agent-energy, 0); pointer-events: none; }
+.machine-task { font-size: 10px; color: var(--ct-muted-fg); margin-top: 11px; }
+.liquid-transfer { color: var(--ct-accent); }
+.liquid-transfer[data-kind="report"] { color: var(--ct-magenta); }
+.liquid-neck, .liquid-drop > path, .liquid-satellite { fill: currentColor; }
+.liquid-glint { fill: var(--ct-bg); opacity: .42; }
+.liquid-ripple { stroke: currentColor; stroke-width: 1.5; }
+.liquid-label rect { fill: var(--ct-bg); stroke: currentColor; stroke-opacity: .22; }
+.liquid-label text { fill: currentColor; font: 10px var(--ct-font-mono); }
+@media (min-width: 651px) and (max-width: 900px) {
+  .agent-network { margin-top: 100px; }
+  .machine-home { width: 32%; }
+  .machine-laptop { left: 3%; }
+  .machine-workstation { left: 55%; }
+  .machine-server { right: 3%; }
+  .machine-cloud { left: 9%; }
+  .machine-body { padding-inline: 10px; }
+  .machine-heading { margin-inline: -10px; padding-inline: 10px; }
+  .machine-kind { font-size: 7px; }
+  .machine-task { font-size: 9px; }
+  .machine-agent { padding-inline: 5px; }
+  .agent-provider { gap: 3px; font-size: 8px; }
+  .mesh-center { left: 40%; }
+  .liquid-label text { font-size: 10px; }
+}
+@media (max-width: 650px) {
+  .agent-network { margin-top: 90px; }
+  .mesh-desk { height: 760px; }
+  .machine-home { width: min(76%, 290px); left: calc((100% - min(76%, 290px)) / 2); right: auto; }
+  .machine-body { padding-bottom: 12px; }
+  .machine-laptop { top: 42px; }
+  .machine-workstation { top: 278px; left: calc((100% - min(76%, 290px)) / 2 - 12px); }
+  .machine-server { top: 530px; }
+  .machine-cloud { display: none; }
+  .mesh-center { display: none; }
+  .machine-name { margin-top: 9px; font-size: 18px; }
+  .machine-agents { margin-top: 11px; }
+  .machine-task { display: none; }
+  .liquid-label text { font-size: 10px; }
+}

@@ -1,5 +1,7 @@
 use super::{extract_question_message, QuestionSubtype};
 
+mod prompt_line;
+
 fn lines(rows: &[&str]) -> Vec<String> {
     rows.iter().map(|row| (*row).to_string()).collect()
 }
@@ -793,8 +795,7 @@ fn skills_lint_warning_picker_question_classifies_unknown_subtype() {
 // notification admission cannot discriminate on subtype alone.
 #[test]
 fn coordination_envelope_picker_question_subtype_is_not_reliably_unknown() {
-    let envelope =
-        "-=-codeterm:tab label=Reviewer tab=166df18d model=gpt-5.6-sol-=-Coordination note only.";
+    let envelope = "<domios from=\"tab\" label=\"Reviewer\" tab=\"166df18d\" model=\"gpt-5.6-sol\">Coordination note only.</domios>";
     let screen = lines(&[envelope]);
     let mut input = quiescent_input(&screen);
     input.picker_question = Some(envelope);
@@ -802,7 +803,7 @@ fn coordination_envelope_picker_question_subtype_is_not_reliably_unknown() {
     assert_eq!(with_model.state, TimelineState::Question);
     assert_eq!(with_model.subtype, Some(QuestionSubtype::ModelPicker));
 
-    let plain_envelope = "-=-codeterm:report from=Worker tab=abc123-=-Task finished, see summary.";
+    let plain_envelope = "<domios from=\"report\" label=\"Worker\" tab=\"abc123\">Task finished, see summary.</domios>";
     let screen = lines(&[plain_envelope]);
     let mut input = quiescent_input(&screen);
     input.picker_question = Some(plain_envelope);

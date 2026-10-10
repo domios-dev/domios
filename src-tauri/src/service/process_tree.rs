@@ -16,6 +16,7 @@ struct ProcessEntry {
     pid: u32,
     parent_pid: u32,
     image_name: String,
+    argv0_basename: Option<String>,
 }
 
 /// Descendants of `root` (itself included), shallowest first.
@@ -43,9 +44,9 @@ fn tree_has_named_process(
         .into_iter()
         .map(|process| process.pid)
         .collect::<HashSet<_>>();
-    entries.iter().any(|entry| {
-        pids.contains(&entry.pid) && executable_names_match(&entry.image_name, expected_name)
-    })
+    entries
+        .iter()
+        .any(|entry| pids.contains(&entry.pid) && process_name_matches(entry, expected_name))
 }
 
 pub(crate) struct ProviderTreeWitnesses {
@@ -279,7 +280,7 @@ fn named_process_snapshot_from_entries(
             entries
                 .iter()
                 .find(|entry| entry.pid == process.pid)
-                .is_some_and(|entry| executable_names_match(&entry.image_name, expected_name))
+                .is_some_and(|entry| process_name_matches(entry, expected_name))
         })
         .map(|process| ProcessIdentity {
             pid: process.pid,
@@ -297,7 +298,7 @@ fn named_process_snapshot_from_entries(
     }) || entries.iter().any(|entry| {
         pids.contains(&entry.parent_pid)
             && !pids.contains(&entry.pid)
-            && executable_names_match(&entry.image_name, expected_name)
+            && process_name_matches(entry, expected_name)
             && start_time(entry.pid).is_none()
     }) {
         ProviderProcessTreeSnapshot::Unknown
@@ -317,6 +318,17 @@ fn tree_may_have_named_process(
         ProviderProcessTreeSnapshot::Absent
     )
 }
+
+fn process_name_matches(entry: &ProcessEntry, expected: &str) -> bool {
+    executable_names_match(&entry.image_name, expected)
+        || entry
+            .argv0_basename
+            .as_deref()
+            .is_some_and(|name| executable_names_match(name, expected))
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
+mod argv0;
 
 fn executable_names_match(actual: &str, expected: &str) -> bool {
     fn base(name: &str) -> &str {
@@ -396,6 +408,7 @@ mod platform {
             entries.push(ProcessEntry {
                 pid: entry.th32ProcessID,
                 parent_pid: entry.th32ParentProcessID,
+                argv0_basename: None,
                 image_name: {
                     let end = entry
                         .szExeFile
@@ -448,6 +461,9 @@ mod platform {
                 Some(ProcessEntry {
                     pid,
                     parent_pid,
+                    argv0_basename: std::fs::read(format!("/proc/{pid}/cmdline"))
+                        .ok()
+                        .and_then(|bytes| super::argv0::from_cmdline(&bytes)),
                     image_name: std::fs::read_to_string(format!("/proc/{pid}/comm"))
                         .ok()
                         .map(|name| name.trim().to_string())
@@ -485,6 +501,7 @@ mod platform {
             return Vec::new();
         }
         pids.truncate(filled as usize);
+        let mut args = vec![0; argument_capacity().unwrap_or(0)];
         pids.into_iter()
             .filter(|pid| *pid > 0)
             .filter_map(|pid| {
@@ -492,6 +509,7 @@ mod platform {
                 Some(ProcessEntry {
                     pid: pid as u32,
                     parent_pid: info.pbi_ppid,
+                    argv0_basename: argv0_basename(pid, &mut args),
                     image_name: String::from_utf8_lossy(
                         &info
                             .pbi_name
@@ -512,6 +530,46 @@ mod platform {
         info.pbi_start_tvsec
             .checked_mul(1_000_000)?
             .checked_add(info.pbi_start_tvusec)
+    }
+
+    fn argument_capacity() -> Option<usize> {
+        let mut mib = [libc::CTL_KERN, libc::KERN_ARGMAX];
+        let mut capacity: libc::c_int = 0;
+        let mut size = std::mem::size_of_val(&capacity);
+        let result = unsafe {
+            libc::sysctl(
+                mib.as_mut_ptr(),
+                mib.len() as _,
+                (&mut capacity as *mut libc::c_int).cast(),
+                &mut size,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        (result == 0 && size == std::mem::size_of_val(&capacity) && capacity > 0)
+            .then_some(capacity as usize)
+    }
+
+    fn argv0_basename(pid: libc::pid_t, args: &mut [u8]) -> Option<String> {
+        if args.is_empty() {
+            return None;
+        }
+        let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
+        let mut size = args.len();
+        let result = unsafe {
+            libc::sysctl(
+                mib.as_mut_ptr(),
+                mib.len() as _,
+                args.as_mut_ptr().cast(),
+                &mut size,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        if result != 0 {
+            return None;
+        }
+        super::argv0::from_procargs(args.get(..size)?)
     }
 
     fn bsd_info(pid: u32) -> Option<libc::proc_bsdinfo> {
@@ -544,218 +602,4 @@ mod platform {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn entry(pid: u32, parent_pid: u32) -> ProcessEntry {
-        ProcessEntry {
-            pid,
-            parent_pid,
-            image_name: String::new(),
-        }
-    }
-
-    fn named_entry(pid: u32, parent_pid: u32, image_name: &str) -> ProcessEntry {
-        ProcessEntry {
-            pid,
-            parent_pid,
-            image_name: image_name.into(),
-        }
-    }
-
-    fn tree_key() -> ProviderTreeKey {
-        ProviderTreeKey {
-            tab_id: "tab-tree-witness".into(),
-            pty_id: "pty-tree-witness".into(),
-            binding_nonce: Some("nonce-tree-witness".into()),
-            executable_name: "opencode".into(),
-        }
-    }
-
-    fn provider_process(pid: u32) -> HashSet<ProcessIdentity> {
-        HashSet::from([ProcessIdentity {
-            pid,
-            start_token: format!("start-{pid}"),
-        }])
-    }
-
-    fn pids(tree: &[LaunchProcess]) -> Vec<(u32, u32)> {
-        tree.iter()
-            .map(|process| (process.pid, process.depth))
-            .collect()
-    }
-
-    #[test]
-    fn tree_lists_only_the_roots_descendants_shallowest_first() {
-        let entries = [entry(20, 10), entry(30, 20), entry(40, 99), entry(21, 10)];
-        let tree = launch_tree(10, &entries, |pid| Some(u64::from(pid)));
-        assert_eq!(pids(&tree), vec![(10, 0), (20, 1), (21, 1), (30, 2)]);
-        assert_eq!(tree[1].start_token, "20");
-    }
-
-    #[test]
-    fn child_older_than_its_parent_is_a_reused_pid_and_is_excluded() {
-        let entries = [entry(20, 10), entry(30, 20)];
-        let starts = |pid: u32| match pid {
-            10 => Some(500),
-            20 => Some(100),
-            _ => Some(900),
-        };
-        assert_eq!(pids(&launch_tree(10, &entries, starts)), vec![(10, 0)]);
-    }
-
-    #[test]
-    fn provider_process_must_be_named_and_descend_from_the_tab_root() {
-        let entries = [
-            named_entry(10, 1, "powershell.exe"),
-            named_entry(20, 10, "codex.exe"),
-            named_entry(30, 1, "codex.exe"),
-            named_entry(40, 1, "powershell.exe"),
-        ];
-
-        assert!(tree_has_named_process(
-            10,
-            &entries,
-            |pid| Some(pid.into()),
-            "codex"
-        ));
-        assert!(!tree_has_named_process(
-            40,
-            &entries,
-            |pid| Some(pid.into()),
-            "codex"
-        ));
-    }
-
-    #[test]
-    fn named_process_lookup_is_scoped_to_the_tab_tree_and_normalizes_exe_suffix() {
-        let entries = [
-            named_entry(10, 1, "pwsh.exe"),
-            named_entry(20, 10, "opencode.exe"),
-            named_entry(30, 99, "pwsh.exe"),
-            named_entry(40, 99, "opencode.exe"),
-        ];
-        let has_process = |root, expected| {
-            launch_tree(root, &entries, |pid| Some(u64::from(pid)))
-                .iter()
-                .any(|process| {
-                    entries
-                        .iter()
-                        .find(|entry| entry.pid == process.pid)
-                        .is_some_and(|entry| executable_names_match(&entry.image_name, expected))
-                })
-        };
-
-        assert!(has_process(10, "opencode"));
-        assert!(has_process(10, "OPENCODE.EXE"));
-        assert!(!has_process(30, "opencode"));
-    }
-
-    #[test]
-    fn provider_absent_before_first_seen_is_not_exit_evidence() {
-        let witnesses = ProviderTreeWitnesses::default();
-        let key = tree_key();
-        let first_absence = witnesses.record(&key, ProviderProcessTreeSnapshot::Absent);
-
-        assert_eq!(first_absence.state, ProviderTreeState::AbsentBeforeSeen);
-        assert!(!first_absence.proves_exit_from_lifecycle_clear());
-        assert!(!first_absence.proves_exit_from_finished_marker());
-
-        let live = witnesses.record(
-            &key,
-            ProviderProcessTreeSnapshot::Present(provider_process(77)),
-        );
-        assert_eq!(live.state, ProviderTreeState::Present);
-        assert!(!live.proves_exit_from_lifecycle_clear());
-
-        let one_absence = witnesses.record(&key, ProviderProcessTreeSnapshot::Absent);
-        assert_eq!(one_absence.state, ProviderTreeState::GoneAfterSeen);
-        assert!(one_absence.proves_exit_from_finished_marker());
-        assert!(one_absence.proves_exit_from_lifecycle_clear());
-    }
-
-    #[test]
-    fn live_provider_observation_is_seen_before_later_absence() {
-        let witnesses = ProviderTreeWitnesses::default();
-        let key = tree_key();
-        let live = witnesses.record(
-            &key,
-            ProviderProcessTreeSnapshot::Present(provider_process(78)),
-        );
-
-        assert_eq!(live.state(), ProviderTreeState::Present);
-        assert!(witnesses.has_seen(&key));
-
-        let absent = witnesses.record(&key, ProviderProcessTreeSnapshot::Absent);
-        assert_eq!(absent.state(), ProviderTreeState::GoneAfterSeen);
-        assert_ne!(absent.state(), ProviderTreeState::AbsentBeforeSeen);
-    }
-
-    #[test]
-    fn incomplete_tree_and_live_provider_are_not_exit_evidence() {
-        let entries = [
-            named_entry(10, 1, "powershell.exe"),
-            named_entry(20, 10, "opencode.exe"),
-        ];
-        assert!(matches!(
-            named_process_snapshot_from_entries(10, &entries, |pid| Some(u64::from(pid)), "opencode"),
-            ProviderProcessTreeSnapshot::Present(processes) if processes.contains(&ProcessIdentity { pid: 20, start_token: "20".into() })
-        ));
-        assert!(matches!(
-            named_process_snapshot_from_entries(10, &[], |_| None, "opencode"),
-            ProviderProcessTreeSnapshot::Unknown
-        ));
-    }
-
-    #[test]
-    fn missing_root_or_child_identity_is_conservatively_live() {
-        let entries = [
-            named_entry(10, 1, "pwsh.exe"),
-            named_entry(20, 10, "opencode.exe"),
-        ];
-        assert!(tree_may_have_named_process(
-            10,
-            &entries,
-            |pid| { Some(u64::from(pid)) },
-            "opencode"
-        ));
-        assert!(!tree_may_have_named_process(
-            10,
-            &entries,
-            |pid| { Some(u64::from(pid)) },
-            "codex"
-        ));
-        assert!(tree_may_have_named_process(10, &[], |_| None, "opencode"));
-        assert!(tree_may_have_named_process(
-            10,
-            &entries,
-            |pid| { (pid != 20).then_some(u64::from(pid)) },
-            "opencode"
-        ));
-        assert!(!tree_may_have_named_process(
-            10,
-            &entries,
-            |pid| Some(u64::from(pid)),
-            "codex"
-        ));
-    }
-
-    #[test]
-    fn process_without_a_start_time_is_excluded_with_its_subtree() {
-        let entries = [entry(20, 10), entry(30, 20)];
-        let starts = |pid: u32| (pid != 20).then_some(u64::from(pid));
-        assert_eq!(pids(&launch_tree(10, &entries, starts)), vec![(10, 0)]);
-    }
-
-    #[test]
-    fn parent_links_that_cycle_terminate() {
-        let entries = [entry(10, 20), entry(20, 10)];
-        let tree = launch_tree(10, &entries, |_| Some(1));
-        assert_eq!(pids(&tree), vec![(10, 0), (20, 1)]);
-    }
-
-    #[test]
-    fn unknown_root_yields_no_tree() {
-        assert!(launch_tree(10, &[entry(20, 10)], |_| None).is_empty());
-    }
-}
+mod tests;

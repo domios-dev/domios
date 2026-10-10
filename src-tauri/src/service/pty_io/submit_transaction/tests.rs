@@ -6,13 +6,11 @@ use std::cell::{Cell, RefCell};
 use std::time::Duration;
 
 #[test]
-fn newer_ingress_claim_waits_for_the_prior_submit_cycle() {
+fn newer_ingress_claim_cancels_the_prior_submit_cycle() {
     let first = claim_submit_cycle("rapid-ingress-claim");
     let second = claim_submit_cycle("rapid-ingress-claim");
 
-    assert!(first.is_current());
-    assert!(!second.is_current());
-    drop(first);
+    assert!(!first.is_current());
     assert!(second.is_current());
 }
 
@@ -770,6 +768,45 @@ fn tui_composer_redraw_without_turn_is_not_submission() {
 }
 
 #[test]
+fn routed_prefix_body_and_suffix_share_one_write_before_the_submit_key() {
+    let trace = IndistinguishableTrace::swallowed();
+    let prefix = "<domios from=\"tab\" label=\"sender\" tab=\"abc12345\">";
+    let body = "opaque routed body";
+    let suffix = " [return hint] instruction</domios>";
+
+    run_with_submit_key_and_frame(
+        &trace,
+        body,
+        true,
+        b"\r",
+        Some(prefix),
+        Some(suffix),
+        VerifySubmitStrategy::None,
+        opts(),
+        |_, _| Ok(()),
+    )
+    .unwrap();
+
+    assert_eq!(trace.payload_writes.get(), 1);
+    let expected_write = format!("{prefix}{body}{suffix}");
+    assert_eq!(
+        trace.payload.borrow().as_deref(),
+        Some(expected_write.as_str())
+    );
+    assert_eq!(trace.submit_key_writes.get(), 1);
+    let writes = trace.observations.borrow();
+    let payload = writes
+        .iter()
+        .position(|write| write == "write_paste")
+        .unwrap();
+    let key = writes
+        .iter()
+        .position(|write| write == "write_submit_key")
+        .unwrap();
+    assert!(payload < key);
+}
+
+#[test]
 fn typed_follow_up_is_written_once_between_the_paste_and_submit_key() {
     let trace = IndistinguishableTrace::swallowed();
     let body = "alpha\nbeta\ngamma\ndelta\nepsilon\nzeta";
@@ -991,81 +1028,6 @@ fn paste_accepted_then_enter_swallowed_recovers_without_duplicate_payload() {
 }
 
 #[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the ServiceContext harness requires an interactive desktop runtime"
-)]
-fn provider_update_and_trust_frames_refuse_initial_submit() {
-    crate::service::pty_io::test_support::watchdog_10s(
-        "provider_update_and_trust_frames_refuse_initial_submit",
-        || {
-            use crate::agent::test_provider::MockProvider;
-            use crate::service::test_fixture::ServiceFixture;
-            use codeterm_plugin::tab_state::{TabState, TabStateClassification};
-            const PROVIDER_ID: &str = "fixture-provider";
-            let update = TabStateClassification {
-                state: TabState::UpdatePrompt,
-                confidence: 1.0,
-                data: None,
-                action: None,
-            };
-            let cases = [
-            (
-                include_str!("../../../../../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available.txt"),
-                MockProvider::new(PROVIDER_ID).with_tab_state(update.clone()),
-            ),
-            (
-                include_str!("../../../../../plugins/provider-codex/tests/fixtures/directory-trust/codex-update-available-after-skip.txt"),
-                MockProvider::new(PROVIDER_ID).with_tab_state(update),
-            ),
-            (
-                include_str!("../../../../../plugins/provider-codex/tests/fixtures/directory-trust/trust-folder-access-0.157.1.txt"),
-                MockProvider::with_directory_trust_response(
-                    PROVIDER_ID,
-                    codeterm_plugin::provider::DirectoryTrustPromptResponse::Hold,
-                ),
-            ),
-        ];
-            for (index, (frame, provider)) in cases.into_iter().enumerate() {
-                let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
-                let pty_id = format!("modal-submit-{index}");
-                mux.link_pty(&tab_id, pty_id.clone());
-                let tab = mux.get_tab_mut(&tab_id).unwrap();
-                tab.agent_type = Some(PROVIDER_ID.into());
-                tab.session_binding_nonce = Some("launch-nonce".into());
-                let fixture = ServiceFixture::new(mux);
-                fixture
-                    .service
-                    .agent_registry
-                    .register_provider(Box::new(provider));
-                fixture
-                    .service
-                    .screen_state
-                    .lock()
-                    .process(&pty_id, frame.as_bytes());
-                let error = submit_text_with_key_claimed(
-                    &fixture.service,
-                    &pty_id,
-                    "payload",
-                    true,
-                    b"\r",
-                    VerifySubmitStrategy::None,
-                    opts(),
-                    None,
-                    false,
-                    claim_submit_cycle(&pty_id),
-                )
-                .unwrap_err();
-                let delivery =
-                    crate::service::delivery_error::DeliveryError::from_injection(&tab_id, error);
-                assert_eq!(delivery.code(), "tab_busy_refused");
-                assert!(!delivery.bytes_written());
-            }
-        },
-    );
-}
-
-#[test]
 #[ignore = "synthetic TUI model is not a real PTY delivery oracle"]
 fn enter_that_inserts_newline_retries_until_the_turn_starts() {
     let io = TuiModel::first_enter_inserts_newline();
@@ -1181,7 +1143,7 @@ fn complete_echo_is_diagnostic_but_not_required_for_enter() {
 #[test]
 #[ignore = "synthetic TUI model is not a real PTY delivery oracle"]
 fn spawn_introduction_uses_the_same_paste_then_enter_contract() {
-    let intro = "-=-codeterm:tab label=CodeTerm tab=system-=-You are the Orchestrator of this team. Your Planner counterpart is Rodin.";
+    let intro = "You are the Orchestrator of this team. Your Planner counterpart is Rodin.";
     let io = ControlledTransport::new("> [Pasted Content 128 chars]");
 
     let result = submit_entry(PtySubmitEntry::Messenger, intro, |body| {

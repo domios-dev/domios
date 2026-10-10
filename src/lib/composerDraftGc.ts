@@ -1,7 +1,7 @@
 export const COMPOSER_DRAFT_PREFIX = "codeterm:composer-draft:";
 
 // Drafts are only ever cleared on a successful send, never on tab close — without this reclaim a reused/colliding tab id would inherit a dead tab's unsent text.
-const TAB_SCOPED_CHANNELS = ["tab-session-chat", "chat-view"] as const;
+const TAB_SCOPED_CHANNELS = ["tab-session-chat", "tab-session-chat-capsules", "tab-session-chat-reply", "chat-view"] as const;
 
 type StorageLike = Pick<Storage, "length" | "key" | "getItem" | "removeItem">;
 

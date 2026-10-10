@@ -7,11 +7,12 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "../../lib/bridge";
-import { PluginIcon } from "./PluginIcon";
 import { PluginView } from "./PluginView";
-import { apiBaseOf, GroupLabel, iconOf, readApiError, type AppConfigShape } from "./shared";
+import { apiBaseOf, GroupLabel, readApiError, type AppConfigShape } from "./shared";
 import type { CatalogEntry } from "./pluginCatalog";
-import { ConfigureWithAiButton } from "./ConfigureWithAiButton";
+import { PluginDetailHeader, type HeaderActionKind, type HeaderActionOptions } from "./PluginDetailHeader";
+import type { PluginActivity } from "../../lib/types";
+import type { PluginActivityDisplayMap } from "../../lib/usePluginActivity";
 
 const STATUS_REFRESH_DELAY_MS = 5000;
 
@@ -27,11 +28,15 @@ export function SecretBackendDetail({
   config,
   onAction,
   actionBusy,
+  activity,
+  activityDisplayMap,
 }: {
   entry: CatalogEntry;
   config: AppConfigShape;
-  onAction?: (kind: "install" | "update" | "remove", entry: CatalogEntry) => void;
+  onAction?: (kind: HeaderActionKind, entry: CatalogEntry, options?: HeaderActionOptions) => void;
   actionBusy?: string | null;
+  activity?: PluginActivity;
+  activityDisplayMap?: PluginActivityDisplayMap;
 }) {
   const backendId = entry.id;
   const secretsCfg = config.integrations?.secrets ?? {};
@@ -169,30 +174,13 @@ export function SecretBackendDetail({
 
   return (
     <div data-testid="extensions-secret-backend-detail" data-plugin-id={entry.id}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
-        <div style={{ width: 40, height: 40, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,0.04)" }}>
-          <PluginIcon plugin={iconOf(entry)} size={18} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div style={{ fontSize: 16, fontWeight: 620 }}>{entry.displayName}</div>
-          <div style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 10.5, color: "var(--ct-muted)" }}>
-            secret backend{entry.version ? ` · v${entry.version}` : ""}
-            {entry.updateAvailable && entry.remoteVersion ? ` → v${entry.remoteVersion}` : ""}
-          </div>
-        </div>
-        {entry.updateAvailable && onAction && (
-          <button
-            data-testid="extensions-plugin-update"
-            data-plugin-id={entry.id}
-            onClick={() => onAction("update", entry)}
-            disabled={actionBusy?.endsWith(`:${entry.id}`) ?? false}
-            style={{ font: "inherit", fontSize: 12, fontWeight: 560, padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", whiteSpace: "nowrap", background: "var(--ct-accent, #5b8cff)", color: "#fff" }}
-          >
-            {actionBusy === `update:${entry.id}` ? "Updating…" : "Update"}
-          </button>
-        )}
-        <ConfigureWithAiButton entry={entry} />
-      </div>
+      <PluginDetailHeader
+        entry={entry}
+        busy={actionBusy}
+        onAction={(kind, target, options) => onAction?.(kind, target, options)}
+        activity={activity}
+        activityDisplayMap={activityDisplayMap}
+      />
 
       <label
         style={{
@@ -226,10 +214,6 @@ export function SecretBackendDetail({
 
       {isActive && (
         <>
-          <GroupLabel>Connection</GroupLabel>
-          {/* The plugin's own connection UI (server URL, unlock, status) runs in
-              its sandboxed iframe — the host owns only activation + defaults. The
-              iframe reports its content height, so this box sizes to fit. */}
           <div style={{ marginBottom: 18 }}>
             <PluginView pluginId={entry.id} api={config.api} embedded />
           </div>

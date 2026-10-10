@@ -1,40 +1,226 @@
-//! Per-tab tailer handle registry. One tailer per tab, refcounted by
-//! attached clients. A phone and a desktop can both enter chat mode without
-//! one client's `stop` killing the other's stream.
-//!
-//! An entry is only reusable when it is BOTH alive (its polling thread is
-//! still running) AND bound to the caller's current `session_id`. A tailer
-//! that died on its own (session file vanished, provider path went None) or
-//! that points at a session the tab has since rolled past is treated as
-//! absent: it is shut down and the caller spawns a fresh one. Without this a
-//! dead-but-registered corpse makes `acquire` return `true` forever, so the
-//! live delta stream stays dead and reopening chat never recovers.
-
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
+use std::fs::File;
+use std::io::{self, Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use super::tailer::TailerHandle;
+
+const SOURCE_IDENTITY_SAMPLE_BYTES: u64 = 64;
+
+/// One materialization of a tab's JSONL transcript as observed by its reader.
+/// `absence_witness` names the send capture that saw the exact path absent
+/// before this file existed, so every row read from it postdates that capture.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceIncarnation {
+    pub id: Arc<str>,
+    pub absence_witness: Option<Arc<str>>,
+}
+
+pub enum SourceCapture {
+    Present { len: u64 },
+    Absent { witness: Arc<str> },
+    Unreadable,
+}
+
+pub enum SourceObservation {
+    Absent,
+    Present {
+        incarnation: Option<SourceIncarnation>,
+        restart: bool,
+    },
+}
+
+#[derive(Default)]
+struct SourceState {
+    bound: Option<(String, PathBuf)>,
+    current: Option<SourceIncarnation>,
+    current_identity: Option<SourceFileIdentity>,
+    pending_absence: Option<Arc<str>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SourceFileIdentity {
+    created: Option<SystemTime>,
+    held_offset: u64,
+    prefix: Vec<u8>,
+    held_window: Vec<u8>,
+}
+
+fn source_file_identity(
+    path: &Path,
+    len: u64,
+    created: Option<SystemTime>,
+    held_offset: u64,
+) -> io::Result<SourceFileIdentity> {
+    let mut file = File::open(path)?;
+    let prefix = read_identity_window(&mut file, 0, len.min(SOURCE_IDENTITY_SAMPLE_BYTES))?;
+    let held_end = held_offset.min(len);
+    let held_start = held_end.saturating_sub(SOURCE_IDENTITY_SAMPLE_BYTES);
+    let held_window = read_identity_window(&mut file, held_start, held_end - held_start)?;
+    Ok(SourceFileIdentity {
+        created,
+        held_offset,
+        prefix,
+        held_window,
+    })
+}
+
+fn read_identity_window(file: &mut File, start: u64, len: u64) -> io::Result<Vec<u8>> {
+    let mut bytes = vec![0; len as usize];
+    if len > 0 {
+        file.seek(SeekFrom::Start(start))?;
+        file.read_exact(&mut bytes)?;
+    }
+    Ok(bytes)
+}
+
+/// Send captures and transcript readers stat the exact path under one lock, so
+/// an absence a capture saw always precedes the presence a reader later sees.
+#[derive(Default)]
+pub struct JsonlSource {
+    state: Mutex<SourceState>,
+}
+
+fn opaque_id() -> Arc<str> {
+    uuid::Uuid::new_v4().to_string().into()
+}
+
+impl SourceState {
+    fn binds(&self, session_id: &str, path: &Path) -> Option<bool> {
+        self.bound
+            .as_ref()
+            .map(|(session, bound)| session == session_id && bound == path)
+    }
+}
+
+impl JsonlSource {
+    pub fn capture(&self, session_id: &str, path: &Path) -> SourceCapture {
+        let mut guard = self.state.lock();
+        let state = &mut *guard;
+        if state.binds(session_id, path) != Some(true) {
+            *state = SourceState {
+                bound: Some((session_id.to_string(), path.to_path_buf())),
+                ..SourceState::default()
+            };
+        }
+        match std::fs::metadata(path) {
+            Ok(metadata) => SourceCapture::Present {
+                len: metadata.len(),
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => SourceCapture::Absent {
+                witness: state.pending_absence.get_or_insert_with(opaque_id).clone(),
+            },
+            Err(_) => SourceCapture::Unreadable,
+        }
+    }
+
+    /// A reader holding `held` at byte `offset` restarts at zero whenever the
+    /// file it was reading is no longer the observed incarnation.
+    pub fn observe(
+        &self,
+        session_id: &str,
+        path: &Path,
+        held: Option<&SourceIncarnation>,
+        offset: u64,
+    ) -> SourceObservation {
+        let mut guard = self.state.lock();
+        let state = &mut *guard;
+        let binds = state.binds(session_id, path);
+        let metadata = match std::fs::metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                if error.kind() == std::io::ErrorKind::NotFound && binds == Some(true) {
+                    state.current = None;
+                    state.current_identity = None;
+                }
+                return SourceObservation::Absent;
+            }
+        };
+        let len = metadata.len();
+        let created = metadata.created().ok();
+        match binds {
+            Some(false) => {
+                return SourceObservation::Present {
+                    incarnation: None,
+                    restart: false,
+                }
+            }
+            Some(true) => {}
+            None => {
+                *state = SourceState {
+                    bound: Some((session_id.to_string(), path.to_path_buf())),
+                    ..SourceState::default()
+                };
+            }
+        }
+        let held_is_current = held.is_some() && held == state.current.as_ref();
+        let truncated = held_is_current && offset > len;
+        let observed_identity = source_file_identity(path, len, created.clone(), offset);
+        let Some(observed_identity) = observed_identity.ok() else {
+            state.current = None;
+            state.current_identity = None;
+            return SourceObservation::Present {
+                incarnation: None,
+                restart: true,
+            };
+        };
+        let identity_changed = state.current.is_some()
+            && state.current_identity.as_ref().is_some_and(|identity| {
+                source_file_identity(path, len, created, identity.held_offset)
+                    .map_or(true, |observed| observed != *identity)
+            });
+        if state.pending_absence.is_some()
+            || state.current.is_none()
+            || truncated
+            || identity_changed
+        {
+            let absence_witness = state.pending_absence.take();
+            state.current = Some(SourceIncarnation {
+                id: opaque_id(),
+                absence_witness,
+            });
+        }
+        if state
+            .current_identity
+            .as_ref()
+            .is_none_or(|identity| identity.held_offset <= observed_identity.held_offset)
+        {
+            state.current_identity = Some(observed_identity);
+        }
+        let current = state.current.clone();
+        let restart = match held {
+            Some(held) => Some(held) != current.as_ref(),
+            None => offset > len,
+        };
+        SourceObservation::Present {
+            incarnation: current,
+            restart,
+        }
+    }
+}
 
 struct Entry {
     handle: TailerHandle,
     subscribers: HashSet<String>,
-    /// The agent session this tailer is bound to. A tab can roll to a new
-    /// backing session (Codex resume mints a fresh rollout); the old tailer is
-    /// then stale even though it is still alive.
     session_id: String,
+    session_binding_nonce: Option<String>,
 }
 
 impl Entry {
-    /// Reusable iff the polling thread is alive and bound to `session_id`.
-    fn usable(&self, session_id: &str) -> bool {
-        self.session_id == session_id && self.handle.is_alive()
+    fn usable(&self, session_id: &str, session_binding_nonce: Option<&str>) -> bool {
+        self.session_id == session_id
+            && self.session_binding_nonce.as_deref() == session_binding_nonce
+            && self.handle.is_alive()
     }
 }
 
 #[derive(Default)]
 pub struct ChatRegistry {
     inner: Mutex<HashMap<String, Entry>>,
+    sources: Mutex<HashMap<String, Arc<JsonlSource>>>,
 }
 
 impl ChatRegistry {
@@ -42,14 +228,28 @@ impl ChatRegistry {
         Arc::new(Self::default())
     }
 
+    pub fn jsonl_source(&self, tab_id: &str) -> Arc<JsonlSource> {
+        self.sources
+            .lock()
+            .entry(tab_id.to_string())
+            .or_default()
+            .clone()
+    }
+
     /// Attach `subscriber_id` to a live tailer bound to `session_id`.
     /// Returns `true` only when such a tailer exists.
     /// A dead or stale-session entry is dropped (and its thread stopped) and
     /// `false` is returned so the caller spawns a fresh tailer.
-    pub fn acquire(&self, tab_id: &str, session_id: &str, subscriber_id: &str) -> bool {
+    pub fn acquire(
+        &self,
+        tab_id: &str,
+        session_id: &str,
+        session_binding_nonce: Option<&str>,
+        subscriber_id: &str,
+    ) -> bool {
         let mut g = self.inner.lock();
         match g.get(tab_id) {
-            Some(entry) if entry.usable(session_id) => {
+            Some(entry) if entry.usable(session_id, session_binding_nonce) => {
                 g.get_mut(tab_id)
                     .unwrap()
                     .subscribers
@@ -79,12 +279,13 @@ impl ChatRegistry {
         &self,
         tab_id: String,
         session_id: String,
+        session_binding_nonce: Option<String>,
         subscriber_id: String,
         handle: TailerHandle,
     ) -> bool {
         let mut g = self.inner.lock();
         match g.get(&tab_id) {
-            Some(entry) if entry.usable(&session_id) => {
+            Some(entry) if entry.usable(&session_id, session_binding_nonce.as_deref()) => {
                 g.get_mut(&tab_id)
                     .unwrap()
                     .subscribers
@@ -100,6 +301,7 @@ impl ChatRegistry {
                         handle,
                         subscribers: HashSet::from([subscriber_id]),
                         session_id,
+                        session_binding_nonce,
                     },
                 );
                 drop(g);
@@ -113,7 +315,13 @@ impl ChatRegistry {
 
     /// Replace this tab/session's pending watcher with its materialized tailer.
     /// The watcher owns the call, so dropping its handle signals without joining it.
-    pub fn replace_if_current(&self, tab_id: &str, session_id: &str, handle: TailerHandle) -> bool {
+    pub fn replace_if_current(
+        &self,
+        tab_id: &str,
+        session_id: &str,
+        session_binding_nonce: Option<&str>,
+        handle: TailerHandle,
+    ) -> bool {
         let old = {
             let mut g = self.inner.lock();
             let Some(entry) = g.get(tab_id) else {
@@ -121,7 +329,7 @@ impl ChatRegistry {
                 handle.shutdown();
                 return false;
             };
-            if entry.session_id != session_id || !entry.handle.is_alive() {
+            if !entry.usable(session_id, session_binding_nonce) {
                 drop(g);
                 handle.shutdown();
                 return false;
@@ -133,6 +341,7 @@ impl ChatRegistry {
                     handle,
                     subscribers,
                     session_id: session_id.to_string(),
+                    session_binding_nonce: session_binding_nonce.map(str::to_string),
                 },
             )
         };
@@ -150,7 +359,7 @@ impl ChatRegistry {
             if !entry.subscribers.remove(subscriber_id) {
                 return;
             }
-            if !entry.subscribers.is_empty() {
+            if !entry.subscribers.is_empty() || entry.handle.session_owned() {
                 return;
             }
             g.remove(tab_id).map(|entry| entry.handle)
@@ -161,8 +370,25 @@ impl ChatRegistry {
     }
 
     pub fn shutdown_tab(&self, tab_id: &str) {
+        self.sources.lock().remove(tab_id);
         let h = self.inner.lock().remove(tab_id).map(|entry| entry.handle);
         if let Some(handle) = h {
+            handle.shutdown();
+        }
+    }
+
+    pub fn shutdown_session(&self, tab_id: &str, session_id: &str) {
+        let handle = {
+            let mut entries = self.inner.lock();
+            if entries
+                .get(tab_id)
+                .is_none_or(|entry| entry.session_id != session_id)
+            {
+                return;
+            }
+            entries.remove(tab_id).map(|entry| entry.handle)
+        };
+        if let Some(handle) = handle {
             handle.shutdown();
         }
     }
@@ -187,6 +413,53 @@ mod tests {
     use std::time::Duration;
 
     const SID: &str = "sid-A";
+
+    #[test]
+    fn truncate_and_regrow_past_held_offset_starts_a_new_incarnation() {
+        use std::io::Write;
+
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("session.jsonl");
+        let original = b"0123456789-original-turn\n";
+        std::fs::write(&path, original).unwrap();
+        let source = JsonlSource::default();
+        let SourceObservation::Present {
+            incarnation: Some(first),
+            ..
+        } = source.observe(SID, &path, None, 0)
+        else {
+            panic!("initial file observation must establish an incarnation");
+        };
+        let held_offset = original.len() as u64;
+        assert!(matches!(
+            source.observe(SID, &path, Some(&first), held_offset),
+            SourceObservation::Present { restart: false, .. }
+        ));
+
+        let replacement = b"abcdefghij-replaced-turn\n";
+        assert_eq!(replacement.len(), original.len());
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(replacement).unwrap();
+        file.sync_all().unwrap();
+
+        let SourceObservation::Present {
+            incarnation: Some(second),
+            restart,
+        } = source.observe(SID, &path, Some(&first), held_offset)
+        else {
+            panic!("regrown file observation must carry a fresh incarnation");
+        };
+        assert!(
+            restart,
+            "changed sampled bytes invalidate the held position"
+        );
+        assert_ne!(first.id, second.id);
+        assert_eq!(second.absence_witness, None);
+    }
 
     fn handle_at(offset: u64) -> TailerHandle {
         let stop = Arc::new(AtomicBool::new(false));
@@ -216,8 +489,14 @@ mod tests {
     #[test]
     fn two_leases_release_one_subscriber_at_a_time() {
         let registry = ChatRegistry::default();
-        assert!(registry.insert("tab".into(), SID.into(), "desktop".into(), handle_at(42)));
-        assert!(registry.acquire("tab", SID, "web"));
+        assert!(registry.insert(
+            "tab".into(),
+            SID.into(),
+            None,
+            "desktop".into(),
+            handle_at(42)
+        ));
+        assert!(registry.acquire("tab", SID, None, "web"));
         assert!(registry.is_running("tab"));
 
         registry.stop("tab", "desktop");
@@ -237,8 +516,20 @@ mod tests {
     #[test]
     fn duplicate_lease_start_is_idempotent() {
         let registry = ChatRegistry::default();
-        assert!(registry.insert("tab".into(), SID.into(), "desktop".into(), handle_at(10)));
-        assert!(!registry.insert("tab".into(), SID.into(), "desktop".into(), handle_at(99)));
+        assert!(registry.insert(
+            "tab".into(),
+            SID.into(),
+            None,
+            "desktop".into(),
+            handle_at(10)
+        ));
+        assert!(!registry.insert(
+            "tab".into(),
+            SID.into(),
+            None,
+            "desktop".into(),
+            handle_at(99)
+        ));
         assert_eq!(
             registry.current_offset("tab"),
             Some(10),
@@ -252,9 +543,15 @@ mod tests {
     #[test]
     fn acquire_drops_dead_tailer_and_signals_respawn() {
         let registry = ChatRegistry::default();
-        assert!(registry.insert("tab".into(), SID.into(), "desktop".into(), dead_handle()));
+        assert!(registry.insert(
+            "tab".into(),
+            SID.into(),
+            None,
+            "desktop".into(),
+            dead_handle()
+        ));
         assert!(
-            !registry.acquire("tab", SID, "desktop"),
+            !registry.acquire("tab", SID, None, "desktop"),
             "a dead-but-registered tailer must not be reused",
         );
         assert!(
@@ -262,7 +559,13 @@ mod tests {
             "the corpse must be evicted so the caller spawns fresh",
         );
         // The fresh tailer registers cleanly.
-        assert!(registry.insert("tab".into(), SID.into(), "desktop".into(), handle_at(7)));
+        assert!(registry.insert(
+            "tab".into(),
+            SID.into(),
+            None,
+            "desktop".into(),
+            handle_at(7)
+        ));
         assert_eq!(registry.current_offset("tab"), Some(7));
     }
 
@@ -272,17 +575,19 @@ mod tests {
         assert!(registry.insert(
             "tab".into(),
             "old-sid".into(),
+            None,
             "desktop".into(),
             handle_at(5)
         ));
         assert!(
-            !registry.acquire("tab", "new-sid", "desktop"),
+            !registry.acquire("tab", "new-sid", None, "desktop"),
             "a tailer bound to a rolled-past session is stale",
         );
         assert!(!registry.is_running("tab"));
         assert!(registry.insert(
             "tab".into(),
             "new-sid".into(),
+            None,
             "desktop".into(),
             handle_at(9)
         ));
@@ -303,10 +608,16 @@ mod tests {
                 }
             }),
         );
-        assert!(registry.insert("tab".into(), "old-sid".into(), "desktop".into(), watch));
+        assert!(registry.insert(
+            "tab".into(),
+            "old-sid".into(),
+            None,
+            "desktop".into(),
+            watch
+        ));
 
         assert!(
-            !registry.acquire("tab", "new-sid", "desktop"),
+            !registry.acquire("tab", "new-sid", None, "desktop"),
             "rotation must evict the stale watch rather than reuse it",
         );
         assert!(stopped.load(Ordering::Acquire));
@@ -316,8 +627,14 @@ mod tests {
     #[test]
     fn shutdown_tab_stops_even_with_multiple_subscribers() {
         let registry = ChatRegistry::default();
-        assert!(registry.insert("tab".into(), SID.into(), "desktop".into(), handle_at(42)));
-        assert!(registry.acquire("tab", SID, "web"));
+        assert!(registry.insert(
+            "tab".into(),
+            SID.into(),
+            None,
+            "desktop".into(),
+            handle_at(42)
+        ));
+        assert!(registry.acquire("tab", SID, None, "web"));
         registry.shutdown_tab("tab");
         assert!(!registry.is_running("tab"));
     }
@@ -325,9 +642,21 @@ mod tests {
     #[test]
     fn insert_replaces_dead_tailer() {
         let registry = ChatRegistry::default();
-        assert!(registry.insert("tab".into(), SID.into(), "desktop".into(), dead_handle()));
+        assert!(registry.insert(
+            "tab".into(),
+            SID.into(),
+            None,
+            "desktop".into(),
+            dead_handle()
+        ));
         assert!(
-            registry.insert("tab".into(), SID.into(), "desktop".into(), handle_at(33)),
+            registry.insert(
+                "tab".into(),
+                SID.into(),
+                None,
+                "desktop".into(),
+                handle_at(33)
+            ),
             "a fresh tailer must replace a dead corpse rather than be discarded",
         );
         assert_eq!(registry.current_offset("tab"), Some(33));
@@ -337,18 +666,30 @@ mod tests {
     fn rapid_start_stop_churn_keeps_one_live_tailer() {
         let registry = ChatRegistry::default();
         for _ in 0..50 {
-            if !registry.acquire("tab", SID, "desktop") {
-                registry.insert("tab".into(), SID.into(), "desktop".into(), handle_at(1));
+            if !registry.acquire("tab", SID, None, "desktop") {
+                registry.insert(
+                    "tab".into(),
+                    SID.into(),
+                    None,
+                    "desktop".into(),
+                    handle_at(1),
+                );
             }
             registry.stop("tab", "desktop");
         }
         // Final mount with no matching stop leaves a single live tailer.
-        if !registry.acquire("tab", SID, "desktop") {
-            registry.insert("tab".into(), SID.into(), "desktop".into(), handle_at(1));
+        if !registry.acquire("tab", SID, None, "desktop") {
+            registry.insert(
+                "tab".into(),
+                SID.into(),
+                None,
+                "desktop".into(),
+                handle_at(1),
+            );
         }
         assert!(registry.is_running("tab"));
         assert!(
-            registry.acquire("tab", SID, "web"),
+            registry.acquire("tab", SID, None, "web"),
             "the surviving tailer is alive and reusable",
         );
     }
@@ -356,7 +697,13 @@ mod tests {
     #[test]
     fn unknown_lease_stop_is_a_noop() {
         let registry = ChatRegistry::default();
-        assert!(registry.insert("tab".into(), SID.into(), "desktop".into(), handle_at(42)));
+        assert!(registry.insert(
+            "tab".into(),
+            SID.into(),
+            None,
+            "desktop".into(),
+            handle_at(42)
+        ));
         registry.stop("tab", "never-acquired");
         assert!(registry.is_running("tab"));
         registry.stop("tab", "desktop");
@@ -364,14 +711,54 @@ mod tests {
     }
 
     #[test]
+    fn event_tailer_survives_subscriber_churn_until_session_rotation() {
+        let registry = ChatRegistry::default();
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread_stop = stop.clone();
+        let (wake, events) = std::sync::mpsc::sync_channel(1);
+        let handle = TailerHandle::event_driven(
+            stop.clone(),
+            Arc::new(AtomicU64::new(42)),
+            thread::spawn(move || {
+                while events.recv().is_ok() {
+                    if thread_stop.load(Ordering::Acquire) {
+                        return;
+                    }
+                }
+            }),
+            wake,
+        );
+        assert!(registry.insert("tab".into(), SID.into(), None, "desktop".into(), handle));
+        for _ in 0..50 {
+            registry.stop("tab", "desktop");
+            assert!(registry.acquire("tab", SID, None, "desktop"));
+            assert_eq!(registry.current_offset("tab"), Some(42));
+            assert!(!stop.load(Ordering::Acquire));
+        }
+        assert!(!registry.acquire("tab", "new-session", None, "desktop"));
+        assert!(stop.load(Ordering::Acquire));
+        assert!(!registry.is_running("tab"));
+    }
+
+    #[test]
     fn replacement_preserves_live_leases() {
         let registry = ChatRegistry::default();
-        assert!(registry.insert("tab".into(), SID.into(), "desktop".into(), handle_at(1)));
-        assert!(registry.acquire("tab", SID, "web"));
-        assert!(registry.replace_if_current("tab", SID, handle_at(2)));
+        assert!(registry.insert(
+            "tab".into(),
+            SID.into(),
+            None,
+            "desktop".into(),
+            handle_at(1)
+        ));
+        assert!(registry.acquire("tab", SID, None, "web"));
+        assert!(registry.replace_if_current("tab", SID, None, handle_at(2)));
         registry.stop("tab", "desktop");
         assert!(registry.is_running("tab"));
         registry.stop("tab", "web");
         assert!(!registry.is_running("tab"));
     }
 }
+
+#[cfg(test)]
+#[path = "registry_binding_tests.rs"]
+mod binding_tests;

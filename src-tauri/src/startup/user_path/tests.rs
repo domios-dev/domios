@@ -235,9 +235,29 @@ fn repair_report_states_the_count_and_the_entries() {
 
     let report = user_path_repair_report(&removed);
 
-    assert!(report.starts_with("CodeTerm user PATH repair: removed 2 dead entries"));
-    for entry in &removed {
-        assert!(report.contains(entry), "report must name {entry}");
-    }
-    assert!(user_path_repair_report(&[]).contains("removed 0 dead entries"));
+    let mut report_lines = report.lines();
+    let header = report_lines.next().expect("report has a header");
+    assert!(!header.is_empty());
+    assert!(header
+        .split_whitespace()
+        .any(|word| word == removed.len().to_string()));
+    let entries = report_lines
+        .map(|line| {
+            line.strip_prefix("  - ")
+                .expect("report entries have the expected prefix")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        entries,
+        removed.iter().map(String::as_str).collect::<Vec<_>>()
+    );
+
+    let empty_report = user_path_repair_report(&[]);
+    let mut empty_report_lines = empty_report.lines();
+    let empty_header = empty_report_lines
+        .next()
+        .expect("empty report has a header");
+    assert!(!empty_header.is_empty());
+    assert!(empty_header.split_whitespace().any(|word| word == "0"));
+    assert!(empty_report_lines.next().is_none());
 }

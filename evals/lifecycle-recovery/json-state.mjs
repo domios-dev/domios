@@ -75,7 +75,7 @@ async function main() {
       && item.agent_ready === true
       && item.recovered_in_place === true
       && item.old_pty_torn_down === false
-      && item.session_action === "resume"
+      && item.session_action === "resumed"
       && item.session_id === sessionId
       && item.new_pty_id != null
       && item.new_pty_id === item.old_pty_id,

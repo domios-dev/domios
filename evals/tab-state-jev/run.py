@@ -7,27 +7,20 @@ import argparse
 import json
 import math
 import os
-import ssl
 import statistics
 import sys
 import time
-import urllib.error
-import urllib.request
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
-
-try:
-    import certifi
-
-    SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
-except ImportError:
-    SSL_CONTEXT = ssl.create_default_context()
+import heldout
+import request_contract as contract
+from jev_transport import JevTransport, TransportFailure, token_bytes
 
 
 ROOT = Path(__file__).resolve().parents[2]
 DATASET = Path(__file__).with_name("screens.jsonl")
-CRITERIA_FILE = Path(__file__).with_name("criteria_variants.json")
+CRITERIA_FILE = Path(__file__).with_name("criteria.json")
 DEFAULT_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 DEFAULT_MODEL = "jev-latest"
 MAX_CALLS_PER_RUN = 300
@@ -47,6 +40,7 @@ LABELS = (
     "crashed_to_shell",
     "error_loop",
     "still_starting",
+    "other",
 )
 ACTIONABLE = {
     "provider_update_prompt",
@@ -71,6 +65,7 @@ CONTEXT_FIELDS = (
     "screen_changed",
 )
 INSTRUCTIONS = "Classify the current agent tab state from its visible terminal screen. Choose the single best label."
+CONTEXT_INSTRUCTIONS = "Classify the current agent tab state using the screen and runtime context. Choose the single best label."
 
 
 def band_for_confidence(confidence: float) -> str:
@@ -97,7 +92,7 @@ def coverage_gaps(samples: list[dict[str, Any]]) -> list[str]:
     return gaps
 
 
-def read_dataset(path: Path, *, require_coverage: bool = True) -> list[dict[str, Any]]:
+def read_dataset(path: Path, *, require_coverage: bool = True, raw: bytes | None = None) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     required = {
         "id",
@@ -110,15 +105,18 @@ def read_dataset(path: Path, *, require_coverage: bool = True) -> list[dict[str,
         "screen",
         "context",
     }
-    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    raw = contract.bounded_file(path, contract.MAX_DATASET) if raw is None else raw
+    contract.require(type(raw) is bytes and len(raw) <= contract.MAX_DATASET, "dataset_size")
+    for line_number, line in enumerate(raw.decode("utf-8").splitlines(), 1):
         if not line.strip():
             continue
         try:
-            row = json.loads(line)
+            row = contract.decode(line.encode("utf-8"), contract.MAX_REQUEST)
         except json.JSONDecodeError as error:
             raise ValueError(f"invalid JSON on {path}:{line_number}: {error.msg}") from error
         if not isinstance(row, dict) or not required <= row.keys():
             raise ValueError(f"{path}:{line_number} is missing required fields")
+        contract.require(type(row["id"]) is str and 0 < len(row["id"]) <= 256, "dataset_identity")
         if row["label"] not in LABELS or not isinstance(row["screen"], str) or not row["screen"].strip():
             raise ValueError(f"{path}:{line_number} has an invalid label or empty screen")
         if (
@@ -172,39 +170,49 @@ def read_dataset(path: Path, *, require_coverage: bool = True) -> list[dict[str,
     return rows
 
 
-def load_criteria(path: Path, variant: str) -> dict[str, str]:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise ValueError(f"criteria variants are unreadable: {error}") from error
-    variants = data.get("variants") if isinstance(data, dict) else None
-    criteria = variants.get(variant) if isinstance(variants, dict) else None
-    if not isinstance(criteria, dict) or set(criteria) != set(LABELS):
-        raise ValueError(f"criteria variant {variant!r} does not define every state label")
-    if any(not isinstance(value, str) or not value.strip() for value in criteria.values()):
-        raise ValueError(f"criteria variant {variant!r} contains an empty criterion")
-    return criteria
+def load_criteria(path: Path, variant: str = "current", *, mode: str = "canonical") -> dict[str, str]:
+    contract.require(mode in ("canonical", "historical-diagnostic"), "criteria_mode")
+    contract.require(mode != "canonical" or variant == "current", "criteria_mode_conflict")
+    return contract.load_criteria_bytes(contract.bounded_file(path, contract.MAX_CRITERIA),
+                                        variant=variant if mode == "historical-diagnostic" else None)
 
 
 def load_token(token_file: Path | None) -> str:
     for name in ("JEV_API_TOKEN", "TYPESAFE_JEV_TOKEN"):
-        token = os.environ.get(name, "").strip()
-        if token:
+        if name in os.environ:
+            token = os.environ[name]
+            token_bytes(token)
             return token
-    path = token_file or Path.home() / ".codeterm-dev" / "supporter" / "typesafe-jev.json"
+    if token_file is None:
+        raise TransportFailure("token_preflight")
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError as error:
-        raise ValueError(
-            "Jev token missing; set JEV_API_TOKEN in the parent environment or pass --token-file "
-            "for the named dev instance"
-        ) from error
-    except (OSError, json.JSONDecodeError) as error:
-        raise ValueError("Jev token file is unreadable or invalid") from error
+        value = contract.decode(contract.bounded_file(token_file, 16 * 1024), 16 * 1024)
+    except (OSError, contract.ContractError) as error:
+        raise TransportFailure("token_preflight") from error
     token = value.get("token") if isinstance(value, dict) else None
-    if not isinstance(token, str) or not token.strip():
-        raise ValueError("Jev token file has no nonempty token field")
-    return token.strip()
+    token_bytes(token)
+    return token
+
+
+def default_questions(arm: str, criteria: dict[str, str]) -> dict[str, Any]:
+    contract.require(arm in ("screen", "context"), "arm")
+    contract.criteria_map(criteria)
+    name = "q" if arm == "screen" else "label"
+    questions = {name: {
+        "type": "choice",
+        "instructions": INSTRUCTIONS if arm == "screen" else CONTEXT_INSTRUCTIONS,
+        "criteria": criteria,
+    }}
+    if arm == "context":
+        questions["prompt_visible"] = {
+            "type": "noul",
+            "instructions": "Is an interactive prompt awaiting a response on the current screen?",
+            "criteria": {
+                "true": "A currently visible interactive prompt is waiting for input or a choice.",
+                "false": "There is no currently visible interactive prompt waiting for input; historical transcript prompts do not count.",
+            },
+        }
+    return questions
 
 
 def request_body(
@@ -214,20 +222,22 @@ def request_body(
     arm: str,
     model: str,
     criteria: dict[str, str],
+    question_manifest: bytes | None = None,
 ) -> bytes:
+    expected = default_questions(arm, criteria)
+    questions = expected if question_manifest is None else contract.decode(question_manifest, contract.MAX_REQUEST)
+    contract.validate_questions(questions)
+    label_name = "q" if arm == "screen" else "label"
+    contract.require(set(expected) <= set(questions), "missing_classification_questions")
+    contract.require(questions[label_name]["type"] == "choice" and
+                     questions[label_name]["criteria"] == criteria, "classification_criteria_mismatch")
+    if arm == "context":
+        contract.require(questions["prompt_visible"]["type"] == "noul", "prompt_visibility_question")
+    contract.require(type(screen) is str and type(context) is dict, "state_schema")
     state: Any = screen if arm == "screen" else {"screen": screen, "context": context}
-    body = {
-        "state": state,
-        "model": model,
-        "questions": {
-            "q": {
-                "type": "choice",
-                "instructions": INSTRUCTIONS,
-                "criteria": criteria,
-            }
-        },
-    }
-    return json.dumps(body, ensure_ascii=False).encode("utf-8")
+    raw = contract.encode({"state": state, "model": model, "questions": questions})
+    contract.validate_wire(raw)
+    return raw
 
 
 def call_jev(
@@ -240,60 +250,29 @@ def call_jev(
     endpoint: str,
     model: str,
     timeout: float,
+    question_manifest: bytes | None = None,
+    transport: Any = None,
 ) -> tuple[dict[str, Any] | None, float, str | None]:
-    request = urllib.request.Request(
-        endpoint,
-        data=request_body(screen, context, arm=arm, model=model, criteria=criteria),
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        method="POST",
-    )
-    started = time.perf_counter()
+    started = time.monotonic()
     try:
-        with urllib.request.urlopen(request, timeout=timeout, context=SSL_CONTEXT) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as error:
-        return None, (time.perf_counter() - started) * 1000, f"http_{error.code}"
-    except (urllib.error.URLError, TimeoutError, OSError) as error:
-        reason = getattr(error, "reason", error)
-        return None, (time.perf_counter() - started) * 1000, f"transport_error: {type(reason).__name__}"
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return None, (time.perf_counter() - started) * 1000, "invalid_json"
-
-    elapsed = (time.perf_counter() - started) * 1000
-    answers = payload.get("answers") if isinstance(payload, dict) else None
-    answer = answers.get("q") if isinstance(answers, dict) else None
-    if not isinstance(answer, dict) or answer.get("type") != "choice":
-        return None, elapsed, "invalid_answer_shape"
-    choice = answer.get("choice")
-    if choice not in LABELS:
-        return None, elapsed, "invalid_choice"
-    probabilities = answer.get("probabilities")
-    if not isinstance(probabilities, dict) or any(
-        key not in LABELS
-        or isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(value)
-        or not 0 <= value <= 1
-        for key, value in probabilities.items()
-    ):
-        return None, elapsed, "invalid_probabilities"
-    confidence = answer.get("confidence")
-    source = "reported"
-    if confidence is None:
-        confidence = probabilities.get(choice)
-        source = "choice_probability"
-    if (
-        isinstance(confidence, bool)
-        or not isinstance(confidence, (int, float))
-        or not math.isfinite(confidence)
-        or not 0 <= confidence <= 1
-    ):
-        return None, elapsed, "invalid_confidence"
-    return {
-        "prediction": choice,
-        "confidence": float(confidence),
-        "confidence_source": source,
-    }, elapsed, None
+        raw = request_body(screen, context, arm=arm, model=model, criteria=criteria,
+                           question_manifest=question_manifest)
+        transport = JevTransport() if transport is None else transport
+        result = transport.send(raw, token=token, timeout=timeout, endpoint=endpoint)
+        questions = contract.validate_wire(raw)["questions"]
+        answers = contract.validate_answers(result.payload, questions)
+        label_name = "q" if arm == "screen" else "label"
+        answer = answers[label_name]
+        result_source = result.payload["answers"][label_name].get("confidence_source", answer["confidence_source"])
+        return {
+            "prediction": answer["choice"], "confidence": answer["confidence"],
+            "confidence_source": result_source,
+            "prompt_visible": answers["prompt_visible"]["noul"] if arm == "context" else None,
+            "probabilities": answer["probabilities"], "declared_answers": answers,
+            **contract.wire_hashes(raw),
+        }, (time.monotonic() - started) * 1000, None
+    except (TransportFailure, contract.ContractError) as error:
+        return None, (time.monotonic() - started) * 1000, error.code
 
 
 def precision_recall(
@@ -435,7 +414,25 @@ def evaluate(
     endpoint: str,
     model: str,
     timeout: float,
+    manifest: contract.Manifest | None = None,
+    complete_dataset: bool = True,
+    dataset_set: str = "tuning",
+    transport: Any = None,
 ) -> dict[str, Any]:
+    coverage_missing = coverage_gaps(samples)
+    contract.require(dataset_set in ("tuning", "heldout"), "dataset_set")
+    admission_gaps = coverage_missing if dataset_set == "tuning" else heldout.coverage_gaps(samples)
+    if admission_gaps or not complete_dataset:
+        raise ValueError("incomplete_dataset: " + ", ".join(admission_gaps))
+    contract.require(0 < len(samples) <= MAX_CALLS_PER_RUN, "request_count")
+    contract.require(manifest is not None and manifest.endpoint == endpoint and manifest.model_alias == model,
+                     "immutable_manifest_required")
+    contract.require(samples == read_dataset(DATASET, raw=manifest.dataset_bytes,
+                     require_coverage=dataset_set == "tuning"), "manifest_dataset_mismatch")
+    for sample in samples:
+        request_body(sample["screen"], sample["context"], arm=arm, model=model, criteria=criteria,
+                     question_manifest=manifest.question_bytes)
+    transport = JevTransport() if transport is None else transport
     predictions: list[dict[str, Any]] = []
     latencies: list[float] = []
     failures: Counter[str] = Counter()
@@ -449,6 +446,8 @@ def evaluate(
             endpoint=endpoint,
             model=model,
             timeout=timeout,
+            question_manifest=manifest.question_bytes,
+            transport=transport,
         )
         latencies.append(latency_ms)
         record: dict[str, Any] = {
@@ -464,20 +463,26 @@ def evaluate(
         else:
             record.update(answer or {})
         predictions.append(record)
+        if transport.last_receipt is not None:
+            record["transport_receipt"] = transport.last_receipt
+        if error:
+            break
 
     successful = [item for item in predictions if "prediction" in item]
     bands = band_metrics(samples, successful)
-    coverage_missing = coverage_gaps(samples)
     observed_gate = gate_verdict(
         bands["strong_actionable"]["precision"],
         bands["weak"]["precision"],
     )
     gate = dict(observed_gate)
-    gate["eligible"] = not coverage_missing
-    if coverage_missing:
+    gate["eligible"] = not coverage_missing and len(successful) == len(samples) and complete_dataset
+    if not gate["eligible"]:
         gate["verdict"] = "inconclusive"
     return {
         "arm": arm,
+        "question_names": list(manifest.questions),
+        "manifest": manifest.report(samples),
+        **contract.qualification_status(samples),
         "model": model,
         "endpoint": endpoint,
         "dataset": str(DATASET.relative_to(ROOT)),
@@ -507,67 +512,71 @@ def evaluate(
     }
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", type=Path, default=DATASET)
-    parser.add_argument("--criteria-file", type=Path, default=CRITERIA_FILE)
+    parser.add_argument("--set", choices=("tuning", "heldout"), default="tuning")
+    parser.add_argument("--dataset", type=Path)
+    parser.add_argument("--criteria-file", type=Path)
+    parser.add_argument("--criteria-mode", choices=("canonical", "historical-diagnostic"), default="canonical")
     parser.add_argument("--criteria-variant", choices=("current", "auth-first-run"), default="current")
+    parser.add_argument("--question-manifest", type=Path)
+    parser.add_argument("--source-sha", required=True)
     parser.add_argument("--arm", choices=("screen", "context"), default="screen")
     parser.add_argument("--token-file", type=Path)
-    parser.add_argument(
-        "--allow-incomplete",
-        action="store_true",
-        help="run an exploratory measurement; incomplete coverage makes the gate ineligible",
-    )
-    parser.add_argument("--endpoint", default=os.environ.get("JEV_ENDPOINT", DEFAULT_ENDPOINT))
-    parser.add_argument("--model", default=os.environ.get("JEV_MODEL", DEFAULT_MODEL))
+    parser.add_argument("--endpoint", choices=(DEFAULT_ENDPOINT,), default=DEFAULT_ENDPOINT)
+    parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--timeout", type=float, default=60.0)
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def main() -> int:
     args = parse_args()
-    if args.offset < 0:
-        raise SystemExit("--offset must be nonnegative")
-    if args.limit is not None and args.limit < 1:
-        raise SystemExit("--limit must be positive")
-    if args.timeout <= 0:
-        raise SystemExit("--timeout must be positive")
     try:
-        all_samples = read_dataset(args.dataset, require_coverage=not args.allow_incomplete)
-        criteria = load_criteria(args.criteria_file, args.criteria_variant)
-        samples = all_samples[args.offset :]
+        contract.validate_source_sha(args.source_sha)
+        contract.require(math.isfinite(args.timeout) and 5 < args.timeout <= 60, "request_budget")
+        contract.require(args.offset == 0, "partial_dataset_forbidden")
+        contract.require(args.criteria_mode != "canonical" or args.criteria_variant == "current", "criteria_mode_conflict")
+        if args.dataset is None:
+            args.dataset = DATASET if args.set == "tuning" else DATASET.with_name("heldout.jsonl")
+        if args.criteria_file is None:
+            args.criteria_file = CRITERIA_FILE if args.criteria_mode == "canonical" else CRITERIA_FILE.with_name("criteria_variants.json")
+        criteria_raw = contract.bounded_file(args.criteria_file, contract.MAX_CRITERIA)
+        criteria = contract.load_criteria_bytes(criteria_raw,
+                    variant=args.criteria_variant if args.criteria_mode == "historical-diagnostic" else None)
+        if args.criteria_mode == "historical-diagnostic":
+            print(json.dumps({"criteria_mode": args.criteria_mode, "criteria_variant": args.criteria_variant,
+                "criteria_bytes_sha256": contract.sha256(criteria_raw), "source_sha": args.source_sha,
+                "source_sha_origin": "operator_declared_unverified", "missing_labels": sorted(set(LABELS) - set(criteria)),
+                "inference_permitted": False, **contract.qualification_status([])}, indent=2))
+            return 0
+        dataset_raw = contract.bounded_file(args.dataset, contract.MAX_DATASET)
+        samples = read_dataset(args.dataset, raw=dataset_raw, require_coverage=args.set == "tuning")
         if args.limit is not None:
-            samples = samples[: args.limit]
-        if not samples:
-            raise ValueError("the requested dataset slice has no records")
-        if len(samples) > MAX_CALLS_PER_RUN:
-            raise ValueError(
-                f"{len(samples)} records exceed the hard {MAX_CALLS_PER_RUN}-call run ceiling; "
-                "use --offset and --limit to evaluate slices"
-            )
+            contract.require(args.limit == len(samples), "partial_dataset_forbidden")
+        if args.set == "heldout":
+            heldout.assert_separate(samples, read_dataset(DATASET, require_coverage=False))
+            gaps = heldout.coverage_gaps(samples)
+            contract.require(not gaps, "heldout_coverage_missing")
+        question_raw = contract.bounded_file(args.question_manifest, contract.MAX_REQUEST) if args.question_manifest else \
+            contract.encode(default_questions(args.arm, criteria))
+        manifest = contract.Manifest(args.source_sha, criteria_raw, dataset_raw, question_raw, args.endpoint, args.model)
+        transport = JevTransport()
         token = load_token(args.token_file)
-        result = evaluate(
-            samples,
-            arm=args.arm,
-            criteria=criteria,
-            token=token,
-            endpoint=args.endpoint,
-            model=args.model,
-            timeout=args.timeout,
-        )
-        result["criteria_variant"] = args.criteria_variant
-        result["dataset_slice"] = {
-            "offset": args.offset,
-            "count": len(samples),
-            "complete_dataset": args.offset == 0 and len(samples) == len(all_samples),
-        }
+        result = evaluate(samples, arm=args.arm, criteria=criteria, token=token, endpoint=args.endpoint,
+                          model=args.model, timeout=args.timeout, manifest=manifest, transport=transport,
+                          dataset_set=args.set)
+        result["set"], result["dataset"] = args.set, str(args.dataset)
+        if args.set == "heldout":
+            result["recovery_qualification"] = heldout.qualification(samples, result["predictions"], complete_dataset=True)
+        result["criteria_mode"] = args.criteria_mode
+        result["dataset_slice"] = {"offset": 0, "count": len(samples), "complete_dataset": True}
     except (OSError, ValueError) as error:
-        print(f"tab-state Jev evaluation: {error}", file=sys.stderr)
+        code = getattr(error, "code", "input_preflight")
+        print(f"tab-state Jev evaluation: {code}", file=sys.stderr)
         return 2
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    print(json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False))
     return 0 if result["successful_calls"] == len(samples) else 1
 
 

@@ -1,8 +1,9 @@
+import { useTabActivity } from "../../lib/useTabActivity";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SquareTerminal, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
-import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
+import { useMultiplexer, useMuxSelector, useMuxState } from "../../store/multiplexer";
 import { tabFieldsEqual, selectTab } from "../../store/multiplexer/selectors";
 import {
   useXterm,
@@ -30,6 +31,9 @@ import { TerminalKeyBar } from "./TerminalKeyBar";
 import { CompletionPopup } from "./CompletionPopup";
 import { SearchBar } from "./SearchBar";
 import { TabSessionChat } from "./TabSessionChat";
+import { useManagedTerminal } from "./useManagedTerminal";
+import { ManagedTabBar } from "./ManagedTabBar";
+import { managedTabPresentation } from "../../lib/managedTab";
 import { isTabUiModeEvent, type TabUiMode } from "../../lib/chatUiMode";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import type { ApiConfig, TabStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
@@ -37,9 +41,12 @@ import { getResizeClientId } from "../../lib/resizeOwner";
 import { shouldShowDropOverlay } from "./dropOverlay";
 import { terminalOwnsLivePty, terminalRenderEnabled } from "./terminalOwnership";
 import { TabBootOverlay, tabBootOverlayView } from "./bootOverlay";
+import { useStartNewSession } from "./useStartNewSession";
 import { TerminalViewControls } from "./TerminalViewControls";
 import { shouldOfferScrollToBottom } from "../../hooks/terminal/terminalFollowState";
-import { TERMINAL_INPUT_WRITE_FAILED_EVENT } from "../../hooks/terminal/terminalInputWrite";
+import { useInputWriteFailure } from "../../hooks/terminal/useInputWriteFailure";
+import { InputWriteFailureLine } from "./InputWriteFailureLine";
+import { openNewSessionPicker } from "../../lib/newSessionChoice";
 
 interface TerminalTabProps {
   tabId: string;
@@ -75,26 +82,16 @@ export const TerminalTab = memo(function TerminalTab({
   const fallbackShellRef = useRef<HTMLDivElement>(null);
   const connectedPtyRef = useRef<string | null>(null);
 
-  const { addNotification, updateTabStatus } = useMultiplexer();
+  const { updateTabStatus } = useMultiplexer();
+  const muxState = useMuxState();
   const tabSelector = useCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
-  useEffect(() => {
-    const onInputWriteFailure = (event: Event) => {
-      const detail = (event as CustomEvent<{ ptyId?: string }>).detail;
-      if (!detail?.ptyId || detail.ptyId !== connectedPtyRef.current) return;
-      addNotification({
-        tab_id: tabId,
-        workspace_id: null,
-        title: "Terminal input failed",
-        body: "The terminal could not receive input. Check the connection before continuing.",
-        severity: "Error",
-        level: "failure",
-      });
-    };
-    window.addEventListener(TERMINAL_INPUT_WRITE_FAILED_EVENT, onInputWriteFailure);
-    return () =>
-      window.removeEventListener(TERMINAL_INPUT_WRITE_FAILED_EVENT, onInputWriteFailure);
-  }, [addNotification, tabId]);
+  const agentActivity = useTabActivity(tabId);
+  const managedView = managedTabPresentation(tab?.managed);
+  const inputFailure = useInputWriteFailure(tabId, ptyId ?? tab?.pty_id ?? null);
+  const inputFailureLine = inputFailure.visible
+    ? <InputWriteFailureLine onDismiss={inputFailure.dismiss} />
+    : null;
   const agentType = tab?.agent_type;
   // tabs and binds the session when the mux reports its id.
   const agentDescriptor = useAgentDescriptor(agentType);
@@ -116,6 +113,7 @@ export const TerminalTab = memo(function TerminalTab({
     });
   }, [tabId, chatCapable]);
   const [uiMode, setUiMode] = useState<TabUiMode>(computeMode);
+  const [keptFailureKey, setKeptFailureKey] = useState<string | null>(null);
   const [terminalFallbackOpen, setTerminalFallbackOpen] = useState(false);
   const [historyReplaying, setHistoryReplaying] = useState(false);
   const [terminalIoReady, setTerminalIoReady] = useState(false);
@@ -136,6 +134,7 @@ export const TerminalTab = memo(function TerminalTab({
     priority: isVisible || isFocused,
     renderEnabled: renderTerminal,
   });
+  const stopManagedGeneration = useManagedTerminal(termRef, connectedPtyRef, termReady, managedView.locked, tabId);
   const resizeClientId = useMemo(() => getResizeClientId(), []);
   const {
     commitResize,
@@ -161,7 +160,7 @@ export const TerminalTab = memo(function TerminalTab({
   });
 
   const completion = useTabCompletion({
-    termRef, containerRef, connectedPtyRef,
+    tabId, termRef, containerRef, connectedPtyRef,
   });
 
   const { writePty } = usePtyConnection({
@@ -200,7 +199,7 @@ export const TerminalTab = memo(function TerminalTab({
   useTouchScroll({ containerRef, termRef, termReady });
 
   const touchUi = useTouchOptimizedUi();
-  const showTerminalKeyBar = touchUi && uiMode === "terminal" && termReady;
+  const showTerminalKeyBar = touchUi && uiMode === "terminal" && termReady && !managedView.locked;
   const [canScrollToBottom, setCanScrollToBottom] = useState(false);
   useEffect(() => {
     const term = termRef.current;
@@ -235,7 +234,6 @@ export const TerminalTab = memo(function TerminalTab({
   const FB_TOP = "calc(var(--ct-safe-top, 0px) + 2.75rem)";
   const FB_SIDE = 16;
   const FB_HEADER = "2.5rem";
-  const FB_BOTTOM = "calc(5.75rem + var(--ct-composer-bottom-padding, 0.5rem))";
   const FB_SHADOW = "0 24px 64px rgba(0,0,0,0.5)";
 
   useEffect(() => {
@@ -309,8 +307,8 @@ export const TerminalTab = memo(function TerminalTab({
   });
 
   const { copySelection, pasteFromClipboard } = useTerminalInput({
-    termRef, connectedPtyRef, containerRef, termReady,
-    terminalActive: terminalVisible,
+    tabId, termRef, connectedPtyRef, containerRef, termReady,
+    terminalActive: terminalVisible && isVisible,
     onTabKey: completion.handleTab,
     onNonTabKey: completion.dismissCompletions,
     onInputData: completion.feedInput,
@@ -410,12 +408,20 @@ export const TerminalTab = memo(function TerminalTab({
       : "transparent";
   const terminalBackground = theme.background;
   const terminalKeyBar = <TerminalKeyBar onSendKey={writePty} className="w-full" />;
-  const bootOverlay = tabBootOverlayView(tab);
+  const failureKey = `${tab?.boot_stage ?? ""}:${tab?.boot_failure_reason ?? ""}`;
+  const bootOverlay = tabBootOverlayView(tab, keptFailureKey === failureKey);
+  const newSessionAction = useStartNewSession(tabId);
   const retryAgent = useCallback(() => {
     invoke("restart_agent_tab", { tabId }).catch((e) =>
       console.warn("restart_agent_tab failed:", e),
     );
   }, [tabId]);
+  const startFreshAgent = useCallback(() => {
+    const workspaceId = tab?.workspace_id ?? muxState.active_workspace_id;
+    if (!workspaceId) return;
+    openNewSessionPicker({ workspaceId, workspaceCwd: tab?.cwd ?? null });
+  }, [muxState.active_workspace_id, tab?.cwd, tab?.workspace_id]);
+  const keepShell = useCallback(() => setKeptFailureKey(failureKey), [failureKey]);
 
   return (
     <div
@@ -430,6 +436,11 @@ export const TerminalTab = memo(function TerminalTab({
         boxShadow: "none",
         background: terminalBackground,
         transition: bellFlash ? "border-color 0.1s ease-in" : "border-color 0.15s ease-out",
+      }}
+      onKeyDownCapture={(event) => {
+        if (managedView.locked && event.code === "Escape") {
+          event.preventDefault(); event.stopPropagation(); stopManagedGeneration();
+        }
       }}
       onMouseDown={handleClick}
       onContextMenu={handleContextMenu}
@@ -450,11 +461,16 @@ export const TerminalTab = memo(function TerminalTab({
         e.stopPropagation();
         setIsTextDragOver(false);
         const term = termRef.current;
-        if (!term || uiMode !== "terminal") return;
+        if (!term || uiMode !== "terminal" || managedView.locked) return;
         const text = e.dataTransfer.getData("text/plain");
         if (text) term.paste(text);
       }}
     >
+      {terminalVisible && tab?.managed && (
+        <div className="absolute bottom-0 inset-x-0 z-20">
+          <ManagedTabBar managed={tab.managed} activity={agentActivity} onStop={stopManagedGeneration} />
+        </div>
+      )}
       {/* Search bar */}
       {searchOpen && (
         <SearchBar
@@ -487,7 +503,7 @@ export const TerminalTab = memo(function TerminalTab({
             : mobileSheet
               ? `calc(0.75rem + ${SHEET_FOOTER})`
               : fallbackChat
-                ? FB_BOTTOM
+                ? "var(--ct-composer-height, 0px)"
                 : 0,
           left: showTerminalKeyBar ? undefined : fallbackChat ? (mobileSheet ? 10 : FB_SIDE) : 0,
           height: undefined,
@@ -538,6 +554,11 @@ export const TerminalTab = memo(function TerminalTab({
             />
           )}
         </div>
+        {uiMode === "terminal" && !showTerminalKeyBar && inputFailureLine && (
+          <div className="absolute bottom-0 left-0 right-0" style={{ background: terminalBackground }}>
+            {inputFailureLine}
+          </div>
+        )}
         {showTerminalKeyBar && (
           <div
             className="min-w-0 border-t px-2 pt-2"
@@ -548,6 +569,7 @@ export const TerminalTab = memo(function TerminalTab({
               background: terminalBackground,
             }}
           >
+            {inputFailureLine}
             {terminalKeyBar}
           </div>
         )}
@@ -577,6 +599,7 @@ export const TerminalTab = memo(function TerminalTab({
             api={api}
             uiFontScale={uiFontScale}
             isVisible={isVisible}
+            inputStatus={inputFailureLine}
             onOpenTerminalFallback={openTerminalFallback}
           />
         </div>
@@ -721,6 +744,9 @@ export const TerminalTab = memo(function TerminalTab({
         shellReady={shell.shellReady}
         overlayVisible={shell.overlayVisible}
         onRetry={retryAgent}
+        onStartFreshAgent={startFreshAgent}
+        {...newSessionAction}
+        onKeepShell={keepShell}
       />
 
       {/* Context menu */}

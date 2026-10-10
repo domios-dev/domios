@@ -181,6 +181,31 @@ test("qa_report_zero_tests_flag", () => {
   }
 });
 
+test("qa_report_counts_executed_cargo_targets_without_promoting_empty_runs", () => {
+  const h = makeHarness();
+  const empty = "running 0 tests\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out";
+  const one = "running 1 test\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out";
+  const cases = [
+    ["mixed", one + "\n" + empty, 0],
+    ["empty_first", empty + "\n" + one, 0],
+    ["ten", "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out", 0],
+    ["empty_targets", empty + "\n" + empty, 1],
+    ["bare_empty", "running 0 tests", 1],
+    ["ignored_only", "test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out", 1],
+    ["other_empty_runner", one + "\nNo test files found", 1],
+    ["npm_banner_version", "> @codeterm/provider-claude@1.14.0 test\n674 passed, 0 failed", 0],
+  ];
+  try {
+    for (const [label, output, expected] of cases) {
+      const result = runQa(h, label, ["printf '%s\\n' " + shellQuote(output)]);
+      assert.equal(result.status, expected, label + "\n" + result.stdout + result.stderr);
+      assert.equal(result.stdout.includes("ZERO TESTS RAN"), expected === 1, label);
+    }
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
 test("qa_report_failure_includes_tail", () => {
   const h = makeHarness();
   try {

@@ -450,6 +450,134 @@ fn stale_or_foreign_nonce_rejects_transition_without_mutation() {
 }
 
 #[test]
+fn worker_transfer_generic_task_bound_worker_transfer_refuses_before_revoking_assignment_and_lane()
+{
+    let dir = tempfile::tempdir().unwrap();
+    let mut fixture = Fixture::new(dir.path());
+    fixture
+        .mux
+        .set_tab_role(
+            &fixture.target,
+            AgentRole::Worker,
+            Some(&fixture.other_owner),
+        )
+        .unwrap();
+    fixture
+        .store
+        .set_mode(&fixture.plan_id, crate::plan::PlanMode::Approved, 2)
+        .unwrap();
+    let workspace_id = fixture.mux.find_workspace_for_tab(&fixture.target).unwrap();
+    let task_id = fixture
+        .store
+        .add_task(
+            &fixture.plan_id,
+            crate::service::plan::NewTask {
+                name: "Preserve active transfer task".into(),
+                kind: "implement".into(),
+                model: Some("codex:gpt-6-luna".into()),
+                acceptance_criteria: vec!["keep the exact attempt open".into()],
+                lane: crate::plan::TaskLaneMetadata {
+                    tab_id: Some(fixture.target.clone()),
+                    workspace_id: Some(workspace_id),
+                    worktree_path: Some(dir.path().join("worker-lane").display().to_string()),
+                    branch: Some("lane/worker-transfer".into()),
+                    base: Some("base-transfer".into()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+    let binding = crate::service::plan::task_assignment::AssignmentRuntimeBinding {
+        session_id: "session-target".into(),
+        session_binding_nonce: "nonce-target".into(),
+        provider: Some("codex".into()),
+        model: Some("gpt-6-luna".into()),
+        session_model: None,
+        reasoning_effort: Some("xhigh".into()),
+    };
+    fixture
+        .store
+        .assign_task_with_runtime_binding(
+            &fixture.plan_id,
+            &task_id,
+            &fixture.target,
+            None,
+            Some("Worker"),
+            Some(&binding),
+            None,
+            4,
+        )
+        .unwrap();
+    fixture
+        .store
+        .with_plan(&fixture.plan_id, 5, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            let attempt = task.execution_attempts.last_mut().unwrap();
+            attempt.parent_tab_id = Some(fixture.other_owner.clone());
+            attempt.orchestrator_tab_id = Some(fixture.other_owner.clone());
+            Ok(())
+        })
+        .unwrap();
+    let attempt_id = fixture
+        .store
+        .get(&fixture.plan_id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .unwrap()
+        .execution_attempts[0]
+        .id
+        .clone();
+    fixture
+        .store
+        .acknowledge_task_attempt(&fixture.plan_id, &task_id, &fixture.target, &attempt_id, 6)
+        .unwrap();
+    let before = fixture.store.get(&fixture.plan_id).unwrap();
+    let before_task = before.tasks.iter().find(|task| task.id == task_id).unwrap();
+    assert_eq!(before.mode, crate::plan::PlanMode::Approved);
+    assert_eq!(before_task.status, crate::plan::TaskStatus::InProgress);
+    assert_eq!(
+        before_task.assigned_tab_id.as_deref(),
+        Some(fixture.target.as_str())
+    );
+    assert_eq!(
+        before_task.lane.tab_id.as_deref(),
+        Some(fixture.target.as_str())
+    );
+    assert_eq!(before_task.execution_attempts.len(), 1);
+    assert_eq!(before_task.execution_attempts[0].acknowledged_at, Some(6));
+
+    let result = execute_transition(
+        &mut fixture.mux,
+        &fixture.store,
+        AgentTransitionRequest {
+            tab_id: fixture.target.clone(),
+            destination: AgentPlacement::Worker {
+                parent_tab_id: fixture.owner.clone(),
+                role_profile: None,
+            },
+            plan_binding: None,
+            require_verified_session: true,
+            planner_replacement: None,
+            plan_rebind: None,
+        },
+        TransitionFailurePoint::None,
+    );
+
+    assert!(result
+        .unwrap_err()
+        .contains("authenticated source-manager transfer"));
+    assert_eq!(fixture.store.get(&fixture.plan_id).unwrap(), before);
+}
+
+#[test]
 fn explicit_roleless_transition_revokes_live_planner_placement_atomically() {
     let dir = tempfile::tempdir().unwrap();
     let mut fixture = Fixture::new(dir.path());

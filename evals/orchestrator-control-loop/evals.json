@@ -73,7 +73,8 @@
         "Does NOT use `tab get-text`, `tab chat`, `tab inspect`, or `tab status` on the healthy Worker",
         "Does NOT send intermediate guidance or ask the Worker for a progress update",
         "Inspects the Worker at most once only after an explicit timeout, process exit, binding loss, or other system incident, for diagnosis and recovery"
-      ]
+      ],
+      "response_mode": "text"
     },
     {
       "id": 7,
@@ -87,6 +88,30 @@
         "Leaves the task open and does not mark it done without an acknowledged Worker attempt or explicit owner decision",
         "Does not make a third blind dispatch; any further dispatch waits for diagnosis and owner direction"
       ]
+    },
+    {
+      "id": 8,
+      "name": "qualified-task-closes-before-final-release-gate",
+      "prompt": "Task task_clock in plan pl_fixture is in_review. Its fixed acceptance criteria require a causal regression and qualified-head Windows CI; those have passed, its lane ancestry is merged, and the retained receipts have been checked. The criteria separately reserve final release-head CI for the release container. This is the sixth review in the queue. Yesterday you recorded another hold until the final release SHA. What exact action do you take now?",
+      "expected_output": "Explicitly accepts the qualified task, reads back Done, and retains final-head verification separately without repeating completed gates.",
+      "expectations": [
+        "Commits to codeterm plan review accept for task_clock followed by a task status readback confirming done; neither gate success nor a hold is treated as closure",
+        "Keeps final release-head CI on release ownership rather than using it to hold the already-qualified task",
+        "Does not rerun unchanged gates or wait for another user request or automatic threshold action before accepting"
+      ],
+      "response_mode": "text"
+    },
+    {
+      "id": 9,
+      "name": "reported-work-and-blockers-have-explicit-next-actions",
+      "prompt": "The plan lists six tasks in_progress. Pushed reports establish that three acknowledged Workers are healthy and still implementing, one submitted its finished source but waits for your review decision, one cannot proceed until an owner decision whose request is recorded but whose answer is still pending, and one lost authenticated session binding after reboot. The user sees only three working Workers. Describe what you do now, not just what the counter means.",
+      "expected_output": "Judges reported work, records accurate blockers through supported lifecycle operations, preserves evidence, and leaves healthy Workers autonomous.",
+      "expectations": [
+        "Takes the submitted source into review and commits to an acceptance or concrete correction decision rather than another progress request or indefinite wait",
+        "Records both the owner-decision task and lost-session task as blocked using supported task operations, specifies their distinct unblock prerequisites, and commits to status readback while preserving source and history; does not assume approval, invent a binding, or choose an unsupported recovery command",
+        "Does not inspect or interrupt the three healthy Workers, fabricate ACKs, or duplicate-dispatch them merely to make the active count match"
+      ],
+      "response_mode": "text"
     }
   ]
 }

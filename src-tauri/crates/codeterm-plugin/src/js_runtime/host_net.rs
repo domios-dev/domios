@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use codeterm_types::decision::physical;
 use futures_util::StreamExt;
 use parking_lot::Mutex;
 use serde::Deserialize;
@@ -19,6 +20,12 @@ const FETCH_CLIENT_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 const FETCH_CLIENT_TCP_KEEPALIVE: Duration = Duration::from_secs(60);
 
 static FETCH_CLIENT: LazyLock<Result<reqwest::Client, String>> = LazyLock::new(build_fetch_client);
+static DECISION_FETCH_CLIENT: LazyLock<Result<reqwest::Client, String>> = LazyLock::new(|| {
+    fetch_client_builder()
+        .retry(reqwest::retry::never())
+        .build()
+        .map_err(|_| "decision HTTP client unavailable".into())
+});
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -70,7 +77,13 @@ pub(super) fn host_of(opts_json: &str) -> Option<String> {
 /// blocks on `join`, which is fine because the VM call is synchronous anyway.
 pub(super) fn run(opts_json: &str) -> String {
     let owned = opts_json.to_string();
-    match std::thread::spawn(move || run_sync(&owned)).join() {
+    let observer = physical::current();
+    match std::thread::spawn(move || {
+        let _scope = observer.map(physical::RequestScope::enter);
+        run_sync(&owned)
+    })
+    .join()
+    {
         Ok(s) => s,
         Err(_) => err("fetch worker panicked"),
     }
@@ -81,7 +94,11 @@ pub(super) fn start(plugin_id: &str, opts_json: &str) -> String {
         return err(&format!("bad fetch opts: {error}"));
     }
     let owned = opts_json.to_string();
-    match super::host_exec::start_json_job(plugin_id, move || run_sync(&owned)) {
+    let observer = physical::current();
+    match super::host_exec::start_json_job(plugin_id, move || {
+        let _scope = observer.map(physical::RequestScope::enter);
+        run_sync(&owned)
+    }) {
         Ok(job_id) => serde_json::json!({ "jobId": job_id }).to_string(),
         Err(error) => err(&error),
     }
@@ -100,7 +117,11 @@ pub(super) fn stream(plugin_id: &str, opts_json: &str) -> String {
 
     let owned = opts_json.to_string();
     let worker_job_id = job_id.clone();
-    std::thread::spawn(move || run_stream_worker(worker_job_id, owned));
+    let observer = physical::current();
+    std::thread::spawn(move || {
+        let _scope = observer.map(physical::RequestScope::enter);
+        run_stream_worker(worker_job_id, owned)
+    });
 
     serde_json::json!({ "jobId": job_id }).to_string()
 }
@@ -165,16 +186,41 @@ fn build_fetch_client() -> Result<reqwest::Client, String> {
     #[cfg(test)]
     FETCH_CLIENT_BUILDS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
-    reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .pool_idle_timeout(FETCH_CLIENT_IDLE_TIMEOUT)
-        .tcp_keepalive(Some(FETCH_CLIENT_TCP_KEEPALIVE))
+    fetch_client_builder()
         .build()
         .map_err(|e| format!("client: {e}"))
 }
 
+fn fetch_client_builder() -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .pool_idle_timeout(FETCH_CLIENT_IDLE_TIMEOUT)
+        .tcp_keepalive(Some(FETCH_CLIENT_TCP_KEEPALIVE))
+}
+
 fn fetch_client() -> Result<&'static reqwest::Client, String> {
-    FETCH_CLIENT.as_ref().map_err(Clone::clone)
+    if physical::current().is_some() {
+        DECISION_FETCH_CLIENT.as_ref()
+    } else {
+        FETCH_CLIENT.as_ref()
+    }
+    .map_err(Clone::clone)
+}
+
+fn request_build_error(error: reqwest::Error) -> String {
+    if physical::current().is_some() {
+        "invalid fetch request".into()
+    } else {
+        format!("request failed: {error}")
+    }
+}
+
+fn transport_error(stage: &str, error: reqwest::Error) -> String {
+    if physical::current().is_some() {
+        stage.into()
+    } else {
+        format!("{stage}: {error}")
+    }
 }
 
 fn fetch_timeout(opts: &FetchOpts) -> Duration {
@@ -186,6 +232,12 @@ fn fetch_timeout(opts: &FetchOpts) -> Duration {
 }
 
 fn request_builder(client: &reqwest::Client, opts: &FetchOpts) -> reqwest::RequestBuilder {
+    let timeout = physical::deadline().map_or_else(
+        || fetch_timeout(opts),
+        |deadline| {
+            fetch_timeout(opts).min(deadline.saturating_duration_since(std::time::Instant::now()))
+        },
+    );
     let method = reqwest::Method::from_bytes(
         opts.method
             .as_deref()
@@ -194,9 +246,7 @@ fn request_builder(client: &reqwest::Client, opts: &FetchOpts) -> reqwest::Reque
             .as_bytes(),
     )
     .unwrap_or(reqwest::Method::GET);
-    let mut req = client
-        .request(method, &opts.url)
-        .timeout(fetch_timeout(opts));
+    let mut req = client.request(method, &opts.url).timeout(timeout);
     for (k, v) in &opts.headers {
         req = req.header(k, v);
     }
@@ -227,8 +277,11 @@ async fn run_async(opts_json: &str) -> Result<String, String> {
         Ok(o) => o,
         Err(e) => return Ok(err(&format!("bad fetch opts: {e}"))),
     };
-    let req = request_builder(fetch_client()?, &opts);
-    match req.send().await {
+    let req = request_builder(fetch_client()?, &opts)
+        .build()
+        .map_err(request_build_error)?;
+    physical::before_request().map_err(|_| "decision request refused".to_string())?;
+    match fetch_client()?.execute(req).await {
         Ok(resp) => {
             let status = resp.status().as_u16();
             let headers: HashMap<String, String> = resp
@@ -241,7 +294,7 @@ async fn run_async(opts_json: &str) -> Result<String, String> {
             while let Some(chunk) = stream.next().await {
                 let chunk = match chunk {
                     Ok(chunk) => chunk,
-                    Err(error) => return Ok(err(&format!("response read failed: {error}"))),
+                    Err(error) => return Ok(err(&transport_error("response read failed", error))),
                 };
                 if body.len().saturating_add(chunk.len()) > MAX_FETCH_BODY_BYTES {
                     return Ok(err("fetch response exceeds the 4 MiB limit"));
@@ -254,7 +307,7 @@ async fn run_async(opts_json: &str) -> Result<String, String> {
                     .to_string(),
             )
         }
-        Err(e) => Ok(err(&format!("request failed: {e}"))),
+        Err(e) => Ok(err(&transport_error("request failed", e))),
     }
 }
 
@@ -280,12 +333,15 @@ fn run_stream_worker(job_id: String, opts_json: String) {
 async fn run_stream_async(job_id: String, opts_json: String) -> Result<(), String> {
     let opts: FetchOpts =
         serde_json::from_str(&opts_json).map_err(|e| format!("bad fetch opts: {e}"))?;
-    let req = request_builder(fetch_client()?, &opts);
+    let req = request_builder(fetch_client()?, &opts)
+        .build()
+        .map_err(request_build_error)?;
+    physical::before_request().map_err(|_| "decision request refused".to_string())?;
 
-    let resp = req
-        .send()
+    let resp = fetch_client()?
+        .execute(req)
         .await
-        .map_err(|e| format!("request failed: {e}"))?;
+        .map_err(|e| transport_error("request failed", e))?;
     set_stream_status(&job_id, resp.status().as_u16());
 
     let mut stream = resp.bytes_stream();
@@ -299,7 +355,7 @@ async fn run_stream_async(job_id: String, opts_json: String) -> Result<(), Strin
                     }
                 }
             }
-            Err(e) => return Err(format!("stream failed: {e}")),
+            Err(e) => return Err(transport_error("stream failed", e)),
         }
     }
     if let Some(chunk) = flush_utf8_remainder(&mut pending_utf8) {
@@ -720,5 +776,130 @@ mod tests {
         let done = poll_until_done("redirect-plugin", job_id);
         assert_eq!(done["status"], 302);
         assert!(escaped_rx.recv_timeout(Duration::from_millis(100)).is_err());
+    }
+}
+
+#[cfg(test)]
+mod physical_tests {
+    use super::*;
+    use codeterm_types::decision::{physical, DecisionError};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    struct Meter(AtomicUsize);
+    impl physical::RequestObserver for Meter {
+        fn before_request(&self) -> Result<(), DecisionError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn decision_physical_scope_keeps_default_fetch_client_unchanged() {
+        let default = fetch_client().unwrap() as *const reqwest::Client;
+        let scope = physical::RequestScope::enter(Arc::new(Meter(AtomicUsize::new(0))));
+        let decision = fetch_client().unwrap() as *const reqwest::Client;
+        let error = fetch_client()
+            .unwrap()
+            .get("http://[invalid?token=opaque-secret")
+            .build()
+            .unwrap_err();
+        assert_eq!(transport_error("request failed", error), "request failed");
+        assert_ne!(decision, default);
+        assert_eq!(fetch_client().unwrap() as *const reqwest::Client, decision);
+        drop(scope);
+        assert_eq!(fetch_client().unwrap() as *const reqwest::Client, default);
+    }
+
+    #[test]
+    fn decision_physical_async_fetch_propagates_scope_and_deadline() {
+        let _guard = crate::js_runtime::PROCESS_TEST_LOCK.lock();
+        struct BoundedMeter {
+            calls: AtomicUsize,
+            deadline: std::time::Instant,
+        }
+        impl physical::RequestObserver for BoundedMeter {
+            fn before_request(&self) -> Result<(), DecisionError> {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+            fn deadline(&self) -> Option<std::time::Instant> {
+                Some(self.deadline)
+            }
+        }
+        let meter = Arc::new(BoundedMeter {
+            calls: AtomicUsize::new(0),
+            deadline: std::time::Instant::now() + Duration::from_secs(2),
+        });
+        let scope = physical::RequestScope::enter(meter.clone());
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut bytes = [0; 2048];
+            assert!(stream.read(&mut bytes).unwrap() > 0);
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                .unwrap();
+        });
+        let opts = serde_json::json!({"url": url, "timeoutMs": 30000}).to_string();
+        let request = request_builder(
+            fetch_client().unwrap(),
+            &serde_json::from_str(&opts).unwrap(),
+        )
+        .build()
+        .unwrap();
+        assert!(request.timeout().unwrap() <= &Duration::from_secs(2));
+        let started: serde_json::Value =
+            serde_json::from_str(&start("physical-async", &opts)).unwrap();
+        drop(scope);
+        let super::super::host_exec::WaitResult::Completed(done) =
+            super::super::host_exec::wait_json(
+                "physical-async",
+                started["jobId"].as_str().unwrap(),
+            )
+        else {
+            panic!("fetch event did not complete before its failure deadline");
+        };
+        let done: serde_json::Value = serde_json::from_str(&done).unwrap();
+        server.join().unwrap();
+        assert!(done.get("error").is_none(), "fetch completion: {done}");
+        assert_eq!(done["status"], 200);
+        assert_eq!(done["body"], "ok");
+        assert_eq!(meter.calls.load(Ordering::SeqCst), 1);
+        assert!(physical::current().is_none());
+    }
+
+    #[test]
+    fn decision_physical_fetch_workers_propagate_call_scope() {
+        let meter = Arc::new(Meter(AtomicUsize::new(0)));
+        let scope = physical::RequestScope::enter(meter.clone());
+        let malformed: serde_json::Value = serde_json::from_str(&run("{}")).unwrap();
+        assert!(malformed["error"].is_string());
+        assert_eq!(meter.0.load(Ordering::SeqCst), 0);
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let serve = std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0; 2048];
+            assert!(stream.read(&mut buf).unwrap() > 0);
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                .unwrap();
+        });
+        let opts = serde_json::json!({"url": url}).to_string();
+        let result: serde_json::Value = serde_json::from_str(&run(&opts)).unwrap();
+        assert_eq!(result["status"], 200);
+        serve.join().unwrap();
+        assert_eq!(meter.0.load(Ordering::SeqCst), 1);
+        drop(scope);
+        assert!(physical::current().is_none());
     }
 }

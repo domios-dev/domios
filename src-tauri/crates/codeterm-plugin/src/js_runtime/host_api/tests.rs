@@ -191,7 +191,8 @@ fn host_api_v2_gating_by_allowlist() {
     assert!(sb.can_exec("bw"));
     assert!(!sb.can_exec("rm"));
     assert!(sb.can_reach("127.0.0.1:7891"));
-    assert!(sb.can_reach("127.0.0.1"));
+    assert!(!sb.can_reach("127.0.0.1"));
+    assert!(!sb.can_reach("127.0.0.1:7892"));
     assert!(!sb.can_reach("evil.example.com"));
     assert!(sb.secrets_allowed());
     assert!(sb.agent_commands_allowed());
@@ -216,6 +217,19 @@ fn host_api_v2_gating_by_allowlist() {
     assert!(full.manage_workspaces_allowed());
     assert!(full.spawn_agents_allowed());
     assert_eq!(full.plugin_id(), "sys");
+}
+
+#[test]
+fn supporter_header_preparation_refuses_unallowed_hosts_before_injection() {
+    use codeterm_types::decision::TokenMode;
+
+    let sandbox = PluginSandbox::restricted(vec![], vec![])
+        .with_identity_and_perms("local-model", &Default::default())
+        .with_token_mode(TokenMode::Optional);
+    let opts = r#"{"url":"http://127.0.0.1:1234/decision"}"#;
+    let error = prepare_fetch(&sandbox, opts).unwrap_err();
+    assert_eq!(error, "fetch denied");
+    assert!(!error.contains("Bearer"));
 }
 
 #[test]
@@ -536,6 +550,7 @@ fn file_lock_cleanup_preserves_another_live_plugin_call() {
         .write(true)
         .open(&second_path)
         .unwrap();
+    let inherited_second = second.try_clone().unwrap();
     first.try_lock().unwrap();
     second.try_lock().unwrap();
     held_file_locks().lock().insert(
@@ -571,6 +586,7 @@ fn file_lock_cleanup_preserves_another_live_plugin_call() {
     release_call_file_locks("second-call");
     probe.try_lock().unwrap();
     probe.unlock().unwrap();
+    drop(inherited_second);
 }
 
 #[test]
@@ -1099,6 +1115,7 @@ fn a_declared_credential_file_stays_unreadable_inside_its_own_read_root() {
     std::fs::write(&auth, r#"{"tokens":{"access_token":"t"}}"#).unwrap();
 
     let credential = CredentialConfig {
+        file_environment: None,
         id: "codexAuth".into(),
         file: auth.to_string_lossy().into_owned(),
         public: Default::default(),
@@ -1146,3 +1163,13 @@ fn each_denial_advances_the_counter_and_an_allowed_call_does_not() {
     assert!(sb.can_env("CODETERM_CODEX_SESSIONS_ROOT"));
     assert_eq!(sb.denial_count(), 2, "an allowlisted name is not a denial");
 }
+
+#[path = "tests/command_transcript.rs"]
+mod command_transcript;
+
+#[test]
+fn command_transcript_parser_native_js_parity() {
+    command_transcript::verify();
+}
+
+mod boolean_record;

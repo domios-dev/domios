@@ -7,7 +7,7 @@ use std::fmt::Write;
 use std::path::{Path, PathBuf};
 
 pub const NEXT_STEPS: &str =
-    "The update was aborted after panes were torn down. Restart CodeTerm to reload the \
+    "The update was aborted after panes were torn down. Restart Domios to reload the \
      persisted session snapshot; agent tabs auto-resume by session id. Then retry the update.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,7 +112,7 @@ impl UpdateFailureSink for AppFailureSink {
         );
         crate::api::os_notify::_send_os_notification(
             &self.app,
-            "CodeTerm update failed",
+            "Domios update failed",
             Some(&body),
         );
     }

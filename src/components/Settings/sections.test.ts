@@ -3,7 +3,8 @@
 import {
   SECTION_ICONS,
   SETTINGS_SECTIONS,
-  normalizeSection,
+  isSettingsLinkId,
+  resolveSettingsLink,
   sectionTitle,
   type SectionId,
 } from "./sections";
@@ -27,6 +28,13 @@ test("guide section sits between logs and about", () => {
   assert(aboutIdx === guideIdx + 1, "about should follow guide");
 });
 
+test("jobs section sits right before logs", () => {
+  const ids = SETTINGS_SECTIONS.map((s) => s.id);
+  const jobsIdx = ids.indexOf("jobs");
+  assert(jobsIdx >= 0, "missing jobs nav id");
+  assert(ids[jobsIdx + 1] === "logs", "jobs should precede logs");
+});
+
 test("guide section title resolves", () => {
   assert(sectionTitle("guide" as SectionId) === "Guide", "guide title");
 });
@@ -48,9 +56,23 @@ test("notification_settings_home: notifications section title and icon resolve",
 
 test("notification_settings_home: no nav id resolves to a different section", () => {
   for (const section of SETTINGS_SECTIONS) {
-    assert(normalizeSection(section.id) === section.id, `${section.id} maps to itself`);
+    const route = resolveSettingsLink(section.id);
+    assert(route?.section === section.id && route.card === undefined, `${section.id} maps to itself`);
   }
-  assert(normalizeSection(undefined) === undefined, "no section stays no section");
+  assert(resolveSettingsLink(undefined) === undefined, "no section stays no section");
+});
+
+test("the retired integrations link lands on the Messengers card in General", () => {
+  const route = resolveSettingsLink("integrations");
+  assert(route?.section === "general" && route.card === "telegram-bridge", "integrations routes to the Telegram bridge card");
+  assert(!SETTINGS_SECTIONS.some((s) => (s.id as string) === "integrations"), "integrations is no longer a nav entry");
+});
+
+test("the messengers link opens the Messengers card and unknown links are rejected", () => {
+  const route = resolveSettingsLink("messengers");
+  assert(route?.section === "general" && route.card === "telegram-bridge", "messengers routes to the Telegram bridge card");
+  assert(isSettingsLinkId("messengers") && isSettingsLinkId("general") && isSettingsLinkId("integrations"), "known link rejected");
+  assert(!isSettingsLinkId("nope") && !isSettingsLinkId("toString"), "unknown link accepted");
 });
 
 test("notification_settings_home: the agents description no longer claims notifications", () => {

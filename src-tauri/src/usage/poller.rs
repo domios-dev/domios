@@ -697,6 +697,8 @@ mod tests {
 
     fn row(session: Option<i64>, weekly: Option<i64>) -> UsageSnapshotRow {
         UsageSnapshotRow {
+            billing_mode: Default::default(),
+            limits_reported: false,
             id: 1,
             provider: "claude".into(),
             account_id: None,

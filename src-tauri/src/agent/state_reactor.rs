@@ -11,10 +11,40 @@ use super::status::TabStatus;
 use super::tab_state::{
     Surface, TabState, TabStateAction, TabStateClassification, TabStateSnapshot,
 };
-use crate::service::ServiceState;
+use crate::service::{ServiceContext, ServiceState};
 
 /// Minimum confidence an actionable verdict must clear — the no-false-positive gate.
 pub const GLOBAL_THRESHOLD: f32 = 0.8;
+
+pub fn display_verdict_for_composer(
+    position: super::provider::ComposerCursorPosition,
+    structural: super::offline_state_classifier::TabVerdict,
+    classify: impl FnOnce() -> Option<TabStateClassification>,
+) -> super::offline_state_classifier::TabVerdict {
+    if position != super::provider::ComposerCursorPosition::PromptLine {
+        return structural;
+    }
+    display_verdict(structural, classify().as_ref())
+}
+
+pub fn display_verdict(
+    structural: super::offline_state_classifier::TabVerdict,
+    classification: Option<&TabStateClassification>,
+) -> super::offline_state_classifier::TabVerdict {
+    use super::offline_state_classifier::{TabVerdict, TimelineState};
+    if structural.state != TimelineState::Question
+        && classification.is_some_and(|value| {
+            value.state == TabState::Working && value.confidence >= GLOBAL_THRESHOLD
+        })
+    {
+        TabVerdict {
+            state: TimelineState::Working,
+            subtype: None,
+        }
+    } else {
+        structural
+    }
+}
 
 pub(crate) fn is_manual_update_prompt(classification: Option<&TabStateClassification>) -> bool {
     classification.is_some_and(|value| {
@@ -86,7 +116,7 @@ fn keys_to_writes(keys: &[String]) -> Vec<Vec<u8>> {
 /// Start the background reactor loop on its own thread: sweeps tracked tabs,
 /// dedupes per parked episode, and executes verdicts off the async runtime.
 pub fn start(svc: ServiceState) {
-    std::thread::spawn(move || {
+    codeterm_util::named_thread::spawn("agent-state-reactor", move || {
         // Tabs already reacted-to this parked episode — prevents re-firing every tick at the same prompt.
         let mut reacted: HashSet<String> = HashSet::new();
         loop {
@@ -160,35 +190,201 @@ fn react(svc: &ServiceState, pty_id: &str, status: TabStatus) {
         screen_text,
     };
 
+    if svc.scrape_model_connected()
+        && matches!(status, TabStatus::Idle | TabStatus::Waiting)
+        && svc.is_scrape_candidate(&agent_type, &snapshot.screen_text)
+    {
+        let fallback = snapshot.clone();
+        svc.observe_scrape_candidate(snapshot, move |service| {
+            react_heuristic(
+                &std::sync::Arc::new(service.clone()),
+                status,
+                &fallback,
+                auto_approve,
+                permission_auto_confirm,
+            );
+        });
+        return;
+    }
+    react_heuristic(
+        svc,
+        status,
+        &snapshot,
+        auto_approve,
+        permission_auto_confirm,
+    );
+}
+
+fn react_heuristic(
+    svc: &ServiceState,
+    status: TabStatus,
+    snapshot: &TabStateSnapshot,
+    auto_approve: bool,
+    permission_auto_confirm: bool,
+) {
+    let tab_id = &snapshot.tab_id;
+    let agent_type = &snapshot.agent_type;
+    crate::service::background_work_watch::ensure(svc, tab_id);
+    let needs_auth = {
+        let mux = svc.mux.read();
+        mux.get_tab(tab_id)
+            .is_some_and(|tab| tab.provider_signals.auth.is_none())
+    };
+    if needs_auth {
+        crate::service::provider_signals::refresh_auth(svc, tab_id);
+    }
     // Ask the tab's OWN provider. No lock held across this call.
     let classification = svc
         .agent_registry
-        .with_provider(&agent_type, |provider| {
-            provider.classify_tab_state(&snapshot)
-        })
+        .with_provider(agent_type, |provider| provider.classify_tab_state(snapshot))
         .unwrap_or(None);
+    let classification =
+        crate::service::provider_signals::classify_for(svc, snapshot, classification);
 
-    match decide(status, classification.as_ref()) {
+    let decision = if svc.prompt_chain_blocks_keys(tab_id) {
+        classification
+            .as_ref()
+            .map_or(ReactorDecision::Ignore, |classification| {
+                decide_prompt_chain(status, classification)
+            })
+    } else {
+        decide(status, classification.as_ref())
+    };
+    match decision {
         ReactorDecision::Ignore => {}
-        ReactorDecision::Surface(surface) => surface_to_user(svc, &tab_id, surface),
+        ReactorDecision::Surface(surface) => surface_to_user(svc, tab_id, surface),
         ReactorDecision::Act(action) => {
             if !route_classified_prompt(
                 svc,
-                &tab_id,
-                &agent_type,
+                tab_id,
+                agent_type,
                 &snapshot.screen_text,
                 classification.as_ref(),
                 auto_approve,
                 permission_auto_confirm,
             ) {
-                execute_action(svc, &tab_id, action);
+                execute_action(svc, tab_id, action);
             }
         }
     }
 }
 
+pub(crate) fn classify_adopted_launch_screen(svc: &ServiceContext, tab_id: &str, pty_id: &str) {
+    let (agent_type, session_id, cwd) = {
+        let mux = svc.mux.read();
+        let Some(tab) = mux.get_tab(tab_id) else {
+            return;
+        };
+        if tab.pty_id.as_deref() != Some(pty_id) {
+            return;
+        }
+        let Some(agent_type) = tab.agent_type.clone() else {
+            return;
+        };
+        (agent_type, tab.agent_session_id.clone(), tab.cwd.clone())
+    };
+    let screen = svc
+        .screen_state
+        .lock()
+        .get_screen_text(pty_id)
+        .unwrap_or_default();
+    let snapshot = TabStateSnapshot {
+        tab_id: tab_id.to_string(),
+        agent_type: agent_type.clone(),
+        session_id,
+        cwd,
+        screen_text: screen.clone(),
+    };
+    let classification = svc
+        .agent_registry
+        .with_provider(&agent_type, |provider| {
+            provider.classify_tab_state(&snapshot)
+        })
+        .flatten();
+    let classification =
+        crate::service::provider_signals::classify_for(svc, &snapshot, classification);
+    let Some(classification) = classification.filter(|value| {
+        value.confidence >= GLOBAL_THRESHOLD
+            && matches!(
+                value.state,
+                TabState::WaitingOnAuth | TabState::ClarifyingQuestion
+            )
+    }) else {
+        surface_adopted_screen_prompt(svc, tab_id, &agent_type, &screen);
+        return;
+    };
+    if classification.state == TabState::WaitingOnAuth {
+        surface_to_user(
+            svc,
+            tab_id,
+            classification
+                .action
+                .as_ref()
+                .and_then(|action| action.surface.clone()),
+        );
+        surface_adopted_screen_prompt(svc, tab_id, &agent_type, &screen);
+        return;
+    }
+    if !route_classified_prompt(
+        svc,
+        tab_id,
+        &agent_type,
+        &screen,
+        Some(&classification),
+        false,
+        false,
+    ) {
+        surface_adopted_screen_prompt(svc, tab_id, &agent_type, &screen);
+    }
+}
+
+fn surface_adopted_screen_prompt(
+    svc: &ServiceContext,
+    tab_id: &str,
+    agent_type: &str,
+    screen: &str,
+) {
+    let Some((prompt, prompt_kind)) = crate::agent::prompt::parse_prompt_safely(|| {
+        svc.agent_registry
+            .parse_interactive_prompt(agent_type, screen)
+    }) else {
+        return;
+    };
+    if !has_structural_prompt_evidence(screen, &prompt) || prompt_is_composer_text(screen, &prompt)
+    {
+        return;
+    }
+    let decision = svc.prompt_detector.lock().evaluate_pty_output_parsed(
+        tab_id,
+        true,
+        true,
+        Some(crate::agent::prompt::ResolvedPrompt {
+            prompt,
+            explicit: false,
+        }),
+    );
+    svc.apply_prompt_decision_with_kind(&decision, Some(screen), prompt_kind, true);
+}
+
+fn decide_prompt_chain(
+    status: TabStatus,
+    classification: &TabStateClassification,
+) -> ReactorDecision {
+    if matches!(
+        classification.state,
+        TabState::WaitingOnAuth
+            | TabState::RateLimited
+            | TabState::ClarifyingQuestion
+            | TabState::Unknown
+    ) {
+        ReactorDecision::Ignore
+    } else {
+        decide(status, Some(classification))
+    }
+}
+
 fn route_classified_prompt(
-    svc: &ServiceState,
+    svc: &ServiceContext,
     tab_id: &str,
     agent_type: &str,
     screen: &str,
@@ -445,7 +641,7 @@ fn schedule_resume(svc: &ServiceState, tab_id: &str, resume: &super::tab_state::
 }
 
 /// Surface a verdict to the user as a chat-card event.
-fn surface_to_user(svc: &ServiceState, tab_id: &str, surface: Option<Surface>) {
+fn surface_to_user(svc: &ServiceContext, tab_id: &str, surface: Option<Surface>) {
     let (kind, payload) = match &surface {
         Some(s) => (s.kind.clone(), s.payload.clone()),
         None => ("tab_state".to_string(), serde_json::Value::Null),

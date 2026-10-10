@@ -8,7 +8,7 @@ use super::{
     resolve_plan_ctx, PLANNER_AUTHORITY_REFUSAL, PLAN_EVIDENCE_AUTHORITY_REFUSAL,
     STALE_TASK_HINT_REFUSAL,
 };
-use crate::agent::reports::{ReportDetails, ReportStatus};
+use crate::agent::reports::{ReportDetails, ReportStatus, BLOCK_PROPOSAL_NOTICE};
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
 use crate::plan::{
@@ -19,6 +19,7 @@ use crate::service::test_fixture::ServiceFixture;
 use crate::service::AuthenticatedPlanCaller;
 use codeterm_types::agent::ReportOutcomeClass;
 
+mod desktop_reports;
 mod plan_evidence_owner_test;
 mod plan_evidence_role_test;
 mod plan_evidence_session_test;
@@ -497,6 +498,71 @@ fn stale_task_report_absent_hint_still_transitions_the_held_task() {
     );
     assert_eq!(h.task(&h.held).status, TaskStatus::InReview);
     assert_eq!(h.shape(&h.stale), stale_before);
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn blocked_worker_report_is_one_persisted_proposal_and_keeps_task_in_progress() {
+    let h = worker_harness();
+    let attempt_id = h.task(&h.held).execution_attempts[0].id.clone();
+    h.fx.service
+        .plan_store
+        .acknowledge_task_attempt(&h.plan_id, &h.held, &h.caller, &attempt_id, 6)
+        .expect("the Worker has started its assigned task");
+    let before = h.task(&h.held);
+    assert_eq!(before.status, TaskStatus::InProgress);
+    assert_eq!(before.status_label.as_deref(), Some("acknowledged"));
+
+    let mut details = h.details(ReportStatus::Blocked);
+    details.test_cmd = Some("dependency-probe".into());
+    details.test_result = Some("dependency unavailable".into());
+
+    let result =
+        h.fx.service
+            .submit_report(
+                &h.caller,
+                "dependency unavailable",
+                details,
+                Some(&h.plan_id),
+                Some(&h.held),
+                None,
+            )
+            .expect("a blocked report is an accepted proposal");
+
+    assert!(result.rejected_task_transition.is_none());
+    assert_eq!(
+        result.persisted_task,
+        Some((h.plan_id.clone(), h.held.clone()))
+    );
+    assert_eq!(
+        result.report_outcome,
+        Some(ReportOutcomeClass::BlockProposed)
+    );
+
+    let task = h.task(&h.held);
+    assert_eq!(task.status, TaskStatus::InProgress);
+    assert_eq!(task.status_label, before.status_label);
+    assert_eq!(task.milestones.len(), 1);
+    assert!(task.milestones[0].text.starts_with("BLOCK PROPOSAL: "));
+    let snapshot = task.execution_attempts[0].report.as_ref().unwrap();
+    assert_eq!(snapshot.status.as_deref(), Some("blocked"));
+    assert_eq!(snapshot.message.as_deref(), Some("dependency unavailable"));
+    assert_eq!(snapshot.test_cmd.as_deref(), Some("dependency-probe"));
+    assert_eq!(
+        snapshot.test_result.as_deref(),
+        Some("dependency unavailable")
+    );
+
+    let reports = h.fx.service.report_store.lock().get(&h.root, false);
+    assert_eq!(reports.len(), 1);
+    assert_eq!(
+        reports[0].report_outcome,
+        Some(ReportOutcomeClass::BlockProposed)
+    );
+    assert!(reports[0].inject_body().contains(BLOCK_PROPOSAL_NOTICE));
 }
 
 /// The verification Worker's safety is its emptiness, not a second gate: a tab
@@ -1022,166 +1088,4 @@ fn plan_evidence_harness() -> PlanEvidenceHarness {
         plan_id: plan.id,
         task_id,
     }
-}
-
-#[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn authorized_taskless_reporter_persists_plan_evidence_and_reaches_owner_without_task_mutation() {
-    let h = plan_evidence_harness();
-    let task_before = h
-        .plan()
-        .tasks
-        .into_iter()
-        .find(|task| task.id == h.task_id)
-        .unwrap();
-    let token = "qa-report-7fb62d8b";
-
-    let result =
-        h.fx.service
-            .submit_report(
-                &h.reporter,
-                token,
-                h.details(&h.reporter, "reporter-session", "reporter-nonce"),
-                Some(&h.plan_id),
-                None,
-                None,
-            )
-            .unwrap();
-
-    assert!(result.persisted_task.is_none());
-    assert!(result.rejected_task_transition.is_none());
-    assert!(result.persisted_plan_evidence.is_some());
-    assert_eq!(
-        result.report_outcome,
-        Some(ReportOutcomeClass::StructurallyNotAttachable)
-    );
-    let plan = h.plan();
-    let evidence = plan
-        .strides
-        .iter()
-        .find(|stride| stride.text == token)
-        .unwrap();
-    assert_eq!(evidence.kind, "plan_evidence_report");
-    assert_eq!(evidence.from.tab_id.as_deref(), Some(h.reporter.as_str()));
-    assert_eq!(
-        evidence.from.session_id.as_deref(),
-        Some("reporter-session")
-    );
-    let task_after = plan.tasks.iter().find(|task| task.id == h.task_id).unwrap();
-    assert_eq!(task_after.status, task_before.status);
-    assert_eq!(task_after.assigned_tab_id, task_before.assigned_tab_id);
-    assert_eq!(task_after.milestones, task_before.milestones);
-    assert!(h.reports().contains(token));
-}
-
-#[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn ordinary_taskless_tab_is_refused_without_plan_or_delivery_mutation() {
-    let h = plan_evidence_harness();
-    let token = "ordinary-refused-36d4b0f8";
-    let strides_before = h.plan().strides;
-
-    let error =
-        h.fx.service
-            .submit_report(
-                &h.ordinary,
-                token,
-                h.details(&h.ordinary, "ordinary-session", "ordinary-nonce"),
-                Some(&h.plan_id),
-                None,
-                None,
-            )
-            .unwrap_err();
-
-    assert!(error.contains(PLAN_EVIDENCE_AUTHORITY_REFUSAL));
-    assert_eq!(h.plan().strides, strides_before);
-    assert!(!h.reports().contains(token));
-}
-
-#[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn evidence_grant_is_plan_scoped_and_cannot_write_a_foreign_plan() {
-    let h = plan_evidence_harness();
-    let mut foreign = Plan::new(
-        "foreign evidence plan".into(),
-        h.fx.temp.path().display().to_string(),
-        OrchestratorRef::from_tab(&h.root),
-    );
-    foreign.team_id = Some("team-foreign-evidence".into());
-    h.fx.service.plan_store.save(&mut foreign, 20).unwrap();
-    let token = "foreign-plan-refused-2f5ec639";
-    let original_before = h.plan().strides;
-    let foreign_before = foreign.strides.clone();
-    let mut details = h.details(&h.reporter, "reporter-session", "reporter-nonce");
-    details.plan_id = Some(foreign.id.clone());
-
-    let error =
-        h.fx.service
-            .submit_report(&h.reporter, token, details, Some(&foreign.id), None, None)
-            .unwrap_err();
-
-    assert!(error.contains(PLAN_EVIDENCE_AUTHORITY_REFUSAL));
-    assert_eq!(h.plan().strides, original_before);
-    assert_eq!(
-        h.fx.service.plan_store.get(&foreign.id).unwrap().strides,
-        foreign_before
-    );
-    assert!(!h.reports().contains(token));
-}
-
-#[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn rebound_authorized_reporter_is_refused_without_plan_or_delivery_mutation() {
-    let h = plan_evidence_harness();
-    let token = "rebound-refused-f5c9d7a1";
-    let strides_before = h.plan().strides;
-    {
-        let mut mux = h.fx.service.mux.write();
-        let tab = mux.get_tab_mut(&h.reporter).unwrap();
-        tab.agent_session_id = Some("rebound-session".into());
-        tab.session_binding_nonce = Some("rebound-nonce".into());
-        tab.reported_session_binding_nonce = Some("rebound-nonce".into());
-    }
-
-    let error =
-        h.fx.service
-            .submit_report(
-                &h.reporter,
-                token,
-                h.details(&h.reporter, "reporter-session", "reporter-nonce"),
-                Some(&h.plan_id),
-                None,
-                None,
-            )
-            .unwrap_err();
-
-    assert!(error.contains(PLAN_EVIDENCE_AUTHORITY_REFUSAL));
-    assert_eq!(h.plan().strides, strides_before);
-    assert!(!h.reports().contains(token));
-}
-
-#[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn task_bound_reporter_cannot_use_plan_evidence_capability() {
-    let h = plan_evidence_harness();
-    let token = "task-bound-refused-3cf68e0a";
-    let plan_before = h.plan();
-
-    let error =
-        h.fx.service
-            .submit_report(
-                &h.bound,
-                token,
-                h.details(&h.bound, "bound-session", "bound-nonce"),
-                Some(&h.plan_id),
-                None,
-                None,
-            )
-            .unwrap_err();
-
-    assert!(error.contains(PLAN_EVIDENCE_AUTHORITY_REFUSAL));
-    let plan_after = h.plan();
-    assert_eq!(plan_after.strides, plan_before.strides);
-    assert_eq!(plan_after.tasks, plan_before.tasks);
-    assert!(!h.reports().contains(token));
 }

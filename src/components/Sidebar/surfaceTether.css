@@ -1,0 +1,142 @@
+.sidebar-surface-owner {
+  position: relative;
+  min-width: 0;
+}
+
+.sidebar-surface-attachments {
+  min-width: 0;
+}
+
+.sidebar-tab.sidebar-tab--attachment {
+  min-height: 0;
+}
+
+.sidebar-tether {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.sidebar-tether-path {
+  fill: none;
+  stroke: var(--ct-muted-fg);
+  stroke-opacity: 0.28;
+  stroke-width: 1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition:
+    stroke var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    stroke-opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.sidebar-surface-owner:hover .sidebar-tether-path[data-state="idle"],
+.sidebar-surface-owner:hover .sidebar-tether-path[data-state="driving"] {
+  stroke-opacity: 0.5;
+}
+
+.sidebar-tether-path[data-state="controlled"] {
+  stroke: var(--ct-accent);
+  stroke-opacity: 0.85;
+}
+
+.sidebar-tether-droplet {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  width: 5px;
+  height: 3.5px;
+  border-radius: 50%;
+  background: var(--ct-accent);
+  box-shadow: 0 0 3px color-mix(in srgb, var(--ct-accent) 60%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  offset-anchor: center;
+  offset-distance: 0%;
+  offset-rotate: auto;
+  animation: ct-tether-droplet var(--ct-duration-liquid-sweep) var(--ct-ease-liquid-breathe) forwards;
+}
+
+/* x follows the path under offset-rotate: auto, so scaleX is the velocity stretch; it fades out inside the icon clearings at both ends. */
+@keyframes ct-tether-droplet {
+  0% { offset-distance: 0%; opacity: 0; transform: scale(0.5, 0.5); }
+  24% { opacity: 0.95; transform: scale(1, 1); }
+  55% { transform: scale(1.7, 0.7); }
+  76% { opacity: 0.95; transform: scale(1.3, 0.8); }
+  92% { offset-distance: 100%; opacity: 0; transform: scale(0.7, 0.7); }
+  100% { offset-distance: 100%; opacity: 0; transform: scale(0.7, 0.7); }
+}
+
+@keyframes ct-tether-reduced-pulse {
+  0% { stroke-opacity: 0.1; }
+  30% { stroke-opacity: 0.7; }
+  100% { stroke-opacity: 0.28; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-tether-droplet {
+    display: none;
+  }
+
+  .sidebar-tether-path[data-state="driving"] {
+    animation: ct-tether-reduced-pulse var(--ct-duration-liquid-sweep) linear;
+  }
+}
+
+/* Hovering a surface lifts its owner so the pair reads as one unit. */
+.sidebar-surface-owner:has(> .sidebar-surface-attachments .sidebar-tab:hover) > .sidebar-surface-owner-row .sidebar-tab:not(:hover) {
+  background: color-mix(in srgb, var(--ct-hover) 60%, transparent);
+}
+
+.sidebar-attachment-toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+  height: 16px;
+  margin-right: 2px;
+  border: 0;
+  border-radius: 4px;
+  padding: 0 3px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.sidebar-tab:hover .sidebar-attachment-toggle,
+.sidebar-tab:focus-within .sidebar-attachment-toggle,
+.sidebar-tab-touch .sidebar-attachment-toggle,
+.sidebar-attachment-toggle[data-collapsed="true"] {
+  opacity: 1;
+}
+
+.sidebar-attachment-toggle:hover {
+  background: var(--ct-hover);
+  color: var(--ct-fg);
+}
+
+.sidebar-surface-badged-icon {
+  position: relative;
+  display: inline-flex;
+  color: var(--ct-muted-fg);
+}
+
+.sidebar-surface-badged-icon__owner {
+  position: absolute;
+  right: -4px;
+  bottom: -3px;
+  font-size: 7px;
+  border-radius: 50%;
+  background: var(--ct-bg);
+  box-shadow: 0 0 0 1px var(--ct-bg);
+}

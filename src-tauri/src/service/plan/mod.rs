@@ -3,6 +3,8 @@ pub use codeterm_plan::service_plan::*;
 
 // App-crate adapters (tauri/mem/mux deps)
 pub mod adopt;
+#[cfg(test)]
+mod adopt_tests;
 pub mod lane_port_impl;
 pub mod search_port_impl;
 pub mod sink_impl;

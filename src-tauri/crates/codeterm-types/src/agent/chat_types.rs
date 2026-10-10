@@ -17,13 +17,13 @@ use serde::{Deserialize, Serialize};
 /// by the enrich pipeline (`AgentProvider::parse_interactive_events`), never
 /// from raw JSONL parsing. New kinds (Confirm, Select, …) plug in here so call
 /// sites that already render `Vec<InteractiveElement>` need no change.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum InteractiveElement {
     Question(InteractiveQuestion),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct InteractiveQuestion {
     /// Stable widget key: `{tool_use_id}-{question_index}`.
@@ -37,7 +37,7 @@ pub struct InteractiveQuestion {
     pub multi_select: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct InteractiveOption {
     pub label: String,
@@ -58,7 +58,7 @@ pub struct MessageBlock {
     pub data: serde_json::Value,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ChatTimelineMarker {
     Queued,
@@ -66,7 +66,7 @@ pub enum ChatTimelineMarker {
     ContextCompaction,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatSessionIntent {
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -77,6 +77,14 @@ pub struct ChatSessionIntent {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RichMessage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub background_work: Vec<super::background_work::BackgroundWorkObservation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_observations: Option<super::provider_signals::SessionObservations>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_usage: Option<super::context::TurnContext>,
     /// Free-form role string. Common values: "user", "assistant",
     /// "system". Plugin chooses; frontend renderer maps to styling.
     pub role: String,
@@ -172,7 +180,7 @@ pub struct SessionDelta {
 
 /// An image (or file) attachment on a user message, mirroring the frontend
 /// `ChatAttachment`.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatAttachment {
     pub id: String,
@@ -192,7 +200,7 @@ pub struct ChatAttachment {
 /// (`rich_to_chat_msgs`) — the single normalized shape for all providers.
 /// `id` must be stable across polls so the UI merges an updated message in
 /// place instead of duplicating it.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatMsg {
     pub id: String,
@@ -213,6 +221,7 @@ pub struct ChatMsg {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(type = "unknown")]
     pub tool_edits: Option<serde_json::Value>,
     /// Human description supplied by the tool call source; never inferred.
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -243,9 +252,11 @@ pub struct ChatMsg {
     pub tool_background_task_id: Option<String>,
     /// Per-file diffs with the exact hunks the provider's own edit record supplied.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(type = "unknown")]
     pub file_diffs: Option<serde_json::Value>,
     /// Provider-neutral web or image result metadata (query, result count, local path), passed through verbatim.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(type = "unknown")]
     pub tool_rich_result: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_name: Option<String>,
@@ -254,6 +265,7 @@ pub struct ChatMsg {
     pub tool_args: Option<String>,
     /// Raw tool input (provider-shaped) so the chat can render diffs/args.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(type = "unknown")]
     pub tool_input: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_id: Option<String>,
@@ -292,6 +304,10 @@ pub struct ChatMsg {
     pub from_tab: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub from_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub from_purpose: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub from_context: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub from_mesh: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]

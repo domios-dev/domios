@@ -1,11 +1,11 @@
 /**
- * Typed wrapper over the isolated Playwright instance's REST API.
- * Token comes from its named dev data directory.
+ * Typed wrapper over the selected Playwright target's REST API.
+ * Token comes from that target's dev data directory.
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { currentDevInstance, type DevInstance } from "./dev-instance";
+import { currentDevInstance, isDevTarget, isNamedTarget, type DevInstance } from "./dev-instance";
 
 export interface Tab {
   id: string;
@@ -32,6 +32,11 @@ export interface Workspace {
 
 export interface Provider {
   id: string;
+  display_name?: string;
+  transport?: "pty" | "chat_backend";
+  availability?: "available" | "unavailable" | "unknown";
+  supports_chat_ui?: boolean;
+  supports_permission_bypass?: boolean;
   available_models?: { id: string; display_name: string }[];
   /** Provider-declared in-agent switch template; absent ⇒ no live model switch. */
   model_switch_format?: string | null;
@@ -64,6 +69,14 @@ function datadirForPort(port: string): string | null {
 }
 
 export function devDataDirName(instance = currentDevInstance()): string {
+  if (isDevTarget()) return ".codeterm-dev";
+  if (isNamedTarget()) {
+    const resolved = process.env.CODETERM_DEV_DATA_DIR?.trim();
+    if (!resolved || path.basename(resolved) !== instance.dataDirName) {
+      throw new Error("PW_TARGET=named requires the bench lib resolved data directory");
+    }
+    return instance.dataDirName;
+  }
   if (process.env.CT_E2E_DATADIR) return process.env.CT_E2E_DATADIR;
   if (instance.name) return instance.dataDirName;
   const port = String(instance.apiPort);
@@ -73,6 +86,11 @@ export function devDataDirName(instance = currentDevInstance()): string {
 
 // CT_E2E_DATADIR, or CT_E2E_PORT when its config.toml records that port.
 export function readDevToken(instance = currentDevInstance()): string {
+  if (isNamedTarget()) {
+    const token = process.env.CODETERM_API_TOKEN;
+    if (!token?.trim()) throw new Error("PW_TARGET=named requires CODETERM_API_TOKEN from the bench lib resolution");
+    return token;
+  }
   const dir = devDataDirName(instance);
   const p = path.join(os.homedir(), dir, "config.toml");
   const m = readFileSync(p, "utf8").match(/^token\s*=\s*"([^"]+)"/m);
@@ -145,6 +163,17 @@ export class ApiClient {
   }
   providers(): Promise<Provider[]> {
     return this.get("/agents/providers");
+  }
+
+  openEventStream(tabId: string, signal: AbortSignal): Promise<Response> {
+    const query = new URLSearchParams({ tab_id: tabId });
+    return fetch(`${this.apiBase}/api/events/stream?${query}`, {
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        Accept: "text/event-stream",
+      },
+      signal,
+    });
   }
 
   createWorkspace(name: string, cwd?: string): Promise<unknown> {

@@ -3,6 +3,12 @@ use crate::service::plan::{PlanError, PlanStore};
 
 use super::{ServiceState, SpawnIdentityProvenance};
 
+mod restore_binding;
+
+pub(crate) use restore_binding::{
+    restore_attempt_binding_for_caller, AttemptBindingRestoreResult, AttemptBindingRestoreTarget,
+};
+
 pub(crate) fn respawn_title_provenance(explicit_title: bool) -> SpawnIdentityProvenance {
     if explicit_title {
         SpawnIdentityProvenance::UserSupplied

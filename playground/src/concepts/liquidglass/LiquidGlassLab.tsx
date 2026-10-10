@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LivingDots } from "../../ds/LivingDots";
+import { ActivityDots } from "../../../../src/components/shared/ActivityDots";
 import { GlassButton } from "./GlassButton";
 import { LiquidFlip, LiquidSegmented, LiquidToggle } from "./LiquidControls";
 import "./liquidglass.css";
@@ -31,7 +31,7 @@ export function LiquidGlassLab() {
     <main className="lg-lab mx-auto flex max-w-[960px] flex-col gap-8 px-6 py-12">
       <header className="flex flex-col gap-2">
         <span className="text-[11px] uppercase tracking-[0.2em] text-[var(--ct-muted-fg)]">
-          CodeTerm · liquid glass × squash-jump
+          Domios · liquid glass × squash-jump
         </span>
         <h1 className="text-2xl font-semibold text-[var(--ct-fg)]">Living Controls</h1>
         <p className="max-w-[60ch] text-sm leading-relaxed text-[var(--ct-muted-fg)]">
@@ -44,7 +44,7 @@ export function LiquidGlassLab() {
         <div className="flex flex-wrap items-center gap-3">
           <GlassButton variant="primary">Run agent</GlassButton>
           <GlassButton variant="accent">
-            <LivingDots size="small" />
+            <ActivityDots size="small" />
             <span>Working</span>
           </GlassButton>
           <GlassButton variant="ghost">Details</GlassButton>
@@ -62,15 +62,15 @@ export function LiquidGlassLab() {
       <Bay eyebrow="pulse" title="Living dots — the signature">
         <div className="flex flex-wrap items-center gap-8">
           <div className="flex items-center gap-2.5">
-            <LivingDots />
+            <ActivityDots />
             <span className="text-sm text-[var(--ct-muted-fg)]">working</span>
           </div>
           <div className="flex items-center gap-2.5">
-            <LivingDots tone="thinking" rhythm="thinking" />
+            <ActivityDots tone="thinking" rhythm="thinking" />
             <span className="text-sm text-[var(--ct-muted-fg)]">thinking</span>
           </div>
           <div className="flex items-center gap-2.5">
-            <LivingDots idle />
+            <ActivityDots active={false} />
             <span className="text-sm text-[var(--ct-muted-fg)]">idle</span>
           </div>
         </div>

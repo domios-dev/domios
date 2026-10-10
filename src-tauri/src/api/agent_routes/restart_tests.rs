@@ -67,9 +67,36 @@ fn exit_recovery_response_reports_the_same_pty_resumed_in_place() {
 
     assert_eq!(body["recovered_in_place"], true);
     assert_eq!(body["old_pty_torn_down"], false);
-    assert_eq!(body["session_action"], "resume");
+    assert_eq!(body["session_action"], "resumed");
     assert_eq!(body["session_id"], "session-1");
     assert_eq!(body["old_pty_id"], body["new_pty_id"]);
+}
+
+#[test]
+fn agent_restart_reports_resumed_or_fresh_launch() {
+    let outcome = |session_id: Option<&str>, session_was_stale| {
+        crate::service::agent_restart::RestartOutcome {
+            tab_id: "tab-1".into(),
+            provider: "provider-fixture".into(),
+            session_id: session_id.map(str::to_string),
+            session_was_stale,
+            force: false,
+            auto_approve: false,
+            restart_accepted: true,
+            old_pty_torn_down: true,
+            agent_ready: true,
+            binding_restored: true,
+            recovered_in_place: false,
+            old_pty_id: Some("pty-old".into()),
+            new_pty_id: Some("pty-new".into()),
+        }
+    };
+
+    let resumed = agent_restart_response(&outcome(Some("session-1"), false));
+    let fresh_launch = agent_restart_response(&outcome(None, true));
+
+    assert_eq!(resumed["session_action"], "resumed");
+    assert_eq!(fresh_launch["session_action"], "fresh_launch");
 }
 
 #[test]

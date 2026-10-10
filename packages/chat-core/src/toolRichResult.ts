@@ -1,3 +1,4 @@
+import { isImagePath } from "./attachmentMarker";
 import type { ToolRichResult } from "./types";
 
 export type ThumbnailSource =
@@ -5,7 +6,6 @@ export type ThumbnailSource =
   | { kind: "none"; reason: "missing" | "remote" | "relative" | "unsupported" };
 
 const TEXT_FIELDS = ["query", "action", "url", "pattern", "path", "status", "prompt"] as const;
-const IMAGE_FILE = /\.(?:png|jpe?g|gif|webp|bmp|avif)$/i;
 
 /** Keeps only well-typed fields; anything else is dropped rather than coerced. */
 export function normalizeToolRichResult(value: unknown): ToolRichResult | undefined {
@@ -42,6 +42,6 @@ export function localThumbnailSource(path: string | undefined): ThumbnailSource 
   const value = /^file:/i.test(trimmed) ? fileUriPath(trimmed) : trimmed;
   if (value === null || /^[a-z][a-z0-9+.-]+:/i.test(value) || /^(?:\\\\|\/\/)/.test(value)) return { kind: "none", reason: "remote" };
   if (!/^\//.test(value) && !/^[a-z]:[\\/]/i.test(value)) return { kind: "none", reason: "relative" };
-  if (!IMAGE_FILE.test(value)) return { kind: "none", reason: "unsupported" };
+  if (!isImagePath(value)) return { kind: "none", reason: "unsupported" };
   return { kind: "local", path: value };
 }

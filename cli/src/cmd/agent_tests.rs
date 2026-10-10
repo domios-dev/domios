@@ -18,6 +18,24 @@ fn agent_models_recognizes_the_live_catalogue_wire_field() {
 }
 
 #[test]
+fn agent_models_reads_the_provider_catalogue_version() {
+    let provider = serde_json::json!({ "catalogue_version": 7 });
+
+    assert_eq!(catalogue_version(&provider), 7);
+    assert_eq!(catalogue_version(&serde_json::json!({})), 0);
+}
+
+#[test]
+fn live_discovery_warning_is_limited_to_live_required_catalogues() {
+    // Preserved semantics: only a live-required catalogue that failed to
+    // refresh warns; an optional catalogue's reader-gated skip stays silent.
+    assert!(live_discovery_warning_needed(true, false));
+    assert!(!live_discovery_warning_needed(true, true));
+    assert!(!live_discovery_warning_needed(false, false));
+    assert!(!live_discovery_warning_needed(false, true));
+}
+
+#[test]
 fn missing_report_binding_is_a_loud_orchestration_incident() {
     let message = missing_report_binding_incident("tab-worker");
     assert!(message.contains("ORCHESTRATION AUTHORITY REFUSED"));
@@ -569,15 +587,33 @@ fn startup_hold_without_a_team_lease_renders_a_placeholder() {
 #[test]
 fn agent_restart_success_exits_zero() {
     let val = serde_json::json!({
-        "session_action": "resume",
+        "session_action": "resumed",
         "session_id": "sess-a",
         "full_access": false,
         "binding_restored": true,
+        "agent_ready": true,
     });
 
     let outcome = restart_response_outcome(reqwest::StatusCode::ACCEPTED, &val);
 
     assert!(outcome.is_ok(), "a successful restart must not be an Err");
+}
+
+#[test]
+fn agent_restart_impossible_fails_nonzero() {
+    for val in [
+        serde_json::json!({
+            "session_action": "fresh_launch",
+            "agent_ready": false,
+        }),
+        serde_json::json!({"agent_ready": true}),
+        serde_json::json!({
+            "session_action": "resumed",
+            "agent_ready": true,
+        }),
+    ] {
+        assert!(restart_response_outcome(reqwest::StatusCode::ACCEPTED, &val).is_err());
+    }
 }
 
 /// Guard: a restart the daemon genuinely failed (e.g. a real foreign-session
@@ -593,6 +629,20 @@ fn agent_restart_failure_stays_an_error() {
         outcome.is_err(),
         "a daemon-reported failure must stay an Err"
     );
+}
+
+#[test]
+fn agent_restart_reports_action() {
+    for action in ["resumed", "fresh_launch"] {
+        let val = serde_json::json!({
+            "session_action": action,
+            "session_id": "sess-a",
+            "agent_ready": true,
+        });
+
+        assert!(restart_response_outcome(reqwest::StatusCode::ACCEPTED, &val).is_ok());
+        assert!(render_restart_success(&val, "tab-a").contains(&format!("action={action}")));
+    }
 }
 
 /// The CLI and the picker read one answer. A probe that could not run must
@@ -657,6 +707,27 @@ fn agent_providers_renders_the_three_valued_descriptor_field() {
 }
 
 #[test]
+fn agent_link_transfer_outcome_round_trips_through_the_existing_json_response_path() {
+    let response = serde_json::json!({
+        "status": "committed_observation_unconfirmed",
+        "receipt_id": "transfer-receipt",
+        "worker_tab_id": "worker",
+        "source_manager_tab_id": "source",
+        "destination_manager_tab_id": "destination",
+        "source_team_id": "source-team",
+        "destination_team_id": "destination-team",
+        "plan_id": "plan",
+        "task_id": "task",
+        "attempt_id": "attempt"
+    });
+
+    let parsed = parse_agent_mutation_response(reqwest::StatusCode::OK, response.to_string())
+        .expect("successful typed responses stay JSON values");
+
+    assert_eq!(parsed, response);
+}
+
+#[test]
 fn a_relative_spawn_cwd_resolves_against_the_caller_directory() {
     let caller = std::env::temp_dir().join("caller-dir-51c0");
     let resolved = caller_resolved_spawn_cwd("nested-9e", Some(caller.as_path()));
@@ -672,4 +743,15 @@ fn a_relative_spawn_cwd_resolves_against_the_caller_directory() {
         absolute
     );
     assert_eq!(caller_resolved_spawn_cwd("nested-9e", None), "nested-9e");
+}
+
+#[test]
+fn agent_ack_renders_current_manifest_brief_byte_completely() {
+    let brief = "opaque manifest `token` $value\nsha256:fixture\n";
+    let rendered = render_agent_ack(&serde_json::json!({
+        "task_id": "task-current", "attempt_id": "attempt-current", "plan_skill_brief": brief,
+    }))
+    .unwrap();
+    assert!(rendered.ends_with(brief));
+    assert_eq!(rendered.matches(brief).count(), 1);
 }

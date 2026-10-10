@@ -6,8 +6,8 @@ mod hygiene;
 
 use crate::api::mem_routes::items::{
     bump_on_get, compose_appended_body, validate_update_body, wake_up_options_from_params,
-    AppendBody, FlushBody, LearnBody, PinnedListParams, ReembedParams, SaveBody, TailParams,
-    TaxonomyParams, UpdateBody, WakeUpParams,
+    AppendBody, LearnBody, PinnedListParams, ReembedParams, SaveBody, TailParams, TaxonomyParams,
+    UpdateBody, WakeUpParams,
 };
 use crate::api::mem_routes::search::{execute_search, SearchError, SearchParams};
 use crate::api::mem_routes::{sanitize_actor, validate_item_fields};
@@ -37,10 +37,12 @@ pub(super) fn dispatch(
             .and_then(|stats| serde_json::to_value(stats).map_err(|error| error.to_string()))
             .map_err(internal_error),
         "mem.search" => {
-            let request = serde_json::from_value::<SearchParams>(params.unwrap_or_default())
+            let caller_tab_id = opt_string_param(&params, "caller_tab_id");
+            let mut request = serde_json::from_value::<SearchParams>(params.unwrap_or_default())
                 .map_err(|error| {
                     invalid_params(format!("Invalid mem.search parameters: {error}"))
                 })?;
+            request.caller_tab_id = caller_tab_id;
             if request.q.trim().is_empty() {
                 return Err(invalid_params("search query must not be empty".to_string()));
             }
@@ -49,17 +51,18 @@ pub(super) fn dispatch(
         "mem.get" => mem_get(params, svc),
         "mem.save" => mem_save(params, svc),
         "mem.delete" => mem_delete(params, svc),
+        "mem.purge_precompact" => mem_purge_precompact(params, svc),
         "mem.archive" => hygiene::mem_archive(params, svc),
         "mem.forget" => mem_forget(params, svc),
         "mem.update" => mem_update(params, svc),
         "mem.pinned" => mem_pinned(params, svc),
         "mem.append" => mem_append(params, svc),
         "mem.restore" => hygiene::mem_restore(params, svc),
+        "mem.area_merge" => hygiene::mem_area_merge(params, svc),
         "mem.merge" => hygiene::mem_merge(params, svc),
         "mem.wake_up" => mem_wake_up(params, svc),
         "mem.learn" => mem_learn(params, svc),
         "mem.learn_promote" => mem_learn_promote(params, svc),
-        "mem.flush" => mem_flush(params, svc),
         "mem.sync" => mem_sync(params, svc),
         "mem.reembed" => mem_reembed(params, svc),
         "mem.extract_pending" => mem_extract_pending(params, svc),
@@ -392,26 +395,6 @@ fn mem_learn_promote(
     Ok(serde_json::json!({ "promoted": id }))
 }
 
-fn mem_flush(
-    params: Option<serde_json::Value>,
-    svc: &ServiceState,
-) -> Result<serde_json::Value, JsonRpcError> {
-    let b: FlushBody = parse_params(params)?;
-    let pty_id = {
-        let mux = svc.mux.write();
-        mux.resolve_tab_id(&b.tab)
-            .ok_or_else(|| not_found(format!("Tab not found: {}", b.tab)))?
-    };
-    let pty_id_for_buffer = svc.resolve_pty_id(&pty_id).map_err(not_found)?;
-    let body = {
-        let buf = svc.output_buf.lock();
-        buf.get_full_text(&pty_id_for_buffer).unwrap_or_default()
-    };
-    let id = learnings::flush_tab(&svc.mem, &b.tab, b.title.as_deref().unwrap_or(""), body)
-        .map_err(invalid_params)?;
-    Ok(serde_json::json!({ "id": id }))
-}
-
 fn mem_sync(
     params: Option<serde_json::Value>,
     svc: &ServiceState,
@@ -691,6 +674,54 @@ mod tests {
     use super::{search_error, secret_socket_rejection, SearchError};
 
     #[test]
+    fn precompact_purge_rpc_refuses_unknown_fields_and_preserves_partial_report() {
+        let dir = tempfile::tempdir().unwrap();
+        let mem = crate::mem::MemManager::open_offline(dir.path()).unwrap();
+        let invalid = super::execute_precompact_purge(
+            Some(serde_json::json!({"id":"x","unexpected":true})),
+            &mem,
+        )
+        .unwrap_err();
+        assert_eq!(invalid.code, -32602);
+        let id = mem
+            .save(crate::mem::store::NewMemItem {
+                kind: crate::mem::store::MemKind::Conversation,
+                scope: crate::mem::store::MemScope::Global,
+                title: "flush:0123abcd pre-compact".into(),
+                body: "fixture".repeat(1000),
+                summary: None,
+                area: None,
+                tags: vec![],
+                source: None,
+                importance: 1.0,
+                source_path: None,
+                pinned: false,
+            })
+            .unwrap();
+        mem.delete(&id).unwrap();
+        let blob = std::fs::read_dir(mem.blobs_dir())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        std::fs::write(blob, "changed").unwrap();
+        let preview =
+            super::execute_precompact_purge(Some(serde_json::json!({"id":id})), &mem).unwrap();
+        assert_eq!(preview["dry_run"], true);
+        let error = super::execute_precompact_purge(
+            Some(serde_json::json!({"id":id,"apply":true,"verified_deleted":true})),
+            &mem,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, -32000);
+        let data = error.data.unwrap();
+        assert_eq!(data["logical_purge_complete"], true);
+        assert_eq!(data["blob_cleanup_complete"], false);
+        assert_eq!(data["errors"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
     fn secret_methods_are_explicitly_rejected_over_socket() {
         for method in [
             "mem.secret.save",
@@ -741,4 +772,49 @@ mod tests {
         assert_eq!(err.message, "x");
         assert_eq!(search_error(SearchError::Internal("y".into())).code, -32000);
     }
+}
+
+fn mem_purge_precompact(
+    params: Option<serde_json::Value>,
+    svc: &ServiceState,
+) -> Result<serde_json::Value, JsonRpcError> {
+    execute_precompact_purge(params, &svc.mem)
+}
+
+fn execute_precompact_purge(
+    params: Option<serde_json::Value>,
+    mem: &crate::mem::MemManager,
+) -> Result<serde_json::Value, JsonRpcError> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        id: String,
+        #[serde(default)]
+        apply: bool,
+        #[serde(default)]
+        verified_deleted: bool,
+        #[serde(default)]
+        vacuum: bool,
+    }
+    let request: Request = parse_params(params)?;
+    let report = mem
+        .purge_precompact(
+            &request.id,
+            request.apply,
+            request.verified_deleted,
+            request.vacuum,
+        )
+        .map_err(internal_error)?;
+    let failed = !report.errors.is_empty();
+    let value = serde_json::to_value(report).map_err(|e| internal_error(e.to_string()))?;
+    if failed {
+        return Err(JsonRpcError {
+            code: -32000,
+            message:
+                "raw PreCompact purge partially completed; retained metadata permits a safe retry"
+                    .into(),
+            data: Some(value),
+        });
+    }
+    Ok(value)
 }

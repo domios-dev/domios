@@ -598,13 +598,23 @@ fn blocked_requires_label_invariant() {
         err,
         crate::service_plan::PlanError::BlockedRequiresLabel
     ));
+    store
+        .with_plan(&plan, 5, |plan| {
+            plan.tasks[0].status_label = Some("stale label".into());
+            Ok(())
+        })
+        .unwrap();
+    assert!(matches!(
+        set_status(&store, &plan, &task, "blocked", None, 6),
+        Err(crate::service_plan::PlanError::BlockedRequiresLabel)
+    ));
     set_status(
         &store,
         &plan,
         &task,
         "blocked",
         Some(Some("waiting on QA")),
-        6,
+        7,
     )
     .unwrap();
 }

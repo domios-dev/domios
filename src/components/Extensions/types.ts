@@ -12,6 +12,8 @@ export interface PluginCapabilities {
   chat_backend?: boolean;
   /** Send-time outbound text stage (`chatPreprocess`). */
   chat_preprocessor?: boolean;
+  /** Graph node declarations (`graphNodes`): media converters and event sources. */
+  graph_nodes?: boolean;
 }
 
 export type PluginInstallSource =
@@ -21,8 +23,16 @@ export type PluginInstallSource =
 
 /** A plugin physically installed on disk, workspace-loaded, or a bundled system
  * provider — the daemon's `snapshot.plugins`. */
+export interface PluginLoadError {
+  message: string;
+  path: string;
+  at_ms: number;
+  kept_previous: boolean;
+}
+
 export interface InstalledPlugin {
   id: string;
+  update?: { available: boolean; reason: string; channel?: string | null; remote_version?: string | null };
   version?: string | null;
   display_name?: string | null;
   state?: string;
@@ -33,14 +43,20 @@ export interface InstalledPlugin {
   dev?: boolean;
   capabilities?: PluginCapabilities | null;
   granted_permissions?: string[] | null;
+  network_allow?: string[] | null;
+  effective_network_allow?: string[] | null;
   settings_schema?: SettingField[] | null;
   /** Manifest flag: the capability can't hot-activate (§1.8). */
   requires_reload?: boolean | null;
   /** Live signal: installed after daemon start, waiting on a reload to activate. */
   pending_reload?: boolean | null;
+  /** Last failed live load; a previously registered plugin keeps running meanwhile. */
+  load_error?: PluginLoadError | null;
   icon_svg?: string | null;
   icon_color?: string | null;
   description?: string | null;
+  /** One-line outcome from the manifest `pitch`, shown on chat plugin cards. */
+  pitch?: string | null;
   /** Opt-in agent-facing instructions. Absent means AI configuration is unsupported. */
   config_help?: string | null;
   homepage?: string | null;
@@ -81,9 +97,12 @@ export interface MarketplaceRow extends DiffRow {
   display_name?: string | null;
   capabilities?: PluginCapabilities | null;
   granted_permissions?: string[] | null;
+  network_allow?: string[] | null;
+  effective_network_allow?: string[] | null;
   icon_svg?: string | null;
   icon_color?: string | null;
   description?: string | null;
+  pitch?: string | null;
   config_help?: string | null;
   homepage?: string | null;
   readme_markdown?: string | null;

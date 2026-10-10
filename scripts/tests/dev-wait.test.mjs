@@ -40,3 +40,28 @@ test("dev_wait_health rejects prod health while scoping to the dev port", () => 
     /readiness deadline exceeded/,
   );
 });
+
+test("DEV web watcher keeps a production-mode bundle with the DEV build flag on both platform branches", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../../build.sh", import.meta.url), "utf8");
+  const watch = source.match(/^start_web_watch\(\) \{\n([\s\S]*?)^\}/m)?.[1];
+  assert.ok(watch, "DEV web watcher must exist");
+  const commands = watch.split("\n").filter(line => line.includes('"$vite_entry"'));
+  assert.equal(commands.length, 2, "Unix and Windows watcher commands must be covered");
+  for (const command of commands) {
+    assert.match(command, /CODETERM_FRONTEND_DEV=1 (?:nohup )?node "\$vite_entry" build --watch/);
+    assert.doesNotMatch(command, /--mode development|NODE_ENV=development/);
+  }
+  assert.doesNotMatch(source, /^\s*export\s+(?:NODE_ENV=development|CODETERM_FRONTEND_DEV=1)/m);
+});
+
+test("release frontend preparation retains the default production build", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../../build.sh", import.meta.url), "utf8");
+  const release = source.match(/^prepare_release_bundle_inputs\(\) \{\n([\s\S]*?)^\}/m)?.[1];
+  assert.ok(release, "release input preparation must exist");
+  assert.match(release, /^  pnpm build$/m);
+  assert.doesNotMatch(release, /NODE_ENV|CODETERM_FRONTEND_DEV|--mode development/);
+  const pkg = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8"));
+  assert.equal(pkg.scripts.build, "node node_modules/typescript/bin/tsc && node node_modules/vite/bin/vite.js build");
+});

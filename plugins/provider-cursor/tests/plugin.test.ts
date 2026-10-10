@@ -9,6 +9,8 @@ import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import plugin from "../src/index";
+import { wellFormedFileDiffs } from "../../../packages/chat-core/src/fileDiffs";
+import { sessionChanges } from "../../../packages/chat-core/src/sessionChanges";
 
 const fixturesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures");
 const readFixture = (name: string) => fs.readFileSync(path.join(fixturesDir, name), "utf8");
@@ -789,6 +791,22 @@ console.log("\n--- usage (dashboard API fetch + parse) ---\n");
   // Garbage payload never yields a bogus snapshot.
   eq(p.parseUsage("not json", nowMs), null, "parseUsage null on non-JSON");
   eq(p.parseUsage(JSON.stringify({ nope: 1 }), nowMs), null, "parseUsage null without spendCents");
+}
+
+{
+  const p = loadCursorWithHost(baseHost({}));
+  const fixture = readFixture("recorded-edit.jsonl");
+  const expected = JSON.parse(readFixture("recorded-edit.expected.json"));
+  const result = p.parseSessionDelta(fixture);
+  const data = result.messages[0].blocks[0].data;
+  eq(data.tool_kind, "edit", "recorded StrReplace is a file edit");
+  eq(data.file_diffs, expected, "built Cursor bundle maps recorded old/new strings exactly");
+  eq(wellFormedFileDiffs(data.file_diffs), expected, "Cursor diffs pass chat-core validation");
+  const changes = sessionChanges([{ id: "recorded-cursor", type: "tool_call", content: "", toolError: false, fileDiffs: data.file_diffs }]);
+  eq(changes.cumulative.map(file => file.path), ["src/api/routes.rs"], "Cursor edits reach session Changes");
+  const missingOld = JSON.parse(fixture);
+  delete missingOld.message.content[0].input.old_string;
+  eq(p.parseSessionDelta(JSON.stringify(missingOld)).messages[0].blocks[0].data.file_diffs, [], "missing old text never becomes a guessed creation");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

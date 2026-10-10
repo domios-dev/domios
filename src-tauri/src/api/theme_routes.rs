@@ -199,7 +199,6 @@ pub async fn sweep_profiles_api(
 #[derive(serde::Deserialize)]
 pub struct InstallHooksQuery {
     pub provider: String,
-    pub precompact_memory_export: Option<bool>,
 }
 
 /// An authenticated install request is the user's consent: it is recorded like
@@ -222,14 +221,12 @@ pub async fn install_hooks_api(
     let config = state.config.clone();
     let api_port = state.api_port;
     let provider_id = q.provider.clone();
-    let precompact = q.precompact_memory_export;
     tokio::task::spawn_blocking(move || {
         crate::commands::install_provider_integration_with_consent(
             &registry,
             &config,
             provider_id,
             api_port,
-            precompact,
         )
     })
     .await

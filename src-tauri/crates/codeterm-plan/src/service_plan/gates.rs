@@ -532,6 +532,7 @@ mod tests {
     fn gate_doctor_flags_paused_task_without_reason() {
         let mut plan = Plan::new("T".into(), "/p".into(), OrchestratorRef::from_tab("p"));
         plan.tasks.push(crate::plan::Task {
+            files: Default::default(),
             id: "task_x".into(),
             name: "x".into(),
             kind: "implement".into(),

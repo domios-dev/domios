@@ -2,7 +2,7 @@ import type {
   ChatOrigin,
   NormalizedChatMessage as ChatMessage,
 } from "@codeterm/chat-core";
-import { shortTabRef } from "@codeterm/chat-core";
+import { automationOrigin, shortTabRef } from "@codeterm/chat-core";
 type StructuredInboundKind = NonNullable<ChatMessage["inboundKind"]>;
 
 export const INBOUND_KIND_LABELS: Record<StructuredInboundKind, string> = {
@@ -24,8 +24,17 @@ export interface StructuredInbound {
 export function structuredInboundFromMessage(message: ChatMessage): StructuredInbound | null {
   const fromLabel = message.fromLabel?.trim();
   const fromTab = shortTabRef(message.fromTab);
+  const automation = automationOrigin({
+    from: message.inboundKind,
+    context: message.fromContext ?? undefined,
+    label: fromLabel,
+    tab: fromTab,
+    model: message.fromModel,
+    purpose: message.fromPurpose ?? undefined,
+  });
+  if (automation) return { kind: message.inboundKind ?? "tab", origin: automation };
   if (message.inboundKind === "system") {
-    return { kind: "system", origin: { kind: "system" } };
+    return { kind: "system", origin: { kind: "system", ...(message.fromContext ? { context: message.fromContext } : {}) } };
   }
   if (message.inboundKind === "plugin" || message.fromPlugin) {
     const pluginId = message.fromPlugin?.trim();

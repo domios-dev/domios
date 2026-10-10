@@ -11,6 +11,8 @@ const MAX_TYPED_FOLLOW_UP_CHARS: usize = 160;
 pub struct PasteCapability {
     pub untrusted_above_lines: usize,
     pub typed_follow_up: String,
+    #[serde(default)]
+    pub requires_typed_instruction_for_routed_messages: bool,
 }
 
 impl PasteCapability {
@@ -38,6 +40,33 @@ pub struct SandboxedLinuxLaunchCapability {
     pub network_access_setting: String,
 }
 
+#[cfg(test)]
+mod paste_capability_tests {
+    use super::*;
+
+    #[test]
+    fn typed_follow_up_is_limited_to_valid_messages_above_the_threshold() {
+        let capability = PasteCapability {
+            untrusted_above_lines: 4,
+            typed_follow_up: " ::marker::".into(),
+            requires_typed_instruction_for_routed_messages: true,
+        };
+
+        assert_eq!(capability.typed_follow_up_for("a\nb\nc"), None);
+        assert_eq!(capability.typed_follow_up_for("a\nb\nc\nd"), None);
+        assert_eq!(
+            capability.typed_follow_up_for("a\nb\nc\nd\ne"),
+            Some(" ::marker::")
+        );
+
+        let multiline = PasteCapability {
+            typed_follow_up: "marker\nmarker".into(),
+            ..capability
+        };
+        assert_eq!(multiline.typed_follow_up_for("a\nb\nc\nd\ne"), None);
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelCatalogueAuthority {
@@ -51,11 +80,14 @@ impl Default for ModelCatalogueAuthority {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct ModelCatalogueCapability {
     pub authority: ModelCatalogueAuthority,
     pub live_discovery_required: bool,
+    /// Config files whose change voids a cached model snapshot (e.g. the
+    /// provider's own model registry). Fingerprint-only, never a sandboxed read.
+    pub config_files: Vec<String>,
 }
 
 impl ModelCatalogueCapability {
@@ -63,6 +95,7 @@ impl ModelCatalogueCapability {
         Self {
             authority: ModelCatalogueAuthority::Authoritative,
             live_discovery_required: false,
+            config_files: Vec::new(),
         }
     }
 
@@ -70,19 +103,144 @@ impl ModelCatalogueCapability {
         Self {
             authority: ModelCatalogueAuthority::Authoritative,
             live_discovery_required: true,
+            config_files: Vec::new(),
+        }
+    }
+
+    /// Cache-fingerprint inputs: credential files first, then the declared
+    /// config paths. Fingerprint-only - never feeds declared_files/denied_reads.
+    pub fn fingerprint_files(
+        &self,
+        credential_files: Vec<std::path::PathBuf>,
+    ) -> Vec<std::path::PathBuf> {
+        let mut files = credential_files;
+        files.extend(
+            self.config_files
+                .iter()
+                .filter_map(|path| crate::js_runtime::PluginManifest::expand_home(path)),
+        );
+        files
+    }
+}
+
+/// How a running agent tab changes its model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelSwitchMode {
+    Live,
+    LiveCommand,
+    NextTurn,
+    RestartResume,
+    #[default]
+    Unsupported,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModelSwitchCommands {
+    pub model: ModelSwitchCommand,
+    pub effort: Option<ModelSwitchCommand>,
+    #[serde(default)]
+    pub confirmation_source: ModelSwitchConfirmationSource,
+    #[serde(default)]
+    pub transcript: ModelSwitchTranscript,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_completion: Option<ModelSwitchTurnCompletion>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ready_input_regex: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModelSwitchTurnCompletion {
+    pub source: ModelSwitchCompletionSource,
+    pub event_pointer: String,
+    pub event_value: String,
+    pub session_pointer: String,
+    pub start_event_value: String,
+    pub turn_pointer: String,
+    pub active_turn_pointer: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelSwitchCompletionSource {
+    SessionJsonl,
+    SessionFile,
+}
+
+impl ModelSwitchTurnCompletion {
+    pub fn record_path(
+        &self,
+        provider: &dyn super::AgentProvider,
+        cwd: &str,
+        session: &str,
+    ) -> Option<std::path::PathBuf> {
+        match self.source {
+            ModelSwitchCompletionSource::SessionJsonl => provider.session_jsonl_path(cwd, session),
+            ModelSwitchCompletionSource::SessionFile => provider.session_file_path(cwd, session),
         }
     }
 }
 
-/// How a live agent tab changes its model without touching the provider's
-/// machine-global default. `RestartResume` relaunches the same session with the
-/// model launch args and needs a session-start report naming the running model.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum ModelSwitchMode {
-    RestartResume,
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ModelSwitchConfirmationSource {
     #[default]
-    Unsupported,
+    Transcript,
+    SessionIdentity,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModelSwitchTranscript {
+    pub record_type: String,
+    pub content_path: Vec<String>,
+    pub prefix: String,
+    pub suffix: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ignored_content_regexes: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModelSwitchCommand {
+    pub command: String,
+    #[serde(default)]
+    pub confirmation: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<ModelSwitchPrompt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picker: Option<ModelSwitchPicker>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModelSwitchPicker {
+    pub screen_regex: String,
+    pub selected_regex: String,
+    pub target_regex: String,
+    pub position: ModelSwitchPickerPosition,
+    pub previous_key: String,
+    pub next_key: String,
+    pub response_key: String,
+    pub cancel_key: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelSwitchPickerPosition {
+    Number,
+    Column,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModelSwitchPrompt {
+    pub screen_regex: String,
+    pub response_keys: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cancel_keys: Vec<String>,
 }
 
 /// Which runtime drives a provider's tab: a PTY process or a JS chatBackend.
@@ -194,7 +352,6 @@ pub enum HookIngestionRoute {
     Permission,
     Stop,
     SessionStart,
-    MemFlush,
     /// A provider reporting its own live turn state. Separate from `Stop`,
     /// which is a turn-completion notification with side effects.
     SessionState,
@@ -212,6 +369,7 @@ impl HookIngestionRoute {
 #[serde(rename_all = "snake_case")]
 pub enum ProviderStateVerdict {
     Working,
+    Waiting,
     Idle,
 }
 
@@ -348,31 +506,5 @@ mod capability_denial_tests {
     fn a_success_is_never_rewritten_even_if_something_else_was_denied() {
         let out = attribute_capability_denial(Ok("weekly 7%".into()), 0, 9);
         assert_eq!(out.unwrap(), "weekly 7%");
-    }
-}
-
-#[cfg(test)]
-mod paste_capability_tests {
-    use super::*;
-
-    #[test]
-    fn typed_follow_up_is_limited_to_valid_messages_above_the_threshold() {
-        let capability = PasteCapability {
-            untrusted_above_lines: 4,
-            typed_follow_up: " ::marker::".into(),
-        };
-
-        assert_eq!(capability.typed_follow_up_for("a\nb\nc"), None);
-        assert_eq!(capability.typed_follow_up_for("a\nb\nc\nd"), None);
-        assert_eq!(
-            capability.typed_follow_up_for("a\nb\nc\nd\ne"),
-            Some(" ::marker::")
-        );
-
-        let multiline = PasteCapability {
-            typed_follow_up: "marker\nmarker".into(),
-            ..capability
-        };
-        assert_eq!(multiline.typed_follow_up_for("a\nb\nc\nd\ne"), None);
     }
 }

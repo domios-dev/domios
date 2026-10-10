@@ -13,6 +13,41 @@ fn ws_id(state: &MultiplexerState) -> String {
 }
 
 #[test]
+fn tab_close_reservation_allows_sibling_worker_spawn() {
+    let (mut state, _) = MultiplexerState::new();
+    let workspace = ws_id(&state);
+    let closing = state.create_tab(&workspace).unwrap();
+    let reservation = state.reserve_tab_close(&closing).unwrap();
+    assert!(state.reserve_tab_close(&closing).is_err());
+    assert!(state.ensure_tab_membership_mutable(&closing).is_err());
+    let sibling = state.create_tab(&workspace).unwrap();
+    let sibling_reservation = state.reserve_tab_close(&sibling).unwrap();
+    state
+        .close_reserved_tab_with_reason(reservation, TabCloseReason::AgentRunEnded)
+        .unwrap();
+    state.abort_tab_close(&sibling_reservation);
+    assert!(state.get_tab(&sibling).is_some());
+    assert!(state.ensure_tab_membership_mutable(&sibling).is_ok());
+}
+
+#[test]
+fn tab_close_reservation_blocks_workspace_close_and_target_move() {
+    let (mut state, _) = MultiplexerState::new();
+    let workspace = state.create_workspace("Workers".into(), None).id;
+    let target = state.create_tab(&workspace).unwrap();
+    state.create_tab(&workspace).unwrap();
+    let destination = ws_id(&state);
+    let reservation = state.reserve_tab_close(&target).unwrap();
+    assert!(state.reserve_workspace_close(&workspace).is_err());
+    assert!(state.move_tab(&target, &workspace, &destination).is_err());
+    state.abort_tab_close(&reservation);
+    let workspace_close = state.reserve_workspace_close(&workspace).unwrap();
+    assert!(state.create_tab(&workspace).is_err());
+    assert!(state.reserve_tab_close(&target).is_err());
+    state.abort_workspace_close(&workspace_close);
+}
+
+#[test]
 fn close_tab_records_tab_into_history_with_backing() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);

@@ -1,12 +1,15 @@
+import { formatAttachmentMarker } from "@codeterm/chat-core";
 import assert from "node:assert/strict";
 import {
   AttachmentTransferError,
   assertNoSourceAttachmentPaths,
   attachmentHostTarget,
+  composeAttachmentDraft,
   resolveAttachmentParts,
   type AttachmentHandoffDeps,
   type MeshAttachmentTransferRequest,
 } from "./meshAttachmentHandoff";
+import { addCapsule, capsuleToken, capsulesForPaths, EMPTY_CAPSULES } from "./composerCapsules";
 
 const sourceVoice = "C:\\Users\\blackstar\\.codeterm\\uploads\\1a2b3c4d-voice-note-1.webm";
 const sourceImage = "C:\\Users\\blackstar\\AppData\\Local\\Temp\\codeterm-chat\\5e6f7a8b-pasted image.png";
@@ -64,7 +67,7 @@ async function main() {
     assert.equal(transfers.length, 0, "same-machine sends never transfer");
     assert.deepEqual(transcribed, [sourceVoice]);
     assert.deepEqual(parts, {
-      parts: [`local-voice-marker(${sourceVoice})`, quote(sourceImage)],
+      parts: [`local-voice-marker(${sourceVoice})`, formatAttachmentMarker(sourceImage)],
       transcribeFailed: false,
     });
   }
@@ -73,7 +76,7 @@ async function main() {
     const { deps } = harness({ transcribeLocal: async () => { throw new Error("no engine"); } });
     const parts = await resolveAttachmentParts(local, plans, deps);
     assert.equal(parts.transcribeFailed, true);
-    assert.deepEqual(parts.parts, [quote(sourceVoice), quote(sourceImage)]);
+    assert.deepEqual(parts.parts, [formatAttachmentMarker(sourceVoice), formatAttachmentMarker(sourceImage)]);
   }
 
   {
@@ -87,7 +90,7 @@ async function main() {
       ],
     );
     assert.equal(transcribed.length, 0, "voice is transcribed on the target host, not the origin");
-    assert.deepEqual(parts.parts, [`voice-marker(${targetVoice})`, targetImage]);
+    assert.deepEqual(parts.parts, [`voice-marker(${targetVoice})`, formatAttachmentMarker(targetImage)]);
     const composed = parts.parts.join(" ");
     assert.ok(!composed.includes(sourceVoice) && !composed.includes(sourceImage));
   }
@@ -147,6 +150,30 @@ async function main() {
   );
   assert.doesNotThrow(() => assertNoSourceAttachmentPaths(local, `look ${sourceImage}`, [sourceImage], quote));
   assert.doesNotThrow(() => assertNoSourceAttachmentPaths(remote, `look ${targetImage}`, [sourceImage], quote));
+
+  {
+    const { registry, text: imageToken } = capsulesForPaths(EMPTY_CAPSULES, [{ path: sourceImage }]);
+    const draft = `before ${imageToken} after`;
+    const sent = await composeAttachmentDraft("tab-7", draft, [], [], harness().deps, registry);
+    assert.equal(sent.composed, `before ${formatAttachmentMarker(sourceImage, "image", "image1")} after`, "a local capsule becomes its tag in place");
+
+    const remoteSent = await composeAttachmentDraft(remoteTab, draft, [], [], harness().deps, registry);
+    assert.equal(
+      remoteSent.composed,
+      `before ${formatAttachmentMarker(targetImage, "image", "image1")} after`,
+      "a remote capsule carries the target-local copy",
+    );
+
+    const repo = String.raw`C:\work\repo`;
+    const folder = addCapsule(EMPTY_CAPSULES, { kind: "folder", path: repo });
+    await assert.rejects(
+      composeAttachmentDraft(remoteTab, `see ${capsuleToken(folder.capsule.label)}`, [], [], harness().deps, folder.registry),
+      AttachmentTransferError,
+      "a folder never reaches another machine as a local path",
+    );
+    const localFolder = await composeAttachmentDraft("tab-7", `see ${capsuleToken(folder.capsule.label)}`, [], [], harness().deps, folder.registry);
+    assert.equal(localFolder.composed, `see ${formatAttachmentMarker(repo, "folder", "repo")}`);
+  }
 }
 
 main().then(

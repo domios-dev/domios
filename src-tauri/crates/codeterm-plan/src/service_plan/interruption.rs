@@ -181,7 +181,6 @@ impl PlanStore {
             attempt.interruption.reason = Some(reason.to_string());
             task.interruption.handoff_required = true;
             task.interruption.checkpoint = None;
-            task.status = TaskStatus::Blocked;
             task.status_label = Some("checkpoint_sealing".into());
             task.assigned_tab_id = None;
             task.lane.tab_id = None;

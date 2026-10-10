@@ -11,7 +11,7 @@
  * Future contribution hooks (useSkills, useCommands, ...) reuse this primitive
  * unchanged.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "../lib/bridge";
 
 export interface ContributionsChangedPayload {
@@ -25,24 +25,36 @@ export function useContributions<T>(
   const [items, setItems] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const generation = useRef(0);
 
   const load = useCallback(() => {
+    const current = ++generation.current;
     setLoading(true);
     fetcher()
       .then((next) => {
+        if (current !== generation.current) return;
         setItems(next);
         setError(null);
       })
       .catch((e) => {
+        if (current !== generation.current) return;
         setError(String(e));
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (current === generation.current) setLoading(false); });
   }, [fetcher]);
 
   useEffect(() => {
     let active = true;
     let unlisten: UnlistenFn | undefined;
 
+    const reset = () => {
+      generation.current++;
+      setItems([]);
+      setError(null);
+      setLoading(true);
+    };
+    window.addEventListener("codeterm-peer-switch-reset", reset);
+    window.addEventListener("codeterm-peer-switch-rebind", load);
     load();
 
     listen<ContributionsChangedPayload>("contributions-changed", (event) => {
@@ -64,6 +76,9 @@ export function useContributions<T>(
 
     return () => {
       active = false;
+      generation.current++;
+      window.removeEventListener("codeterm-peer-switch-reset", reset);
+      window.removeEventListener("codeterm-peer-switch-rebind", load);
       if (unlisten) unlisten();
     };
   }, [kind, load]);

@@ -3,7 +3,7 @@ use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::agent::provider::{PasteCapability, VerifySubmitStrategy, DEFAULT_SUBMIT_RETRY_OFFSETS};
+use crate::agent::provider::{VerifySubmitStrategy, DEFAULT_SUBMIT_RETRY_OFFSETS};
 use crate::agent::status::TabStatus;
 use crate::pty::screen_state::ScreenChangeSignal;
 use crate::service::inject_verify::{
@@ -12,24 +12,33 @@ use crate::service::inject_verify::{
 use crate::service::ServiceContext;
 mod cycle;
 mod evidence_watcher;
+#[cfg(test)]
+mod exit_tests;
+mod line_mode;
+mod recovery_guard;
 mod runner;
 pub(crate) use cycle::{
-    claim_submit_cycle, notify_submit_cycle_status_transition, wake_submit_cycle,
-    wake_submit_cycle_output, SubmitCycleClaim,
+    claim_exit_submit_cycle, claim_submit_cycle, notify_submit_cycle_provider_exit,
+    notify_submit_cycle_status_transition, wake_submit_cycle, wake_submit_cycle_output,
+    SubmitCycleClaim,
 };
 use cycle::{retire_submit_cycle, CycleWait, SubmitCycle, SubmitCycleSignal};
 use evidence_watcher::watch_session_evidence;
+pub(crate) use recovery_guard::nudge_unbound_launch_draft;
+#[cfg(test)]
+use recovery_guard::{recovery_dialog_guard, recovery_session_authorized};
 #[cfg(test)]
 use runner::run;
 #[cfg(test)]
 use runner::run_with_submit_key;
+#[cfg(test)]
 use runner::run_with_submit_key_and_follow_up;
+use runner::run_with_submit_key_and_frame;
 
 const TAIL_ROWS: usize = 8;
 const MAX_SUBMIT_KEY_WRITES: usize = DEFAULT_SUBMIT_RETRY_OFFSETS.len() + 1;
 const BRACKETED_PASTE_START: &str = "\x1b[200~";
 const BRACKETED_PASTE_END: &str = "\x1b[201~";
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DeferredSubmitWait {
     Ready,
@@ -86,7 +95,6 @@ pub(crate) fn composer_region_text(lines: &[String], cursor_row: usize) -> Strin
 pub(crate) enum PtySubmitEntry {
     Messenger,
     Report,
-    Planner,
     Direct,
 }
 
@@ -135,6 +143,9 @@ trait SubmitTransport {
         self.wait_retry_deadline(deadline);
         self.exact_user_turn_present(text)
     }
+    fn wait_initial_key_deadline_for_turn(&self, deadline: Instant, text: &str) -> bool {
+        self.wait_retry_deadline_for_turn(deadline, text)
+    }
     fn wait_for_submit_event(&self, _deadline: Instant) -> bool {
         false
     }
@@ -149,6 +160,9 @@ trait SubmitTransport {
             DeferredSubmitWait::Deadline
         }
     }
+    fn max_submit_keys(&self) -> usize {
+        MAX_SUBMIT_KEY_WRITES
+    }
     fn retry_active(&self) -> bool {
         true
     }
@@ -158,6 +172,33 @@ trait SubmitTransport {
             waited: Duration::ZERO,
             screen_tail: String::new(),
         })
+    }
+    fn write_paste_with_follow_up(
+        &self,
+        text: &str,
+        typed_follow_up: Option<&str>,
+        deadline: Instant,
+    ) -> Result<usize, InjectionError> {
+        match typed_follow_up {
+            Some(suffix) => self.write_paste(&format!("{text}{suffix}"), deadline),
+            None => self.write_paste(text, deadline),
+        }
+    }
+    fn write_paste_with_frame(
+        &self,
+        text: &str,
+        typed_prefix: Option<&str>,
+        typed_suffix: Option<&str>,
+        deadline: Instant,
+    ) -> Result<usize, InjectionError> {
+        if typed_prefix.is_none() {
+            return self.write_paste_with_follow_up(text, typed_suffix, deadline);
+        }
+        let mut framed = String::new();
+        framed.push_str(typed_prefix.unwrap_or_default());
+        framed.push_str(text);
+        framed.push_str(typed_suffix.unwrap_or_default());
+        self.write_paste(&framed, deadline)
     }
     fn write_submit_key(&self, key: &[u8], deadline: Instant) -> Result<(), InjectionError>;
 }
@@ -169,6 +210,8 @@ struct PtySubmitTransport<'a> {
     #[allow(dead_code)]
     status_signal: Arc<codeterm_types::pty::TabStatusSignal>,
     permit: Option<crate::pty::write_queue::GuardedInputPermit>,
+    pre_write_guard: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    payload_queued: Option<Arc<dyn Fn() + Send + Sync>>,
     submit_cycle: Arc<SubmitCycle>,
     submit_generation: u64,
     paste_capability: PasteEncodingCapability,
@@ -177,16 +220,19 @@ struct PtySubmitTransport<'a> {
     evidence_binding_nonce: RefCell<Option<String>>,
     evidence_pty_generation: Cell<Option<u64>>,
     require_exact_session_turn: bool,
+    max_submit_keys: usize,
     output_generation_at_start: Cell<u64>,
     turn_status_generation_at_start: Cell<u64>,
     deferred_ready_seen: Cell<bool>,
     turn_evidence_cursor: RefCell<crate::service::chat_send_evidence::ExactTurnCursor>,
+    trace: Option<crate::flow_trace::PtyFlow>,
     wake_tx: SyncSender<SubmitCycleSignal>,
     wake_rx: Receiver<SubmitCycleSignal>,
     _session_evidence_watcher: RefCell<Option<notify::RecommendedWatcher>>,
     /// Stream-preview turn signal fires once per transaction, at the first
     /// successful submit-key enqueue. Signal only — never gates delivery.
     turn_signaled: std::cell::Cell<bool>,
+    recovery_refusal: Cell<Option<&'static str>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -220,6 +266,13 @@ fn xterm_paste(text: &str, live_mode: Option<bool>, capability: PasteEncodingCap
     }
 }
 
+pub(crate) fn live_command_input(text: &str, live_mode: Option<bool>) -> Vec<u8> {
+    let mut input =
+        xterm_paste(text, live_mode, PasteEncodingCapability::LiveModeOnly).into_bytes();
+    input.push(b'\r');
+    input
+}
+
 #[cfg(test)]
 fn initial_submit_frames(
     text: &str,
@@ -234,8 +287,12 @@ fn initial_submit_frames(
 }
 
 impl SubmitTransport for PtySubmitTransport<'_> {
+    fn max_submit_keys(&self) -> usize {
+        self.max_submit_keys
+    }
+
     fn dialog_guard(&self) -> Result<(), InjectionError> {
-        provider_dialog_guard(self.svc, self.pty_id)
+        pty_owner_guard(self.svc, self.pty_id)
     }
 
     fn prepare_paste(&self, text: &str, enter: bool) {
@@ -255,6 +312,15 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             .as_ref()
             .and_then(|evidence| evidence.live_binding.as_ref())
             .and_then(|binding| binding.binding_nonce.clone());
+        if let Some(trace) = &self.trace {
+            trace.watch(
+                self.svc,
+                anchor.as_ref(),
+                binding_nonce.as_deref(),
+                text,
+                enter,
+            );
+        }
         *self.evidence_tab_id.borrow_mut() = tab_id;
         *self.evidence_anchor.borrow_mut() = anchor.clone();
         *self.evidence_binding_nonce.borrow_mut() = binding_nonce;
@@ -292,19 +358,7 @@ impl SubmitTransport for PtySubmitTransport<'_> {
     }
 
     fn draft_evidence_count(&self, text: &str) -> usize {
-        if text.is_empty() {
-            return 1;
-        }
-        let state = self.svc.screen_state.lock();
-        let lines = state
-            .lines_and_tail(self.pty_id, TAIL_ROWS)
-            .map(|(lines, _)| lines)
-            .unwrap_or_default();
-        let cursor_row = state
-            .cursor_input_state(self.pty_id)
-            .map(|(_, _, row, _)| row as usize)
-            .unwrap_or_else(|| lines.len().saturating_sub(1));
-        screen_echo_evidence_count(&composer_region_text(&lines, cursor_row), text)
+        composer_draft_evidence(self.svc, self.pty_id, text)
     }
 
     fn generation(&self) -> u64 {
@@ -342,18 +396,36 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         let current_binding = self.svc.mux.read().get_tab(&tab_id).is_some_and(|tab| {
             tab.agent_session_id.as_deref() == Some(anchor.session_id.as_str())
                 && tab.session_binding_nonce.as_deref() == evidence_binding_nonce.as_deref()
+                && (self.max_submit_keys != 1
+                    || tab.reported_session_binding_nonce.as_deref()
+                        == evidence_binding_nonce.as_deref())
                 && tab.pty_id.as_deref() == Some(self.pty_id)
         });
         let current_generation = self.svc.screen_state.lock().pty_generation(self.pty_id);
         if !current_binding || current_generation != self.evidence_pty_generation.get() {
             return false;
         }
-        crate::service::chat_send_evidence::contains_exact_user_turn_since(
+        let found = crate::service::chat_send_evidence::contains_exact_user_turn_since(
             &self.svc.agent_registry,
             &anchor,
             text,
             &mut self.turn_evidence_cursor.borrow_mut(),
-        )
+        );
+        if found {
+            self.svc
+                .note_session_conversation(&tab_id, &anchor.session_id);
+            if let Some(trace) = &self.trace {
+                trace.confirmed(
+                    &anchor,
+                    evidence_binding_nonce.as_deref(),
+                    self.turn_evidence_cursor
+                        .borrow()
+                        .matched_user_id
+                        .as_deref(),
+                );
+            }
+        }
+        found
     }
 
     fn turn_generation(&self) -> u64 {
@@ -361,7 +433,10 @@ impl SubmitTransport for PtySubmitTransport<'_> {
     }
 
     fn has_exact_user_turn_evidence(&self) -> bool {
-        self.require_exact_session_turn
+        exact_session_turn_source_available(
+            self.require_exact_session_turn,
+            self.evidence_anchor.borrow().is_some() || self.max_submit_keys == 1,
+        )
     }
 
     fn wait_turn_change(&self, turn_generation: u64, deadline: Instant) -> bool {
@@ -393,6 +468,20 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         false
     }
 
+    fn wait_initial_key_deadline_for_turn(&self, deadline: Instant, text: &str) -> bool {
+        loop {
+            if self.require_exact_session_turn && self.exact_user_turn_present(text) {
+                return true;
+            }
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            if self.wake_rx.recv_timeout(remaining).is_err() {
+                return false;
+            }
+        }
+    }
+
     fn wait_for_submit_event(&self, deadline: Instant) -> bool {
         self.wait_for_cycle_event(deadline)
     }
@@ -406,7 +495,26 @@ impl SubmitTransport for PtySubmitTransport<'_> {
     }
 
     fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError> {
-        if text.is_empty() {
+        self.write_paste_with_follow_up(text, None, deadline)
+    }
+
+    fn write_paste_with_follow_up(
+        &self,
+        text: &str,
+        typed_follow_up: Option<&str>,
+        deadline: Instant,
+    ) -> Result<usize, InjectionError> {
+        self.write_paste_with_frame(text, None, typed_follow_up, deadline)
+    }
+
+    fn write_paste_with_frame(
+        &self,
+        text: &str,
+        typed_prefix: Option<&str>,
+        typed_suffix: Option<&str>,
+        deadline: Instant,
+    ) -> Result<usize, InjectionError> {
+        if text.is_empty() && typed_prefix.is_none() && typed_suffix.is_none() {
             return Ok(0);
         }
         let live_bracketed_paste_mode = self
@@ -414,14 +522,20 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             .screen_state
             .lock()
             .bracketed_paste_mode(self.pty_id);
-        let paste = xterm_paste(text, live_bracketed_paste_mode, self.paste_capability);
+        let input = encode_paste_frame(
+            text,
+            typed_prefix,
+            typed_suffix,
+            live_bracketed_paste_mode,
+            self.paste_capability,
+        );
         log::info!(
             "[submit-audit] paste-encoding pty={} live_bracketed_paste_mode={:?} paste_capability={:?} source_bytes={} encoded_bytes={}",
             self.pty_id,
             live_bracketed_paste_mode,
             self.paste_capability,
             text.len(),
-            paste.len()
+            input.len()
         );
         let session = self
             .svc
@@ -431,26 +545,40 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             .ok_or_else(|| InjectionError::PtyClosed {
                 pty_id: self.pty_id.to_string(),
             })?;
+        if self.pre_write_guard.as_ref().is_some_and(|guard| !guard()) {
+            return Err(InjectionError::AgentInputUnavailable {
+                pty_id: self.pty_id.to_string(),
+            });
+        }
         let timeout = deadline.saturating_duration_since(Instant::now());
-        let result = match self.permit.as_ref() {
-            Some(permit) => {
-                session.write_and_flush_guarded(paste.as_bytes().to_vec(), permit.clone(), timeout)
+        let callback = self.payload_queued.clone();
+        let trace = self.trace.clone();
+        let on_enqueued = move || {
+            if let Some(trace) = trace {
+                trace.written();
             }
-            None => self
-                .svc
-                .pty
-                .lock()
-                .write_and_flush(self.pty_id, paste.as_bytes(), timeout),
+            if let Some(callback) = callback {
+                callback();
+            }
+        };
+        let result = match self.permit.as_ref() {
+            Some(permit) => session.write_and_flush_guarded_with_enqueued(
+                input.clone(),
+                permit.clone(),
+                timeout,
+                on_enqueued,
+            ),
+            None => session.write_and_flush_with_enqueued(input.clone(), timeout, on_enqueued),
         };
         result.map_err(|error| injection_write_error(self.pty_id, error))?;
         if self.permit.is_some() {
             crate::pty::capture::CaptureRegistry::global().tap_input(
                 self.pty_id,
                 "pty.write",
-                paste.as_bytes(),
+                &input,
             );
         }
-        Ok(paste.len())
+        Ok(input.len())
     }
 
     fn write_typed_follow_up(&self, text: &str, deadline: Instant) -> Result<(), InjectionError> {
@@ -551,34 +679,20 @@ fn injection_write_error(pty_id: &str, error: String) -> InjectionError {
     }
 }
 
-fn provider_dialog_visible(
-    svc: &ServiceContext,
-    agent_id: &str,
-    snapshot: &codeterm_plugin::tab_state::TabStateSnapshot,
-    screen: &str,
-) -> bool {
-    svc.agent_registry
-        .with_provider(agent_id, |provider| {
-            use codeterm_plugin::tab_state::TabState;
-
-            let classification = provider.classify_tab_state(snapshot);
-            let high_confidence = classification.as_ref().is_some_and(|value| {
-                value.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
-            });
-            let structured_choice = high_confidence
-                && classification
-                    .as_ref()
-                    .is_some_and(|value| value.state == TabState::ClarifyingQuestion)
-                && provider.parse_prompt(screen).is_some();
-            let classified_dialog = high_confidence
-                && classification
-                    .as_ref()
-                    .is_some_and(|value| value.state == TabState::UpdatePrompt);
-            structured_choice
-                || classified_dialog
-                || provider.directory_trust_prompt_response(screen).is_some()
-        })
-        .unwrap_or(false)
+fn composer_draft_evidence(svc: &ServiceContext, pty_id: &str, text: &str) -> usize {
+    if text.is_empty() {
+        return 1;
+    }
+    let state = svc.screen_state.lock();
+    let lines = state
+        .lines_and_tail(pty_id, TAIL_ROWS)
+        .map(|(lines, _)| lines)
+        .unwrap_or_default();
+    let cursor_row = state
+        .cursor_input_state(pty_id)
+        .map(|(_, _, row, _)| row as usize)
+        .unwrap_or_else(|| lines.len().saturating_sub(1));
+    screen_echo_evidence_count(&composer_region_text(&lines, cursor_row), text)
 }
 
 fn submit_key_readiness(
@@ -589,51 +703,52 @@ fn submit_key_readiness(
     composer_ready || !turn_was_started_at_claim || !turn_started_now
 }
 
-fn provider_dialog_guard(svc: &ServiceContext, pty_id: &str) -> Result<(), InjectionError> {
-    let (tab_id, agent_id, session_id, cwd, owns_pty) = {
+fn exact_session_turn_source_available(require_exact_session_turn: bool, has_anchor: bool) -> bool {
+    require_exact_session_turn && has_anchor
+}
+
+fn pty_owner_guard(svc: &ServiceContext, pty_id: &str) -> Result<(), InjectionError> {
+    let target = {
         let mux = svc.mux.read();
-        let Some(tab_id) = mux.tab_id_for_pty(pty_id) else {
-            return Err(InjectionError::AgentInputUnavailable {
-                pty_id: pty_id.to_string(),
-            });
-        };
-        let Some(tab) = mux.get_tab(&tab_id) else {
-            return Err(InjectionError::AgentInputUnavailable {
-                pty_id: pty_id.to_string(),
-            });
-        };
-        (
-            tab_id,
-            tab.agent_type.clone(),
-            tab.agent_session_id.clone(),
-            tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone()),
-            tab.pty_id.as_deref() == Some(pty_id),
-        )
+        mux.tab_id_for_pty(pty_id).and_then(|tab_id| {
+            mux.get_tab(&tab_id).and_then(|tab| {
+                (tab.pty_id.as_deref() == Some(pty_id)).then(|| {
+                    (
+                        tab_id,
+                        tab.agent_type.clone(),
+                        tab.agent_session_id.clone(),
+                        tab.cwd.clone(),
+                    )
+                })
+            })
+        })
     };
-    if !owns_pty {
+    let Some((tab_id, provider_id, session_id, cwd)) = target else {
         return Err(InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
         });
-    }
-    let Some(agent_id) = agent_id else {
+    };
+    let Some(provider_id) = provider_id else {
         return Ok(());
     };
-    let screen = svc.screen_state.lock().get_screen_text(pty_id);
-    let Some(screen) = screen else {
-        return Ok(());
-    };
-    let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
+    let snapshot = crate::agent::tab_state::TabStateSnapshot {
         tab_id,
-        agent_type: agent_id.clone(),
+        agent_type: provider_id.clone(),
         session_id,
         cwd,
-        screen_text: screen.clone(),
+        screen_text: svc
+            .screen_state
+            .lock()
+            .get_screen_text(pty_id)
+            .unwrap_or_default(),
     };
-    if provider_dialog_visible(svc, &agent_id, &snapshot, &screen) {
-        log::info!(
-            "[submit-transaction] automatic submit stopped: provider dialog detected on current frame pty={}",
-            pty_id
-        );
+    let modal_visible = svc
+        .agent_registry
+        .with_provider(&provider_id, |provider| {
+            provider.delivery_modal_visible(&snapshot)
+        })
+        .unwrap_or(false);
+    if modal_visible {
         Err(InjectionError::AgentTuiPresent {
             pty_id: pty_id.to_string(),
         })
@@ -714,34 +829,6 @@ pub(crate) fn recovery_attempted(result: &InjectionResult) -> bool {
     result.submit_key_writes > 1
 }
 
-#[cfg(test)]
-pub(crate) fn submit_text_with_key_claimed(
-    svc: &ServiceContext,
-    pty_id: &str,
-    text: &str,
-    enter: bool,
-    submit_key: &[u8],
-    strategy: VerifySubmitStrategy,
-    opts: VerifyOpts,
-    permit: Option<crate::pty::write_queue::GuardedInputPermit>,
-    track_exact_session_turn: bool,
-    claim: SubmitCycleClaim,
-) -> Result<InjectionResult, InjectionError> {
-    submit_text_with_key_claimed_and_follow_up(
-        svc,
-        pty_id,
-        text,
-        None,
-        enter,
-        submit_key,
-        strategy,
-        opts,
-        permit,
-        track_exact_session_turn,
-        claim,
-    )
-}
-
 pub(crate) fn submit_text_with_key_claimed_and_follow_up(
     svc: &ServiceContext,
     pty_id: &str,
@@ -755,18 +842,185 @@ pub(crate) fn submit_text_with_key_claimed_and_follow_up(
     track_exact_session_turn: bool,
     claim: SubmitCycleClaim,
 ) -> Result<InjectionResult, InjectionError> {
+    submit_text_with_key_claimed_and_follow_up_revalidated(
+        svc,
+        pty_id,
+        text,
+        typed_follow_up,
+        enter,
+        submit_key,
+        strategy,
+        opts,
+        permit,
+        track_exact_session_turn,
+        claim,
+        None,
+        false,
+        None,
+    )
+}
+
+fn encode_paste_frame(
+    text: &str,
+    typed_prefix: Option<&str>,
+    typed_suffix: Option<&str>,
+    live_mode: Option<bool>,
+    capability: PasteEncodingCapability,
+) -> Vec<u8> {
+    let paste = xterm_paste(
+        text,
+        typed_prefix.is_some().then_some(true).or(live_mode),
+        capability,
+    );
+    let mut input = typed_prefix.unwrap_or_default().as_bytes().to_vec();
+    input.extend_from_slice(paste.as_bytes());
+    input.extend_from_slice(typed_suffix.unwrap_or_default().as_bytes());
+    input
+}
+
+pub(crate) fn submit_text_with_key_claimed_and_frame(
+    svc: &ServiceContext,
+    pty_id: &str,
+    text: &str,
+    typed_prefix: Option<&str>,
+    typed_suffix: Option<&str>,
+    enter: bool,
+    submit_key: &[u8],
+    strategy: VerifySubmitStrategy,
+    opts: VerifyOpts,
+    permit: Option<crate::pty::write_queue::GuardedInputPermit>,
+    track_exact_session_turn: bool,
+    claim: SubmitCycleClaim,
+) -> Result<InjectionResult, InjectionError> {
+    submit_text_with_key_claimed_and_frame_revalidated(
+        svc,
+        pty_id,
+        text,
+        typed_prefix,
+        typed_suffix,
+        enter,
+        submit_key,
+        strategy,
+        opts,
+        permit,
+        track_exact_session_turn,
+        claim,
+        None,
+        false,
+        None,
+    )
+}
+
+pub(crate) fn submit_text_with_key_claimed_and_follow_up_revalidated(
+    svc: &ServiceContext,
+    pty_id: &str,
+    text: &str,
+    typed_follow_up: Option<&str>,
+    enter: bool,
+    submit_key: &[u8],
+    strategy: VerifySubmitStrategy,
+    opts: VerifyOpts,
+    permit: Option<crate::pty::write_queue::GuardedInputPermit>,
+    track_exact_session_turn: bool,
+    claim: SubmitCycleClaim,
+    pre_write_guard: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    allow_superseded_payload: bool,
+    payload_queued: Option<Arc<dyn Fn() + Send + Sync>>,
+) -> Result<InjectionResult, InjectionError> {
+    submit_text_with_key_claimed_and_parts_revalidated(
+        svc,
+        pty_id,
+        text,
+        None,
+        typed_follow_up,
+        true,
+        enter,
+        submit_key,
+        strategy,
+        opts,
+        permit,
+        track_exact_session_turn,
+        claim,
+        pre_write_guard,
+        allow_superseded_payload,
+        payload_queued,
+    )
+}
+
+pub(crate) fn submit_text_with_key_claimed_and_frame_revalidated(
+    svc: &ServiceContext,
+    pty_id: &str,
+    text: &str,
+    typed_prefix: Option<&str>,
+    typed_suffix: Option<&str>,
+    enter: bool,
+    submit_key: &[u8],
+    strategy: VerifySubmitStrategy,
+    opts: VerifyOpts,
+    permit: Option<crate::pty::write_queue::GuardedInputPermit>,
+    track_exact_session_turn: bool,
+    claim: SubmitCycleClaim,
+    pre_write_guard: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    allow_superseded_payload: bool,
+    payload_queued: Option<Arc<dyn Fn() + Send + Sync>>,
+) -> Result<InjectionResult, InjectionError> {
+    submit_text_with_key_claimed_and_parts_revalidated(
+        svc,
+        pty_id,
+        text,
+        typed_prefix,
+        typed_suffix,
+        false,
+        enter,
+        submit_key,
+        strategy,
+        opts,
+        permit,
+        track_exact_session_turn,
+        claim,
+        pre_write_guard,
+        allow_superseded_payload,
+        payload_queued,
+    )
+}
+
+fn submit_text_with_key_claimed_and_parts_revalidated(
+    svc: &ServiceContext,
+    pty_id: &str,
+    text: &str,
+    typed_prefix: Option<&str>,
+    typed_suffix: Option<&str>,
+    type_suffix_after_paste: bool,
+    enter: bool,
+    submit_key: &[u8],
+    strategy: VerifySubmitStrategy,
+    opts: VerifyOpts,
+    permit: Option<crate::pty::write_queue::GuardedInputPermit>,
+    track_exact_session_turn: bool,
+    claim: SubmitCycleClaim,
+    pre_write_guard: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    allow_superseded_payload: bool,
+    payload_queued: Option<Arc<dyn Fn() + Send + Sync>>,
+) -> Result<InjectionResult, InjectionError> {
     if claim.pty_id() != pty_id {
         return Err(InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
         });
     }
-    provider_dialog_guard(svc, pty_id)?;
-    if !claim.wait_until_active(Instant::now() + opts.submit_timeout) {
+    pty_owner_guard(svc, pty_id)?;
+    if !allow_superseded_payload && !claim.is_current() {
         return Err(InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
         });
     }
     let submit_cycle = Arc::clone(&claim.cycle);
+    let trace = crate::flow_trace::PtyFlow::transaction(
+        svc,
+        pty_id,
+        claim.trace_id.as_deref(),
+        text,
+        enter,
+    );
     let submit_generation = claim.generation;
     let paste_capability = PasteEncodingCapability::for_strategy(&strategy);
     let (wake_tx, wake_rx) = mpsc::sync_channel(1);
@@ -775,12 +1029,24 @@ pub(crate) fn submit_text_with_key_claimed_and_follow_up(
     let status_signal = svc.agent_tracker.lock().arm_status_change_signal(pty_id);
     let output_generation_at_start = submit_cycle.output_generation();
     let turn_status_generation_at_start = status_signal.generation();
+    let provider = {
+        let mux = svc.mux.read();
+        mux.tab_id_for_pty(pty_id)
+            .and_then(|tab| mux.get_tab(&tab).and_then(|tab| tab.agent_type.clone()))
+    };
+    let composer = provider.and_then(|provider| {
+        svc.agent_registry
+            .with_provider(&provider, |provider| provider.composer_cursor_position())
+    });
+    let policy = line_mode::submit_policy(track_exact_session_turn, composer);
     let transport = PtySubmitTransport {
         svc,
         pty_id,
         signal: RefCell::new(signal),
         status_signal,
         permit,
+        pre_write_guard,
+        payload_queued,
         submit_cycle: Arc::clone(&submit_cycle),
         submit_generation,
         paste_capability,
@@ -788,177 +1054,77 @@ pub(crate) fn submit_text_with_key_claimed_and_follow_up(
         evidence_tab_id: RefCell::new(None),
         evidence_binding_nonce: RefCell::new(None),
         evidence_pty_generation: Cell::new(None),
-        require_exact_session_turn: track_exact_session_turn,
+        require_exact_session_turn: policy.0,
+        max_submit_keys: policy.1,
         output_generation_at_start: Cell::new(output_generation_at_start),
         turn_status_generation_at_start: Cell::new(turn_status_generation_at_start),
         turn_evidence_cursor: RefCell::new(
             crate::service::chat_send_evidence::ExactTurnCursor::for_anchor(None),
         ),
+        trace,
         wake_tx,
         wake_rx,
         _session_evidence_watcher: RefCell::new(None),
         turn_signaled: std::cell::Cell::new(false),
         deferred_ready_seen: Cell::new(false),
+        recovery_refusal: Cell::new(None),
     };
     let mut key_guard = |allow_initial_key: bool, turn_was_started: bool| {
-        let (tab_id, agent_id, session_bound, session_id, cwd, owns_pty) = {
-            let mux = svc.mux.read();
-            let Some(tab_id) = mux.tab_id_for_pty(pty_id) else {
-                return Err(InjectionError::AgentInputUnavailable {
-                    pty_id: pty_id.to_string(),
-                });
-            };
-            let Some(tab) = mux.get_tab(&tab_id) else {
-                return Err(InjectionError::AgentInputUnavailable {
-                    pty_id: pty_id.to_string(),
-                });
-            };
-            (
-                tab_id,
-                tab.agent_type.clone(),
-                tab.launch_session_authenticated(),
-                tab.agent_session_id.clone(),
-                tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone()),
-                tab.pty_id.as_deref() == Some(pty_id),
-            )
-        };
-        if !owns_pty {
-            return Err(InjectionError::AgentInputUnavailable {
-                pty_id: pty_id.to_string(),
-            });
-        }
-        if allow_initial_key && agent_id.is_none() {
-            transport.dialog_guard()?;
-            return Ok(());
-        }
-        let (screen, input) = {
-            let screen_state = svc.screen_state.lock();
-            (
-                screen_state.get_screen_text(pty_id),
-                screen_state.composer_input_state(pty_id),
-            )
-        };
-        let Some(agent_id) = agent_id else {
-            return Err(InjectionError::AgentInputUnavailable {
-                pty_id: pty_id.to_string(),
-            });
-        };
-        let Some(screen) = screen else {
-            return Err(InjectionError::AgentInputUnavailable {
-                pty_id: pty_id.to_string(),
-            });
-        };
-        let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
-            tab_id: tab_id.clone(),
-            agent_type: agent_id.clone(),
-            session_id,
-            cwd,
-            screen_text: screen.clone(),
-        };
-        if provider_dialog_visible(svc, &agent_id, &snapshot, &screen) {
-            return Err(InjectionError::AgentTuiPresent {
-                pty_id: pty_id.to_string(),
-            });
-        }
-        let readiness = svc.agent_registry.with_provider(&agent_id, |provider| {
-            let provider_tui = provider.screen_has_tui(&screen);
-            let (cursor_ready, alternate_screen) =
-                input
-                    .as_ref()
-                    .map(|state| {
-                        let cursor_ready =
-                            crate::agent::offline_state_classifier::composer_cursor_ready(
-                                state.cursor_visible,
-                                state.cursor_row,
-                                state.rows,
-                            ) || state
-                                .inverse_caret_row
-                                .zip(state.last_nonblank_row)
-                                .is_some_and(|(row, bottom)| {
-                                    crate::agent::offline_state_classifier::composer_cursor_ready(
-                                        true,
-                                        row,
-                                        bottom.saturating_add(1),
-                                    )
-                                });
-                        (cursor_ready, state.alternate_screen)
-                    })
-                    .unwrap_or((false, false));
-            let composer_ready = cursor_ready && (provider_tui || alternate_screen);
-            (provider_tui, cursor_ready, alternate_screen, composer_ready)
-        });
-        let Some((provider_tui, cursor_ready, alternate_screen, composer_ready)) = readiness else {
-            log::info!(
-                "[submit-audit] key-guard pty={} provider_available=false session_bound={} turn_started_at_claim={} allowed=false",
-                pty_id,
-                session_bound,
-                turn_was_started
-            );
-            return Err(InjectionError::AgentInputUnavailable {
-                pty_id: pty_id.to_string(),
-            });
-        };
-        let turn_started_now = transport.turn_started();
-        let allowed = submit_key_readiness(turn_was_started, turn_started_now, composer_ready);
-        if allow_initial_key || !allowed {
-            log::info!(
-                "[submit-audit] key-guard pty={} session_bound={} turn_started_at_claim={} turn_started_now={} provider_available=true provider_tui={} cursor_ready={} alternate_screen={} composer_ready={} allowed={}",
-                pty_id,
-                session_bound,
-                turn_was_started,
-                turn_started_now,
-                provider_tui,
-                cursor_ready,
-                alternate_screen,
-                composer_ready,
-                allowed
-            );
-        }
-        if allowed {
-            Ok(())
-        } else {
-            Err(InjectionError::AgentInputUnavailable {
-                pty_id: pty_id.to_string(),
-            })
-        }
+        recovery_guard::submit_key_guard(&transport, allow_initial_key, turn_was_started, text)
     };
-    let mut result = run_with_submit_key_and_follow_up(
-        &transport,
-        text,
-        enter,
-        submit_key,
-        typed_follow_up,
-        strategy,
-        opts,
-        &mut key_guard,
-    )
-    .inspect(|result| {
-            if recovery_attempted(result) {
-                // `recovered=false` is not a lost message: a TUI strategy proves submit
-                // only by a turn transition, which a busy tab cannot produce.
-                let level = if result.submit_observed {
-                    log::Level::Debug
-                } else {
-                    log::Level::Trace
-                };
-                log::log!(
-                    level,
-                    "[submit-recovery] pty={} recovered={} bytes_written={} key_writes={} elapsed_ms={}",
-                    pty_id,
-                    result.submit_observed,
-                    result.bytes_written,
-                    result.submit_key_writes,
-                    result.elapsed.as_millis()
-                );
-            }
-        });
-    let expected_user_turn = typed_follow_up
-        .filter(|follow_up| PasteCapability::is_valid_typed_follow_up(follow_up))
-        .filter(|_| enter && !text.is_empty())
-        .map_or_else(
-            || text.to_string(),
-            |follow_up| format!("{text}{follow_up}"),
-        );
+    let run = if type_suffix_after_paste {
+        runner::run_with_submit_key_and_follow_up(
+            &transport,
+            text,
+            enter,
+            submit_key,
+            typed_suffix,
+            strategy,
+            opts,
+            &mut key_guard,
+        )
+    } else {
+        run_with_submit_key_and_frame(
+            &transport,
+            text,
+            enter,
+            submit_key,
+            typed_prefix,
+            typed_suffix,
+            strategy,
+            opts,
+            &mut key_guard,
+        )
+    };
+    let mut result = run.inspect(|result| {
+        if recovery_attempted(result) {
+            // `recovered=false` is not a lost message: a TUI strategy proves submit
+            // only by a turn transition, which a busy tab cannot produce.
+            let level = if result.submit_observed {
+                log::Level::Debug
+            } else {
+                log::Level::Trace
+            };
+            log::log!(
+                level,
+                "[submit-recovery] pty={} recovered={} bytes_written={} key_writes={} elapsed_ms={}",
+                pty_id,
+                result.submit_observed,
+                result.bytes_written,
+                result.submit_key_writes,
+                result.elapsed.as_millis()
+            );
+        }
+    });
+    let expected_user_turn = if enter && !text.is_empty() {
+        format!(
+            "{}{text}{}",
+            typed_prefix.unwrap_or_default(),
+            typed_suffix.unwrap_or_default()
+        )
+    } else {
+        text.to_string()
+    };
     let exact_turn_present =
         track_exact_session_turn && transport.exact_user_turn_present(&expected_user_turn);
     if exact_turn_present {
@@ -1001,6 +1167,8 @@ mod classification_tests;
 #[cfg(test)]
 mod collapsed_paste_tests;
 #[cfg(test)]
+mod cycle_cancellation_tests;
+#[cfg(test)]
 mod deferred_key_tests;
 #[cfg(test)]
 mod dropped_enter_tests;
@@ -1012,6 +1180,8 @@ mod submission_matrix;
 mod tests;
 #[cfg(test)]
 mod turn_signal_tests;
+#[cfg(test)]
+mod unbound_recovery_tests;
 
 #[cfg(test)]
 mod submission_reporting_tests;

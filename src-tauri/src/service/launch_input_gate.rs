@@ -71,10 +71,176 @@ fn delegated_role(
             && role_profile == Some("planner"))
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 enum LaunchInputMode {
     Standard,
     LazySessionStart,
+}
+
+#[derive(Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case", tag = "evaluation", content = "value")]
+enum GateFact<T> {
+    NotEvaluated,
+    Observed(T),
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+struct GateClassification {
+    state: TabState,
+    confidence: f32,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct LaunchInputDecision {
+    session_bound: bool,
+    composer_ready: bool,
+    pending_prompt: bool,
+    provider_process_alive: bool,
+    provider_busy: bool,
+    directory_trust_prompt: bool,
+    directory_trust_pending: bool,
+    active_interactive_prompt: bool,
+    classification: Option<GateClassification>,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct LaunchInputDiagnostic {
+    tab_id: String,
+    pty_id: String,
+    binding_nonce: String,
+    mode: LaunchInputMode,
+    event_generation: u64,
+    elapsed_ms: u128,
+    deadline_ms: u128,
+    outcome: &'static str,
+    session_bound: GateFact<bool>,
+    pending_prompt: GateFact<bool>,
+    provider_process_alive: GateFact<bool>,
+    process_gate_allows: GateFact<bool>,
+    composer_ready: GateFact<bool>,
+    provider_tui: GateFact<bool>,
+    tui_evidence: GateFact<bool>,
+    terminal_input_ready: GateFact<bool>,
+    provider_busy: GateFact<bool>,
+    directory_trust_prompt: GateFact<bool>,
+    directory_trust_pending: GateFact<bool>,
+    directory_trust_state: GateFact<codeterm_plugin::provider::DirectoryTrustState>,
+    active_interactive_prompt: GateFact<bool>,
+    classification: GateFact<Option<GateClassification>>,
+    provider_evaluated: bool,
+    onboarding_wait: bool,
+    decision_inputs: GateFact<LaunchInputDecision>,
+    declares_structural_composer: bool,
+    observed_tui_without_composer: bool,
+}
+
+impl LaunchInputDiagnostic {
+    fn new(attempt: &LaunchAttempt, mode: LaunchInputMode, timeout: std::time::Duration) -> Self {
+        Self {
+            tab_id: attempt.tab_id.clone(),
+            pty_id: attempt.pty_id.clone(),
+            binding_nonce: attempt.binding_nonce.clone(),
+            mode,
+            event_generation: 0,
+            elapsed_ms: 0,
+            deadline_ms: timeout.as_millis(),
+            outcome: "not_settled",
+            session_bound: GateFact::NotEvaluated,
+            pending_prompt: GateFact::NotEvaluated,
+            provider_process_alive: GateFact::NotEvaluated,
+            process_gate_allows: GateFact::NotEvaluated,
+            composer_ready: GateFact::NotEvaluated,
+            provider_tui: GateFact::NotEvaluated,
+            tui_evidence: GateFact::NotEvaluated,
+            terminal_input_ready: GateFact::NotEvaluated,
+            provider_busy: GateFact::NotEvaluated,
+            directory_trust_prompt: GateFact::NotEvaluated,
+            directory_trust_pending: GateFact::NotEvaluated,
+            directory_trust_state: GateFact::NotEvaluated,
+            active_interactive_prompt: GateFact::NotEvaluated,
+            classification: GateFact::NotEvaluated,
+            provider_evaluated: false,
+            onboarding_wait: false,
+            decision_inputs: GateFact::NotEvaluated,
+            declares_structural_composer: false,
+            observed_tui_without_composer: false,
+        }
+    }
+
+    fn begin_frame(
+        &mut self,
+        attempt: &LaunchAttempt,
+        timeout: std::time::Duration,
+        generation: u64,
+    ) {
+        *self = Self::new(attempt, self.mode, timeout);
+        self.event_generation = generation;
+    }
+
+    fn observe_decision(
+        &mut self,
+        observation: &LaunchInputObservation,
+        provider_tui: bool,
+        tui_evidence: bool,
+        terminal_input_ready: bool,
+        trust_state: codeterm_plugin::provider::DirectoryTrustState,
+        provider_evaluated: bool,
+    ) {
+        self.session_bound = GateFact::Observed(observation.session_bound);
+        self.pending_prompt = GateFact::Observed(observation.pending_prompt);
+        self.process_gate_allows = GateFact::Observed(observation.provider_process_alive);
+        let classification = observation
+            .classification
+            .as_ref()
+            .map(|value| GateClassification {
+                state: value.state,
+                confidence: value.confidence,
+            });
+        self.decision_inputs = GateFact::Observed(LaunchInputDecision {
+            session_bound: observation.session_bound,
+            composer_ready: observation.composer_ready,
+            pending_prompt: observation.pending_prompt,
+            provider_process_alive: observation.provider_process_alive,
+            provider_busy: observation.provider_busy,
+            directory_trust_prompt: observation.directory_trust_prompt,
+            directory_trust_pending: observation.directory_trust_pending,
+            active_interactive_prompt: observation.active_interactive_prompt,
+            classification: classification.clone(),
+        });
+        self.provider_evaluated = provider_evaluated;
+        if !provider_evaluated {
+            return;
+        }
+        self.composer_ready = GateFact::Observed(observation.composer_ready);
+        self.provider_tui = GateFact::Observed(provider_tui);
+        self.tui_evidence = GateFact::Observed(tui_evidence);
+        self.terminal_input_ready = GateFact::Observed(terminal_input_ready);
+        self.provider_busy = GateFact::Observed(observation.provider_busy);
+        self.directory_trust_prompt = GateFact::Observed(observation.directory_trust_prompt);
+        self.directory_trust_pending = GateFact::Observed(observation.directory_trust_pending);
+        self.directory_trust_state = GateFact::Observed(trust_state);
+        self.active_interactive_prompt = GateFact::Observed(observation.active_interactive_prompt);
+        self.classification = GateFact::Observed(classification);
+    }
+
+    fn settle(
+        &mut self,
+        result: &Result<LaunchInputEvidence, LaunchInputRefusal>,
+        elapsed: std::time::Duration,
+    ) {
+        self.elapsed_ms = elapsed.as_millis();
+        self.outcome = match result {
+            Ok(LaunchInputEvidence::SessionBinding) => "session_binding",
+            Ok(LaunchInputEvidence::ProviderComposer) => "provider_composer",
+            Err(LaunchInputRefusal::PendingPrompt) => "pending_prompt",
+            Err(LaunchInputRefusal::ProviderDialog(_)) => "provider_dialog",
+            Err(LaunchInputRefusal::Deadline) => "deadline",
+            Err(LaunchInputRefusal::ComposerNotRecognised) => "composer_not_recognised",
+            Err(LaunchInputRefusal::AttemptSuperseded) => "attempt_superseded",
+            Err(LaunchInputRefusal::OwnerPromptDeadline(_)) => "owner_prompt_deadline",
+        };
+    }
 }
 
 fn decide_launch_input(
@@ -127,6 +293,23 @@ fn decide_launch_input(
     }
 }
 
+fn decide_launch_input_at_deadline(
+    observation: LaunchInputObservation,
+    mode: LaunchInputMode,
+    expired: bool,
+    structural_composer: bool,
+    observed_tui_without_composer: bool,
+) -> Result<Option<LaunchInputEvidence>, LaunchInputRefusal> {
+    match decide_launch_input(observation, mode)? {
+        Some(evidence) => Ok(Some(evidence)),
+        None if expired => Err(launch_readiness_deadline_refusal(
+            structural_composer,
+            observed_tui_without_composer,
+        )),
+        None => Ok(None),
+    }
+}
+
 fn provider_composer_is_ready(
     mode: LaunchInputMode,
     declares_structural_composer: bool,
@@ -157,10 +340,26 @@ fn directory_trust_blocks_input(
     trust_state: codeterm_plugin::provider::DirectoryTrustState,
     prompt_visible: bool,
     prompt_observed: bool,
+    checkpoint_reached: bool,
 ) -> bool {
     prompt_visible
         || (trust_state == codeterm_plugin::provider::DirectoryTrustState::Untrusted
-            && !prompt_observed)
+            && !prompt_observed
+            && !checkpoint_reached)
+}
+
+fn directory_trust_checkpoint_reached(
+    mode: LaunchInputMode,
+    declares_structural_composer: bool,
+    composer_ready: bool,
+    pending_prompt: bool,
+    active_interactive_prompt: bool,
+) -> bool {
+    mode == LaunchInputMode::LazySessionStart
+        && declares_structural_composer
+        && composer_ready
+        && !pending_prompt
+        && !active_interactive_prompt
 }
 
 impl ServiceContext {
@@ -199,6 +398,22 @@ impl ServiceContext {
         timeout: std::time::Duration,
         mode: LaunchInputMode,
     ) -> Result<LaunchInputEvidence, LaunchInputRefusal> {
+        self.await_launch_input_readiness_observed(attempt, agent_id, timeout, mode, |diagnostic| {
+            if let Ok(snapshot) = serde_json::to_string(diagnostic) {
+                log::info!("[launch-input-gate] final={snapshot}");
+            }
+        })
+    }
+
+    fn await_launch_input_readiness_observed(
+        &self,
+        attempt: &LaunchAttempt,
+        agent_id: &str,
+        timeout: std::time::Duration,
+        mode: LaunchInputMode,
+        record_final: impl FnOnce(&LaunchInputDiagnostic),
+    ) -> Result<LaunchInputEvidence, LaunchInputRefusal> {
+        let mut diagnostic = LaunchInputDiagnostic::new(attempt, mode, timeout);
         let signal = self
             .screen_state
             .lock()
@@ -206,7 +421,8 @@ impl ServiceContext {
         let _input_wake = (mode == LaunchInputMode::LazySessionStart).then(|| {
             crate::service::launch_readiness::register_input_wake(attempt, signal.clone())
         });
-        let deadline = Instant::now() + timeout;
+        let started = Instant::now();
+        let deadline = started + timeout;
         let mut generation = signal.generation();
         let (provider_readiness, composer_cursor_position, provider_binary_name, status_bar_rows) =
             self.agent_registry
@@ -231,8 +447,11 @@ impl ServiceContext {
         let mut observed_tui_without_composer = false;
         let mut onboarding_choice_submitted = false;
         let mut directory_trust_prompt_observed = false;
+        let mut final_observation = false;
+        let mut composer_logged = false;
 
-        loop {
+        let result = (|| loop {
+            diagnostic.begin_frame(attempt, timeout, generation);
             let Some(current) = LaunchAttempt::current(&self.mux, &attempt.tab_id, &attempt.pty_id)
             else {
                 return Err(LaunchInputRefusal::AttemptSuperseded);
@@ -271,6 +490,12 @@ impl ServiceContext {
             };
             let provider_process_alive = mode == LaunchInputMode::Standard
                 || self.provider_process_alive_in_tab_tree(&attempt.pty_id, &provider_binary_name);
+            diagnostic.session_bound = GateFact::Observed(session_bound);
+            diagnostic.pending_prompt = GateFact::Observed(pending_prompt);
+            diagnostic.process_gate_allows = GateFact::Observed(provider_process_alive);
+            if mode == LaunchInputMode::LazySessionStart {
+                diagnostic.provider_process_alive = GateFact::Observed(provider_process_alive);
+            }
             let (screen, screen_rows, input) = {
                 let screen_state = self.screen_state.lock();
                 (
@@ -296,7 +521,20 @@ impl ServiceContext {
                     provider.directory_trust_prompt_response(&screen).is_some()
                 })
                 .unwrap_or(false);
-            if delegated_role {
+            let onboarding_response = self
+                .agent_registry
+                .with_provider(agent_id, |provider| {
+                    provider.launch_onboarding_response(&screen)
+                })
+                .flatten();
+            let onboarding_auto_answer = self
+                .agent_registry
+                .with_provider(agent_id, |provider| provider.onboarding_auto_answer())
+                .unwrap_or_default();
+            if delegated_role
+                || (onboarding_response.is_some()
+                    && onboarding_auto_answer.answers_for_owner_launch())
+            {
                 let decision = self.respond_to_launch_onboarding(
                     &attempt.tab_id,
                     agent_id,
@@ -318,6 +556,7 @@ impl ServiceContext {
                     _ => false,
                 };
                 if wait_for_response {
+                    diagnostic.onboarding_wait = true;
                     let remaining =
                         deadline
                             .checked_duration_since(Instant::now())
@@ -398,6 +637,7 @@ impl ServiceContext {
                 (
                     composer_ready,
                     provider_tui,
+                    tui_evidence,
                     terminal_input_ready,
                     directory_trust_prompt,
                     directory_trust_state,
@@ -406,9 +646,11 @@ impl ServiceContext {
                     provider_busy,
                 )
             });
+            let provider_evaluated = provider_observation.is_some();
             let (
                 composer_ready,
                 provider_tui,
+                tui_evidence,
                 terminal_input_ready,
                 directory_trust_prompt,
                 directory_trust_state,
@@ -416,6 +658,7 @@ impl ServiceContext {
                 classification,
                 provider_busy,
             ) = provider_observation.unwrap_or((
+                false,
                 false,
                 false,
                 false,
@@ -432,42 +675,64 @@ impl ServiceContext {
                 directory_trust_state,
                 directory_trust_prompt,
                 directory_trust_prompt_observed,
-            );
-            match decide_launch_input(
-                LaunchInputObservation {
-                    session_bound,
+                directory_trust_checkpoint_reached(
+                    mode,
+                    declares_structural_composer,
                     composer_ready,
                     pending_prompt,
-                    provider_process_alive,
-                    provider_busy,
-                    directory_trust_prompt,
-                    directory_trust_pending,
                     active_interactive_prompt,
-                    classification,
-                },
+                ),
+            );
+            let observation = LaunchInputObservation {
+                session_bound,
+                composer_ready,
+                pending_prompt,
+                provider_process_alive,
+                provider_busy,
+                directory_trust_prompt,
+                directory_trust_pending,
+                active_interactive_prompt,
+                classification,
+            };
+            if composer_ready && !composer_logged {
+                composer_logged = true;
+                crate::service::agent_restart::timing::stage(
+                    &attempt.tab_id,
+                    &attempt.pty_id,
+                    "first-composer",
+                );
+            }
+            diagnostic.observe_decision(
+                &observation,
+                provider_tui,
+                tui_evidence,
+                terminal_input_ready,
+                directory_trust_state,
+                provider_evaluated,
+            );
+            match decide_launch_input_at_deadline(
+                observation,
                 mode,
+                final_observation,
+                declares_structural_composer,
+                observed_tui_without_composer,
             ) {
                 Err(refusal) => return Err(refusal),
                 Ok(Some(readiness)) => return Ok(readiness),
                 Ok(None) => {}
             }
 
-            let remaining = deadline
-                .checked_duration_since(Instant::now())
-                .ok_or_else(|| {
-                    launch_readiness_deadline_refusal(
-                        declares_structural_composer,
-                        observed_tui_without_composer,
-                    )
-                })?;
+            let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() || !signal.wait_after(generation, remaining) {
-                return Err(launch_readiness_deadline_refusal(
-                    declares_structural_composer,
-                    observed_tui_without_composer,
-                ));
+                final_observation = true;
             }
             generation = signal.generation();
-        }
+        })();
+        diagnostic.declares_structural_composer = declares_structural_composer;
+        diagnostic.observed_tui_without_composer = observed_tui_without_composer;
+        diagnostic.settle(&result, started.elapsed());
+        record_final(&diagnostic);
+        result
     }
 
     fn provider_process_alive_in_tab_tree(&self, pty_id: &str, binary_name: &str) -> bool {
@@ -519,6 +784,13 @@ fn launch_composer_input_ready_for_frame(
     }
     if cursor_position == crate::agent::provider::ComposerCursorPosition::VisibleAnywhere {
         return input.alternate_screen && input.cursor_visible;
+    }
+    if cursor_position == crate::agent::provider::ComposerCursorPosition::PromptLine {
+        return crate::agent::offline_state_classifier::prompt_line_cursor_ready(
+            input.cursor_visible,
+            input.cursor_row,
+            input.last_nonblank_row,
+        );
     }
     if let Some(screen_rows) = screen_rows {
         return crate::agent::offline_state_classifier::prompt_glyph_cursor_ready_for_frame(

@@ -7,7 +7,7 @@ use tauri::Manager;
 
 use crate::multiplexer::types::TabBacking;
 use crate::service::ServiceState;
-use crate::{api, cron, mem, mesh, service, socket, update, CronState, CronWake};
+use crate::{api, cron, mem, mesh, service, socket, CronState, CronWake};
 
 use super::states::AppStates;
 
@@ -23,7 +23,7 @@ fn should_materialize_restored_backend(
 pub(crate) const FRONTEND_READINESS_DEADLINE_ELAPSED: &str = "frontend_readiness_deadline_elapsed";
 
 fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_generation: u64) {
-    std::thread::spawn(move || {
+    codeterm_util::named_thread::spawn("restore-pty-backends", move || {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         materialize_restored_backends(
             || super::wait_for_frontend_ready_until(frontend_readiness_generation, deadline),
@@ -121,6 +121,37 @@ fn report_general_agent_frontend_deadline(service: &crate::service::ServiceConte
 pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state: &ServiceState) {
     let app_handle = app.handle().clone();
     super::state_incidents::install_notifier(service_state);
+    if let Some(reason) = states.storage.unavailable_reason() {
+        super::state_incidents::notify_storage_unavailable(
+            service_state,
+            &crate::paths::data_dir().join("state.db"),
+            reason,
+        );
+        if let Err(error) = crate::service::session_persist::set_storage_unavailable(
+            &app_handle,
+            reason.to_string(),
+        ) {
+            log::error!("[session-persist] unavailable backend setup failed: {error}");
+        }
+    } else if let Some(storage) = states.storage.storage() {
+        let adapter = crate::session::store::StorageDeskAdapter::from_storage(storage.clone());
+        if let Err(error) =
+            crate::service::session_persist::install_storage_desk_adapter(&app_handle, adapter)
+        {
+            log::error!("[session-persist] Storage backend setup failed: {error}");
+        }
+    }
+
+    if states.boot_resync && states.storage.storage().is_some() {
+        let resync = crate::service::session_persist::write_session_snapshot_with_intent(
+            &app_handle,
+            &states.mux,
+            crate::session::store::SaveIntent::AuthorizedReduction,
+        );
+        if let Err(error) = resync {
+            log::error!("[restore] Storage desk boot resync failed: {error}");
+        }
+    }
     let frontend_readiness_generation = super::arm_frontend_readiness();
 
     // e2e suite can time-travel; release builds never do.
@@ -131,15 +162,35 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
         } else {
             None
         };
-    let cron_store = match &test_clock {
-        Some(clock) => cron::store::CronStore::new_with_clock(clock.clone()),
-        None => cron::store::CronStore::new(),
+    let cron_clock: cron::clock::SharedClock = test_clock
+        .clone()
+        .map(|clock| clock as cron::clock::SharedClock)
+        .unwrap_or_else(cron::clock::system_clock);
+    let logs_root = crate::paths::data_dir().join("crons");
+    let cron_store = match states.storage.storage() {
+        Some(storage) => cron::store::CronStore::open_storage(
+            storage,
+            logs_root.clone(),
+            cron_clock.clone(),
+            cron::store::CronStorageOptions::default(),
+        )
+        .unwrap_or_else(|error| cron::store::CronStore::unavailable(error, logs_root, cron_clock)),
+        None => cron::store::CronStore::unavailable(
+            states
+                .storage
+                .unavailable_reason()
+                .unwrap_or("Storage unavailable")
+                .to_string(),
+            logs_root,
+            cron_clock,
+        ),
     };
+    let cron_available = cron_store.unavailable_reason().is_none();
     let cron_state: CronState = Arc::new(Mutex::new(cron_store));
     let cron_wake: CronWake = Arc::new(std::sync::Condvar::new());
 
     // Auto-install bundled mem dreaming cron if not present. Idempotent by name. Schedule "0 3 * * *" + ±90min jitter (anti-anti-cheat).
-    {
+    if cron_available {
         let mut cs = cron_state.lock();
         let mem_cfg = crate::config::memory_config();
         let default_agent = crate::config::default_agent_provider();
@@ -161,9 +212,61 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
         }
     }
 
+    let port_ready = if cron_available {
+        match cron::store::settle_port(&cron_state) {
+            cron::store::PortSettlement::Empty | cron::store::PortSettlement::Committed => true,
+            cron::store::PortSettlement::Retained(error)
+            | cron::store::PortSettlement::Discarded(error)
+            | cron::store::PortSettlement::Unconfirmed(error) => {
+                log::error!("[cron] startup scheduler port settlement failed: {error}");
+                cron_state
+                    .lock()
+                    .mark_scheduler_unavailable(error.to_string());
+                false
+            }
+        }
+    } else {
+        false
+    };
+    let restored_cron_session = {
+        let mux = states.mux.read();
+        cron::recovery::RestoredCronSession::from_mux(&mux)
+    };
+    let scheduler_ready = port_ready
+        && match cron::recovery::reconcile_restored_runs(&cron_state, &restored_cron_session) {
+            Ok((retained, terminalized)) => {
+                if retained + terminalized > 0 {
+                    log::info!(
+                        "[cron] startup reconciliation retained {retained} live run(s) and terminalized {terminalized} orphaned run(s)"
+                    );
+                }
+                true
+            }
+            Err(error) => {
+                log::error!("[cron] startup run reconciliation failed: {error}");
+                cron_state
+                    .lock()
+                    .mark_scheduler_unavailable(error.to_string());
+                false
+            }
+        };
+
     app.manage(cron_state.clone());
     app.manage(cron_wake.clone());
-    cron::scheduler::start(cron_state.clone(), cron_wake.clone(), service_state.clone());
+    let fence_wake = cron_wake.clone();
+    cron_state
+        .lock()
+        .set_fence_notifier(move || fence_wake.notify_all());
+    if scheduler_ready {
+        cron::scheduler::start(cron_state.clone(), cron_wake.clone(), service_state.clone());
+    }
+    let sentinel_clock: cron::clock::SharedClock = test_clock
+        .clone()
+        .map(|clock| clock as cron::clock::SharedClock)
+        .unwrap_or_else(cron::clock::system_clock);
+    if let Some(storage) = states.storage.storage() {
+        crate::sentinel::scheduler::start(service_state.clone(), sentinel_clock, storage);
+    }
 
     tauri::async_runtime::block_on(async {
         let init_started = std::time::Instant::now();
@@ -179,7 +282,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
 
     {
         let svc = service_state.clone();
-        std::thread::spawn(move || loop {
+        codeterm_util::named_thread::spawn("memory-file-sync", move || loop {
             let cfg = crate::config::memory_config();
             let sleep_secs = if cfg.file_sync_enabled {
                 cfg.file_sync_interval_minutes.max(5) * 60
@@ -225,9 +328,8 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
         ) {
             log::error!("Failed to start socket server: {}", e);
         }
-        let named_dev = cfg!(debug_assertions)
-            && std::env::var("CODETERM_INSTANCE").is_ok_and(|name| !name.trim().is_empty());
-        let remote_bind = super::rest_api::listeners::additional_bind(&api_config, named_dev);
+        let remote_bind =
+            super::rest_api::listeners::additional_bind(&api_config, cfg!(debug_assertions));
         let listener_allowed = match crate::config::validate_api_trust_boundary(&api_config)
             .and_then(|()| remote_bind.as_ref().map(|_| ()).map_err(Clone::clone))
         {
@@ -288,21 +390,12 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
             }
             std::env::set_var("CODETERM_API_PORT", port.to_string());
             let control = states.rest_api.clone();
-            std::thread::spawn(move || {
-                let rt = tokio::runtime::Builder::new_multi_thread()
-                    .worker_threads(4)
-                    .enable_all()
-                    .build()
-                    .expect("Failed to create Tokio runtime for REST API");
-                rt.block_on(async move {
-                    super::rest_api::start(control, bind_addr.to_string(), router).await;
-                });
-            });
+            super::rest_api::spawn(control, bind_addr.to_string(), router);
         }
     }
 
     // Start General Agent PTY + launch agent (workspace/tab already created in init_states)
-    {
+    if states.storage.storage().is_some() {
         let config = states.config.lock().general_agent.clone();
         if config.enabled && config.first_run_complete {
             let svc = service_state.clone();
@@ -311,16 +404,10 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
             let screen_state = states.screen_state.clone();
             let config_state = states.config.clone();
             let app_h = app_handle.clone();
-            let w_svc = svc.clone();
-            let w_mux = mux.clone();
-            let w_pty = pty.clone();
-            let w_screen = screen_state.clone();
-            let w_config = config_state.clone();
-            let w_app = app_h.clone();
             let frontend_ready_deadline =
                 std::time::Instant::now() + std::time::Duration::from_secs(30);
 
-            std::thread::spawn(move || {
+            codeterm_util::named_thread::spawn("general-agent-startup", move || {
                 if !super::wait_for_frontend_ready_until(
                     frontend_readiness_generation,
                     frontend_ready_deadline,
@@ -338,14 +425,12 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
                     &app_h,
                 );
             });
-
-            // Start watchdog on separate thread (waits 30s before first check)
-            service::general_agent::start_watchdog(
-                &w_svc, &w_mux, &w_pty, &w_screen, &w_config, &w_app,
-            );
         }
     }
-    start_restored_pty_backends(service_state.clone(), frontend_readiness_generation);
+    if states.storage.storage().is_some() {
+        service::turn_resume::arm(&service_state);
+        start_restored_pty_backends(service_state.clone(), frontend_readiness_generation);
+    }
 
     // Start mesh listeners if enabled (no broadcasting — user triggers that manually)
     {
@@ -364,9 +449,6 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
     if integrations.telegram_enabled {
         super::bridge::spawn_telegram_bridge(service_state.clone());
     }
-
-    // If the previous instance was killed by `update --apply --after-update`, pick up the queued message and inject it into the general tab once the agent is ready.
-    update::post_update::spawn(service_state.clone());
 }
 
 /// Locate the built React bundle for the browser mirror.

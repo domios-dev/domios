@@ -14,7 +14,7 @@ export function SupporterRecallFigure() {
       viewBox="0 0 420 206"
       className="w-full max-w-lg mx-auto"
       role="img"
-      aria-label="Memory search with the Supporter Agent: an agent's question gathers candidates from memory, the graph and the docs. The Supporter scores each one, the best come first, and a flag shows when nothing fits well. Results are reordered, never removed."
+      aria-label="Memory search with the Spinal Cord: an agent's question gathers candidates from memory, the graph and the docs. The Spinal Cord scores each one, the best come first, and a flag shows when nothing fits well. Results are reordered, never removed."
     >
       <defs>
         <ArrowMarker id={RECALL_MARKER} />
@@ -27,7 +27,7 @@ export function SupporterRecallFigure() {
           <Arrow x1={208} y1={s.y + 22} x2={230} y2={84 + i * 10} marker={RECALL_MARKER} />
         </g>
       ))}
-      <Box x={232} y={70} w={84} h={48} label="Supporter" sub="scores each" emphasis />
+      <Box x={232} y={70} w={84} h={48} label="Spinal Cord" sub="scores each" emphasis />
       <Arrow x1={316} y1={88} x2={336} y2={64} marker={RECALL_MARKER} />
       <Arrow x1={316} y1={100} x2={336} y2={132} marker={RECALL_MARKER} dashed />
       <Box x={338} y={40} w={76} h={44} label="Best first" sub="ranked list" emphasis />
@@ -48,7 +48,7 @@ export function SupporterTabStateFigure() {
       viewBox="0 0 420 196"
       className="w-full max-w-lg mx-auto"
       role="img"
-      aria-label="Tab check with the Supporter Agent: a starting tab's screen and recent context go to the Supporter, which reads it as looks fine, a weak hint, or a strong signal that the tab seems stuck. It is off by default, and CodeTerm's own checks stay in charge."
+      aria-label="Tab check with the Spinal Cord: a starting tab's screen and recent context go to the Spinal Cord, which reads it as looks fine, a weak hint, or a strong signal that the tab seems stuck. It is off by default, and Domios's own checks stay in charge."
     >
       <defs>
         <ArrowMarker id={TAB_MARKER} />
@@ -57,14 +57,14 @@ export function SupporterTabStateFigure() {
       <Arrow x1={78} y1={88} x2={96} y2={88} marker={TAB_MARKER} />
       <Box x={98} y={64} w={86} h={48} label="Screen" sub="plus context" />
       <Arrow x1={184} y1={88} x2={202} y2={88} marker={TAB_MARKER} />
-      <Box x={204} y={64} w={84} h={48} label="Supporter" sub="reads it" emphasis />
+      <Box x={204} y={64} w={84} h={48} label="Spinal Cord" sub="reads it" emphasis />
       {outcomes.map((o, i) => (
         <g key={o.label}>
           <Arrow x1={288} y1={80 + i * 8} x2={310} y2={o.y + 22} marker={TAB_MARKER} dashed={o.dashed} />
           <Box x={312} y={o.y} w={100} h={44} label={o.label} sub={o.sub} dashed={o.dashed} emphasis={o.emphasis} />
         </g>
       ))}
-      <Caption x={210} y={190} text="Off by default. CodeTerm's own checks stay in charge." />
+      <Caption x={210} y={190} text="Off by default. Domios's own checks stay in charge." />
     </svg>
   );
 }

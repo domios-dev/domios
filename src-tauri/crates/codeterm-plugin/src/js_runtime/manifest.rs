@@ -11,7 +11,10 @@
 
 mod capabilities;
 mod config;
+mod graph_nodes;
 mod methods;
+mod read_root;
+mod surfaces;
 mod tab_menu;
 
 use std::path::PathBuf;
@@ -19,8 +22,8 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 pub use capabilities::{
-    Capabilities, ChatBackendCap, ChatPreprocessorCap, SecretBackendCap, WebhookReceiverCap,
-    WebhookReceiverKind,
+    Capabilities, ChatBackendCap, ChatPreprocessorCap, DecisionModelCap, SecretBackendCap,
+    WebhookReceiverCap, WebhookReceiverKind,
 };
 pub use config::{
     resolve_hook_event_roster, substitute_template, unknown_template_placeholder, CommandsConfig,
@@ -31,7 +34,13 @@ pub use config::{
     SessionFileSearchConfig, SessionsConfig, SkillsConfig, SpawnConfig, SubprocessPermission,
     TrustGrantConfig, UsageConfig, LAUNCH_TEMPLATE_PLACEHOLDERS, RESUME_TEMPLATE_PLACEHOLDERS,
 };
+pub use graph_nodes::{
+    EventSourceDecl, GraphNodesCap, NodeProperty, NodePropertySchema, NodeScalarSchema,
+    NodeScalarType, NodeSchema, SchemaError,
+};
 pub use methods::manifest_settings_sections;
+pub use read_root::ReadRootEnvironment;
+pub use surfaces::{SurfaceDecl, SurfaceRenderer, SurfaceRestore};
 pub use tab_menu::{TabMenuAction, TabMenuItem, MAX_TAB_MENU_ITEMS};
 
 /// Top-level `plugin.json` document.
@@ -58,15 +67,20 @@ pub struct PluginManifest {
     // relative markdown path the snapshot loads into a bounded field.
     #[serde(default)]
     pub description: Option<String>,
+    /// One-line outcome shown on chat plugin cards.
+    #[serde(default)]
+    pub pitch: Option<String>,
     #[serde(default)]
     pub homepage: Option<String>,
     #[serde(default)]
     pub readme: Option<String>,
-    /// Relative path to an agent-facing doc (e.g. `AGENT.md`) the `get plugin`
-    /// surface returns so an agent can install + self-configure the plugin
-    /// (§1.7). Plain markdown; optional.
+    /// Bundle-relative markdown guide for agents, appended (bounded) to the
+    /// plugin's mem skill item and returned by `codeterm plugin get`.
     #[serde(default)]
-    pub agent_doc: Option<String>,
+    pub agent_guide: Option<String>,
+    /// One line every agent's launch prompt carries; honoured only for core plugins.
+    #[serde(default)]
+    pub agent_prompt_line: Option<String>,
 
     /// Relative path to the plugin's host-rendered SVG icon.
     #[serde(default)]
@@ -75,6 +89,8 @@ pub struct PluginManifest {
     pub binary_name: Option<String>,
     #[serde(default)]
     pub cli_binary: Option<String>,
+    #[serde(default)]
+    pub cli_compatibility: Option<crate::provider_compat::CompatibilityManifest>,
 
     // (transcriber, secret backend) leave it defaulted.
     #[serde(default)]
@@ -151,6 +167,15 @@ pub struct PluginManifest {
     #[serde(default)]
     pub config_help: Option<String>,
 
+    /// Usage shapes of the `onAgentCommand` verbs, e.g. `send <chat-id> <text>`.
+    /// Published to agents through mem and `codeterm capabilities`.
+    #[serde(default)]
+    pub agent_verbs: Vec<String>,
+
+    /// Search keywords for the plugin's agent-verb skill item.
+    #[serde(default)]
+    pub agent_keywords: Vec<String>,
+
     /// The plugin's capability cannot hot-activate — it needs a CodeTerm reload
     /// to take effect (§1.8). When a plugin declaring this is *installed/enabled
     /// after daemon start*, the watcher marks it `pending_reload` instead of
@@ -196,10 +221,16 @@ fn default_entry() -> String {
 /// shipped before capabilities existed).
 fn default_capabilities() -> Capabilities {
     Capabilities {
+        structured_control: None,
         agent_provider: true,
+        reply_relay: false,
+        tool_less: false,
+        model_provider_config: false,
+        context_attach: None,
         secret_backend: SecretBackendCap::default(),
         transcriber: false,
-        decision_model: false,
+        graph_nodes: GraphNodesCap::default(),
+        decision_model: Default::default(),
         glance_view: false,
         status_bubble: false,
         view: false,
@@ -207,6 +238,7 @@ fn default_capabilities() -> Capabilities {
         chat_preprocessor: ChatPreprocessorCap::default(),
         webhook_receiver: None,
         tab_menu: Vec::new(),
+        surfaces: Vec::new(),
         unknown: Default::default(),
     }
 }

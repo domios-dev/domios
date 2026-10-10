@@ -11,7 +11,7 @@ on port 7686 and proves spec acceptance criteria 1-3:
 
 ## Prerequisites
 
-- Dev CodeTerm is already running on `127.0.0.1:7686`.
+- Dev Domios is already running on `127.0.0.1:7686`.
 - LM Studio has a model loaded and its local server is reachable at
   `http://localhost:1234/api/v1/models`.
 - The `lmstudio` plugin installed in dev advertises
@@ -31,7 +31,7 @@ cd /Users/user/Developer/codeterm-canvas
 bash evals/watcher-health/run.sh
 ```
 
-The script sources `evals/_lib/lib.sh`; every CodeTerm CLI call goes through
+The script sources `evals/_lib/lib.sh`; every Domios CLI call goes through
 `dc` and is pinned to dev. It never invokes the bare `codeterm` CLI, so a
 prod-hosted agent tab cannot leak calls to port 7685.
 

@@ -16,6 +16,7 @@ import { Card } from "../shared/Card";
 import { Chip, type ChipVariant } from "../shared/Chip";
 import { FormRow } from "../shared/FormRow";
 import { LiquidToggle } from "../shared/LiquidToggle";
+import { mapQueryResultToVariantId, SchemaActionBar, segmentActionRuns } from "./SchemaActions";
 
 import type {
   AppConfig,
@@ -56,19 +57,16 @@ export function SchemaRenderer({
   const providerConfig = (values ?? config.agents?.[providerId] ?? {}) as ProviderConfig;
   return (
     <div className="space-y-5" data-testid="settings-schema" data-provider-id={providerId}>
-      {schema.map((field, i) => (
-        <FieldRenderer
-          key={i}
-          field={field}
-          providerId={providerId}
-          providerConfig={providerConfig}
-          config={config}
-          onChange={onChange}
-          agentNamespace={values === undefined}
-          hideActions={hideActions}
-          hidePathLinks={hidePathLinks}
-        />
-      ))}
+      <FieldList
+        fields={schema}
+        providerId={providerId}
+        providerConfig={providerConfig}
+        config={config}
+        onChange={onChange}
+        agentNamespace={values === undefined}
+        hideActions={hideActions}
+        hidePathLinks={hidePathLinks}
+      />
     </div>
   );
 }
@@ -91,6 +89,22 @@ interface FieldRendererProps {
   hidePathLinks?: boolean;
 }
 
+interface FieldListProps extends Omit<FieldRendererProps, "field"> {
+  fields: SettingField[];
+}
+
+function FieldList({ fields, ...rest }: FieldListProps) {
+  return (
+    <>
+      {segmentActionRuns(fields).map((segment, i) =>
+        segment.kind === "actions"
+          ? (rest.hideActions ? null : <SchemaActionBar key={i} actions={segment.actions} />)
+          : <FieldRenderer key={i} field={segment.field} {...rest} />,
+      )}
+    </>
+  );
+}
+
 function FieldRenderer({
   field,
   providerId,
@@ -102,28 +116,45 @@ function FieldRenderer({
   hidePathLinks,
 }: FieldRendererProps) {
   switch (field.kind) {
-    case "section":
+    case "section": {
+      const badges = field.fields.filter((sub) => sub.kind === "badge");
+      const body = field.fields.filter((sub) => sub.kind !== "badge");
       return (
         <Card className="p-4 space-y-3" data-testid="settings-schema-section">
-          <div className="text-sm font-medium text-[var(--ct-fg)]">{field.title}</div>
-          {field.description && (
-            <div className="text-xs text-[var(--ct-muted-fg)]">{field.description}</div>
-          )}
-          {field.fields.map((sub, i) => (
-            <FieldRenderer
-              key={i}
-              field={sub}
-              providerId={providerId}
-              providerConfig={providerConfig}
-              config={config}
-              onChange={onChange}
-              agentNamespace={agentNamespace}
-              hideActions={hideActions}
-              hidePathLinks={hidePathLinks}
-            />
-          ))}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-medium text-[var(--ct-fg)]">{field.title}</div>
+              {badges.length > 0 && (
+                <div className="flex flex-none items-center gap-1.5">
+                  <FieldList fields={badges}
+                    providerId={providerId}
+                    providerConfig={providerConfig}
+                    config={config}
+                    onChange={onChange}
+                    agentNamespace={agentNamespace}
+                    hideActions={hideActions}
+                    hidePathLinks={hidePathLinks}
+                  />
+                </div>
+              )}
+            </div>
+            {field.description && (
+              <div className="text-xs leading-relaxed text-[var(--ct-muted-fg)]">{field.description}</div>
+            )}
+          </div>
+          <FieldList
+            fields={body}
+            providerId={providerId}
+            providerConfig={providerConfig}
+            config={config}
+            onChange={onChange}
+            agentNamespace={agentNamespace}
+            hideActions={hideActions}
+            hidePathLinks={hidePathLinks}
+          />
         </Card>
       );
+    }
 
     case "toggle": {
       const value = (providerConfig[field.key] as boolean | undefined)
@@ -253,16 +284,7 @@ function FieldRenderer({
 
     case "action":
       if (hideActions) return null;
-      return (
-        <ActionField
-          id={field.id}
-          label={field.label}
-          command={field.command}
-          stateQuery={field.state_query}
-          args={field.args}
-          confirm={field.confirm}
-        />
-      );
+      return <SchemaActionBar actions={[field]} />;
 
     case "when": {
       const dependent = providerConfig[field.field];
@@ -270,19 +292,16 @@ function FieldRenderer({
       if (!visible) return null;
       return (
         <>
-          {field.then.map((sub, i) => (
-            <FieldRenderer
-              key={i}
-              field={sub}
-              providerId={providerId}
-              providerConfig={providerConfig}
-              config={config}
-              onChange={onChange}
-              agentNamespace={agentNamespace}
-              hideActions={hideActions}
-              hidePathLinks={hidePathLinks}
-            />
-          ))}
+          <FieldList
+            fields={field.then}
+            providerId={providerId}
+            providerConfig={providerConfig}
+            config={config}
+            onChange={onChange}
+            agentNamespace={agentNamespace}
+            hideActions={hideActions}
+            hidePathLinks={hidePathLinks}
+          />
         </>
       );
     }
@@ -588,42 +607,14 @@ function PathLinkField({ label, path }: { label: string; path: string }) {
     invoke("open_folder", { path }).catch(() => {});
   }, [path]);
   return (
-    <div className="flex items-center justify-between text-[10px] text-[var(--ct-muted)]" data-testid="settings-schema-path-link">
-      <div className="flex items-center gap-2">
-        <span>{label}</span>
-        <code className="font-mono">{path}</code>
-      </div>
-      <button onClick={onClick} className="text-[var(--ct-accent)] hover:underline" data-testid="settings-schema-open-folder">
+    <div className="flex min-w-0 items-center gap-3 text-[11px] text-[var(--ct-muted)]" data-testid="settings-schema-path-link">
+      <span className="flex-none">{label}</span>
+      <code className="ct-text-mono min-w-0 flex-1 truncate text-[var(--ct-muted-fg)]" title={path}>{path}</code>
+      <Button variant="ghost" size="compact" onClick={onClick} className="flex-none" data-testid="settings-schema-open-folder">
         Open folder
-      </button>
+      </Button>
     </div>
   );
-}
-
-/**
- * Map a backend status query response to a variant id string.
- *
- * Recognized shapes (in order):
- *   - plain string                    → use as-is
- *   - { variant: "..." }              → explicit variant id
- *   - { update_available: true }      → "update"
- *   - { installed: true }             → "installed"  (e.g. check_rule_installed)
- *   - { hooks_installed: true }       → "installed"  (e.g. check_claude_hooks)
- *   - anything else                   → "missing"
- *
- * Plugins that need a unique state machine should return `{ variant: "..." }`
- * — the legacy boolean shapes are convenience adapters for existing commands.
- */
-function mapQueryResultToVariantId(result: unknown): string {
-  if (typeof result === "string") return result;
-  if (result && typeof result === "object") {
-    const r = result as Record<string, unknown>;
-    if (typeof r.variant === "string") return r.variant;
-    if (r.update_available === true) return "update";
-    if (r.installed === true) return "installed";
-    if (r.hooks_installed === true) return "installed";
-  }
-  return "missing";
 }
 
 function BadgeField({
@@ -667,96 +658,6 @@ function BadgeField({
     >
       {variant.label}
     </Chip>
-  );
-}
-
-function ActionField({
-  id: _id,
-  label,
-  command,
-  stateQuery,
-  args,
-  confirm,
-}: {
-  id: string;
-  label: string;
-  command: string;
-  stateQuery?: string;
-  args?: Record<string, unknown>;
-  confirm?: string;
-}) {
-  const [state, setState] = useState<{ label: string; style: "primary" | "secondary" | "danger" } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [justDone, setJustDone] = useState(false);
-  const argsKey = JSON.stringify(args ?? null);
-
-  const refreshState = useCallback(() => {
-    if (!stateQuery) return;
-    const parsed = argsKey === "null" ? undefined : (JSON.parse(argsKey) as Record<string, unknown>);
-    invoke<unknown>(stateQuery, parsed)
-      .then((result) => {
-        // Map common state-query shapes into a button label/style. Reuses the same variant-id mapping as Badge so the same backend command can drive both a status badge and an action button.
-        const id = mapQueryResultToVariantId(result);
-        const r = result as Record<string, unknown> | undefined;
-        if (r && typeof r === "object" && typeof r.label === "string") {
-          // Explicit { label, style } from a plugin overrides the mapping.
-          const explicitStyle = (r.style as "primary" | "secondary" | "danger" | undefined) ?? "primary";
-          setState({ label: r.label, style: explicitStyle });
-          return;
-        }
-        switch (id) {
-          case "update":
-            setState({ label: "Update Available", style: "primary" });
-            break;
-          case "installed":
-            setState({ label: "Reinstall", style: "secondary" });
-            break;
-          default:
-            setState({ label, style: "primary" });
-            break;
-        }
-      })
-      .catch(() => setState({ label, style: "primary" }));
-  }, [stateQuery, argsKey, label]);
-
-  useEffect(() => {
-    if (stateQuery) refreshState();
-  }, [stateQuery, refreshState]);
-
-  useEffect(() => {
-    if (!justDone) return;
-    const t = setTimeout(() => setJustDone(false), 2000);
-    return () => clearTimeout(t);
-  }, [justDone]);
-
-  const click = useCallback(async () => {
-    if (confirm && !window.confirm(confirm)) return;
-    setBusy(true);
-    try {
-      const parsed = argsKey === "null" ? undefined : (JSON.parse(argsKey) as Record<string, unknown>);
-      await invoke(command, parsed);
-      setJustDone(true);
-      if (stateQuery) refreshState();
-    } catch (e) {
-      console.error(`[action ${command}]`, e);
-    } finally {
-      setBusy(false);
-    }
-  }, [command, argsKey, confirm, stateQuery, refreshState]);
-
-  const effective = state ?? { label, style: "primary" as const };
-  const variant = justDone ? "primary" : effective.style === "danger" ? "danger" : effective.style === "secondary" ? "ghost" : "primary";
-
-  return (
-    <Button
-      variant={variant}
-      data-testid="settings-schema-action"
-      onClick={click}
-      disabled={busy || justDone}
-      className={justDone ? "w-full text-xs bg-[var(--ct-green)]" : "w-full text-xs"}
-    >
-      {justDone ? "\u2713 Done" : busy ? "..." : effective.label}
-    </Button>
   );
 }
 

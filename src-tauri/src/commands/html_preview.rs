@@ -1,43 +1,17 @@
 use base64::Engine as _;
 use serde::Serialize;
 
+mod file;
+pub(crate) use file::{checked_path, PreviewSource};
+
 const HTML_PREVIEW_FILE_LIMIT: u64 = 200_000;
 const DOCUMENT_PREVIEW_FILE_LIMIT: u64 = 1_000_000;
 const IMAGE_PREVIEW_FILE_LIMIT: u64 = 10 * 1024 * 1024;
 
 #[derive(Debug, Serialize)]
 pub struct LocalPreviewFile {
-    data: String,
-    media_type: String,
-}
-
-fn canonical_preview_file(path: &str, label: &str) -> Result<std::path::PathBuf, String> {
-    let requested = std::path::Path::new(path.trim());
-    if !requested.is_absolute() {
-        return Err(format!("{label} preview path must be absolute"));
-    }
-    let canonical = requested
-        .canonicalize()
-        .map_err(|error| format!("Unable to resolve {label} preview file: {error}"))?;
-    if !canonical
-        .metadata()
-        .map_err(|error| format!("Unable to inspect {label} preview file: {error}"))?
-        .is_file()
-    {
-        return Err(format!("{label} preview source is not a file"));
-    }
-    Ok(canonical)
-}
-
-fn bounded_file(path: &std::path::Path, label: &str, limit: u64) -> Result<Vec<u8>, String> {
-    let size = path
-        .metadata()
-        .map_err(|error| format!("Unable to inspect {label} preview file: {error}"))?
-        .len();
-    if size > limit {
-        return Err(format!("{label} preview source exceeds {limit} bytes"));
-    }
-    std::fs::read(path).map_err(|error| format!("Unable to read {label} preview file: {error}"))
+    pub data: String,
+    pub media_type: String,
 }
 
 fn extension(path: &std::path::Path) -> String {
@@ -48,66 +22,109 @@ fn extension(path: &std::path::Path) -> String {
 }
 
 pub fn read_html_preview_file_core(path: &str) -> Result<String, String> {
-    let canonical = canonical_preview_file(path, "HTML")?;
-    if !matches!(extension(&canonical).as_str(), "html" | "htm") {
-        return Err("HTML preview source must use .html or .htm".into());
-    }
-    String::from_utf8(bounded_file(&canonical, "HTML", HTML_PREVIEW_FILE_LIMIT)?)
-        .map_err(|error| format!("Unable to read HTML preview file as UTF-8: {error}"))
+    Ok(read_local_preview_file_core(path, "page")?.data)
 }
 
 pub fn read_local_preview_file_core(path: &str, kind: &str) -> Result<LocalPreviewFile, String> {
-    let canonical = canonical_preview_file(path, "Local")?;
-    let ext = extension(&canonical);
-    match kind {
-        "page" => Ok(LocalPreviewFile {
-            data: read_html_preview_file_core(path)?,
-            media_type: "text/html".into(),
-        }),
-        "document" => {
-            let media_type = match ext.as_str() {
-                "md" | "markdown" => "text/markdown",
-                "txt" | "log" => "text/plain",
-                "json" => "application/json",
-                "yaml" | "yml" => "application/yaml",
-                "toml" => "application/toml",
-                "csv" => "text/csv",
-                _ => return Err("Document preview supports .md, .markdown, .txt, .log, .json, .yaml, .yml, .toml, or .csv".into()),
-            };
-            let bytes = bounded_file(&canonical, "Document", DOCUMENT_PREVIEW_FILE_LIMIT)?;
-            Ok(LocalPreviewFile {
-                data: String::from_utf8(bytes).map_err(|error| {
-                    format!("Unable to read document preview as UTF-8: {error}")
-                })?,
-                media_type: media_type.into(),
-            })
-        }
-        "image" => {
-            let media_type = match ext.as_str() {
-                "png" => "image/png",
-                "jpg" | "jpeg" => "image/jpeg",
-                "gif" => "image/gif",
-                "webp" => "image/webp",
-                "bmp" => "image/bmp",
-                "avif" => "image/avif",
-                _ => {
-                    return Err(
-                        "Image preview supports .png, .jpg, .jpeg, .gif, .webp, .bmp, or .avif"
-                            .into(),
-                    )
-                }
-            };
-            let bytes = bounded_file(&canonical, "Image", IMAGE_PREVIEW_FILE_LIMIT)?;
-            Ok(LocalPreviewFile {
-                data: format!(
-                    "data:{media_type};base64,{}",
-                    base64::engine::general_purpose::STANDARD.encode(bytes)
-                ),
-                media_type: media_type.into(),
-            })
-        }
-        _ => Err("Local preview kind must be page, image, or document".into()),
+    read_local_preview_file_guarded(path, kind, |_, _| Ok(()))
+}
+
+fn media(path: &std::path::Path, kind: &str) -> Result<(&'static str, u64), String> {
+    let ext = extension(path);
+    let result = match (kind, ext.as_str()) {
+        ("page", "html" | "htm") => ("text/html", HTML_PREVIEW_FILE_LIMIT),
+        ("document", "md" | "markdown") => ("text/markdown", DOCUMENT_PREVIEW_FILE_LIMIT),
+        ("document", "txt" | "log") => ("text/plain", DOCUMENT_PREVIEW_FILE_LIMIT),
+        ("document", "json") => ("application/json", DOCUMENT_PREVIEW_FILE_LIMIT),
+        ("document", "yaml" | "yml") => ("application/yaml", DOCUMENT_PREVIEW_FILE_LIMIT),
+        ("document", "toml") => ("application/toml", DOCUMENT_PREVIEW_FILE_LIMIT),
+        ("document", "csv") => ("text/csv", DOCUMENT_PREVIEW_FILE_LIMIT),
+        ("image", "png") => ("image/png", IMAGE_PREVIEW_FILE_LIMIT),
+        ("image", "jpg" | "jpeg") => ("image/jpeg", IMAGE_PREVIEW_FILE_LIMIT),
+        ("image", "gif") => ("image/gif", IMAGE_PREVIEW_FILE_LIMIT),
+        ("image", "webp") => ("image/webp", IMAGE_PREVIEW_FILE_LIMIT),
+        ("image", "bmp") => ("image/bmp", IMAGE_PREVIEW_FILE_LIMIT),
+        ("image", "avif") => ("image/avif", IMAGE_PREVIEW_FILE_LIMIT),
+        ("image", "svg") => ("image/svg+xml", IMAGE_PREVIEW_FILE_LIMIT),
+        ("page", _) => return Err("HTML preview source must use .html or .htm".into()),
+        ("document", _) => ("text/plain", DOCUMENT_PREVIEW_FILE_LIMIT),
+        ("image", _) => return Err("Unsupported local preview file extension".into()),
+        _ => return Err("Local preview kind must be page, image, or document".into()),
+    };
+    Ok(result)
+}
+
+fn preview_text(bytes: Vec<u8>) -> Result<String, String> {
+    if bytes.contains(&0) {
+        return Err("Binary file: text preview is unavailable".into());
     }
+    String::from_utf8(bytes)
+        .map_err(|_| "Binary or non-UTF-8 file: text preview is unavailable".to_string())
+}
+
+pub(crate) fn read_local_preview_file_guarded(
+    path: &str,
+    kind: &str,
+    guard: impl Fn(&std::path::Path, Option<&std::path::Path>) -> Result<(), String>,
+) -> Result<LocalPreviewFile, String> {
+    let mut source = PreviewSource::open(path, &guard)?;
+    let (media_type, limit) = media(&source.path, kind)?;
+    let bytes = source.read(limit)?;
+    let data = if kind == "image" {
+        format!(
+            "data:{media_type};base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        )
+    } else {
+        preview_text(bytes)?
+    };
+    Ok(LocalPreviewFile {
+        data,
+        media_type: media_type.into(),
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocalPreviewFiles {
+    pub paths: Vec<String>,
+    pub home: Option<String>,
+}
+
+pub(crate) fn check_local_preview_files_core(paths: Vec<String>) -> LocalPreviewFiles {
+    check_local_preview_files_guarded(paths, |_, _| Ok(()))
+}
+
+pub(crate) fn check_local_preview_files_guarded(
+    paths: Vec<String>,
+    guard: impl Fn(&std::path::Path, Option<&std::path::Path>) -> Result<(), String>,
+) -> LocalPreviewFiles {
+    let paths = paths
+        .into_iter()
+        .filter(|path| {
+            let Ok(mut source) = PreviewSource::open(path, &guard) else {
+                log::debug!("[local-preview] inspection refused");
+                return false;
+            };
+            if media(&source.path, "image").is_ok_and(|(_, limit)| source.size <= limit) {
+                return true;
+            }
+            source
+                .read(DOCUMENT_PREVIEW_FILE_LIMIT)
+                .and_then(preview_text)
+                .is_ok()
+        })
+        .collect();
+    LocalPreviewFiles {
+        paths,
+        home: dirs::home_dir().map(|path| path.to_string_lossy().into_owned()),
+    }
+}
+
+#[tauri::command]
+pub async fn check_local_preview_files(paths: Vec<String>) -> Result<LocalPreviewFiles, String> {
+    tokio::task::spawn_blocking(move || check_local_preview_files_core(paths))
+        .await
+        .map_err(|error| format!("Local preview inspection task failed: {error}"))
 }
 
 #[tauri::command]
@@ -128,56 +145,11 @@ pub async fn read_local_preview_file(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod tests;
 
-    #[test]
-    fn reads_only_bounded_absolute_html_files() {
-        let temp = tempfile::tempdir().unwrap();
-        let html = temp.path().join("view.html");
-        std::fs::write(&html, "<main>safe</main>").unwrap();
-
-        assert_eq!(
-            read_html_preview_file_core(html.to_str().unwrap()).unwrap(),
-            "<main>safe</main>"
-        );
-        assert!(read_html_preview_file_core("relative.html")
-            .unwrap_err()
-            .contains("absolute"));
-    }
-
-    #[test]
-    fn rejects_non_html_and_oversized_files() {
-        let temp = tempfile::tempdir().unwrap();
-        let text = temp.path().join("view.txt");
-        std::fs::write(&text, "not html").unwrap();
-        assert!(read_html_preview_file_core(text.to_str().unwrap())
-            .unwrap_err()
-            .contains(".html"));
-
-        let oversized = temp.path().join("large.html");
-        std::fs::write(&oversized, vec![b'x'; HTML_PREVIEW_FILE_LIMIT as usize + 1]).unwrap();
-        assert!(read_html_preview_file_core(oversized.to_str().unwrap())
-            .unwrap_err()
-            .contains("exceeds"));
-    }
-
-    #[test]
-    fn reads_bounded_documents_and_images_by_explicit_kind() {
-        let temp = tempfile::tempdir().unwrap();
-        let markdown = temp.path().join("notes.md");
-        let image = temp.path().join("pixel.png");
-        std::fs::write(&markdown, "# Notes").unwrap();
-        std::fs::write(&image, [0x89, b'P', b'N', b'G']).unwrap();
-
-        let document =
-            read_local_preview_file_core(markdown.to_str().unwrap(), "document").unwrap();
-        assert_eq!(document.data, "# Notes");
-        assert_eq!(document.media_type, "text/markdown");
-
-        let image = read_local_preview_file_core(image.to_str().unwrap(), "image").unwrap();
-        assert_eq!(image.media_type, "image/png");
-        assert!(image.data.starts_with("data:image/png;base64,"));
-        assert!(read_local_preview_file_core(markdown.to_str().unwrap(), "image").is_err());
-    }
+#[cfg(test)]
+pub(crate) fn preview_test_root(path: &std::path::Path) -> std::path::PathBuf {
+    let canonical = path.canonicalize().unwrap();
+    let text = canonical.to_string_lossy();
+    std::path::PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text))
 }

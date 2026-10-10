@@ -1,9 +1,26 @@
 //! Tab-ownership tracking + per-job log persistence on the [`super::CronStore`].
+//!
+//! Tab ownership is ephemeral process state, never persisted; run logs stay
+//! append-only file assets at `crons/<job_id>/<run_id>.log`, never SQL bodies.
 
 use std::fs;
-use std::path::PathBuf;
+use std::io::{ErrorKind, Write};
+use std::path::{Component, Path, PathBuf};
 
-use super::CronStore;
+use super::{CronRunStatus, CronStore, Prepared};
+
+/// One plain path component: no separator, no `.`/`..`, no prefix or root.
+fn log_component(id: &str) -> Option<&str> {
+    let mut components = Path::new(id).components();
+    match (components.next(), components.next()) {
+        (Some(Component::Normal(part)), None)
+            if part == id && !id.contains(|c: char| c == '/' || c == '\\') =>
+        {
+            Some(id)
+        }
+        _ => None,
+    }
+}
 
 impl CronStore {
     pub fn register_tab(&mut self, tab_id: &str, job_id: &str, run_id: &str) {
@@ -40,78 +57,94 @@ impl CronStore {
         None
     }
 
-    pub fn set_tab_awaiting_owner_prompt(
-        &mut self,
-        tab_id: &str,
-        awaiting: bool,
-    ) -> Result<bool, String> {
-        let Some((job_id, run_id)) = self.tab_owners.get(tab_id).cloned() else {
-            return Ok(false);
+    /// Moves the run a tab owns between Running and AwaitingOwnerPrompt; returns whether
+    /// anything changed.
+    pub(crate) fn prepare_owner_prompt(&self, tab_id: &str, awaiting: bool) -> Prepared<bool> {
+        let Some((job_id, run_id)) = self.tab_owners.get(tab_id) else {
+            return Prepared::unchanged(false);
         };
         let next = if awaiting {
-            super::CronRunStatus::AwaitingOwnerPrompt
+            CronRunStatus::AwaitingOwnerPrompt
         } else {
-            super::CronRunStatus::Running
+            CronRunStatus::Running
         };
+        let mut edit = self.edit_run(job_id, run_id);
         let mut changed = false;
-        if let Some(run) = self
-            .file
-            .history
-            .get_mut(&job_id)
-            .and_then(|history| history.iter_mut().find(|run| run.run_id == run_id))
-        {
+        edit.each(|run| {
             if matches!(
                 run.status,
-                super::CronRunStatus::Running | super::CronRunStatus::AwaitingOwnerPrompt
+                CronRunStatus::Running | CronRunStatus::AwaitingOwnerPrompt
             ) && run.status != next
             {
                 run.status = next.clone();
                 changed = true;
             }
-        }
-        if let Some(run) = self
-            .file
-            .jobs
-            .iter_mut()
-            .find(|job| job.id == job_id)
-            .and_then(|job| job.last_run.as_mut())
-            .filter(|run| run.run_id == run_id)
-        {
-            if matches!(
-                run.status,
-                super::CronRunStatus::Running | super::CronRunStatus::AwaitingOwnerPrompt
-            ) && run.status != next
-            {
-                run.status = next;
-                changed = true;
-            }
-        }
-        if changed {
-            self.save()?;
-        }
-        Ok(changed)
+        });
+        edit.into_prepared(self, changed)
+    }
+
+    pub fn set_tab_awaiting_owner_prompt(
+        &mut self,
+        tab_id: &str,
+        awaiting: bool,
+    ) -> Result<bool, String> {
+        let prepared = self.prepare_owner_prompt(tab_id, awaiting);
+        self.legacy(Ok(prepared))
     }
 
     pub fn logs_dir(&self) -> PathBuf {
-        let dir = self
-            .file_path
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new("."))
-            .join("crons");
-        let _ = fs::create_dir_all(&dir);
-        dir
+        let _ = fs::create_dir_all(&self.logs_root);
+        self.logs_root.clone()
+    }
+
+    /// The job's log directory, refused for an id that is not one plain path component.
+    pub fn job_logs_dir(&self, job_id: &str) -> Option<PathBuf> {
+        log_component(job_id).map(|job_id| self.logs_root.join(job_id))
+    }
+
+    fn log_path(&self, job_id: &str, run_id: &str) -> Option<PathBuf> {
+        let file = format!("{}.log", log_component(run_id)?);
+        self.job_logs_dir(job_id).map(|dir| dir.join(file))
+    }
+
+    /// Where a run's log lives, so callers can write it after releasing the cron lock.
+    pub fn log_file(&self, job_id: &str, run_id: &str) -> Result<PathBuf, String> {
+        self.log_path(job_id, run_id)
+            .ok_or_else(|| format!("cron log id is not a plain name: {job_id}/{run_id}"))
     }
 
     pub fn save_log(&self, job_id: &str, run_id: &str, text: &str) -> Result<PathBuf, String> {
-        let job_dir = self.logs_dir().join(job_id);
-        let _ = fs::create_dir_all(&job_dir);
-        let path = job_dir.join(format!("{}.log", run_id));
-        fs::write(&path, text).map_err(|e| e.to_string())?;
+        let path = self.log_file(job_id, run_id)?;
+        write_log(&path, text)?;
         Ok(path)
     }
 
     pub fn read_log(&self, job_id: &str, run_id: &str) -> Option<String> {
-        let path = self.logs_dir().join(job_id).join(format!("{}.log", run_id));
-        fs::read_to_string(path).ok()
+        fs::read_to_string(self.log_path(job_id, run_id)?).ok()
     }
+
+    /// Publishes a complete log only where none exists; `Ok(false)` leaves the existing one
+    /// byte-for-byte untouched, and a concurrent `write_log` still replaces what this created.
+    pub fn create_log(path: &Path, text: &str) -> Result<bool, String> {
+        let dir = path
+            .parent()
+            .ok_or_else(|| format!("cron log has no directory: {}", path.display()))?;
+        let _ = fs::create_dir_all(dir);
+        let mut staged = tempfile::NamedTempFile::new_in(dir).map_err(|e| e.to_string())?;
+        staged
+            .write_all(text.as_bytes())
+            .map_err(|e| e.to_string())?;
+        match staged.persist_noclobber(path) {
+            Ok(_) => Ok(true),
+            Err(e) if e.error.kind() == ErrorKind::AlreadyExists => Ok(false),
+            Err(e) => Err(e.error.to_string()),
+        }
+    }
+}
+
+pub fn write_log(path: &Path, text: &str) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        let _ = fs::create_dir_all(dir);
+    }
+    fs::write(path, text).map_err(|e| e.to_string())
 }

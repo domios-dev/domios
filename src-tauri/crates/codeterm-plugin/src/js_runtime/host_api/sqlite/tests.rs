@@ -1,5 +1,54 @@
 use super::*;
 
+#[test]
+fn provider_compat_sqlite_gate_covers_raw_and_convenience_host_calls() {
+    use crate::js_runtime::{call_json, PluginManifest, PluginVm};
+    let (_directory, db) =
+        fixture_db("CREATE TABLE fixture(value INTEGER); INSERT INTO fixture VALUES (42);");
+    for (detected, enabled, allow) in [
+        (Some("1.0.0"), true, true),
+        (Some("2.0.0"), true, false),
+        (Some("2.0.0-beta.1"), true, false),
+        (None, true, false),
+        (Some("0.9.0"), true, false),
+        (Some("2.0.0"), false, true),
+    ] {
+        let json = serde_json::json!({
+            "id": "sqlite-gate-fixture", "version": "1.0.0", "displayName": "Fixture",
+            "cliCompatibility": {"supported": ["=1.0.0"], "directSqlite": enabled,
+                "breaking": [{"range": ">=2.0.0", "reasons": ["sqlite_schema_conversion"]}]}
+        })
+        .to_string();
+        PluginManifest::from_json_str(&json).unwrap();
+        let vm = crate::js_runtime::provider_observation::with_fixture_version(detected, || {
+            PluginVm::from_source_with("sqlite-gate-fixture", r#"module.exports.default = {
+                raw: function(db) { return host.sqliteQueryAllJson(db, 'SELECT value FROM fixture', null); },
+                wrapped: function(db) { return host.fs.sqliteQuery(db, 'SELECT value FROM fixture'); },
+                buildLaunchCommand: function(value) { return value; }
+            };"#.into(), Some(json)).unwrap()
+        });
+        let raw: Option<String> = call_json(&vm, "raw", &[serde_json::json!(db)]).unwrap();
+        let wrapped: Vec<serde_json::Value> =
+            call_json(&vm, "wrapped", &[serde_json::json!(db)]).unwrap();
+        assert_eq!(raw.is_some(), allow);
+        assert_eq!(
+            wrapped,
+            if allow {
+                vec![serde_json::json!({"value": 42})]
+            } else {
+                Vec::new()
+            }
+        );
+        let command: String = call_json(
+            &vm,
+            "buildLaunchCommand",
+            &[serde_json::json!("opaque-launch")],
+        )
+        .unwrap();
+        assert_eq!(command, "opaque-launch");
+    }
+}
+
 fn fixture_db(setup: &str) -> (tempfile::TempDir, String) {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("fixture.db");
@@ -146,4 +195,17 @@ fn host_sqlite_bound_breach_throws_range_error() {
     )
     .unwrap();
     assert_eq!(r, "returned");
+}
+
+#[test]
+fn row_read_error_never_returns_partial_success() {
+    let (_directory, db) =
+        fixture_db("CREATE TABLE fixture(value INTEGER); INSERT INTO fixture VALUES (1), (2);");
+    let result = query_all_json(
+        &db,
+        "SELECT CASE WHEN value = 2 THEN json_extract('invalid-json', '$') ELSE value END AS value FROM fixture",
+        None,
+        SQLITE_RESULT_MAX_BYTES,
+    ).unwrap();
+    assert_eq!(result, None);
 }

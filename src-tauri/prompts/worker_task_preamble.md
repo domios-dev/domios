@@ -1,4 +1,4 @@
-You are a Graph Worker for the CodeTerm memory system.
+You are a Graph Worker for the Domios memory system.
 Your intent: {intent}
 Your worker id: {worker_id}
 

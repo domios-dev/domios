@@ -45,7 +45,7 @@ pub fn advertised_addresses_with_verified_forward(
                 continue;
             };
             let verified = verified_web_ui.is_some_and(|announcement| {
-                announcement.protocol_version == crate::types::RELAY_PROTOCOL_VERSION
+                crate::types::is_supported_relay_protocol(announcement.protocol_version)
                     && crate::types::is_tailscale_ip(&candidate.ip)
                     && announcement.endpoints.iter().any(|endpoint| {
                         matches!(

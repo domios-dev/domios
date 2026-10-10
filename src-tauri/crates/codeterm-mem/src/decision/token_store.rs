@@ -21,6 +21,8 @@ impl fmt::Debug for ApiToken {
     }
 }
 
+const RESERVED_FILES: [&str; 3] = ["spend.json", "calls.json", "launch-origins.json"];
+
 #[derive(Debug, Clone)]
 pub struct TokenStore {
     base_dir: PathBuf,
@@ -33,9 +35,41 @@ pub struct TokenStatus {
     pub mode_ok: Option<bool>,
 }
 
+#[cfg(windows)]
+pub fn restrict_directory_permissions(path: &std::path::Path) -> io::Result<()> {
+    windows::restrict_dir(path)
+}
+
 impl TokenStore {
     pub fn new(base_dir: PathBuf) -> Self {
         Self { base_dir }
+    }
+
+    pub fn adapters(&self) -> io::Result<Vec<String>> {
+        let entries = match fs::read_dir(&self.base_dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error),
+        };
+        let mut ids = Vec::new();
+        for entry in entries {
+            let entry = entry?;
+            if !entry.file_type()?.is_file() {
+                continue;
+            }
+            let path = entry.path();
+            if path
+                .file_name()
+                .is_some_and(|name| RESERVED_FILES.iter().any(|reserved| name == *reserved))
+                || path.extension().is_none_or(|extension| extension != "json")
+            {
+                continue;
+            }
+            if let Some(id) = path.file_stem().and_then(|id| id.to_str()) {
+                ids.push(id.into());
+            }
+        }
+        Ok(ids)
     }
 
     pub fn path(&self, adapter_id: &str) -> PathBuf {
@@ -56,6 +90,20 @@ impl TokenStore {
         ))
     }
 
+    fn token_path(&self, adapter_id: &str) -> io::Result<PathBuf> {
+        let path = self.path(adapter_id);
+        if path
+            .file_name()
+            .is_some_and(|name| RESERVED_FILES.iter().any(|reserved| name == *reserved))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "reserved token file name",
+            ));
+        }
+        Ok(path)
+    }
+
     pub fn set(&self, adapter_id: &str, token: &str) -> io::Result<()> {
         let token = token.trim();
         if token.is_empty() {
@@ -68,8 +116,8 @@ impl TokenStore {
             fs::set_permissions(&self.base_dir, fs::Permissions::from_mode(0o700))?;
         }
         #[cfg(windows)]
-        windows::restrict(&self.base_dir)?;
-        let target = self.path(adapter_id);
+        windows::restrict_dir(&self.base_dir)?;
+        let target = self.token_path(adapter_id)?;
         let temp = target.with_file_name(format!(
             ".{}.{}.tmp",
             target.file_name().unwrap().to_string_lossy(),
@@ -100,8 +148,38 @@ impl TokenStore {
         result
     }
 
+    pub fn remove_transaction<T>(
+        &self,
+        adapter_id: &str,
+        commit: impl FnOnce() -> io::Result<T>,
+    ) -> io::Result<T> {
+        let target = self.token_path(adapter_id)?;
+        let staged = self
+            .base_dir
+            .join(format!(".removed-{}.tmp", uuid::Uuid::new_v4()));
+        let moved = match fs::rename(&target, &staged) {
+            Ok(()) => true,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+            Err(error) => return Err(error),
+        };
+        match commit() {
+            Ok(value) => {
+                if moved {
+                    fs::remove_file(staged)?;
+                }
+                Ok(value)
+            }
+            Err(error) => {
+                if moved {
+                    fs::rename(staged, target)?;
+                }
+                Err(error)
+            }
+        }
+    }
+
     pub fn clear(&self, adapter_id: &str) -> io::Result<bool> {
-        match fs::remove_file(self.path(adapter_id)) {
+        match fs::remove_file(self.token_path(adapter_id)?) {
             Ok(()) => Ok(true),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
             Err(error) => Err(error),
@@ -109,7 +187,7 @@ impl TokenStore {
     }
 
     pub fn status(&self, adapter_id: &str) -> io::Result<TokenStatus> {
-        let path = self.path(adapter_id);
+        let path = self.token_path(adapter_id)?;
         let metadata = match fs::metadata(&path) {
             Ok(metadata) => Some(metadata),
             Err(error) if error.kind() == io::ErrorKind::NotFound => None,
@@ -134,7 +212,7 @@ impl TokenStore {
     }
 
     pub fn load(&self, adapter_id: &str) -> io::Result<Option<ApiToken>> {
-        let bytes = match fs::read(self.path(adapter_id)) {
+        let bytes = match fs::read(self.token_path(adapter_id)?) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error),

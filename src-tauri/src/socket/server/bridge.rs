@@ -240,9 +240,8 @@ fn open_thread(params: &Option<Value>, svc: &ServiceState) -> Result<Value, Json
     if service != codeterm_bridge::bridge::threads::SERVICE {
         return Err(invalid(format!("service '{service}' has no topic threads")));
     }
-    let caller = thread_param(params, "caller_tab_id").ok_or_else(|| {
-        invalid("caller_tab_id is required: run inside a CodeTerm tab".to_string())
-    })?;
+    let caller = thread_param(params, "caller_tab_id")
+        .ok_or_else(|| invalid("caller_tab_id is required: run inside a Domios tab".to_string()))?;
     let target = thread_param(params, "tab_id").unwrap_or_else(|| caller.clone());
     let chat_id = params
         .as_ref()

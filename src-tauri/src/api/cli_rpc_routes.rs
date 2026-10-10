@@ -15,7 +15,7 @@ pub(crate) struct RpcRequest {
     protocol_version: Option<serde_json::Value>,
 }
 
-fn local_caller(
+pub(super) fn local_caller(
     remote: SocketAddr,
     expected_token: Option<&str>,
     authorization: Option<&str>,

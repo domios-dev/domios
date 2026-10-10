@@ -1,6 +1,10 @@
 use super::ServiceContext;
 
 impl ServiceContext {
+    pub(crate) fn provider_update_task_state_changed(&self) {
+        crate::service::provider_update::task_state_changed(self);
+    }
+
     pub(super) fn force_agent_idle_for_pty(&self, pty_id: &str) {
         let tab_id = self.mux.read().tab_id_for_pty(pty_id);
         if let Some(tab_id) = tab_id {
@@ -38,7 +42,10 @@ impl ServiceContext {
         if let Some(identity) = previous_identity {
             self.resolve_prompt_notifications(tab_id, &identity);
         }
+        crate::service::provider_update::tab_became_idle(self, tab_id);
+        self.apply_staged_model_switch_on_idle(tab_id);
         if changed {
+            self.record_turn_resume_edge(tab_id);
             self.observe_worker_idle_without_report(tab_id);
             self.nudge_stalled_teams_for_idle_orchestrator(tab_id);
             crate::service::folder_trust_carryover::tab_became_idle(self.clone(), tab_id);

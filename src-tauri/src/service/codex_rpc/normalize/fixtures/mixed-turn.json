@@ -1,0 +1,12 @@
+{
+  "items": [
+    {"id":"before","type":"agentMessage","text":"Checking blueprints"},
+    {"id":"command","type":"commandExecution","command":"codeterm blueprint list","cwd":"/repo","status":"completed","aggregatedOutput":"blueprint one\nblueprint two\n","exitCode":0,"durationMs":12},
+    {"id":"after","type":"agentMessage","text":"Two blueprints"}
+  ],
+  "messages": [
+    {"id":"before","type":"assistant","content":"Checking blueprints","seq":1,"toolFlowId":"turn"},
+    {"id":"command","type":"tool_call","content":"","seq":2,"toolKind":"command","toolSummary":"codeterm blueprint list","toolDetail":"codeterm blueprint list","toolFlowId":"turn","toolExitCode":0,"toolDurationMs":12,"toolName":"commandExecution","toolArgs":"codeterm blueprint list","toolInput":{"commandBatchId":"turn","id":"command","type":"commandExecution","command":"codeterm blueprint list","cwd":"/repo","status":"completed","aggregatedOutput":"blueprint one\nblueprint two\n","exitCode":0,"durationMs":12},"toolId":"command","toolResult":"blueprint one\nblueprint two\n","toolError":false,"collapsed":true},
+    {"id":"after","type":"assistant","content":"Two blueprints","seq":3,"toolFlowId":"turn"}
+  ]
+}

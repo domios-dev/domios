@@ -10,9 +10,11 @@ use crate::multiplexer::types::TabCloseReason;
 use crate::service::ServiceContext;
 
 mod blocking_prompt;
+mod cron_completion;
 mod cron_end;
 use blocking_prompt::{
     claim_run_end, end_on_blocking_prompt, should_end_on_blocking_prompt, tab_pending_prompt_kind,
+    tab_trust_has_provenance,
 };
 
 // Default idle wait is 30s (Claude can think between events while still streaming partials).
@@ -61,6 +63,7 @@ struct RunState {
     restart_count: AtomicU32,
     last_restart_at: Mutex<Instant>,
     resume_system_prompt: Option<String>,
+    cron_completion: Mutex<Option<cron_completion::PendingCompletion>>,
 }
 
 pub struct RunWatcherRegistry {
@@ -103,6 +106,7 @@ impl RunWatcherRegistry {
             restart_count: AtomicU32::new(0),
             last_restart_at: Mutex::new(Instant::now()),
             resume_system_prompt,
+            cron_completion: Mutex::new(None),
         });
         self.runs.lock().insert(pty_id, state.clone());
         // Use tauri's runtime handle so this works even when register() is called from outside a tokio reactor (e.g. main thread spawn paths).
@@ -227,6 +231,9 @@ impl RunWatcherRegistry {
         let Some(state) = state else {
             return;
         };
+        if state.cron_completion.lock().is_some() {
+            return;
+        }
         let (idle, session_bound) = tab_completion_state(svc, &state.tab_id);
         if !can_complete_on_semantic_idle(
             state.armed.load(Ordering::Acquire),
@@ -248,6 +255,16 @@ impl RunWatcherRegistry {
     /// any other nonce claims nothing, leaving every classifier-fallback
     /// completion path (semantic idle, idle backstop, scanner) in charge.
     pub fn complete_via_stop_report(&self, svc: &ServiceContext, tab_id: &str, report_nonce: &str) {
+        if svc
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.session_binding_nonce.as_deref())
+            == Some(report_nonce)
+            && self.stop_pending_cron(svc, tab_id)
+        {
+            return;
+        }
         let Some(state) = self.claim_stop_report_run(&svc.mux, tab_id, report_nonce) else {
             return;
         };
@@ -285,6 +302,9 @@ impl RunWatcherRegistry {
     /// faster and cleaner than the 30s idle backstop. No-op for visible tabs
     /// (no registered run) and for runs already completed via report.
     pub fn complete_via_stop_hook(&self, svc: &ServiceContext, tab_id: &str) {
+        if self.stop_pending_cron(svc, tab_id) {
+            return;
+        }
         let state = self
             .runs
             .lock()
@@ -321,6 +341,7 @@ impl RunWatcherRegistry {
             restart_count: AtomicU32::new(0),
             last_restart_at: Mutex::new(Instant::now()),
             resume_system_prompt: None,
+            cron_completion: Mutex::new(None),
         });
         self.runs.lock().insert(pty_id.to_string(), state.clone());
         state
@@ -335,9 +356,15 @@ impl RunWatcherRegistry {
             return;
         }
         *state.last_byte_at.lock() = Instant::now();
+        if let AgentRunKind::MemWorker { worker_id } = &state.kind {
+            svc.workers.observe_activity(worker_id);
+        }
         let chunk = String::from_utf8_lossy(bytes);
         let signal = state.scanner.lock().feed(&chunk);
         if let Some(signal) = signal {
+            if !signal.is_error && self.stop_pending_cron(svc, &state.tab_id) {
+                return;
+            }
             if !state.completed.swap(true, Ordering::AcqRel) {
                 let summary = signal
                     .result
@@ -385,8 +412,15 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         } else {
             None
         };
-        if should_end_on_blocking_prompt(&state.kind, provider_prompt_pending, pending_prompt_kind)
-        {
+        let trust_has_provenance = pending_prompt_kind
+            == Some(codeterm_types::pty::PromptKind::DirectoryTrust)
+            && tab_trust_has_provenance(&svc, &state.tab_id);
+        if should_end_on_blocking_prompt(
+            &state.kind,
+            provider_prompt_pending,
+            pending_prompt_kind,
+            trust_has_provenance,
+        ) {
             if claim_run_end(&state) {
                 let (svc_end, state_end) = (svc.clone(), state.clone());
                 let _ = tauri::async_runtime::spawn_blocking(move || {
@@ -397,12 +431,32 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
             return;
         }
 
+        if elapsed_total >= timeout_secs {
+            if !claim_run_end(&state) {
+                return;
+            }
+            let (svc_end, state_end) = (svc.clone(), state.clone());
+            let _ = tauri::async_runtime::spawn_blocking(move || {
+                end_on_hard_timeout(&svc_end, &state_end, elapsed_total)
+            })
+            .await;
+            return;
+        }
+
         // Liveness: agent dropped to a bare shell (crashed / exited) before completing → resume it, bounded. Skip during launch grace + just after a restart.
         if elapsed_total >= RESTART_GRACE_SECS
             && state.last_restart_at.lock().elapsed().as_secs() >= RESTART_SETTLE_SECS
             && !provider_prompt_pending
             && agent_dropped_to_shell(&svc, &state.pty_id)
         {
+            if matches!(state.kind, AgentRunKind::MemWorker { .. }) {
+                svc.run_watcher.fail_now(
+                    &svc,
+                    &state.pty_id,
+                    "memory worker exited to shell without reporting".into(),
+                );
+                return;
+            }
             let restarts = state.restart_count.load(Ordering::Acquire);
             if restarts >= MAX_RESTARTS {
                 if state.completed.swap(true, Ordering::AcqRel) {
@@ -475,7 +529,8 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                 idle_status_is_terminal_success(&svc, &state.pty_id),
                 session_bound,
             );
-            let busy = provider_prompt_pending
+            let busy = state.cron_completion.lock().is_some()
+                || provider_prompt_pending
                 || !ready_for_success
                 || agent_screen_busy(&svc, &state.pty_id);
             if busy {
@@ -503,18 +558,6 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                 svc.run_watcher.runs.lock().remove(&state.pty_id);
                 return;
             }
-        }
-
-        if elapsed_total >= timeout_secs {
-            if !claim_run_end(&state) {
-                return;
-            }
-            let (svc_end, state_end) = (svc.clone(), state.clone());
-            let _ = tauri::async_runtime::spawn_blocking(move || {
-                end_on_hard_timeout(&svc_end, &state_end, elapsed_total)
-            })
-            .await;
-            return;
         }
     }
 }
@@ -709,14 +752,32 @@ fn resume_hidden_run(
         tab.auto_approve = full_access;
     }
     crate::service::task_files::release_tab(svc, tab_id);
+    let (cwd, launch) = {
+        let mux = svc.mux.read();
+        let Some(tab) = mux.get_tab(tab_id) else {
+            return;
+        };
+        (tab.cwd.clone(), tab.restorable_launch.clone())
+    };
+    let resume = crate::agent::provider::AgentResumeParams {
+        cwd,
+        context_files: launch.context_files,
+        session_id: sid,
+        skip_permissions: full_access,
+        system_prompt: system_prompt.map(str::to_string),
+        instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
+        ..Default::default()
+    };
     let cmd = crate::service::task_files::capture(svc, tab_id, || {
-        hidden_recovery_resume_command(
-            &svc.agent_registry,
-            &provider,
-            &sid,
-            full_access,
-            system_prompt,
-        )
+        svc.agent_registry
+            .with_provider(&provider, |provider| {
+                crate::service::context_bundle::build_resume(
+                    provider,
+                    &resume,
+                    launch.context_skills.as_deref(),
+                )
+            })
+            .flatten()
     });
     let Some(cmd) = cmd else {
         log::warn!("[run-watcher] provider {} has no resume command", provider);
@@ -727,6 +788,7 @@ fn resume_hidden_run(
     }
 }
 
+#[cfg(test)]
 fn hidden_recovery_resume_command(
     registry: &crate::agent::registry::AgentRegistry,
     provider: &str,
@@ -736,14 +798,21 @@ fn hidden_recovery_resume_command(
 ) -> Option<String> {
     registry
         .with_provider(provider, |p| {
-            p.build_resume_command_with_context(&crate::agent::provider::AgentResumeParams {
-                session_id: session_id.to_string(),
-                skip_permissions: full_access,
-                agent_name: None,
-                system_prompt: system_prompt.map(str::to_string),
-                instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
-                args: Vec::new(),
-            })
+            crate::service::context_bundle::build_resume(
+                p,
+                &crate::agent::provider::AgentResumeParams {
+                    cwd: None,
+                    context_files: None,
+                    tool_less_instructions_path: None,
+                    session_id: session_id.to_string(),
+                    skip_permissions: full_access,
+                    agent_name: None,
+                    system_prompt: system_prompt.map(str::to_string),
+                    instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
+                    args: Vec::new(),
+                },
+                None,
+            )
         })
         .flatten()
 }
@@ -812,7 +881,9 @@ fn finish_run_as(svc: &ServiceContext, state: &RunState, run_end: RunEnd, summar
             // Execution ending is not the same fact as the run finishing its
             // work: a process that died or timed out never reports `done`.
             let end = match run_end {
-                RunEnd::Success => codeterm_mem::dream_status::ExecutionEnd::Reported,
+                RunEnd::Success => codeterm_mem::dream_status::ExecutionEnd::ProcessEnded {
+                    detail: format!("execution ended without mem worker report: {summary}"),
+                },
                 RunEnd::TimedOut => codeterm_mem::dream_status::ExecutionEnd::TimedOut {
                     detail: summary.clone(),
                 },
@@ -956,3 +1027,7 @@ fn find_balanced_end(s: &str, start: usize) -> Option<usize> {
 #[cfg(test)]
 #[path = "run_watcher/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "run_watcher/memory_lifecycle_tests.rs"]
+mod memory_lifecycle_tests;

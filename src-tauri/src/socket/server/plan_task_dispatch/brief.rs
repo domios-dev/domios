@@ -24,7 +24,7 @@ pub(in crate::socket::server) fn build_brief_with_personality(
     )
 }
 
-pub(super) fn build_brief_with_manifest(
+pub(crate) fn build_brief_with_manifest(
     task: &Task,
     sections: &[TaskSection],
     plan_id: &str,
@@ -48,4 +48,41 @@ pub(super) fn build_brief_with_manifest(
         brief.push('\n');
     }
     brief
+}
+
+pub(super) fn build_brief_for_capabilities(
+    tool_less: bool,
+    task: &Task,
+    sections: &[TaskSection],
+    plan_id: &str,
+    manifest: &[crate::plan::PlanSkillManifestEntry],
+    authorized_gates: &[String],
+) -> String {
+    if tool_less {
+        crate::service::plan::task_brief::render_tool_less_task_brief(
+            task,
+            sections,
+            task.personality.as_deref(),
+            None,
+        )
+    } else {
+        build_brief_with_manifest(task, sections, plan_id, manifest, authorized_gates)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn tool_less_dispatch_omits_cli_lifecycle_fragments_and_preserves_task() {
+        let task: Task = serde_json::from_value(serde_json::json!({"id":"task-opaque", "name":"opaque title", "type":"unplanned", "status":"pending", "body":"opaque assignment"})).unwrap();
+        let command =
+            crate::service::plan::task_attempts::task_report_command("plan-opaque", &task.id);
+        let ordinary = build_brief_for_capabilities(false, &task, &[], "plan-opaque", &[], &[]);
+        assert!(ordinary.contains(&command));
+        let managed = build_brief_for_capabilities(true, &task, &[], "plan-opaque", &[], &[]);
+        assert!(!managed.contains(&command));
+        assert!(!managed.contains(crate::service::plan::worker_identity::WORKER_ACK_INSTRUCTION));
+        assert_eq!(managed.matches("opaque assignment").count(), 1);
+    }
 }

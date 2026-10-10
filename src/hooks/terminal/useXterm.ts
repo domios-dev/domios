@@ -10,12 +10,13 @@ import { mapCursorStyle, buildXtermTheme } from "../../components/Terminal/helpe
 import type { ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 import { shouldEnableXtermA11yMode } from "./xtermTestMode";
 import { scheduleXtermInit } from "./xtermInitScheduler";
+import { DEV_BUILD } from "../../lib/devBuild";
 
 // Playwright harness (`/?a11y=1`) can enable xterm screen-reader mode.
 // Production ignores VITE_CODETERM_TEST to avoid accidental renderer disable.
 const viteEnv = import.meta.env ?? {};
 const E2E_TEST_MODE = shouldEnableXtermA11yMode({
-  isViteDev: viteEnv.DEV,
+  isViteDev: DEV_BUILD,
   viteCodeTermTest: viteEnv.VITE_CODETERM_TEST,
   locationSearch: typeof window !== "undefined" ? window.location.search : "",
   locationProtocol: typeof window !== "undefined" ? window.location.protocol : "",
@@ -114,7 +115,7 @@ export function useXterm({
       term.unicode.activeVersion = "11";
 
       term.open(containerRef.current);
-      if (viteEnv.DEV) {
+      if (DEV_BUILD) {
         (containerRef.current as HTMLDivElement & { __codetermTerminal?: Terminal }).__codetermTerminal = term;
       }
 
@@ -143,7 +144,7 @@ export function useXterm({
       webglRef.current?.dispose();
       webglRef.current = null;
       created?.dispose();
-      if (containerRef.current && viteEnv.DEV) {
+      if (containerRef.current && DEV_BUILD) {
         delete (containerRef.current as HTMLDivElement & { __codetermTerminal?: Terminal }).__codetermTerminal;
       }
       termRef.current = null;

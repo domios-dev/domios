@@ -195,6 +195,6 @@ export function InstallGrantDialog({
 
 function channelLabel(channel: string): string {
   if (channel === "codeterm-core") return "Core";
-  if (channel === "codeterm-plugins") return "CodeTerm Plugins";
+  if (channel === "codeterm-plugins") return "Domios Plugins";
   return channel;
 }

@@ -16,6 +16,11 @@ pub fn no_window_tokio(cmd: &mut tokio::process::Command) {
     cmd.creation_flags(CREATE_NO_WINDOW);
 }
 
+#[cfg(windows)]
+pub fn no_window_tokio_suspended(cmd: &mut tokio::process::Command) {
+    cmd.creation_flags(CREATE_NO_WINDOW | 0x0000_0004);
+}
+
 #[cfg(not(windows))]
 #[inline]
 pub fn no_window_tokio(_cmd: &mut tokio::process::Command) {}
@@ -68,6 +73,7 @@ mod spawn_audit_tests {
             let after = window(&lines, idx, idx + 40).join("\n");
             if after.contains("process_util::no_window_std")
                 || after.contains("process_util::no_window_tokio")
+                || after.contains("provider_update::ProcessTree::prepare")
                 || before.contains("target_os = \"macos\"")
                 || before.contains("target_os = \"linux\"")
                 || before.contains("not(windows)")

@@ -1,6 +1,32 @@
 use super::*;
 
 #[test]
+fn idle_restart_termination_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    assert!(native.supports_idle_restart_termination());
+    assert_eq!(
+        native.supports_idle_restart_termination(),
+        js.supports_idle_restart_termination()
+    );
+}
+
+#[test]
+fn idle_restart_termination_is_an_explicit_manifest_opt_in() {
+    for (commands, expected) in [
+        ("{}", false),
+        (r#"{"idleRestartTermination":false}"#, false),
+        (r#"{"idleRestartTermination":true}"#, true),
+    ] {
+        let config: crate::js_runtime::manifest::CommandsConfig =
+            serde_json::from_str(commands).unwrap();
+        assert_eq!(config.idle_restart_termination, expected);
+    }
+}
+
+#[test]
 fn parse_prompt_native_js_parity() {
     if require_plugins().is_none() {
         return;
@@ -114,8 +140,19 @@ fn in_tab_command_surface_native_js_parity() {
     assert_eq!(n.exit_command(), Some("/exit"));
     assert_eq!(
         n.model_switch(),
-        crate::provider::ModelSwitchMode::RestartResume
+        crate::provider::ModelSwitchMode::LiveCommand
     );
+    assert_eq!(n.model_switch_commands(), j.model_switch_commands());
+    let frame = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../plugins/provider-claude/tests/fixtures/model-switch/confirmed-ready-frame.txt"
+    ));
+    for commands in [n.model_switch_commands(), j.model_switch_commands()] {
+        let declared = commands.unwrap().ready_input_regex.unwrap();
+        let pattern = regex::Regex::new(&declared).unwrap();
+        let row = frame.lines().find(|row| pattern.is_match(row)).unwrap();
+        assert!(!pattern.is_match(&format!("{row}opaque-user-input")));
+    }
 }
 
 #[test]

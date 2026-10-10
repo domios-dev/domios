@@ -20,6 +20,7 @@ export interface SingleSessionChoice {
   providerId: string;
   modelId?: string;
   effortId?: string;
+  preset?: string;
 }
 
 export interface PairSessionChoice {
@@ -34,6 +35,15 @@ export interface PairSessionChoice {
 
 export type NewSessionChoice = SingleSessionChoice | PairSessionChoice;
 
+export function reconcilePresetSelection(
+  choice: NewSessionChoice,
+  presets: ReadonlyArray<{ provider: string; name: string; model: string }>,
+): NewSessionChoice {
+  if (choice.mode !== "single" || !choice.preset || presets.some((preset) =>
+    preset.provider === choice.providerId && preset.name === choice.preset && preset.model === choice.modelId)) return choice;
+  return { ...choice, preset: undefined };
+}
+
 function resolveProvider(
   providers: ProviderDescriptor[],
   selectedProviderId?: string,
@@ -41,8 +51,8 @@ function resolveProvider(
   return providers.find((provider) => provider.id === selectedProviderId) ?? providers[0];
 }
 
-function resolveModel(
-  provider: ProviderDescriptor | undefined,
+export function resolveProviderModel(
+  provider: Pick<ProviderDescriptor, "available_models" | "default_model"> | undefined,
   selectedModelId?: string,
 ): string | undefined {
   const models = provider?.available_models ?? [];
@@ -85,7 +95,7 @@ export function reasoningEffortsForModel(
 export function defaultNewSessionChoice(providers: ProviderDescriptor[]): NewSessionChoice {
   const provider = providers[0];
   const providerId = provider?.id ?? "";
-  const modelId = resolveModel(provider);
+  const modelId = resolveProviderModel(provider);
   return {
     mode: "pair",
     orchestratorProviderId: providerId,
@@ -97,15 +107,16 @@ export function defaultNewSessionChoice(providers: ProviderDescriptor[]): NewSes
   };
 }
 
-function resolvePersistedChoice(
+export function resolvePersistedChoice(
   providers: ProviderDescriptor[],
   choice: NewSessionChoice,
 ): NewSessionChoice {
   if (choice.mode === "single") {
     const provider = resolveProvider(providers, choice.providerId);
-    const modelId = resolveModel(provider, choice.modelId);
+    const modelId = resolveProviderModel(provider, choice.modelId);
     return {
       mode: "single",
+      ...(choice.preset && provider?.id === choice.providerId && modelId === choice.modelId ? { preset: choice.preset } : {}),
       providerId: provider?.id ?? "",
       modelId,
       effortId: resolveEffort(provider, modelId, choice.effortId),
@@ -113,8 +124,8 @@ function resolvePersistedChoice(
   }
   const orchestrator = resolveProvider(providers, choice.orchestratorProviderId);
   const planner = resolveProvider(providers, choice.plannerProviderId);
-  const orchestratorModelId = resolveModel(orchestrator, choice.orchestratorModelId);
-  const plannerModelId = resolveModel(planner, choice.plannerModelId);
+  const orchestratorModelId = resolveProviderModel(orchestrator, choice.orchestratorModelId);
+  const plannerModelId = resolveProviderModel(planner, choice.plannerModelId);
   return {
     mode: "pair",
     orchestratorProviderId: orchestrator?.id ?? "",

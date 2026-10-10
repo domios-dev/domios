@@ -1,15 +1,16 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use super::*;
 
 #[derive(Default)]
 struct FakeSeam {
-    enveloped: RefCell<Vec<(String, String, String)>>,
+    enveloped: RefCell<Vec<(String, String)>>,
     texts: RefCell<Vec<(String, String)>>,
     batches: RefCell<Vec<(String, usize)>>,
     keys: RefCell<Vec<(String, String, Vec<KeyStroke>)>>,
     error: Option<String>,
     pad_file: Option<std::path::PathBuf>,
+    refuse_system_notice: Cell<bool>,
 }
 
 impl FakeSeam {
@@ -35,15 +36,12 @@ impl DeliverySeam for FakeSeam {
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String> {
-        self.enveloped.borrow_mut().push((
-            to_tab.to_string(),
-            Messenger::pty_prefix(&envelope),
-            body.to_string(),
-        ));
+        let text = Messenger::from(envelope).wrap(body);
+        self.enveloped
+            .borrow_mut()
+            .push((to_tab.to_string(), text.clone()));
         self.guard()?;
-        Ok(Delivery::Pty {
-            text: format!("{}{}", Messenger::pty_prefix(&envelope), body),
-        })
+        Ok(Delivery::Pty { text })
     }
 
     fn deliver_enveloped_with_path(
@@ -75,6 +73,10 @@ impl DeliverySeam for FakeSeam {
             .borrow_mut()
             .push((tab.to_string(), text.to_string(), strokes.to_vec()));
         self.guard()
+    }
+
+    fn accepts_system_notice(&self, _target: &str) -> bool {
+        !self.refuse_system_notice.get()
     }
 }
 
@@ -169,7 +171,6 @@ fn enveloped_submit_forwards_envelope_and_body_byte_identical() {
     let gateway = MessageGateway::new();
     let fake = FakeSeam::default();
     let envelope = MessageEnvelope::tab("Edison", "e8a0ac20");
-    let expected_prefix = Messenger::pty_prefix(&envelope);
 
     let msg = OutboundMessage {
         target: "p1".to_string(),
@@ -187,8 +188,9 @@ fn enveloped_submit_forwards_envelope_and_body_byte_identical() {
     let calls = fake.enveloped.borrow();
     assert_eq!(calls.len(), 1, "exactly one enveloped delivery");
     assert_eq!(calls[0].0, "p1", "target forwarded unchanged");
-    assert_eq!(calls[0].1, expected_prefix, "envelope forwarded unchanged");
-    assert_eq!(calls[0].2, "hello", "body not mutated");
+    let parsed = codeterm_types::domios::parse_message(&calls[0].1).expect("complete route frame");
+    assert_eq!(parsed.attr("from"), Some("tab"));
+    assert_eq!(parsed.body, "hello");
     assert!(fake.texts.borrow().is_empty(), "not routed to plain text");
     assert!(!receipt.dedup_hit);
     assert!(matches!(receipt.delivery, Some(Delivery::Pty { .. })));
@@ -218,7 +220,7 @@ fn inbound_webhook_pebble_event_replay_is_a_noop_after_the_first_enveloped_deliv
     assert_eq!(fake.enveloped.borrow().len(), 1);
     assert_eq!(
         fake.enveloped.borrow()[0].1,
-        "-=-codeterm:pebble source=Pebble-=-"
+        "<domios from=\"pebble\" source=\"Pebble\">focus enabled</domios>"
     );
 }
 
@@ -434,4 +436,96 @@ fn idempotency_store_evicts_beyond_capacity() {
     assert!(store.get("a").is_none(), "oldest entry evicted");
     assert!(store.get("b").is_some());
     assert!(store.get("c").is_some());
+}
+
+#[test]
+fn system_notice_target_refusal_requires_a_live_agent_surface() {
+    for has_identity in [false, true] {
+        for booting in [false, true] {
+            for chat_backend in [false, true] {
+                let refused =
+                    system_notice_target_refusal(has_identity, booting, chat_backend).is_some();
+                assert_eq!(
+                    refused,
+                    !(has_identity || booting || chat_backend),
+                    "identity={has_identity} booting={booting} chat_backend={chat_backend}"
+                );
+            }
+        }
+    }
+}
+
+fn notice_msg(target: &str, class: DeliveryClass, key: Option<&str>) -> OutboundMessage {
+    OutboundMessage {
+        target: target.to_string(),
+        body: MessageBody::Text {
+            body: "notice".to_string(),
+        },
+        envelope: Some(MessageEnvelope::codeterm_reminder("worker-lost")),
+        class,
+        origin: MessageOrigin::System,
+        idempotency_key: key.map(str::to_string),
+    }
+}
+
+#[test]
+fn system_notice_to_agentless_target_is_refused_without_writing() {
+    let gateway = MessageGateway::new();
+    let fake = FakeSeam::default();
+    fake.refuse_system_notice.set(true);
+
+    let error = gateway
+        .submit(
+            &fake,
+            notice_msg("shell", DeliveryClass::SystemNotice, None),
+        )
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        DeliveryError::AgentUnavailable {
+            target: "shell".into()
+        }
+    );
+    assert!(
+        !crate::service::delivery_error::DeliveryError::from_opaque("shell", error.to_string())
+            .bytes_written(),
+        "flattened refusal stays a zero-write classification"
+    );
+    assert!(fake.enveloped.borrow().is_empty());
+    assert!(fake.texts.borrow().is_empty());
+}
+
+#[test]
+fn agent_traffic_to_agentless_target_still_delivers() {
+    let gateway = MessageGateway::new();
+    let fake = FakeSeam::default();
+    fake.refuse_system_notice.set(true);
+
+    gateway
+        .submit(
+            &fake,
+            notice_msg("shell", DeliveryClass::AgentTraffic, None),
+        )
+        .unwrap();
+
+    assert_eq!(fake.enveloped.borrow().len(), 1);
+}
+
+#[test]
+fn refused_system_notice_is_not_cached_for_its_idempotency_key() {
+    let gateway = MessageGateway::new();
+    let fake = FakeSeam::default();
+    fake.refuse_system_notice.set(true);
+    let msg = notice_msg("orch", DeliveryClass::SystemNotice, Some("worker-lost:k"));
+
+    let refused = gateway.submit(&fake, msg.clone()).unwrap_err();
+    assert!(refused.is_agent_unavailable());
+    fake.refuse_system_notice.set(false);
+    let delivered = gateway.submit(&fake, msg.clone()).unwrap();
+    let replayed = gateway.submit(&fake, msg).unwrap();
+
+    assert!(!delivered.dedup_hit, "the resubmit really delivered");
+    assert!(replayed.dedup_hit, "the delivery itself is cached");
+    assert_eq!(fake.enveloped.borrow().len(), 1);
 }

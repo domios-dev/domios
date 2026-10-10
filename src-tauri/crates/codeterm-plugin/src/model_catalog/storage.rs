@@ -181,6 +181,7 @@ pub(super) fn load_override(provider_id: &str) -> Option<ProviderOverride> {
                             description: model.description,
                             available: model.available,
                             availability: None,
+                            primary: model.primary,
                             featured: model.featured,
                             badge: model.badge,
                             group: model.group,

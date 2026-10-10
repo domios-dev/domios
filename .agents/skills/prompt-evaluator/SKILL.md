@@ -1,11 +1,11 @@
 ---
 name: prompt-evaluator
-description: Evaluate, A/B compare, or check for regression in any CodeTerm prompt file (general_agent.md, worker_suffix.md, codeterm_rule.md, agent role definitions in codeterm mem, bridge rules, etc). Triggers when the user asks to "test the prompt", "run evals", "check for regression", "did my prompt change break anything", or "compare prompt before and after". Runs runner.py against the matching eval set under evals.
+description: Evaluate, A/B compare, or check for regression in any Domios prompt file (general_agent.md, worker_suffix.md, codeterm_rule.md, agent role definitions in codeterm mem, bridge rules, etc). Triggers when the user asks to "test the prompt", "run evals", "check for regression", "did my prompt change break anything", or "compare prompt before and after". Runs runner.py against the matching eval set under evals.
 ---
 
 # Prompt Evaluator
 
-CodeTerm has multiple system prompts and instruction files that drive agent behavior. When you change one of them, you need to know whether the change preserves the behaviors the prompt is supposed to elicit. This skill is the harness for that.
+Domios has multiple system prompts and instruction files that drive agent behavior. When you change one of them, you need to know whether the change preserves the behaviors the prompt is supposed to elicit. This skill is the harness for that.
 
 ## When to use
 
@@ -97,7 +97,7 @@ The page (default browser opens automatically; pass `--no-open` to suppress) pol
 
 The HTTP server stays up after the run finishes so you can browse the final state. `Ctrl-C` to stop.
 
-Pick a free port — `7685` (prod CodeTerm) and `7686` (dev) are taken; `7779` / `7780` are good defaults.
+Pick a free port — `7685` (prod Domios) and `7686` (dev) are taken; `7779` / `7780` are good defaults.
 
 ## How to interpret a report
 
@@ -153,6 +153,10 @@ Eval sets live in `evals/<name>/evals.json`. The shape is:
 
 Tips for writing good evals:
 
+- Set `response_mode: "text"` when evaluating explained decisions; omit it for
+  command lists. Both actor and judge receive that mode. Explicit command
+  expectations still require the requested syntax in either mode.
+
 - **One eval = one behavior.** Don't bundle "spawns the right role AND uses the right CLI flags AND replies via the right channel" into one eval — make three.
 - **Expectations are independent assertions, not steps.** Each one is checked separately; an eval passes only if ALL expectations pass.
 - **Use technical expectations whenever possible** — they're matched by regex without an LLM call, so they're free and deterministic. Reserve behavioral expectations (LLM-as-judge) for things you genuinely can't grep for.
@@ -194,11 +198,11 @@ eval (`live` / `cached` / `k/N cached`). Treat them as part of the numbers:
 
 ## Limitations
 
-1. **Sandbox mode means the agent can't actually call CodeTerm.** It describes what it would do in plain text; the judge reads that description. If a prompt's behavior depends on the agent reading actual files or tab state, this harness can't test it. For those cases, write an integration test in `tests/e2e/` instead.
+1. **Sandbox mode means the agent can't actually call Domios.** It describes what it would do in plain text; the judge reads that description. If a prompt's behavior depends on the agent reading actual files or tab state, this harness can't test it. For those cases, write an integration test in `tests/e2e/` instead.
 2. **LLM-as-judge is not perfectly deterministic.** Even the same expectation+response pair can flip verdicts run-to-run (~5% based on Anthropic eval research). Use `--thorough` (3 runs) when you need higher confidence. The default 1 run is fast for routine "did I just break something" checks where one verdict is enough.
 2b. **Some failures are harness, not behavior.** The judge auto-FAILs a response that emits `# NO_COMMAND: ...` when the expectation names a specific command, and a judge timeout is scored as a plain failure. Both look identical to a real behavioral miss in the report. Before reverting a prompt on a failure, read the sample response and check which one you are looking at.
 3. **Uses your Claude Code auth.** Runs through whatever `claude login` is currently active — OAuth subscription or API key, whichever you have. Use `--dry-run` first to see the call count if you want to budget against subscription quota. Typical default `A/B quick` run is ~100 calls (Haiku-mostly), `--thorough` triples it.
-4. **The prompt under test is *appended* to Claude Code's default system prompt, not replacing it.** This matches real usage (CodeTerm prompts always run on top of Claude's base behavior), but it means you can't test prompts that contradict Claude defaults. If you need a clean slate, hack `runner.py` to use `--system-prompt` instead of `--append-system-prompt`.
+4. **The prompt under test is *appended* to Claude Code's default system prompt, not replacing it.** This matches real usage (Domios prompts always run on top of Claude's base behavior), but it means you can't test prompts that contradict Claude defaults. If you need a clean slate, hack `runner.py` to use `--system-prompt` instead of `--append-system-prompt`.
 5. **Git-revision references require a clean working tree** for the file under test. If you have uncommitted changes to `general_agent.md` and ask for `HEAD~1:general_agent.md`, you get the committed version, not your working copy — which is what you want for A/B but might confuse if you forgot.
 6. **`--runs` defaults to 1.** That's a deliberate trade-off vs skill-creator's 3. With the sandboxed agent and a strict judge prompt, single runs are stable enough for most "did I break it" checks. Use `--thorough` (which sets runs=3) for the rare cases where the eval seems flaky or you need pre-merge confidence.
 
@@ -211,4 +215,4 @@ eval (`live` / `cached` / `k/N cached`). Treat them as part of the numbers:
 
 To debug a single eval without rerunning the whole set: `python runner.py --prompt-file ... --eval-set ... --only-id 8 --runs 1 --verbose`. The runner will print the full agent response and matcher decisions for that one eval.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

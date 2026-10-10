@@ -38,7 +38,7 @@ pub struct LaunchModelReport {
     pub transcript_model_at_launch: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PendingModelSwitchObservation {
     pub session_id: String,
     pub launched_model: String,

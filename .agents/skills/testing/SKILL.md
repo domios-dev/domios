@@ -1,13 +1,13 @@
 ---
 name: testing
-description: "Choose, author, and run CodeTerm unit, integration, REST, and cross-platform tests."
+description: "Choose, author, and run Domios unit, integration, REST, and cross-platform tests."
 ---
 
-## CodeTerm — Testing Guide
+## Domios — Testing Guide
 
 ## Test-layer taxonomy
 
-This section is the single source of truth for CodeTerm test layers. Other test
+This section is the single source of truth for Domios test layers. Other test
 docs may describe how to run a suite, but they should link here instead of
 redefining the layer model.
 
@@ -51,6 +51,32 @@ a unit test on the parser plus, at most, one golden test for the end-to-end path
 | All implemented layers | `./build.sh test:all` | Before claiming done |
 | PR gate | `./build.sh test:all` | Before opening a PR |
 | CI gate | Rust unit + TS unit + plugin tests (+ pytest spike) | CI on PR — task D7 |
+
+## Affected-test map
+
+Use `node scripts/affected-tests.mjs` to print exact commands for the current
+diff. Set the base with `--base <ref>` or `AFFECTED_TESTS_BASE`; it defaults to
+`origin/master`. Rust changes currently require an explicit strategy while
+canonical timing compares the options:
+
+```bash
+node scripts/affected-tests.mjs --base origin/master --rust-mode module-filters
+node scripts/affected-tests.mjs --base origin/master --rust-mode whole-crate
+```
+
+The mapper uses Cargo metadata to identify touched packages. Module-filter mode
+uses nextest filtersets for app modules and `rdeps(<package>)` for smaller
+crates. Whole-crate mode runs the complete touched Rust package. The output
+prints one command per crate, the reason for each filter, and a rough compile
+cost. Non-Rust commands are grouped for parallel execution during Rust compile.
+
+`./build.sh nextest <scope> [filterset]` compiles test targets before applying
+the capped execution deadline, and `--no-tests=fail` rejects empty selections.
+TypeScript selections use the existing runner's related-file mode for tsx-runner
+tests and `pnpm exec vitest related <files>` for Vitest-owned tests. Plugin
+selections use `bash scripts/plugin-tests.sh <provider>`.
+
+Mapper fixture coverage is `node --test scripts/affected-tests.test.mjs`.
 
 ### Unified entrypoint: `./build.sh test:all`
 
@@ -188,7 +214,13 @@ bash scripts/test-capped.test.sh [case]
 ```
 
 **Windows: ConPTY test isolation**
-A test process launched from a CodeTerm tab inherits `CODETERM_CONPTY_DIR` and would sideload the installed host into the user's install. `scripts/test-capped.sh` unsets it and exports `CODETERM_CONPTY_TEST_ISOLATION=1`; `pty-fork/src/win/psuedocon.rs` refuses the variable while that marker is set, and production never sets it. Verify: `./build.sh test-one pty-fork test_isolation_marker_refuses_ambient_production_dir`.
+A test process launched from a Domios tab inherits `CODETERM_CONPTY_DIR` and would sideload the installed host into the user's install. `scripts/test-capped.sh` unsets it and exports `CODETERM_CONPTY_TEST_ISOLATION=1`; `pty-fork/src/win/psuedocon.rs` refuses the variable while that marker is set, and production never sets it. Verify: `./build.sh test-one pty-fork test_isolation_marker_refuses_ambient_production_dir`.
+
+When a fixture requires an exited PTY before attaching its replacement, use
+`begin_kill(...).wait_bounded(...)`, dropping the manager lock before waiting.
+`kill()` only queues reaping, so its return does not establish that precondition.
+Keep the existing failure deadline and ownership assertions; cover dead-claim
+selection separately with pure callbacks on every platform.
 
 **Windows: cargo test target isolation**
 Running the Rust test wrapper against the app crate while a dev build occupies the same
@@ -237,6 +269,11 @@ tail and blocking-worker route keep it off the four REST runtime workers.
 Neither the fixtures nor the oracle address production port 7685.
 
 ## Plugin test launcher troubleshooting
+
+If a fresh lane reports `Cannot find module .../node_modules/tsx/dist/cli.mjs`,
+its local dependencies are missing. Run `pnpm install --frozen-lockfile` in that
+lane, then rerun `node scripts/run-plugin-tests.mjs <provider>`; do not link
+another checkout's `node_modules` or count launcher failures as executed tests.
 
 `npm run test:plugins` uses the repository launcher, which selects Git Bash on
 Windows and `bash` elsewhere. If it reports that Git Bash is missing, install
@@ -327,7 +364,7 @@ OS targets in parallel from a macOS host:
 | `windows-cross` | Docker + cargo-xwin | `cargo check --target x86_64-pc-windows-msvc --lib --tests` (src-tauri + cli) | compile-level only |
 
 Windows containers cannot run on a macOS Docker host, so full Windows test
-**execution** is delegated to a real Windows machine on the CodeTerm mesh
+**execution** is delegated to a real Windows machine on the Domios mesh
 (cross-compiled binaries built locally via `cargo xwin test --no-run`, test job
 dispatched to the peer) — or to remote E2E (`CODETERM_API_URL=... pytest`). The
 local `windows-cross` lane still catches `#[cfg(windows)]` compile breakage in

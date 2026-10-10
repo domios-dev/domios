@@ -13,6 +13,8 @@ fn lane_bundle_size_allowed(size: u64, limit: u64) -> bool {
 #[derive(Clone, Deserialize)]
 pub struct MeshWorkerDispatchRequest {
     repository_identity: String,
+    #[serde(default)]
+    repository_identities: Vec<String>,
     base_commit: String,
     plan_id: String,
     task_id: String,
@@ -27,6 +29,8 @@ pub struct MeshWorkerDispatchRequest {
 #[derive(Deserialize)]
 pub struct MeshWorkerLaneBundleRequest {
     repository_identity: String,
+    #[serde(default)]
+    repository_identities: Vec<String>,
     branch: String,
     base_commit: String,
     plan_id: String,
@@ -90,9 +94,11 @@ fn create_lane_bundle_with_limit(
             "remote attempt lane not found for authenticated origin".into(),
         )
     })?;
-    if !crate::service::worker_lane::repository_identity(&checkout)
-        .is_ok_and(|identity| identity == request.repository_identity.as_str())
-    {
+    if !crate::service::worker_lane::repository_matches(
+        &checkout,
+        &request.repository_identities,
+        &request.repository_identity,
+    ) {
         return Err((
             StatusCode::CONFLICT,
             "remote attempt repository identity mismatch".into(),
@@ -316,6 +322,25 @@ mod tests {
         String::from_utf8_lossy(&output.stdout).trim().to_string()
     }
 
+    #[test]
+    fn worker_dispatch_accepts_legacy_wire_without_identity_set() {
+        let request: super::MeshWorkerDispatchRequest = serde_json::from_value(serde_json::json!({
+            "repository_identity": "sha256:legacy",
+            "base_commit": "base",
+            "plan_id": "plan",
+            "task_id": "task",
+            "attempt_id": "attempt",
+            "origin_tab_id": "tab",
+            "provider": "provider",
+            "model": null,
+            "reasoning_effort": null,
+            "brief": "brief"
+        }))
+        .unwrap();
+        assert!(request.repository_identities.is_empty());
+        assert_eq!(request.repository_identity, "sha256:legacy");
+    }
+
     fn bundle_fixture(
         peer_target: &str,
     ) -> (
@@ -360,9 +385,11 @@ mod tests {
         let fixture = ServiceFixture::new(mux);
         let state = app_state(&fixture);
         let identity =
-            crate::service::worker_lane::repository_identity(repo.to_str().unwrap()).unwrap();
+            crate::service::worker_lane::legacy_repository_identity(repo.to_str().unwrap())
+                .unwrap();
         let request = MeshWorkerLaneBundleRequest {
             repository_identity: identity,
+            repository_identities: vec![],
             branch: "lane/remote-test".into(),
             base_commit: base,
             plan_id: "plan-1".into(),
@@ -453,6 +480,7 @@ mod tests {
         let mut mux = crate::multiplexer::state::MultiplexerState::empty();
         let workspace_id = mux.create_workspace("remote worker peer".into(), None).id;
         let fixture = ServiceFixture::new(mux);
+        fixture.set_agent_full_access(true);
         fixture.service.agent_registry.register_provider(Box::new(
             crate::agent::test_provider::MockProvider::new("remote-mock")
                 .with_launch_binary("cmd.exe"),
@@ -460,6 +488,7 @@ mod tests {
         let worktree = fixture.temp.path().display().to_string();
         let request = super::MeshWorkerDispatchRequest {
             repository_identity: "sha256:fixture".into(),
+            repository_identities: vec![],
             base_commit: "base".into(),
             plan_id: "plan-origin".into(),
             task_id: "task-origin".into(),
@@ -533,22 +562,47 @@ fn dispatch_authenticated_worker(
             .filter_map(|workspace| workspace.cwd.map(|cwd| (workspace.id, cwd)))
             .collect::<Vec<_>>()
     };
-    let matched = workspaces.into_iter().find(|(_, cwd)| {
-        !crate::service::worker_lane::is_linked_worktree(std::path::Path::new(cwd))
-            && crate::service::worker_lane::repository_identity(cwd)
-                .is_ok_and(|identity| identity == request.repository_identity.as_str())
+    let matched = workspaces.into_iter().find_map(|(workspace_id, cwd)| {
+        let primary = crate::service::worker_lane::primary_checkout(std::path::Path::new(&cwd))?;
+        let canonical_cwd = primary.to_string_lossy().to_string();
+        let remote = crate::service::worker_lane::matching_remote_for_identity(
+            &canonical_cwd,
+            &request.repository_identities,
+            &request.repository_identity,
+        )?;
+        Some((workspace_id, canonical_cwd, remote))
     });
-    let Some((workspace_id, canonical_cwd)) = matched else {
+    let Some((workspace_id, canonical_cwd, matching_remote)) = matched else {
         return Err((
             StatusCode::CONFLICT,
-            "peer_missing_repo: no primary checkout has the requested repository identity".into(),
+            "peer_missing_repo: no checkout identity matches the dispatching peer; older peers may require matching remote URLs".into(),
         ));
     };
     if !crate::service::worker_lane::contains_commit(&canonical_cwd, &request.base_commit) {
-        return Err((
-            StatusCode::CONFLICT,
-            "peer_missing_base: requested base commit is absent from the peer checkout".into(),
-        ));
+        if request.repository_identities.is_empty() {
+            return Err((
+                StatusCode::CONFLICT,
+                "peer_missing_base: this dispatch did not identify a matching remote for fetching; update both peers".into(),
+            ));
+        }
+        crate::service::worker_lane::fetch_base_commit(
+            &canonical_cwd,
+            &matching_remote,
+            &request.base_commit,
+        )
+        .map_err(|error| {
+            (
+                StatusCode::CONFLICT,
+                format!("peer_missing_base: requested commit is absent and fetch failed: {error}"),
+            )
+        })?;
+        if !crate::service::worker_lane::contains_commit(&canonical_cwd, &request.base_commit) {
+            return Err((
+                StatusCode::CONFLICT,
+                "peer_missing_base: matching remote fetch completed without the requested commit"
+                    .into(),
+            ));
+        }
     }
     let lane_label = format!("{}-{}", request.plan_id, request.task_id);
     let lane = crate::service::worker_lane::provision_isolated_lane_at_base(

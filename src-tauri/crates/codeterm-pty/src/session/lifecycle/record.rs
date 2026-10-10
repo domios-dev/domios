@@ -157,7 +157,17 @@ pub enum LifecycleTransition {
     },
     /// Seals the operation. Only a sealed operation yields a checkpoint.
     LaunchReady,
+    ConversationStarted {
+        session_id: String,
+    },
+    EmptySessionReplaced {
+        session_id: String,
+    },
     RestartRequested,
+    /// Launch target provenance only; recovery must verify existence and bind a new nonce.
+    ResumeTargetRecorded {
+        session_id: String,
+    },
     /// Diagnostic: restore relaunched nothing because the provider had exited
     /// before shutdown; `agent restart` recovers `session_id`. Never authority.
     RestoreAwaitingAgentRestart {
@@ -192,6 +202,12 @@ pub enum LifecycleTransition {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
     },
+    RemoteOwnershipReleased {
+        peer_id: String,
+        peer_name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        caller_tab_id: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -217,11 +233,15 @@ impl LifecycleTransition {
             Self::RoleBinding { .. } => "role_binding",
             Self::TeamBinding { .. } => "team_binding",
             Self::LaunchReady => "launch_ready",
+            Self::ConversationStarted { .. } => "conversation_started",
+            Self::EmptySessionReplaced { .. } => "empty_session_replaced",
             Self::RestartRequested => "restart_requested",
+            Self::ResumeTargetRecorded { .. } => "resume_target_recorded",
             Self::RestoreAwaitingAgentRestart { .. } => "restore_awaiting_agent_restart",
             Self::RolledBack { .. } => "rolled_back",
             Self::Closed { .. } => "closed",
             Self::PermissionAutoConfirm { .. } => "permission_auto_confirm",
+            Self::RemoteOwnershipReleased { .. } => "remote_ownership_released",
         }
     }
 }

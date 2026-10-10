@@ -15,6 +15,22 @@ fn update_frame() -> String {
     std::fs::read_to_string(path).expect("Codex update fixture")
 }
 
+#[test]
+fn supporter_first_opinion_safe_update_stale_cleanup_keeps_new_occurrence() {
+    let tab = uuid::Uuid::new_v4().to_string();
+    assert!(claim_manual_update_occurrence(&tab, "launch:1:frame"));
+    assert_eq!(
+        super::manual_update_observation_revision(&tab),
+        crate::service::supporter_tab_state::frame_hash("launch:1:frame")
+    );
+    assert!(claim_manual_update_occurrence(&tab, "launch:2:frame"));
+    super::release_model_update_step(&tab, "launch:1:frame");
+    assert!(!claim_manual_update_occurrence(&tab, "launch:2:frame"));
+    super::release_model_update_step(&tab, "launch:2:frame");
+    assert!(claim_manual_update_occurrence(&tab, "launch:2:frame"));
+    clear_manual_update_occurrence(&tab);
+}
+
 fn menu_options(screen: &str) -> Vec<PromptOption> {
     screen
         .lines()
@@ -49,7 +65,7 @@ fn provider(state: TabState, prompt: PendingPrompt) -> MockProvider {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn codex_update_dialog_resolves_to_skip_with_one_notification() {
+fn update_coordinator_prompt_tab_answers_safe_choice_through_respond_prompt() {
     let screen = update_frame();
     let visible = menu_options(&screen);
     let parsed = PendingPrompt {
@@ -90,6 +106,7 @@ fn codex_update_dialog_resolves_to_skip_with_one_notification() {
     tab.cwd = Some("/srv/lanes/update".into());
     tab.provisioned_cwd = Some("/srv/lanes/update".into());
     tab.pty_id = Some("pty-update".into());
+    tab.role = Some(codeterm_types::agent::roles::AgentRole::Worker);
     tab.auto_approve = true;
     tab.permission_auto_confirm = true;
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
@@ -183,6 +200,61 @@ fn codex_update_dialog_resolves_to_skip_with_one_notification() {
         .lock()
         .kill("pty-update")
         .expect("stop live shell PTY");
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn owner_launched_update_prompt_remains_owner_facing() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("fixture".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let prompt = PendingPrompt {
+        question: "opaque question".into(),
+        options: vec![
+            PromptOption {
+                label: "opaque-a".into(),
+                value: "a".into(),
+            },
+            PromptOption {
+                label: "opaque-b".into(),
+                value: "b".into(),
+            },
+        ],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    };
+    let snapshot = TabStateSnapshot {
+        tab_id: tab_id.clone(),
+        agent_type: "fixture".into(),
+        session_id: None,
+        cwd: None,
+        screen_text: "opaque frame".into(),
+    };
+
+    assert_eq!(
+        resolve_classified_manual_update_prompt(
+            &fixture.service,
+            &snapshot,
+            prompt.clone(),
+            Some("b".into()),
+        ),
+        None
+    );
+    let tab = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .cloned()
+        .unwrap();
+    assert_eq!(tab.pending_prompt, Some(prompt));
+    assert_eq!(
+        tab.pending_prompt_kind,
+        Some(codeterm_types::pty::PromptKind::ManualUpdate)
+    );
+    assert_eq!(super::prompt_step_dispatch_count_for_test(&tab_id), 0);
 }
 
 #[test]
@@ -534,5 +606,58 @@ fn provider_ready_idle_user_dir_trust_prompt_appears_without_provenance_on_uncha
             .get_tab(&tab_id)
             .and_then(|tab| tab.pending_prompt.clone()),
         Some(prompt)
+    );
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn ga_connected_update_prompt_does_not_bypass_model_gate() {
+    let (mux, tab_id) = MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let prompt = PendingPrompt {
+        question: "opaque question".into(),
+        options: vec![
+            PromptOption {
+                label: "opaque-a".into(),
+                value: "a".into(),
+            },
+            PromptOption {
+                label: "opaque-b".into(),
+                value: "b".into(),
+            },
+        ],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    };
+    let snapshot = TabStateSnapshot {
+        tab_id: tab_id.clone(),
+        agent_type: "fixture".into(),
+        session_id: None,
+        cwd: None,
+        screen_text: "opaque frame".into(),
+    };
+    assert_eq!(
+        super::manual_update::resolve_manual_update_with_model_gate(
+            &fixture.service,
+            &snapshot,
+            prompt.clone(),
+            Some("b".into()),
+            true
+        ),
+        None
+    );
+    let tab = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .cloned()
+        .unwrap();
+    assert_eq!(tab.pending_prompt, Some(prompt));
+    assert_eq!(
+        tab.pending_prompt_kind,
+        Some(codeterm_types::pty::PromptKind::ManualUpdate)
     );
 }

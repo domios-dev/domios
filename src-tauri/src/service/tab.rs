@@ -7,6 +7,7 @@ use crate::service::session_model::spawn_startup_model_refresh;
 use crate::service::session_persist::{self, SessionPersistUrgency};
 use crate::service::worker_loss::{busy_worker_close_warnings, BUSY_WORKER_CLOSE_REFUSAL_PREFIX};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::Manager;
 
 #[path = "tab/lifecycle_exit.rs"]
 mod lifecycle_exit;
@@ -50,6 +51,7 @@ pub(crate) fn normalize_optional_tab_description(
 /// Prefix on every self-termination refusal so transports can classify it.
 pub(crate) const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
 pub(crate) const UNATTRIBUTED_CLOSE_REFUSAL_PREFIX: &str = "tab close refused";
+mod ownership;
 mod rename_guard;
 mod scrollback;
 
@@ -116,6 +118,14 @@ impl ServiceContext {
         tab_id: &str,
         reason: TabCloseReason,
     ) -> Result<(), String> {
+        self.pending_delivery_payloads
+            .user_sends
+            .tab(tab_id)
+            .revoked
+            .store(true, std::sync::atomic::Ordering::Release);
+        self.invalidate_guarded_agent_input(tab_id);
+        super::background_work_watch::cancel(tab_id);
+        crate::flow_trace::cancel_tab(tab_id);
         self.chat_registry.shutdown_tab(tab_id);
         self.deferred_session_bindings.clear(tab_id);
 
@@ -132,12 +142,21 @@ impl ServiceContext {
         );
         self.discard_pending_delivery(tab_id)
             .map_err(|error| format!("pending delivery discard failed: {error}"))?;
-        self.invalidate_guarded_agent_input(tab_id);
         self.release_worker_persona_for_tab(tab_id);
         Ok(())
     }
 
     pub(crate) fn finish_tab_close(&self, tab_id: &str) -> Result<(), String> {
+        super::supporter_tab_state::forget_observations(tab_id);
+        crate::service::codex_rpc::lifecycle::stop_tab(tab_id);
+        self.release_managed_tabs(tab_id);
+        self.reply_relays.close(tab_id);
+        if let Some(handle) = self
+            .app_handle
+            .try_state::<crate::sentinel::scheduler::Handle>()
+        {
+            handle.cancel_tab_owned_runs(tab_id);
+        }
         super::task_files::release_tab(self, tab_id);
         self.cancel_agent_startup_supervision(tab_id);
         let pad_result = self.revoke_agent_pad(tab_id);
@@ -150,6 +169,7 @@ impl ServiceContext {
         crate::service::structured_prompt::clear_tab(tab_id);
         self.remote_workers.forget_orchestrator(tab_id);
         self.forget_receiver_targets_for_tab(tab_id);
+        self.dispose_closed_surface_runtimes();
         pad_result
     }
 
@@ -340,6 +360,8 @@ impl ServiceContext {
             .write()
             .rename_tab_at_level(tab_id, title, TitleLevel::Agent)?;
         self.emit_state_changed();
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt);
         Ok(())
     }
 
@@ -347,6 +369,8 @@ impl ServiceContext {
         let description = normalize_tab_description(description)?;
         self.mux.write().set_tab_description(tab_id, description)?;
         self.emit_state_changed();
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt);
         Ok(())
     }
 
@@ -404,8 +428,28 @@ impl ServiceContext {
     }
 
     pub fn update_tab_cwd(&self, tab_id: &str, cwd: String) {
-        if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
-            tab.cwd = Some(cwd);
+        let changed = {
+            let mut mux = self.mux.write();
+            mux.get_tab_mut(tab_id).is_some_and(|tab| {
+                let mapped = tab
+                    .shell_profile
+                    .as_ref()
+                    .filter(|profile| profile.wsl_distro.is_some() && cwd.starts_with('/'))
+                    .map(|profile| profile.host_cwd(&cwd))
+                    .transpose();
+                let Ok(mapped) = mapped else {
+                    return false;
+                };
+                let cwd = mapped.unwrap_or(cwd);
+                if tab.cwd.as_deref() == Some(cwd.as_str()) {
+                    return false;
+                }
+                tab.cwd = Some(cwd);
+                true
+            })
+        };
+        if changed {
+            self.emit_state_changed();
         }
     }
 
@@ -427,7 +471,7 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn rearm_authenticated_agent_input(&self, tab_id: &str) {
+    pub(crate) fn reconcile_authenticated_agent_input(&self, tab_id: &str) {
         let pty_id = self.mux.read().get_tab(tab_id).and_then(|tab| {
             tab.launch_session_authenticated()
                 .then(|| tab.pty_id.clone())
@@ -436,6 +480,8 @@ impl ServiceContext {
         if let Some(pty_id) = pty_id {
             let _ = self.pty.lock().rearm_guarded_input(&pty_id);
             crate::service::boot_wait::notify_boot_changed();
+            self.reconcile_boot_stage_with_session_binding(tab_id);
+            self.wake_agent_deliveries_on_state_change(tab_id);
         }
     }
 
@@ -668,6 +714,14 @@ impl ServiceContext {
         value: &str,
         expected_identity: Option<&codeterm_types::pty::PromptIdentity>,
     ) -> Result<RespondPromptOutcome, String> {
+        if let Some(result) = crate::api::hook_routes::permission_decision::respond_with_identity(
+            self,
+            tab_id,
+            value,
+            expected_identity,
+        ) {
+            return result.map(|_| RespondPromptOutcome::Structured);
+        }
         let Some(tab) = self.mux.read().get_tab(tab_id).cloned() else {
             return Err(format!("Tab not found: {}", tab_id));
         };
@@ -678,15 +732,12 @@ impl ServiceContext {
                 return Ok(RespondPromptOutcome::StalePrompt);
             }
         }
-        let Some(option_index) = value
-            .parse::<usize>()
-            .ok()
-            .and_then(|index| index.checked_sub(1))
-        else {
-            return Ok(RespondPromptOutcome::InvalidOption);
-        };
-
         let structured_prompt = crate::service::structured_prompt::pending_for_tab(tab_id);
+        if tab.pending_prompt_kind == Some(codeterm_types::pty::PromptKind::Structured)
+            && structured_prompt.is_none()
+        {
+            return Ok(RespondPromptOutcome::StalePrompt);
+        }
         if let Some(expected) = expected_identity {
             if expected.kind == codeterm_types::pty::PromptKind::Structured {
                 let current_identity = structured_prompt.as_ref().map(|prompt| {
@@ -702,6 +753,44 @@ impl ServiceContext {
                 return Ok(RespondPromptOutcome::StalePrompt);
             }
         }
+        if structured_prompt.is_some() {
+            let Some(result) = crate::service::structured_prompt::respond(self, tab_id, value)
+            else {
+                return Ok(RespondPromptOutcome::StalePrompt);
+            };
+            match result? {
+                crate::service::structured_prompt::StructuredResponse::Advanced => {}
+                crate::service::structured_prompt::StructuredResponse::Answered {
+                    option_index,
+                } => {
+                    if let Some(identity) = response_identity.as_ref() {
+                        self.answer_prompt_notifications(
+                            tab_id,
+                            identity,
+                            option_index,
+                            "tab_respond",
+                        );
+                    }
+                }
+            }
+            self.emit_state_changed();
+            return Ok(RespondPromptOutcome::Structured);
+        }
+        let Some(option_index) = value
+            .parse::<usize>()
+            .ok()
+            .and_then(|index| index.checked_sub(1))
+        else {
+            return Ok(RespondPromptOutcome::InvalidOption);
+        };
+
+        if structured_prompt
+            .as_ref()
+            .or(tab.pending_prompt.as_ref())
+            .is_some_and(|prompt| prompt.multi_select == Some(true))
+        {
+            return Ok(RespondPromptOutcome::InvalidOption);
+        }
         let pending_option_count = structured_prompt
             .as_ref()
             .map(|prompt| prompt.options.len())
@@ -712,12 +801,6 @@ impl ServiceContext {
             });
         if pending_option_count.is_some_and(|count| option_index >= count) {
             return Ok(RespondPromptOutcome::InvalidOption);
-        }
-        if let Some(result) = crate::service::structured_prompt::respond(self, tab_id, value) {
-            result?;
-            self.mark_prompt_responded(tab_id, option_index, response_identity.as_ref());
-            self.emit_state_changed();
-            return Ok(RespondPromptOutcome::Structured);
         }
 
         let Ok(pty_id) = self.resolve_pty_id(tab_id) else {
@@ -734,6 +817,12 @@ impl ServiceContext {
                 self.agent_registry.parse_interactive_prompt(at, &clean)
             })
         });
+        if provider_prompt
+            .as_ref()
+            .is_some_and(|(prompt, _)| prompt.multi_select == Some(true))
+        {
+            return Ok(RespondPromptOutcome::InvalidOption);
+        }
         if let Some(expected) = expected_identity {
             let current_identity = provider_prompt
                 .as_ref()
@@ -781,7 +870,6 @@ impl ServiceContext {
             std::thread::spawn(move || {
                 for step in steps {
                     let _ = pty.lock().write(&pid, &step);
-                    std::thread::sleep(std::time::Duration::from_millis(100));
                 }
             });
         } else {
@@ -806,6 +894,7 @@ impl ServiceContext {
         let resolved_pty = tab.pending_prompt.as_ref().and(tab.pty_id.clone());
         let identity = crate::service::prompt_resolution::clear_tab_prompt(Some(tab));
         drop(mux);
+        crate::api::hook_routes::permission_decision::clear_tab(tab_id);
         if let Some(pty_id) = resolved_pty {
             self.release_prompt_waiting(tab_id, &pty_id);
         }
@@ -930,9 +1019,12 @@ mod launch_artifact_close_tests {
         fixture.service.close_tab(&tab_id).unwrap();
 
         let releases = releases.lock();
-        assert_eq!(releases.len(), 1);
-        assert_eq!(releases[0].0, tab_id);
-        assert!(!releases[0].1.is_empty());
+        let owner = codeterm_plugin::global_writes::machine_global_write_allowed();
+        assert_eq!(releases.len(), usize::from(owner));
+        if owner {
+            assert_eq!(releases[0].0, tab_id);
+            assert!(!releases[0].1.is_empty());
+        }
         assert!(fixture.service.mux.read().get_tab(&tab_id).is_none());
     }
 }

@@ -5,12 +5,14 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use parking_lot::Mutex;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::api::routes::{check_auth, AppState};
 use crate::bridge;
 use crate::bridge_host::AppAttachmentStorePort;
+use crate::config::schema::AppConfig;
 
 const TELEGRAM_SECRET_NAME: &str = "telegram_bot_token";
 
@@ -39,6 +41,9 @@ pub async fn bridge_state(
 
     let snap = state.svc.bridge_supervisor.snapshot();
     let token_present = bridge::telegram::token_path(&AppAttachmentStorePort).exists();
+    let bot_id = bridge::telegram::read_token(&AppAttachmentStorePort)
+        .map(|token| codeterm_bridge::bridge::threads::transport::bot_id_from_token(&token))
+        .filter(|id| *id != 0);
 
     let has_secret_in_vault = state
         .svc
@@ -62,6 +67,7 @@ pub async fn bridge_state(
         "active": snap.active,
         "config_enabled": config_enabled,
         "token_present": token_present,
+        "bot_id": bot_id,
         "has_secret_in_vault": has_secret_in_vault,
         "secret_name": TELEGRAM_SECRET_NAME,
         "started_at": snap.started_at.map(|t| t.to_rfc3339()),
@@ -97,11 +103,7 @@ pub async fn bridge_stop(
 
     let was_active = state.svc.bridge_supervisor.is_active();
     if !was_active {
-        let mut cfg = state.config.lock();
-        cfg.integrations.telegram_enabled = false;
-        if let Err(e) = crate::config::save_config_pub(&cfg) {
-            log::warn!("[bridge] failed to persist disable: {}", e);
-        }
+        persist_telegram_enabled(&state, false);
         return Ok(Json(json!({
             "ok": true,
             "released_in_ms": 0,
@@ -116,13 +118,7 @@ pub async fn bridge_stop(
         .await
         .map_err(|_| (StatusCode::REQUEST_TIMEOUT, "bridge stop timed out"))?;
 
-    {
-        let mut cfg = state.config.lock();
-        cfg.integrations.telegram_enabled = false;
-        if let Err(e) = crate::config::save_config_pub(&cfg) {
-            log::warn!("[bridge] failed to persist disable: {}", e);
-        }
-    }
+    persist_telegram_enabled(&state, false);
 
     crate::startup::unmark_tab_connected_service(&state.svc, &body.service);
 
@@ -139,6 +135,9 @@ pub struct StartBody {
     pub service: String,
     #[serde(default)]
     pub ensure_token: bool,
+    /// Copy the vault token over an existing token file, so a newly saved token wins.
+    #[serde(default)]
+    pub replace_token: bool,
     #[serde(default = "default_wait_for_lock_ms")]
     pub wait_for_lock_ms: u64,
 }
@@ -157,7 +156,8 @@ pub async fn bridge_start(
 
     let _op = state.svc.bridge_supervisor.op_guard().await;
 
-    if body.ensure_token && !bridge::telegram::token_path(&AppAttachmentStorePort).exists() {
+    let token_file_exists = bridge::telegram::token_path(&AppAttachmentStorePort).exists();
+    if copies_vault_token(body.ensure_token, body.replace_token, token_file_exists) {
         let store = state.svc.secrets.read().await;
         match store.get(TELEGRAM_SECRET_NAME).await {
             Ok(value) => {
@@ -175,13 +175,7 @@ pub async fn bridge_start(
         }
     }
 
-    {
-        let mut cfg = state.config.lock();
-        cfg.integrations.telegram_enabled = true;
-        if let Err(e) = crate::config::save_config_pub(&cfg) {
-            log::warn!("[bridge] failed to persist enable: {}", e);
-        }
-    }
+    persist_telegram_enabled(&state, true);
 
     let started = Instant::now();
     if let Err(e) = crate::startup::start_telegram_bridge(&state.svc).await {
@@ -232,6 +226,34 @@ pub async fn bridge_start(
             "error": last_error.unwrap_or_else(|| "no successful poll within wait window".to_string()),
         })))
     }
+}
+
+fn copies_vault_token(ensure_token: bool, replace_token: bool, token_file_exists: bool) -> bool {
+    replace_token || (ensure_token && !token_file_exists)
+}
+
+fn persist_telegram_enabled(state: &AppState, enabled: bool) {
+    let snapshot = set_telegram_enabled(&state.config, enabled, crate::config::save_config_pub);
+    crate::api::events::emit_everywhere(&state.svc.app_handle, "config-changed", &snapshot);
+}
+
+/// Returns the daemon's config after the flag change; it must reach every client,
+/// or the next UI save writes its stale copy back over it.
+fn set_telegram_enabled(
+    config: &Mutex<AppConfig>,
+    enabled: bool,
+    save: impl FnOnce(&AppConfig) -> Result<(), String>,
+) -> AppConfig {
+    let mut cfg = config.lock();
+    cfg.integrations.telegram_enabled = enabled;
+    if let Err(e) = save(&cfg) {
+        log::warn!(
+            "[bridge] failed to persist telegram_enabled={}: {}",
+            enabled,
+            e
+        );
+    }
+    cfg.clone()
 }
 
 fn persist_token_file(token: &str) -> Result<(), String> {
@@ -301,4 +323,59 @@ pub async fn bridge_announce(
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Send failed"))?;
 
     Ok(Json(json!({"ok": true})))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config_with_allowlist() -> Mutex<AppConfig> {
+        let mut cfg = AppConfig::default();
+        cfg.integrations.telegram_enabled = true;
+        cfg.integrations.telegram_allowed_users = vec!["42".to_string()];
+        Mutex::new(cfg)
+    }
+
+    #[test]
+    fn vault_token_is_copied_when_missing_or_explicitly_replaced() {
+        assert!(copies_vault_token(true, false, false));
+        assert!(!copies_vault_token(true, false, true));
+        assert!(copies_vault_token(false, true, true));
+        assert!(copies_vault_token(true, true, true));
+        assert!(!copies_vault_token(false, false, false));
+    }
+
+    #[test]
+    fn set_telegram_enabled_returns_the_config_it_persisted() {
+        let state = config_with_allowlist();
+        let mut saved = None;
+
+        let snapshot = set_telegram_enabled(&state, false, |cfg| {
+            saved = Some(serde_json::to_value(cfg).unwrap());
+            Ok(())
+        });
+
+        let snapshot = serde_json::to_value(&snapshot).unwrap();
+        assert_eq!(Some(&snapshot), saved.as_ref());
+        assert_eq!(snapshot, serde_json::to_value(&*state.lock()).unwrap());
+        assert_eq!(snapshot["integrations"]["telegram_enabled"], false);
+        assert_eq!(
+            snapshot["integrations"]["telegram_allowed_users"],
+            json!(["42"])
+        );
+    }
+
+    #[test]
+    fn set_telegram_enabled_returns_memory_state_when_save_fails() {
+        let state = config_with_allowlist();
+
+        let snapshot = set_telegram_enabled(&state, false, |_| Err("disk full".to_string()));
+
+        assert!(!snapshot.integrations.telegram_enabled);
+        assert!(!state.lock().integrations.telegram_enabled);
+        assert_eq!(
+            snapshot.integrations.telegram_allowed_users,
+            vec!["42".to_string()]
+        );
+    }
 }

@@ -1,6 +1,6 @@
 ---
 name: lane-cleanup
-description: Safely audit and remove completed or abandoned CodeTerm lane worktrees and Windows filesystem residue. Use when git worktree removal fails, a lane directory remains after cleanup, Windows reports access denied, reserved names such as NUL may exist, worktree pressure is high, or a completed task needs tab/worktree/branch cleanup without losing dirty or unmerged work.
+description: Safely audit and remove completed or abandoned Domios lane worktrees and Windows filesystem residue. Use when git worktree removal fails, a lane directory remains after cleanup, Windows reports access denied, reserved names such as NUL may exist, worktree pressure is high, or a completed task needs tab/worktree/branch cleanup without losing dirty or unmerged work.
 ---
 
 # Lane Cleanup
@@ -19,7 +19,7 @@ The script must prove all of these before deletion:
 1. The resolved lane is inside the configured worktree root.
 2. The lane is clean.
 3. Its HEAD is an ancestor of canonical HEAD.
-4. Any owning CodeTerm tab supplied by the caller is closed first.
+4. Any owning Domios tab supplied by the caller is closed first.
 5. Windows reserved-name artifacts are removed through exact extended paths.
 
 Never use this skill on the canonical checkout, a dirty lane, an unmerged lane,

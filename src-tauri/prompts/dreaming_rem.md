@@ -163,6 +163,19 @@ the lesser, and refuses once the night's merge cap is reached: then stop
 merging and log `MERGED: ... cap reached`. Different angles: `codeterm mem
 graph relate --from <a> --rel similar_to --to <b>`. When in doubt, keep both.
 
+For the preface's AREA MERGE CANDIDATES, judge the sample titles and read
+items when needed. Only if both areas mean the same topic, fold the smaller
+item count into the larger (ties: keep either):
+
+    codeterm mem area merge <smaller> --into <larger> --dry-run
+    codeterm mem area merge <smaller> --into <larger>
+
+At most 3 area merges per run; the server also enforces this cap. Leave
+unsure pairs alone. Scope stays intact. Each item has one audited change;
+`codeterm mem restore <id> --version <history-row>` undoes its area merge.
+The server saves a summary diary entry. Include one `AREA_MERGED:` summary
+line per completed area merge in this run's diary too, using returned counts.
+
 Log `DEDUP: aliases=N duplicates=M` and
 `MERGED: <lesser> -> <keeper> (<why>); ...`, or `MERGED: none`.
 
@@ -198,11 +211,20 @@ It drops only vectors of bodyless items, never the items. Log
 
 ## STAGE 7 — C Maintenance (10 updates)
 
-    codeterm mem search "" --area "" --limit 10      # no area: read, then
-    codeterm mem update <id> --area <area>           # assign if clear
-    codeterm mem search "" --kind learning --limit 10
-    codeterm mem learn-promote <id>                  # old + often accessed only
-    codeterm mem graph revive-broken --dry-run       # revive only what is still true
+Use up to 10 IDs from the supervisor preface's `UNCLASSIFIED` section.
+Read each with `codeterm mem get <id>`, then assign an area only when clear:
+
+    codeterm mem update <id> --area <area>
+
+For promotion, inspect the supplied `LEARNINGS >30d` IDs with `mem get` and
+use their age and access counts; promote only old, often-accessed learnings:
+
+    codeterm mem learn-promote <id>
+    codeterm mem graph revive-broken --dry-run
+
+An absent candidate section means zero candidates for that operation. Never
+replace it with an empty search query or an empty area filter. Revive only
+what is still true.
 
 Never delete a learning here. Log `MAINTENANCE: classified=N promoted=M revived=K`.
 
@@ -253,6 +275,7 @@ Body shape (the frontend parses these tags):
     ORPHANS_BEFORE / ORPHANS / ORPHANS_AFTER: ...
     DEDUP: ...
     MERGED: ...
+    AREA_MERGED: ...
     REPAIR: ...
     VECTOR_HYGIENE: ...
     MAINTENANCE: ...

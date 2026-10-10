@@ -22,6 +22,9 @@ export const PRESENCE_PALETTE = [
   "#d97b2b", // orange
 ] as const;
 
+/** Glyph colour on every presence hue; the hues are painted on canvas, where theme tokens cannot resolve. */
+export const PRESENCE_INK = "#fff";
+
 export function presenceColor(key: string): string {
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;

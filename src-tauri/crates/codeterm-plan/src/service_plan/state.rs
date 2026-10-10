@@ -98,6 +98,7 @@ pub enum TaskPresentation {
     HandoffRequired,
     ActionablePending,
     WaitingOnDependencies,
+    ParkedForLaterGroup,
     InProgress,
     InReview,
     QueuedForQa,
@@ -158,11 +159,14 @@ pub fn task_projection(plan: &Plan, task: &crate::plan::Task) -> TaskProjection 
             &task.qa_state,
         )
     };
-    let presentation = if has_open_subtasks
+    let presentation = if task.status == TaskStatus::Pending && is_later_group_task(plan, task) {
+        TaskPresentation::ParkedForLaterGroup
+    } else if has_open_subtasks
         && matches!(
             &base_presentation,
             TaskPresentation::ActionablePending | TaskPresentation::InProgress
-        ) {
+        )
+    {
         TaskPresentation::BlockedOnSubtasks
     } else {
         base_presentation
@@ -180,10 +184,43 @@ impl TaskProjection {
             TaskPresentation::WaitingOnDependencies => {
                 self.dependency_waits.iter().any(|wait| wait.missing)
             }
+            TaskPresentation::ParkedForLaterGroup => false,
             TaskPresentation::Paused | TaskPresentation::Terminal => false,
             _ => true,
         }
     }
+}
+
+fn active_group_index(plan: &Plan) -> Option<usize> {
+    plan.task_groups.iter().position(|group| {
+        plan.tasks.iter().any(|task| {
+            task.group.as_deref() == Some(group.key.as_str()) && !task.status.is_terminal()
+        })
+    })
+}
+
+fn is_later_group_task(plan: &Plan, task: &crate::plan::Task) -> bool {
+    let Some(current_index) = active_group_index(plan) else {
+        return false;
+    };
+    let Some(task_group) = task.group.as_deref() else {
+        return false;
+    };
+    plan.task_groups
+        .iter()
+        .position(|group| group.key == task_group)
+        .is_some_and(|task_index| task_index > current_index)
+}
+
+pub fn task_is_parked_for_later_group(plan: &Plan, task: &crate::plan::Task) -> bool {
+    task.status == TaskStatus::Pending && is_later_group_task(plan, task)
+}
+
+pub fn parked_later_group_task_count(plan: &Plan) -> usize {
+    plan.tasks
+        .iter()
+        .filter(|task| task_is_parked_for_later_group(plan, task))
+        .count()
 }
 
 /// Tasks the plan owner can act on now, in plan order. Dependency-waiting and
@@ -191,19 +228,23 @@ impl TaskProjection {
 pub fn orchestrator_actionable_task_ids(plan: &Plan) -> Vec<String> {
     plan.tasks
         .iter()
-        .filter(|task| task_projection(plan, task).needs_orchestrator_action())
+        .filter(|task| {
+            crate::plan::reconcile::active_review_hold_note(task).is_none()
+                && task_projection(plan, task).needs_orchestrator_action()
+        })
         .map(|task| task.id.clone())
         .collect()
 }
 
 pub fn plan_needs_orchestrator_action(plan: &Plan) -> bool {
-    plan.tasks
-        .iter()
-        .any(|task| task_projection(plan, task).needs_orchestrator_action())
+    plan.tasks.iter().any(|task| {
+        crate::plan::reconcile::active_review_hold_note(task).is_none()
+            && task_projection(plan, task).needs_orchestrator_action()
+    })
 }
 
 /// The single count of tasks the Orchestrator still owes attention to beyond
-/// ordinary dispatch: every task explicitly `Blocked`, plus every `Pending`
+/// ordinary dispatch: every task explicitly `Blocked`, plus every actionable `Pending`
 /// task still gated on an unmet dependency. `plan next`, the orchestrator
 /// status projection, and the heartbeat all call this one function instead
 /// of each deciding independently what "blocked" means — a fixture change
@@ -211,10 +252,14 @@ pub fn plan_needs_orchestrator_action(plan: &Plan) -> bool {
 pub fn outstanding_blocked_count(plan: &Plan) -> usize {
     plan.tasks
         .iter()
-        .filter(|task| {
-            task.status == TaskStatus::Blocked
-                || (task.status == TaskStatus::Pending
-                    && !task_projection(plan, task).dependency_waits.is_empty())
+        .filter(|task| match task.status {
+            TaskStatus::Blocked => true,
+            TaskStatus::Pending => {
+                let projection = task_projection(plan, task);
+                projection.presentation != TaskPresentation::ParkedForLaterGroup
+                    && !projection.dependency_waits.is_empty()
+            }
+            _ => false,
         })
         .count()
 }
@@ -275,7 +320,7 @@ pub struct PlanStateSnapshot {
     pub live_agents: Vec<LiveAgent>,
     pub recent_strides: Vec<StrideSnapshot>,
     pub pending_regression_gates: Vec<super::milestone_gates::RegressionGate>,
-    // Pending gates minus authorized waivers — the set that actually blocks dispatch.
+    // Unwaived pending regression records, retained for plan status.
     pub blocking_regression_gates: Vec<super::milestone_gates::RegressionGate>,
     // Terminal groups whose retrospective is missing or predates their last close.
     pub pending_group_retrospectives: Vec<super::milestone_gates::RegressionGate>,

@@ -42,3 +42,8 @@ export function remoteTeamIdentity(tab: Tab): RemoteTeamIdentity | null {
     peerName: owner.peer_name,
   };
 }
+
+export function meshBadgeLabel(tab: Tab): string | null {
+  const identity = remoteIdentity(tab);
+  return identity ? `on ${identity.peer}` : null;
+}

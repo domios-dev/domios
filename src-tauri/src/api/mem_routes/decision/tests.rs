@@ -2,19 +2,19 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use codeterm_types::decision::{
-    DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
-    DecisionRequest,
+    deadline, DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
+    DecisionRequest, TokenMode,
 };
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 
 use super::sessions_source::SessionCandidate;
 use super::{
-    candidate, registered_adapters, select_model_id, supporter_state, supporter_token_dir,
-    token_store, DecisionBackend, SupporterRegistry, Untouched,
+    candidate, registered_adapters, supporter_state, supporter_token_dir, token_store,
+    DecisionBackend, SupporterRegistry, Untouched,
 };
 use crate::api::mem_routes::search::{
     baseline_search, resolve_search, run_blocking_search, RecallBackend, SearchError, SearchParams,
@@ -43,6 +43,8 @@ struct SeededBackend {
     plans: Vec<PlanSearchHit>,
     graph_calls: AtomicUsize,
     sessions: Vec<SessionCandidate>,
+    runtime: Arc<crate::service::supporter::SupporterRuntime>,
+    _journal_dir: tempfile::TempDir,
 }
 
 impl RecallBackend for SeededBackend {
@@ -68,6 +70,9 @@ impl RecallBackend for SeededBackend {
 }
 
 impl DecisionBackend for SeededBackend {
+    fn supporter_runtime(&self) -> Arc<crate::service::supporter::SupporterRuntime> {
+        self.runtime.clone()
+    }
     fn recall_untouched(
         &self,
         q: &SearchQuery,
@@ -133,7 +138,12 @@ fn seeded() -> SeededBackend {
             .unwrap();
         ids.push(id);
     }
+    let journal_dir = tempfile::tempdir().unwrap();
     SeededBackend {
+        runtime: Arc::new(crate::service::supporter::SupporterRuntime::new(
+            journal_dir.path().into(),
+        )),
+        _journal_dir: journal_dir,
         mem,
         ids,
         plans: vec![plan_hit()],
@@ -210,9 +220,8 @@ fn params(limit: usize) -> SearchParams {
 /// Recall-only pool: the shipped defaults add graph candidates, which these tests do not cover.
 fn enabled_cfg() -> SupporterConfig {
     SupporterConfig {
-        adapter: STUB_ID.into(),
+        adapter: Some(STUB_ID.into()),
         memory_rerank: MemoryRerankConfig {
-            enabled: true,
             sources: crate::config::schema::SupporterSources {
                 graph: 0,
                 docs: 0,
@@ -235,6 +244,15 @@ enum StubMode {
 
 struct StubModel {
     mode: StubMode,
+    finished: Option<mpsc::Sender<()>>,
+}
+
+impl Drop for StubModel {
+    fn drop(&mut self) {
+        if let Some(finished) = &self.finished {
+            let _ = finished.send(());
+        }
+    }
 }
 
 impl DecisionModel for StubModel {
@@ -242,11 +260,19 @@ impl DecisionModel for StubModel {
         STUB_ID
     }
 
+    fn token_mode(&self) -> TokenMode {
+        TokenMode::None
+    }
+
     fn primitives(&self) -> DecisionPrimitives {
         DecisionPrimitives {
             noul: true,
             ..DecisionPrimitives::default()
         }
+    }
+
+    fn model_id(&self) -> Option<String> {
+        Some("stub-model".into())
     }
 
     fn models(&self) -> Vec<DecisionModelInfo> {
@@ -291,8 +317,34 @@ impl DecisionModel for StubModel {
 
 fn registry_with(mode: StubMode) -> SupporterRegistry {
     let registry = SupporterRegistry::new();
-    registry.register(STUB_ID, Arc::new(StubModel { mode }));
+    registry.register(
+        STUB_ID,
+        Arc::new(StubModel {
+            mode,
+            finished: None,
+        }),
+    );
     registry
+}
+
+fn registry_with_completion(mode: StubMode) -> (SupporterRegistry, mpsc::Receiver<()>) {
+    let (finished, completion) = mpsc::channel();
+    let registry = SupporterRegistry::new();
+    registry.register(
+        STUB_ID,
+        Arc::new(StubModel {
+            mode,
+            finished: Some(finished),
+        }),
+    );
+    (registry, completion)
+}
+
+fn finish_registry(registry: SupporterRegistry, completion: mpsc::Receiver<()>) {
+    drop(registry);
+    completion
+        .recv_timeout(Duration::from_secs(10))
+        .expect("fixture_adapter_cleanup_liveness_exceeded");
 }
 
 fn relevance_registry(by_title: &[(&str, f64)]) -> SupporterRegistry {
@@ -325,7 +377,7 @@ fn without_envelope(mut output: Value) -> Value {
 }
 
 #[test]
-fn supporter_status_distinguishes_missing_token_token_only_and_active() {
+fn supporter_status_distinguishes_not_connected_token_states_and_active() {
     let missing = TokenStatus {
         present: false,
         path: "token.json".into(),
@@ -342,11 +394,46 @@ fn supporter_status_distinguishes_missing_token_token_only_and_active() {
         mode_ok: Some(false),
     };
 
-    assert_eq!(supporter_state(false, &missing, true), "no_token");
-    assert_eq!(supporter_state(false, &set, true), "token_only");
-    assert_eq!(supporter_state(true, &set, true), "active");
-    assert_eq!(supporter_state(false, &unusable, true), "token_unusable");
-    assert_eq!(supporter_state(false, &set, false), "adapter_unavailable");
+    assert_eq!(
+        supporter_state(true, &missing, true, TokenMode::Required),
+        "no_token"
+    );
+    assert_eq!(
+        supporter_state(true, &set, true, TokenMode::Required),
+        "active"
+    );
+    assert_eq!(
+        supporter_state(true, &set, true, TokenMode::Required),
+        "active"
+    );
+    assert_eq!(
+        supporter_state(true, &unusable, true, TokenMode::Required),
+        "token_unusable"
+    );
+    assert_eq!(
+        supporter_state(true, &set, false, TokenMode::Required),
+        "adapter_unavailable"
+    );
+}
+
+#[test]
+fn supporter_state_optional_and_none_ignore_missing_tokens() {
+    let missing = TokenStatus {
+        present: false,
+        path: "token.json".into(),
+        mode_ok: None,
+    };
+    for mode in [TokenMode::Optional, TokenMode::None] {
+        assert_eq!(
+            supporter_state(false, &missing, true, mode),
+            "not_connected"
+        );
+        assert_eq!(supporter_state(true, &missing, true, mode), "active");
+        assert_eq!(
+            supporter_state(true, &missing, false, mode),
+            "adapter_unavailable"
+        );
+    }
 }
 
 #[test]
@@ -357,29 +444,13 @@ fn supporter_models_lists_registered_models() {
         registered_adapters(&registry),
         vec![json!({
             "id": STUB_ID,
+            "token_mode": "none",
+            "pricing": null,
+            "metadata": { "display_name": null, "help_url": null, "server_address": null, "settings_url": null },
             "primitives": { "choice": false, "noul": true, "score": false },
             "models": [{ "id": "stub-model", "display_name": "Stub Model" }],
         })]
     );
-}
-
-#[test]
-fn supporter_models_and_use_refuse_unlisted_models() {
-    let models = vec![DecisionModelInfo {
-        id: "jev-current".into(),
-        display_name: "Jev current".into(),
-    }];
-
-    assert_eq!(
-        select_model_id("stub", &models, Some("jev-current".into()), false, None).unwrap(),
-        Some("jev-current".into())
-    );
-    assert_eq!(
-        select_model_id("stub", &models, None, true, Some("jev-current".into())).unwrap(),
-        Some("jev-current".into())
-    );
-    let error = select_model_id("stub", &models, Some("unknown".into()), false, None).unwrap_err();
-    assert!(error.contains("jev-current"));
 }
 
 #[test]
@@ -398,13 +469,13 @@ fn decision_candidate_carries_kind() {
 }
 
 #[test]
-fn decision_off_response_is_byte_identical() {
+fn supporter_not_connected_search_is_baseline_identical() {
     let backend = seeded();
     let registry = relevance_registry(&[(TITLES[3], 0.9)]);
     let mut request = params(3);
     request.project = Some("/seeded/project".into());
     let off = SupporterConfig {
-        adapter: STUB_ID.into(),
+        adapter: Some("unregistered".into()),
         ..SupporterConfig::default()
     };
     let overridden = SearchParams {
@@ -481,6 +552,7 @@ fn decision_applied_reorders_and_annotates() {
 
 #[test]
 fn decision_applied_low_confidence_envelope() {
+    let _scope = clock::fixture_clock().enter();
     let backend = seeded();
     let registry = relevance_registry(&[
         (TITLES[0], 0.02),
@@ -494,61 +566,38 @@ fn decision_applied_low_confidence_envelope() {
     };
     let output = resolve_search(&backend, &registry, &enabled_cfg(), request).unwrap();
 
+    assert_eq!(output["supporter"]["status"], "applied", "{output}");
     assert_eq!(titles(&output), vec![TITLES[1], TITLES[2], TITLES[0]]);
-    assert_eq!(output["supporter"]["status"], "applied");
     assert_eq!(output["supporter"]["low_confidence"], true);
     assert_eq!(output["supporter"]["max_relevance"], 0.10);
 }
 
 #[test]
 fn decision_fallback_hits_equal_baseline() {
-    let (_held_sender, never_signalled) = mpsc::channel::<()>();
-    let cases: Vec<(&str, SupporterRegistry, SupporterConfig)> = vec![
-        (
-            "adapter_error",
-            registry_with(StubMode::Fail(DecisionError::Http(500))),
-            enabled_cfg(),
-        ),
-        (
-            "deadline",
-            registry_with(StubMode::Fail(DecisionError::Deadline)),
-            enabled_cfg(),
-        ),
-        (
-            "deadline",
-            registry_with(StubMode::Gate {
-                signal: Mutex::new(never_signalled),
-                released: AtomicBool::new(false),
-            }),
-            SupporterConfig {
-                deadline_ms: 100,
-                ..enabled_cfg()
-            },
-        ),
-        ("no_adapter", SupporterRegistry::new(), enabled_cfg()),
-        (
-            "unavailable",
-            registry_with(StubMode::Fail(DecisionError::Unavailable(
-                "no token".into(),
-            ))),
-            enabled_cfg(),
-        ),
+    let _scope = clock::fixture_clock().enter();
+    let cases = [
+        ("adapter_error", DecisionError::Http(500)),
+        ("deadline", DecisionError::Deadline),
+        ("budget", DecisionError::Budget),
+        ("unavailable", DecisionError::Unavailable("no token".into())),
     ];
     let backend = seeded();
     let mut request = params(2);
     request.project = Some("/seeded/project".into());
-    for (reason, registry, cfg) in cases {
+    for (reason, error) in cases {
+        let (registry, completion) = registry_with_completion(StubMode::Fail(error));
         let baseline = baseline_oracle(&backend, &request);
         let output = resolve_search(
             &backend,
             &registry,
-            &cfg,
+            &enabled_cfg(),
             SearchParams {
                 supporter: Some(true),
                 ..request.clone()
             },
         )
         .unwrap();
+        finish_registry(registry, completion);
         assert_eq!(
             normalized(json!({ "hits": output["hits"] })),
             normalized(json!({ "hits": baseline["hits"] })),
@@ -710,6 +759,7 @@ fn supporter_token_dir_is_under_data_dir() {
     assert!(token_store().path(STUB_ID).starts_with(&dir));
 }
 
+mod clock;
 mod docs;
 mod graph;
 mod sessions;

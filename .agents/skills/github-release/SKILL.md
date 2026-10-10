@@ -1,14 +1,14 @@
 ---
 name: github-release
 description: >-
-  End-to-end GitHub release workflow for CodeTerm. Use when asked to release,
+  End-to-end GitHub release workflow for Domios. Use when asked to release,
   ship, tag, publish, bump a version, trigger the self-hosted build machine,
   monitor release CI, produce signed/notarized macOS/Linux/Windows artifacts,
-  update the public updater mirror, or debug the CodeTerm release pipeline.
+  update the public updater mirror, or debug the Domios release pipeline.
 ---
 
 
-# End-to-end CodeTerm release to GitHub
+# End-to-end Domios release to GitHub
 
 **Default now = one `release-X.Y.Z` tag on master; the self-hosted runners do the rest** (see
 "Default release path" right below). The pipeline: bump version on the open `release/X.Y.Z` branch →
@@ -287,7 +287,7 @@ Then start dev from the main checkout and visually confirm the app:
 
 ```bash
 ./build.sh kill
-codeterm tab new --cmd "cd $(pwd) && ./build.sh dev"
+codeterm tab new --team <team-id> --purpose dev --cmd "cd $(pwd) && ./build.sh dev"
 curl -s http://127.0.0.1:7686/api/health
 ```
 
@@ -411,7 +411,7 @@ gh release upload v$VER "$ARM" "$X64" --clobber
 
 The GUI updater fetches `latest.json` anonymously, so the manifest plus the asset copies live in `rollacode/codeterm-releases`. Same files, separate repo.
 
-**⚠️ Format gotcha:** updater artifact names depend on `bundle.createUpdaterArtifacts`. CodeTerm currently uses Tauri v2 mode (`true`), not `"v1Compatible"`:
+**⚠️ Format gotcha:** updater artifact names depend on `bundle.createUpdaterArtifacts`. Domios currently uses Tauri v2 mode (`true`), not `"v1Compatible"`:
 
 - macOS: `CodeTerm_aarch64.app.tar.gz` / `CodeTerm_x64.app.tar.gz` (the `.app` bundle wrapped in gzipped tar)
 - Linux: `CodeTerm_<ver>_amd64.AppImage`
@@ -488,8 +488,8 @@ python3 -m json.tool "$WORK/latest.json" >/dev/null  # validate
 if ! gh release view "v$VER" --repo rollacode/codeterm-releases >/dev/null 2>&1; then
   gh release create "v$VER" \
     --repo rollacode/codeterm-releases \
-    --title "CodeTerm v$VER" \
-    --notes "Auto-mirrored release artifacts for CodeTerm v$VER. Source: rollacode/codeterm v$VER." \
+    --title "Domios v$VER" \
+    --notes "Auto-mirrored release artifacts for Domios v$VER. Source: rollacode/codeterm v$VER." \
     --latest
 fi
 
@@ -589,7 +589,7 @@ ROG-specific gotchas (still relevant if you fall back to ROG):
 
 Alternative paths (debugging tactics, not normal flow):
 - Send to an existing General Agent tab via `codeterm --mesh BLACKSTAR send --tab <general> --from-file <msg.txt>` to bypass `agent spawn` argv-split bugs.
-- Open a parallel shell tab on the builder with `codeterm tab new --workspace` for tactical interventions while the agent runs the long compile.
+- Open a parallel shell tab on the builder with `codeterm tab new --purpose build --workspace <workspace-id>` for tactical interventions while the agent runs the long compile.
 
 ### 9. Publish release + verify
 
@@ -806,13 +806,11 @@ codeterm update install \
   --continue-prompt "after restart, verify tab performance"
 ```
 
-`--continue-tab` defaults to `$CODETERM_TAB_ID`. The helper:
-1. Sleeps 2s, lets the calling CLI return.
-2. `taskkill /F /IM codeterm.exe codeterm-embed.exe`.
-3. Runs the NSIS installer with `/S` (silent — no UAC since `installMode=currentUser`).
-4. Launches the freshly installed `codeterm.exe`.
-5. If `--continue-prompt`: polls `/api/health` until 200, then `codeterm send --tab <id>` resumes the calling agent.
-6. Logs to `%LocalAppData%\codeterm\self-install.log`.
+`--continue-tab` defaults to `$CODETERM_TAB_ID`. Before detaching, the CLI saves the desk through `/api/session/save` with the continuation; the relaunched daemon delivers it once, after that tab's own resumed session is agent-ready (`codeterm docs TAB-LIFECYCLE`, "Resume after restart"). Every other agent that was mid-turn gets one default continue the same way. The helper:
+1. `taskkill /F /IM codeterm.exe codeterm-embed.exe`.
+2. Runs the NSIS installer with `/S` (silent — no UAC since `installMode=currentUser`).
+3. Launches the freshly installed `codeterm.exe`. It never writes to a tab.
+4. Logs to `%LocalAppData%\codeterm\self-install.log`.
 
 Fallback when CLI itself is broken or version-mismatched — use the standalone PowerShell script:
 ```powershell
@@ -826,8 +824,8 @@ The script lives in this skill's folder at `<repo>/.agents/skills/github-release
 
 Gotchas:
 - Don't pass `-Verb RunAs` to the installer. `installMode=currentUser` doesn't need elevation; RunAs triggers UAC and hangs on headless.
-- Helper survives the daemon, not your terminal tab — if invoked from a CodeTerm-managed tab, the tab dies with the daemon. Tail progress from outside: `Get-Content -Wait "$env:LocalAppData\codeterm\self-install.log"`.
-- Auto-resume of agent tabs is best-effort — `~/.codeterm/sessions/last.json` may be slightly behind if the daemon was killed abruptly.
+- Helper survives the daemon, not your terminal tab — if invoked from a Domios-managed tab, the tab dies with the daemon. Tail progress from outside: `Get-Content -Wait "$env:LocalAppData\codeterm\self-install.log"`.
+- A daemon older than the restart-continuation owner ignores the continuation (the CLI warns `predates restart continuation`); the first install INTO a build with the owner continues no tab.
 
 ### Path 3 — full release publish
 
@@ -1049,6 +1047,6 @@ meaningful. It then writes the exact same Markdown to both repositories.
 
 ## Internal references
 
-Moved out of the embedded `codeterm docs` pages because they describe CodeTerm's own source:
+Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
 
 - [references/updater-internals.md](references/updater-internals.md) — the auto-install flow

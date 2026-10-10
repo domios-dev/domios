@@ -3,6 +3,7 @@ use std::sync::Arc;
 use super::*;
 use crate::agent::provider::{HookEventBinding, HookIngestionRoute};
 use crate::multiplexer::state::MultiplexerState;
+use codeterm_types::pty::{reconcile_status, BootStage, TabStatus};
 use codeterm_util::lock_hold::TimedRwLock;
 
 fn agent_tab() -> (MuxState, String) {
@@ -10,7 +11,9 @@ fn agent_tab() -> (MuxState, String) {
     let mux: MuxState = Arc::new(TimedRwLock::new("mux-test", state));
     {
         let mut guard = mux.write();
-        guard.get_tab_mut(&tab_id).unwrap().agent_type = Some("fixture".into());
+        let tab = guard.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("fixture".into());
+        tab.agent_session_id = Some("ses_tab".into());
     }
     (mux, tab_id)
 }
@@ -79,21 +82,69 @@ fn permission_request_unmapped_stream_event_changes_nothing() {
 fn permission_request_declared_verdict_moves_the_tab_once() {
     let (mux, tab_id) = agent_tab();
 
-    assert!(apply(&mux, &tab_id, ProviderStateVerdict::Working));
+    assert!(apply(
+        &mux,
+        &tab_id,
+        "ses_tab",
+        ProviderStateVerdict::Working
+    ));
     assert_eq!(tab_state(&mux, &tab_id), Some(TimelineState::Working));
 
-    assert!(apply(&mux, &tab_id, ProviderStateVerdict::Idle));
+    assert!(apply(&mux, &tab_id, "ses_tab", ProviderStateVerdict::Idle));
     assert_eq!(tab_state(&mux, &tab_id), Some(TimelineState::Idle));
 
     // A repeated verdict is not a change, so nothing re-emits.
-    assert!(!apply(&mux, &tab_id, ProviderStateVerdict::Idle));
+    assert!(!apply(&mux, &tab_id, "ses_tab", ProviderStateVerdict::Idle));
+}
+
+#[test]
+fn opencode_session_status_promotes_quiescent_sidebar_to_working() {
+    let verdict = declared_state_verdict(&opencode_like(), "session.status").unwrap();
+    let state = live_state_for(verdict).state;
+
+    assert_eq!(
+        reconcile_status(
+            TabStatus::Idle,
+            Some(BootStage::AgentReady),
+            Some(state),
+            true,
+            false,
+        ),
+        TabStatus::Working
+    );
+}
+
+#[test]
+fn declared_verdict_changes_only_the_tab_bound_session() {
+    let (mux, tab_id) = agent_tab();
+
+    assert!(!apply(
+        &mux,
+        &tab_id,
+        "ses_sibling",
+        ProviderStateVerdict::Working
+    ));
+    assert_eq!(tab_state(&mux, &tab_id), None);
+
+    assert!(apply(
+        &mux,
+        &tab_id,
+        "ses_tab",
+        ProviderStateVerdict::Working
+    ));
+    assert_eq!(tab_state(&mux, &tab_id), Some(TimelineState::Working));
 }
 
 #[test]
 fn permission_request_verdict_never_touches_a_non_agent_tab() {
     let (state, tab_id) = MultiplexerState::new();
     let mux: MuxState = Arc::new(TimedRwLock::new("mux-test", state));
-    assert!(!apply(&mux, &tab_id, ProviderStateVerdict::Working));
+    assert!(!apply(
+        &mux,
+        &tab_id,
+        "ses_missing",
+        ProviderStateVerdict::Working
+    ));
     assert!(mux.read().get_tab(&tab_id).unwrap().agent_state.is_none());
 }
 
@@ -106,5 +157,13 @@ fn permission_request_verdict_maps_to_the_expected_live_state() {
     assert_eq!(
         live_state_for(ProviderStateVerdict::Idle).state,
         TimelineState::Idle
+    );
+}
+
+#[test]
+fn codex_rpc_control_waiting_maps_to_question_state() {
+    assert_eq!(
+        live_state_for(ProviderStateVerdict::Waiting).state,
+        TimelineState::Question
     );
 }

@@ -19,6 +19,9 @@ function isFileDiff(value: unknown): value is FileDiff {
   const diff = value as Partial<Record<keyof FileDiff, unknown>>;
   if (typeof diff.path !== "string" || !diff.path.trim()) return false;
   if (diff.movePath !== undefined && typeof diff.movePath !== "string") return false;
+  if (diff.kind !== undefined && !["add", "modify", "delete", "rename"].includes(String(diff.kind))) return false;
+  if (diff.binary !== undefined && typeof diff.binary !== "boolean") return false;
+  if (diff.truncated !== undefined && typeof diff.truncated !== "boolean") return false;
   if (!isCount(diff.additions) || !isCount(diff.deletions) || !Array.isArray(diff.hunks) || !diff.hunks.every(isHunk)) return false;
   const lines = (diff.hunks as FileDiffHunk[]).flatMap((hunk) => hunk.lines);
   // Header counts must be the hunks' own; a count the detail cannot back is never shown.
@@ -32,4 +35,15 @@ export function wellFormedFileDiffs(value: unknown): FileDiff[] | undefined {
   const valid = value.filter(isFileDiff);
   if (valid.length === 0) return undefined;
   return valid.length === value.length ? (value as FileDiff[]) : valid;
+}
+
+export function hunkHeader(hunk: FileDiffHunk): string {
+  return `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`;
+}
+
+/** One file's hunks as unified diff text with `---`/`+++` headers. */
+export function fileDiffText(diff: FileDiff): string {
+  const before = diff.kind === "add" ? "/dev/null" : `a/${diff.path}`;
+  const after = diff.kind === "delete" ? "/dev/null" : `b/${diff.movePath ?? diff.path}`;
+  return [`--- ${before}`, `+++ ${after}`, ...diff.hunks.flatMap((hunk) => [hunkHeader(hunk), ...hunk.lines])].join("\n");
 }

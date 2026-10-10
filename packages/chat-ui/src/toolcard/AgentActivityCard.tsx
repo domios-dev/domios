@@ -58,8 +58,8 @@ export function AgentActivityCard({ event, expanded, onToggle, renderAction }: {
     <section
       data-testid="chat-agent-activity"
       aria-label={`Agent activity, ${counts}`}
-      className="mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-md border-l-2"
-      style={{ borderLeftColor: "var(--ct-border)", background: "color-mix(in srgb, var(--ct-surface) 60%, transparent)" }}
+      className="mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-md"
+      style={{ background: "color-mix(in srgb, var(--ct-surface) 60%, transparent)" }}
     >
       <button
         type="button"

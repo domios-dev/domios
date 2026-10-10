@@ -1,6 +1,6 @@
 ---
 name: agent-restart
-description: "Exercise graceful, forced, and recovery paths for a CodeTerm agent restart."
+description: "Exercise graceful, forced, and recovery paths for a Domios agent restart."
 ---
 
 # Agent-restart testing playbook
@@ -16,8 +16,7 @@ Cross-references:
 
 ## What the flow does
 
-Agent restart takes an observed live provider through its graceful exit command and then auto-resumes
-the same Tab; a provider that already exited to its shell is recovered in place (section 6). Update shutdown is deliberately different: it tears down owned
+Agent restart takes an observed live provider through its graceful exit command and then resumes or fresh-launches it in the same Tab; a provider that already exited to its shell is recovered in place (section 6). A confirmed `LaunchBindingUnconfirmed` shell with a known PTY provider and no verified recovery session selectable from its lineage or journal also starts that provider fresh from its recorded launch. Update shutdown is deliberately different: it tears down owned
 PTY process trees without sending `/exit`, preserves each Tab's session binding
 and lifecycle lineage, persists the snapshot, and resumes after relaunch. Steps:
 
@@ -25,7 +24,13 @@ and lifecycle lineage, persists the snapshot, and resumes after relaunch. Steps:
 2. Send the provider's exit command (Claude: `/exit`, etc.) only when the Tab
    reads `idle`. A busy composer would queue it as a user turn, so a working
    agent skips it and is stopped at the process by step 4.
+   A provider declaring `commands.idleRestartTermination` skips the command
+   for its own nonce-verified idle session with no known background work.
+   Claude declares this because its transcript is written per message.
 3. Wait up to `grace_secs` (default 10) for the PTY to exit cleanly.
+   A proven provider exit cancels the exit command's submit wait through the
+   existing per-PTY cycle signal, even when `/exit` writes no user transcript
+   turn. This ends shutdown without claiming message-delivery confirmation.
 4. If `--force` is set, the Tab was busy, or the timeout fires, kill the PTY.
 5. The existing Tab lifecycle detects the exit and respawns the agent
    with `--resume <session_id>` if a session id was recorded — otherwise
@@ -103,9 +108,9 @@ header. Wait for the cooldown, retry, and the call should succeed.
 ## 4. Error cases
 
 - **`404`** — Tab id doesn't exist (typo, closed Tab).
-- **`400`** — the Tab has no agent and no verified prior session, its
-  exited session is not owned by exactly one provider, it has no live
-  shell, or the provider doesn't support restart.
+- **`400`** — liveness is unobserved and the Tab is not a confirmed bare
+  shell eligible for fresh launch, its exited session is not owned by exactly
+  one provider, it has no live shell, or the provider doesn't support restart.
 - **`500`** — internal failure (PTY spawn error). Check
   `~/.codeterm-dev/logs/codeterm.log` for the trace.
 
@@ -215,9 +220,29 @@ from `codeterm tab list` shows the tab `absent`, then run `codeterm agent restar
 dev log shows `[agent-launch] origin=exit_recovery`, the tab is `live` on the same
 PTY, and a Chat UI send is delivered without `tab_busy_refused`.
 
-## Internal references
+For a bare shell at `LaunchBindingUnconfirmed`, with a known provider and no
+verified recovery session selectable from lineage or journal, run `codeterm agent restart --tab <id>`. It replaces
+the shell PTY, launches the provider from the recorded spawn without resuming
+the unverified session, and reports `action=fresh_launch`. If the provider or
+recorded launch cannot be used, the command fails instead of reporting success.
 
-Moved out of the embedded `codeterm docs` pages because they describe CodeTerm's own source:
+## Implementation sources
 
-- [references/lifecycle.md](references/lifecycle.md) — restore, liveness and lifecycle-journal internals
-- [references/shell-integration.md](references/shell-integration.md) — per-shell cwd integration
+Restart stage telemetry uses `[restart-timing]` with `tab`, `pty`, `stage`, and
+`at_ms` (Unix milliseconds). Compare `exit-request`, `process-exit`,
+`relaunch-request`, `relaunch-spawn`, `session-bound`, and `ready` for both agent
+restart and the model restart fallback. `idle-terminate` proves the bypass ran.
+`first-composer` records the first composer observed by the launch input gate;
+hook-only resume can settle readiness without entering that gate. Never infer a
+composer timestamp from `session-bound` or `ready`.
+
+`provider-exit` records shutdown released by proven process exit rather than
+submit confirmation. `relaunch-worker`, `relaunch-pty-request`, and
+`relaunch-pty-created` split thread scheduling and launch setup from native PTY
+creation and reader/link setup before `relaunch-spawn`. Sidecar preparation runs
+in parallel with PTY creation; shell readiness follows `relaunch-spawn`.
+
+- `src-tauri/src/service/agent_restart/exit_recovery.rs` — in-place recovery of an exited agent session
+- `src-tauri/src/service/pty_io/lifecycle.rs` — restored agent materialization and PTY lifecycle
+- `src-tauri/src/service/tab/lifecycle_exit.rs` — identity retirement after observed exits
+- `src-tauri/src/crash/restore_report.rs` — startup restore outcomes and liveness classification

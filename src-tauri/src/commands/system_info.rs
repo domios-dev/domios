@@ -201,50 +201,21 @@ pub async fn get_shell_diagnostics() -> serde_json::Value {
 
 /// Open a new shell tab and run `winget install Microsoft.PowerShell` in it.
 #[tauri::command]
-pub fn suggest_install_pwsh(
+pub async fn suggest_install_pwsh(
     svc: tauri::State<'_, crate::service::ServiceState>,
 ) -> Result<String, String> {
-    use crate::service::spawn::{SpawnTabSpec, TabCommand, TabVisibility};
-    let handle = svc.spawn_tab(SpawnTabSpec {
-        title: Some("Install pwsh 7".to_string()),
-        visibility: TabVisibility::Visible,
-        command: TabCommand::Shell,
-        ..Default::default()
-    })?;
-    let tab_id = handle.tab_id.clone();
-    let svc_arc = svc.inner().clone();
-    let tab_id_bg = tab_id.clone();
-    std::thread::spawn(move || {
-        let cmd_text = "winget install Microsoft.PowerShell";
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
-        loop {
-            if std::time::Instant::now() > deadline {
-                log::warn!(
-                    "[suggest_install_pwsh] gave up waiting for PTY on {}",
-                    tab_id_bg
-                );
-                return;
-            }
-            let pty_id = svc_arc
-                .mux
-                .write()
-                .get_tab(&tab_id_bg)
-                .and_then(|p| p.pty_id.clone());
-            if let Some(pid) = pty_id {
-                let _ = crate::service::pty_io::poll_shell_prompt(
-                    &svc_arc.screen_state,
-                    &pid,
-                    std::time::Duration::from_secs(10),
-                );
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(150));
-        }
-        if let Err(e) = svc_arc.send_text(&tab_id_bg, cmd_text) {
-            log::warn!("[suggest_install_pwsh] send_text failed: {}", e);
-        }
-    });
-    Ok(tab_id)
+    let svc = svc.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        svc.spawn_tab(crate::service::spawn::SpawnTabSpec {
+            shell: Some("powershell".into()),
+            title: Some("InstallPwsh".into()),
+            cmd: Some("winget install Microsoft.PowerShell".into()),
+            ..Default::default()
+        })
+        .map(|handle| handle.tab_id)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// Frontend reports WebGL renderer health here. Goes into the daemon

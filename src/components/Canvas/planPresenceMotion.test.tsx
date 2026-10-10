@@ -347,6 +347,24 @@ describe("presence motion stylesheet", () => {
     expect(css).not.toMatch(/\.(plan-side-panel|plan-view-modes)[^{]*\{[^}]*transition(-property)?:\s*all\b/);
   });
 
+  it("slides the right side panel a short distance on a curve that never overshoots", () => {
+    const tokens = readSource("../../styles/tokens.css");
+    for (const selector of ['.plan-side-panel[data-state="entering"]', '.plan-side-panel[data-state="closing"]']) {
+      const [name, , easing] = (/animation:\s*([^;]+);/.exec(ruleBody(css, selector))?.[1] ?? "").trim().split(/\s+/);
+      const token = /var\((--ct-ease-[\w-]+)\)/.exec(easing ?? "")?.[1];
+      expect(token, `${selector} easing token`).toBeTruthy();
+      const curve = new RegExp(`${token}:\\s*cubic-bezier\\(([^)]+)\\)`).exec(tokens)?.[1].split(",").map(Number) ?? [];
+      expect(curve, `${token} curve`).toHaveLength(4);
+      for (const y of [curve[1], curve[3]]) expect(y >= 0 && y <= 1, `${token} control y ${y}`).toBe(true);
+      const offsets = Array.from(keyframesBody(css, name).matchAll(/translateX\(([^)]+)\)/g), (match) => match[1]);
+      expect(offsets.length, `${name} moves horizontally`).toBeGreaterThan(0);
+      for (const offset of offsets) {
+        expect(offset, `${name} offset`).toMatch(/^(?:0|-?\d+px)$/);
+        expect(Math.abs(Number.parseFloat(offset)), `${name} travel`).toBeLessThanOrEqual(32);
+      }
+    }
+  });
+
   it("drops every presence animation and the thumb glide under reduced motion", () => {
     expect(css).toMatch(
       /@media \(prefers-reduced-motion: reduce\) \{\n {2}\.plan-side-panel\[data-state\],\n {2}\.plan-side-panel__body\[data-replaced\],\n {2}\.plan-view-modes__group--temporary\[data-state\] \{\n {4}animation: none;\n {2}\}\n {2}\.plan-view-modes__thumb--glide \{\n {4}transition: none;/,

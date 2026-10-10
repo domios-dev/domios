@@ -19,6 +19,8 @@ assert(titlePattern.test("claude"), "matches bare 'claude'");
 assert(titlePattern.test("Claude Code"), "matches 'Claude Code' (case-insensitive)");
 assert(titlePattern.test("✱ Working on task"), "matches Braille spinner glyph ✱");
 assert(titlePattern.test("⠋ Generating"), "matches Braille dot spinner ⠋");
+assert(titlePattern.test("◐ Generating"), "matches quarter-circle spinner ◐");
+assert(!titlePattern.test("◔ Generating"), "rejects non-spinner circle ◔");
 assert(!titlePattern.test("bash"), "rejects 'bash'");
 assert(!titlePattern.test("powershell"), "rejects 'powershell'");
 assert(!titlePattern.test("zsh"), "rejects 'zsh'");

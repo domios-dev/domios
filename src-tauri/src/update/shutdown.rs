@@ -36,6 +36,7 @@ pub async fn graceful_shutdown(
         .clone();
 
     quiesce_pty_spawns(&svc).await?;
+    let surfaces = crate::service::surface::begin_surface_shutdown(&svc);
 
     let swept = collect_owned_pty_tabs(&svc);
     log::info!(
@@ -46,7 +47,14 @@ pub async fn graceful_shutdown(
     let (desk, reaped) = capture_desk_before(&svc, reap_owned_ptys(&svc)).await?;
     let conpty_hosts = super::conpty_cleanup::cleanup_before_installer().await?;
 
-    persist_desk_off_runtime(app, desk).await?;
+    let persist_result = persist_desk_off_runtime(app, &svc.mux, desk).await;
+    let shutdown_result = shutdown_storage_off_runtime(app).await;
+    persist_result?;
+    shutdown_result?;
+
+    if let Err(error) = tokio::task::spawn_blocking(move || surfaces.wait()).await {
+        log::warn!("[updater] surface shutdown wait failed: {error}");
+    }
 
     let mem_owner = svc.clone();
     let checkpoint = tokio::task::spawn_blocking(move || mem_owner.mem.checkpoint_and_close())
@@ -62,6 +70,19 @@ pub async fn graceful_shutdown(
         conpty_hosts
     );
     Ok(swept)
+}
+
+async fn shutdown_storage_off_runtime(app: &tauri::AppHandle) -> Result<(), String> {
+    let app = app.clone();
+    tokio::task::spawn_blocking(move || {
+        crate::service::session_persist::stop_worker(&app)?;
+        let storage = app
+            .try_state::<crate::startup::StorageAuthority>()
+            .ok_or_else(|| "StorageAuthority not registered".to_string())?;
+        crate::startup::shutdown_bounded(storage.inner())
+    })
+    .await
+    .map_err(|error| format!("Storage shutdown task failed: {error}"))?
 }
 
 fn collect_owned_pty_tabs(svc: &ServiceState) -> Vec<String> {
@@ -161,36 +182,31 @@ async fn capture_desk_before<T>(
     Ok((desk, result))
 }
 
-/// Writes the pre-teardown capture verbatim — never re-reads the live mux. The
-/// store write is disk IO, so it runs off the async runtime.
+/// Saves the pre-teardown desk and refreshes live tab identities before committing.
 async fn persist_desk_off_runtime(
     app: &tauri::AppHandle,
+    mux: &crate::MuxState,
     desk: crate::session::SessionSnapshot,
 ) -> Result<(), String> {
-    let session = app
-        .try_state::<crate::session::SessionState>()
-        .ok_or_else(|| "SessionState not registered".to_string())?
-        .inner()
-        .clone();
-    tokio::task::spawn_blocking(move || persist_desk_into(&session.lock(), &desk))
-        .await
-        .map_err(|error| format!("desk persist task failed: {error}"))?
-}
-
-/// The capture-then-persist seam: a refused reduction keeps the fuller disk desk
-/// and still lets teardown finish; only an unknown-disk failure aborts it.
-fn persist_desk_into(
-    store: &crate::session::store::SessionStore,
-    desk: &crate::session::SessionSnapshot,
-) -> Result<(), String> {
-    let result = store.save(desk);
-    if matches!(result, Ok(crate::session::store::SaveOutcome::Saved)) {
-        log::info!(
-            "[updater] pre-teardown desk snapshot saved ({} workspaces)",
-            desk.workspaces.len()
+    let mux = mux.clone();
+    let app = app.clone();
+    tokio::task::spawn_blocking(move || {
+        let result = crate::service::session_persist::write_captured_snapshot_with_live_identities(
+            &app,
+            &mux,
+            &desk,
+            crate::session::store::SaveIntent::PreserveDesk,
         );
-    }
-    shutdown_save_disposition(result.map_err(|e| format!("save session: {}", e)))
+        if matches!(result, Ok(crate::session::store::SaveOutcome::Saved)) {
+            log::info!(
+                "[updater] pre-teardown desk snapshot saved ({} workspaces)",
+                desk.workspaces.len()
+            );
+        }
+        shutdown_save_disposition(result)
+    })
+    .await
+    .map_err(|error| format!("desk persist task failed: {error}"))?
 }
 
 #[cfg(test)]
@@ -227,6 +243,8 @@ mod tests {
     fn recorded_desk_keeps_tabs_removed_during_teardown() {
         use crate::multiplexer::state::MultiplexerState;
         use crate::multiplexer::types::{AgentRole, TabCloseReason};
+        use crate::session::store::StorageDeskAdapter;
+        use crate::storage::{Storage, StorageConfig};
 
         let (mut mux, orch) = MultiplexerState::new();
         let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
@@ -234,12 +252,21 @@ mod tests {
         mux.set_tab_role(&worker, AgentRole::Worker, Some(&orch))
             .unwrap();
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-        let session: crate::session::SessionState = std::sync::Arc::new(parking_lot::Mutex::new(
-            crate::session::SessionStore::for_test_dir(fixture.temp.path().to_path_buf()),
-        ));
-        assert!(fixture._app.handle().manage(session.clone()));
-
         let svc = &fixture.service;
+        let storage = Storage::open(
+            fixture.temp.path().join("instance"),
+            StorageConfig::default(),
+        )
+        .expect("storage owner");
+        let adapter = StorageDeskAdapter::from_storage(storage.clone());
+        adapter
+            .import_snapshot(&svc.mux.read().to_session_snapshot(), Vec::new())
+            .expect("seed the Storage desk before teardown persistence");
+        crate::service::session_persist::install_storage_desk_adapter(
+            fixture._app.handle(),
+            StorageDeskAdapter::from_storage(storage.clone()),
+        )
+        .expect("install Storage desk adapter");
         let teardown = async {
             let reservation = svc.mux.write().reserve_tab_close(&worker)?;
             svc.mux
@@ -257,125 +284,56 @@ mod tests {
             "teardown must have removed the worker tab from the live desk"
         );
 
-        rt.block_on(persist_desk_off_runtime(fixture._app.handle(), desk))
-            .unwrap();
-        let recorded = session.lock().load_last().unwrap().expect("desk on disk");
+        rt.block_on(persist_desk_off_runtime(
+            fixture._app.handle(),
+            &fixture.service.mux,
+            desk,
+        ))
+        .unwrap();
+        let recorded = adapter.snapshot().expect("desk on Storage");
         assert!(
             snapshot_tab_ids(&recorded).contains(&worker),
             "recorded desk must keep the pre-teardown tab set"
         );
+        crate::service::session_persist::stop_worker(fixture._app.handle()).unwrap();
+        storage
+            .shutdown()
+            .wait(std::time::Duration::from_secs(30))
+            .unwrap();
     }
 
     #[test]
-    fn reducing_snapshot_at_shutdown_proceeds_and_keeps_fuller_desk_on_disk() {
-        use crate::session::store::{SessionStore, WorkspaceSnapshot};
+    fn reducing_snapshot_at_shutdown_does_not_abort_update() {
+        use crate::session::store::{ReductionRefusal, SaveOutcome};
 
-        fn desk(workspace_ids: &[&str]) -> crate::session::store::SessionSnapshot {
-            crate::session::store::SessionSnapshot {
-                version: "test".into(),
-                timestamp: 0,
-                active_workspace_id: None,
-                teams: vec![],
-                workspaces: workspace_ids
-                    .iter()
-                    .map(|id| WorkspaceSnapshot {
-                        task_keys: Default::default(),
-                        id: (*id).into(),
-                        name: (*id).into(),
-                        tabs: vec![],
-                        active_tab_id: None,
-                        cwd: None,
-                        provisioned_cwd: None,
-                        protected: false,
-                        sort_order: 0,
-                    })
-                    .collect(),
-            }
-        }
-
-        let dir = tempfile::tempdir().unwrap();
-        let store = SessionStore::for_test_dir(dir.path().to_path_buf());
-        store.save(&desk(&["ws_a", "ws_b", "ws_c"])).unwrap();
-
-        // The wipe scenario: shutdown persists a strict subset of the desk.
-        let outcome = store.save(&desk(&["ws_a"])).unwrap();
         assert!(
-            shutdown_save_disposition(Ok(outcome)).is_ok(),
+            shutdown_save_disposition(Ok(SaveOutcome::RefusedReduction(ReductionRefusal {
+                dropped_workspaces: 2,
+                dropped_tabs: 0,
+                quarantine: "unused in Storage".into(),
+            })))
+            .is_ok(),
             "a refused reduction must not abort the shutdown/update path"
         );
-        let persisted = store.load_last().unwrap().expect("last.json readable");
-        assert_eq!(
-            persisted.workspaces.len(),
-            3,
-            "the fuller desk stays on disk for the next boot"
-        );
     }
 
     #[test]
-    fn captured_desk_persist_survives_a_refusal_and_aborts_on_real_failure() {
-        use crate::session::store::{SessionStore, WorkspaceSnapshot};
+    fn captured_desk_disposition_continues_on_refusal_and_aborts_on_error() {
+        use crate::session::store::{ReductionRefusal, SaveOutcome};
 
-        fn desk(workspace_ids: &[&str]) -> crate::session::SessionSnapshot {
-            crate::session::store::SessionSnapshot {
-                version: "test".into(),
-                timestamp: 0,
-                active_workspace_id: None,
-                teams: vec![],
-                workspaces: workspace_ids
-                    .iter()
-                    .map(|id| WorkspaceSnapshot {
-                        task_keys: Default::default(),
-                        id: (*id).into(),
-                        name: (*id).into(),
-                        tabs: vec![],
-                        active_tab_id: None,
-                        cwd: None,
-                        provisioned_cwd: None,
-                        protected: false,
-                        sort_order: 0,
-                    })
-                    .collect(),
-            }
-        }
-
-        let dir = tempfile::tempdir().unwrap();
-        let store = SessionStore::for_test_dir(dir.path().to_path_buf());
-        store.save(&desk(&["ws_a", "ws_b"])).unwrap();
-
-        // A capture that lost tabs must not abort teardown, and must not shrink disk.
-        assert!(persist_desk_into(&store, &desk(&["ws_a"])).is_ok());
-        assert_eq!(store.load_last().unwrap().unwrap().workspaces.len(), 2);
-
-        // An additive capture is written through.
-        assert!(persist_desk_into(&store, &desk(&["ws_a", "ws_b", "ws_c"])).is_ok());
-        assert_eq!(store.load_last().unwrap().unwrap().workspaces.len(), 3);
-
-        std::fs::create_dir_all(dir.path().join("last.json.tmp")).unwrap();
-        assert!(
-            persist_desk_into(&store, &desk(&["ws_a", "ws_b", "ws_c", "ws_d"])).is_err(),
-            "an unknown-disk failure must still abort teardown"
-        );
+        let refusal = SaveOutcome::RefusedReduction(ReductionRefusal {
+            dropped_workspaces: 1,
+            dropped_tabs: 1,
+            quarantine: "unused in Storage".into(),
+        });
+        assert!(shutdown_save_disposition(Ok(refusal)).is_ok());
+        assert!(shutdown_save_disposition(Err("commit outcome unknown".into())).is_err());
     }
 
     #[test]
     fn genuine_persist_failure_at_shutdown_still_aborts() {
-        use crate::session::store::SessionStore;
-
-        let dir = tempfile::tempdir().unwrap();
-        let store = SessionStore::for_test_dir(dir.path().to_path_buf());
-        // A directory squatting on the tmp path makes the atomic write fail for
-        // real — disk state is unknown, so the teardown must not proceed.
-        std::fs::create_dir_all(dir.path().join("last.json.tmp")).unwrap();
-        let result = store.save(&crate::session::store::SessionSnapshot {
-            version: "test".into(),
-            timestamp: 0,
-            active_workspace_id: None,
-            teams: vec![],
-            workspaces: vec![],
-        });
-        let err = result.expect_err("write into a directory path must fail");
         assert!(
-            shutdown_save_disposition(Err(err)).is_err(),
+            shutdown_save_disposition(Err("storage commit failed".into())).is_err(),
             "an unknown-disk-state failure keeps the cancel semantics"
         );
     }

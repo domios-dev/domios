@@ -17,6 +17,8 @@ import { onResync } from "../../lib/resync";
 import { CHAT_REATTACHED_EVENT } from "./chatReattach";
 import {
   canAdoptTranscriptAuthority,
+  attachmentActivity,
+  attachmentStateForSnapshot,
   type ChatAttachmentState,
   type ChatBackfillResult,
   type ChatMsgEvent,
@@ -32,6 +34,7 @@ import {
 } from "./chatSessionDiagnostics";
 import {
   commitTranscriptBatch,
+  readTranscriptWindow,
   replaceTranscriptWindow,
   resetTranscriptWindow,
   stampConfirmedTranscriptRow,
@@ -40,7 +43,7 @@ import {
   useTranscriptWindow,
 } from "./transcriptStore";
 import type { ChatSendStatus } from "./chatSendStatus";
-import { chatSendAt } from "./chatSendStore";
+import { chatSendAt, observeDeliveryStatus, reconcileDeliveryStatuses } from "./chatSendStore";
 import { clearPersistedChatScrollState } from "./chatViewport";
 import { useChatWindowView } from "./useChatWindowView";
 
@@ -181,7 +184,11 @@ export function useChatSession({
     pendingLiveEventsRef.current = [];
     preserveSnapshotAnchorRef.current = preserveViewport;
     replaceOnNextLiveEventRef.current = false;
-    if (!preserveViewport) {
+    const authority = readTranscriptWindow(windowKeyRef.current).transcript.authority;
+    if (authority != null && (
+      authority.sourceSessionId !== agentSessionIdRef.current
+      || authority.sessionBindingNonce !== (sessionBindingNonceRef.current ?? null)
+    )) {
       resetTranscriptWindow(windowKeyRef.current);
       clearPersistedChatScrollState(windowKeyRef.current);
     }
@@ -242,7 +249,11 @@ export function useChatSession({
       do {
         sendStatusQueuedRef.current = false;
         const statuses = await invoke<ChatSendStatus[]>("chat_send_status", { tabId });
-        for (const status of statuses) stampConfirmedTranscriptRow(windowKeyRef.current, status);
+        reconcileDeliveryStatuses(tabId, statuses);
+        for (const status of statuses) {
+          trackTranscriptSend(windowKeyRef.current, status, chatSendAt(tabId, status.correlationId));
+          stampConfirmedTranscriptRow(windowKeyRef.current, status);
+        }
       } while (sendStatusQueuedRef.current);
     } catch {
       return;
@@ -252,9 +263,27 @@ export function useChatSession({
   }, [tabId]);
 
   const observeChatSendStatus = useCallback((status: ChatSendStatus) => {
+    observeDeliveryStatus(status);
     trackTranscriptSend(windowKeyRef.current, status, chatSendAt(tabId, status.correlationId));
     void reconcileSendStatuses();
   }, [reconcileSendStatuses, tabId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: UnlistenFn | undefined;
+    void listen<ChatSendStatus>("chat-send-status", ({ payload }) => {
+      if (!cancelled && payload.tab_id === tabId) observeChatSendStatus(payload);
+    }).then((release) => {
+      if (cancelled) release();
+      else {
+        unlisten = release;
+        void reconcileSendStatuses();
+      }
+    }).catch((error: unknown) => {
+      console.warn("[chat-send] status subscription failed", error);
+    });
+    return () => { cancelled = true; unlisten?.(); };
+  }, [tabId, observeChatSendStatus, reconcileSendStatuses]);
 
   const loadOlderPage = useCallback(async (beforeOffset: number) => {
     const generationAtRequest = attachmentRef.current.generation;
@@ -302,8 +331,6 @@ export function useChatSession({
     if (!active) {
       pendingLiveEventsRef.current = [];
       adoptedBindingsRef.current.clear();
-      resetTranscriptWindow(windowKeyRef.current);
-      clearPersistedChatScrollState(windowKeyRef.current);
       setListenerReady(false);
       setLoading(false);
       setTranscriptUnavailable(null);
@@ -391,8 +418,6 @@ export function useChatSession({
       attachmentRef.current.release();
       pendingLiveEventsRef.current = [];
       adoptedBindingsRef.current.clear();
-      resetTranscriptWindow(windowKeyRef.current);
-      clearPersistedChatScrollState(windowKeyRef.current);
     };
   }, [
     active,
@@ -489,12 +514,14 @@ export function useChatSession({
         });
         setError(null);
         setLoading(false);
-        if (res.pending) {
+        const snapshotState = attachmentStateForSnapshot(res);
+        attachmentStateRef.current = snapshotState;
+        setAttachmentState(snapshotState);
+        if (snapshotState === "awaiting_store") {
           // The store has no transcript yet; the first live event completes the
           // attach. Nothing here waits on elapsed time.
-          attachmentStateRef.current = "awaiting_store";
-          setAttachmentState("awaiting_store");
           if (res.source_missing === true) setTranscriptUnavailable("no_transcript_source");
+          // A pending snapshot delegates the new replay epoch to its first live batch.
           replaceOnNextLiveEventRef.current = true;
           const pending = pendingLiveEventsRef.current.splice(0);
           if (pending.length > 0) {
@@ -504,7 +531,8 @@ export function useChatSession({
           return;
         }
         replaceOnNextLiveEventRef.current = false;
-        replaceTranscriptWindow(
+        const snapshotRange = batchRange(res.start_offset, res.offset);
+        if (snapshotRange != null || (res.messages?.length ?? 0) > 0) replaceTranscriptWindow(
           windowKeyRef.current,
           {
             kind: "snapshot",
@@ -512,7 +540,7 @@ export function useChatSession({
               sourceSessionId: res.source_session_id,
               sessionBindingNonce: res.session_binding_nonce,
             },
-            range: batchRange(res.start_offset, res.offset),
+            range: snapshotRange,
             rows: res.messages ?? [],
           },
           preserveSnapshotAnchorRef.current,
@@ -613,10 +641,7 @@ export function useChatSession({
   }, [committedRows, emitDiagnostic, tabId, transcript]);
 
   return {
-    loading,
-    /** Waiting on history we once had; a first attach is not a recovery. */
-    recovering: hadBoundSessionRef.current
-      && (attachmentState === "awaiting_store" || attachmentState === "awaiting_session"),
+    ...attachmentActivity(attachmentState, loading, hadBoundSessionRef.current),
     error,
     attachmentState,
     /** Set = the wait is over and it failed; the view reports it rather than
@@ -631,6 +656,7 @@ export function useChatSession({
     backfillLoading: view.backfillLoading,
     loadOlder: view.loadOlder,
     showLatest: view.showLatest,
+    prepareMessage: view.prepareMessage,
     setHistoryReading: view.setHistoryReading,
     addOptimistic: view.addOptimistic,
     updateOptimistic: view.updateOptimistic,

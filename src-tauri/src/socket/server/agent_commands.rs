@@ -90,7 +90,10 @@ pub(crate) fn route(
     let args = arg_strings(params);
     let sid = session_id(params);
     match handler.on_agent_command(&sid, &verb, &args) {
-        Ok(result) => Ok(serde_json::json!({ "result": result })),
+        Ok(result) => Ok(serde_json::json!({
+            "result": result.result,
+            "catalogue_changed": result.catalogue_changed,
+        })),
         Err(e) => Ok(serde_json::json!({ "error": e })),
     }
 }
@@ -123,12 +126,30 @@ pub(super) fn dispatch(
         })
     };
 
-    route(
+    let mut result = route(
         &svc.agent_command_registry,
         method,
         params,
         scope.as_deref(),
-    )
+    )?;
+    if result
+        .get("catalogue_changed")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        crate::agent::model_catalog::invalidate(&id);
+        if let Some(provider) = svc.agent_registry.provider_arc(&id) {
+            tauri::async_runtime::spawn(async move {
+                let _ = crate::agent::model_catalog::refresh_models(provider, true).await;
+            });
+        } else if svc.chatbackend_registry.get(&id).is_some() {
+            let _ = svc.chatbackend_registry.refresh_provider(&id);
+        }
+    }
+    if let Some(object) = result.as_object_mut() {
+        object.remove("catalogue_changed");
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -153,11 +174,14 @@ mod tests {
             session_id: &str,
             verb: &str,
             args: &[String],
-        ) -> Result<String, String> {
+        ) -> Result<crate::agent_commands::AgentCommandResult, String> {
             if verb == "boom" {
                 return Err("plugin said no".into());
             }
-            Ok(format!("{session_id}|{verb}|{}", args.join(",")))
+            Ok(crate::agent_commands::AgentCommandResult {
+                result: format!("{session_id}|{verb}|{}", args.join(",")),
+                catalogue_changed: verb == "refresh",
+            })
         }
     }
 
@@ -194,7 +218,22 @@ mod tests {
         let reg = reg_with("npc", true);
         let params = Some(serde_json::json!({ "args": ["a", "b"], "sessionId": "s1" }));
         let out = route(&reg, "plugin:npc.say", &params, None).ok();
-        assert_eq!(out, Some(serde_json::json!({ "result": "s1|say|a,b" })));
+        assert_eq!(
+            out,
+            Some(serde_json::json!({
+                "result": "s1|say|a,b",
+                "catalogue_changed": false,
+            }))
+        );
+    }
+
+    #[test]
+    fn plugin_command_can_report_catalogue_mutation() {
+        let reg = reg_with("npc", true);
+
+        let out = route(&reg, "plugin:npc.refresh", &None, None).unwrap();
+
+        assert_eq!(out["catalogue_changed"], true);
     }
 
     #[test]
@@ -240,7 +279,10 @@ mod tests {
         let reg = reg_with("npc", true);
         let allowed = vec!["say".to_string()];
         let out = route(&reg, "plugin:npc.say", &None, Some(&allowed)).ok();
-        assert_eq!(out, Some(serde_json::json!({ "result": "|say|" })));
+        assert_eq!(
+            out,
+            Some(serde_json::json!({ "result": "|say|", "catalogue_changed": false }))
+        );
     }
 
     #[test]
@@ -248,6 +290,9 @@ mod tests {
         let reg = reg_with("npc", true);
         let allowed: Vec<String> = vec![];
         let out = route(&reg, "plugin:npc.anything", &None, Some(&allowed)).ok();
-        assert_eq!(out, Some(serde_json::json!({ "result": "|anything|" })));
+        assert_eq!(
+            out,
+            Some(serde_json::json!({ "result": "|anything|", "catalogue_changed": false }))
+        );
     }
 }

@@ -1,8 +1,6 @@
 use super::*;
 
-fn unbound_service_fixture(
-    provider_id: &str,
-) -> (crate::service::test_fixture::ServiceFixture, String) {
+fn service_fixture(provider_id: &str) -> (crate::service::test_fixture::ServiceFixture, String) {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).unwrap();
     tab.agent_type = Some(provider_id.into());
@@ -15,7 +13,7 @@ fn unbound_service_fixture(
     )
 }
 
-fn bind_fixture_session(
+fn bind_session(
     fixture: &crate::service::test_fixture::ServiceFixture,
     tab_id: &str,
     session_id: &str,
@@ -26,818 +24,287 @@ fn bind_fixture_session(
     tab.reported_session_binding_nonce = Some("binding-current".into());
 }
 
-fn set_fixture_session_without_report(
+fn register_windowed(
     fixture: &crate::service::test_fixture::ServiceFixture,
-    tab_id: &str,
-    session_id: &str,
+    root: &std::path::Path,
 ) {
     fixture
         .service
-        .mux
-        .write()
-        .get_tab_mut(tab_id)
+        .agent_registry
+        .register_provider(Box::new(WindowedJsonlProvider {
+            root: root.to_path_buf(),
+            parse_offsets: Arc::default(),
+        }));
+}
+
+fn append_jsonl_user_turn(path: &std::path::Path, content: &str) {
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .unwrap();
+    writeln!(
+        file,
+        "{}",
+        serde_json::json!({ "role": "user", "content": content })
+    )
+    .unwrap();
+}
+
+fn append_structured_user_row(provider: &StructuredStoreProvider, session_id: &str, content: &str) {
+    provider
+        .rows
+        .lock()
+        .entry(session_id.to_string())
+        .or_default()
+        .push(crate::agent::chat_types::ChatMsg {
+            id: uuid::Uuid::new_v4().to_string(),
+            kind: "user".into(),
+            content: content.into(),
+            ..Default::default()
+        });
+}
+
+fn start_unconfirmed_send(
+    fixture: &crate::service::test_fixture::ServiceFixture,
+    tab_id: &str,
+    payload: &str,
+) -> ChatSendStatus {
+    let evidence = fixture.service.chat_send_anchor(tab_id);
+    let send = fixture
+        .service
+        .chat_send_ledger
+        .try_start_scoped(tab_id, payload, evidence.anchor, evidence.live_binding)
+        .unwrap();
+    fixture
+        .service
+        .chat_send_ledger
+        .finish(&send.send_id, Ok(()))
         .unwrap()
-        .agent_session_id = Some(session_id.into());
+}
+
+fn state_of(
+    fixture: &crate::service::test_fixture::ServiceFixture,
+    send: &ChatSendStatus,
+) -> ChatSendState {
+    fixture
+        .service
+        .chat_send_ledger
+        .status(&send.send_id)
+        .unwrap()
+        .state
 }
 
 #[test]
-fn chat_send_status_reconciles_detached_jsonl_turn_from_captured_anchor() {
-    let (fixture, tab_id) = unbound_service_fixture("windowed");
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn detached_jsonl_turn_reconciles_only_past_the_captured_service_anchor() {
+    let (fixture, tab_id) = service_fixture("windowed");
     let root = fixture.temp.path().join("jsonl-evidence");
     std::fs::create_dir_all(&root).unwrap();
-    let provider = WindowedJsonlProvider { root: root.clone() };
+    register_windowed(&fixture, &root);
+    let session_path = root.join("session-jsonl.jsonl");
+    append_jsonl_user_turn(&session_path, "detached exact turn");
+    bind_session(&fixture, &tab_id, "session-jsonl");
+
+    let send = start_unconfirmed_send(&fixture, &tab_id, "detached exact turn");
+    fixture.service.reconcile_chat_send_evidence(&tab_id);
+    assert_eq!(state_of(&fixture, &send), ChatSendState::Unknown);
+
+    append_jsonl_user_turn(&session_path, "detached exact turn");
+    fixture.service.reconcile_chat_send_evidence(&tab_id);
+    assert_eq!(state_of(&fixture, &send), ChatSendState::Sent);
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn missing_jsonl_store_mints_only_a_live_absence_witness() {
+    let (fixture, tab_id) = service_fixture("windowed");
+    let root = fixture.temp.path().join("missing-jsonl-evidence");
+    std::fs::create_dir_all(&root).unwrap();
+    register_windowed(&fixture, &root);
+    bind_session(&fixture, &tab_id, "session-missing");
+
+    let evidence = fixture.service.chat_send_anchor(&tab_id);
+
+    assert!(evidence.anchor.is_none());
+    assert!(evidence.absence_witness.is_some());
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn fresh_trace_without_delivery_anchor_registers_before_materialization() {
+    let (fixture, tab_id) = service_fixture("windowed");
+    let root = fixture.temp.path().join("fresh-trace-source");
+    std::fs::create_dir_all(&root).unwrap();
+    register_windowed(&fixture, &root);
+    bind_session(&fixture, &tab_id, "fresh-session");
+    let evidence = fixture.service.chat_send_anchor(&tab_id);
+    assert!(evidence.anchor.is_none());
+    assert!(evidence.absence_witness.is_some());
+    let events = crate::flow_trace::test_capture::capture(|| {
+        let flow = crate::flow_trace::PtyFlow::start(None, &tab_id, "windowed").unwrap();
+        flow.watch(
+            &fixture.service,
+            evidence.anchor.as_ref(),
+            Some("binding-current"),
+            "opaque",
+            true,
+        );
+    });
+    crate::flow_trace::cancel_tab(&tab_id);
+    assert!(!root.join("fresh-session.jsonl").exists());
+    assert!(events.iter().any(|event| event.stage == "trace.observer"
+        && event.outcome == "registered_before_materialization"));
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn unbound_tab_never_adopts_a_foreign_structured_session_as_its_anchor() {
+    let (fixture, tab_id) = service_fixture("structured-store");
+    let provider = StructuredStoreProvider::new();
+    append_structured_user_row(&provider, "session-foreign", "foreign turn");
     fixture
         .service
         .agent_registry
         .register_provider(Box::new(provider));
-    let session_path = root.join("session-jsonl.jsonl");
-    bind_fixture_session(&fixture, &tab_id, "session-jsonl");
-
-    let evidence = fixture.service.chat_send_anchor(&tab_id);
-    let send = fixture
-        .service
-        .chat_send_ledger
-        .try_start_scoped(
-            &tab_id,
-            "detached exact turn",
-            evidence.anchor,
-            evidence.live_binding,
-        )
-        .unwrap();
-    fixture
-        .service
-        .chat_send_ledger
-        .finish(&send.send_id, Ok(()))
-        .unwrap();
-    std::fs::write(
-        session_path,
-        format!(
-            "{}\n",
-            serde_json::json!({ "role": "user", "content": "detached exact turn" })
-        ),
-    )
-    .unwrap();
-
-    fixture.service.reconcile_chat_send_evidence(&tab_id);
-    assert_eq!(
-        fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
-        ChatSendState::Sent
-    );
-}
-
-#[test]
-fn chat_send_completion_reconciles_jsonl_append_before_emitting_unknown() {
-    let (fixture, tab_id) = unbound_service_fixture("windowed");
-    let root = fixture.temp.path().join("completion-jsonl-evidence");
-    std::fs::create_dir_all(&root).unwrap();
-    fixture
-        .service
-        .agent_registry
-        .register_provider(Box::new(WindowedJsonlProvider { root: root.clone() }));
-    let session_path = root.join("session-completion.jsonl");
-    std::fs::write(&session_path, "").unwrap();
-    bind_fixture_session(&fixture, &tab_id, "session-completion");
-    let evidence = fixture.service.chat_send_anchor(&tab_id);
-    let pending = fixture
-        .service
-        .chat_send_ledger
-        .try_start_scoped(
-            &tab_id,
-            "completion exact turn",
-            evidence.anchor,
-            evidence.live_binding,
-        )
-        .unwrap();
-
-    let status = crate::service::chat_send_transaction::finish_chat_send_with_reconciliation(
-        &fixture.service,
-        &tab_id,
-        pending,
-        "completion exact turn",
-        |_| {
-            std::fs::write(
-                &session_path,
-                format!(
-                    "{}\n",
-                    serde_json::json!({ "role": "user", "content": "completion exact turn" })
-                ),
-            )
-            .unwrap();
-            Ok(())
-        },
-    );
-
-    assert_eq!(status.state, ChatSendState::Sent);
-}
-
-#[test]
-fn chat_send_status_reconciles_unbound_jsonl_materialization_from_reported_session() {
-    let (fixture, tab_id) = unbound_service_fixture("windowed");
-    let root = fixture.temp.path().join("unbound-jsonl-materialization");
-    std::fs::create_dir_all(&root).unwrap();
-    fixture
-        .service
-        .agent_registry
-        .register_provider(Box::new(WindowedJsonlProvider { root: root.clone() }));
-
-    let evidence = fixture.service.chat_send_anchor(&tab_id);
-    let anchor = evidence.anchor.as_ref().expect("materialization anchor");
-    assert_eq!(anchor.session_id, None);
-    let not_before_ms = match anchor.window {
-        EvidenceWindow::JsonlSessionMaterialization { not_before_ms } => not_before_ms,
-        ref other => panic!("expected session materialization boundary, got {other:?}"),
-    };
-    let send = fixture
-        .service
-        .chat_send_ledger
-        .try_start_scoped(
-            &tab_id,
-            "unbound materialized turn",
-            evidence.anchor,
-            evidence.live_binding,
-        )
-        .unwrap();
-    fixture
-        .service
-        .chat_send_ledger
-        .finish(&send.send_id, Ok(()))
-        .unwrap();
-    std::fs::write(
-        root.join("session-materialized.jsonl"),
-        format!(
-            "{}\n",
-            serde_json::json!({
-                "role": "user",
-                "content": "unbound materialized turn",
-                "timestamp": chrono::DateTime::from_timestamp_millis(not_before_ms as i64)
-                    .unwrap()
-                    .to_rfc3339(),
-            })
-        ),
-    )
-    .unwrap();
-
-    set_fixture_session_without_report(&fixture, &tab_id, "session-materialized");
-    fixture.service.reconcile_chat_send_evidence(&tab_id);
-    assert_eq!(
-        fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
-        ChatSendState::Unknown
-    );
-    fixture
-        .service
-        .mux
-        .write()
-        .get_tab_mut(&tab_id)
-        .unwrap()
-        .reported_session_binding_nonce = Some("binding-stale".into());
-    fixture.service.reconcile_chat_send_evidence(&tab_id);
-    assert_eq!(
-        fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
-        ChatSendState::Unknown
-    );
-
-    bind_fixture_session(&fixture, &tab_id, "session-materialized");
-    fixture.service.reconcile_chat_send_evidence(&tab_id);
-    assert_eq!(
-        fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
-        ChatSendState::Unknown
-    );
-
-    use std::io::Write;
-    writeln!(
-        std::fs::OpenOptions::new()
-            .append(true)
-            .open(root.join("session-materialized.jsonl"))
-            .unwrap(),
-        "{}",
-        serde_json::json!({
-            "role": "user",
-            "content": "unbound materialized turn",
-            "timestamp": chrono::DateTime::from_timestamp_millis(not_before_ms as i64 + 1)
-                .unwrap()
-                .to_rfc3339(),
-        })
-    )
-    .unwrap();
-    fixture.service.reconcile_chat_send_evidence(&tab_id);
-    let confirmed = fixture.service.chat_send_ledger.reconcile(&tab_id);
-    assert_eq!(confirmed[0].send_id, send.send_id);
-    assert_eq!(confirmed[0].state, ChatSendState::Sent);
-}
-
-#[test]
-fn missing_jsonl_store_without_acknowledged_binding_stays_anchorless() {
-    let (fixture, tab_id) = unbound_service_fixture("windowed");
-    let root = fixture.temp.path().join("unacknowledged-jsonl-evidence");
-    std::fs::create_dir_all(&root).unwrap();
-    fixture
-        .service
-        .agent_registry
-        .register_provider(Box::new(WindowedJsonlProvider { root }));
-    fixture
-        .service
-        .mux
-        .write()
-        .get_tab_mut(&tab_id)
-        .unwrap()
-        .agent_session_id = Some("session-unacknowledged".into());
 
     assert!(fixture.service.chat_send_anchor(&tab_id).anchor.is_none());
 }
 
 #[test]
-fn chat_send_status_reconciles_rebound_jsonl_turn_from_detected_session_anchor() {
-    let (fixture, tab_id) = unbound_service_fixture("windowed");
-    let root = fixture.temp.path().join("rebound-jsonl-evidence");
-    std::fs::create_dir_all(&root).unwrap();
-    fixture
-        .service
-        .agent_registry
-        .register_provider(Box::new(WindowedJsonlProvider { root: root.clone() }));
-    let session_path = root.join("session-rebound.jsonl");
-    std::fs::write(
-        &session_path,
-        format!(
-            "{}\n",
-            serde_json::json!({ "role": "user", "content": "pre-rebind history" })
-        ),
-    )
-    .unwrap();
-
-    let evidence = fixture.service.chat_send_anchor(&tab_id);
-    let send = fixture
-        .service
-        .chat_send_ledger
-        .try_start_scoped(
-            &tab_id,
-            "rebound exact turn",
-            evidence.anchor,
-            evidence.live_binding,
-        )
-        .unwrap();
-    fixture
-        .service
-        .chat_send_ledger
-        .finish(&send.send_id, Ok(()))
-        .unwrap();
-    use std::io::Write;
-    writeln!(
-        std::fs::OpenOptions::new()
-            .append(true)
-            .open(session_path)
-            .unwrap(),
-        "{}",
-        serde_json::json!({ "role": "user", "content": "rebound exact turn" })
-    )
-    .unwrap();
-    bind_fixture_session(&fixture, &tab_id, "session-rebound");
-
-    fixture.service.reconcile_chat_send_evidence(&tab_id);
-    assert_eq!(
-        fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
-        ChatSendState::Sent
-    );
-}
-
-#[test]
-fn detected_session_requires_current_reported_binding_before_confirmation() {
-    let (fixture, tab_id) = unbound_service_fixture("windowed");
-    let root = fixture.temp.path().join("reported-binding-jsonl-evidence");
-    std::fs::create_dir_all(&root).unwrap();
-    fixture
-        .service
-        .agent_registry
-        .register_provider(Box::new(WindowedJsonlProvider { root: root.clone() }));
-    let session_path = root.join("session-detected.jsonl");
-    std::fs::write(&session_path, "").unwrap();
-
-    let evidence = fixture.service.chat_send_anchor(&tab_id);
-    let send = fixture
-        .service
-        .chat_send_ledger
-        .try_start_scoped(
-            &tab_id,
-            "reported exact turn",
-            evidence.anchor,
-            evidence.live_binding,
-        )
-        .unwrap();
-    fixture
-        .service
-        .chat_send_ledger
-        .finish(&send.send_id, Ok(()))
-        .unwrap();
-    std::fs::write(
-        session_path,
-        format!(
-            "{}\n",
-            serde_json::json!({ "role": "user", "content": "reported exact turn" })
-        ),
-    )
-    .unwrap();
-    set_fixture_session_without_report(&fixture, &tab_id, "session-detected");
-
-    fixture.service.reconcile_chat_send_evidence(&tab_id);
-    assert_eq!(
-        fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
-        ChatSendState::Unknown
-    );
-    fixture
-        .service
-        .mux
-        .write()
-        .get_tab_mut(&tab_id)
-        .unwrap()
-        .reported_session_binding_nonce = Some("binding-stale".into());
-    fixture.service.reconcile_chat_send_evidence(&tab_id);
-    assert_eq!(
-        fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
-        ChatSendState::Unknown
-    );
-
-    bind_fixture_session(&fixture, &tab_id, "session-detected");
-    fixture.service.reconcile_chat_send_evidence(&tab_id);
-    let confirmed = fixture.service.chat_send_ledger.reconcile(&tab_id);
-    assert_eq!(confirmed[0].send_id, send.send_id);
-    assert_eq!(confirmed[0].state, ChatSendState::Sent);
-}
-
-#[test]
-fn chat_send_status_reconciles_detached_structured_turn_from_captured_anchor() {
-    let (fixture, tab_id) = unbound_service_fixture("structured-store");
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn detached_structured_turn_reconciles_only_past_the_captured_service_anchor() {
+    let (fixture, tab_id) = service_fixture("structured-store");
     let provider = StructuredStoreProvider::new();
     fixture
         .service
         .agent_registry
         .register_provider(Box::new(provider.clone()));
+    append_structured_user_row(&provider, "session-structured", "detached structured turn");
+    bind_session(&fixture, &tab_id, "session-structured");
 
-    let evidence = fixture.service.chat_send_anchor(&tab_id);
-    let not_before_ms = match evidence.anchor.as_ref().unwrap().window {
-        EvidenceWindow::StructuredMaterialization { not_before_ms } => not_before_ms,
-        ref other => panic!("expected materialization boundary, got {other:?}"),
-    };
-    let send = fixture
-        .service
-        .chat_send_ledger
-        .try_start_scoped(
-            &tab_id,
-            "detached structured turn",
-            evidence.anchor,
-            evidence.live_binding,
-        )
-        .unwrap();
-    fixture
-        .service
-        .chat_send_ledger
-        .finish(&send.send_id, Ok(()))
-        .unwrap();
-    provider.append_user_row("session-structured", "detached structured turn");
-    provider.created_at.lock().insert(
-        "session-structured".into(),
-        std::time::UNIX_EPOCH + std::time::Duration::from_millis(not_before_ms + 1),
-    );
-    bind_fixture_session(&fixture, &tab_id, "session-structured");
-
+    let send = start_unconfirmed_send(&fixture, &tab_id, "detached structured turn");
     fixture.service.reconcile_chat_send_evidence(&tab_id);
-    assert_eq!(
-        fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
-        ChatSendState::Sent
-    );
-}
+    assert_eq!(state_of(&fixture, &send), ChatSendState::Unknown);
 
-#[test]
-fn structured_unbound_anchor_refuses_cross_cwd_detected_session() {
-    let (fixture, tab_id) = unbound_service_fixture("structured-store");
-    let provider = StructuredStoreProvider::new();
-    provider.append_user_row("session-foreign-cwd", "foreign turn");
-    fixture
-        .service
-        .agent_registry
-        .register_provider(Box::new(provider));
-
-    let evidence = fixture
-        .service
-        .chat_send_anchor(&tab_id)
-        .anchor
-        .expect("deferred structured boundary remains available");
-    assert_eq!(evidence.session_id, None);
-    assert!(matches!(
-        evidence.window,
-        EvidenceWindow::StructuredMaterialization { .. }
-    ));
-}
-
-#[test]
-fn structured_session_created_before_boundary_cannot_confirm() {
-    let (fixture, tab_id) = unbound_service_fixture("structured-store");
-    let provider = StructuredStoreProvider::new();
-    fixture
-        .service
-        .agent_registry
-        .register_provider(Box::new(provider.clone()));
-    let evidence = fixture.service.chat_send_anchor(&tab_id);
-    let send = fixture
-        .service
-        .chat_send_ledger
-        .try_start_scoped(
-            &tab_id,
-            "stale structured turn",
-            evidence.anchor,
-            evidence.live_binding,
-        )
-        .unwrap();
-    fixture
-        .service
-        .chat_send_ledger
-        .finish(&send.send_id, Ok(()))
-        .unwrap();
-    provider.rows.lock().insert(
-        "session-stale".into(),
-        vec![crate::agent::chat_types::ChatMsg {
-            id: "stale".into(),
-            kind: "user".into(),
-            content: "stale structured turn".into(),
-            ..Default::default()
-        }],
-    );
-    provider
-        .created_at
-        .lock()
-        .insert("session-stale".into(), std::time::UNIX_EPOCH);
-    bind_fixture_session(&fixture, &tab_id, "session-stale");
-
+    append_structured_user_row(&provider, "session-structured", "detached structured turn");
     fixture.service.reconcile_chat_send_evidence(&tab_id);
-    assert_eq!(
-        fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
-        ChatSendState::Unknown
-    );
-}
-
-#[test]
-fn restarted_structured_session_confirms_only_post_boundary_turn() {
-    let (fixture, tab_id) = unbound_service_fixture("structured-store");
-    let provider = StructuredStoreProvider::new();
-    fixture
-        .service
-        .agent_registry
-        .register_provider(Box::new(provider.clone()));
-    let evidence = fixture.service.chat_send_anchor(&tab_id);
-    let not_before_ms = match evidence.anchor.as_ref().unwrap().window {
-        EvidenceWindow::StructuredMaterialization { not_before_ms } => not_before_ms,
-        ref other => panic!("expected materialization boundary, got {other:?}"),
-    };
-    let send = fixture
-        .service
-        .chat_send_ledger
-        .try_start_scoped(
-            &tab_id,
-            "restart structured turn",
-            evidence.anchor,
-            evidence.live_binding,
-        )
-        .unwrap();
-    fixture
-        .service
-        .chat_send_ledger
-        .finish(&send.send_id, Ok(()))
-        .unwrap();
-    provider.rows.lock().insert(
-        "session-restarted".into(),
-        vec![crate::agent::chat_types::ChatMsg {
-            id: "equal-boundary".into(),
-            kind: "user".into(),
-            content: "restart structured turn".into(),
-            timestamp: Some(not_before_ms.to_string()),
-            ..Default::default()
-        }],
-    );
-    provider
-        .created_at
-        .lock()
-        .insert("session-restarted".into(), std::time::UNIX_EPOCH);
-    bind_fixture_session(&fixture, &tab_id, "session-restarted");
-
-    fixture.service.reconcile_chat_send_evidence(&tab_id);
-    assert_eq!(
-        fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
-        ChatSendState::Unknown
-    );
-    provider
-        .rows
-        .lock()
-        .get_mut("session-restarted")
-        .unwrap()
-        .push(crate::agent::chat_types::ChatMsg {
-            id: "post-boundary".into(),
-            kind: "user".into(),
-            content: "restart structured turn".into(),
-            timestamp: Some((not_before_ms + 1).to_string()),
-            ..Default::default()
-        });
-
-    fixture.service.reconcile_chat_send_evidence(&tab_id);
-    assert_eq!(
-        fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
-        ChatSendState::Sent
-    );
-}
-
-#[test]
-fn structured_session_created_at_floored_boundary_cannot_confirm() {
-    let (fixture, tab_id) = unbound_service_fixture("structured-store");
-    let provider = StructuredStoreProvider::new();
-    fixture
-        .service
-        .agent_registry
-        .register_provider(Box::new(provider.clone()));
-    let evidence = fixture.service.chat_send_anchor(&tab_id);
-    let not_before_ms = match evidence.anchor.as_ref().unwrap().window {
-        EvidenceWindow::StructuredMaterialization { not_before_ms } => not_before_ms,
-        ref other => panic!("expected materialization boundary, got {other:?}"),
-    };
-    let send = fixture
-        .service
-        .chat_send_ledger
-        .try_start_scoped(
-            &tab_id,
-            "equal millisecond turn",
-            evidence.anchor,
-            evidence.live_binding,
-        )
-        .unwrap();
-    fixture
-        .service
-        .chat_send_ledger
-        .finish(&send.send_id, Ok(()))
-        .unwrap();
-    provider.rows.lock().insert(
-        "session-equal".into(),
-        vec![crate::agent::chat_types::ChatMsg {
-            id: "equal".into(),
-            kind: "user".into(),
-            content: "equal millisecond turn".into(),
-            ..Default::default()
-        }],
-    );
-    provider.created_at.lock().insert(
-        "session-equal".into(),
-        std::time::UNIX_EPOCH + std::time::Duration::from_millis(not_before_ms),
-    );
-    bind_fixture_session(&fixture, &tab_id, "session-equal");
-
-    fixture.service.reconcile_chat_send_evidence(&tab_id);
-    assert_eq!(
-        fixture.service.chat_send_ledger.reconcile(&tab_id)[0].state,
-        ChatSendState::Unknown
-    );
+    assert_eq!(state_of(&fixture, &send), ChatSendState::Sent);
 }
 
 #[test]
 fn identical_payloads_with_staggered_anchors_claim_distinct_turns() {
-    let (fixture, tab_id) = unbound_service_fixture("windowed");
-    let root = fixture.temp.path().join("staggered-jsonl-evidence");
-    std::fs::create_dir_all(&root).unwrap();
-    fixture
-        .service
-        .agent_registry
-        .register_provider(Box::new(WindowedJsonlProvider { root: root.clone() }));
-    let session_path = root.join("session-staggered.jsonl");
-    std::fs::write(&session_path, "").unwrap();
-    bind_fixture_session(&fixture, &tab_id, "session-staggered");
-
-    let first_evidence = fixture.service.chat_send_anchor(&tab_id);
-    let first = fixture
-        .service
-        .chat_send_ledger
-        .try_start_scoped(
-            &tab_id,
+    let fx = Fixture::new();
+    let first = fx
+        .ledger
+        .try_start(
+            "tab-1",
             "same staggered turn",
-            first_evidence.anchor,
-            first_evidence.live_binding,
+            Some(fx.anchor_now("sess-a")),
         )
         .unwrap();
-    fixture
-        .service
-        .chat_send_ledger
-        .finish(&first.send_id, Ok(()))
-        .unwrap();
-    std::fs::write(
-        &session_path,
-        format!(
-            "{}\n",
-            serde_json::json!({ "role": "user", "content": "same staggered turn" })
-        ),
-    )
-    .unwrap();
-
-    let second_evidence = fixture.service.chat_send_anchor(&tab_id);
-    let second = fixture
-        .service
-        .chat_send_ledger
-        .try_start_scoped(
-            &tab_id,
+    fx.ledger.finish(&first.send_id, Ok(())).unwrap();
+    fx.append_user_turn("sess-a", "same staggered turn");
+    let second = fx
+        .ledger
+        .try_start(
+            "tab-1",
             "same staggered turn",
-            second_evidence.anchor,
-            second_evidence.live_binding,
+            Some(fx.anchor_now("sess-a")),
         )
         .unwrap();
-    fixture
-        .service
-        .chat_send_ledger
-        .finish(&second.send_id, Ok(()))
-        .unwrap();
-    use std::io::Write;
-    writeln!(
-        std::fs::OpenOptions::new()
-            .append(true)
-            .open(session_path)
-            .unwrap(),
-        "{}",
-        serde_json::json!({ "role": "user", "content": "same staggered turn" })
-    )
-    .unwrap();
+    fx.ledger.finish(&second.send_id, Ok(())).unwrap();
 
-    fixture.service.reconcile_chat_send_evidence(&tab_id);
-    let confirmed = fixture.service.chat_send_ledger.reconcile(&tab_id);
+    let confirmed = fx.scan("tab-1");
+    assert_eq!(confirmed.len(), 1);
+    assert_eq!(confirmed[0].send_id, first.send_id);
+    assert!(
+        fx.scan("tab-1").is_empty(),
+        "the pre-boundary turn is not the second send's"
+    );
+
+    fx.append_user_turn("sess-a", "same staggered turn");
+    let confirmed = fx.scan("tab-1");
     assert_eq!(confirmed.len(), 1);
     assert_eq!(confirmed[0].send_id, second.send_id);
-    assert_eq!(confirmed[0].state, ChatSendState::Sent);
+    assert!(fx.scan("tab-1").is_empty());
 }
 
 #[test]
 fn identical_payloads_with_inverted_capture_and_start_order_claim_distinct_turns() {
-    let (fixture, tab_id) = unbound_service_fixture("windowed");
-    let root = fixture.temp.path().join("inverted-order-jsonl-evidence");
-    std::fs::create_dir_all(&root).unwrap();
-    fixture
-        .service
-        .agent_registry
-        .register_provider(Box::new(WindowedJsonlProvider { root: root.clone() }));
-    let session_path = root.join("session-inverted.jsonl");
-    std::fs::write(&session_path, "").unwrap();
-    bind_fixture_session(&fixture, &tab_id, "session-inverted");
-
-    let loose_evidence = fixture.service.chat_send_anchor(&tab_id);
-    std::fs::write(
-        &session_path,
-        format!(
-            "{}\n",
-            serde_json::json!({ "role": "user", "content": "same inverted turn" })
-        ),
-    )
-    .unwrap();
-    let restrictive_evidence = fixture.service.chat_send_anchor(&tab_id);
-
-    let restrictive = fixture
-        .service
-        .chat_send_ledger
-        .try_start_scoped(
-            &tab_id,
-            "same inverted turn",
-            restrictive_evidence.anchor,
-            restrictive_evidence.live_binding,
-        )
+    let fx = Fixture::new();
+    let loose_anchor = fx.anchor_now("sess-a");
+    fx.append_user_turn("sess-a", "same inverted turn");
+    let restrictive_anchor = fx.anchor_now("sess-a");
+    let restrictive = fx
+        .ledger
+        .try_start("tab-1", "same inverted turn", Some(restrictive_anchor))
         .unwrap();
-    fixture
-        .service
-        .chat_send_ledger
-        .finish(&restrictive.send_id, Ok(()))
+    let loose = fx
+        .ledger
+        .try_start("tab-1", "same inverted turn", Some(loose_anchor))
         .unwrap();
-    let loose = fixture
-        .service
-        .chat_send_ledger
-        .try_start_scoped(
-            &tab_id,
-            "same inverted turn",
-            loose_evidence.anchor,
-            loose_evidence.live_binding,
-        )
-        .unwrap();
-    fixture
-        .service
-        .chat_send_ledger
-        .finish(&loose.send_id, Ok(()))
-        .unwrap();
+    for send in [&restrictive, &loose] {
+        fx.ledger.finish(&send.send_id, Ok(())).unwrap();
+    }
+    fx.append_user_turn("sess-a", "same inverted turn");
 
-    use std::io::Write;
-    writeln!(
-        std::fs::OpenOptions::new()
-            .append(true)
-            .open(session_path)
-            .unwrap(),
-        "{}",
-        serde_json::json!({ "role": "user", "content": "same inverted turn" })
-    )
-    .unwrap();
+    let confirmed = fx
+        .scan("tab-1")
+        .into_iter()
+        .map(|status| status.send_id)
+        .collect::<Vec<_>>();
 
-    fixture.service.reconcile_chat_send_evidence(&tab_id);
-    let confirmed = fixture.service.chat_send_ledger.reconcile(&tab_id);
-    assert_eq!(confirmed.len(), 1);
-    assert_eq!(confirmed[0].send_id, loose.send_id);
-    assert_eq!(confirmed[0].state, ChatSendState::Sent);
+    assert_eq!(confirmed, vec![restrictive.send_id, loose.send_id]);
+    assert!(fx.scan("tab-1").is_empty());
 }
 
 #[test]
-fn chat_send_status_rejects_pre_send_foreign_and_claimed_turns() {
-    let (fixture, tab_id) = unbound_service_fixture("windowed");
-    let root = fixture.temp.path().join("inverse-jsonl-evidence");
-    std::fs::create_dir_all(&root).unwrap();
-    fixture
-        .service
-        .agent_registry
-        .register_provider(Box::new(WindowedJsonlProvider { root: root.clone() }));
-    let session_path = root.join("session-owned.jsonl");
-    std::fs::write(
-        &session_path,
-        format!(
-            "{}\n",
-            serde_json::json!({ "role": "user", "content": "same exact turn" })
-        ),
-    )
-    .unwrap();
-
-    let first_evidence = fixture.service.chat_send_anchor(&tab_id);
-    let second_evidence = fixture.service.chat_send_anchor(&tab_id);
-    let first = fixture
-        .service
-        .chat_send_ledger
-        .try_start_scoped(
-            &tab_id,
-            "same exact turn",
-            first_evidence.anchor,
-            first_evidence.live_binding,
-        )
+fn staggered_windows_never_assign_one_turn_to_two_sends() {
+    let fx = Fixture::new();
+    let first = fx
+        .ledger
+        .try_start("tab-1", "same text", Some(fx.anchor_now("sess-a")))
         .unwrap();
-    let second = fixture
-        .service
-        .chat_send_ledger
-        .try_start_scoped(
-            &tab_id,
-            "same exact turn",
-            second_evidence.anchor,
-            second_evidence.live_binding,
-        )
+    fx.ledger.finish(&first.send_id, Ok(())).unwrap();
+    let second = fx
+        .ledger
+        .try_start("tab-1", "same text", Some(fx.anchor_now("sess-a")))
         .unwrap();
-    for send in [&first, &second] {
-        fixture
-            .service
-            .chat_send_ledger
-            .finish(&send.send_id, Ok(()))
-            .unwrap();
-    }
-    bind_fixture_session(&fixture, &tab_id, "session-owned");
-    fixture.service.reconcile_chat_send_evidence(&tab_id);
-    assert_eq!(fixture.service.chat_send_ledger.reconcile(&tab_id).len(), 2);
+    fx.ledger.finish(&second.send_id, Ok(())).unwrap();
+    fx.append_user_turn("sess-a", "same text");
+    let third = fx
+        .ledger
+        .try_start("tab-1", "same text", Some(fx.anchor_now("sess-a")))
+        .unwrap();
+    fx.ledger.finish(&third.send_id, Ok(())).unwrap();
+    fx.append_user_turn("sess-a", "same text");
 
-    use std::io::Write;
-    writeln!(
-        std::fs::OpenOptions::new()
-            .append(true)
-            .open(session_path)
-            .unwrap(),
-        "{}",
-        serde_json::json!({ "role": "user", "content": "same exact turn" })
-    )
-    .unwrap();
-    {
-        let mut mux = fixture.service.mux.write();
-        mux.get_tab_mut(&tab_id).unwrap().agent_session_id = Some("session-foreign".into());
-    }
-    fixture.service.reconcile_chat_send_evidence(&tab_id);
-    assert_eq!(fixture.service.chat_send_ledger.reconcile(&tab_id).len(), 2);
+    let confirmed = fx
+        .scan("tab-1")
+        .into_iter()
+        .map(|status| status.send_id)
+        .collect::<Vec<_>>();
 
-    {
-        let mut mux = fixture.service.mux.write();
-        let tab = mux.get_tab_mut(&tab_id).unwrap();
-        tab.agent_session_id = Some("session-owned".into());
-        tab.session_binding_nonce = Some("binding-stale".into());
-    }
-    fixture.service.reconcile_chat_send_evidence(&tab_id);
-    assert_eq!(fixture.service.chat_send_ledger.reconcile(&tab_id).len(), 2);
-
-    fixture
-        .service
-        .mux
-        .write()
-        .get_tab_mut(&tab_id)
-        .unwrap()
-        .session_binding_nonce = Some("binding-current".into());
-    fixture.service.reconcile_chat_send_evidence(&tab_id);
-    let unresolved = fixture.service.chat_send_ledger.reconcile(&tab_id);
-    assert_eq!(unresolved.len(), 1);
-    assert_eq!(unresolved[0].send_id, second.send_id);
-    assert_eq!(unresolved[0].state, ChatSendState::Unknown);
+    assert_eq!(confirmed, vec![first.send_id, second.send_id]);
     assert_eq!(
-        fixture
-            .service
-            .chat_send_ledger
-            .confirmed_evidence_claims(&tab_id, "session-owned", "same exact turn")
-            .len(),
-        1
-    );
-    fixture.service.reconcile_chat_send_evidence(&tab_id);
-    assert_eq!(
-        fixture.service.chat_send_ledger.reconcile(&tab_id)[0].send_id,
-        second.send_id
+        fx.ledger.status(&third.send_id).unwrap().state,
+        ChatSendState::Unknown
     );
 }

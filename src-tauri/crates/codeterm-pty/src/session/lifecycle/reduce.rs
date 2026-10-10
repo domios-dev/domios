@@ -153,6 +153,8 @@ impl CheckpointReducer {
                     }
                     LifecycleTransition::AgentTypeWrite { .. }
                     | LifecycleTransition::PermissionAutoConfirm { .. }
+                    | LifecycleTransition::RemoteOwnershipReleased { .. }
+                    | LifecycleTransition::ResumeTargetRecorded { .. }
                     | LifecycleTransition::RestoreAwaitingAgentRestart { .. } => {}
                     _ => {
                         if let Some(checkpoint) = self
@@ -322,9 +324,13 @@ fn apply(
             builder.sealed_through = None;
         }
         LifecycleTransition::EpochOpened
+        | LifecycleTransition::ConversationStarted { .. }
+        | LifecycleTransition::EmptySessionReplaced { .. }
         | LifecycleTransition::RestartRequested
+        | LifecycleTransition::ResumeTargetRecorded { .. }
         | LifecycleTransition::RestoreAwaitingAgentRestart { .. }
-        | LifecycleTransition::PermissionAutoConfirm { .. } => {}
+        | LifecycleTransition::PermissionAutoConfirm { .. }
+        | LifecycleTransition::RemoteOwnershipReleased { .. } => {}
     }
 }
 
@@ -339,6 +345,7 @@ pub fn compact_records(records: &[JournalRecord]) -> Vec<JournalRecord> {
     let closed = closed_tabs(records);
     let retained_agent_type_writes = retained_agent_type_write_sequences(records);
     let retained_permission_audits = retained_permission_auto_confirm_sequences(records);
+    let retained_ownership_releases = retained_remote_ownership_release_sequences(records);
     let mut compacted: Vec<JournalRecord> = checkpoints
         .iter()
         .cloned()
@@ -351,6 +358,14 @@ pub fn compact_records(records: &[JournalRecord]) -> Vec<JournalRecord> {
         let JournalRecord::Transition { entry } = record else {
             continue;
         };
+        if matches!(
+            entry.transition,
+            LifecycleTransition::ConversationStarted { .. }
+                | LifecycleTransition::EmptySessionReplaced { .. }
+        ) {
+            compacted.push(record.clone());
+            continue;
+        }
         if closed.contains(entry.key.tab_id.as_str()) {
             continue;
         }
@@ -365,6 +380,10 @@ pub fn compact_records(records: &[JournalRecord]) -> Vec<JournalRecord> {
             &entry.transition,
             LifecycleTransition::PermissionAutoConfirm { .. }
         );
+        let is_ownership_release = matches!(
+            &entry.transition,
+            LifecycleTransition::RemoteOwnershipReleased { .. }
+        );
         let is_verified_session =
             matches!(&entry.transition, LifecycleTransition::SessionBound { .. });
         if is_verified_session {
@@ -372,7 +391,11 @@ pub fn compact_records(records: &[JournalRecord]) -> Vec<JournalRecord> {
         }
         if (is_agent_type_write && retained_agent_type_writes.contains(&entry.seq))
             || (is_permission_audit && retained_permission_audits.contains(&entry.seq))
-            || (!is_agent_type_write && !is_permission_audit && !is_covered)
+            || (is_ownership_release && retained_ownership_releases.contains(&entry.seq))
+            || (!is_agent_type_write
+                && !is_permission_audit
+                && !is_ownership_release
+                && !is_covered)
         {
             compacted.push(record.clone());
         }
@@ -423,6 +446,37 @@ fn retained_verified_session_records(
 
 /// Per-tab audit rows kept through compaction; older ones are telemetry only.
 pub const PERMISSION_AUTO_CONFIRM_AUDIT_LIMIT: usize = 20;
+pub const REMOTE_OWNERSHIP_RELEASE_AUDIT_LIMIT: usize = 20;
+
+fn retained_remote_ownership_release_sequences(
+    records: &[JournalRecord],
+) -> std::collections::HashSet<JournalSeq> {
+    let mut per_tab = HashMap::<&str, Vec<JournalSeq>>::new();
+    for record in records {
+        let JournalRecord::Transition { entry } = record else {
+            continue;
+        };
+        if matches!(
+            &entry.transition,
+            LifecycleTransition::RemoteOwnershipReleased { .. }
+        ) {
+            per_tab
+                .entry(entry.key.tab_id.as_str())
+                .or_default()
+                .push(entry.seq);
+        }
+    }
+    per_tab
+        .into_values()
+        .flat_map(|mut seqs| {
+            seqs.sort_unstable();
+            let skip = seqs
+                .len()
+                .saturating_sub(REMOTE_OWNERSHIP_RELEASE_AUDIT_LIMIT);
+            seqs.into_iter().skip(skip)
+        })
+        .collect()
+}
 
 fn retained_permission_auto_confirm_sequences(
     records: &[JournalRecord],

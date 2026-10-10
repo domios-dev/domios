@@ -23,7 +23,10 @@ pub(super) fn list_installed() -> Result<serde_json::Value, String> {
         let record = read_install_record(&folder_id)
             .or_else(|_| read_install_record(&id))
             .ok();
+        let version = manifest.as_ref().and_then(|m| m.version.as_deref());
+        let update = installed_update_status(&id, version, record.as_ref().map(|r| &r.source));
         rows.push(InstalledPluginRow {
+            update,
             id: id.clone(),
             version: manifest.as_ref().and_then(|m| m.version.clone()),
             display_name: manifest.and_then(|m| m.display_name),
@@ -72,8 +75,9 @@ pub(super) fn system_rank(id: &str) -> (u8, usize) {
 
 pub(super) fn virtual_system_row(id: &str) -> InstalledPluginRow {
     InstalledPluginRow {
+        update: installed_update_status(id, app_version().as_deref(), None),
         id: id.to_string(),
-        version: system_channel_version(id),
+        version: app_version(),
         display_name: None,
         path: String::new(),
         install_path: String::new(),

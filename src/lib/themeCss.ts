@@ -49,7 +49,7 @@ export function themeToCSS(theme: ThemeConfig): Record<string, string> {
     "--ct-cursor": theme.cursor,
     "--ct-selection": theme.selection,
     "--ct-sidebar-bg": chromeBg,
-    "--ct-titlebar-bg": chromeBg,
+    "--ct-titlebar-bg": deriveColor(theme.background, 4),
     "--ct-tray-divider": isLight
       ? blendColor(chromeBg, theme.bright_black, 0.34)
       : blendColor(chromeBg, theme.bright_white, 0.58),

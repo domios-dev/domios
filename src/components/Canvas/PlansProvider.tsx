@@ -11,6 +11,7 @@ import type { ApiConfig } from "../../lib/types";
 import { fetchPlanIndex, type PlanIndexEntry } from "./plansApi";
 import { usePlans, type UsePlansResult } from "./usePlans";
 import { usePlanPeerContext } from "./usePlanPeerContext";
+import { planBelongsToWorkspace, type PlanWorkspaceContext } from "./planTabMatch";
 
 const EMPTY_INDEX: PlanIndexEntry[] = [];
 const EMPTY_FULL: UsePlansResult = {
@@ -169,13 +170,20 @@ export function useSidebarPlansOptional(): UsePlansResult {
   return useContext(PlansContext)?.full ?? EMPTY_FULL;
 }
 
-export function useCanvasPlans(mode: "workspace" | "focus", projectPath: string | null): UsePlansResult {
+export function useCanvasPlans(
+  mode: "workspace" | "focus",
+  projectPath: string | null,
+  scope?: PlanWorkspaceContext & { workspaceId: string | undefined },
+): UsePlansResult {
   const full = usePlansContext().full;
   const plans = useMemo(() => {
     if (mode !== "workspace" || !projectPath) return full.plans;
     const expected = comparableProjectPath(projectPath);
-    return full.plans.filter((plan) => comparableProjectPath(plan.project_path) === expected);
-  }, [full.plans, mode, projectPath]);
+    return full.plans.filter((plan) =>
+      comparableProjectPath(plan.project_path) === expected ||
+      Boolean(scope?.workspaceId && planBelongsToWorkspace(plan, scope.workspaceId, scope)),
+    );
+  }, [full.plans, mode, projectPath, scope?.workspaceId, scope?.workspaces, scope?.teams]);
   return useMemo(() => ({ ...full, plans }), [full, plans]);
 }
 

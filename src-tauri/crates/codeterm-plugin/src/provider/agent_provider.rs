@@ -6,8 +6,46 @@ use std::time::Duration;
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 #[async_trait]
 pub trait AgentProvider: Send + Sync {
+    fn capability_probe(&self) -> Option<CapabilityProbe> {
+        None
+    }
+    fn auth_status_probe(&self) -> Option<AuthStatusProbe> {
+        None
+    }
+    fn tracks_background_work(&self) -> bool {
+        false
+    }
+    fn fork_session_args(&self) -> Option<Vec<String>> {
+        None
+    }
+    fn parse_background_work(
+        &self,
+        _record: &serde_json::Value,
+    ) -> Vec<codeterm_types::agent::background_work::BackgroundWorkObservation> {
+        Vec::new()
+    }
+
+    fn parse_auth_status(&self, _record: &serde_json::Value) -> Option<AuthStatus> {
+        None
+    }
+
+    fn parse_session_observations(
+        &self,
+        _record: &serde_json::Value,
+    ) -> Option<SessionObservations> {
+        None
+    }
+    fn structured_control(&self) -> Option<StructuredControl> {
+        None
+    }
     /// Unique identifier for this provider (e.g. "claude").
     fn id(&self) -> &str;
+
+    fn model_provider_config(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::model_providers::ModelProviderConfig>> {
+        None
+    }
 
     /// Human-readable name (e.g. "Claude Code").
     fn display_name(&self) -> &str;
@@ -17,6 +55,10 @@ pub trait AgentProvider: Send + Sync {
     /// typed commands → agent_type and to preflight launches. Defaults to `id()`.
     fn binary_name(&self) -> &str {
         self.id()
+    }
+
+    fn cli_compatibility(&self) -> Option<crate::provider_compat::CompatibilityManifest> {
+        None
     }
 
     /// Maximum text body size accepted as an inline paste. `None` means undeclared.
@@ -88,6 +130,22 @@ pub trait AgentProvider: Send + Sync {
         ComposerCursorPosition::default()
     }
 
+    /// Bounded input fallback: when the provider's own readiness signal never
+    /// fires, open input at this deadline instead of blocking the tab forever.
+    fn input_fallback_ms(&self) -> Option<u64> {
+        None
+    }
+
+    /// When a provider-declared startup dialog is auto-answered during launch.
+    /// Default: delegated roles only (Worker / planner Manager).
+    fn onboarding_auto_answer(&self) -> OnboardingAutoAnswer {
+        OnboardingAutoAnswer::default()
+    }
+
+    fn restores_conversation_history_on_resume(&self) -> bool {
+        false
+    }
+
     fn session_starts_on_first_user_turn(&self) -> bool {
         false
     }
@@ -103,6 +161,11 @@ pub trait AgentProvider: Send + Sync {
         VerifySubmitStrategy::ShellPrompt {
             timeout: Duration::from_secs(5),
         }
+    }
+
+    /// Whether this provider permits recovery keys without an authenticated session.
+    fn supports_unbound_submit_recovery(&self) -> bool {
+        false
     }
 
     fn turn_evidence_normalization(&self) -> TurnEvidenceNormalization {
@@ -131,6 +194,10 @@ pub trait AgentProvider: Send + Sync {
     /// Build the path to the session file for this agent.
     fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf>;
 
+    fn session_model_identity_path(&self, _cwd: &str, _session_id: &str) -> Option<PathBuf> {
+        None
+    }
+
     /// Further usage logs owned by this exact session, found beside `session_file`
     /// (e.g. sub-agent transcripts). Never another session's; empty when none.
     fn additional_usage_sources(&self, _session_file: &Path, _session_id: &str) -> Vec<PathBuf> {
@@ -154,13 +221,9 @@ pub trait AgentProvider: Send + Sync {
         max_age: Option<Duration>,
     ) -> Option<String>;
 
-    /// Whether a session id still has a backing file (JSONL / session store / whatever
-    /// the provider keeps). Default implementation is `session_file_path(...).exists()`.
-    /// Providers without file-based session storage override this.
-    fn session_exists(&self, cwd: &str, session_id: &str) -> bool {
-        self.session_file_path(cwd, session_id)
-            .map(|p| p.exists())
-            .unwrap_or(false)
+    /// Some(false) is confirmed absence; None is an unreadable or unknown store.
+    fn session_exists(&self, cwd: &str, session_id: &str) -> Option<bool> {
+        self.session_file_path(cwd, session_id)?.try_exists().ok()
     }
 
     /// Session creation time, for providers whose sessions have no per-session
@@ -225,6 +288,26 @@ pub trait AgentProvider: Send + Sync {
     /// has to detect them post-launch via `detect_session_id`.
     fn session_id_injection(&self) -> SessionIdInjection {
         SessionIdInjection::None
+    }
+
+    fn context_attach(&self) -> Option<ContextAttach> {
+        None
+    }
+
+    fn is_tool_less(&self) -> bool {
+        false
+    }
+
+    fn supports_reply_relay(&self) -> bool {
+        false
+    }
+
+    fn read_reply_relay_turn(&self, _: &str, _: &str, _: u64) -> Option<ReplyRelayEvidence> {
+        None
+    }
+
+    fn supports_launch_session_detection(&self) -> bool {
+        false
     }
 
     /// Session named by this launch's own provider record; `None` when no record
@@ -316,6 +399,10 @@ pub trait AgentProvider: Send + Sync {
         Vec::new()
     }
 
+    fn structured_tool_file_diffs(&self, _part: &serde_json::Value) -> Option<serde_json::Value> {
+        None
+    }
+
     /// Provider serves chat as structured messages it parses itself (e.g.
     /// sqlite) rather than a tailable JSONL file. When true, the host uses
     /// `read_structured_chat` and a DB poller instead of `session_jsonl_path`
@@ -371,6 +458,11 @@ pub trait AgentProvider: Send + Sync {
         steps
     }
 
+    /// Explicit response steps relative to live focus; unsupported or failed hooks abstain.
+    fn live_prompt_response(&self, _option_index: usize, _screen: &str) -> Option<Vec<Vec<u8>>> {
+        None
+    }
+
     /// Recognize this provider's directory-trust dialog on the live screen.
     /// Core sends a key only when `is_directory_trusted` authorizes the exact cwd.
     fn directory_trust_prompt_response(
@@ -378,6 +470,12 @@ pub trait AgentProvider: Send + Sync {
         _screen: &str,
     ) -> Option<DirectoryTrustPromptResponse> {
         None
+    }
+
+    fn pre_trust_directory(&self, _path: &str) -> Result<crate::provider::PreTrustOutcome, String> {
+        Ok(crate::provider::PreTrustOutcome::Skipped(
+            "not supported".into(),
+        ))
     }
 
     fn is_directory_trusted(&self, _path: &str) -> Result<bool, String> {
@@ -395,6 +493,11 @@ pub trait AgentProvider: Send + Sync {
     /// One next key for a provider-declared, safe launch onboarding choice.
     /// The host re-observes the screen before requesting another key.
     fn launch_onboarding_response(&self, _screen: &str) -> Option<ProviderPromptKeyStep> {
+        None
+    }
+
+    /// Exact safe option value for the same narrow onboarding response.
+    fn launch_onboarding_safe_choice(&self, _screen: &str) -> Option<String> {
         None
     }
 
@@ -472,6 +575,10 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    fn delivery_modal_visible(&self, snapshot: &crate::tab_state::TabStateSnapshot) -> bool {
+        provider_classified_delivery_modal_visible(self, snapshot)
+    }
+
     /// Filter TUI noise from agent output. Returns true if the text is noise (should be dropped).
     fn is_output_noise(&self, text: &str) -> bool {
         let _ = text;
@@ -505,6 +612,13 @@ pub trait AgentProvider: Send + Sync {
             events.push(crate::detector::AgentEvent::PermissionRequest);
         }
         events
+    }
+
+    fn update_prompt_safe_choice(
+        &self,
+        _prompt: &codeterm_types::pty::PendingPrompt,
+    ) -> Option<String> {
+        None
     }
 
     fn parse_prompt(&self, text: &str) -> Option<codeterm_types::pty::PendingPrompt> {
@@ -565,6 +679,14 @@ pub trait AgentProvider: Send + Sync {
         Vec::new()
     }
 
+    fn reasoning_effort_launch_args_for_model(
+        &self,
+        _model: Option<&str>,
+        effort: &str,
+    ) -> Vec<String> {
+        self.reasoning_effort_launch_args(effort)
+    }
+
     /// Whether this provider supports the given reasoning-effort id. Default
     /// checks the declared `reasoning_efforts()` set — capability, not id.
     fn supports_reasoning_effort(&self, effort: &str) -> bool {
@@ -607,9 +729,17 @@ pub trait AgentProvider: Send + Sync {
         ModelSwitchMode::Unsupported
     }
 
+    fn model_switch_commands(&self) -> Option<ModelSwitchCommands> {
+        None
+    }
+
     /// In-agent command that exits the REPL cleanly, if supported.
     fn exit_command(&self) -> Option<&str> {
         None
+    }
+
+    fn supports_idle_restart_termination(&self) -> bool {
+        false
     }
 
     /// Raw key bytes from a provider's single-key `stopKey` declaration.
@@ -617,6 +747,10 @@ pub trait AgentProvider: Send + Sync {
     /// and the UI should hide the Stop affordance for that tab.
     fn stop_keystroke(&self) -> Option<&str> {
         None
+    }
+
+    fn uses_win32_control_keys(&self) -> bool {
+        false
     }
 
     /// Ordered raw key values from a provider's stop declaration.
@@ -673,6 +807,17 @@ pub trait AgentProvider: Send + Sync {
     /// The integration surface this provider owns and may reconcile.
     fn integration_kind(&self) -> IntegrationKind {
         IntegrationKind::None
+    }
+
+    fn permission_hook_capability(&self) -> Option<PermissionHookCapability> {
+        None
+    }
+
+    fn parse_context_usage(
+        &self,
+        _record: &serde_json::Value,
+    ) -> Option<codeterm_types::agent::context::TurnContext> {
+        None
     }
 
     /// Startup repair is capability-gated so core never identifies providers.
@@ -820,6 +965,10 @@ pub trait AgentProvider: Send + Sync {
         false
     }
 
+    fn update_prompt_availability(&self, screen: &str) -> Option<ProviderUpdateAvailability> {
+        super::update_prompt::availability(screen)
+    }
+
     fn check_for_update(&self) -> Option<ProviderUpdateAvailability> {
         None
     }
@@ -853,6 +1002,18 @@ pub trait AgentProvider: Send + Sync {
     fn describe(&self) -> ProviderDescriptor {
         let platform = current_platform_tag();
         let mut settings = self.settings_schema();
+        if self.structured_control().is_some() {
+            settings.push(SettingField::Section {
+                title: "Structured control".into(),
+                description: None,
+                fields: vec![SettingField::Toggle {
+                    key: "structured_control_enabled".into(),
+                    label: "Enable structured control".into(),
+                    default: true,
+                    description: None,
+                }],
+            });
+        }
         if self.usage_parser().is_some() {
             let probe_cmd = self.usage_probe_command().unwrap_or("/usage");
             settings.push(usage_tracking_section(probe_cmd));
@@ -860,8 +1021,12 @@ pub trait AgentProvider: Send + Sync {
             settings.push(usage_store_tracking_section());
         }
         ProviderDescriptor {
+            supports_session_fork: self.fork_session_args().is_some(),
+            structured_control: self.structured_control(),
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
+            cli_status: None,
             id: self.id().to_string(),
+            catalogue_version: crate::model_catalog::current_version(self.id()),
             display_name: self.display_name().to_string(),
             icon_hint: self.icon_hint().map(|s| s.to_string()),
             icon_svg: self.icon_svg().map(|s| s.to_string()),
@@ -878,6 +1043,7 @@ pub trait AgentProvider: Send + Sync {
             notifications_schema: self.notifications_schema(),
             supports_lazy_skills: self.supports_lazy_skills(),
             has_hooks: self.has_hooks(),
+            supports_model_endpoints: self.model_provider_config().is_some(),
             supports_permission_bypass: !self.auto_approve_flags().is_empty(),
             cli_binary: self.cli_binary().map(|s| s.to_string()),
             install_command: self.install_command(platform),
@@ -1004,4 +1170,24 @@ pub trait AgentProvider: Send + Sync {
     fn is_native(&self) -> bool {
         true
     }
+}
+
+pub(crate) fn provider_classified_delivery_modal_visible<P: AgentProvider + ?Sized>(
+    provider: &P,
+    snapshot: &crate::tab_state::TabStateSnapshot,
+) -> bool {
+    use crate::tab_state::TabState;
+
+    provider
+        .classify_tab_state(snapshot)
+        .is_some_and(|classification| {
+            classification.confidence >= 0.8
+                && matches!(
+                    classification.state,
+                    TabState::WaitingOnAuth
+                        | TabState::UpdatePrompt
+                        | TabState::RateLimited
+                        | TabState::ClarifyingQuestion
+                )
+        })
 }

@@ -21,6 +21,12 @@ impl ServiceContext {
         let bound_session_id = session_id.clone();
         let mut mux = self.mux.write();
         if let Some(ref new_sid) = session_id {
+            if mux
+                .get_tab(tab_id)
+                .is_some_and(|tab| tab.fork_source_session_id.is_some())
+            {
+                return;
+            }
             let conflict = mux
                 .tab_ids_with_session(new_sid)
                 .into_iter()
@@ -43,16 +49,23 @@ impl ServiceContext {
             tab.reported_session_binding_nonce = None;
             if changed {
                 clear_runtime_model_evidence(tab);
+                tab.provider_signals = Default::default();
             }
         }
         drop(mux);
         if changed {
+            super::structured_prompt::wake_for_tab(tab_id);
             self.deferred_session_bindings.clear(tab_id);
             self.schedule_session_model_refresh_for_current_tab(tab_id);
             self.emit_session_binding_state(tab_id);
             // The binding commit shuts this tab's tailer down, and chat reads
             // its authority from the tab record: no broadcast, no re-attach.
             self.emit_state_changed();
+            crate::service::provider_signals::refresh_auth(self, tab_id);
+            let _ = crate::service::session_persist::persist_session_after_mutation(
+                self,
+                crate::service::session_persist::SessionPersistUrgency::Prompt,
+            );
             self.invalidate_guarded_agent_input(tab_id);
         }
         if session_bound {
@@ -104,21 +117,22 @@ impl ServiceContext {
     /// Rotate the per-launch binding nonce before a provider command is
     /// written. This is the launch boundary, so it opens the operation.
     pub fn rotate_session_binding_nonce(&self, tab_id: &str) -> String {
-        self.rotate_session_binding_nonce_with_resume_target(tab_id, None)
+        self.rotate_session_binding_nonce_with_resume_target(tab_id, None, false)
     }
 
-    pub(crate) fn rotate_session_binding_nonce_for_resume(
+    pub(crate) fn reserve_agent_launch_binding_nonce(
         &self,
         tab_id: &str,
-        session_id: &str,
+        resume_target: Option<&str>,
     ) -> String {
-        self.rotate_session_binding_nonce_with_resume_target(tab_id, Some(session_id))
+        self.rotate_session_binding_nonce_with_resume_target(tab_id, resume_target, true)
     }
 
     fn rotate_session_binding_nonce_with_resume_target(
         &self,
         tab_id: &str,
         resume_target: Option<&str>,
+        launch_starting: bool,
     ) -> String {
         self.invalidate_guarded_agent_input(tab_id);
         self.open_lifecycle_epoch(tab_id);
@@ -127,10 +141,29 @@ impl ServiceContext {
             tab.remember_superseded_binding_nonce();
             tab.session_binding_nonce = Some(nonce.clone());
             tab.reported_session_binding_nonce = None;
+            tab.provider_signals = Default::default();
+            if launch_starting {
+                tab.restored_from_snapshot = false;
+                tab.agent_booting = true;
+                crate::service::boot_stage::apply_boot_stage(
+                    tab,
+                    codeterm_types::pty::BootStage::PtyStarting,
+                    None,
+                );
+            }
             if let Some(session_id) = resume_target {
                 tab.remember_resume_binding_nonce(session_id);
             }
         }
+        if let Some(session_id) = resume_target {
+            self.record_lifecycle(
+                tab_id,
+                crate::session::lifecycle::LifecycleTransition::ResumeTargetRecorded {
+                    session_id: session_id.to_string(),
+                },
+            );
+        }
+        crate::service::provider_signals::refresh_auth(self, tab_id);
         nonce
     }
 
@@ -154,6 +187,7 @@ impl ServiceContext {
         // A freshly minted nonce is a new launch, so it starts a new operation.
         if minted {
             self.open_lifecycle_epoch(tab_id);
+            crate::service::provider_signals::refresh_auth(self, tab_id);
         }
         nonce
     }
@@ -209,5 +243,27 @@ mod tests {
             after_bind,
             "an unchanged binding must not broadcast"
         );
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn agent_fork_legacy_guess_cannot_bind_a_distinct_session() {
+        let (mut mux, tab) = MultiplexerState::new();
+        mux.get_tab_mut(&tab).unwrap().fork_source_session_id = Some("source".into());
+        let fixture = ServiceFixture::new(mux);
+        fixture
+            .service
+            .set_agent_session_id(&tab, Some("guessed-distinct".into()));
+        assert!(fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab)
+            .unwrap()
+            .agent_session_id
+            .is_none());
     }
 }

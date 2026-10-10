@@ -58,7 +58,7 @@ export function WebGate({ children }: { children: ReactNode }) {
       setError(
         error instanceof WebApiError && (error.status === 401 || error.status === 403)
           ? "Stored token was rejected — paste a fresh one."
-          : "Cannot reach the CodeTerm daemon on this host.",
+          : "Cannot reach the Domios daemon on this host.",
       );
     }
   }, []);
@@ -158,10 +158,10 @@ export function WebGate({ children }: { children: ReactNode }) {
         <div className="text-sm opacity-70">Connecting to {apiHost()}…</div>
       ) : (
         <div className="w-full max-w-md p-6 rounded-lg border border-[var(--ct-border,#30363d)] bg-[var(--ct-titlebar-bg,#161b22)]">
-          <h1 className="text-lg font-semibold mb-1">CodeTerm Web</h1>
+          <h1 className="text-lg font-semibold mb-1">Domios Web</h1>
           <p className="text-xs opacity-70 mb-4">
             Paste the API token for <span className="font-mono">{apiHost()}</span>
-            {" — "}find it in the CodeTerm desktop app under Settings {"->"} Web
+            {" — "}find it in the Domios desktop app under Settings {"->"} Web
             Access.
           </p>
           <input

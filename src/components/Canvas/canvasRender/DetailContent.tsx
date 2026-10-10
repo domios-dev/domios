@@ -1,5 +1,7 @@
 import { RichMarkdown } from "@codeterm/chat-ui";
-import type { CSSProperties, ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
+import { ArrowUpRight, ChevronRight } from "lucide-react";
+import { AgentIcon } from "../../AgentIcon";
 import type { ApiConfig, Tab } from "../../../lib/types";
 import { TASK_STATUS_COLORS } from "../settings";
 import type { Plan, Section, Task, TaskLaneMetadata } from "../types";
@@ -13,7 +15,6 @@ import { PlanSkillsSection } from "../planView/PlanSkillsSection.tsx";
 import { TaskActivityTimeline } from "../planView/TaskActivityTimeline.tsx";
 import { GLYPH_ACCENT } from "./cardContent";
 import { taskReferenceLabel } from "../taskDisplayKey";
-
 
 export interface DetailContentProps {
   kind: PlanDetailKind;
@@ -31,67 +32,24 @@ export interface DetailContentProps {
   renderTaskAttachmentThumbnails?: (task: Task) => ReactNode;
 }
 
-const wrap: CSSProperties = {
-  padding: "20px 24px 28px",
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "stretch",
-  gap: 18,
-  fontFamily: "var(--ct-font-ui)",
-  color: "var(--ct-fg)",
-  background: "transparent",
-};
-const labelStyle: CSSProperties = { fontSize: 11, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "color-mix(in srgb, var(--ct-fg) 52%, transparent)" };
-const sectionTitle: CSSProperties = { fontSize: 15, fontWeight: 700, color: "var(--ct-fg)" };
-const muted: CSSProperties = { fontSize: 13, fontStyle: "italic", color: "color-mix(in srgb, var(--ct-fg) 50%, transparent)" };
+const RELATED_TASKS_SHOWN = 1;
 
-function Chip({ label, value, color, testId }: { label: string; value: string; color?: string; testId?: string }) {
-  return (
-    <span data-testid={testId} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 9px", borderRadius: 999, border: "1px solid var(--ct-border-subtle)", fontSize: 12, background: "color-mix(in srgb, var(--ct-fg) 5%, transparent)" }}>
-      <span style={{ ...labelStyle, fontSize: 10 }}>{label}</span>
-      <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 600 }}>
-        {color && <span style={{ width: 7, height: 7, borderRadius: "50%", background: color }} />}
-        {value}
-      </span>
-    </span>
-  );
-}
-
-function RelationChip({ children, onClick, testId }: { children: ReactNode; onClick?: () => void; testId: string }) {
-  const style: CSSProperties = {
-    display: "inline-flex",
-    alignItems: "center",
-    minWidth: 0,
-    maxWidth: 240,
-    padding: "2px 8px",
-    borderRadius: 999,
-    border: "1px solid var(--ct-border-subtle)",
-    background: "color-mix(in srgb, var(--ct-accent) 9%, transparent)",
-    color: "var(--ct-fg)",
-    fontSize: 11.5,
-    fontWeight: 600,
-    cursor: onClick ? "pointer" : "default",
-  };
-  if (!onClick) return <span data-testid={testId} style={style}>{children}</span>;
-  return (
-    <button type="button" data-testid={testId} onClick={onClick} style={style}>
-      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{children}</span>
-    </button>
-  );
+function tone(color: string): CSSProperties {
+  return { "--ct-detail-tone": color } as CSSProperties;
 }
 
 function Block({ label, children, testId }: { label: string; children: ReactNode; testId?: string }) {
   return (
-    <div data-testid={testId} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <div style={labelStyle}>{label}</div>
+    <section data-testid={testId} className="ct-detail__block">
+      <h3 className="ct-detail__heading">{label}</h3>
       {children}
-    </div>
+    </section>
   );
 }
 
 function Markdown({ text }: { text: string }) {
   return (
-    <div data-canvas-scroll-body="1" style={{ fontSize: 13.5, lineHeight: 1.55, color: "var(--ct-fg)" }}>
+    <div data-canvas-scroll-body="1" className="ct-detail__prose">
       <RichMarkdown text={text} />
     </div>
   );
@@ -107,12 +65,7 @@ function linkedTaskSections(task: Task, plan?: Plan): Section[] {
   return task.section_ids.map((id) => byId.get(id)).filter((section): section is Section => Boolean(section));
 }
 
-function TaskSectionLinks({
-  task,
-  plan,
-  planId,
-  onSection,
-}: {
+function TaskSectionLinks({ task, plan, planId, onSection }: {
   task: Task;
   plan?: Plan;
   planId?: string;
@@ -122,28 +75,19 @@ function TaskSectionLinks({
   if (sections.length === 0) return null;
   const navPlanId = planId ?? plan?.id;
   return (
-    <Block label="Plan sections">
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+    <Block label="Serves plan sections">
+      <div className="ct-detail__links">
         {sections.map((section) => (
           <button
             key={section.id}
             type="button"
+            className="ct-detail__link"
             data-testid="plan-detail-task-section-link"
             data-section-id={section.id}
             onClick={() => navPlanId && onSection?.({ planId: navPlanId, sectionId: section.id, variant: "plan" })}
-            style={{
-              padding: "5px 9px",
-              borderRadius: "var(--ct-radius-sm)",
-              border: "1px solid var(--ct-border-subtle)",
-              background: "color-mix(in srgb, var(--ct-accent) 9%, transparent)",
-              color: "var(--ct-accent)",
-              fontSize: 12,
-              fontWeight: 650,
-              cursor: onSection && navPlanId ? "pointer" : "default",
-              textAlign: "left",
-            }}
           >
             {section.title}
+            <ArrowUpRight size={12} aria-hidden="true" />
           </button>
         ))}
       </div>
@@ -183,84 +127,87 @@ function laneRows(lane: TaskLaneMetadata): { label: string; value: string }[] {
   return rows;
 }
 
-function LanePanel({ lane, tabs, onOpenTab }: { lane?: TaskLaneMetadata; tabs: Record<string, Tab>; onOpenTab?: (tabId: string) => void }) {
-  if (!lane) return null;
-  const tabId = lane.tab_id?.trim() || null;
-  const rows = laneRows(lane);
-  if (!tabId && rows.length === 0) return null;
-  const tab = resolveTab(tabId, tabs);
-  const canFocus = Boolean(tab?.alive && onOpenTab && tabId);
-  const monoValue: CSSProperties = { fontFamily: "var(--ct-font-mono)", fontSize: 12, wordBreak: "break-all", color: "var(--ct-fg)" };
-  const tabLabel = tab?.title ?? tab?.tabId ?? "";
+function LaneTab({ tab, onOpenTab }: { tab: TabIdentity; onOpenTab?: (tabId: string) => void }) {
+  const canFocus = Boolean(tab.alive && onOpenTab);
   return (
-    <Block label="Lane" testId="task-lane-panel">
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {tab && tabId && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ ...labelStyle, fontSize: 10 }}>tab</span>
-            <button
-              type="button"
-              data-testid="task-lane-tab"
-              data-tab-id={tab.tabId}
-              disabled={!canFocus}
-              title={tab.alive ? `Focus tab (${tab.tabId})` : `Tab ${tab.tabId} is closed`}
-              onClick={() => canFocus && onOpenTab!(tabId)}
-              style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 9px", borderRadius: 999, border: "1px solid var(--ct-border-subtle)", background: canFocus ? "color-mix(in srgb, var(--ct-accent) 9%, transparent)" : "color-mix(in srgb, var(--ct-fg) 5%, transparent)", color: canFocus ? "var(--ct-accent)" : "var(--ct-fg)", fontSize: 12, fontWeight: 600, cursor: canFocus ? "pointer" : "default" }}
-            >
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: tab.alive ? GLYPH_ACCENT.progress : "color-mix(in srgb, var(--ct-fg) 35%, transparent)" }} />
-              <span data-testid="task-lane-tab-title">{tabLabel}</span>
-            </button>
-            {tab.title && <span data-testid="task-lane-tab-id" title="Tab id" style={{ ...monoValue, fontSize: 11, color: "color-mix(in srgb, var(--ct-fg) 45%, transparent)" }}>{tab.tabId}</span>}
-            {!tab.alive && <span data-testid="task-lane-tab-dead" style={{ fontSize: 11, fontStyle: "italic", color: "color-mix(in srgb, var(--ct-fg) 50%, transparent)" }}>closed</span>}
-          </div>
-        )}
-        {rows.map((row) => (
-          <div key={row.label} style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-            <span style={{ ...labelStyle, fontSize: 10, minWidth: 68 }}>{row.label}</span>
-            <span data-testid={`task-lane-${row.label}`} style={monoValue}>{row.value}</span>
-          </div>
-        ))}
-      </div>
-    </Block>
-  );
-}
-
-function PersonaChip({ persona }: { persona: string }) {
-  return (
-    <span
-      data-testid="task-personality"
-      title="Executing persona"
-      style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 11px", borderRadius: 999, border: "1px solid color-mix(in srgb, var(--ct-accent) 40%, transparent)", background: "color-mix(in srgb, var(--ct-accent) 14%, transparent)", color: "var(--ct-accent)", fontSize: 12.5, fontWeight: 700 }}
-    >
-      {persona}
+    <span className="ct-detail__lane-tab">
+      <button
+        type="button"
+        className="ct-detail__tab"
+        data-testid="task-lane-tab"
+        data-tab-id={tab.tabId}
+        data-alive={tab.alive || undefined}
+        disabled={!canFocus}
+        title={tab.alive ? `Focus tab (${tab.tabId})` : `Tab ${tab.tabId} is closed`}
+        onClick={() => canFocus && onOpenTab?.(tab.tabId)}
+      >
+        <span className="ct-detail__dot" aria-hidden="true" />
+        <span data-testid="task-lane-tab-title">{tab.title ?? tab.tabId}</span>
+      </button>
+      {tab.title && <span data-testid="task-lane-tab-id" title="Tab id" className="ct-detail__mono ct-detail__faint">{tab.tabId}</span>}
+      {!tab.alive && <span data-testid="task-lane-tab-dead" className="ct-detail__faint">closed</span>}
     </span>
   );
 }
 
-function AgentIdentity({ tab, persona }: { tab: TabIdentity | null; persona: string | null }) {
-  const name = persona ?? tab?.title ?? (tab && !tab.alive ? `${tab.tabId} (closed)` : null);
-  if (!name && !tab?.provider && !tab?.model) return null;
+function AgentCard({ task, tabs, persona, agentTab, onOpenTab }: {
+  task: Task;
+  tabs: Record<string, Tab>;
+  persona: string | null;
+  agentTab: TabIdentity | null;
+  onOpenTab?: (tabId: string) => void;
+}) {
+  const name = persona ?? agentTab?.title ?? (agentTab && !agentTab.alive ? `${agentTab.tabId} (closed)` : null);
+  const lane = task.lane;
+  const laneTab = resolveTab(lane?.tab_id, tabs);
+  const rows = lane ? laneRows(lane) : [];
+  const showLane = Boolean(lane && (laneTab || rows.length > 0));
+  if (!name && !agentTab?.provider && !agentTab?.model && !showLane) return null;
+  const tabId = agentTab?.tabId;
+  const canOpen = Boolean(onOpenTab && tabId);
+  const identity = (
+    <>
+      <span className="ct-detail__avatar" data-alive={agentTab?.alive || undefined}>
+        <AgentIcon providerId={agentTab?.provider} />
+      </span>
+      <span className="ct-detail__agent-text">
+        {persona
+          ? <span className="ct-detail__persona" data-testid="task-personality" title="Executing persona">{persona}</span>
+          : name && <span className="ct-detail__persona">{name}</span>}
+        <span className="ct-detail__agent-sub">
+          {name && <span className="sr-only" data-testid="task-agent-name">{name}</span>}
+          {agentTab?.provider && <span data-testid="task-agent-provider">{agentTab.provider}</span>}
+          {agentTab?.model && <span className="ct-detail__mono" data-testid="task-agent-model">{agentTab.model}</span>}
+          {agentTab && !agentTab.alive && <span>tab closed</span>}
+        </span>
+      </span>
+    </>
+  );
   return (
-    <Block label="Agent" testId="task-agent-identity">
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-        {name && <Chip label="tab" value={name} testId="task-agent-name" />}
-        {tab?.provider && <Chip label="provider" value={tab.provider} testId="task-agent-provider" />}
-        {tab?.model && <Chip label="model" value={tab.model} testId="task-agent-model" />}
-      </div>
-    </Block>
+    <div className="ct-card ct-card--quiet ct-detail__agent">
+      {(name || agentTab?.provider || agentTab?.model) && (canOpen ? (
+        <button type="button" className="ct-detail__agent-head" data-testid="plan-detail-open-tab" onClick={() => tabId && onOpenTab?.(tabId)}>
+          <span className="contents" data-testid="task-agent-identity">{identity}</span>
+          <span className="ct-detail__open">Open chat<ChevronRight size={13} aria-hidden="true" /></span>
+        </button>
+      ) : (
+        <div className="ct-detail__agent-head" data-testid="task-agent-identity">{identity}</div>
+      ))}
+      {showLane && (
+        <dl className="ct-detail__lane" data-testid="task-lane-panel">
+          {laneTab && (
+            <div><dt>tab</dt><dd><LaneTab tab={laneTab} onOpenTab={onOpenTab} /></dd></div>
+          )}
+          {rows.map((row) => (
+            <div key={row.label}><dt>{row.label}</dt><dd className="ct-detail__mono" data-testid={`task-lane-${row.label}`}>{row.value}</dd></div>
+          ))}
+        </dl>
+      )}
+    </div>
   );
 }
 
-function TaskDetail({
-  api,
-  task,
-  plan,
-  planId,
-  tabs = {},
-  onOpenTab,
-  onSection,
-  renderTaskAttachmentThumbnails,
-}: {
+function TaskDetail({ api, task, plan, planId, tabs = {}, onOpenTab, onSection, renderTaskAttachmentThumbnails }: {
   api?: ApiConfig;
   task: Task;
   plan?: Plan;
@@ -271,43 +218,57 @@ function TaskDetail({
   renderTaskAttachmentThumbnails?: (task: Task) => ReactNode;
 }) {
   const body = task.body?.trim();
-  const tabId = task.assigned_tab_id?.trim() || null;
-  const agentTab = resolveTab(tabId, tabs);
+  const agentTab = resolveTab(task.assigned_tab_id, tabs);
   const persona = task.personality?.trim() || agentTab?.title || null;
   const attachmentThumbnails = renderTaskAttachmentThumbnails?.(task);
   const statusLabel = canonicalTaskStatusLabel(task, plan);
   return (
-    <div style={wrap} data-testid="canvas-detail-content">
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-        <Chip label="status" value={statusLabel} color={TASK_STATUS_COLORS[task.status]} testId="status-chip" />
-        {persona && <PersonaChip persona={persona} />}
-        {task.priority && <Chip label="priority" value={task.priority.toUpperCase()} />}
-        {task.type && <Chip label="type" value={task.type} />}
-        {task.executor_role?.trim() && <Chip label="role" value={task.executor_role} testId="task-executor-role" />}
-        {onOpenTab && tabId && (
-          <button
-            type="button"
-            data-testid="plan-detail-open-tab"
-            onClick={() => onOpenTab(tabId)}
-            style={{ marginLeft: "auto", padding: "4px 10px", borderRadius: "var(--ct-radius-sm)", border: "1px solid var(--ct-border-subtle)", background: "var(--ct-bg)", color: "var(--ct-accent)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-          >
-            Open tab
-          </button>
-        )}
+    <div className="ct-detail" data-testid="canvas-detail-content">
+      <div className="ct-detail__meta">
+        <span className="ct-detail__status" data-testid="status-chip" style={tone(TASK_STATUS_COLORS[task.status])}>
+          <span className="ct-detail__dot" aria-hidden="true" />{statusLabel}
+        </span>
+        {task.priority && <span className="ct-detail__fact">{task.priority.toUpperCase()}</span>}
+        {task.type && <span className="ct-detail__fact">{task.type}</span>}
       </div>
-      <AgentIdentity tab={agentTab} persona={persona} />
-      <LanePanel lane={task.lane} tabs={tabs} onOpenTab={onOpenTab} />
+      {(task.executor_role?.trim() || task.role_guidance?.trim()) && (
+        <section className="ct-detail__role" data-testid="task-role-guidance">
+          <h3 className="ct-detail__heading">
+            Role{task.executor_role?.trim() && <span className="ct-detail__role-name" data-testid="task-executor-role">{task.executor_role}</span>}
+          </h3>
+          {task.role_guidance?.trim() && <Markdown text={task.role_guidance} />}
+        </section>
+      )}
+      <AgentCard task={task} tabs={tabs} persona={persona} agentTab={agentTab} onOpenTab={onOpenTab} />
+      <Block label="Description" testId="canvas-detail-description">
+        {body ? <Markdown text={body} /> : <span className="ct-detail__empty" data-testid="canvas-detail-empty-body">No description</span>}
+      </Block>
+      {task.acceptance_criteria?.length ? (
+        <Block label="Acceptance criteria">
+          <ul className="ct-detail__checks">
+            {task.acceptance_criteria.map((c, i) => <li key={i}>{c}</li>)}
+          </ul>
+        </Block>
+      ) : null}
+      {task.test_plan?.trim() && <Block label="Test plan"><Markdown text={task.test_plan} /></Block>}
+      {task.correctness?.trim() && <Block label="Correctness"><Markdown text={task.correctness} /></Block>}
+      <AttachmentGallery api={api} planId={planId} attachments={task.attachments} />
+      {attachmentThumbnails && (
+        <Block label="Attachments">
+          <div data-testid="plan-detail-attachment-thumbnails">{attachmentThumbnails}</div>
+        </Block>
+      )}
       <TaskSectionLinks task={task} plan={plan} planId={planId} onSection={onSection} />
       {task.external_refs?.length ? (
         <Block label="External references" testId="task-external-references">
-          <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
+          <div className="ct-detail__list">
             {task.external_refs.map((reference) => (
               <a
                 key={`${reference.kind}:${reference.repository}#${reference.number}`}
                 href={reference.canonical_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ color: "var(--ct-accent)", wordBreak: "break-all" }}
+                className="ct-detail__href"
               >
                 {reference.repository}#{reference.number}
                 {reference.relationship ? ` · ${reference.relationship.replace("_", " ")}` : ""}
@@ -316,49 +277,15 @@ function TaskDetail({
           </div>
         </Block>
       ) : null}
-      {attachmentThumbnails && (
-        <Block label="Attachments">
-          <div data-testid="plan-detail-attachment-thumbnails">{attachmentThumbnails}</div>
-        </Block>
-      )}
-      {task.role_guidance?.trim() && (
-        <Block label="Role guidance" testId="task-role-guidance">
-          <Markdown text={task.role_guidance} />
-        </Block>
-      )}
-      <Block label="Description" testId="canvas-detail-description">
-        {body ? <Markdown text={body} /> : <span style={muted} data-testid="canvas-detail-empty-body">No description</span>}
-      </Block>
-      <AttachmentGallery api={api} planId={planId} attachments={task.attachments} />
-      {task.acceptance_criteria?.length ? (
-        <Block label="Acceptance criteria">
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13.5, lineHeight: 1.5, display: "flex", flexDirection: "column", gap: 3 }}>
-            {task.acceptance_criteria.map((c, i) => <li key={i}>{c}</li>)}
-          </ul>
-        </Block>
-      ) : null}
-      {task.test_plan?.trim() && <Block label="Test plan"><Markdown text={task.test_plan} /></Block>}
-      {task.correctness?.trim() && <Block label="Correctness"><Markdown text={task.correctness} /></Block>}
       {task.links?.length ? (
         <Block label="Links">
-          <div style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 13 }}>
-            {task.links.map((l, i) => <span key={i} style={{ color: "var(--ct-accent)", wordBreak: "break-all" }}>{l}</span>)}
+          <div className="ct-detail__list">
+            {task.links.map((l, i) => <span key={i} className="ct-detail__href">{l}</span>)}
           </div>
         </Block>
       ) : null}
       <TaskActivityTimeline task={task} plan={plan} planId={planId} api={api} tabs={tabs} />
     </div>
-  );
-}
-
-function SectionCoverageGlyph({ glyph }: { glyph: "done" | "progress" | "uncovered" }) {
-  const color = GLYPH_ACCENT[glyph];
-  const title = glyph === "done" ? "All tasks done" : glyph === "progress" ? "Tasks in progress" : "No tasks yet";
-  return (
-    <span
-      title={title}
-      style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0, marginTop: 2 }}
-    />
   );
 }
 
@@ -368,9 +295,7 @@ function sectionTaskGlyph(linked: Task[]): "done" | "progress" | "uncovered" {
   return "progress";
 }
 
-function flattenSectionTree(sections: Section[]): Section[] {
-  return sections.flatMap((section) => [section, ...flattenSectionTree(section.subsections ?? [])]);
-}
+const GLYPH_TITLE = { done: "All tasks done", progress: "Tasks in progress", uncovered: "No tasks yet" } as const;
 
 interface RelationContext {
   variant: "plan" | "spec";
@@ -384,7 +309,7 @@ interface RelationContext {
 }
 
 function sectionTitleById(sections: Section[]): Map<string, string> {
-  return new Map(flattenSectionTree(sections).map((section) => [section.id, section.title]));
+  return new Map(flattenSections(sections).map((section) => [section.id, section.title]));
 }
 
 function relationTasksForSection(sectionId: string, ctx?: RelationContext): Task[] {
@@ -397,6 +322,7 @@ function relationTasksForSection(sectionId: string, ctx?: RelationContext): Task
 }
 
 function SectionRelations({ section, ctx }: { section: Section; ctx?: RelationContext }) {
+  const [expanded, setExpanded] = useState(false);
   if (!ctx) return null;
   const linkedTasks = relationTasksForSection(section.id, ctx);
   const specTitles = sectionTitleById(ctx.specSections);
@@ -405,37 +331,51 @@ function SectionRelations({ section, ctx }: { section: Section; ctx?: RelationCo
   const sectionLinks = ctx.variant === "plan"
     ? specLinks.filter((link) => link.plan_section_id === section.id).map((link) => ({
       id: link.spec_section_id,
-      label: specTitles.get(link.spec_section_id) ?? link.spec_section_id,
+      label: specTitles.get(link.spec_section_id) ?? "linked section",
       variant: "spec" as const,
       testId: "canvas-detail-spec-section-chip",
     }))
     : specLinks.filter((link) => link.spec_section_id === section.id).map((link) => ({
       id: link.plan_section_id,
-      label: planTitles.get(link.plan_section_id) ?? link.plan_section_id,
+      label: planTitles.get(link.plan_section_id) ?? "linked section",
       variant: "plan" as const,
       testId: "canvas-detail-plan-section-chip",
     }));
   if (sectionLinks.length === 0 && linkedTasks.length === 0) return null;
+  const shown = expanded ? linkedTasks : linkedTasks.slice(0, RELATED_TASKS_SHOWN);
+  const hidden = linkedTasks.length - shown.length;
   return (
-    <div data-testid="canvas-detail-section-relations" style={{ display: "flex", flexWrap: "wrap", gap: 6, marginLeft: ctx.tasks.length ? 16 : 0 }}>
+    <div data-testid="canvas-detail-section-relations" className="ct-detail__relations">
       {sectionLinks.map((link) => (
-        <RelationChip
+        <button
           key={`${link.variant}:${link.id}`}
-          testId={link.testId}
-          onClick={ctx.onSection ? () => ctx.onSection?.(link.id, link.variant) : undefined}
+          type="button"
+          className="ct-detail__link"
+          data-testid={link.testId}
+          disabled={!ctx.onSection}
+          onClick={() => ctx.onSection?.(link.id, link.variant)}
         >
           {link.variant === "spec" ? "Spec: " : "Plan: "}{link.label}
-        </RelationChip>
+        </button>
       ))}
-      {linkedTasks.map((task) => (
-        <RelationChip
+      {shown.map((task) => (
+        <button
           key={task.id}
-          testId="canvas-detail-task-chip"
-          onClick={ctx.onOpenTask ? () => ctx.onOpenTask?.(task.id) : undefined}
+          type="button"
+          className="ct-detail__task"
+          style={tone(TASK_STATUS_COLORS[task.status])}
+          data-testid="canvas-detail-task-chip"
+          disabled={!ctx.onOpenTask}
+          onClick={() => ctx.onOpenTask?.(task.id)}
         >
           {taskReferenceLabel(task)}
-        </RelationChip>
+        </button>
       ))}
+      {hidden > 0 && (
+        <button type="button" className="ct-detail__more" data-testid="canvas-detail-more-tasks" onClick={() => setExpanded(true)}>
+          +{hidden} more
+        </button>
+      )}
     </div>
   );
 }
@@ -448,43 +388,48 @@ function SectionTree({ sections, depth = 0, ctx }: { sections: Section[]; depth?
         const glyph = ctx ? sectionTaskGlyph(linkedTasks) : "uncovered";
         const taskCount = linkedTasks.length;
         return (
-          <div key={s.id} data-testid="canvas-detail-section" data-section-id={s.id} style={{ display: "flex", flexDirection: "column", gap: 6, marginLeft: depth * 16, paddingTop: depth ? 4 : 0 }}>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-              {ctx && <SectionCoverageGlyph glyph={glyph} />}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                  <button
-                    type="button"
-                    data-testid="canvas-detail-section-nav"
-                    title={taskCount > 0 ? `Go to ${taskCount} task${taskCount > 1 ? "s" : ""} in this section` : "No tasks in this section"}
-                    onClick={() => ctx?.onSection?.(s.id, ctx.variant)}
-                    style={{ ...sectionTitle, fontSize: depth ? 13.5 : 15, display: "inline", padding: 0, border: "none", background: "transparent", color: "var(--ct-fg)", cursor: ctx?.onSection ? "pointer" : "default", textAlign: "left" }}
-                  >
-                    {s.title}
-                  </button>
-                  {taskCount > 0 && (
-                    <span
-                      data-testid="canvas-detail-section-task-count"
-                      style={{ fontSize: 11, fontWeight: 600, color: GLYPH_ACCENT[glyph], flexShrink: 0 }}
-                    >
-                      {taskCount} task{taskCount > 1 ? "s" : ""}
-                    </span>
-                  )}
-                </div>
-              </div>
+          <div key={s.id} data-testid="canvas-detail-section" data-section-id={s.id} data-depth={depth || undefined} className="ct-detail__section">
+            <div className="ct-detail__section-head" style={tone(GLYPH_ACCENT[glyph])}>
+              {ctx && <span className="ct-detail__dot" title={GLYPH_TITLE[glyph]} />}
+              <button
+                type="button"
+                className="ct-detail__section-title"
+                data-testid="canvas-detail-section-nav"
+                title={taskCount > 0 ? `Go to ${taskCount} task${taskCount > 1 ? "s" : ""} in this section` : "No tasks in this section"}
+                onClick={() => ctx?.onSection?.(s.id, ctx.variant)}
+              >
+                {s.title}
+              </button>
+              {taskCount > 0 && (
+                <span className="ct-detail__count" data-testid="canvas-detail-section-task-count">
+                  {taskCount} task{taskCount > 1 ? "s" : ""}
+                </span>
+              )}
             </div>
-            <SectionRelations section={s} ctx={ctx} />
-            {s.tags?.length ? (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginLeft: ctx ? 16 : 0 }}>
-                {s.tags.map((t) => <span key={t} style={{ fontSize: 11, padding: "1px 7px", borderRadius: 999, background: "color-mix(in srgb, var(--ct-fg) 7%, transparent)" }}>{t.includes(":") ? t.slice(t.indexOf(":") + 1).replace(/-/g, " ") : t}</span>)}
-              </div>
-            ) : null}
-            {s.body?.trim() ? <div style={{ marginLeft: ctx ? 16 : 0 }}><Markdown text={s.body} /></div> : null}
-            {s.subsections?.length ? <SectionTree sections={s.subsections} depth={depth + 1} ctx={ctx} /> : null}
+            <div className="ct-detail__section-body">
+              {s.body?.trim() ? <Markdown text={s.body} /> : null}
+              <SectionRelations section={s} ctx={ctx} />
+              {s.tags?.length ? (
+                <div className="ct-detail__tags">
+                  {s.tags.map((t) => <span key={t}>{t.includes(":") ? t.slice(t.indexOf(":") + 1).replace(/-/g, " ") : t}</span>)}
+                </div>
+              ) : null}
+              {s.subsections?.length ? <SectionTree sections={s.subsections} depth={depth + 1} ctx={ctx} /> : null}
+            </div>
           </div>
         );
       })}
     </>
+  );
+}
+
+function Progress({ done, total, testId, children }: { done: number; total: number; testId: string; children?: ReactNode }) {
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  return (
+    <div className="ct-detail__progress" data-testid={testId}>
+      {children}
+      <div className="ct-detail__bar"><span style={{ width: `${pct}%` }} /></div>
+    </div>
   );
 }
 
@@ -493,49 +438,22 @@ function SpecCoverageHeader({ plan }: { plan: Plan }) {
   const total = activeTasks.length;
   if (total === 0) return null;
   const done = activeTasks.filter((task) => task.status === "done").length;
-  const active = activeTasks.filter((task) => task.status !== "done").length;
+  const active = total - done;
   const pct = Math.round((done / total) * 100);
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }} data-testid="canvas-detail-spec-coverage">
-      <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-        <span data-testid="canvas-detail-spec-total" style={{ fontSize: 28, fontWeight: 800, lineHeight: 1 }}>{done}/{total}</span>
-        <span style={{ fontSize: 13, color: "color-mix(in srgb, var(--ct-fg) 60%, transparent)" }}>
-          tasks done
-        </span>
+    <Progress done={done} total={total} testId="canvas-detail-spec-coverage">
+      <div className="ct-detail__progress-line">
+        <span className="ct-detail__progress-value" data-testid="canvas-detail-spec-total">{done}/{total}</span>
+        <span>tasks done</span>
+        {done > 0 && <span className="ct-detail__fact" data-testid="canvas-detail-spec-covered" style={tone(GLYPH_ACCENT.done)}><span className="ct-detail__dot" aria-hidden="true" />{done} done</span>}
+        {active > 0 && <span className="ct-detail__fact" data-testid="canvas-detail-spec-partial" style={tone(GLYPH_ACCENT.progress)}><span className="ct-detail__dot" aria-hidden="true" />{active} active</span>}
+        <span className="ct-detail__faint" data-testid="canvas-detail-spec-percent">{pct}% done</span>
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-        {done > 0 && (
-          <span data-testid="canvas-detail-spec-covered" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600 }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: GLYPH_ACCENT.done }} />
-            {done} done
-          </span>
-        )}
-        {active > 0 && (
-          <span data-testid="canvas-detail-spec-partial" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600 }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: GLYPH_ACCENT.progress }} />
-            {active} active
-          </span>
-        )}
-        <span data-testid="canvas-detail-spec-percent" style={{ fontSize: 12, color: "color-mix(in srgb, var(--ct-fg) 45%, transparent)" }}>{pct}% done</span>
-      </div>
-      <div style={{ height: 5, borderRadius: 999, background: "color-mix(in srgb, var(--ct-fg) 10%, transparent)", overflow: "hidden" }}>
-        <div style={{ width: `${pct}%`, height: "100%", background: GLYPH_ACCENT.done }} />
-      </div>
-    </div>
+    </Progress>
   );
 }
 
-function PlanDetail({
-  plan,
-  variant,
-  planSections,
-  specSections = [],
-  tabs = {},
-  planId,
-  api,
-  onSection,
-  onOpenTask,
-}: {
+function PlanDetail({ plan, variant, planSections, specSections = [], tabs = {}, planId, api, onSection, onOpenTask }: {
   plan: Plan;
   variant: "plan" | "spec";
   planSections: Section[];
@@ -550,10 +468,12 @@ function PlanDetail({
   const activeTasks = plan.tasks.filter((task) => task.status !== "cancelled");
   const total = activeTasks.length;
   const done = activeTasks.filter((task) => task.status === "done").length;
-  const pct = total ? Math.round((done / total) * 100) : 0;
+  const ownerTab = plan.owner.tab_id ? tabs[plan.owner.tab_id] : undefined;
+  const ownerLabel = ownerTab?.title?.trim() || plan.owner.title?.trim() || null;
+  const goal = plan.goal?.vector?.trim();
   const metaBits = [
     plan.mode === "paused" ? "Parked" : plan.status === "active" ? "Active" : plan.status,
-    plan.owner.title || plan.owner.tab_id ? `owner ${plan.owner.title ?? plan.owner.tab_id}` : null,
+    ownerLabel ? `led by ${ownerLabel}` : null,
     plan.primary_spec_id ? "linked spec" : null,
     plan.loops?.length ? `${plan.loops.length} loop${plan.loops.length > 1 ? "s" : ""}` : null,
   ].filter(Boolean) as string[];
@@ -569,35 +489,32 @@ function PlanDetail({
   };
 
   return (
-    <div style={wrap} data-testid="canvas-detail-content">
-      {variant === "plan" && <PlanRetrospectiveBlock plan={plan} />}
+    <div className="ct-detail" data-testid="canvas-detail-content">
       {variant === "plan" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className="ct-detail__block">
+          {goal && goal !== plan.title.trim() && <p className="ct-detail__goal">{goal}</p>}
           {total > 0 && (
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }} data-testid="canvas-detail-progress">
-              <span style={{ fontSize: 12, fontWeight: 650, color: "color-mix(in srgb, var(--ct-fg) 68%, transparent)" }}>
-                {done} / {total} tasks done
-              </span>
-              <div style={{ width: 92, height: 5, borderRadius: 999, background: "color-mix(in srgb, var(--ct-fg) 10%, transparent)", overflow: "hidden" }}>
-                <div style={{ width: `${pct}%`, height: "100%", background: "var(--ct-accent)" }} />
+            <Progress done={done} total={total} testId="canvas-detail-progress">
+              <div className="ct-detail__progress-line">
+                <span>{done} / {total} tasks done</span>
+                {metaBits.length > 0 && <span className="ct-detail__faint">{metaBits.join(" · ")}</span>}
               </div>
-            </div>
+            </Progress>
           )}
-          {plan.goal?.vector && <div style={{ fontSize: 13.5, lineHeight: 1.5, color: "var(--ct-fg)" }}><span style={{ ...labelStyle, marginRight: 8 }}>Goal</span>{plan.goal.vector}</div>}
-          {metaBits.length > 0 && <div style={{ fontSize: 12, color: "color-mix(in srgb, var(--ct-fg) 55%, transparent)" }}>{metaBits.join("  ·  ")}</div>}
+          {total === 0 && metaBits.length > 0 && <p className="ct-detail__faint">{metaBits.join(" · ")}</p>}
         </div>
       )}
       {variant === "spec" && <SpecCoverageHeader plan={plan} />}
+      {variant === "plan" && <PlanRetrospectiveBlock plan={plan} />}
+      <Block label={variant === "spec" ? "Specification" : "Sections"}>
+        <div className="ct-detail__sections">
+          {sections.length
+            ? <SectionTree sections={sections} ctx={relationCtx} />
+            : <span className="ct-detail__empty">No sections.</span>}
+        </div>
+      </Block>
       {variant === "plan" && <PlanRecentActivityRail plan={plan} tabs={tabs} onOpenTask={onOpenTask} />}
-      {variant === "plan" && planId && api && (
-        <PlanSkillsSection planId={planId} plan={plan} api={api} />
-      )}
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <div style={labelStyle}>{variant === "spec" ? "Specification" : "Sections"}</div>
-        {sections.length
-          ? <SectionTree sections={sections} ctx={relationCtx} />
-          : <span style={muted}>No sections.</span>}
-      </div>
+      {variant === "plan" && planId && api && <PlanSkillsSection planId={planId} plan={plan} api={api} compact />}
     </div>
   );
 }

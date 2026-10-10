@@ -13,7 +13,6 @@ const TOKEN_ROUTE: &str = "/api/supporter/token";
 const STATUS_ROUTE: &str = "/api/supporter/status";
 const MODELS_ROUTE: &str = "/api/supporter/models";
 const USE_ROUTE: &str = "/api/supporter/use";
-const FEATURES_ROUTE: &str = "/api/supporter/features";
 
 /// The token enters through stdin only: an argv value would leak into shell history and `ps`.
 pub(super) fn read_token(mut input: impl Read, is_terminal: bool) -> Result<String, String> {
@@ -132,72 +131,13 @@ fn status_request(http: &crate::local_api::LocalApiClient, base: &str) -> Value 
     ok_body_or_exit(send(http.get(format!("{base}{STATUS_ROUTE}")), base), None)
 }
 
-fn write_features(
-    http: &crate::local_api::LocalApiClient,
-    base: &str,
-    memory_rerank: bool,
-    tab_state: bool,
-) -> Value {
-    let request = http
-        .post(format!("{base}{FEATURES_ROUTE}"))
-        .json(&json!({ "memory_rerank": memory_rerank, "tab_state": tab_state }));
-    ok_body_or_exit(send(request, base), None)
-}
-
 pub fn handle_supporter(json_mode: bool, action: SupporterAction) {
-    let token = match &action {
-        SupporterAction::Token {
-            action: SupporterTokenAction::Set { .. },
-        } => Some(
-            read_token(std::io::stdin(), std::io::stdin().is_terminal()).unwrap_or_else(
-                |message| {
-                    // A missing or terminal stdin is a usage error, so --json reports invalid_argument.
-                    fail_with(
-                        2,
-                        &CliError {
-                            message,
-                            code: Some(-32602),
-                            data: None,
-                        },
-                    )
-                },
-            ),
-        ),
-        _ => None,
-    };
     let (base, _) = crate::read_api_config();
     let http = crate::build_local_api()
         .unwrap_or_else(|error| fail(1, format!("failed to build HTTP client: {error}")));
     let base = base.as_str();
 
     match action {
-        SupporterAction::Enable => {
-            let status = status_request(&http, base);
-            if status.pointer("/token/present").and_then(Value::as_bool) != Some(true) {
-                fail(
-                    1,
-                    "cannot enable Supporter Agent features: no token is stored; run `codeterm supporter token set` first",
-                );
-            }
-            let features = write_features(&http, base, true, true);
-            emit(json_mode, &features, |value| {
-                format!(
-                    "memory re-rank: {}\ntab-state: {}\n",
-                    on_off(value.get("memory_rerank")),
-                    on_off(value.get("tab_state"))
-                )
-            });
-        }
-        SupporterAction::Disable => {
-            let features = write_features(&http, base, false, false);
-            emit(json_mode, &features, |value| {
-                format!(
-                    "memory re-rank: {}\ntab-state: {}\n",
-                    on_off(value.get("memory_rerank")),
-                    on_off(value.get("tab_state"))
-                )
-            });
-        }
         SupporterAction::Status => {
             let status = status_request(&http, base);
             emit(json_mode, &status, render_status);
@@ -211,8 +151,14 @@ pub fn handle_supporter(json_mode: bool, action: SupporterAction) {
             let reply = send(http.post(format!("{base}{USE_ROUTE}")).json(&body), base);
             let selected = ok_body_or_exit(reply, None);
             emit(json_mode, &selected, |value| {
+                if value["state"] == "saved_not_active" {
+                    return format!(
+                        "saved, not active: {}. Retry with codeterm supporter use {}\n",
+                        adapter, adapter
+                    );
+                }
                 format!(
-                    "selected {}{}\n",
+                    "active {}{}\n",
                     value.get("adapter").and_then(Value::as_str).unwrap_or("?"),
                     value
                         .get("model")
@@ -222,43 +168,42 @@ pub fn handle_supporter(json_mode: bool, action: SupporterAction) {
                 )
             });
         }
-        SupporterAction::Features {
-            memory_rerank: None,
-            tab_state: None,
-        } => {
-            let status = status_request(&http, base);
-            emit(json_mode, &status, |value| {
+        SupporterAction::Disconnect { adapter } => {
+            let reply = send(
+                http.delete(format!(
+                    "{base}/api/supporter/connections/{}",
+                    urlencoding::encode(&adapter)
+                )),
+                base,
+            );
+            let removed = ok_body_or_exit(reply, None);
+            emit(json_mode, &removed, |value| {
                 format!(
-                    "memory re-rank: {}\ntab-state: {}\n",
-                    on_off(value.pointer("/features/memory_rerank")),
-                    on_off(value.pointer("/features/tab_state"))
-                )
-            });
-        }
-        SupporterAction::Features {
-            memory_rerank,
-            tab_state,
-        } => {
-            let mut body = serde_json::Map::new();
-            if let Some(mode) = memory_rerank {
-                body.insert("memory_rerank".into(), json!(mode.enabled()));
-            }
-            if let Some(mode) = tab_state {
-                body.insert("tab_state".into(), json!(mode.enabled()));
-            }
-            let request = http.post(format!("{base}{FEATURES_ROUTE}")).json(&body);
-            let features = ok_body_or_exit(send(request, base), None);
-            emit(json_mode, &features, |value| {
-                format!(
-                    "memory re-rank: {}\ntab-state: {}\n",
-                    on_off(value.get("memory_rerank")),
-                    on_off(value.get("tab_state"))
+                    "removed {}. Active adapter: {}\n",
+                    adapter,
+                    value["active"].as_str().unwrap_or("none")
                 )
             });
         }
         SupporterAction::Token { action } => match action {
             SupporterTokenAction::Set { adapter } => {
-                let token = token.unwrap_or_default();
+                let token_status = send(http.get(token_url(base, adapter.as_deref())), base);
+                let current = ok_body_or_exit(token_status, None);
+                if current.get("token_mode").and_then(Value::as_str) == Some("none") {
+                    emit(json_mode, &current, render_token_set);
+                    return;
+                }
+                let token = read_token(std::io::stdin(), std::io::stdin().is_terminal())
+                    .unwrap_or_else(|message| {
+                        fail_with(
+                            2,
+                            &CliError {
+                                message,
+                                code: Some(-32602),
+                                data: None,
+                            },
+                        )
+                    });
                 let mut body = json!({ "token": token });
                 if let Some(adapter) = adapter {
                     body["adapter"] = json!(adapter);
@@ -305,14 +250,5 @@ pub fn handle_supporter(json_mode: bool, action: SupporterAction) {
     }
 }
 
-fn on_off(value: Option<&Value>) -> &'static str {
-    if value.and_then(Value::as_bool) == Some(true) {
-        "on"
-    } else {
-        "off"
-    }
-}
-
 #[cfg(test)]
-#[path = "supporter_tests.rs"]
 mod tests;

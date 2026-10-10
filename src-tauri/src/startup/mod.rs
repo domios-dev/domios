@@ -10,6 +10,7 @@ mod cli_shim;
 mod conpty_host;
 mod frontend_ready;
 mod logging;
+pub(crate) mod model_catalogue;
 mod plan_restore;
 mod progress;
 mod rest_api;
@@ -19,8 +20,11 @@ mod servers;
 mod stall_tests;
 mod state_incidents;
 mod states;
+mod storage;
 mod user_path;
 mod window;
+mod window_events;
+pub(crate) use window_events::handle_window_event;
 
 pub(crate) use background::start_background_tasks;
 pub use bridge::{spawn_telegram_bridge, start_telegram_bridge, unmark_tab_connected_service};
@@ -42,5 +46,8 @@ pub(crate) use servers::start_servers;
 #[cfg(test)]
 pub(crate) use servers::FRONTEND_READINESS_DEADLINE_ELAPSED;
 pub(crate) use states::init_states;
+#[cfg(test)]
+pub(crate) use storage::open_instance_storage_at;
+pub(crate) use storage::{shutdown_bounded, StorageAuthority, STORAGE_UNAVAILABLE_MESSAGE};
 pub(crate) use user_path::run_user_path_repair_if_invoked;
 pub(crate) use window::{build_system_tray, setup_window_styling};

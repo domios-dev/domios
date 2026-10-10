@@ -1,6 +1,6 @@
-# CodeTerm Plugins
+# Domios Plugins
 
-TypeScript packages that extend CodeTerm without rebuilding the Rust
+TypeScript packages that extend Domios without rebuilding the Rust
 binary. The default workflow ships three bundled provider plugins:
 
 | Package | What it covers |
@@ -132,13 +132,13 @@ manifest changes); after that all plugin edits hot-reload.
 ### 4. Add the Rust backend-half (only if the new provider needs custom
 spawn / session file logic)
 
-If your provider just launches a CLI and lets CodeTerm observe the PTY,
+If your provider just launches a CLI and lets Domios observe the PTY,
 you don't need a Rust plugin — the existing generic process spawning
 covers it. You only need a Rust-side `AgentProvider` impl if your
 provider has:
 
 - A non-trivial launch command (env tweaks, wrapper scripts)
-- On-disk session files CodeTerm should index for search
+- On-disk session files Domios should index for search
 - Provider-specific resume flags
 - Custom "skill" delivery to provider's config dir
 
@@ -241,7 +241,7 @@ Two readiness contracts that bite if you skip them:
   shell prompt also uses.
 - **Session detection by birth time, not mtime.** `detectSessionId`
   must not latch a session created *before* this launch — another
-  CodeTerm instance working the same cwd writes to its session
+  Domios instance working the same cwd writes to its session
   constantly, so an mtime filter would steal it. Filter on creation
   time / the launch window.
 
@@ -330,7 +330,7 @@ npx tsx plugins/provider-claude/tests/parser.test.ts
 ```
 
 The host-side registry has its own suite at
-`src/lib/plugins/__tests__/registry.test.ts` covering
+`src/lib/plugins/registry.test.ts` covering
 `register/unregister/getPlugin/getAllPlugins/detectProvider/isProviderNoise`.
 
 The current test runner is a tiny `assert`/`eq` shim inside each test
@@ -343,7 +343,7 @@ React Testing Library coverage for renderers.
 The cheapest way to get a snapshot to test against:
 
 ```bash
-# Run the provider in a CodeTerm dev tab, capture the JSONL it produces
+# Run the provider in a Domios dev tab, capture the JSONL it produces
 cat ~/.<provider-config-dir>/sessions/<session-id>.jsonl > plugins/provider-<id>/tests/snapshots/<scenario>.jsonl
 ```
 
@@ -441,4 +441,4 @@ To keep the plugin contract honest:
 | Snapshot CI for JSONL drift | ⏳ planned |
 | Non-provider plugin kinds | 🟡 contract-only (extensible by design) |
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

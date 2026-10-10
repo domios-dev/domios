@@ -487,9 +487,20 @@ impl PlanPausePorts for ServicePlanPausePorts<'_> {
             .app_handle
             .try_state::<crate::CronWake>()
             .ok_or("cron wake unavailable")?;
-        self.svc
-            .cron_enable(cron.inner(), wake.inner(), job_id, enabled)
-            .map(|_| ())
+        let set = || {
+            self.svc
+                .cron_enable(cron.inner(), wake.inner(), job_id, enabled)
+                .map(|_| ())
+        };
+        // Storage blocks until COMMIT; a runtime worker hands its queue to another thread first.
+        match tokio::runtime::Handle::try_current() {
+            Ok(runtime)
+                if runtime.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread =>
+            {
+                tokio::task::block_in_place(set)
+            }
+            _ => set(),
+        }
     }
 }
 
@@ -605,5 +616,7 @@ impl ServiceContext {
     }
 }
 
+#[cfg(test)]
+mod off_runtime_tests;
 #[cfg(test)]
 mod tests;

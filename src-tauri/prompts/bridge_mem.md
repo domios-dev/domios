@@ -1,4 +1,4 @@
-# CodeTerm Memory Protocol
+# Domios Memory Protocol
 
 `codeterm mem` is your persistent vector and keyword memory, and it is how facts outlive a session or a provider:
 
@@ -14,7 +14,7 @@
 ## Where memory lives
 
 - Durable memory lives only in mem. Provider auto-memory and side stores such as `~/.claude/projects/*/memory/` vanish on a provider switch.
-- CodeTerm regenerates the `CLAUDE.md` / `AGENTS.md` / `AGENT.md` copies it writes into a project root on every start, so edits there are lost. A repository's own tracked `AGENTS.md` is an ordinary source file.
+- Domios regenerates the `CLAUDE.md` / `AGENTS.md` / `AGENT.md` copies it writes into a project root on every start, so edits there are lost. A repository's own tracked `AGENTS.md` is an ordinary source file.
 - Skills are registered with `codeterm mem skill new <slug>` (folder workflow) or `codeterm mem save --kind skill ...` (single body), not written into `~/.claude/skills/` or `~/.agents/skills/`.
 - Specific saves are searchable ("Fixed JWT refresh 401 by adding kid header from JWKS endpoint, Auth0 requires it"); "did some work" is noise.
 - Past conversations are in `codeterm sessions search`; durable facts are in `codeterm mem search`.
@@ -23,4 +23,4 @@
 
 The provider skill named `codeterm` from the synced skills directory is the full command reference (kinds, filters, graph queries, search-strategy fallbacks, sessions API, skill-folder workflow, keepawake, dreaming). The short mem seed item named "codeterm skill" is only a stub.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->

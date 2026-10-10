@@ -18,6 +18,7 @@ import { RunChatPopup } from "../AgentRun/RunChatPopup";
 import { AgentIcon } from "../AgentIcon";
 import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
 import { isTerminalWorkerStatus } from "../AgentRun/workerEmptyState";
+import { groupRecentWorkers, workerFailureReason, workerTimeLabels } from "./workerActivityModel";
 
 interface Props {
   api: ApiConfig;
@@ -135,7 +136,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
   }, [autoScroll]);
 
   const live = useMemo(() => workers.filter((w) => !isTerminalWorkerStatus(w.status)), [workers]);
-  const recent = useMemo(() => workers.filter((w) => isTerminalWorkerStatus(w.status)).slice(0, 20), [workers]);
+  const recent = useMemo(() => groupRecentWorkers(workers).slice(0, 20), [workers]);
 
   const handleKill = useCallback(
     async (workerId: string) => {
@@ -154,7 +155,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
   return (
     <div className="absolute inset-0 flex flex-col" data-testid="memory-activity-tab">
       {/* Header / global filters */}
-      <div className="flex items-center gap-3 px-4 py-2 border-b border-[var(--ct-border)]">
+      <div className="ct-jobs-header flex items-center gap-3 px-4 py-2">
         <ActivityIcon size={14} className="text-[var(--ct-muted-fg)]" />
         <span className="text-xs font-semibold text-[var(--ct-fg)]">Activity</span>
         <span className="text-[10px] text-[var(--ct-muted-fg)]">
@@ -163,10 +164,10 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
       </div>
 
       {/* 2-column body: events | workers (each scrolls independently) */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 divide-x divide-[var(--ct-border)]">
+      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2">
         {/* Events column */}
         <div className="flex flex-col min-h-0">
-          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--ct-border)]">
+          <div className="ct-jobs-header flex items-center gap-2 px-3 py-1.5">
             <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--ct-muted-fg)]">Stream</span>
             <select
               data-testid="memory-activity-op-filter"
@@ -205,7 +206,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
             </label>
           </div>
 
-          <div ref={eventsScrollRef} className="flex-1 overflow-y-auto" onScroll={handleScroll} data-testid="memory-activity-stream">
+          <div ref={eventsScrollRef} className="ct-rows flex-1 overflow-y-auto" onScroll={handleScroll} data-testid="memory-activity-stream">
             {newCount > 0 && !autoScroll && (
               <div className="sticky top-0 z-10 flex justify-center py-1">
                 <button
@@ -238,7 +239,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
                     </div>
                   )}
                   <div
-                    className="flex items-start gap-2.5 px-3 py-1.5 border-b border-white/[0.04] hover:bg-[var(--ct-bg-hover)] transition-colors duration-75"
+                    className="ct-row flex items-start gap-2.5 px-2 py-1.5"
                     data-testid="memory-activity-event"
                     data-memory-op={ev.op}
                   >
@@ -301,7 +302,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
 
         {/* Workers column */}
         <div className="flex flex-col min-h-0">
-          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--ct-border)]">
+          <div className="ct-jobs-header flex items-center gap-2 px-3 py-1.5">
             <Cpu size={12} className="text-[var(--ct-muted-fg)]" />
             <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--ct-muted-fg)]">Workers</span>
             <button
@@ -355,10 +356,11 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
                   Recent
                 </div>
                 <div className="space-y-1">
-                  {recent.map((w) => (
+                  {recent.map(({ worker: w, count }) => (
                     <WorkerCard
                       key={w.worker_id}
                       worker={w}
+                      count={count}
                       onOpen={() => setLogWorker(w)}
                       onKill={null}
                     />
@@ -401,26 +403,30 @@ interface WorkerCardProps {
   worker: GraphWorkerInfo;
   onOpen: () => void;
   onKill: (() => void) | null;
+  count?: number;
 }
 
-export function WorkerCard({ worker, onOpen, onKill }: WorkerCardProps) {
+export function WorkerCard({ worker, onOpen, onKill, count = 1 }: WorkerCardProps) {
   const isDone = isTerminalWorkerStatus(worker.status);
-  const elapsed = (() => {
-    const end = isDone && worker.done_at ? worker.done_at : Date.now();
-    const diff = end - worker.spawned_at;
-    const secs = Math.floor(diff / 1000);
-    if (secs < 60) return `${secs}s`;
-    const mins = Math.floor(secs / 60);
-    return `${mins}m ${secs % 60}s`;
-  })();
+  const time = workerTimeLabels(worker, Date.now());
+  const reason = workerFailureReason(worker);
   const intent = worker.intent.replace(/^extract:/, "").replace(/^dreaming:/, "REM:");
   return (
     <div
       onClick={onOpen}
+      role="button"
+      tabIndex={0}
+      aria-label={`Open ${worker.intent} · ${worker.status}`}
+      onKeyDown={(event) => {
+        if (event.target === event.currentTarget && (event.code === "Enter" || event.code === "Space")) {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
       data-testid="memory-worker-card"
       data-worker-id={worker.worker_id}
       data-worker-status={worker.status}
-      className="flex items-center gap-2 px-2.5 py-1.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)]/60 hover:border-[var(--ct-accent)] cursor-pointer transition-colors"
+      className="flex flex-wrap items-center gap-2 px-2.5 py-1.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)]/60 hover:border-[var(--ct-accent)] cursor-pointer transition-colors"
       title={isDone ? "View log" : "View live output"}
     >
       <span className="flex-1 text-[11px] truncate text-[var(--ct-fg)]">{intent}</span>
@@ -436,7 +442,11 @@ export function WorkerCard({ worker, onOpen, onKill }: WorkerCardProps) {
           {worker.model}
         </span>
       )}
-      <span className="text-[9px] tabular-nums text-[var(--ct-muted-fg)] shrink-0">{elapsed}</span>
+      <span className="text-[9px] text-[var(--ct-muted-fg)]">{worker.status}{count > 1 ? ` ×${count}` : ""}</span>
+      {worker.extraction_retry?.parked && <span className="text-[9px] text-red-400">Failed · parked after {worker.extraction_retry.attempt} attempts</span>}
+      {worker.extraction_retry?.retry_after != null && <span className="text-[9px] text-[var(--ct-muted-fg)]">Retry eligible {new Date(worker.extraction_retry.retry_after).toLocaleString()}</span>}
+      {reason && <span className="w-full text-[9px] truncate text-red-400" title={reason}>{reason}</span>}
+      <span className="text-[9px] tabular-nums text-[var(--ct-muted-fg)] shrink-0">{time.age} · {time.duration}</span>
       {onKill && (
         <button
           data-testid="memory-worker-kill"

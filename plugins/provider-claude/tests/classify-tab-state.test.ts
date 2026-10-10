@@ -88,6 +88,16 @@ const plugin = loadClaude();
 
 assert(typeof plugin.classifyTabState === "function", "classifyTabState is exported");
 
+{
+  const screen = fs.readFileSync(
+    path.join(here, "fixtures", "folder-trust", "mcp-server.txt"),
+    "utf8",
+  );
+  const r = classify(plugin, screen);
+  eq(r?.state, "clarifying_question", "MCP server approval is surfaced as a question");
+  assert(!r?.action?.keys, "MCP approval has no automatic key action", JSON.stringify(r?.action));
+}
+
 console.log("\n--- positive: rate-limit menu, Stop-and-wait is the default highlight ---\n");
 {
   const r = classify(plugin, fixture("rate-limit-menu.txt"));
@@ -163,6 +173,7 @@ console.log("\n--- auth guard: login screen → waiting_on_auth, NEVER auto-acte
   const r = classify(plugin, fixture("auth-login.txt"));
   eq(r?.state, "waiting_on_auth", "auth/login classified as waiting_on_auth");
   assertSingleInputSurface(r, "auth_prompt", "auth/login");
+  eq(r?.action?.surface?.payload?.reason, "login_detected", "auth/login uses the shared classifier reason");
 }
 
 console.log("\n--- stale auth prose at ready or streaming tail is neither Question nor Auth ---\n");

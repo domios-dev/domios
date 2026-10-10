@@ -168,7 +168,7 @@ pub(crate) fn repair_user_path_with(
 
 pub(crate) fn user_path_repair_report(removed: &[String]) -> String {
     let mut report = format!(
-        "CodeTerm user PATH repair: removed {} dead entries\n",
+        "Domios user PATH repair: removed {} dead entries\n",
         removed.len()
     );
     for entry in removed {
@@ -188,7 +188,7 @@ pub(crate) fn run_user_path_repair_if_invoked() {
     }
     let (report, code) = match repair_user_path_with(&SystemUserPathStore, &std::env::temp_dir()) {
         Ok(removed) => (user_path_repair_report(&removed), 0),
-        Err(error) => (format!("CodeTerm user PATH repair failed: {error}\n"), 1),
+        Err(error) => (format!("Domios user PATH repair failed: {error}\n"), 1),
     };
     let report_path = std::env::temp_dir().join("codeterm-user-path-repair.txt");
     let _ = std::fs::write(&report_path, &report);

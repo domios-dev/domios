@@ -6,6 +6,7 @@ import { createTerminalReplyFilter } from "./terminalReplyFilter";
 import { writeTerminalInput } from "./terminalInputWrite";
 
 export interface UseTerminalInputOptions {
+  tabId: string;
   termRef: React.MutableRefObject<Terminal | null>;
   connectedPtyRef: React.MutableRefObject<string | null>;
   containerRef: React.RefObject<HTMLDivElement | null>;
@@ -22,6 +23,7 @@ export interface UseTerminalInputReturn {
 }
 
 export function useTerminalInput({
+  tabId,
   termRef,
   connectedPtyRef,
   containerRef,
@@ -82,6 +84,7 @@ export function useTerminalInput({
     });
 
     const onDataDisposable = term.onData((data) => {
+      if (!terminalActive) return;
       const currentPty = connectedPtyRef.current;
       if (terminalReplyFilterPtyRef.current !== currentPty) {
         if (terminalReplyFlushTimerRef.current !== null) {
@@ -113,7 +116,7 @@ export function useTerminalInput({
       if (data === "\t" && onTabKey()) return;
       if (data !== "\t") onNonTabKey();
       onInputData(data);
-      if (currentPty) void writeTerminalInput(currentPty, data);
+      if (currentPty) void writeTerminalInput(tabId, currentPty, data);
     };
 
     // execCommand("paste"), etc. Capture phase + stopImmediatePropagation cancels xterm.js's own bubble-phase listener (#1803, #3516) so routeClipboardToTerm fires exactly once.
@@ -137,7 +140,7 @@ export function useTerminalInput({
       el?.removeEventListener("mousedown", focusXterm);
       el?.removeEventListener("paste", onPaste, true);
     };
-  }, [termReady, terminalActive, termRef, connectedPtyRef, containerRef, onTabKey, onNonTabKey, onInputData]);
+  }, [tabId, termReady, terminalActive, termRef, connectedPtyRef, containerRef, onTabKey, onNonTabKey, onInputData]);
 
   return { copySelection, pasteFromClipboard };
 }

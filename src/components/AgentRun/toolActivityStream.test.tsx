@@ -137,7 +137,7 @@ describe("Claude tool activity", () => {
     const card = stream.querySelector<HTMLElement>('[data-testid="chat-tool-call"]');
     expect(card?.querySelector('[data-testid="toolcard-summary"]')?.textContent).toBe("Lint sources");
     expect(card?.querySelector('[data-testid="toolcard-result"]')?.textContent).toContain("no warnings");
-    await click([...(card?.querySelectorAll("button") ?? [])].find((button) => button.textContent?.includes("Show raw command")));
+    await click([...(card?.querySelectorAll("button") ?? [])].find((button) => button.textContent?.includes("Raw command")));
     expect(card?.querySelector('[data-testid="message-raw-content"]')?.textContent).toBe("npm run lint");
 
     const member = streamEvent(messages).stream?.members[1];
@@ -364,7 +364,7 @@ describe("live Codex turn through MessageBubble", () => {
 });
 
 describe("stream presentation", () => {
-  it("gates motion behind reduced-motion variants and uses theme tokens without blinking dots or right borders", async () => {
+  it("gates motion behind reduced-motion variants and uses theme tokens without blinking dots or side borders", async () => {
     const view = await render(linked.slice(0, 2));
     const [stream] = streams(view);
     const spinner = stream.querySelector('[data-testid="chat-tool-stream-spinner"]');
@@ -374,9 +374,10 @@ describe("stream presentation", () => {
     expect(spinUtilities.every((name) => name.startsWith("motion-safe:"))).toBe(true);
     expect(stream.querySelector('[data-testid="chat-tool-stream-title"]')?.className).toContain("motion-reduce:transition-none");
     expect(stream.querySelector('[class*="animate-pulse"], [class*="animate-ping"]')).toBeNull();
-    expect(stream.className.split(/\s+/)).toEqual(expect.not.arrayContaining(["border", "border-r", "border-x"]));
+    expect(stream.className.split(/\s+/)).toEqual(expect.not.arrayContaining(["border", "border-l", "border-l-2", "border-r", "border-x"]));
     expect(stream.style.borderRightWidth).toBe("");
-    expect(stream.getAttribute("style")).toContain("var(--ct-");
+    expect(stream.style.borderLeftWidth).toBe("");
+    expect(stream.querySelector('[data-testid="chat-tool-stream-title"]')?.getAttribute("style")).toContain("var(--ct-fg)");
   });
 });
 
@@ -422,7 +423,7 @@ describe("chained commands inside a stream", () => {
     expect(members[1].querySelectorAll('[data-testid="chat-command-tree-operator"]')).toHaveLength(0);
   });
 
-  it("opens the clicked segment inside the member's group with the raw command still collapsed", async () => {
+  it("opens the clicked segment inside the member's group while raw commands stay collapsed", async () => {
     const view = await render(chainTurn);
     const [stream] = streams(view);
     await click(stream.querySelector('button[aria-label="Expand 2 actions"]'));
@@ -436,8 +437,8 @@ describe("chained commands inside a stream", () => {
     expect(group?.querySelectorAll('[data-testid="chat-command-tree-detail"]')).toHaveLength(1);
     expect(lines[1].querySelector('[data-testid="chat-command-tree-detail"]')).not.toBeNull();
     expect(group?.querySelector('[data-testid="chat-command-group-title"]')?.textContent).not.toBe(PLAN_CHAIN);
-    expect(group?.querySelector('[data-testid="message-raw-content"]')).toBeNull();
-    expect(group?.querySelector('[data-testid="toolcard-result"]')).toBeNull();
+    expect(group?.querySelector('[data-testid="raw-command-disclosure"]')).toBeNull();
+    expect(lines[1].querySelector('[data-testid="chat-command-tree-detail"]')).not.toBeNull();
   });
 
   it("renders one member per call id when the source reports a call twice", async () => {

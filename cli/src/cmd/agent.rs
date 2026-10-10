@@ -6,13 +6,20 @@ use crate::cmd::print::handle_result;
 use crate::{build_local_api, read_api_config, resolve_tab, AgentAction};
 use std::io::Read;
 
+#[path = "agent_cli.rs"]
+mod agent_cli;
+#[path = "agent_compatibility.rs"]
+mod agent_compatibility;
 #[path = "agent_model_switch.rs"]
 mod agent_model_switch;
 #[path = "agent_models.rs"]
 mod agent_models;
-use agent_models::{format_agent_models, format_agent_models_json, provider_availability_marker};
+use agent_models::select_provider;
 #[cfg(test)]
-use agent_models::{AVAILABILITY_UNAVAILABLE, AVAILABILITY_UNKNOWN};
+use agent_models::{format_agent_models, format_agent_models_json};
+#[cfg(test)]
+use agent_models::{provider_availability_marker, AVAILABILITY_UNAVAILABLE, AVAILABILITY_UNKNOWN};
+pub(crate) use agent_models::{render_agent_models, render_agent_providers};
 
 fn provider_requires_live_model_discovery(provider: &serde_json::Value) -> bool {
     provider
@@ -20,6 +27,19 @@ fn provider_requires_live_model_discovery(provider: &serde_json::Value) -> bool 
         .and_then(|catalogue| catalogue.get("liveDiscoveryRequired"))
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false)
+}
+
+fn catalogue_version(provider: &serde_json::Value) -> u64 {
+    provider
+        .get("catalogue_version")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or_default()
+}
+
+/// A live-required listing warns when its forced probe could not refresh; an
+/// optional catalogue's reader-gated skip is not a gap and stays silent.
+fn live_discovery_warning_needed(discovery_required: bool, refreshed: bool) -> bool {
+    discovery_required && !refreshed
 }
 
 fn absolute_spawn_base(
@@ -66,6 +86,34 @@ pub(crate) fn resolve_mesh_spawn_task<R: Read>(
     resolve_spawn_task(task, task_file, None, stdin)
 }
 
+pub(crate) fn read_handoff_file<R: Read>(
+    path: &str,
+    flag: &str,
+    base: &std::path::Path,
+    stdin: &mut R,
+) -> Result<String, String> {
+    if path == "-" {
+        let mut buf = String::new();
+        stdin
+            .read_to_string(&mut buf)
+            .map_err(|error| format!("failed to read {flag} from stdin: {error}"))?;
+        return Ok(buf);
+    }
+    let requested = std::path::Path::new(path);
+    let resolved = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        base.join(requested)
+    };
+    std::fs::read_to_string(&resolved).map_err(|error| {
+        format!(
+            "failed to read {flag} {path} (resolved from {} as {}): {error}",
+            base.display(),
+            resolved.display()
+        )
+    })
+}
+
 fn resolve_spawn_task_from<R: Read>(
     task: Option<String>,
     task_file: Option<String>,
@@ -85,30 +133,13 @@ fn resolve_spawn_task_from<R: Read>(
             }
             Ok(Some(t))
         }
-        (None, Some(path)) => {
-            if path == "-" {
-                let mut buf = String::new();
-                stdin
-                    .read_to_string(&mut buf)
-                    .map_err(|e| format!("failed to read --task-file from stdin: {}", e))?;
-                Ok(Some(buf))
-            } else {
-                let requested = std::path::Path::new(&path);
-                let base = absolute_spawn_base(spawn_cwd, caller_cwd);
-                let resolved = if requested.is_absolute() {
-                    requested.to_path_buf()
-                } else {
-                    base.join(requested)
-                };
-                std::fs::read_to_string(&resolved).map(Some).map_err(|e| {
-                    format!(
-                        "failed to read --task-file {path} (resolved from {} as {}): {e}",
-                        base.display(),
-                        resolved.display()
-                    )
-                })
-            }
-        }
+        (None, Some(path)) => read_handoff_file(
+            &path,
+            "--task-file",
+            &absolute_spawn_base(spawn_cwd, caller_cwd),
+            stdin,
+        )
+        .map(Some),
         (None, None) => Ok(None),
     }
 }
@@ -283,6 +314,12 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
     };
     match action {
+        AgentAction::Turns { tab, last, after } => {
+            let mut params = serde_json::json!({"tab_id":tab,"last":last,"after_offset":after});
+            CallerContext::from_env().apply_trusted_session(&mut params);
+            handle_result(json, client.call("agent.turns", Some(params)));
+        }
+        AgentAction::Cli { action } => agent_cli::run(client, json, action),
         AgentAction::Providers => match local_http
             .get(format!("{}/api/agents/providers", base))
             .send()
@@ -298,43 +335,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     };
                     crate::cmd::print::fail_http(1, status.as_u16(), &body);
                 }
-                if json {
-                    println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    return;
-                }
-                let Some(arr) = val.as_array() else {
-                    crate::cmd::print::fail(
-                        1,
-                        format!("Unexpected response shape (HTTP {})", status),
-                    );
-                };
-                if arr.is_empty() {
-                    println!("No agent providers registered.");
-                    return;
-                }
-                for p in arr {
-                    let kind = p.get("kind").and_then(|v| v.as_str()).unwrap_or("agent");
-                    let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-                    let name = p.get("display_name").and_then(|v| v.as_str()).unwrap_or(id);
-                    let default_model = p
-                        .get("default_model")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("-");
-                    let models_count = p
-                        .get("available_models")
-                        .and_then(|v| v.as_array())
-                        .map(|a| a.len())
-                        .unwrap_or(0);
-                    println!(
-                        "{:<12} {:<6} {:<20} default={}  models={}{}",
-                        id,
-                        kind,
-                        name,
-                        default_model,
-                        models_count,
-                        provider_availability_marker(p)
-                    );
-                }
+                let output = render_agent_providers(&val, json)
+                    .unwrap_or_else(|error| crate::cmd::print::exit_with_cli_error(json, &error));
+                print!("{output}");
             }
             Err(e) => {
                 crate::cmd::print::fail(1, e.to_string());
@@ -346,47 +349,42 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 .send()
             {
                 Ok(resp) => {
+                    let status = resp.status();
                     let mut val: serde_json::Value = resp.json().unwrap_or_default();
-                    let Some(arr) = val.as_array() else {
-                        crate::cmd::print::fail(1, "Unexpected response shape");
-                    };
-                    let target = arr
-                        .iter()
-                        .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(provider.as_str()));
-                    let Some(target) = target else {
-                        let known: Vec<&str> = arr
-                            .iter()
-                            .filter_map(|p| p.get("id").and_then(|v| v.as_str()))
-                            .collect();
-                        eprintln!(
-                            "Unknown provider: '{}'. Known: [{}]",
-                            provider,
-                            known.join(", ")
-                        );
-                        std::process::exit(1);
-                    };
+                    if !status.is_success() {
+                        crate::cmd::print::fail_http(1, status.as_u16(), &val.to_string());
+                    }
+                    let target = select_provider(&val, &provider).unwrap_or_else(|error| {
+                        crate::cmd::print::exit_with_cli_error(json, &error)
+                    });
                     let discovery_required = provider_requires_live_model_discovery(target);
-                    if discovery_required {
-                        let response = match local_http
-                            .post(format!("{}/api/agents/providers/refresh", base))
-                            .json(&serde_json::json!({"provider_id": provider.as_str()}))
-                            .send()
-                        {
-                            Ok(response) => response,
-                            Err(error) => crate::cmd::print::fail(1, error.to_string()),
-                        };
-                        let status = response.status();
-                        let refresh: serde_json::Value = response.json().unwrap_or_default();
-                        if !status.is_success() {
-                            crate::cmd::print::fail_http(1, status.as_u16(), &refresh.to_string());
-                        }
-                        if !refresh
-                            .get("refreshed")
-                            .and_then(serde_json::Value::as_bool)
-                            .unwrap_or(false)
-                        {
-                            eprintln!("WARNING: live model discovery did not refresh the {provider} catalogue; showing its last available snapshot.");
-                        }
+                    let observed_version = catalogue_version(target);
+                    // Explicit CLI listing asks core to refresh the provider catalogue.
+                    let response = match local_http
+                        .post(format!("{}/api/agents/providers/refresh", base))
+                        .json(&serde_json::json!({"provider_id": provider.as_str()}))
+                        .send()
+                    {
+                        Ok(response) => response,
+                        Err(error) => crate::cmd::print::fail(1, error.to_string()),
+                    };
+                    let status = response.status();
+                    let refresh: serde_json::Value = response.json().unwrap_or_default();
+                    if !status.is_success() {
+                        crate::cmd::print::fail_http(1, status.as_u16(), &refresh.to_string());
+                    }
+                    let refreshed = refresh
+                        .get("refreshed")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false);
+                    let current_version = refresh
+                        .get("version")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(observed_version);
+                    if live_discovery_warning_needed(discovery_required, refreshed) {
+                        eprintln!("WARNING: live model discovery did not refresh the {provider} catalogue; showing its last available snapshot.");
+                    }
+                    if discovery_required || refreshed || current_version != observed_version {
                         let response = match local_http
                             .get(format!("{}/api/agents/providers", base))
                             .send()
@@ -400,20 +398,11 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                             crate::cmd::print::fail_http(1, status.as_u16(), &val.to_string());
                         }
                     }
-                    let Some(arr) = val.as_array() else {
-                        crate::cmd::print::fail(1, "Unexpected response shape");
-                    };
-                    let Some(target) = arr
-                        .iter()
-                        .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(provider.as_str()))
-                    else {
-                        crate::cmd::print::fail(1, format!("Provider disappeared: {provider}"));
-                    };
-                    if json {
-                        println!("{}", format_agent_models_json(target));
-                        return;
-                    }
-                    print!("{}", format_agent_models(target, &provider));
+                    let output =
+                        render_agent_models(&val, &provider, json).unwrap_or_else(|error| {
+                            crate::cmd::print::exit_with_cli_error(json, &error)
+                        });
+                    print!("{output}");
                 }
                 Err(e) => {
                     crate::cmd::print::fail(1, e.to_string());
@@ -730,6 +719,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             if let Some(task_id) = task_id {
                 body["task_id"] = serde_json::json!(task_id);
             }
+            if let Ok(nonce) = std::env::var("CODETERM_SESSION_BINDING_NONCE") {
+                body["session_binding_nonce"] = serde_json::json!(nonce);
+            }
             let result = client.call("agent.ack", Some(body));
             match result {
                 Ok(value) if json => {
@@ -848,11 +840,20 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
         AgentAction::Restart {
             tab,
+            provider,
+            handoff_history,
+            fresh,
             force,
             grace_secs,
         } => {
             let tab_id = resolve_tab(client, tab);
-            let body = serde_json::json!({"force": force, "grace_secs": grace_secs});
+            let body = crate::cmd::agent_restart::RestartRequest {
+                force,
+                grace_secs,
+                provider: provider.as_deref(),
+                handoff_history,
+                fresh,
+            };
             match local_http
                 .post(format!("{}/api/tabs/{}/agent/restart", base, tab_id))
                 .json(&body)
@@ -890,11 +891,34 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
         }
-        AgentAction::Model { name, tab } => {
+        AgentAction::Fork { tab } => {
+            let tab_id = resolve_tab(client, tab);
+            let response = local_http
+                .post(format!("{}/api/tabs/{}/agent/fork", base, tab_id))
+                .send()
+                .unwrap_or_else(|error| crate::cmd::print::fail(1, error.to_string()));
+            let status = response.status();
+            let text = response.text().unwrap_or_default();
+            if !status.is_success() {
+                crate::cmd::print::fail_http(1, status.as_u16(), &text);
+            }
+            let result: serde_json::Value = serde_json::from_str(&text)
+                .unwrap_or_else(|error| crate::cmd::print::fail(1, error.to_string()));
+            if json {
+                crate::cmd::print::print_json(&result);
+            } else {
+                println!(
+                    "Fork opened in tab {} (session binding pending: {})",
+                    result["tab_id"].as_str().unwrap_or_default(),
+                    result["binding_pending"]
+                );
+            }
+        }
+        AgentAction::Model { name, tab, force } => {
             let tab_id = resolve_tab(client, tab);
             let result = local_http
                 .post(format!("{}/api/tabs/{}/agent/model", base, tab_id))
-                .json(&serde_json::json!({ "model": name }))
+                .json(&serde_json::json!({ "model": name, "force":force }))
                 .send()
                 .map_err(|error| crate::cmd::print::CliError::new(error.to_string()))
                 .and_then(|resp| {
@@ -920,18 +944,25 @@ fn render_agent_ack(value: &serde_json::Value) -> Result<String, String> {
         .get("attempt_id")
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| "daemon response omitted attempt identity".to_string())?;
-    if value
+    let prefix = if value
         .get("already_acknowledged")
         .and_then(serde_json::Value::as_bool)
         == Some(true)
     {
-        return Ok(format!(
-            "ALREADY ACKNOWLEDGED — task {task_id}, attempt {attempt_id}. Continue work."
-        ));
+        "ALREADY ACKNOWLEDGED"
+    } else {
+        "ACKNOWLEDGED"
+    };
+    let mut rendered = format!("{prefix} — task {task_id}, attempt {attempt_id}. Continue work.");
+    if let Some(brief) = value
+        .get("plan_skill_brief")
+        .and_then(serde_json::Value::as_str)
+        .filter(|brief| !brief.is_empty())
+    {
+        rendered.push('\n');
+        rendered.push_str(brief);
     }
-    Ok(format!(
-        "ACKNOWLEDGED — task {task_id}, attempt {attempt_id}. Continue work."
-    ))
+    Ok(rendered)
 }
 
 fn render_startup_hold(value: &serde_json::Value) -> String {
@@ -951,14 +982,30 @@ fn render_startup_hold(value: &serde_json::Value) -> String {
     )
 }
 
-/// Success (exit 0) vs. failure (exit 1); the unreported-vs-foreign-session
-/// distinction is already resolved server-side by the time `status` arrives.
+/// A `202` means accepted; readiness and the completed action must also be observed.
 fn restart_response_outcome(
     status: reqwest::StatusCode,
     val: &serde_json::Value,
 ) -> Result<(), String> {
     if status.is_success() {
-        return Ok(());
+        if val.get("agent_ready").and_then(serde_json::Value::as_bool) != Some(true) {
+            return Err("restart response did not confirm agent readiness".to_string());
+        }
+        return match val
+            .get("session_action")
+            .and_then(serde_json::Value::as_str)
+        {
+            Some("resumed")
+                if val
+                    .get("session_id")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|session_id| !session_id.is_empty()) =>
+            {
+                Ok(())
+            }
+            Some("fresh_launch") => Ok(()),
+            _ => Err("restart response did not confirm the completed action".to_string()),
+        };
     }
     let msg = val
         .get("error")
@@ -971,19 +1018,21 @@ fn render_restart_success(val: &serde_json::Value, tab_id: &str) -> String {
     let action = val
         .get("session_action")
         .and_then(|v| v.as_str())
-        .unwrap_or("fresh");
+        .unwrap_or("unknown");
     let full_access = val
         .get("full_access")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let sid = val.get("session_id").and_then(|v| v.as_str());
     let session = match (action, sid) {
-        ("resume", Some(s)) => format!("resume {}", s),
-        _ => "fresh session".to_string(),
+        ("resumed", Some(s)) => format!("session_id={s}"),
+        ("fresh_launch", _) => "new session".to_string(),
+        _ => "session details unavailable".to_string(),
     };
     format!(
-        "Restarting Tab {}: {}, full access={} (same Tab id, same session unless stale)",
+        "Restarting Tab {}: action={}, {}, full access={}",
         tab_id,
+        action,
         session,
         if full_access { "on" } else { "off" }
     )

@@ -70,15 +70,51 @@ fn project(method: &str) -> Projection {
     }
 }
 
+/// One line per installed plugin that accepts agent verbs.
+fn render_plugins(value: &Value) -> String {
+    let Some(plugins) = value.get("plugins").and_then(Value::as_array) else {
+        return String::new();
+    };
+    let mut out = String::new();
+    for plugin in plugins {
+        let Some(id) = plugin.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let name = plugin
+            .get("displayName")
+            .and_then(Value::as_str)
+            .unwrap_or(id);
+        let verbs: Vec<&str> = plugin
+            .get("verbs")
+            .and_then(Value::as_array)
+            .map(|verbs| verbs.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default();
+        let verbs = if verbs.is_empty() {
+            "none declared".to_string()
+        } else {
+            verbs.join(" | ")
+        };
+        out.push_str(&format!(
+            "plugin {id} ({name})  [CLI: `codeterm plugin {id} <verb>`]  verbs: {verbs}\n"
+        ));
+    }
+    out
+}
+
 pub fn render(value: &Value) -> String {
+    let plugins = render_plugins(value);
     let Some(methods) = value
         .get("methods")
         .and_then(Value::as_array)
         .or_else(|| value.as_array())
     else {
-        return "No capabilities reported.\n".into();
+        return if plugins.is_empty() {
+            "No capabilities reported.\n".into()
+        } else {
+            plugins
+        };
     };
-    let mut out = String::new();
+    let mut out = plugins;
     for method in methods.iter().filter_map(Value::as_str) {
         match project(method) {
             Projection::Cli(path) => {
@@ -140,6 +176,25 @@ mod tests {
         assert!(out.contains("mem.search  [CLI: `codeterm mem search`]"));
         assert!(out.contains("agent.children  [RPC only; use `codeterm agent ledger`]"));
         assert!(out.contains("tab.resize  [RPC only/internal]"));
+    }
+
+    #[test]
+    fn capabilities_list_each_plugin_with_its_verbs_on_one_line() {
+        let out = render(&json!({
+            "methods": ["system.identify"],
+            "plugins": [
+                {"id": "opaque-a", "displayName": "Opaque A", "verbs": ["zz-one", "zz-two <x>"]},
+                {"id": "opaque-b", "displayName": "Opaque B", "verbs": []}
+            ]
+        }));
+        let line_a = out
+            .lines()
+            .find(|line| line.contains("opaque-a"))
+            .expect("plugin a listed");
+        assert!(line_a.contains("codeterm plugin opaque-a <verb>"));
+        assert!(line_a.contains("zz-one") && line_a.contains("zz-two <x>"));
+        assert_eq!(out.lines().filter(|l| l.contains("opaque-b")).count(), 1);
+        assert!(out.contains("system.identify  [CLI: `codeterm identify`]"));
     }
 
     #[test]

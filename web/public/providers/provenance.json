@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "relationshipNote": "Marks are used only to identify the named providers; no endorsement or partnership is claimed.",
+  "assets": [
+    {
+      "provider": "Claude Code",
+      "file": "claude-spark.svg",
+      "sourceUrl": "https://www.anthropic.com/press-kit",
+      "assetUrl": "https://www-cdn.anthropic.com/ae59ca4ca194dac9c9dc3bc78c5829468cb0e8af.zip",
+      "archiveMember": "Claude logos/3 Claude Spark/SVG/Claude Spark - Clay.svg",
+      "retrievedOn": "2026-10-03",
+      "sha256": "6d53db4be375e899c937c26cf16684a80d6e869b1928d72b37748bef2560e219",
+      "theme": "Official Clay orange mark is identical for light and dark surfaces.",
+      "usage": "Unmodified SVG from the official Anthropic press kit; decorative alt with adjacent Claude Code label."
+    },
+    {
+      "provider": "OpenAI",
+      "productLabel": "Codex",
+      "file": "openai-blossom-white.svg",
+      "sourceUrl": "https://openai.com/brand/",
+      "assetUrl": "https://cdn.openai.com/brand/openai-logos.zip",
+      "archiveMember": "OpenAI-logos/SVGs/OAI_OpenAI-Blossom_White.svg",
+      "retrievedOn": "2026-10-03",
+      "dimensions": { "width": 716, "height": 716 },
+      "sha256": "01d158767c4eec0e47bd617e67759c33da0accd1438be1a8d29dfdb99ce87285",
+      "theme": "Official white OpenAI Blossom SVG on a plain square black backing in both page themes.",
+      "usage": "OpenAI provider mark shown beside the Codex label; this is not a dedicated Codex product logo. Original SVG geometry and clear space are preserved. Decorative alt; no filtering, recoloring, clipping, or partnership claim.",
+      "resolutionHistory": [
+        {
+          "url": "https://developers.openai.com/favicon.png",
+          "dimensions": { "width": 48, "height": 48 },
+          "sha256": "8d5575ee667ff715cd3e3074d5296edc68d5aadd89720d203e13131b68b22a04",
+          "result": "Replaced the blue 48 by 48 developer-site favicon; it was not a dedicated Codex product mark."
+        }
+      ]
+    },
+    {
+      "provider": "OpenCode",
+      "file": "opencode-light.svg",
+      "sourceUrl": "https://opencode.ai/brand",
+      "assetUrl": "https://opencode.ai/_build/assets/logo-ornate-dark-CCGQN_4x.js",
+      "exportedSvg": "logoLight data URI",
+      "retrievedOn": "2026-10-03",
+      "sha256": "72219e43dfdbc0202d06a6c9150c91b7bb618cb4c206e0a484689203499d58c9",
+      "theme": "Official light-surface wordmark variant.",
+      "usage": "Unmodified SVG data URI exported by the official OpenCode site bundle; decorative alt with adjacent OpenCode label."
+    },
+    {
+      "provider": "OpenCode",
+      "file": "opencode-dark.svg",
+      "sourceUrl": "https://opencode.ai/brand",
+      "assetUrl": "https://opencode.ai/_build/assets/logo-ornate-dark-CCGQN_4x.js",
+      "exportedSvg": "logoDark data URI",
+      "retrievedOn": "2026-10-03",
+      "sha256": "eb87b0108b80fe2a6657a044fbc0d4ea59c05796f022dc7e0737e813987e4a7e",
+      "theme": "Official dark-surface wordmark variant.",
+      "usage": "Unmodified SVG data URI exported by the official OpenCode site bundle; decorative alt with adjacent OpenCode label."
+    },
+    {
+      "provider": "Cursor",
+      "file": "cursor-light.svg",
+      "sourceUrl": "https://cursor.com/brand",
+      "assetUrl": "https://ptht05hbb1ssoooe.public.blob.vercel-storage.com/assets/brand/cursor-brand-assets.zip",
+      "archiveMember": "General Logos/Cube/SVG/CUBE_2D_LIGHT.svg",
+      "retrievedOn": "2026-10-02",
+      "sha256": "c483c02f78eb2619778fdd959e72a9adfac4844854472cd2653d4cbfd60e4d71",
+      "theme": "Official 2D cube light-surface variant.",
+      "usage": "Unmodified SVG from the official Cursor brand asset archive; native viewBox and colors retained, decorative alt with adjacent Cursor label."
+    },
+    {
+      "provider": "Cursor",
+      "file": "cursor-dark.svg",
+      "sourceUrl": "https://cursor.com/brand",
+      "assetUrl": "https://ptht05hbb1ssoooe.public.blob.vercel-storage.com/assets/brand/cursor-brand-assets.zip",
+      "archiveMember": "General Logos/Cube/SVG/CUBE_2D_DARK.svg",
+      "retrievedOn": "2026-10-02",
+      "sha256": "cd0e3e5d8991a4cdd4577f8896cd063105207665165c73e25a1ff918dd367eb7",
+      "theme": "Official 2D cube dark-surface variant.",
+      "usage": "Unmodified SVG from the official Cursor brand asset archive; native viewBox and colors retained, decorative alt with adjacent Cursor label."
+    },
+    {
+      "provider": "Grok Build",
+      "file": "grok.svg",
+      "sourceUrl": "https://x.ai/legal/brand-guidelines",
+      "assetUrl": "https://grok.com/images/favicon.svg",
+      "retrievedOn": "2026-10-03",
+      "sha256": "c3db0dfaf760b702b8490c6cbefe07fd8bfe00db43cae6a0acccf768f44d6179",
+      "theme": "Official Grok product favicon; no separate light/dark variants were available in the fetched source.",
+      "usage": "Unmodified official Grok product favicon with adjacent Grok Build label. The xAI brand-kit archive linked by the guidelines returned HTTP 403, so this is not claimed to be the brand-kit logo."
+    },
+    {
+      "provider": "LM Studio",
+      "file": "lm-studio-light.svg",
+      "sourceUrl": "https://lmstudio.ai/brand",
+      "assetUrl": "https://lmstudio.ai/assets/marketing/brand/download/logos/lm-studio-logo-color-black.svg",
+      "retrievedOn": "2026-10-02",
+      "sha256": "2623e4d753b6e425f6850d993f97576393af9a7d5e59a5b5323d6f4360f10de5",
+      "theme": "Official color logo for light surfaces.",
+      "usage": "Unmodified full icon-and-wordmark SVG; proportions and colors retained, decorative alt with adjacent LM Studio label."
+    },
+    {
+      "provider": "LM Studio",
+      "file": "lm-studio-dark.svg",
+      "sourceUrl": "https://lmstudio.ai/brand",
+      "assetUrl": "https://lmstudio.ai/assets/marketing/brand/download/logos/lm-studio-logo-color-white.svg",
+      "retrievedOn": "2026-10-02",
+      "sha256": "18bb1460b97ef2b44c3e5bbc0b6842fa26caccddcaab2686693a028dcdf5ae83",
+      "theme": "Official color logo for dark surfaces.",
+      "usage": "Unmodified full icon-and-wordmark SVG; proportions and colors retained, decorative alt with adjacent LM Studio label."
+    }
+  ],
+  "unavailable": [
+    {
+      "provider": "Grok Build",
+      "retrievedOn": "2026-10-03",
+      "status": "The official xAI brand-kit ZIP linked by the guidelines could not be fetched (HTTP 403).",
+      "attemptedAssetUrl": "https://data.x.ai/logos/SpaceXAI_Grok_Assets.zip"
+    }
+  ]
+}

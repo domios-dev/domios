@@ -1,3 +1,8 @@
+mod spawn_input;
+pub(crate) use spawn_input::prepare_spawn_input;
+#[cfg(test)]
+pub(crate) use spawn_input::select_visible_spawn_task;
+
 use sha2::{Digest, Sha256};
 
 use crate::agent::provider::SystemPromptDelivery;
@@ -320,51 +325,6 @@ pub(crate) fn command_task(
     }
 }
 
-pub(crate) fn select_visible_spawn_task<'a>(
-    role: Option<&str>,
-    task: Option<&'a str>,
-    system_prompt_capable: bool,
-    native_starter_capable: bool,
-) -> VisibleSpawnTaskSelection<'a> {
-    let task = task.filter(|text| !text.trim().is_empty());
-    match (role, task, system_prompt_capable, native_starter_capable) {
-        (None, Some(task), true, true) => VisibleSpawnTaskSelection {
-            provider_launch: Some(task),
-            provider_starter: Some(crate::agent::provider::StarterPrompt::AssignedTask),
-            confirmed_first_turn: None,
-        },
-        (None, Some(task), true, false) => VisibleSpawnTaskSelection {
-            provider_launch: Some(task),
-            provider_starter: None,
-            confirmed_first_turn: Some(VisibleSpawnFirstTurn::AssignedTaskStarter),
-        },
-        (None, Some(task), false, _) => VisibleSpawnTaskSelection {
-            provider_launch: None,
-            provider_starter: None,
-            confirmed_first_turn: Some(VisibleSpawnFirstTurn::Task(task)),
-        },
-        _ => VisibleSpawnTaskSelection {
-            provider_launch: task,
-            provider_starter: None,
-            confirmed_first_turn: None,
-        },
-    }
-}
-
-pub(crate) fn visible_spawn_capabilities(
-    provider: &dyn crate::agent::provider::AgentProvider,
-) -> (bool, bool) {
-    (
-        matches!(
-            mode_for_descriptor(&provider.system_prompt_delivery()),
-            LaunchDeliveryMode::SystemPrompt
-        ),
-        provider
-            .starter_prompt_text(crate::agent::provider::StarterPrompt::AssignedTask)
-            .is_some(),
-    )
-}
-
 pub(crate) fn assigned_task_starter(provider_text: Option<&str>) -> String {
     provider_text
         .filter(|text| !text.trim().is_empty())
@@ -377,7 +337,7 @@ pub(crate) fn mark_starter_prompt(
     text: String,
 ) -> String {
     match prompt.system_prefix() {
-        Some(prefix) => format!(" {prefix}{text}"),
+        Some(prefix) => format!("{prefix}{text}{}", codeterm_types::domios::DOMIOS_CLOSE_TAG),
         None => text,
     }
 }
@@ -388,6 +348,16 @@ pub(crate) fn startup_handshake_confirmed_first_turn(
     native_starter_capable: bool,
 ) -> Option<crate::agent::provider::StarterPrompt> {
     (!native_starter_capable).then_some(crate::agent::provider::StarterPrompt::StartupHandshake)
+}
+
+pub(crate) fn startup_starter_prompt_for_class(
+    supervised: bool,
+    task_bound: bool,
+    tool_less: bool,
+) -> Option<crate::agent::provider::StarterPrompt> {
+    (!tool_less)
+        .then(|| startup_starter_prompt(supervised, task_bound))
+        .flatten()
 }
 
 pub(crate) fn startup_starter_prompt(
@@ -619,6 +589,47 @@ mod tests {
     }
 
     #[test]
+    fn latched_composer_evidence_submits_one_payload_without_another_observer() {
+        let (mut state, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        let spec = FallbackDeliverySpec {
+            channel: PendingDeliveryChannel::InteractiveInput,
+            payload: "opaque-whole-worker-brief".into(),
+        };
+        state.get_tab_mut(&tab_id).unwrap().pending_delivery = Some(pending_record_for_spec(spec));
+        let mux = Arc::new(TimedRwLock::new("latched-composer", state));
+        let sink = RecordingSink::default();
+        let mut gate = LaunchDeliveryGate::new();
+        gate.mark_provider_ready();
+        let mut writes = 0;
+        for expected in [
+            LaunchConsumptionOutcome::Confirmed,
+            LaunchConsumptionOutcome::AlreadyConfirmed,
+        ] {
+            let receipt = gate
+                .consume_injection_with_readiness(
+                    &mux,
+                    &tab_id,
+                    &sink,
+                    Some(LaunchInputEvidence::ProviderComposer),
+                    || {
+                        writes += 1;
+                        Ok(InjectionResult {
+                            bytes_written: 24,
+                            echo_observed: true,
+                            submit_observed: true,
+                            submit_anomaly: false,
+                            submit_key_writes: 1,
+                            elapsed: Duration::ZERO,
+                        })
+                    },
+                )
+                .unwrap();
+            assert_eq!(receipt.outcome, expected);
+        }
+        assert_eq!(writes, 1);
+    }
+
+    #[test]
     fn delivery_prefers_system_prompt_when_declared() {
         assert_eq!(
             mode_for_descriptor(&SystemPromptDelivery::CliFlag("--system".into())),
@@ -734,7 +745,10 @@ mod tests {
             crate::agent::provider::StarterPrompt::AssignedTask,
             provider_text.clone(),
         );
-        assert!(marked.ends_with(&provider_text));
+        assert!(marked.ends_with(&format!(
+            "{provider_text}{}",
+            codeterm_types::domios::DOMIOS_CLOSE_TAG
+        )));
         assert_ne!(marked, provider_text);
     }
 
@@ -1129,4 +1143,10 @@ mod tests {
         assert_eq!(transactions, 0);
         assert_eq!(sink.0.lock().as_slice(), ["agent_launching"]);
     }
+}
+
+pub(crate) fn launch_input_frame_prefix(
+    composer: crate::agent::provider::ComposerCursorPosition,
+) -> Option<&'static str> {
+    (composer == crate::agent::provider::ComposerCursorPosition::PromptLine).then_some("")
 }

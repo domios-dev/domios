@@ -141,6 +141,7 @@ impl AgentRegistry {
         }
         guard.insert(id.clone(), provider);
         drop(guard);
+        crate::agent::model_catalog::invalidate(&id);
         self.mark_startup_provider_loaded(&id);
     }
 
@@ -162,6 +163,7 @@ impl AgentRegistry {
         log::info!("[agent-registry] registered provider: {}", id);
         guard.insert(id.clone(), Arc::from(provider));
         drop(guard);
+        crate::agent::model_catalog::invalidate(&id);
         self.mark_startup_provider_loaded(&id);
         true
     }
@@ -174,7 +176,11 @@ impl AgentRegistry {
 
     /// Remove a provider by id. Returns true if it existed.
     pub fn unregister_provider(&self, id: &str) -> bool {
-        self.providers.write().remove(id).is_some()
+        let removed = self.providers.write().remove(id).is_some();
+        if removed {
+            crate::agent::model_catalog::invalidate(id);
+        }
+        removed
     }
 
     /// Get a provider by ID and execute a closure with it.
@@ -628,6 +634,7 @@ mod tests {
                     description: None,
                     available: None,
                     availability: None,
+                    primary: None,
                     featured: None,
                     badge: None,
                     group: None,
@@ -645,6 +652,7 @@ mod tests {
                 description: None,
                 available: None,
                 availability: None,
+                primary: None,
                 featured: None,
                 badge: None,
                 group: None,

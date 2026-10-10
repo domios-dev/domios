@@ -5,6 +5,23 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+#[test]
+fn hidden_system_instructions_require_one_starter_turn() {
+    assert_eq!(
+        super::first_turn(true, true, Some("opaque-task"), Some("opaque-starter")),
+        Some("opaque-starter".into())
+    );
+    assert_eq!(
+        super::first_turn(false, true, Some("opaque-task"), None),
+        None
+    );
+    assert_eq!(
+        super::first_turn(false, false, Some("opaque-task"), None),
+        Some("opaque-task".into())
+    );
+    assert_eq!(super::first_turn(true, true, None, None), None);
+}
+
 fn screen_state() -> crate::ScreenStateHandle {
     Arc::new(TimedMutex::new("screen_state", ScreenState::new()))
 }

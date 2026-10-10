@@ -72,6 +72,7 @@ fn pre_table_raw_profile_assignment(
 fn legacy_agent_system_prompt(assignment: Option<&str>) -> String {
     let mut sections = vec![
         crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string(),
+        crate::prompts::UTILITY_TAB_GUIDANCE.trim().to_string(),
         crate::prompts::AGENT_PAD_RULE.trim().to_string(),
         crate::prompts::RICH_RENDERING_GUIDANCE.trim().to_string(),
     ];
@@ -85,7 +86,9 @@ fn legacy_worker_system_prompt(assignment: Option<&str>) -> String {
     let (identity, assignment) = assignment
         .map(crate::service::plan::worker_identity::split_worker_identity)
         .unwrap_or((None, ""));
-    let mut sections = vec![identity.unwrap_or("You are a CodeTerm Worker.").to_string()];
+    let mut sections = vec![identity
+        .unwrap_or(crate::service::persona::occasion::DEFAULT_WORKER_IDENTITY)
+        .to_string()];
     sections.push(crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string());
     sections.push(crate::prompts::WORKER_CODETERM_CONTEXT.trim().to_string());
     sections.push(crate::prompts::AGENT_PAD_RULE.trim().to_string());
@@ -105,7 +108,12 @@ fn legacy_role_onboarding_task(
     if role == Some("Worker") {
         Some(legacy_worker_system_prompt(assignment.as_deref()))
     } else {
-        Some(legacy_agent_system_prompt(assignment.as_deref()))
+        let mut prompt = legacy_agent_system_prompt(assignment.as_deref());
+        if codeterm_types::agent::restore_role(role, role_profile).is_none() {
+            prompt.push_str("\n\n");
+            prompt.push_str(crate::prompts::MEM_MANAGEMENT.trim());
+        }
+        Some(prompt)
     }
 }
 
@@ -202,7 +210,7 @@ fn the_worker_identity_slot_keeps_its_exact_default_and_persona() {
             None,
             None
         ),
-        "You are a CodeTerm Worker."
+        crate::service::persona::occasion::DEFAULT_WORKER_IDENTITY
     );
     assert_eq!(
         guidance_for(

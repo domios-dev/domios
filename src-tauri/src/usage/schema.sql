@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS usage_snapshots (
   account_id TEXT,
   captured_at INTEGER NOT NULL,
   parsed_ok INTEGER NOT NULL,
+  billing_mode TEXT NOT NULL DEFAULT 'unknown',
+  limits_reported INTEGER NOT NULL DEFAULT 0,
   session_pct REAL,
   session_resets_at INTEGER,
   weekly_pct REAL,

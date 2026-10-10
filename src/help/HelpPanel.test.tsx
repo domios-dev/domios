@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { HelpPanel } from "./HelpPanel";
+import { getHelpSectionIds } from "./content";
 import type { AppConfig } from "../lib/types";
 
 type TestFn = () => void | Promise<void>;
@@ -45,11 +46,37 @@ const config = {
 } as AppConfig;
 
 test("renders guide sections from content module", async () => {
-  const { host } = await render(<HelpPanel config={config} />);
-  const sections = host.querySelectorAll('[data-testid="help-section"]');
-  assert(sections.length === 9, `expected 9 sections, got ${sections.length}`);
-  const overview = host.querySelector('[data-help-section-id="overview"]');
-  assert(overview?.textContent?.includes("What is CodeTerm"), "overview copy missing");
+  const sectionIds = getHelpSectionIds("en");
+  const { host, root } = await render(<HelpPanel config={config} />);
+  try {
+    const sections = Array.from(host.querySelectorAll('[data-testid="help-section"]'));
+    const navItems = Array.from(host.querySelectorAll("[data-help-nav]"));
+    assert(
+      sections.length === sectionIds.length,
+      `expected ${sectionIds.length} sections, got ${sections.length}`,
+    );
+    for (const id of sectionIds) {
+      const renderedSectionCount = sections.filter(
+        (section) => section.getAttribute("data-help-section-id") === id,
+      ).length;
+      const navTargetCount = navItems.filter((item) => item.getAttribute("data-help-nav") === id).length;
+      assert(renderedSectionCount === 1, `expected one rendered section for ${id}`);
+      assert(navTargetCount === 1, `expected one navigation target for ${id}`);
+    }
+    const overview = sections.find((section) => section.getAttribute("data-help-section-id") === "overview");
+    const heading = overview?.querySelector("h3")?.textContent?.trim();
+    assert(!!heading, "overview heading missing");
+    const overviewNav = navItems.find((item) => item.getAttribute("data-help-nav") === "overview");
+    assert(overviewNav?.className.includes("accent"), "overview nav should be selected initially");
+  } finally {
+    try {
+      await act(async () => {
+        root.unmount();
+      });
+    } finally {
+      host.remove();
+    }
+  }
 });
 
 test("initialSection renders, selects and scrolls to the supporter agent section", async () => {

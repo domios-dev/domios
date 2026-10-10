@@ -1,4 +1,4 @@
-# CodeTerm CLI Reference
+# Domios CLI Reference
 
 
 Complete command reference. The section between the markers below is
@@ -20,7 +20,7 @@ as the source. When no identity resolves, it exits 1 with empty stdout.
 
 **Planning?** Read `codeterm docs ORCHESTRATION` first (GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides; author GOAL-first, Spec=WHAT, Plan=HOW built from the spec, M:N section links). Don't cram requirements into plan sections; the Spec holds WHAT.
 
-The Team verbs are `codeterm team list|show|rename|close|adopt-plan|adopt-agent|pair`. `codeterm team pair --orchestrator <provider[:model]> --planner <provider[:model]>` creates an Orchestrator + Planner Team in one action and leaves the Plan unbound until the first goal. A caller tab holding a Manager or Worker role (a Team leaf, the General Agent excepted) is refused unless it also passes `--acknowledge-leaf` — a declared, deliberate creation attributed to that calling tab, never to some other intermediary tab it might otherwise spawn to route around the refusal. `codeterm team close <team_id>` is the only user operation that removes a Team; it cascade-closes the Team's members, archives/detaches its plans, records owner retirement, and clears owner/planner routing to the destroyed tabs. The one automatic removal is CodeTerm's own startup lease: the Team a `team pair` minted for its two reserved launch attempts is reaped when that launch fails, and only while it is still forming, empty, and free of any member the pair did not reserve. Every other Team - normal, active, adopted, manually created, or nonempty - survives tab and workspace closure exactly as before. Agent callers may mutate only their own `team_id` when they are the Team's Orchestrator or planner Manager; rename and close retain their authenticated direct-user path. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION` guidance.
+The Team verbs are `codeterm team list|show|rename|close|adopt-plan|adopt-agent|pair`. `codeterm team pair --orchestrator <provider[:model]> --planner <provider[:model]>` creates an Orchestrator + Planner Team in one action and leaves the Plan unbound until the first goal. A caller tab holding a Manager or Worker role (a Team leaf, the General Agent excepted) is refused unless it also passes `--acknowledge-leaf` — a declared, deliberate creation attributed to that calling tab, never to some other intermediary tab it might otherwise spawn to route around the refusal. `codeterm team close <team_id>` is the only user operation that removes a Team; it cascade-closes the Team's members, archives/detaches its plans, records owner retirement, and clears owner/planner routing to the destroyed tabs. The one automatic removal is Domios's own startup lease: the Team a `team pair` minted for its two reserved launch attempts is reaped when that launch fails, and only while it is still forming, empty, and free of any member the pair did not reserve. Every other Team - normal, active, adopted, manually created, or nonempty - survives tab and workspace closure exactly as before. Agent callers may mutate only their own `team_id` when they are the Team's Orchestrator or planner Manager; rename and close retain their authenticated direct-user path. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION` guidance.
 
 `codeterm team adopt-plan <team_id> <plan_id>` requires `CODETERM_TAB_ID` for the destination Team's Orchestrator or planner Manager. It activates an archived/teamless plan only when the Team has exactly one live Orchestrator and no other active plan. Adoption atomically binds the Team, replaces the old owner with that Orchestrator, records owner history, clears stale planner routing, and relinks live task hierarchy. `codeterm plan unarchive|resume` require an existing live Team binding; they never recreate a Team.
 
@@ -32,7 +32,7 @@ A Worker spawn without a task binding is permitted when it declares `--execution
 
 `codeterm plan task dispatch` refuses a **mutating** dispatch before any tab exists when the resolved worktree is the canonical checkout or another task's lane; the error carries a stable `violation_id` (`lane.mutating_write_in_canonical_checkout`, `lane.mutating_write_in_foreign_lane`) plus the exact `plan task update --worktree/--branch/--base` command that supplies an isolated lane. A task with no recorded lane is not refused — the dispatcher provisions one and commits Team workspace identity together with the lane. Every other lane finding is advisory: the dispatch succeeds and prints a `safety_nudges` block on stderr, each line carrying a stable id and the exact fix. Read-only dispatch, General-Agent creation, and plain shell tabs are never obstructed, including in canonical.
 
-`codeterm plan task update --status pending|cancelled`, `plan task assign`, `plan task dispatch`, `plan task close`, and `plan task respawn` are available to the live Plan owner even when the former Worker's owner epoch is stale, which is the normal state once that tab is gone. The recovery retires the stale attempt in the same transition that clears the dead owner, so a late `dispatch_ready` cannot resurrect it. A non-owner caller is still refused. The live Plan owner is recognised from its own live tab binding, not from the owner record's session field, so an Orchestrator whose session moved without an `agent restart` is not locked out of its own plan. Refusals carry a stable discriminant in `data.type` — `task_owner_epoch_stale`, `task_mutation_binding_stale`, `task_owner_gone_verb_not_recoverable`, `caller_is_not_task_owner_or_plan_owner` — so a tab-gone task never reports a stale epoch for a verb-eligibility problem. `codeterm plan archive` **succeeds** without a retrospective and emits the advisory `plan.retrospective_unrecorded` plus durable incident evidence; write the retrospective before normal closure, but it is a nudge, never a gate.
+`codeterm plan task update --status pending|cancelled`, `plan task assign`, `plan task dispatch`, `plan task close`, and `plan task respawn` are available to the live Plan owner even when the former Worker's owner epoch is stale, which is the normal state once that tab is gone. A deliberate `--status blocked` update also requires a fresh nonblank `--status-label` with its reason and owner trigger, and is limited to the live Plan owner or Planner. A Worker `agent report --status blocked` is a proposal that preserves task state, assignment, lane, and report evidence until that owner decision. Stale-owner recovery retires the stale attempt in the same transition that clears the dead owner, so a late `dispatch_ready` cannot resurrect it. A non-owner caller is still refused. The live Plan owner is recognised from its own live tab binding, not from the owner record's session field, so an Orchestrator whose session moved without an `agent restart` is not locked out of its own plan. Refusals carry a stable discriminant in `data.type` — `task_owner_epoch_stale`, `task_mutation_binding_stale`, `task_owner_gone_verb_not_recoverable`, `caller_is_not_task_owner_or_plan_owner`, `task_block_authority_required` — so a tab-gone task never reports a stale epoch for a verb-eligibility problem. `codeterm plan archive` **succeeds** without a retrospective and emits the advisory `plan.retrospective_unrecorded` plus durable incident evidence; write the retrospective before normal closure, but it is a nudge, never a gate.
 
 Competition has no `codeterm plan task` verb — it is driven by the `plan.task.compete` route, which `codeterm plan task show` prints for any competition-enabled task. That route gives each **mutating** competitor its own provisioned worktree/branch/base before spawn, so N competitors never share a checkout and never fall back to canonical; lanes created earlier in the call are removed if a later competitor fails. Read-only competition is unchanged.
 
@@ -41,7 +41,7 @@ Competition has no `codeterm plan task` verb — it is driven by the `plan.task.
 <!-- cli:auto-start -->
 #### `codeterm`
 
-CodeTerm CLI — control your terminal multiplexer
+Domios CLI — control your terminal multiplexer
 
 - `--json` — Output raw JSON instead of human-readable text
 - `--mesh` — Execute command on a remote mesh peer instead of locally
@@ -65,11 +65,39 @@ Toggle whether a tab can spawn children
 - `--enable` — Enable or disable spawning
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
+#### `codeterm agent cli`
+
+Inspect or manage a provider's CLI using its manifest commands
+
+#### `codeterm agent cli install`
+
+Run the manifest installer in a visible utility tab and report its result
+
+- `<provider>`
+
+#### `codeterm agent cli status`
+
+Show installed state, resolved binary, and commands for this OS
+
+- `<provider>`
+
+#### `codeterm agent cli update`
+
+Run the manifest updater in a visible utility tab and report its result
+
+- `<provider>`
+
 #### `codeterm agent compact`
 
 Compact agent context (sends /compact to Claude)
 
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+
+#### `codeterm agent fork`
+
+Open a new tab from a provider-declared session fork; bind only from its own session evidence
+
+- `--tab`
 
 #### `codeterm agent ledger`
 
@@ -88,6 +116,7 @@ Link a tab as worker under a parent
 
 Switch one idle agent Tab to another model. Only that Tab changes: it is relaunched on its own session and the command returns once the provider reports the new model. Providers without a live switch refuse; respawn them with `agent spawn PROVIDER --model X`
 
+- `--force` — Explicitly override the background-work restart guard and report the affected work
 - `<name>` — Model id. Run `agent models PROVIDER` to list
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
@@ -117,7 +146,7 @@ Send a report to your parent in the hierarchy
 - `--plan` — Plan id to append this report to (if available)
 - `--sha` — Commit SHA produced
 - `--skipped` — Anything deliberately skipped
-- `--status` — Task outcome: in_review | blocked | partial | done
+- `--status` — Report outcome: in_review | blocked (proposes a task block) | partial | done
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 - `--task` — Task id to append this report to (if available)
 - `--test-cmd` — Test command that was run
@@ -128,8 +157,11 @@ Send a report to your parent in the hierarchy
 
 Restart a live agent, or resume an exited provider's verified session in its shell
 
-- `--force` — Skip the graceful exit and force-kill instead. Use only when the agent is hung
+- `--force` — Skip graceful exit and force-kill; also permits --fresh on a live agent
+- `--fresh` — Start a new session in the same tab. Live agents require --force; an existing exact restored session is never replaced
 - `--grace-secs` — Wait this long for graceful exit before force-killing (seconds)
+- `--handoff-history` — Include bounded, redacted history in a provider-changing fresh launch
+- `--provider` — Relaunch with this installed PTY provider instead of the current provider
 - `--tab` — Tab ID (defaults to $CODETERM_TAB_ID locally; required with --mesh)
 
 #### `codeterm agent set-orchestrator`
@@ -143,7 +175,7 @@ Mark a tab as orchestrator (top-level, can spawn workers)
 Spawn a new agent; roleless unless --role is provided.
 
 - `<agent>` — Optional agent provider id. Without one, a uniquely advertised model id selects its provider; otherwise the configured default is used
-- `--args` — Extra provider args. Put this after all CodeTerm spawn options
+- `--args` — Extra provider args. Put this after all Domios spawn options
 - `--authorized-gate` — Gate token this Worker may claim as executed; repeatable. Carried into its brief. For a task-bound Worker declare gates on the dispatch instead (`plan task dispatch --authorized-gate`)
 - `--can-spawn` — Override whether an explicit Orchestrator may spawn children
 - `--charter` — Watcher charter text
@@ -159,7 +191,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--parent-tab` — Parent tab ID. Required for Workers; for a Planner, resolved from --plan (its Orchestrator) when omitted
 - `--plan` — Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator
 - `--plan-task` — Plan task to bind when spawning `--role Worker` (handle, id, or prefix)
-- `--preset` — Select a chatBackend shell preset (plugin default when omitted); refused for PTY agents
+- `--preset` — Select a provider-owned preset supported by the target provider
 - `--provider-reserve-pct`
 - `--reason` — Why this Worker needs an unplanned task
 - `--reasoning-effort` — Reasoning-effort level supported by the selected model. The provider's list is used when that model publishes no per-model levels; unsupported values are rejected, never silently downgraded
@@ -185,11 +217,150 @@ Cancel automatic cleanup for an inspected startup attempt
 - `--attempt` — Launch attempt shown in the startup-overdue report
 - `--tab` — Target spawned Tab
 
+#### `codeterm agent turns`
+
+Read completed turns from a tool-less agent's exact bound session
+
+- `--after` — UTF-8 user-record lower bound; use next_offset to continue a bounded window
+- `--last`
+- `--tab`
+
 #### `codeterm agent unlink`
 
 Remove a tab's role. A final Orchestrator leaves its Team and Plan recoverable
 
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+
+#### `codeterm blueprint`
+
+Cheap hash-gated watchers with closed-set routes
+
+#### `codeterm blueprint create`
+
+Classify a bounded probe or same-Team agent observation
+
+- `--buckets`
+- `--convert-timeout` — Bound the one-time conversion, in the --every duration syntax
+- `--convert-to` — Convert the input to another kind once: text|audio
+- `--dry-run` — Validate and print the resulting graph without creating it
+- `--escalation-timeout-ms` — Bound how long an `other` escalation may hold this stage, in milliseconds
+- `--every` — Owner-requested cadence (minimum 10s, default 20s)
+- `--handlers-file` — JSON bucket-to-array of {id,type,parameters} handlers, including command, respond_prompt and escalation on `other`
+- `--input` — Watch data instead of a probe or observation: text|audio|video|image
+- `--input-file` — Absolute or caller-cwd-relative path of the input data file
+- `--input-text` — Inline input text (only for --input text)
+- `--input-url` — http or https URL of the input data
+- `--match` — Deterministic fallback when no Choice adapter is connected: bucket=regex
+- `--max-actions` — Finite action-attempt budget (maximum 1024)
+- `--max-transitions` — Finite accepted transition budget (maximum 256)
+- `--name` — Short meaningful name describing what is watched and what happens
+- `--observe` — Observe a same-Team tab or cron run; shells require terminal-pattern or output-settled
+- `--output-settled` — Fire when terminal output settles for this many milliseconds (10..60000)
+- `--owner` — Assign the pipeline to its creator tab or Team
+- `--paused` — Create a dormant downstream stage; its lifetime starts now
+- `--probe`
+- `--question`
+- `--rearm-on-change` — Route again when this bucket's output changes without changing buckets
+- `--recipe` — Create from a named pipeline recipe
+- `--route` — Inline routes: bucket=notify|blueprint:<exact-id>|send:<tab>|cron:<name>|stop|none; use --handlers-file for command, respond_prompt and escalation handlers
+- `--session` — Keep exchanges outside transition/action budgets; stop at 16384 exchanges or 120/minute
+- `--set` — Replace recipe placeholders with key=value pairs
+- `--spec` — JSON or YAML pipeline specification, or `-` to read standard input
+- `--terminal-pattern` — Fire with the new terminal output delta when this regex matches
+- `--timeout` — End the blueprint after this duration
+- `--until` — Stop after this bucket's first confident transition
+
+#### `codeterm blueprint delete`
+
+Delete a whole blueprint, or every stopped one in the Team; the creator or the Team owner may delete
+
+- `<id>`
+- `--stop` — Stop a running blueprint before deleting it
+- `--stopped` — Delete every stopped blueprint the caller may delete in its Team
+
+#### `codeterm blueprint escalation`
+
+Resolve an open escalation
+
+#### `codeterm blueprint escalation resolve`
+
+Release a held stage and re-evaluate its observation
+
+- `<id>`
+- `<transition_id>`
+
+#### `codeterm blueprint export`
+
+Export a portable recipe containing only the definition
+
+- `<id>`
+- `--out`
+
+#### `codeterm blueprint history`
+
+Show immutable definition versions
+
+- `<id>`
+
+#### `codeterm blueprint import`
+
+Import a portable recipe into the caller's Team (stopped by default)
+
+- `<file>`
+- `--set`
+- `--start` — Start immediately after validation
+- `--stopped`
+
+#### `codeterm blueprint input`
+
+Deliver a text body to a running text input stage
+
+- `--from-pad` — Read a UTF-8 body from the caller's Agent Pad
+- `<id>`
+- `--text-file` — Read a UTF-8 body from a file
+
+#### `codeterm blueprint list`
+
+List blueprints scoped to the calling tab and its Team
+
+#### `codeterm blueprint log`
+
+List bounded run journal entries, newest first
+
+- `<id>`
+- `--limit`
+
+#### `codeterm blueprint nodes`
+
+List trigger, step, converter and event-source capabilities
+
+#### `codeterm blueprint recipe`
+
+List built-in graph skeletons or print one ready-to-edit recipe
+
+- `<name>`
+
+#### `codeterm blueprint show`
+
+Show one blueprint
+
+- `<id>`
+
+#### `codeterm blueprint stop`
+
+Stop one blueprint
+
+- `<id>`
+
+#### `codeterm blueprint update`
+
+Replace one definition at the expected version
+
+- `--cause`
+- `--dry-run` — Validate and print the resulting graph without updating it
+- `--expect-version`
+- `--from-file`
+- `<id>`
 
 #### `codeterm bridge`
 
@@ -199,8 +370,8 @@ Send a message to an external service (Telegram, etc.)
 
 Migrate active bridge poller from this node to another mesh peer
 
-- `--announce` — Send a one-shot "now serving from <host>" message to the sentinel chat
-- `--announce-chat-id` — Sentinel chat id for --announce. Defaults to the target's first allow-listed bridge user
+- `--announce` — Send a one-shot "now serving from <host>" message to the Blueprint chat
+- `--announce-chat-id` — Blueprint chat id for --announce. Defaults to the target's first allow-listed bridge user
 - `--claim-timeout-ms` — How long target may take to claim the Telegram lock before the migration is considered failed (ms)
 - `--force` — Skip preflight target-state check (for force migrations)
 - `--no-rollback` — Skip auto-rollback if target claim fails (leave source disabled)
@@ -277,7 +448,7 @@ Dump the CLI command tree as JSON (source of truth for docs/prompts/cards)
 
 #### `codeterm config`
 
-Read or write CodeTerm configuration
+Read or write Domios configuration
 
 #### `codeterm config get`
 
@@ -319,7 +490,7 @@ Create a cron job
 - `--description` — Description
 - `--jitter-max-ms` — Max jitter in milliseconds added to each scheduled fire. 0 = off. Omit for default (10% of interval, clamped to [1m, 30m])
 - `--model` — Model within the agent provider (e.g. "opus", "haiku", "gpt-5.4-mini"). Leave unset to use the provider default
-- `<name>` — Cron job name
+- `<name>` — Short meaningful cron job name
 - `--no-team` — Keep this job outside the calling tab's Team
 - `--once` — Oneshot: fire once at scheduled time, then auto-delete
 - `--reasoning-effort` — Reasoning-effort level advertised by the agent provider. Leave unset to use the provider default
@@ -372,7 +543,7 @@ Enable a cron job
 
 Show run history
 
-- `<id>` — Cron job ID
+- `<id>` — Cron job ID or name
 
 #### `codeterm cron list`
 
@@ -440,7 +611,7 @@ Send a delayed message immediately
 
 #### `codeterm docs`
 
-Read embedded CodeTerm documentation in full. Omit NAME to list documents
+Read embedded Domios documentation in full. Omit NAME to list documents
 
 - `<name>` — Document name. Omit to list every available name and purpose
 
@@ -512,7 +683,7 @@ Validate a generated essence map and its append-only decisions log
 
 #### `codeterm identify`
 
-Show CodeTerm version and system info
+Show Domios version and system info
 
 #### `codeterm inbox`
 
@@ -545,10 +716,8 @@ Provider hook integration: install it with recorded consent and trust, or read i
 
 #### `codeterm integration install`
 
-Install a provider's hook integration and trust CodeTerm's own hooks. Running it records consent the same way the Settings install does
+Install a provider's hook integration and trust Domios's own hooks. Running it records consent the same way the Settings install does
 
-- `--no-precompact-memory-export` — Disable conversation export before compaction
-- `--precompact-memory-export` — Also export conversation content to memory before compaction
 - `--provider` — Provider id (e.g. claude, codex)
 
 #### `codeterm integration status`
@@ -559,10 +728,10 @@ Show a provider's hook integration state
 
 #### `codeterm integration sweep-profiles`
 
-Preview or remove dead provider launch artifacts owned by this instance
+Preview dead provider launch artifacts; only the machine owner may remove them
 
 - `--confirm` — Remove the profiles listed by this instance's scan
-- `--include-legacy` — Include every unmarked legacy profile, regardless of tab liveness
+- `--include-legacy` — Include exact-pattern unmarked legacy profiles whose tabs are not live here
 - `--provider` — Provider id (e.g. codex)
 
 #### `codeterm keepawake`
@@ -576,7 +745,7 @@ Start keeping the system awake
 - `--display` — Also prevent display sleep
 - `--duration-secs` — Duration in seconds (omit for indefinite)
 - `--gnome-policy` — On Linux/GNOME, explicitly apply current-user power policy overrides (disable inactive sleep, idle blanking, lid-close and power-button suspend)
-- `--system-block` — Print system-level sudo mask commands in the status response. CodeTerm never runs these commands silently
+- `--system-block` — Print system-level sudo mask commands in the status response. Domios never runs these commands silently
 
 #### `codeterm keepawake status`
 
@@ -606,6 +775,18 @@ Archive an item without deleting it; undo with `mem restore`
 - `--changed-by` — Actor label for audit trail (defaults to "user")
 - `<id>`
 - `--reason`
+
+#### `codeterm mem area`
+
+Merge an area reversibly; use taxonomy to list areas and counts
+
+#### `codeterm mem area merge`
+
+Move every item to another area, preserving scope and audit history
+
+- `--dry-run`
+- `<from>`
+- `--into`
 
 #### `codeterm mem calibration`
 
@@ -666,13 +847,6 @@ Run dreaming consolidation via the daemon. Phases: light, deep, normalize, all (
 Re-run extraction workers for items that haven't been extracted yet. Useful after LLM API failures, quota resets, or bulk imports with skip_extract. Workers fire sequentially with a short delay
 
 - `--limit` — Maximum number of items to queue (default 200)
-
-#### `codeterm mem flush`
-
-Flush a tab's PTY scrollback as a kind=conversation mem_item (called by PreCompact hook before context summarization)
-
-- `--tab` — Tab id (default: $CODETERM_TAB_ID)
-- `--title` — Optional title hint
 
 #### `codeterm mem forget`
 
@@ -971,6 +1145,15 @@ List all currently pinned items, ordered by importance/evidence/recency
 
 - `--limit` — Max results (default 100, max 500)
 
+#### `codeterm mem purge-precompact`
+
+Preview or purge retained raw PreCompact payloads for one already-deleted record
+
+- `--apply` — Apply the previewed purge; default is read-only inventory
+- `<id>`
+- `--vacuum` — Rebuild SQLite free pages and truncate the current WAL after purge
+- `--verified-deleted` — Attest prior verification of this deleted record's original flush source, summary and tags
+
 #### `codeterm mem reembed`
 
 Re-embed mem_items and/or graph entities into mem_vectors. Use this after swapping the embedder model, or to backfill existing entities that pre-date the auto-embed-on-create wiring. Daemon-routed (the daemon owns the embedder process). Idempotent
@@ -979,11 +1162,11 @@ Re-embed mem_items and/or graph entities into mem_vectors. Use this after swappi
 
 #### `codeterm mem restore`
 
-Restore from the audit history. An archived or merged item gets its prior kind back and its merge link invalidated (plus the --version body when given); otherwise reverts the body before the most recent change
+Undo an area merge, or restore from audit history. An archived item gets its prior kind back and its merge link invalidated (plus the --version body when given); otherwise reverts the body before the most recent change
 
 - `--changed-by` — Actor label for audit trail (defaults to "user")
 - `<id>` — Mem item id
-- `--version` — History row id (from `mem history <id>`) to restore the body of. Omit to undo the latest body change
+- `--version` — History row id from `mem history <id>`: undo its area merge or restore its body. Omit to undo the latest area merge, archive, or body change
 
 #### `codeterm mem run-worker`
 
@@ -1038,7 +1221,7 @@ Search across mem_items (FTS5 + hybrid scoring)
 - `<query>` — Query text
 - `--rerank` — Run LLM rerank on top candidates (requires ANTHROPIC_API_KEY). Exclusive with `--supporter on`
 - `--scope` — Restrict to global / workspace / workspace:<id>
-- `--supporter` — Force Supporter Agent memory re-rank on or off for this search; omitted, `[supporter.memory_rerank].enabled` decides
+- `--supporter` — Force Supporter Agent memory re-rank on or off for this search; omitted, a connected Supporter runs automatically
 
 #### `codeterm mem secret`
 
@@ -1257,9 +1440,10 @@ Start broadcasting for the configured duration
 
 #### `codeterm mesh connect`
 
-Initiate pairing with a discovered peer
+Initiate owner-approved pairing with a discovered peer or explicit address
 
-- `<instance_id>` — Instance ID or name of the discovered peer
+- `--addr` — Read the peer identity directly at this IP:port before pairing
+- `<instance_id>` — Instance ID or advertised name; --addr also accepts a hexadecimal ID prefix
 
 #### `codeterm mesh disconnect`
 
@@ -1296,7 +1480,7 @@ List all peers (paired + discovered)
 
 #### `codeterm mesh refresh`
 
-Re-detect local addresses (Tailscale + LAN) and announce them to all paired peers. Use after a network swap so peers update their cache without restarting CodeTerm
+Re-detect local addresses (Tailscale + LAN) and announce them to all paired peers. Use after a network swap so peers update their cache without restarting Domios
 
 #### `codeterm mesh reject`
 
@@ -1323,6 +1507,61 @@ List tabs on a remote mesh peer
 Explicitly lift a peer identity revocation so it can pair again
 
 - `<instance_id>` — Instance ID of the revoked peer
+
+#### `codeterm model-provider`
+
+Configure model endpoints through the installed provider capability
+
+#### `codeterm model-provider add`
+
+Add an endpoint; pipe the key on stdin. Omit --model to discover models
+
+- `--base-url`
+- `--kind`
+- `--model`
+- `--name`
+- `--secret`
+
+#### `codeterm model-provider list`
+
+List Domios-owned endpoints without key values
+
+#### `codeterm model-provider preset`
+
+Manage Domios-owned provider presets
+
+#### `codeterm model-provider preset add`
+
+Create or replace an owned model, prompt and parameter preset
+
+- `--model`
+- `--name`
+- `--prompt`
+- `--steps`
+- `--temperature`
+- `--top-p`
+
+#### `codeterm model-provider preset list`
+
+List Domios-owned presets
+
+#### `codeterm model-provider preset remove`
+
+Remove only a Domios-owned preset
+
+- `--name`
+
+#### `codeterm model-provider remove`
+
+Remove a Domios-owned endpoint and its owned secret
+
+- `--name`
+
+#### `codeterm model-provider test`
+
+Check an endpoint within a bounded deadline and return its models
+
+- `--name`
 
 #### `codeterm notify`
 
@@ -1692,7 +1931,7 @@ Set task groups (phases)
 
 #### `codeterm plan groups close`
 
-Record a group's retrospective stride: closes its reflection window and clears its retrospective dispatch gate
+Record an optional retrospective stride for a completed group
 
 - `<key>`
 - `--note`
@@ -1769,6 +2008,7 @@ Set the declared milestone kind columns (CSV)
 Remove one lane worktree and its branch, refusing while a live tab's shell sits inside it
 
 - `--branch` — Lane branch to delete after worktree removal, if merged into project HEAD
+- `--force` — Force removal, discarding uncommitted and untracked lane content
 - `--project` — Canonical checkout (needed for a missing worktree unless its task identifies the project)
 - `<worktree>` — Lane worktree path to remove
 
@@ -2025,9 +2265,11 @@ Show the plan QA queue, or enqueue one in_review task with --task
 
 #### `codeterm plan rebind`
 
-Re-sync a planning binding nonce that went stale after an agent relaunch, recovering plan mutation/approve/dispatch without a full `agent restart`
+Re-sync this planning binding, or restore its original Worker attempt with --task and --attempt
 
-- `<plan_id>` — Optional plan id for context; the rebind re-syncs this tab's binding
+- `--attempt` — Exact attempt id assigned to --task
+- `<plan_id>` — Optional plan id for context; required with --task and --attempt
+- `--task` — Exact task whose existing Worker attempt should regain its authenticated binding
 
 #### `codeterm plan reconcile`
 
@@ -2089,6 +2331,7 @@ ACCEPT: attaches the verdict and closes the task (in_review -> done)
 - `--changed-executable-surfaces`
 - `--distinct-oracle`
 - `--note`
+- `--note-from-pad` — Read the review note from a file in this tab's pad
 - `<plan_id>`
 - `--residual-risk` — Past the default round bound, routes residual risk to a follow-up task
 - `<task_id>`
@@ -2116,6 +2359,7 @@ BOUNCE: atomically exits in_review back to in_progress
 - `--changed-executable-surfaces`
 - `--distinct-oracle`
 - `--note`
+- `--note-from-pad` — Read the review note from a file in this tab's pad
 - `<plan_id>`
 - `<task_id>`
 
@@ -2124,6 +2368,7 @@ BOUNCE: atomically exits in_review back to in_progress
 HOLD: records a review hold without releasing the task assignment or lane
 
 - `--note`
+- `--note-from-pad` — Read the review note from a file in this tab's pad
 - `<plan_id>`
 - `<task_id>`
 
@@ -2247,7 +2492,7 @@ Create a new plan skill folder (SKILL.md + scripts/)
 
 - `--area`
 - `--check` — Optional verification command persisted in SKILL.md frontmatter
-- `--plan` — Plan id (omit to use $CODETERM_PLAN_ID or the single active plan)
+- `--plan` — Plan id (omit for the caller Team's active plan; outside a tab, $CODETERM_PLAN_ID)
 - `--rationale` — One-line ledger rationale (default: "created")
 - `<slug>`
 - `--title`
@@ -2394,6 +2639,15 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--reasoning-effort` — Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)
 - `<task_id>`
 - `--workspace`
+
+#### `codeterm plan task files`
+
+Replace structured task context files (relative paths resolve against the Worker cwd)
+
+- `--edit-file`
+- `<plan_id>`
+- `--read-file`
+- `<task_id>`
 
 #### `codeterm plan task link`
 
@@ -2634,17 +2888,18 @@ Remove a channel cache and registry entry
 
 #### `codeterm plugin config`
 
-Configure a plugin by editing its self-documenting config.yaml (comments preserved, validated against the settings schema). Non-secret fields are written to the YAML; secret fields are reported for routing to the secret store (never written plaintext). Reload is live
+Configure plugin settings. Non-secret fields use the comment-preserving config.yaml; secret values are read from stdin and stored in the plugin bucket
 
 - `--grant` — Grant a permission, persisted to the plugin's grants.yaml so the decision survives (e.g. --grant spawn_agents). Repeatable. Takes effect on the plugin's next reload
 - `<id>`
 - `--revoke` — Revoke a previously granted permission (repeatable)
+- `--secret` — Set a declared secret field from stdin
 - `--set` — Set a field: --set key=value (repeatable)
 - `--values-json` — Set multiple fields from a JSON object (named --values-json so it does not collide with the global --json output flag)
 
 #### `codeterm plugin get`
 
-Show a plugin's agent-facing config: its self-documenting config.yaml (secret values redacted), settings schema, and installed/configured/ reload state. The agent's discover handle (§1.7)
+Show a plugin's agent-facing config and guidance: its config.yaml, settings schema, secret field presence, configHelp, agent verbs, agent guide, and installed/configured/reload state
 
 - `<id>`
 
@@ -2676,6 +2931,14 @@ Remove an installed plugin
 - `--force` — Allow removing a verified/system plugin folder
 - `<id>`
 - `--remove-data` — Also remove plugin-owned downloaded data
+
+#### `codeterm plugin settings`
+
+Manage a plugin's exact-host network grants
+
+- `--allow-host` — Allow a host or host:port for outbound fetch (repeatable)
+- `--disallow-host` — Remove a user-granted host or host:port (repeatable)
+- `<id>`
 
 #### `codeterm plugin update`
 
@@ -2930,22 +3193,15 @@ Show a hydrated spec
 
 #### `codeterm supporter`
 
-Configure and inspect the Supporter Agent
+Configure and inspect Spinal Cord (Supporter Agent)
 
-#### `codeterm supporter disable`
+Aliases: spinal-cord
 
-Disable both Supporter Agent features
+#### `codeterm supporter disconnect`
 
-#### `codeterm supporter enable`
+Remove a saved connection and its token; removing the active one stops the Supporter
 
-Enable both Supporter Agent features
-
-#### `codeterm supporter features`
-
-Read or change the feature switches
-
-- `--memory-rerank`
-- `--tab-state`
+- `<adapter>`
 
 #### `codeterm supporter models`
 
@@ -2953,7 +3209,7 @@ List registered adapters and their discovered models
 
 #### `codeterm supporter status`
 
-Show the selected adapter, model, token state and feature state
+Show connection, activity, token state and budget
 
 #### `codeterm supporter token`
 
@@ -2979,10 +3235,32 @@ Report token presence, file path and mode (never the value). Without --adapter, 
 
 #### `codeterm supporter use`
 
-Select a registered adapter and optionally one of its listed models
+Connect or activate an adapter, remembering its own model and token
 
 - `<adapter>`
 - `--model`
+
+#### `codeterm surface`
+
+Plugin surface tabs: app tabs whose content a plugin view renders
+
+#### `codeterm surface close`
+
+Close a surface tab; refuses tabs that are not surfaces
+
+- `--tab` — Surface tab id
+
+#### `codeterm surface list`
+
+List the surfaces enabled plugins declare and the surface tabs that are open
+
+#### `codeterm surface open`
+
+Open a plugin surface as a tab nested under its owner
+
+- `--owner` — Tab that owns the surface (default: the calling agent tab)
+- `<target>` — Surface to open, as `<plugin_id>:<surface_id>`
+- `--title-from-owner` — Label the tab after its owner ("{owner}'s {title}") even when the surface is not agent-bound
 
 #### `codeterm system`
 
@@ -3000,7 +3278,7 @@ Remove the OS-level autostart trigger created by `enable-autostart`. Idempotent 
 
 Install an OS login trigger for the external crash-aware supervisor. The supervisor alone applies clean-exit, backoff, and loop policy; platform wrappers never restart the app independently
 
-- `--binary` — Override the path to the CodeTerm executable. Defaults to the installed app binary for the current platform
+- `--binary` — Override the path to the Domios executable. Defaults to the installed app binary for the current platform
 - `--supervisor` — Override the path to the codeterm CLI supervisor. Defaults to the currently-running CLI executable
 
 #### `codeterm tab`
@@ -3113,8 +3391,13 @@ Plain shell tab, inheriting the calling tab's workspace and Team. For an AI tab 
 - `--cmd` — Spawn a shell that runs this command on start (e.g. `"cd /repo && ./build.sh dev"`). Delivery waits for the PTY to be ready, so the command runs reliably even on a freshly-created tab
 - `--config` — JSON config object passed to the chat-backend plugin's `openSession` (only with `--chat-backend`). E.g. `'{"model":"llama-3.1-8b"}'`
 - `--cwd` — Working directory for the new tab
+- `--description` — Activity summary shown below the tab title
 - `--eager` — Spawn the shell PTY immediately on the daemon for headless/API use
+- `--icon` — Lucide icon name (for example bug or flask-conical)
+- `--list-shells` — List available shell profiles without creating a tab
 - `--no-team` — Keep the new shell outside the calling tab's Team
+- `--purpose` — Utility shell purpose shown in the sidebar
+- `--shell` — Shell profile id (discover with --list-shells)
 - `--team` — Explicit Team membership cross-check. Ordinary shells already inherit the calling Tab's Team
 - `--title` — Tab title
 - `--workspace` — Target workspace id. Defaults to the calling tab's own workspace, then the focused workspace for a caller with no tab identity
@@ -3125,6 +3408,12 @@ Bind a running tab to an existing provider session without restarting it
 
 - `<session_id>` — Provider session ID to bind
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+
+#### `codeterm tab release-ownership`
+
+Release stored remote mesh control ownership from a local tab
+
+- `--tab` — Local tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm tab rename`
 
@@ -3218,9 +3507,9 @@ Team registry, 1:1 plan binding, and paired creation
 
 #### `codeterm team adopt-agent`
 
-Attach an already-running roleless agent tab to a Team
+Attach an already-running roleless agent or plain shell tab to a Team (a shell becomes a utility shell, process kept)
 
-- `<tab_id>` — Tab ID of the running agent
+- `<tab_id>` — Tab ID of the running agent or shell
 - `<team_id>` — Team ID
 
 #### `codeterm team adopt-plan`
@@ -3234,6 +3523,7 @@ Bind an existing plan to a Team
 
 Attach the one optional Cartographer Manager to a Team
 
+- `--brief-file` — UTF-8 brief file, or - to read stdin; delivered to a new or existing Cartographer
 - `--model` — Provider model ID
 - `--provider` — Agent provider ID
 - `<team_id>` — Team ID
@@ -3304,9 +3594,26 @@ Save a custom theme from a TOML file
 - `<file>` — Path to theme TOML file
 - `<id>` — Theme ID (filename without .toml)
 
+#### `codeterm trace`
+
+Read this instance's DEV flow trace without contacting the daemon
+
+#### `codeterm trace recent`
+
+List the most recently observed flows
+
+- `--limit`
+
+#### `codeterm trace show`
+
+Show a retained flow or all flows involving a tab, with missing stages
+
+- `<id>`
+- `--since` — Limit the retained window (for example 30m, 1h, 2d)
+
 #### `codeterm update`
 
-Check for updates and manage CodeTerm version
+Check for updates and manage Domios version
 
 - `--after-update` — Message to inject into the General Agent tab after the new daemon boots. Useful for remote-triggered updates ("run the update and then verify health") — GA reads it as user input post-restart
 - `--manifest-url` — Override manifest URL when paired with `install --auto`. Backend must be built with `dev-updater-allowlocal` for non-https URLs
@@ -3323,11 +3630,11 @@ Install update (--auto for automatic download + install + restart)
 
 - `--after-update` — Message to inject into the General Agent tab after the new daemon boots. Lets the GA continue work post-update — e.g. "verify the new build and report version via Telegram"
 - `--auto` — Use Tauri built-in updater: download, install, and restart automatically
-- `--continue-prompt` — Optional prompt to send to the calling tab once the new daemon is up — lets a session continue work post-restart
-- `--continue-tab` — Tab to deliver `--continue-prompt` to. Defaults to `$CODETERM_TAB_ID`
-- `--from-file` — Install from a local NSIS installer (Windows) or app bundle/DMG (macOS), then relaunch CodeTerm. Bypasses the network
+- `--continue-prompt` — Optional prompt to send to the calling tab's own session after restart
+- `--continue-tab` — Calling tab to continue. Must match `$CODETERM_TAB_ID`
+- `--from-file` — Install from a local NSIS installer (Windows) or app bundle/DMG (macOS), then relaunch Domios. Bypasses the network
 - `--manifest-url` — Override manifest URL (dev/test escape hatch). Requires the backend to be built with the `dev-updater-allowlocal` feature for non-https schemes; release builds reject it
-- `--no-continue` — Disable the default continuation sent back to the calling tab
+- `--no-continue` — Suppress the calling tab's continuation for the next start
 
 #### `codeterm usage`
 
@@ -3388,7 +3695,7 @@ Create a new workspace. With --cwd, reuses an existing workspace at that cwd. Wi
 
 - `--cwd` — Working directory — agents spawned with --workspace inherit this as their CWD
 - `<name>` — Workspace name
-- `--provision` — Create a new empty directory under the CodeTerm data dir as the cwd; agents started exactly there get directory trust
+- `--provision` — Create a new empty directory under the Domios data dir as the cwd; agents started exactly there get directory trust
 
 #### `codeterm workspace current`
 

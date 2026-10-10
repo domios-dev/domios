@@ -4,6 +4,11 @@ use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, Wor
 
 fn terminal_leaf(tab_id: &str, parent: Option<&str>) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
+        purpose: Default::default(),
+        icon: None,
+        shell_profile: None,
+        utility_created_at: 0,
+        close_restore: None,
         tab_id: tab_id.into(),
         cwd: Some("D:/project".into()),
         title: Some(format!("title-{tab_id}")),
@@ -35,6 +40,7 @@ fn terminal_leaf(tab_id: &str, parent: Option<&str>) -> SplitNodeSnapshot {
         model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
+        surface: None,
         watcher: None,
         pending_delivery: None,
     }

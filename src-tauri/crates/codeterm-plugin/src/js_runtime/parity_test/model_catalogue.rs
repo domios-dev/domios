@@ -51,6 +51,18 @@ impl AgentProvider for FreeFormNativeStub {
     fn detect_from_output(&self, _: &str) -> bool {
         false
     }
+
+    fn model_catalogue_capability(&self) -> crate::provider::ModelCatalogueCapability {
+        // Mirrors plugins/provider-opencode/plugin.json modelCatalogue, so the
+        // parity assert pins the manifest's camelCase configFiles mapping too.
+        crate::provider::ModelCatalogueCapability {
+            config_files: vec![
+                "~/.config/opencode/opencode.json".into(),
+                "~/.config/opencode/opencode.jsonc".into(),
+            ],
+            ..Default::default()
+        }
+    }
 }
 
 #[test]

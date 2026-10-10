@@ -417,7 +417,6 @@ impl ServiceContext {
         )
     }
 
-    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn create_prompt_notification_ext(
         &self,
@@ -451,6 +450,25 @@ impl ServiceContext {
         body: Option<String>,
         actions: Option<Vec<NotificationAction>>,
     ) -> String {
+        self.create_condition_notification_with_key(
+            tab_id,
+            condition,
+            title,
+            body,
+            actions,
+            condition.key(tab_id),
+        )
+    }
+
+    pub(crate) fn create_condition_notification_with_key(
+        &self,
+        tab_id: &str,
+        condition: TabCondition,
+        title: String,
+        body: Option<String>,
+        actions: Option<Vec<NotificationAction>>,
+        event_key: String,
+    ) -> String {
         let (id, _) = self.create_notification_actions_reported(
             title,
             body,
@@ -460,7 +478,7 @@ impl ServiceContext {
             NotificationOrigin::local_tab(tab_id.to_string()),
             PushIntent {
                 level: Some(NotifyLevel::ActionNeeded),
-                event_key: Some(condition.key(tab_id)),
+                event_key: Some(event_key),
             },
         );
         let superseded = { self.notif.lock().take_superseded() };
@@ -545,9 +563,6 @@ impl ServiceContext {
     /// label only — the tab it answers to was captured when the question was
     /// sent, so nothing is resolved here.
     pub fn answer_notification(&self, id: &str, label: &str) -> Result<serde_json::Value, String> {
-        if super::provider_update::is_offer(id) {
-            return Err("Provider update choices must be answered from the owner interface".into());
-        }
         // The guard is dropped before the event fans out: nothing downstream of
         // an emit may re-enter the store while it is still held.
         let admission = self.notif.lock().record_answer(id, label);
@@ -577,9 +592,6 @@ impl ServiceContext {
         id: &str,
         label: &str,
     ) -> Result<serde_json::Value, String> {
-        if let Some(result) = super::provider_update::answer(self, id, label) {
-            return result;
-        }
         self.answer_notification(id, label)
     }
 
@@ -734,6 +746,7 @@ impl ServiceContext {
             resolved
         };
         if prompt_cleared {
+            self.clear_pending_prompt_parent_routes(tab_id);
             self.set_cron_owner_prompt_waiting(tab_id, false);
         }
         self.announce_resolved(&resolved);

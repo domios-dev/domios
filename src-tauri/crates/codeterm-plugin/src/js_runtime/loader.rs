@@ -143,14 +143,8 @@ fn compute_sandbox(
     use crate::provider::ProviderTrust;
 
     let dev = std::env::var("CODETERM_DEV").as_deref() == Ok("1");
-    let user_plugins = codeterm_paths::data_dir().join("plugins");
-    let is_user_dropin = std::fs::canonicalize(bundle_dir)
-        .ok()
-        .zip(std::fs::canonicalize(&user_plugins).ok())
-        .map(|(b, u)| b.starts_with(&u))
-        .unwrap_or_else(|| bundle_dir.starts_with(&user_plugins));
 
-    let base = if dev || matches!(trust, ProviderTrust::System) || !is_user_dropin {
+    let base = if dev || matches!(trust, ProviderTrust::System) || !is_user_dropin(bundle_dir) {
         PluginSandbox::unrestricted()
     } else {
         let _ = std::fs::create_dir_all(plugin_temp_dir(&manifest.id));
@@ -171,7 +165,19 @@ fn compute_sandbox(
 
     // onto every path, including unrestricted/dev.
     base.with_identity_and_perms(&manifest.id, &perms)
+        .with_token_mode(manifest.capabilities.decision_model.token_mode)
         .with_settings(settings_json)
+}
+
+/// A bundle under the user plugins dir `~/.codeterm/plugins/`, as opposed to a
+/// bundled or in-workspace one.
+fn is_user_dropin(bundle_dir: &Path) -> bool {
+    let user_plugins = codeterm_paths::data_dir().join("plugins");
+    std::fs::canonicalize(bundle_dir)
+        .ok()
+        .zip(std::fs::canonicalize(&user_plugins).ok())
+        .map(|(b, u)| b.starts_with(&u))
+        .unwrap_or_else(|| bundle_dir.starts_with(&user_plugins))
 }
 
 /// The per-plugin scratch directory under the system temp root. Confined
@@ -284,16 +290,50 @@ fn is_official_system_channel_install(id: &str, bundle_dir: &Path) -> bool {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
         return false;
     };
-    if value.get("id").and_then(|v| v.as_str()) != Some(id) {
+    official_system_channel_record(id, &value, SYSTEM_CHANNEL_NAME)
+}
+
+fn official_system_channel_record(id: &str, record: &serde_json::Value, channel: &str) -> bool {
+    if record.get("id").and_then(|v| v.as_str()) != Some(id) {
         return false;
     }
-    let Some(source) = value.get("source") else {
+    let Some(source) = record.get("source") else {
         return false;
     };
-    let expected_path = format!("provider-{id}");
+    let path = source.get("path").and_then(|v| v.as_str());
+    // Core non-provider plugins sit at the channel root under their bare id.
+    let path_matches = path == Some(format!("provider-{id}").as_str())
+        || (path == Some(id) && crate::system_plugins::is_system_id(id));
     source.get("kind").and_then(|v| v.as_str()) == Some("system_channel")
-        && source.get("channel").and_then(|v| v.as_str()) == Some(SYSTEM_CHANNEL_NAME)
-        && source.get("path").and_then(|v| v.as_str()) == Some(expected_path.as_str())
+        && source.get("channel").and_then(|v| v.as_str()) == Some(channel)
+        && path_matches
+}
+
+/// Core plugins speak to every agent (prompt line, `codeterm docs` guide). Dev runs
+/// force ThirdParty trust, so there a bundled system id outside the user plugins dir counts.
+pub fn is_core_plugin(manifest: &PluginManifest, trust: crate::provider::ProviderTrust) -> bool {
+    let dev = std::env::var("CODETERM_DEV").as_deref() == Ok("1");
+    core_eligibility(
+        trust,
+        dev,
+        crate::system_plugins::is_system_id(&manifest.id),
+        || {
+            manifest
+                .source_path
+                .as_deref()
+                .and_then(Path::parent)
+                .map_or(true, is_user_dropin)
+        },
+    )
+}
+
+fn core_eligibility(
+    trust: crate::provider::ProviderTrust,
+    dev: bool,
+    system_id: bool,
+    user_dropin: impl FnOnce() -> bool,
+) -> bool {
+    trust == crate::provider::ProviderTrust::System || (dev && system_id && !user_dropin())
 }
 
 pub fn default_roots(workspace_root: Option<&Path>) -> Vec<PathBuf> {
@@ -325,6 +365,7 @@ fn ordered_roots(
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::provider::AgentProvider;
 
     fn write(path: &Path, contents: &str) {
@@ -490,6 +531,7 @@ mod tests {
         let mut manifest = shipped_codex_manifest();
         manifest.sessions.as_mut().unwrap().root_dir = home.to_string_lossy().into_owned();
         for credential in &mut manifest.credentials {
+            credential.file_environment = None;
             credential.file = home.join("auth.json").to_string_lossy().into_owned();
         }
 
@@ -610,6 +652,7 @@ mod tests {
         let mut manifest = shipped_codex_manifest();
         manifest.sessions.as_mut().unwrap().root_dir = home.to_string_lossy().into_owned();
         for credential in &mut manifest.credentials {
+            credential.file_environment = None;
             credential.file = auth.to_string_lossy().into_owned();
         }
 
@@ -829,6 +872,56 @@ mod tests {
                 "installed_at": "2026-06-15T00:00:00Z"
             }}"#
         )
+    }
+
+    #[test]
+    fn official_channel_record_accepts_provider_and_core_paths_only_for_their_ids() {
+        let record = |id: &str, path: &str, channel: &str| {
+            serde_json::json!({
+                "id": id,
+                "source": { "kind": "system_channel", "channel": channel, "path": path }
+            })
+        };
+        let official = |id: &str, path: &str| {
+            official_system_channel_record(id, &record(id, path, "core-q7"), "core-q7")
+        };
+        assert!(official("opaque-q7", "provider-opaque-q7"));
+        assert!(
+            !official("opaque-q7", "opaque-q7"),
+            "bare path needs a system id"
+        );
+        assert!(!official("opaque-q7", "provider-other-q7"));
+        assert!(!official_system_channel_record(
+            "opaque-q7",
+            &record("opaque-q7", "provider-opaque-q7", "elsewhere-q7"),
+            "core-q7"
+        ));
+        if let Some((sys_id, _)) = crate::system_plugins::SYSTEM_PLUGIN_HASHES.first() {
+            assert!(official(sys_id, sys_id));
+            assert!(!official(sys_id, "other-q7"));
+        }
+    }
+
+    #[test]
+    fn core_eligibility_is_system_trust_or_a_bundled_system_id_in_dev() {
+        use crate::provider::ProviderTrust;
+        let no_dropin_probe = || -> bool { panic!("drop-in check only runs for dev system ids") };
+        assert!(core_eligibility(
+            ProviderTrust::System,
+            false,
+            false,
+            no_dropin_probe
+        ));
+        for trust in [
+            ProviderTrust::ThirdParty,
+            ProviderTrust::Unverified,
+            ProviderTrust::Unknown,
+        ] {
+            assert!(!core_eligibility(trust, false, true, no_dropin_probe));
+            assert!(!core_eligibility(trust, true, false, no_dropin_probe));
+            assert!(core_eligibility(trust, true, true, || false));
+            assert!(!core_eligibility(trust, true, true, || true));
+        }
     }
 
     /// #16 Layer B: a genuine third-party drop-in with no declared `hostApi`

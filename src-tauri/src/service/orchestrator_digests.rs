@@ -9,6 +9,13 @@ use crate::service::ServiceContext;
 const CLEANUP_SOFT_LIMIT: usize = 5;
 const CLEANUP_CRITICAL_LIMIT: usize = 10;
 
+#[derive(Default)]
+struct HeartbeatSelection<'a> {
+    learning_ids: Option<&'a [String]>,
+    plain: bool,
+    mode_transition: bool,
+}
+
 pub fn deliver_orchestrator_notice_exact(
     svc: &ServiceContext,
     plan_id: &str,
@@ -16,8 +23,55 @@ pub fn deliver_orchestrator_notice_exact(
     context: &str,
     text: &str,
 ) -> Result<crate::service::messenger::Delivery, String> {
+    deliver_notice_with_learning_selection(
+        svc,
+        plan_id,
+        requested_target,
+        context,
+        text,
+        HeartbeatSelection::default(),
+        None,
+    )
+}
+
+pub(crate) fn deliver_gated_heartbeat_exact(
+    svc: &ServiceContext,
+    plan_id: &str,
+    target: &str,
+    text: &str,
+    learning_ids: Option<&[String]>,
+    plain: bool,
+    mode_transition: bool,
+    observer: Option<crate::service::messenger::DeliveryWriteObserver>,
+) -> Result<crate::service::messenger::Delivery, String> {
+    deliver_notice_with_learning_selection(
+        svc,
+        plan_id,
+        target,
+        "system",
+        text,
+        HeartbeatSelection {
+            learning_ids,
+            plain,
+            mode_transition,
+        },
+        observer,
+    )
+}
+
+fn deliver_notice_with_learning_selection(
+    svc: &ServiceContext,
+    plan_id: &str,
+    requested_target: &str,
+    context: &str,
+    text: &str,
+    selection: HeartbeatSelection<'_>,
+    observer: Option<crate::service::messenger::DeliveryWriteObserver>,
+) -> Result<crate::service::messenger::Delivery, String> {
     let plan = svc.plan_store.get(plan_id).ok_or("plan not found")?;
-    if crate::service::plan::pause_operation::plan_notices_suppressed(&plan) {
+    if crate::service::plan::pause_operation::plan_notices_suppressed(&plan)
+        && !selection.mode_transition
+    {
         return Err("plan_paused: plan notices are suppressed while the plan is paused".into());
     }
     let owner = plan
@@ -26,21 +80,32 @@ pub fn deliver_orchestrator_notice_exact(
         .as_deref()
         .ok_or("plan owner has no local delivery target")?;
     deliver_exact_role_target("orchestrator", plan_id, owner, requested_target, |target| {
-        let injected = if crate::service::plan::heartbeat::is_plan_complete(&plan) {
-            text.to_string()
-        } else {
-            let digest_lines = collect_digest_lines(svc, &plan, Some(owner));
-            svc.plan_store
-                .prepend_heartbeat_for_plan_with_digests(plan_id, text, &digest_lines)
-        };
-        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder(context);
+        let injected =
+            if selection.plain || crate::service::plan::heartbeat::is_plan_complete(&plan) {
+                text.to_string()
+            } else {
+                let digest_lines = collect_digest_lines(svc, &plan, Some(owner));
+                svc.plan_store.prepend_heartbeat_with_selected_learnings(
+                    plan_id,
+                    text,
+                    &digest_lines,
+                    selection.learning_ids,
+                )
+            };
+        let mut envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder(context);
+        envelope.delivery_observer = Some(observer.unwrap_or_else(|| {
+            crate::service::messenger::DeliveryWriteObserver::PlanRole {
+                plan_id: plan_id.to_string(),
+                role: "orchestrator".into(),
+            }
+        }));
         let result = svc.gateway_deliver(
             target,
             envelope,
             &injected,
             crate::service::message_gateway::DeliveryClass::SystemNotice,
         );
-        if result.is_ok() {
+        if result.as_ref().is_ok_and(|delivery| delivery.is_written()) {
             let heartbeat_bytes = injected.len().saturating_sub(text.len());
             if heartbeat_bytes > 0 {
                 svc.record_kpi_event(
@@ -54,13 +119,13 @@ pub fn deliver_orchestrator_notice_exact(
     })
 }
 
-pub(crate) fn deliver_exact_role_target<T>(
+pub(crate) fn deliver_exact_role_target(
     role: &str,
     plan_id: &str,
     intended_target: &str,
     requested_target: &str,
-    deliver: impl FnOnce(&str) -> Result<T, String>,
-) -> Result<T, String> {
+    deliver: impl FnOnce(&str) -> Result<crate::service::messenger::Delivery, String>,
+) -> Result<crate::service::messenger::Delivery, String> {
     if intended_target != requested_target {
         log::warn!(
             "[plan-role-delivery] plan={} role={} intended_target={} actual_target=none outcome=refused requested_target={}",
@@ -75,8 +140,16 @@ pub(crate) fn deliver_exact_role_target<T>(
     }
     let result = deliver(intended_target);
     match &result {
+        Ok(crate::service::messenger::Delivery::Pending { delivery_id }) => log::warn!(
+            "[plan-role-delivery] plan={} role={} intended_target={} actual_target={} outcome=pending delivery_id={}",
+            plan_id,
+            role,
+            intended_target,
+            intended_target,
+            delivery_id
+        ),
         Ok(_) => log::info!(
-            "[plan-role-delivery] plan={} role={} intended_target={} actual_target={} outcome=delivered",
+            "[plan-role-delivery] plan={} role={} intended_target={} actual_target={} outcome=written",
             plan_id,
             role,
             intended_target,
@@ -284,7 +357,7 @@ mod tests {
             "owner-tab",
             |target| {
                 attempts.borrow_mut().push(target.to_string());
-                Err::<(), _>("owner undeliverable".to_string())
+                Err("owner undeliverable".to_string())
             },
         );
 
@@ -302,7 +375,7 @@ mod tests {
             "planner-tab",
             |target| {
                 attempts.borrow_mut().push(target.to_string());
-                Ok(())
+                Ok(crate::service::messenger::Delivery::Pty { text: "ok".into() })
             },
         );
 

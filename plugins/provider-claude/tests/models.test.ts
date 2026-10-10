@@ -12,6 +12,7 @@
  * pinned model list, so this file survives the next Anthropic release.
  */
 
+import type { ModelInfo } from "@codeterm/plugin-sdk";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
@@ -54,6 +55,16 @@ const baseHost = (over: Record<string, unknown>) => ({
   unixNowMs: () => 0,
   envGet: () => null,
   exec: () => JSON.stringify({ error: "not configured" }),
+  providerVersionJson: () => {
+    try {
+      const exec = over.exec;
+      const result = typeof exec === "function" ? JSON.parse(exec()) as { code?: number; stdout?: string } : null;
+      const version = result?.code === 0 ? /\d+\.\d+\.\d+/.exec(result.stdout || "")?.[0] : null;
+      return JSON.stringify({ status: version ? "detected" : "failed", version });
+    } catch (_) {
+      return JSON.stringify({ status: "failed", version: null });
+    }
+  },
   fetch: () => JSON.stringify({ error: "not configured" }),
   shell: {
     quoteFor: (value: unknown) => String(value),
@@ -77,7 +88,7 @@ console.log("\n--- discoverModels: shipped manifest has no static veto over the 
 
 {
   // A hardcoded manifest `available` is a static veto over a dynamic gate,
-  // which is the regression this file guards: MINIMUM_CLI_BY_MODEL decides.
+  // which is the regression this file guards: the declared CLI minimum decides.
   assert(
     !manifestSeed.models.some((m) => m.available === false),
     "shipped plugin.json does not hardcode any model unavailable",
@@ -102,8 +113,11 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
       }),
     }),
   }));
+  const models = p.discoverModels() as ModelInfo[];
+  eq(models.filter((model) => model.primary).map((model) => model.id),
+    ["opus", "sonnet", "haiku", "fable"], "live discovery preserves primary aliases");
   eq(
-    p.discoverModels(),
+    models.map(({ reasoningEfforts, defaultReasoningEffort, primary, group, ...model }) => model),
     [
       { id: "opus", displayName: "Claude Opus 5", description: "Best for everyday, complex tasks.", available: true },
       { id: "sonnet", displayName: "Claude Sonnet 5", description: "Efficient for routine tasks.", available: true },
@@ -116,6 +130,16 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
       { id: "opusplan", displayName: "Claude Opus Plan 5", description: "Claude Code's Opus planning alias.", available: true },
     ],
     "genuine /v1/models discovery maps concrete ids onto the same stable aliases with live availability",
+  );
+  eq(
+    models.find((model) => model.id === "opus")?.reasoningEfforts?.map((effort) => effort.id),
+    ["low", "medium", "high", "xhigh", "max"],
+    "live discovery retains declared per-model effort choices",
+  );
+  eq(
+    models.find((model) => model.id === "opus")?.defaultReasoningEffort,
+    "medium",
+    "live discovery retains the declared model effort default",
   );
 }
 
@@ -142,9 +166,9 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
   eq(
     partial.map((m) => m.displayName),
     [
-      "Claude Opus",
-      "Claude Sonnet",
-      "Claude Haiku",
+      "Opus 5.5",
+      "Sonnet 5.5",
+      "Haiku 5.5",
       "Claude Fable 5.1",
       "Claude Best 5.1",
       "Claude Sonnet (1M context)",
@@ -224,12 +248,30 @@ for (const [label, execImpl] of [
   eq(fable?.available, false, "a genuine negative still publishes the boolean");
 }
 
+for (const [label, exec] of [
+  ["satisfied CLI gate", () => JSON.stringify({ code: 0, stdout: "2.1.261 (Claude Code)" })],
+  ["unreachable CLI probe", () => JSON.stringify({ code: 1, stdout: "" })],
+] as Array<[string, () => string]>) {
+  const p = loadClaudeWithHost(baseHost({
+    exec,
+    envGet: (name: string) => name === "ANTHROPIC_API_KEY" ? "test-key" : null,
+    fetch: () => JSON.stringify({
+      status: 200,
+      body: JSON.stringify({ data: [{ id: "claude-opus-5", display_name: "Claude Opus 5" }] }),
+    }),
+  }));
+  const fable = (p.discoverModels() as ModelInfo[]).find((model) => model.id === "fable");
+  eq(fable?.available, false, `live family absence remains unavailable with ${label}`);
+  eq(fable?.availability, "unavailable", `live negative retains its typed verdict with ${label}`);
+}
+
 console.log("\n--- discoverModels: manifest flag and version gate are independent ---\n");
 
 {
   // plugin.json once hardcoded fable unavailable while the CLI gate was already
   // satisfied, so a manifest veto must not mask a satisfied version gate.
   const staleManifest = {
+    ...manifestSeed,
     models: [
       { id: "fable", displayName: "Claude Fable", description: "desc", available: false },
     ],
@@ -251,6 +293,7 @@ console.log("\n--- discoverModels: manifest flag and version gate are independen
   // Conversely, a manifest that never mentions `available` at all (the
   // permissive/default shape) must not mask a failing version gate.
   const permissiveManifest = {
+    ...manifestSeed,
     models: [
       { id: "fable", displayName: "Claude Fable", description: "desc" },
     ],

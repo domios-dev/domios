@@ -1,32 +1,20 @@
 import { Sparkles } from "lucide-react";
-import type { AppConfig, SupporterConfig } from "../../lib/types";
-import { InlineLinkButton, SettingsCard, Toggle } from "../Settings/shared";
+import { InlineLinkButton, SettingsCard } from "../Settings/shared";
 
 interface Props {
-  supporter: SupporterConfig;
-  onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
   onOpenAgentsSettings: () => void;
 }
 
-export function DecisionRerankCard({ supporter, onUpdate, onOpenAgentsSettings }: Props) {
+export function DecisionRerankCard({ onOpenAgentsSettings }: Props) {
   return (
     <SettingsCard
       icon={<Sparkles size={16} />}
       title="Re-rank"
-      description="The Supporter Agent re-orders memory recall so the results that answer come first."
+      description="The Spinal Cord re-orders memory recall so the results that answer come first."
     >
-      <Toggle
-        label="Re-rank memory recall"
-        checked={supporter.memory_rerank.enabled}
-        onChange={(v) =>
-          onUpdate("supporter", {
-            ...supporter,
-            memory_rerank: { ...supporter.memory_rerank, enabled: v },
-          })
-        }
-      />
+      <p className="text-xs text-[var(--ct-muted-fg)]">Memory recall uses the Spinal Cord whenever its adapter is connected.</p>
       <InlineLinkButton
-        label="Set up the Supporter Agent in Settings > Agents"
+        label="Set up the Spinal Cord in Settings > Agents"
         onClick={onOpenAgentsSettings}
         testId="memory-rerank-agents-link"
       />

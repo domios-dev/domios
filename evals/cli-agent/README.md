@@ -1,6 +1,6 @@
 # evals/cli-agent
 
-Real-daemon LLM benchmark for the CodeTerm CLI. See `SKILL.md` for the protocol
+Real-daemon LLM benchmark for the Domios CLI. See `SKILL.md` for the protocol
 and rubric. Reads transcripts via `codeterm tab chat` / `GET /api/tabs/:id/chat`.
 Cases live in `cases/*.yaml`; `coverage-check.sh` reports commands without a case.
 

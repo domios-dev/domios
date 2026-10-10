@@ -1,7 +1,11 @@
 import type { Host, ModelInfo, ParsedPrompt } from "@codeterm/plugin-sdk";
+import { parseModelVariants } from "./modelVariants";
+import { bindingModelSwitchSource } from "./bindingModelSwitch";
+import { opencodeFileDiffs } from "./fileDiffs";
+import { fileDiffFromEdit, type FileDiff } from "@codeterm/chat-core";
 
 // Constants and regexes
-export const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v4";
+export const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v8";
 export const CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-session-binding-v";
 export const QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 export const QUESTION_MENU_SELECTORS = [">", "❯", "▶", "➤", "→", "●"];
@@ -51,7 +55,8 @@ export interface OpencodePart {
   type?: string;
   text?: string;
   tool?: string;
-  state?: { input?: unknown; output?: unknown };
+  callID?: string;
+  state?: { input?: unknown; output?: unknown; metadata?: unknown; status?: string };
 }
 
 export interface ModelUsageRow {
@@ -276,18 +281,22 @@ declare const host: Host;
 export function discoverOpencodeModels(): ModelInfo[] | null {
   const raw = host.exec(JSON.stringify({
     bin: "opencode",
-    args: ["models"],
+    args: ["models", "--verbose"],
     timeoutMs: 3000,
   }));
   const result = safeJson(raw) as { code?: number; stdout?: string } | null;
   if (!result || result.code !== 0 || typeof result.stdout !== "string") return null;
   const lines = result.stdout.split("\n");
+  const variants = parseModelVariants(result.stdout);
   const models: ModelInfo[] = [];
   for (let i = 0; i < lines.length; i++) {
     const id = lines[i].trim();
     if (!isModelId(id)) continue;
     if (isNonChatModel(id)) continue;
-    models.push({ id: id, displayName: displayNameFromId(id), group: groupFromModelId(id) });
+    const efforts = variants.get(id);
+    models.push({ id: id, displayName: displayNameFromId(id), group: groupFromModelId(id),
+      ...(efforts ? { reasoningEfforts: efforts, ...(efforts.length ? { defaultReasoningEffort: "default" } : {}) } : {}),
+    });
   }
   return models.length ? models : null;
 }
@@ -486,18 +495,39 @@ export function partToChatMsg(part: OpencodePart, role: string, id: string, tsMs
     const tool = part.tool || "tool";
     const state = part.state || {};
     const canonical = canonicalToolFields(tool, state.input);
+    const diffs = toolFileDiffs(part);
     const out: Record<string, unknown> = {
       id: id, type: "tool_call", content: "", timestamp: timestamp, toolName: tool,
       toolKind: canonical.kind,
       toolSummary: canonical.summary,
       toolDetail: canonical.detail,
       toolEdits: canonical.edits,
+      fileDiffs: diffs,
+      toolId: part.callID,
+      toolError: state.status === "error" ? true : state.status === "completed" ? false : undefined,
     };
     if (state.input !== undefined) out.toolInput = state.input;
     if (typeof state.output === "string") out.toolResult = state.output;
     return out;
   }
   return null;
+}
+
+export function toolFileDiffs(part: OpencodePart): FileDiff[] {
+  const state = part.state ?? {};
+  if (part.type !== "tool" || state.status !== "completed") return [];
+  const input = state.input && typeof state.input === "object" ? state.input as Record<string, unknown> : {};
+  const path = String(input.filePath ?? input.file_path ?? input.path ?? "");
+  const edits = extractCanonicalEdits(input);
+  const metadata = state.metadata && typeof state.metadata === "object" ? state.metadata as Record<string, unknown> : {};
+  const creation = part.tool === "write" && metadata.exists === false && typeof input.content === "string"
+    ? [{ path, old: "", new: input.content }] : [];
+  const diffs = opencodeFileDiffs(path, [...edits, ...creation], metadata);
+  if (creation.length) {
+    if (!diffs.length && path) diffs.push(fileDiffFromEdit(creation[0]));
+    diffs.forEach((diff) => { diff.kind = "add"; });
+  }
+  return diffs;
 }
 
 export function canonicalToolFields(name: string, input: unknown): CanonicalToolFields {
@@ -667,7 +697,7 @@ export function opencodeBindingPluginSource(): string {
     "  return null;",
     "}",
     "",
-    "async function report(sessionID, source, directory) {",
+    "async function report(sessionID, source, directory, signal) {",
     "  sessionID = normalizeSessionID(sessionID);",
     "  if (!sessionID) return false;",
     "  if (sessionID === lastReported) return true;",
@@ -682,6 +712,7 @@ export function opencodeBindingPluginSource(): string {
     "  const delivered = await fetch(url, {",
     "    method: \"POST\",",
     "    headers,",
+    "    signal,",
     "    body: JSON.stringify({",
     "      provider_id: PROVIDER_ID,",
     "      session_id: sessionID,",
@@ -745,15 +776,18 @@ export function opencodeBindingPluginSource(): string {
     "  }).catch(() => null);",
     "}",
     "",
+    ...bindingModelSwitchSource(),
     "export default async function CodeTermSessionBindingPlugin({ directory, client }) {",
-    "  const resumed = resumedSessionID(process.argv || []);",
-    "  if (resumed && client?.session?.get) {",
+    "  const resumed = normalizeSessionID(process.env.CODETERM_RESUME_SESSION_ID) || resumedSessionID(process.argv || []);",
+    "  const startupBinding = (async () => {",
+    "    if (!resumed || !client?.session?.get) return;",
     "    const result = await client.session.get({ path: { id: resumed } }).catch(() => null);",
     "    const session = result?.data || result;",
     "    if (session?.id === resumed) await report(resumed, \"session.get\", session.directory || directory);",
-    "  }",
+    "  })().catch(() => null);",
     "  return {",
     "    async event({ event }) {",
+    "      await startupBinding;",
     "      if (event?.type === \"session.error\" || event?.type === \"session.idle\" || (event?.type === \"session.status\" && event?.properties?.status?.type === \"busy\")) {",
     "        await reportProviderEvent(event, directory);",
     "        return;",
@@ -768,8 +802,16 @@ export function opencodeBindingPluginSource(): string {
     "        await report(eventSessionID(event), event.type, eventDirectory(event, directory));",
     "      }",
     "    },",
-    "    async \"chat.message\"(input) {",
-    "      await report(input?.sessionID, \"chat.message\", directory);",
+    "    async \"chat.message\"(input, output) {",
+    "      await report(input?.sessionID, \"chat.message\", directory, AbortSignal.timeout(200));",
+    "      try {",
+    "        await applyTurnModel(input, output, AbortSignal.timeout(200));",
+    "      } catch (error) {",
+    "        if (!controlsWarningReported) {",
+    "          controlsWarningReported = true;",
+    "          console.warn(\"CodeTerm model switch did not apply; continuing on the current model. Pending selection is retained.\", error?.message || error);",
+    "        }",
+    "      }",
     "    },",
     "    async \"tool.execute.before\"(input) {",
     "      await report(input?.sessionID, \"tool.execute.before\", directory);",

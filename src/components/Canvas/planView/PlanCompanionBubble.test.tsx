@@ -1,3 +1,6 @@
+import { MuxStateStoreContext } from "../../../store/multiplexer/context";
+import { createMuxStateStore } from "../../../store/multiplexer/selectorStore";
+import type { ExtendedState } from "../../../store/multiplexer/tree";
 // Run: npx tsx src/components/Canvas/planView/PlanCompanionBubble.test.tsx
 
 import { act, type ReactElement } from "react";
@@ -46,7 +49,11 @@ async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: R
   document.body.appendChild(host);
   const root = createRoot(host);
   await act(async () => {
-    root.render(ui);
+    const state: ExtendedState = {
+      workspaces: [], tabs: {}, teams: [], active_workspace_id: null, focused_tab_id: null,
+      notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 0, pendingCloses: [],
+    };
+    root.render(<MuxStateStoreContext.Provider value={createMuxStateStore(() => state)}>{ui}</MuxStateStoreContext.Provider>);
   });
   return { host, root };
 }
@@ -64,7 +71,7 @@ function renderChatStub({ tabId }: { tabId: string; chatBackend: boolean }) {
 }
 
 const LIVE_TABS: Record<string, Tab> = {
-  "planner-1": tab({ id: "planner-1", title: "Planner", agent_state: { state: "working" } }),
+  "planner-1": tab({ id: "planner-1", title: "Planner", agent_session_id: "planner-session", agent_state: { state: "working" } }),
   "orch-1": tab({ id: "orch-1", title: "Orchestrator", agent_state: { state: "idle" } }),
 };
 

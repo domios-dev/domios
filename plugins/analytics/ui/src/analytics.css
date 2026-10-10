@@ -143,10 +143,10 @@ body {
 
 .analytics-amount {
   display: block;
-  font-family: var(--ct-font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 22px;
-  font-weight: 600;
+  font-weight: 650;
+  letter-spacing: -0.01em;
   line-height: 1.15;
   color: var(--ct-fg);
 }
@@ -211,8 +211,8 @@ body {
   align-items: flex-start;
   gap: var(--mc-space-2);
   padding: var(--mc-space-2) var(--mc-space-3);
-  border: 1px solid var(--ct-border);
-  border-radius: var(--ct-radius-md);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--ct-fg) 3%, var(--ct-bg));
 }
 
 .analytics-banner > div {

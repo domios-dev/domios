@@ -18,6 +18,15 @@ impl MemManager {
         store::list_pinned(&conn, &self.blobs_dir, limit)
     }
 
+    pub fn list_by_source_prefix(
+        &self,
+        kind: &str,
+        prefix: &str,
+    ) -> Result<Vec<store::MemItem>, String> {
+        let conn = self.conn.lock();
+        store::list_by_source_prefix(&conn, &self.blobs_dir, kind, prefix)
+    }
+
     pub fn set_pinned_position(&self, mem_id: &str, x: f64, y: f64) -> Result<bool, String> {
         let conn = self.conn.lock();
         store::set_pinned_position(&conn, mem_id, x, y)

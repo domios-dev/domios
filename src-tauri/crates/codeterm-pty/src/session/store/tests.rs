@@ -210,6 +210,11 @@ fn authoritative_session_binding_persists_orchestration_identity() {
 
 fn leaf(id: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
+        purpose: Default::default(),
+        icon: None,
+        shell_profile: None,
+        utility_created_at: 0,
+        close_restore: None,
         tab_id: id.into(),
         cwd: None,
         title: None,
@@ -241,6 +246,7 @@ fn leaf(id: &str) -> SplitNodeSnapshot {
         model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
+        surface: None,
         watcher: None,
         pending_delivery: None,
     }
@@ -607,4 +613,147 @@ fn desk_backup_retention_policy() {
 
     let days: Vec<u64> = (0..7).map(|d| now - d * 86_400 - 1000).collect();
     assert!(super::retention::timestamps_to_evict(&days, now).is_empty());
+}
+
+#[test]
+fn storage_desk_legacy_decoder_preserves_nested_layout_and_opaque_identity_values() {
+    let root = tempfile::tempdir().unwrap();
+    let adapter = super::StorageDeskAdapter::open(root.path().join("state")).unwrap();
+    let snapshot = r#"{
+        "version":"legacy",
+        "timestamp":91,
+        "active_workspace_id":"ws-a",
+        "teams":[],
+        "workspaces":[{
+            "id":"ws-a",
+            "name":"Alpha",
+            "tabs":[{
+                "id":"group-a",
+                "title":"Group",
+                "sort_order":3,
+                "split_tree":{
+                    "type":"Split",
+                    "orientation":"horizontal",
+                    "ratio":0.4,
+                    "children":[
+                        {
+                            "type":"Leaf",
+                            "tab_id":"tab-a",
+                            "cwd":"C:/project",
+                            "agent_type":"provider-unverified",
+                            "claude_session_id":"session-unverified",
+                            "agent_identity":{"session_binding_nonce":"nonce-unverified"},
+                            "role":"Worker",
+                            "role_profile":null,
+                            "agent_session_model":null,
+                            "auto_approve":false,
+                            "permission_auto_confirm":true
+                        },
+                        {
+                            "type":"Split",
+                            "orientation":"vertical",
+                            "ratio":0.7,
+                            "children":[{
+                                "type":"Leaf",
+                                "tab_id":"runtime-only-reference",
+                                "cwd":null,
+                                "agent_type":"unknown-provider",
+                                "role":"Manager"
+                            }]
+                        }
+                    ]
+                }
+            }],
+            "active_tab_id":"group-a",
+            "cwd":"C:/project",
+            "protected":false,
+            "sort_order":5
+        }]
+    }"#;
+    let identities = r#"{"sessions":{"5:codexsession-a":{"provider":"stored-provider-value","role":"Worker","can_spawn":false,"parent_tab_id":"missing-parent"}}}"#;
+
+    adapter.import_legacy(snapshot, Some(identities)).unwrap();
+    let restored = adapter.snapshot().unwrap();
+    let normalized = adapter.normalized_snapshot().unwrap();
+    let identity = adapter.identity_catalog().unwrap();
+
+    assert_eq!(restored.workspaces[0].tabs[0].id, "group-a");
+    assert_eq!(restored.workspaces[0].tabs[0].sort_order, 3);
+    assert_eq!(normalized.workspaces[0].tabs.len(), 1);
+    match &normalized.workspaces[0].tabs[0].layout {
+        codeterm_storage::DeskLayoutNode::Split { children, .. } => match &children[0] {
+            codeterm_storage::DeskLayoutNode::Leaf { fields, .. } => {
+                assert_eq!(fields.values["role_profile"], serde_json::Value::Null);
+                assert_eq!(
+                    fields.values["agent_session_model"],
+                    serde_json::Value::Null
+                );
+                assert_eq!(fields.values["auto_approve"], serde_json::json!(false));
+            }
+            codeterm_storage::DeskLayoutNode::Split { .. } => panic!("first node must stay a leaf"),
+        },
+        codeterm_storage::DeskLayoutNode::Leaf { .. } => panic!("root split must not be flattened"),
+    }
+    match &restored.workspaces[0].tabs[0].split_tree {
+        SplitNodeSnapshot::Split { children, .. } => {
+            assert_eq!(children.len(), 2);
+            match &children[0] {
+                SplitNodeSnapshot::Leaf {
+                    tab_id,
+                    claude_session_id,
+                    agent_identity,
+                    permission_auto_confirm,
+                    ..
+                } => {
+                    assert_eq!(tab_id, "tab-a");
+                    assert_eq!(claude_session_id.as_deref(), Some("session-unverified"));
+                    assert_eq!(
+                        agent_identity
+                            .as_ref()
+                            .and_then(|identity| identity.session_binding_nonce.as_deref()),
+                        Some("nonce-unverified")
+                    );
+                    assert!(*permission_auto_confirm);
+                }
+                SplitNodeSnapshot::Split { .. } => panic!("first node must stay a leaf"),
+            }
+            match &children[1] {
+                SplitNodeSnapshot::Split { children, .. } => match &children[0] {
+                    SplitNodeSnapshot::Leaf { tab_id, .. } => {
+                        assert_eq!(tab_id, "runtime-only-reference");
+                    }
+                    SplitNodeSnapshot::Split { .. } => panic!("nested node must retain its leaf"),
+                },
+                SplitNodeSnapshot::Leaf { .. } => panic!("nested split must remain nested"),
+            }
+        }
+        SplitNodeSnapshot::Leaf { .. } => panic!("root split must not be flattened"),
+    }
+    assert_eq!(identity.len(), 1);
+    assert_eq!(identity[0].provider, "codex");
+    assert_eq!(identity[0].record_provider, "stored-provider-value");
+    assert_eq!(identity[0].session_id, "session-a");
+    assert_eq!(identity[0].parent_tab_id.as_deref(), Some("missing-parent"));
+}
+
+#[test]
+fn storage_desk_snapshot_does_not_persist_ephemeral_active_tab() {
+    let mut mux = crate::multiplexer::state::MultiplexerState::empty();
+    let workspace_id = mux.create_workspace("Desk".into(), None).id;
+    let durable_tab = mux.create_tab(&workspace_id).unwrap();
+    let hidden_tab = mux.create_tab(&workspace_id).unwrap();
+    let skipped_tab = mux.create_tab(&workspace_id).unwrap();
+    mux.get_tab_mut(&hidden_tab).unwrap().hidden = true;
+    mux.get_tab_mut(&skipped_tab).unwrap().skip_snapshot = true;
+    mux.set_active_tab(&workspace_id, &skipped_tab).unwrap();
+
+    let snapshot = mux.to_session_snapshot();
+    let workspace = &snapshot.workspaces[0];
+
+    assert_eq!(workspace.tabs.len(), 1);
+    assert_eq!(workspace.tabs[0].id, durable_tab);
+    assert_eq!(
+        workspace.active_tab_id.as_deref(),
+        Some(durable_tab.as_str())
+    );
 }

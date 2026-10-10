@@ -26,6 +26,29 @@ const ANSWERED_MEMORY: usize = 64;
 static LEDGER: LazyLock<parking_lot::Mutex<Ledger>> =
     LazyLock::new(|| parking_lot::Mutex::new(Ledger::default()));
 
+pub(crate) fn observation_revision(tab_id: &str) -> u64 {
+    let ledger = LEDGER.lock();
+    ledger.tabs.get(tab_id).map_or(0, |tab| {
+        super::supporter_tab_state::frame_hash(&format!("{:?}:{:?}", tab.answered, tab.settling))
+    })
+}
+
+pub(crate) fn claim_safe_prompt_response(
+    tab_id: &str,
+    request_id: u64,
+    prompt: &PendingPrompt,
+) -> bool {
+    LEDGER
+        .lock()
+        .claim(
+            tab_id,
+            request_id,
+            &screen_fingerprint(prompt),
+            Instant::now(),
+        )
+        .is_ok()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Refusal {
     Disabled,

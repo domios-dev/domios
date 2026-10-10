@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Domios: Resident</title>
+  <desc id="desc">A little presence in the machine.</desc>
+  <path fill="currentColor" fill-rule="evenodd" d="M8 56V28C8 16 18 8 32 8S56 16 56 28V56L40 48 24 56V48ZM28 24V36H40V24Z"/>
+</svg>

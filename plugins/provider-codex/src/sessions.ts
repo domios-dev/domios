@@ -1,3 +1,5 @@
+import { effectiveReadPath } from "../../provider-shared/readHome";
+
 declare const host: {
   envGet(name: string): string | null;
   homeDir(): string | null;
@@ -241,7 +243,7 @@ function codexSessionsRoot(sep: string): string | null {
   const override = host.envGet(sessionStoreOverrides.root);
   if (override) return trimTrailingSeparators(override);
   const home = host.homeDir();
-  return home ? home + sep + ".codex" : null;
+  return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" : null, "", sep);
 }
 
 function readSessionIndex(path: string): CodexSessionIndexEntry[] {

@@ -3,7 +3,7 @@
 //! declared launch-permission capability and model metadata only.
 
 use crate::agent::registry::AgentRegistry;
-use crate::multiplexer::types::AgentRole;
+use crate::multiplexer::types::{AgentRole, Tab, TabAudience};
 use codeterm_types::agent::role_kind::builtins::ORCHESTRATOR;
 
 /// CodeTerm commands a role or task launch runs to acknowledge and report.
@@ -22,6 +22,37 @@ pub(crate) enum LaunchPurpose {
     #[default]
     Agent,
     CronRun,
+}
+
+/// A hidden tab spawned for automation (a `CronRun` or a hidden worker) has
+/// nobody watching it, so a launch gate it cannot pass stalls it.
+pub(crate) fn runs_unattended(tab: &Tab) -> bool {
+    tab.hidden && tab.audience != TabAudience::User
+}
+
+pub(crate) fn owns_prompt_answers(tab: &Tab) -> bool {
+    tab.role.is_some_and(|role| role != AgentRole::Manager)
+        || tab
+            .role_profile
+            .as_deref()
+            .is_some_and(|profile| profile != ORCHESTRATOR)
+        || tab.roleless_tracked
+        || tab.team_id.is_some()
+        || tab.parent_tab_id.is_some()
+        || tab.spawned_by_tab_id.is_some()
+        || tab.task_binding.is_some()
+        || tab.worker_id.is_some()
+        || tab.audience != TabAudience::User
+}
+
+/// Unattended and still launching: the provider has not authenticated this tab's session.
+#[cfg(test)]
+pub(crate) fn at_unattended_launch(tab: &Tab) -> bool {
+    runs_unattended(tab) && tab.agent_type.is_some() && !tab.launch_session_authenticated()
+}
+
+pub(crate) fn at_owned_launch_prompt(tab: &Tab) -> bool {
+    owns_prompt_answers(tab) && tab.agent_type.is_some() && !tab.launch_session_authenticated()
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -134,7 +165,7 @@ pub(crate) fn preflight(
     }
     let supported = mode.capability.unattended_mode_models.join(", ");
     let need = if launch.managing() {
-        "coordinates through CodeTerm commands on every turn".to_string()
+        "coordinates through Domios commands on every turn".to_string()
     } else {
         format!("must run {} unattended", owed.join(", "))
     };
