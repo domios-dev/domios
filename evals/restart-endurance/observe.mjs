@@ -6,6 +6,7 @@ import { exactReply, firstTurnPolicy, kind, probeReady } from "./oracle.mjs";
 import { digest, logLines, newEvidence } from "./logs.mjs";
 import { recordBoundary, nextTurnModel } from "./records.mjs";
 import { snapshotAfterEvent, tabSnapshot } from "./snapshots.mjs";
+import { assertTarget } from "./target.mjs";
 import { restartObserved } from "./restart.mjs";
 import { restoreReady, reconcileReadiness } from "./readiness.mjs";
 
@@ -19,7 +20,8 @@ const instance = process.env.CODETERM_INSTANCE || "";
 const API = `http://127.0.0.1:${port}`;
 const deadlineMs = 120_000;
 const dataDir = process.env.CODETERM_DEV_DATA_DIR;
-if (!dataDir || !((port === 7686 && !instance) || (port === 7697 && instance === "aiderqa"))) {
+assertTarget(instance, port);
+if (!dataDir) {
   throw new Error("Run through the selected DEV lib dev_run wrapper");
 }
 const headers = {

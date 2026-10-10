@@ -2,6 +2,7 @@ import ctypes
 import json
 import os
 import platform
+from pathlib import Path
 import subprocess
 import sys
 
@@ -60,6 +61,8 @@ $epoch=[DateTime]::SpecifyKind([DateTime]'1970-01-01',[DateTimeKind]::Utc)
 
 if __name__ == "__main__":
     port = int(sys.argv[1])
-    if port not in (7686, 7697):
-        raise RuntimeError("Unapproved DEV listener port")
+    instance = sys.argv[2]
+    targets = json.loads(Path(__file__).with_name("targets.json").read_text())
+    if not any(target["instance"] == instance and target["port"] == port for target in targets):
+        raise RuntimeError("Unapproved DEV listener instance/port pair")
     print(json.dumps(identity(port)))
