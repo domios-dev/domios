@@ -32,6 +32,10 @@ pub(super) fn for_launch(
         .read()
         .get_tab(tab_id)
         .and_then(|tab| tab.pending_delivery.as_ref().map(|pending| pending.state()));
+    log::debug!(
+        "[resume-binding] tab={} provider={} lazy_session={} first_turn_planned={} resume_target={:?} pending={:?}",
+        tab_id, provider_id, lazy_session, first_turn_planned, resume_target, pending
+    );
     binding_turn(
         matches!(origin, AgentLaunchOrigin::RestoredSnapshot),
         lazy_session,

@@ -279,10 +279,11 @@ impl AgentProvider for ClaudeProvider {
         subagents::usage_sources(session_file, session_id)
     }
 
-    fn session_exists(&self, cwd: &str, session_id: &str) -> bool {
-        sessions::sessions_dir(cwd)
-            .map(|dir| dir.join(format!("{session_id}.jsonl")).is_file())
-            .unwrap_or(false)
+    fn session_exists(&self, cwd: &str, session_id: &str) -> Option<bool> {
+        sessions::sessions_dir(cwd)?
+            .join(format!("{session_id}.jsonl"))
+            .try_exists()
+            .ok()
     }
 
     fn detect_session_id(

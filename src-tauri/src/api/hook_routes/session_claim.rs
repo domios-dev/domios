@@ -17,6 +17,13 @@ pub(crate) fn bind_reported_session(
     session_id: &str,
     report_nonce: Option<&str>,
 ) -> Result<SessionStartClaim, SessionBindError> {
+    log::debug!(
+        "[session-claim] tab={} provider={} session={} report_nonce_present={}",
+        tab_id,
+        provider_id,
+        session_id,
+        report_nonce.is_some()
+    );
     bind_session(
         mux,
         registry,
@@ -145,14 +152,14 @@ fn bind_session(
 
         let requested_materialized = registry
             .with_provider(provider_id, |provider| {
-                provider.session_exists(&cwd, session_id)
+                provider.session_exists(&cwd, session_id) == Some(true)
             })
             .unwrap_or(false);
         let previous_materialized = if !requested_materialized {
             match previous_session_id.as_deref() {
                 Some(previous) if previous != session_id => registry
                     .with_provider(provider_id, |provider| {
-                        provider.session_exists(&cwd, previous)
+                        provider.session_exists(&cwd, previous) == Some(true)
                     })
                     .unwrap_or(false),
                 _ => false,

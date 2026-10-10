@@ -423,7 +423,9 @@ pub fn start_general_agent(
     let session_id = if let Some(ref id) = session_id {
         let valid = svc
             .agent_registry
-            .with_provider(provider_name, |p| p.session_exists(&general_cwd, id))
+            .with_provider(provider_name, |p| {
+                p.session_exists(&general_cwd, id) == Some(true)
+            })
             .unwrap_or(false);
         let owned = valid
             && state::session_id_is_owned(&svc.agent_registry, provider_name, &general_cwd, id);

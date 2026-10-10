@@ -85,7 +85,8 @@ fn restored_launch(tab: &crate::multiplexer::types::Tab, provider_id: String) ->
     let launch_parameters = restorable_launch_parameters(tab);
     RestoredLaunch {
         provider_id,
-        session_id: tab.agent_session_id.clone(),
+        session_id: crate::service::restored_launch::restored_session_target(tab)
+            .map(str::to_owned),
         cwd: tab.cwd.clone(),
         model: launch_parameters.model.clone(),
         launch_parameters,
@@ -216,7 +217,7 @@ pub(crate) fn claim_restored_launch(
         return Ok(None);
     };
     if provider_id != observed_provider_id
-        || tab.agent_session_id.as_deref() != observed_session_id
+        || crate::service::restored_launch::restored_session_target(tab) != observed_session_id
         || tab.cwd.as_deref() != observed_cwd
     {
         return Ok(None);
@@ -226,7 +227,8 @@ pub(crate) fn claim_restored_launch(
             .close_restore
             .as_ref()
             .is_some_and(|state| state.exact_session)
-        && (!session_valid || tab.agent_session_id.is_none())
+        && (!session_valid
+            || crate::service::restored_launch::restored_session_target(tab).is_none())
     {
         return Err(format!(
             "The exact saved session for Tab {tab_id} is unavailable"
@@ -237,13 +239,15 @@ pub(crate) fn claim_restored_launch(
         tab.agent_booting,
         tab.protected,
         Some(&provider_id),
-        tab.agent_session_id.as_deref(),
+        crate::service::restored_launch::restored_session_target(tab),
         session_valid,
     ) else {
         return Ok(None);
     };
     let session_id = match mode {
-        RestoredAgentMaterialization::Resume => tab.agent_session_id.clone(),
+        RestoredAgentMaterialization::Resume => {
+            crate::service::restored_launch::restored_session_target(tab).map(str::to_owned)
+        }
         RestoredAgentMaterialization::Fresh => None,
     };
     if matches!(mode, RestoredAgentMaterialization::Fresh) {
@@ -557,7 +561,7 @@ impl ServiceContext {
                 .ok_or_else(|| format!("Tab {} not found or has no PTY", tab_id))?;
             (
                 tab.agent_type.clone(),
-                tab.agent_session_id.clone(),
+                crate::service::restored_launch::restored_session_target(tab).map(str::to_owned),
                 tab.cwd.clone(),
                 restorable_launch_parameters(tab),
                 tab.restored_from_snapshot
@@ -588,7 +592,8 @@ impl ServiceContext {
             .and_then(|(sid, dir)| {
                 self.agent_registry
                     .with_provider(&provider_id, |p| p.session_exists(dir, sid))
-            });
+            })
+            .flatten();
         let permission_bypass_authorization =
             crate::service::restored_launch::restore_permission_bypass_authorization(
                 &self.app_handle,
@@ -597,7 +602,8 @@ impl ServiceContext {
                 &provider_id,
                 &launch_parameters,
             )?;
-        let session_valid = session_exists == Some(true);
+        let session_valid = resume_session_id.is_some()
+            && crate::service::restored_launch::restored_session_resumable(session_exists);
         let permissions_preserved = launch_parameters.permission_bypass_requested
             == permission_bypass_authorization.is_some();
         let restored_empty = exact_session

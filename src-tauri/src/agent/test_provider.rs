@@ -604,8 +604,8 @@ impl AgentProvider for MockProvider {
     fn detect_session_reasoning_effort(&self, _cwd: &str, session_id: &str) -> Option<String> {
         self.session_reasoning_efforts.get(session_id).cloned()
     }
-    fn session_exists(&self, _cwd: &str, session_id: &str) -> bool {
-        self.sessions.contains(session_id)
+    fn session_exists(&self, _cwd: &str, session_id: &str) -> Option<bool> {
+        Some(self.sessions.contains(session_id))
     }
     fn build_resume_command(&self, session_id: &str, _skip_permissions: bool) -> Option<String> {
         Some(format!("{}-cli --resume {session_id}", self.id))

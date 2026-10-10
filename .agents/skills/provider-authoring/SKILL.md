@@ -381,7 +381,7 @@ instead.
 | Export | Called with | Returns | When missing |
 |---|---|---|---|
 | `sessionFilePath(cwd, sessionId)` | cwd, id | path string or `null` | manifest: `sessions.rootDir` + encoded cwd + `<id>.<fileExtension>`. |
-| `sessionExists(cwd, sessionId)` | cwd, id | bool | existence check on `sessionFilePath`. |
+| `sessionExists(cwd, sessionId)` | cwd, id | bool or `null` (unknown/unreadable) | existence check on `sessionFilePath`. |
 | `sessionUsageSources(sessionFilePath, sessionId)` | the host-resolved session file, id | paths of further usage logs owned by that exact session (e.g. sub-agent transcripts beside it); each is ingested into the KPI ledger with its own cursor | native fallback; else only the session file is ingested. |
 | `usageSources(cwd, sessionId)` | cwd, id | `[{path, sessionId?}]` — every usage log this provider owns for the session. `sessionId` scopes a log shared by many sessions (e.g. one sqlite database) so a sibling's rows are never charged to this tab; a per-session file omits it. | the session file plus `sessionUsageSources`; else no log is ingested. |
 | `detectSessionId(cwd, exclude, maxAgeMs)` | cwd, excluded ids, recency budget (default 300 000) | id or `null` | manifest-driven scan of the sessions dir for a **single** uuid-ish candidate (stem ≥ 32 chars containing `-`) modified within the budget; any ambiguity ⇒ `null` (honest over guessing). |
