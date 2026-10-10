@@ -1,9 +1,13 @@
 use super::cdp::{CdpClient, PageChannel, CONNECT_DEADLINE};
-use super::cdp_wire::{headful_user_agent, parse_targets, pick_page_target};
+use super::cdp_wire::{
+    headful_user_agent, parse_targets, pick_page_target, EventFilter, SessionFilter,
+};
 use super::launch::{launch_args, validate_loopback_endpoint, LaunchSpec};
 use super::locator::locate;
 use super::process::{BrowserProcess, CloseOutcome, CLOSE_DEADLINE, KILL_DEADLINE, READY_DEADLINE};
-use super::profile::{ProfileKind, ProfileLayout, ProfileLease};
+use super::profile::{
+    foreign_profile_error, ProfileKind, ProfileLayout, ProfileLease, SharedBrowser,
+};
 use super::screencast::{FrameHub, ScreencastDriver};
 use super::viewport::Viewport;
 use parking_lot::Mutex;
@@ -33,8 +37,7 @@ pub struct Runtime {
     pub mode: BrowserMode,
     pub endpoint: String,
     pub binary: Option<PathBuf>,
-    pub process: Option<BrowserProcess>,
-    pub profile_dir: Option<PathBuf>,
+    pub process: Option<Arc<BrowserProcess>>,
     pub client: CdpClient,
     pub page: PageChannel,
     pub window_id: Option<i64>,
@@ -59,12 +62,31 @@ pub(super) async fn launch(
     viewport: Viewport,
     frames: Arc<FrameHub>,
 ) -> Result<Runtime, String> {
+    let layout = layout.clone();
+    tokio::spawn(async move {
+        let dir = layout.dir_for(&profile);
+        let launch_profile = profile.clone();
+        let launch_dir = dir.clone();
+        let lease = ProfileLease::acquire_with(dir, move || async move {
+            launch_shared(configured_binary, launch_dir, launch_profile, viewport).await
+        })
+        .await?;
+        from_lease(lease, viewport, frames).await
+    })
+    .await
+    .map_err(|error| format!("browser surface launch task failed: {error}"))?
+}
+
+async fn launch_shared(
+    configured_binary: Option<PathBuf>,
+    profile_dir: PathBuf,
+    profile: ProfileKind,
+    viewport: Viewport,
+) -> Result<SharedBrowser, String> {
     let located = tokio::task::spawn_blocking(move || locate(configured_binary.as_deref()))
         .await
         .map_err(|error| format!("browser lookup task failed: {error}"))?
         .map_err(|error| error.to_string())?;
-    let profile_dir = layout.dir_for(&profile);
-    let lease = ProfileLease::acquire(profile_dir.clone())?;
     tokio::fs::create_dir_all(&profile_dir)
         .await
         .map_err(|error| format!("create profile {}: {error}", profile_dir.display()))?;
@@ -75,22 +97,14 @@ pub(super) async fn launch(
         initial_url: "about:blank",
     });
     let process = match BrowserProcess::spawn(&located.binary, &args, READY_DEADLINE).await {
-        Ok(process) => process,
+        Ok(process) => Arc::new(process),
         Err(error) => {
             discard_profile(&profile, &profile_dir).await;
-            return Err(error);
+            return Err(foreign_profile_error(&profile_dir, &error));
         }
     };
-    log::info!(
-        "[browser] {} ready in {} ms, profile {}",
-        located.binary.display(),
-        process.ready_after().as_millis(),
-        profile.label()
-    );
-    let endpoint = process.endpoint().to_string();
-    let connected = connect(&endpoint, Some(viewport)).await;
-    let (client, page, window_id) = match connected {
-        Ok(connected) => connected,
+    let client = match CdpClient::connect(process.endpoint()).await {
+        Ok(client) => client,
         Err(error) => {
             process.kill();
             process
@@ -100,14 +114,41 @@ pub(super) async fn launch(
             return Err(error);
         }
     };
+    let mut exit = process.exit_watch();
+    let mut closed = client.closed();
+    let monitor = client.clone();
+    tokio::spawn(async move {
+        tokio::select! {
+            _ = exit.wait_for(Option::is_some) => monitor.close("shared Chromium process exited"),
+            _ = closed.wait_for(Option::is_some) => {},
+        }
+    });
+    Ok(SharedBrowser {
+        client,
+        process: Some(process),
+        binary: Some(located.binary),
+        profile,
+        dir: profile_dir,
+    })
+}
+
+pub(crate) async fn from_lease(
+    mut lease: ProfileLease,
+    viewport: Viewport,
+    frames: Arc<FrameHub>,
+) -> Result<Runtime, String> {
+    let browser = lease.browser.clone();
+    let (page, window_id) = prepare(&browser.client, Some(viewport)).await?;
+    lease.target_id = Some(page.target_id().to_string());
     let screencast = ScreencastDriver::spawn(page.clone(), frames);
     Ok(Runtime {
-        mode: BrowserMode::Launched { profile },
-        endpoint,
-        binary: Some(located.binary),
-        process: Some(process),
-        profile_dir: Some(profile_dir),
-        client,
+        mode: BrowserMode::Launched {
+            profile: browser.profile.clone(),
+        },
+        endpoint: browser.client.endpoint().to_string(),
+        binary: browser.binary.clone(),
+        process: browser.process.clone(),
+        client: browser.client.clone(),
         page,
         window_id,
         lease: Mutex::new(Some(lease)),
@@ -142,7 +183,6 @@ pub(super) async fn attach(http_base: &str, frames: Arc<FrameHub>) -> Result<Run
         endpoint,
         binary: None,
         process: None,
-        profile_dir: None,
         client,
         page,
         window_id,
@@ -179,24 +219,115 @@ async fn prepare(
     owned_viewport: Option<Viewport>,
 ) -> Result<(PageChannel, Option<i64>), String> {
     let cdp = |error: super::cdp::CdpError| error.to_string();
-    let targets = parse_targets(
-        &client
-            .send("Target.getTargets", json!({}))
-            .await
-            .map_err(cdp)?,
-    );
-    let target_id = match pick_page_target(&targets) {
-        Some(target) => target.target_id.clone(),
-        None => client
-            .send("Target.createTarget", json!({ "url": "about:blank" }))
-            .await
-            .map_err(cdp)?
-            .get("targetId")
-            .and_then(Value::as_str)
-            .ok_or("Target.createTarget returned no targetId")?
-            .to_string(),
+    let target_id = if owned_viewport.is_some() {
+        match create_target(client).await {
+            Ok(target) => target,
+            Err(error) => {
+                client.close("owned target creation failed");
+                return Err(error);
+            }
+        }
+    } else {
+        let targets = parse_targets(
+            &client
+                .send("Target.getTargets", json!({}))
+                .await
+                .map_err(cdp)?,
+        );
+        match pick_page_target(&targets) {
+            Some(target) => target.target_id.clone(),
+            None => client
+                .send("Target.createTarget", json!({ "url": "about:blank" }))
+                .await
+                .map_err(cdp)?
+                .get("targetId")
+                .and_then(Value::as_str)
+                .ok_or("Target.createTarget returned no targetId")?
+                .to_string(),
+        }
     };
-    let page = client.attach_page(&target_id).await.map_err(cdp)?;
+    let prepared = prepare_target(client, &target_id, owned_viewport).await;
+    if prepared.is_err() && owned_viewport.is_some() {
+        let closed = client
+            .send("Target.closeTarget", json!({ "targetId": target_id }))
+            .await;
+        if !matches!(closed, Ok(ref result) if result.get("success").and_then(Value::as_bool) == Some(true))
+        {
+            client.close("owned target setup failed and its target could not be closed");
+        }
+    }
+    prepared
+}
+
+async fn create_target(client: &CdpClient) -> Result<String, String> {
+    let mut events = client.subscribe(EventFilter {
+        session: SessionFilter::Browser,
+        methods: vec!["Target.targetCreated".into()],
+    });
+    client
+        .send("Target.setDiscoverTargets", json!({ "discover": true }))
+        .await
+        .map_err(|error| error.to_string())?;
+    let created = client
+        .send(
+            "Target.createTarget",
+            json!({ "url": "about:blank", "newWindow": true }),
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+    let target_id = created
+        .get("targetId")
+        .and_then(Value::as_str)
+        .ok_or("Target.createTarget returned no targetId")?
+        .to_string();
+    let ready = tokio::time::timeout(CONNECT_DEADLINE, async {
+        while let Some(event) = events.recv().await {
+            if event
+                .params
+                .get("targetInfo")
+                .and_then(|info| info.get("targetId"))
+                .and_then(Value::as_str)
+                == Some(target_id.as_str())
+            {
+                return Ok(());
+            }
+        }
+        Err("CDP closed before target creation was observed")
+    })
+    .await;
+    if !matches!(ready, Ok(Ok(()))) {
+        let _ = client
+            .send("Target.closeTarget", json!({ "targetId": target_id }))
+            .await;
+        return Err("target creation event did not arrive before its deadline".into());
+    }
+    Ok(target_id)
+}
+
+async fn prepare_target(
+    client: &CdpClient,
+    target_id: &str,
+    owned_viewport: Option<Viewport>,
+) -> Result<(PageChannel, Option<i64>), String> {
+    let cdp = |error: super::cdp::CdpError| error.to_string();
+    let mut attached = client.subscribe(EventFilter {
+        session: SessionFilter::Browser,
+        methods: vec!["Target.attachedToTarget".into()],
+    });
+    let page = client.attach_page(target_id).await.map_err(cdp)?;
+    if owned_viewport.is_some() {
+        tokio::time::timeout(CONNECT_DEADLINE, async {
+            while let Some(event) = attached.recv().await {
+                if event.params.get("sessionId").and_then(Value::as_str) == Some(page.session_id())
+                {
+                    return Ok(());
+                }
+            }
+            Err("CDP closed before target attachment was observed")
+        })
+        .await
+        .map_err(|_| "target attachment event did not arrive before its deadline")??;
+    }
     page.send("Page.enable", json!({})).await.map_err(cdp)?;
     client
         .send("Target.setDiscoverTargets", json!({ "discover": true }))
@@ -283,22 +414,18 @@ pub(super) async fn stop(runtime: Arc<Runtime>) -> Option<CloseOutcome> {
 
 /// `stop` with the graceful window bounded by `deadline` before the tree is killed.
 pub(super) async fn stop_within(runtime: Arc<Runtime>, deadline: Duration) -> Option<CloseOutcome> {
-    let outcome = match runtime.process.as_ref() {
-        Some(process) => {
-            let client = runtime.client.clone();
-            let request_close = async move {
-                let _ = client.send("Browser.close", json!({})).await;
-            };
-            Some(process.close_with(request_close, deadline).await)
+    let lease = runtime.lease.lock().take();
+    match lease {
+        Some(lease) => lease.release(deadline).await,
+        None => {
+            if matches!(runtime.mode, BrowserMode::Attached { .. }) {
+                runtime
+                    .client
+                    .close("attached browser disconnected by host");
+            }
+            None
         }
-        None => None,
-    };
-    runtime.client.close("browser closed by host");
-    if let (BrowserMode::Launched { profile }, Some(dir)) = (&runtime.mode, &runtime.profile_dir) {
-        discard_profile(profile, dir).await;
     }
-    drop(runtime.lease.lock().take());
-    outcome
 }
 
 async fn discard_profile(profile: &ProfileKind, dir: &Path) {
@@ -362,3 +489,7 @@ mod tests {
         assert_eq!(named.profile_label(), "work");
     }
 }
+
+#[cfg(test)]
+#[path = "runtime/shared_tests.rs"]
+mod shared_tests;
