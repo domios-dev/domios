@@ -373,10 +373,10 @@ async function runRound(n) {
   const entry = { round: n, health, rows: [], started_at: result.round_started_at };
   result.rounds.push(entry);
   save();
-  await Promise.all(result.fixtures.map(async (fixture) => {
+  for (const fixture of result.fixtures) {
     entry.rows.push(await probe(fixture, n));
     save();
-  }));
+  }
   for (const fixture of result.existing) {
     entry.rows.push(await probe(fixture, n, true));
     save();
