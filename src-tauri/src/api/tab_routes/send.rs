@@ -144,6 +144,16 @@ fn classify_delivery_failure(tab: &str, err: &str) -> DeliveryError {
     DeliveryError::from_opaque(tab, err)
 }
 
+async fn run_programmatic_delivery<T: Send + 'static>(
+    tab: &str,
+    delivery: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, SendRejection> {
+    delivery().map_err(|error| classify_delivery_failure(tab, &error).into())
+}
+
+#[cfg(test)]
+mod mesh_rpc_delivery_tests;
+
 fn pad_write_refusal(tab: &str, detail: String) -> SendRejection {
     DeliveryError::TabBusyRefused {
         tab: tab.to_string(),
@@ -502,6 +512,10 @@ pub async fn send_text(
         }
     }
 
+    log::debug!(
+        "[api/send] tab={tab_id} source_peer={:?} has_source={} agent={target_has_agent} chat_backend={}",
+        body.source_peer, body.source_tab.is_some(), transport == TabInputTransport::ChatBackend
+    );
     let source_envelope: Option<crate::service::messenger::MessageEnvelope> =
         body.source_tab.as_deref().and_then(|src| {
             match body.source_peer.as_deref().filter(|p| !p.is_empty()) {
@@ -773,10 +787,15 @@ pub async fn send_text(
     {
         let raw_text = stage(raw_text);
         let envelope = source_envelope.expect("checked above");
-        let (_delivery, pad_file) = crate::service::messenger::Messenger::deliver_with_pad_file(
-            &state.svc, &tab_id, envelope, &raw_text,
-        )
-        .map_err(|e| classify_delivery_failure(&tab_id, &e))?;
+        let svc = state.svc.clone();
+        let target = tab_id.clone();
+        let payload = raw_text.clone();
+        let (_delivery, pad_file) = run_programmatic_delivery(&tab_id, move || {
+            crate::service::messenger::Messenger::deliver_with_pad_file(
+                &svc, &target, envelope, &payload,
+            )
+        })
+        .await?;
         record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
         return Ok(Json(serde_json::json!({
             "ok": true,
@@ -787,10 +806,15 @@ pub async fn send_text(
     }
     if let Some(envelope) = source_envelope {
         let raw_text = stage(raw_text);
-        let (_delivery, pad_file) = crate::service::messenger::Messenger::deliver_with_pad_file(
-            &state.svc, &tab_id, envelope, &raw_text,
-        )
-        .map_err(|e| classify_delivery_failure(&tab_id, &e))?;
+        let svc = state.svc.clone();
+        let target = tab_id.clone();
+        let payload = raw_text.clone();
+        let (_delivery, pad_file) = run_programmatic_delivery(&tab_id, move || {
+            crate::service::messenger::Messenger::deliver_with_pad_file(
+                &svc, &target, envelope, &payload,
+            )
+        })
+        .await?;
         record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
         return Ok(Json(serde_json::json!({
             "ok": true,
