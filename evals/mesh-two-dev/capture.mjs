@@ -7,6 +7,8 @@ const lib = resolve(import.meta.dirname, '../_lib/lib.sh');
 for (const [name, args] of [
   ['local-mesh', ['mesh', 'status', '--json']],
   ['remote-mesh', ['mesh', 'status', '--mesh', peer, '--json']],
+  ['local-peers', ['mesh', 'peers', '--json']],
+  ['remote-peers', ['mesh', 'peers', '--mesh', peer, '--json']],
   ['local-tabs', ['tab', 'list', '--json']],
   ['remote-tabs', ['tab', 'list', '--mesh', peer, '--json']],
   ['local-providers', ['agent', 'providers', '--json']],
