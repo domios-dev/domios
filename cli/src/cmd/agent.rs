@@ -86,6 +86,34 @@ pub(crate) fn resolve_mesh_spawn_task<R: Read>(
     resolve_spawn_task(task, task_file, None, stdin)
 }
 
+pub(crate) fn read_handoff_file<R: Read>(
+    path: &str,
+    flag: &str,
+    base: &std::path::Path,
+    stdin: &mut R,
+) -> Result<String, String> {
+    if path == "-" {
+        let mut buf = String::new();
+        stdin
+            .read_to_string(&mut buf)
+            .map_err(|error| format!("failed to read {flag} from stdin: {error}"))?;
+        return Ok(buf);
+    }
+    let requested = std::path::Path::new(path);
+    let resolved = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        base.join(requested)
+    };
+    std::fs::read_to_string(&resolved).map_err(|error| {
+        format!(
+            "failed to read {flag} {path} (resolved from {} as {}): {error}",
+            base.display(),
+            resolved.display()
+        )
+    })
+}
+
 fn resolve_spawn_task_from<R: Read>(
     task: Option<String>,
     task_file: Option<String>,
@@ -105,30 +133,13 @@ fn resolve_spawn_task_from<R: Read>(
             }
             Ok(Some(t))
         }
-        (None, Some(path)) => {
-            if path == "-" {
-                let mut buf = String::new();
-                stdin
-                    .read_to_string(&mut buf)
-                    .map_err(|e| format!("failed to read --task-file from stdin: {}", e))?;
-                Ok(Some(buf))
-            } else {
-                let requested = std::path::Path::new(&path);
-                let base = absolute_spawn_base(spawn_cwd, caller_cwd);
-                let resolved = if requested.is_absolute() {
-                    requested.to_path_buf()
-                } else {
-                    base.join(requested)
-                };
-                std::fs::read_to_string(&resolved).map(Some).map_err(|e| {
-                    format!(
-                        "failed to read --task-file {path} (resolved from {} as {}): {e}",
-                        base.display(),
-                        resolved.display()
-                    )
-                })
-            }
-        }
+        (None, Some(path)) => read_handoff_file(
+            &path,
+            "--task-file",
+            &absolute_spawn_base(spawn_cwd, caller_cwd),
+            stdin,
+        )
+        .map(Some),
         (None, None) => Ok(None),
     }
 }

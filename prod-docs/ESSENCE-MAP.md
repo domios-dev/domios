@@ -42,6 +42,16 @@ Generation keeps the bytes it replaces under the Domios data directory's `map-hi
 
 ## Who authors the map
 
-The `cartographer` role kind is a non-anchoring Manager leaf with no Team-management, plan, release, or spawn authority. A Team may attach one optional Cartographer Manager; repeated requests reuse the same tab, and Team close removes its membership. It is offered only when `[orchestration.map] enabled` is on and the workspace root carries the source essences, and only at a natural boundary: a plan wave closing, or a plan reaching release. The boundary offer is one-shot — a `map_requested` or `map_generated` milestone on the plan disarms it, so a Cartographer is never spawned again for the same boundary.
+The `cartographer` role kind is a non-anchoring Manager leaf with no Team-management, plan, release, or spawn authority. A Team may attach one optional Cartographer Manager; repeated requests reuse the same tab, and Team close removes its membership. The automatic offer requires `[orchestration.map] enabled` and existing source essences at a natural boundary: a plan wave closing, or a plan reaching release. The boundary offer is one-shot — a `map_requested` or `map_generated` milestone on the plan disarms it, so a Cartographer is never spawned again for the same boundary.
 
-<!-- revision: 10 -->
+The workspace Map view also offers Create map and Refresh map on explicit owner request. Both open the same dialog with optional focus sources, the provider's model catalogue, and a project description using the chat composer's input and voice recorder. Start selects a workspace Team with live agents, otherwise its most recent Team; with no Team it creates the ordinary Orchestrator/Planner pair and attaches the Cartographer. An existing Cartographer receives the brief. The Orchestrator can still be asked directly at any time.
+
+Explicit owner requests may attach a Cartographer at any time:
+
+```bash
+codeterm team attach-cartographer <team> --provider <provider> --brief-file <path>
+```
+
+The UTF-8 file is carried verbatim; `-` reads stdin. Add `--model` using the provider's published catalogue when desired. An already attached Cartographer receives the brief instead of spawning a second one.
+
+<!-- revision: 12 -->

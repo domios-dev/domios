@@ -133,17 +133,27 @@ pub(super) fn dispatch(
             let caller_tab_id = opt_string_param(params, "caller_tab_id")
                 .filter(|tab_id| !tab_id.trim().is_empty());
             let svc_ref = &**svc;
-            let result = tauri::async_runtime::block_on(svc_ref.add_team_member(
-                &team_id,
-                caller_tab_id.as_deref(),
-                crate::service::AddTeamMemberParams {
-                    provider,
-                    role,
-                    title: opt_string_param(params, "title"),
-                    task: opt_string_param(params, "task"),
-                    model,
-                },
-            ))
+            let result = tauri::async_runtime::block_on(
+                svc_ref.add_team_member(
+                    &team_id,
+                    caller_tab_id.as_deref(),
+                    crate::service::AddTeamMemberParams {
+                        provider,
+                        role,
+                        title: opt_string_param(params, "title"),
+                        task: crate::service::team_member_brief(
+                            opt_string_param(params, "task"),
+                            opt_string_param(params, "brief"),
+                        )
+                        .map_err(|message| JsonRpcError {
+                            code: -32602,
+                            message,
+                            data: None,
+                        })?,
+                        model,
+                    },
+                ),
+            )
             .map_err(|message| JsonRpcError {
                 code: -32602,
                 message,

@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, List, Network, RefreshCw, X } from "lucide-react";
 import { BusySpinner } from "../shared/BusyState";
-import { useMuxState } from "../../store/multiplexer";
-import type { Tab, Workspace } from "../../lib/types";
+import { useMultiplexer, useMuxState } from "../../store/multiplexer";
+import type { ProviderDescriptor, Tab, Workspace } from "../../lib/types";
+import { useAgentProviders } from "../../hooks/useAgentProviders";
+import { CartographerMapDialog } from "./CartographerMapDialog";
+import { cartographerMapActions, startCartographerMap } from "./cartographerMapAction";
+import type { CartographerMapDraft, CartographerMapMode } from "./cartographerMapModel";
 import { UI_BUTTON, UI_PANEL, UI_TEXT } from "../shared/design";
 import { MarkdownDescription } from "../Extensions/MarkdownDescription";
 import { invoke } from "../../lib/bridge";
@@ -16,7 +20,7 @@ import { EssenceMapEmptyState } from "./EssenceMapEmptyState";
 import { askOrchestratorToBuildMap, findWorkspaceOrchestrator, type MapOrchestrator } from "./essenceMapOrchestrator";
 
 interface EssenceMapCanvasProps { workspaceId: string; onClose: () => void; }
-interface EssenceMapCanvasInnerProps { workspace: Workspace; mapFiles: EssenceMapFile[]; loading?: boolean; error?: string | null; onRetry?: () => void; sourceReader?: (projectPath: string, sourcePath: string) => Promise<string>; visible?: boolean; documentSelection?: { project: EssenceMapProject; entry: EssenceDocumentEntry } | null; orchestrator?: MapOrchestrator | null; onAskOrchestrator?: (orchestrator: MapOrchestrator) => Promise<void>; }
+interface EssenceMapCanvasInnerProps { workspace: Workspace; mapFiles: EssenceMapFile[]; loading?: boolean; error?: string | null; onRetry?: () => void; sourceReader?: (projectPath: string, sourcePath: string) => Promise<string>; visible?: boolean; documentSelection?: { project: EssenceMapProject; entry: EssenceDocumentEntry } | null; orchestrator?: MapOrchestrator | null; onAskOrchestrator?: (orchestrator: MapOrchestrator) => Promise<void>; providers?: ProviderDescriptor[]; providersLoading?: boolean; providersError?: string | null; onStartCartographer?: (draft: CartographerMapDraft) => Promise<void>; onOpenCartographer?: (mode: CartographerMapMode) => void; }
 interface SourcePanelState { node: EssenceMapNode; projectPath: string; state: "loading" | "ready" | "error"; content?: string; error?: string; }
 const DEFAULT_WIDTH = 720;
 const ZOOM_STEP = 0.25;
@@ -34,7 +38,7 @@ function MapControlPanel({ projects, onFlyTo, onFitAll, onZoomIn, onZoomOut, onR
   return <div data-essence-map-control className="absolute left-3 top-3 z-20 flex max-w-[calc(100%-1.5rem)] min-w-0 items-center gap-1.5 rounded-full bg-[var(--ct-bg)] p-1.5 shadow-[var(--ct-shadow-capsule)]"><label className="sr-only" htmlFor="essence-map-select">Fly to project map</label><select id="essence-map-select" aria-label="Fly to project map" className="ct-field max-w-[min(18rem,55vw)]" defaultValue="" onChange={(event) => { if (event.target.value) onFlyTo(event.target.value); }}><option value="">Maps</option>{projects.map((project) => <option key={project.file.project_path} value={project.file.project_path} title={displayPath(project.file.project_path)}>{projectName(project.file.project_path)}</option>)}</select><button type="button" data-essence-map-control onClick={onFitAll} className="ct-bar-pill">Fit all</button><button type="button" data-essence-map-control aria-label="Zoom out" onClick={onZoomOut} className="ct-bar-pill">&minus;</button><button type="button" data-essence-map-control aria-label="Zoom in" onClick={onZoomIn} className="ct-bar-pill">+</button>{onRefresh && <button type="button" data-essence-map-control data-testid="essence-map-refresh" aria-label="Update maps" title="Re-read the essence maps from disk" onClick={onRefresh} className="ct-bar-pill"><RefreshCw size={12} aria-hidden="true" /></button>}</div>;
 }
 
-function EssenceMapCanvasInnerBase({ workspace, mapFiles, loading = false, error = null, onRetry, sourceReader = fetchEssenceSource, visible = true, documentSelection = null, orchestrator = null, onAskOrchestrator }: EssenceMapCanvasInnerProps) {
+function EssenceMapCanvasInnerBase({ workspace, mapFiles, loading = false, error = null, onRetry, sourceReader = fetchEssenceSource, visible = true, documentSelection = null, orchestrator = null, onAskOrchestrator, onOpenCartographer }: EssenceMapCanvasInnerProps) {
   const [size, setSize] = useState({ width: DEFAULT_WIDTH, height: 600 });
   const [source, setSource] = useState<SourcePanelState | null>(null);
   const requestRef = useRef(0);
@@ -67,16 +71,21 @@ function EssenceMapCanvasInnerBase({ workspace, mapFiles, loading = false, error
   const activateNode = useCallback((project: EssenceMapProject, node: EssenceMapNode) => { const request = requestRef.current + 1; requestRef.current = request; setSource({ node, projectPath: project.file.project_path, state: "loading" }); void sourceReader(project.file.project_path, node.source.path).then((content) => { if (requestRef.current === request) setSource({ node, projectPath: project.file.project_path, state: "ready", content }); }, (reason) => { if (requestRef.current === request) setSource({ node, projectPath: project.file.project_path, state: "error", error: reason instanceof Error ? reason.message : String(reason) }); }); }, [sourceReader]);
   useEffect(() => { if (!visible && documentSelection) activateNode(documentSelection.project, documentSelection.entry.node); }, [activateNode, documentSelection, visible]);
   if (!visible) return <div className="absolute inset-0 min-w-0 overflow-hidden bg-[var(--ct-bg)]" data-testid="essence-map-document-surface">{source && <EssenceSourcePanel source={source} onClose={() => setSource(null)} />}</div>;
-  return <div className="absolute inset-0 flex min-w-0 flex-col overflow-hidden bg-[var(--ct-bg)]" data-testid="essence-map-canvas" role="region" aria-label={`Workspace essence map for ${workspace.name}`}><div ref={viewport.containerRef} className="relative min-h-0 min-w-0 flex-1 overflow-hidden" data-testid="essence-map-projects" aria-label="Essence map projects" onMouseDown={viewport.handlers.onMouseDown} style={{ cursor: viewport.isDragging ? "grabbing" : "grab", touchAction: "none", background: "radial-gradient(ellipse at center, var(--ct-titlebar-bg) 0%, var(--ct-bg) 100%)" }}>{loading && <div className="flex h-full items-center justify-center p-6 text-xs text-[var(--ct-muted-fg)]" role="status">Reading project essence maps…</div>}{!loading && error && <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-xs text-[var(--ct-red)]" role="alert"><AlertTriangle size={18} aria-hidden="true" /><p>{error}</p>{onRetry && <button type="button" className={UI_PANEL.drawerClose} onClick={onRetry}>Try again</button>}</div>}{!loading && !error && projects.length === 0 && <div className="flex h-full items-center justify-center p-6 text-center text-xs text-[var(--ct-muted-fg)]" data-testid="essence-map-empty">No project trees are attached to this workspace.</div>}{!loading && !error && projects.length > 0 && !hasContent && <EssenceMapEmptyState projects={projects} orchestrator={orchestrator} onAskOrchestrator={onAskOrchestrator} onRetry={onRetry} />}{!loading && !error && hasContent && <><MapControlPanel projects={world.projects} onFlyTo={flyTo} onFitAll={fitAll} onZoomIn={() => zoomBy(ZOOM_STEP)} onZoomOut={() => zoomBy(-ZOOM_STEP)} onRefresh={onRetry} /><div ref={viewport.layerRef} data-testid="essence-map-transform-layer" className="absolute left-0 top-0" style={{ width: world.width, height: world.height, transform: formatLayerTransform(viewport.transform), transformOrigin: "0 0" }}>{world.projects.map((project) => <EssenceMapProjectView key={project.file.project_path} project={project} onActivate={activateNode} />)}</div></>}{source && <EssenceSourcePanel source={source} onClose={() => setSource(null)} />}</div></div>;
+  return <div className="absolute inset-0 flex min-w-0 flex-col overflow-hidden bg-[var(--ct-bg)]" data-testid="essence-map-canvas" role="region" aria-label={`Workspace essence map for ${workspace.name}`}><div ref={viewport.containerRef} className="relative min-h-0 min-w-0 flex-1 overflow-hidden" data-testid="essence-map-projects" aria-label="Essence map projects" onMouseDown={viewport.handlers.onMouseDown} style={{ cursor: viewport.isDragging ? "grabbing" : "grab", touchAction: "none", background: "radial-gradient(ellipse at center, var(--ct-titlebar-bg) 0%, var(--ct-bg) 100%)" }}>{loading && <div className="flex h-full items-center justify-center p-6 text-xs text-[var(--ct-muted-fg)]" role="status">Reading project essence maps…</div>}{!loading && error && <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-xs text-[var(--ct-red)]" role="alert"><AlertTriangle size={18} aria-hidden="true" /><p>{error}</p>{onRetry && <button type="button" className={UI_PANEL.drawerClose} onClick={onRetry}>Try again</button>}</div>}{!loading && !error && projects.length === 0 && <div className="flex h-full items-center justify-center p-6 text-center text-xs text-[var(--ct-muted-fg)]" data-testid="essence-map-empty">No project trees are attached to this workspace.</div>}{!loading && !error && projects.length > 0 && !hasContent && <EssenceMapEmptyState projects={projects} orchestrator={orchestrator} onAskOrchestrator={onAskOrchestrator} onRetry={onRetry} onCreateMap={onOpenCartographer ? () => onOpenCartographer("create") : undefined} />}{!loading && !error && hasContent && <><MapControlPanel projects={world.projects} onFlyTo={flyTo} onFitAll={fitAll} onZoomIn={() => zoomBy(ZOOM_STEP)} onZoomOut={() => zoomBy(-ZOOM_STEP)} onRefresh={onRetry} /><div ref={viewport.layerRef} data-testid="essence-map-transform-layer" className="absolute left-0 top-0" style={{ width: world.width, height: world.height, transform: formatLayerTransform(viewport.transform), transformOrigin: "0 0" }}>{world.projects.map((project) => <EssenceMapProjectView key={project.file.project_path} project={project} onActivate={activateNode} />)}</div></>}{source && <EssenceSourcePanel source={source} onClose={() => setSource(null)} />}</div></div>;
 }
 
 export function EssenceMapCanvasInner(props: EssenceMapCanvasInnerProps) {
   const [documentTree, setDocumentTree] = useState(false);
+  const [cartographerMode, setCartographerMode] = useState<CartographerMapMode | null>(null);
   const [documentSelection, setDocumentSelection] = useState<EssenceMapCanvasInnerProps["documentSelection"]>(null);
   const projects = useMemo(() => props.mapFiles.map(parseEssenceMapProject), [props.mapFiles]);
   const selectDocument = useCallback((project: EssenceMapProject, entry: EssenceDocumentEntry) => setDocumentSelection({ project, entry }), []);
+  const { orchestrator, onAskOrchestrator } = props;
+  const askOrchestrator = orchestrator && onAskOrchestrator ? () => onAskOrchestrator(orchestrator) : undefined;
   return <div className="absolute inset-0 min-w-0 overflow-hidden">
-    <EssenceMapCanvasInnerBase {...props} visible={!documentTree} documentSelection={documentSelection} />
+    <EssenceMapCanvasInnerBase {...props} visible={!documentTree} documentSelection={documentSelection} onOpenCartographer={props.onStartCartographer ? setCartographerMode : undefined} />
+    {!props.loading && !props.error && projects.some((project) => project.nodes.length > 0) && props.onStartCartographer && <button type="button" data-essence-map-control className={`${UI_BUTTON.ghost} absolute right-3 top-3 z-40`} onClick={() => setCartographerMode("refresh")}>Refresh map</button>}
+    {cartographerMode && props.onStartCartographer && <CartographerMapDialog mode={cartographerMode} providers={props.providers ?? []} loading={props.providersLoading} catalogueError={props.providersError} onCancel={() => setCartographerMode(null)} onStart={props.onStartCartographer} onAskOrchestrator={askOrchestrator} />}
     {!props.loading && !props.error && projects.length > 0 && documentTree && <EssenceDocumentTree projects={projects} onSelect={selectDocument} />}
     <button type="button" data-testid="essence-map-view-toggle" aria-label={documentTree ? "Switch to graph" : "Switch to document tree"} aria-pressed={documentTree} onClick={() => setDocumentTree((current) => !current)} className={`${UI_BUTTON.floating} ${UI_BUTTON.lg} absolute bottom-4 left-1/2 z-40 -translate-x-1/2 gap-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]`}>{documentTree ? <Network size={13} aria-hidden="true" /> : <List size={13} aria-hidden="true" />}{documentTree ? "Graph" : "Documents"}</button>
   </div>;
@@ -95,6 +104,8 @@ function useWorkspaceEssenceMapData(workspace: Workspace | undefined, tabs: Reco
 
 export function EssenceMapCanvas({ workspaceId, onClose }: EssenceMapCanvasProps) {
   const state = useMuxState();
+  const { createOrchestrationPair, selectTabByTab } = useMultiplexer();
+  const { providers, loading: providersLoading, error: providersError } = useAgentProviders();
   const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId);
   const { status, files, error, retry } = useWorkspaceEssenceMapData(workspace, state.tabs);
   const orchestrator = workspace ? findWorkspaceOrchestrator(workspace, state.tabs) : null;
@@ -102,7 +113,12 @@ export function EssenceMapCanvas({ workspaceId, onClose }: EssenceMapCanvasProps
     await askOrchestratorToBuildMap(workspaceId, target, files.map((file) => file.project_path));
     onClose();
   }, [files, onClose, workspaceId]);
+  const startMap = async (draft: CartographerMapDraft) => {
+    const result = await startCartographerMap({ workspaceId, projectPaths: files.map((file) => file.project_path), draft }, cartographerMapActions(createOrchestrationPair));
+    await selectTabByTab(workspaceId, result.tab_id);
+    onClose();
+  };
   useEffect(() => { if (!workspace) onClose(); }, [onClose, workspace]);
   if (!workspace) return null;
-  return <EssenceMapCanvasInner workspace={workspace} mapFiles={files} loading={status === "loading"} error={error} onRetry={retry} sourceReader={fetchEssenceSource} orchestrator={orchestrator} onAskOrchestrator={askOrchestrator} />;
+  return <EssenceMapCanvasInner workspace={workspace} mapFiles={files} loading={status === "loading"} error={error} onRetry={retry} sourceReader={fetchEssenceSource} orchestrator={orchestrator} onAskOrchestrator={askOrchestrator} providers={providers} providersLoading={providersLoading} providersError={providersError} onStartCartographer={startMap} />;
 }

@@ -307,6 +307,7 @@ pub async fn mux_add_team_member(
     title: Option<String>,
     task: Option<String>,
     model: Option<String>,
+    brief: Option<String>,
 ) -> Result<crate::service::AddTeamMemberResult, String> {
     mux_add_team_member_service_core(
         svc.inner(),
@@ -315,7 +316,7 @@ pub async fn mux_add_team_member(
         role,
         caller_tab_id.filter(|tab_id| !tab_id.trim().is_empty()),
         title,
-        task,
+        crate::service::team_member_brief(task, brief)?,
         model,
     )
     .await

@@ -50,6 +50,9 @@ pub enum TeamAction {
         /// Provider model ID
         #[arg(long)]
         model: Option<String>,
+        /// UTF-8 brief file, or - to read stdin; delivered to a new or existing Cartographer
+        #[arg(long)]
+        brief_file: Option<String>,
     },
     /// Create an Orchestrator + Planner Team in one action. The Plan stays
     /// unbound until the first goal.
@@ -123,6 +126,8 @@ mod tests {
             "provider-neutral",
             "--model",
             "model-1",
+            "--brief-file",
+            "brief.json",
         ])
         .expect("team cartographer attachment parses");
         assert!(matches!(
@@ -132,8 +137,9 @@ mod tests {
                     team_id,
                     provider,
                     model,
+                    brief_file,
                 }
-            } if team_id == "team_alpha" && provider == "provider-neutral" && model.as_deref() == Some("model-1")
+            } if team_id == "team_alpha" && provider == "provider-neutral" && model.as_deref() == Some("model-1") && brief_file.as_deref() == Some("brief.json")
         ));
     }
 

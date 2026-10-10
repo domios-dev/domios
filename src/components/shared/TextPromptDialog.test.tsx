@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { act } from "react";
 import { Window } from "happy-dom";
+import { accessibleName, getByRole } from "../../test/semanticRoles";
 
 const window = new Window({ url: "http://localhost/" });
 const define = (name: string, value: unknown) => Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
@@ -23,12 +24,6 @@ function dialog(): HTMLElement {
   return element;
 }
 
-function accessibleName(element: Element): string {
-  const ids = element.getAttribute("aria-labelledby");
-  if (ids) return ids.split(" ").map((id) => document.getElementById(id)?.textContent ?? "").join(" ").trim();
-  return (element.getAttribute("aria-label") ?? element.textContent ?? "").trim();
-}
-
 function textbox(name: string): HTMLInputElement {
   const label = [...document.body.querySelectorAll("label")].find((candidate) => candidate.querySelector("span")?.textContent === name);
   const input = label ? document.getElementById(label.getAttribute("for") ?? "") : null;
@@ -37,9 +32,7 @@ function textbox(name: string): HTMLInputElement {
 }
 
 function button(name: string): HTMLButtonElement {
-  const match = [...dialog().querySelectorAll("button")].find((candidate) => candidate.textContent?.trim() === name);
-  if (!match) throw new Error(`no button named ${name}`);
-  return match as HTMLButtonElement;
+  return getByRole(dialog(), "button", name) as HTMLButtonElement;
 }
 
 async function type(input: HTMLInputElement, value: string) {

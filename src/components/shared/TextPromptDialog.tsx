@@ -1,8 +1,7 @@
-import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Button } from "./Button";
 import { UI_INPUT } from "./design";
-import { trapDialogTab } from "./dialogFocusTrap";
+import { FormDialog } from "./FormDialog";
 
 export interface TextPromptDialogProps {
   title: string;
@@ -27,7 +26,6 @@ export function TextPromptDialog({
   onSubmit,
   onCancel,
 }: TextPromptDialogProps) {
-  const dialog = useRef<HTMLFormElement | null>(null);
   const input = useRef<HTMLInputElement | null>(null);
   const [value, setValue] = useState(initialValue);
   const titleId = useId();
@@ -48,36 +46,8 @@ export function TextPromptDialog({
     if (canSubmit) onSubmit(trimmed);
   };
 
-  // Stops at the dialog so a host's own Escape or key forwarding never sees typing meant for the field.
-  const onKeyDown = (event: KeyboardEvent<HTMLFormElement>) => {
-    event.stopPropagation();
-    if (event.key === "Escape") {
-      event.preventDefault();
-      onCancel();
-      return;
-    }
-    trapDialogTab(event, dialog.current);
-  };
-
-  const onBackdropMouseDown = (event: MouseEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget) onCancel();
-  };
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[1000] grid place-items-center bg-[color-mix(in_srgb,var(--ct-bg)_60%,transparent)] p-4"
-      onMouseDown={onBackdropMouseDown}
-    >
-      <form
-        ref={dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={description ? descriptionId : undefined}
-        className="flex w-full max-w-sm flex-col gap-3 rounded-lg border border-[var(--ct-border)] bg-[var(--ct-surface)] p-4 text-[var(--ct-fg)] shadow-xl"
-        onKeyDown={onKeyDown}
-        onSubmit={submit}
-      >
+  return (
+      <FormDialog titleId={titleId} descriptionId={description ? descriptionId : undefined} onCancel={onCancel} onSubmit={submit}>
         <h2 id={titleId} className="text-[length:var(--ct-font-size-md)] font-semibold">{title}</h2>
         {description && <p id={descriptionId} className="text-sm text-[var(--ct-muted-fg)]">{description}</p>}
         <label htmlFor={inputId} className="flex flex-col gap-1 text-xs text-[var(--ct-muted-fg)]">
@@ -101,8 +71,6 @@ export function TextPromptDialog({
           <Button size="sm" onClick={onCancel}>Cancel</Button>
           <Button size="sm" variant="primary" type="submit" disabled={!canSubmit}>{confirmLabel}</Button>
         </div>
-      </form>
-    </div>,
-    document.body,
+      </FormDialog>
   );
 }

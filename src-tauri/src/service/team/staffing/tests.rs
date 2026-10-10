@@ -81,6 +81,78 @@ fn cartographer_staffing_uses_the_manager_role_kind_and_team_parent() {
 }
 
 #[test]
+fn cartographer_launch_preserves_the_brief_as_task_data() {
+    let (mux, team_id, orchestrator, _, _) = live_team();
+    let token = "opaque-brief\n`$()`\n{\"owner_description\":\"</brief>\"}";
+    let mut params = cartographer_params();
+    params.task = team_member_brief(None, Some(token.into())).unwrap();
+    let prepared = prepare_team_member_spawn(&mux, &team_id, Some(&orchestrator), params).unwrap();
+    assert_eq!(prepared.spawn_params.task.as_deref(), Some(token));
+}
+
+#[tokio::test]
+async fn reused_cartographer_receives_the_exact_brief_once() {
+    let (mut mux, team_id, orchestrator, _, _) = live_team();
+    let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
+    let cartographer = mux.create_tab(&workspace_id).unwrap();
+    mux.set_tab_role_kind(
+        &cartographer,
+        AgentRole::Manager,
+        Some(CARTOGRAPHER),
+        Some(&orchestrator),
+    )
+    .unwrap();
+    let attachment = existing_cartographer_attachment(&mux, &team_id).unwrap();
+    let token = "opaque-reuse-brief\n`$()`";
+    let mut sends = Vec::new();
+    let result = deliver_reused_cartographer(attachment, Some(token.into()), |tab, brief| {
+        sends.push((tab, brief));
+        std::future::ready(Ok(()))
+    })
+    .await
+    .unwrap();
+    assert!(result.reused);
+    assert_eq!(sends, vec![(cartographer, token.into())]);
+}
+
+#[tokio::test]
+async fn cartographer_reuse_does_not_claim_success_when_brief_delivery_fails() {
+    let (mux, team_id, _, _, _) = live_team();
+    let attachment = AddTeamMemberResult {
+        tab_id: "fixture-cartographer".into(),
+        team: mux.get_team(&team_id).unwrap().clone(),
+        role_type: "Manager".into(),
+        role_profile: Some(CARTOGRAPHER.into()),
+        plan_takeover: None,
+        reused: true,
+        warning: None,
+    };
+    let result =
+        deliver_reused_cartographer(attachment, Some("fixture-brief".into()), |_, _| async {
+            Err("fixture-send-refusal".into())
+        })
+        .await;
+    assert_eq!(result.unwrap_err(), "fixture-send-refusal");
+}
+
+#[test]
+fn staffing_rejects_two_brief_inputs_and_keeps_the_existing_task_contract() {
+    assert!(team_member_brief(Some("old".into()), Some("new".into())).is_err());
+    assert_eq!(
+        team_member_brief(Some("task-token".into()), None)
+            .unwrap()
+            .as_deref(),
+        Some("task-token")
+    );
+    assert_eq!(
+        team_member_brief(None, Some("brief-token".into()))
+            .unwrap()
+            .as_deref(),
+        Some("brief-token")
+    );
+}
+
+#[test]
 fn an_existing_cartographer_attachment_is_reused_as_a_singleton() {
     let (mut mux, team_id, orchestrator, _, _) = live_team();
     let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();

@@ -10,7 +10,7 @@ import type {
   Workspace,
 } from "../../lib/types";
 import { anchorsTeam, CARTOGRAPHER_KIND, roleKind } from "../../lib/roleKind";
-import type { TeamMemberRole } from "../../lib/teamActions";
+import { selectTeamStaffingManager, type TeamMemberRole } from "../../lib/teamActions";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import type { Plan } from "../Canvas/types";
 import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
@@ -90,11 +90,6 @@ function newestActivePlansByTeam(
   return grouped;
 }
 
-function isEligibleTeamStaffingManager(member: TeamTabMember): boolean {
-  return member.tab.can_spawn === true
-    && member.tab.role === "Manager";
-}
-
 /// Every role a Team with a spawn-capable manager can place.
 const TEAM_MEMBER_ROLES = ["orchestrator", "planner", "cartographer", "worker"] as const;
 /// With no spawner inside, only an anchoring role can be placed: it takes no
@@ -103,10 +98,6 @@ const BOOTSTRAP_ONLY_ROLES = ["orchestrator"] as const;
 /// A Team holds at most one live Orchestrator, so once it has one the role is
 /// not on offer — the daemon refuses it by code either way.
 const STAFFED_TEAM_ROLES = ["planner", "cartographer", "worker"] as const;
-
-function selectTeamStaffingManager(members: readonly TeamTabMember[]): string | null {
-  return members.find(isEligibleTeamStaffingManager)?.tab.id ?? null;
-}
 
 /// Mirrors the daemon headcount: a removed Orchestrator is gone from the tab
 /// list and a dead one has had its agent identity cleared.
@@ -426,7 +417,7 @@ export function SidebarWorkspaceTabs({
       created_at: 0,
       workspace_id: ws.id,
     };
-    const managerTabId = selectTeamStaffingManager(managers);
+    const managerTabId = selectTeamStaffingManager(managers.map((member) => member.tab));
     const teamCrons = workspaceCrons.filter((job) => job.team_id === teamId);
 
     rows.push(
