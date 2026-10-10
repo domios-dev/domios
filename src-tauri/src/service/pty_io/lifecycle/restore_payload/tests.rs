@@ -41,6 +41,8 @@ struct Fixture {
     launches: AtomicUsize,
     historical_handoffs: AtomicUsize,
     events: parking_lot::Mutex<Vec<(BootStage, String)>>,
+    // Concurrent restores legitimately hold mux on another thread, so only serial cases probe it.
+    check_mux_free: bool,
 }
 
 impl Fixture {
@@ -62,6 +64,7 @@ impl Fixture {
             launches: AtomicUsize::new(0),
             historical_handoffs: AtomicUsize::new(0),
             events: Default::default(),
+            check_mux_free: true,
         }
     }
 
@@ -79,7 +82,7 @@ impl Fixture {
             },
             |launch, payload| {
                 assert!(
-                    self.mux.try_write().is_some(),
+                    !self.check_mux_free || self.mux.try_write().is_some(),
                     "launch callback must not hold mux"
                 );
                 assert_eq!(launch.session_id.as_deref(), Some("original-used-session"));
@@ -160,7 +163,9 @@ fn restored_lazy_activation_has_one_launch_claim() {
         PendingDeliveryState::Unconfirmed,
         true,
     );
-    let fixture = Arc::new(Fixture::new(pending.clone(), true));
+    let mut fixture = Fixture::new(pending.clone(), true);
+    fixture.check_mux_free = false;
+    let fixture = Arc::new(fixture);
     let barrier = Arc::new(DeadlineBarrier::new(3));
     let attempts = (0..2)
         .map(|_| {
