@@ -123,8 +123,9 @@ screenshot evidence under the existing capture contract.
 Symptom: `selectTab` times out on an existing fixture row, such as BMacShell
 `6c8da59e`, because its workspace is inactive. Mounting or inventory presence
 does not prove the row is visible. Copy `workspace_id` from the fixture
-inventory into the capture manifest's machine entry (phase-B Mac `05799f42`,
-Windows `d2d28502`), or onto individual fixture entries when they differ.
+inventory into that fixture's optional capture-manifest `workspaceId` (phase-B Mac
+`05799f42`, Windows `d2d28502`). The manifest author performs this copy; the
+harness never reads phaseb-fixtures.json.
 The example manifest includes this required selection input.
 
 Shared `selectTab` resolves the fixture workspace from the current gateway or
@@ -132,15 +133,19 @@ selected peer's inventory, preserving exact mesh-qualified tab identities.
 It expands the workspace-card grid through `workspace-card-more` when needed,
 requires one visible matching `workspace-card[data-workspace-id]`, clicks its
 normal Select workspace button, and observes `data-selected="true"`. Only then
-may it click the visible fixture row. Missing workspace inventory, hidden
-workspace controls, or hidden/ambiguous fixture rows fail with workspace/tab
+may it click the visible fixture row. Hidden workspace controls or hidden/ambiguous fixture rows fail with workspace/tab
 identity; no force-click or direct daemon workspace mutation is used.
 
 Recovery: verify inventory belongs to the intended home peer, populate its
-`workspace_id` in the capture manifest, and rerun the approved capture in a
+fixture's `workspaceId` in the capture manifest, and rerun the approved capture in a
 fresh evidence directory. The observable pass is the fixture workspace card
 selected, the row visible and selected, and exact fixture root/provenance in
 Terminal mode. `workspace-selection.test.mjs` covers inactive workspace
 activation before tab selection, grid expansion, visibility failures and local
 versus remote inventory resolution using fixture DOM objects. It runs in the
 existing deferred `node --test evals/mesh-webui/*.test.mjs` gate.
+
+If `workspaceId` is omitted, selection still requires a visible fixture row.
+A row in an inactive workspace needs its copied inventory value; omission does
+not authorize a force-click or a guessed workspace. Supplied workspace IDs are
+validated as nonempty safe UI identities in `model.mjs`.

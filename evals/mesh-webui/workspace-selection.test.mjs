@@ -57,7 +57,7 @@ test('missing inventory workspace and hidden workspace or tab fail before tab cl
     assert.ok(!f.clicks.includes('6c8da59e'));
   }
   const f = fixture();
-  await assert.rejects(activateAndSelectFixture(f.page, { tabId: '6c8da59e' }, f.waitDom), /inventory workspace_id/);
+  await assert.rejects(activateAndSelectFixture(f.page, { tabId: '6c8da59e' }, f.waitDom), /visible fixture/);
   assert.deepEqual(f.clicks, []);
 });
 
@@ -72,14 +72,21 @@ test('fixture control reader rejects absent, hidden and duplicate exact identiti
 test('workspace lookup follows gateway or selected peer and exact fixture identity', async () => {
   const { fixtureWorkspaceId } = await import('./workspace-selection.mjs');
   const manifest = {
-    mac: { peerId: 'mac-peer', workspace_id: '05799f42', tabs: [], shells: [{ tabId: '6c8da59e' }] },
-    windows: { peerId: 'win-peer', workspace_id: 'd2d28502', tabs: [{ tabId: 'provider' }],
-      shells: [{ tabId: 'shell', workspace_id: 'specific-workspace' }] },
+    mac: { peerId: 'mac-peer', tabs: [], shells: [{ tabId: '6c8da59e', workspaceId: '05799f42' }] },
+    windows: { peerId: 'win-peer', tabs: [{ tabId: 'provider', workspaceId: 'd2d28502' }],
+      shells: [{ tabId: 'shell', workspaceId: 'specific-workspace' }] },
   };
   assert.equal(fixtureWorkspaceId(manifest, 'mac', null, '6c8da59e'), '05799f42');
   assert.equal(fixtureWorkspaceId(manifest, 'mac', 'win-peer', 'mesh:win-peer/provider'), 'd2d28502');
   assert.equal(fixtureWorkspaceId(manifest, 'mac', 'win-peer', 'shell'), 'specific-workspace');
-  assert.throws(() => fixtureWorkspaceId(manifest, 'mac', null, 'provider'), /inventory workspace_id/);
+  assert.throws(() => fixtureWorkspaceId(manifest, 'mac', null, 'provider'), /fixture workspaceId/);
   assert.throws(() => fixtureWorkspaceId(manifest, 'mac', 'unknown-peer', 'shell'), /No fixture inventory/);
-  assert.throws(() => fixtureWorkspaceId({ mac: { tabs: [{ tabId: 'fixture' }] } }, 'mac', null, 'fixture'), /inventory workspace_id/);
+  assert.equal(fixtureWorkspaceId({ mac: { tabs: [{ tabId: 'fixture' }] } }, 'mac', null, 'fixture'), undefined);
+});
+
+test('optional workspaceId preserves selection of an already-visible fixture row', async () => {
+  const f = fixture();
+  f.row.visible = true;
+  await activateAndSelectFixture(f.page, { tabId: '6c8da59e' }, f.waitDom);
+  assert.deepEqual(f.clicks, ['6c8da59e']);
 });

@@ -7,26 +7,28 @@ export function readVisibleFixtureControl({ selector, attribute, id, nodes = [..
 }
 
 export async function activateAndSelectFixture(page, { workspaceId, tabId }, waitDom) {
-  if (typeof workspaceId !== 'string' || !workspaceId.trim()) {
-    throw new Error(`Fixture ${tabId} requires inventory workspace_id before selection`);
+  if (workspaceId !== undefined && (typeof workspaceId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(workspaceId))) {
+    throw new Error(`Fixture ${tabId} requires a safe fixture workspaceId before selection`);
   }
-  const workspaceSelector = `[data-testid="workspace-card"][data-workspace-id="${workspaceId}"]`;
-  const workspace = page.locator(workspaceSelector);
-  if (!await workspace.count()) {
-    const more = page.getByTestId('workspace-card-more');
-    if (await more.count() && await more.isVisible()) await more.click();
-  }
-  try {
-    await workspace.waitFor({ state: 'visible' });
-    await page.evaluate(readVisibleFixtureControl, {
-      selector: '[data-testid="workspace-card"]', attribute: 'data-workspace-id', id: workspaceId,
-    });
-    const button = workspace.getByRole('button', { name: /^Select workspace / });
-    if (!await button.isVisible()) throw new Error('workspace select button is hidden');
-    await button.click();
-    await waitDom(page, { selector: workspaceSelector, attr: 'data-selected', value: 'true' });
-  } catch (cause) {
-    throw new Error(`Cannot activate visible fixture workspace ${workspaceId} for ${tabId}`, { cause });
+  if (workspaceId !== undefined) {
+    const workspaceSelector = `[data-testid="workspace-card"][data-workspace-id="${workspaceId}"]`;
+    const workspace = page.locator(workspaceSelector);
+    if (!await workspace.count()) {
+      const more = page.getByTestId('workspace-card-more');
+      if (await more.count() && await more.isVisible()) await more.click();
+    }
+    try {
+      await workspace.waitFor({ state: 'visible' });
+      await page.evaluate(readVisibleFixtureControl, {
+        selector: '[data-testid="workspace-card"]', attribute: 'data-workspace-id', id: workspaceId,
+      });
+      const button = workspace.getByRole('button', { name: /^Select workspace / });
+      if (!await button.isVisible()) throw new Error('workspace select button is hidden');
+      await button.click();
+      await waitDom(page, { selector: workspaceSelector, attr: 'data-selected', value: 'true' });
+    } catch (cause) {
+      throw new Error(`Cannot activate visible fixture workspace ${workspaceId} for ${tabId}`, { cause });
+    }
   }
   const tab = page.locator(`[data-testid="tab-item"][data-tab-id="${tabId}"]`);
   try {
@@ -36,7 +38,7 @@ export async function activateAndSelectFixture(page, { workspaceId, tabId }, wai
     });
     await tab.click();
   } catch (cause) {
-    throw new Error(`Cannot select visible fixture tab ${tabId} in workspace ${workspaceId}`, { cause });
+    throw new Error(`Cannot select visible fixture tab ${tabId} in workspace ${workspaceId ?? 'unspecified; populate fixture workspaceId'}`, { cause });
   }
   return tab;
 }
@@ -46,9 +48,9 @@ export function fixtureWorkspaceId(manifest, gateway, peerId, tabId) {
   if (!machine) throw new Error(`No fixture inventory for gateway ${gateway}, peer ${peerId}`);
   const matches = [...machine.tabs, ...(machine.shells ?? []), ...(machine.terminals ?? [])]
     .filter(fixture => tabId === fixture.tabId || tabId === `mesh:${machine.peerId}/${fixture.tabId}`);
-  const ids = [...new Set(matches.map(fixture => fixture.workspace_id ?? machine.workspace_id))];
-  if (ids.length !== 1 || typeof ids[0] !== 'string' || !ids[0].trim()) {
-    throw new Error(`Fixture ${tabId} requires one inventory workspace_id`);
+  const ids = [...new Set(matches.map(fixture => fixture.workspaceId))];
+  if (ids.length !== 1 || (ids[0] !== undefined && (typeof ids[0] !== 'string' || !ids[0].trim()))) {
+    throw new Error(`Fixture ${tabId} requires one fixture workspaceId`);
   }
   return ids[0];
 }

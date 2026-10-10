@@ -3,12 +3,12 @@
   "mac": {
     "origin": "http://100.64.10.2:7697",
     "peerId": "REPLACE_EXACT_PEER_ID",
-    "workspace_id": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
     "tokenSecret": "REPLACE_MAC_SECRET_STORE_ENTRY_NAME",
     "tabs": [
       {
         "provider": "claude",
         "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
         "sessionId": "REPLACE_CLAIMED_SESSION_ID",
         "title": "REPLACE_ONE_WORD_TITLE",
         "testOwned": true,
@@ -24,6 +24,7 @@
       {
         "provider": "codex",
         "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
         "sessionId": "REPLACE_CLAIMED_SESSION_ID",
         "title": "REPLACE_ONE_WORD_TITLE",
         "testOwned": true,
@@ -39,6 +40,7 @@
       {
         "provider": "opencode",
         "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
         "sessionId": "REPLACE_CLAIMED_SESSION_ID",
         "title": "REPLACE_ONE_WORD_TITLE",
         "testOwned": true,
@@ -54,6 +56,7 @@
       {
         "provider": "grok",
         "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
         "sessionId": "REPLACE_CLAIMED_SESSION_ID",
         "title": "REPLACE_ONE_WORD_TITLE",
         "testOwned": true,
@@ -72,12 +75,12 @@
   "windows": {
     "origin": "http://100.64.10.1:7686",
     "peerId": "REPLACE_EXACT_PEER_ID",
-    "workspace_id": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
     "tokenSecret": "REPLACE_MAC_SECRET_STORE_ENTRY_NAME",
     "tabs": [
       {
         "provider": "claude",
         "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
         "sessionId": "REPLACE_CLAIMED_SESSION_ID",
         "title": "REPLACE_ONE_WORD_TITLE",
         "testOwned": true,
@@ -93,6 +96,7 @@
       {
         "provider": "codex",
         "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
         "sessionId": "REPLACE_CLAIMED_SESSION_ID",
         "title": "REPLACE_ONE_WORD_TITLE",
         "testOwned": true,
@@ -108,6 +112,7 @@
       {
         "provider": "opencode",
         "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
         "sessionId": "REPLACE_CLAIMED_SESSION_ID",
         "title": "REPLACE_ONE_WORD_TITLE",
         "testOwned": true,
@@ -123,6 +128,7 @@
       {
         "provider": "grok",
         "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
         "sessionId": "REPLACE_CLAIMED_SESSION_ID",
         "title": "REPLACE_ONE_WORD_TITLE",
         "testOwned": true,
