@@ -120,15 +120,18 @@
   opacity: 1;
 }
 
-.ct-spinal-btn__invite {
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--ct-accent);
-  animation: ct-spinal-breathe 2.8s var(--ct-ease-liquid-breathe) infinite;
+.ct-spinal-vertebrae--reflex.ct-spinal-glint rect {
+  animation-name: ct-spinal-glint;
+}
+
+.ct-spinal-btn__reflex.ct-spinal-glint {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ct-accent) 42%, transparent);
+}
+
+@keyframes ct-spinal-glint {
+  0% { fill: currentColor; transform: scale(1); }
+  35% { fill: color-mix(in srgb, var(--ct-accent) 75%, var(--ct-fg)); transform: scale(1.25, 1.12); }
+  100% { fill: currentColor; transform: scale(1); }
 }
 
 .ct-spinal-pop {
@@ -356,11 +359,6 @@
   color: var(--ct-fg);
 }
 
-@keyframes ct-spinal-breathe {
-  0%, 100% { opacity: 0.35; transform: scale(0.8); }
-  50% { opacity: 1; transform: scale(1.1); }
-}
-
 @keyframes ct-spinal-bone-wave {
   0% { transform: scale(1); }
   40% { transform: scale(1.25, 1.1); }
@@ -385,7 +383,6 @@
     transition: none;
   }
 
-  .ct-spinal-btn__invite,
   .ct-spinal-btn__reflex,
   .ct-spinal-vertebrae--reflex rect,
   .ct-spinal-pop__beat,

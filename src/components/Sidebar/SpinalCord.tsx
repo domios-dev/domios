@@ -12,6 +12,25 @@ import { clampFloatingPosition } from "../shared/floatingPosition";
 const ASK_PROMPT = "Tell me about Domios's Spinal Cord (the Supporter Agent): what it does for me day to day (memory recall that answers first, noticing a stuck tab, quiet team heartbeats that wake the Orchestrator only when something changed), why it is worth turning on, and what connecting it takes. Keep it short and convincing, then offer to set it up for me yourself. If I say yes, connect it. Answer in my native language, the one I usually write to you in.";
 
 const POPOVER_WIDTH = 340;
+const GLINT_MIN_MS = 5000;
+const GLINT_SPREAD_MS = 12000;
+
+function useIdleGlint(active: boolean) {
+  const [glint, setGlint] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    let timer = 0;
+    const schedule = () => {
+      timer = window.setTimeout(() => {
+        setGlint((value) => value + 1);
+        schedule();
+      }, GLINT_MIN_MS + Math.random() * GLINT_SPREAD_MS);
+    };
+    schedule();
+    return () => window.clearTimeout(timer);
+  }, [active]);
+  return glint;
+}
 
 interface SpinalStatus {
   connected?: boolean;
@@ -73,6 +92,9 @@ export function SpinalCordButton({ api }: { api: ApiConfig | undefined }) {
     if (seenReflexes.current !== null && reflexes > seenReflexes.current) setPulse((value) => value + 1);
     seenReflexes.current = reflexes;
   }, [connected, reflexes]);
+  const glint = useIdleGlint(!connected);
+  const flash = connected ? pulse : glint;
+  const glintClass = connected ? "" : " ct-spinal-glint";
   const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -127,10 +149,9 @@ export function SpinalCordButton({ api }: { api: ApiConfig | undefined }) {
         className="ct-spinal-btn"
         onClick={toggle}
       >
-        <Vertebrae key={pulse} className={pulse > 0 ? "ct-spinal-vertebrae--reflex" : undefined} />
-        {pulse > 0 && <span key={`ring-${pulse}`} className="ct-spinal-btn__reflex" aria-hidden="true" />}
+        <Vertebrae key={`${connected}-${flash}`} className={flash > 0 ? `ct-spinal-vertebrae--reflex${glintClass}` : undefined} />
+        {flash > 0 && <span key={`ring-${connected}-${flash}`} className={`ct-spinal-btn__reflex${glintClass}`} aria-hidden="true" />}
         <span className="ct-spinal-btn__label">Spinal Cord</span>
-        {!connected && <span className="ct-spinal-btn__invite" aria-hidden="true" />}
       </button>
       {anchor && createPortal(
         <div
@@ -164,9 +185,9 @@ export function SpinalCordButton({ api }: { api: ApiConfig | undefined }) {
             <>
               <SpinalGraphic />
               <ul className="ct-spinal-pop__points">
-                <li><Brain size={14} aria-hidden="true" />Memory recall that answers first</li>
+                <li><Brain size={14} aria-hidden="true" />Helps memory find the best matches</li>
                 <li><Radar size={14} aria-hidden="true" />Notices a tab that got stuck</li>
-                <li><Activity size={14} aria-hidden="true" />Keeps team heartbeats quiet until something changes</li>
+                <li><Activity size={14} aria-hidden="true" />Helps teams work and Orchestrators orchestrate</li>
               </ul>
               <p className="ct-spinal-pop__nudge">Want it? Ask your General — he explains it and can connect it all for you.</p>
               <button type="button" className="ct-spinal-pop__ask" data-ask-state={state} disabled={state === "sending"} onClick={() => void ask(ASK_PROMPT)}>
