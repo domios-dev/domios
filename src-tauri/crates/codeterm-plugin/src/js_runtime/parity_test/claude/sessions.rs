@@ -39,6 +39,8 @@ fn completion_record_source_native_js_parity() {
     if require_plugins().is_none() {
         return;
     }
+    // Holds the env lock so sibling tests cannot swap CLAUDE_CONFIG_DIR mid-test.
+    let _env = codeterm_util::test_env::EnvGuard::lock();
     let (native, js) = pair();
     let project = tempfile::tempdir().unwrap();
     let cwd = project.path().to_string_lossy().to_string();
@@ -72,6 +74,8 @@ fn session_effort_confirmed_command_and_later_turn_native_js_parity() {
     if require_plugins().is_none() {
         return;
     }
+    // Holds the env lock so sibling tests cannot swap CLAUDE_CONFIG_DIR mid-test.
+    let _env = codeterm_util::test_env::EnvGuard::lock();
     let (native, js) = pair();
     let project = tempfile::tempdir().unwrap();
     let cwd = project.path().to_string_lossy().to_string();
