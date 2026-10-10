@@ -5,6 +5,7 @@ import {
   composeCartographerMapBrief,
   defaultCartographerMapDraft,
   defaultCartographerProvider,
+  reconcileCartographerMapDraft,
   selectCartographerMapTeam,
   serializeCartographerMapBrief,
   toggleCartographerFocusSource,
@@ -127,6 +128,16 @@ test("unknown provider availability is selectable and empty catalogues do not in
   assert.deepEqual(defaultCartographerProvider([
     { ...provider, availability: "unavailable" },
   ]), { providerId: "" });
+});
+
+test("catalogue refresh repairs removed model selections while keeping the owner's draft", () => {
+  const draft = { ...defaultCartographerMapDraft("refresh", [provider]), ownerDescription: "opaque-owner-text" };
+  assert.equal(reconcileCartographerMapDraft(draft, [provider]), draft);
+  const updated = reconcileCartographerMapDraft(draft, [{ ...provider, available_models: [provider.available_models[0]] }]);
+  assert.equal(updated.modelId, "fixture-model-first");
+  assert.equal(updated.ownerDescription, draft.ownerDescription);
+  assert.equal(updated.focusSources, draft.focusSources);
+  assert.equal(updated.mode, draft.mode);
 });
 
 test("brief serialization carries owner input opaquely through JSON", () => {

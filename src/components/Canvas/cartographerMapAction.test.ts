@@ -63,7 +63,9 @@ test("an existing Team uses its staffing action once and carries the opaque owne
   assert.equal(member.model, CARTOGRAPHER_TEST_PROVIDER.default_model);
   const brief = member.brief ?? "";
   const data = JSON.parse(brief.slice(brief.indexOf(CARTOGRAPHER_MAP_BRIEF_BEGIN) + CARTOGRAPHER_MAP_BRIEF_BEGIN.length, brief.lastIndexOf(CARTOGRAPHER_MAP_BRIEF_END)));
-  assert.deepEqual(data, { mode: "create", project_paths: ["/repo/a"], focus_sources: draft.focusSources, owner_description: draft.ownerDescription });
+  const { selected_focus_sources: sourceDetails, ...payload } = data;
+  assert.deepEqual(payload, { mode: "create", project_paths: ["/repo/a"], focus_sources: draft.focusSources, owner_description: draft.ownerDescription });
+  assert.deepEqual(sourceDetails.map((source: { id: string }) => source.id), draft.focusSources);
 });
 
 test("refresh asks the singleton staffing path to reuse an existing Cartographer", async () => {
