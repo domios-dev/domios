@@ -3,6 +3,8 @@
 
 use super::ServiceContext;
 
+mod pending_switch;
+
 impl ServiceContext {
     pub(crate) fn start_focused_tab_model_poller(&self) {
         let svc = self.clone();
@@ -287,11 +289,21 @@ impl ServiceContext {
                 tab_id,
                 agent_id,
                 &sid,
-                model,
+                model.clone(),
                 None,
                 Some(binding_nonce),
                 true,
             );
+            if self.retain_unapplied_next_turn(
+                tab_id,
+                agent_id,
+                cwd,
+                pending,
+                binding_nonce,
+                &model,
+            ) {
+                return;
+            }
             if self.clear_pending_model_switch(tab_id, pending, binding_nonce) {
                 super::boot_wait::notify_boot_changed();
             }
@@ -427,11 +439,21 @@ impl ServiceContext {
             tab_id,
             &agent_id,
             &observation.session_id,
-            model,
+            model.clone(),
             None,
             Some(binding_nonce),
             true,
         );
+        if self.retain_unapplied_next_turn(
+            tab_id,
+            &agent_id,
+            &cwd,
+            &observation,
+            binding_nonce,
+            &model,
+        ) {
+            return;
+        }
         if self.clear_pending_model_switch(tab_id, &observation, binding_nonce) {
             super::boot_wait::notify_boot_changed();
         }
