@@ -211,3 +211,54 @@ fn completion_signal_requires_the_current_claimed_session_and_verified_nonce() {
         .staged_model_turn_completed(&tab_id, "session", "nonce");
     assert_eq!(rx.try_recv(), Ok(()));
 }
+
+#[test]
+fn claimed_switch_stays_pending_until_confirmed_and_survives_refusal() {
+    let (request, mut tab) = fixture();
+    tab.pending_model_selection = Some(PendingModelSelection {
+        model: request.model.clone(),
+        effort: request.effort.clone(),
+    });
+    let mut queue = PendingSwitches::default();
+    let (tx, _) = channel();
+    queue.replace(request.clone(), tx);
+    assert!(queue.claim(&request));
+    finish_staged_selection(&request, &mut tab, &queue, None);
+    assert!(tab.pending_model_selection.is_some());
+    let mut outcome = ModelSwitchOutcome {
+        tab_id: request.tab_id.clone(),
+        provider: request.provider.clone(),
+        session_id: request.session_id.clone(),
+        restart: None,
+        mechanism: request.mechanism,
+        fallback_reason: None,
+        previous_model: Some("old".into()),
+        requested_model: request.model.clone(),
+        launched_model: request.model.clone(),
+        confirmation_detail: None,
+        confirmation: ModelSwitchConfirmation::Pending,
+    };
+    finish_staged_selection(&request, &mut tab, &queue, Some(&outcome));
+    assert!(tab.pending_model_selection.is_some());
+    outcome.confirmation = ModelSwitchConfirmation::Observed {
+        model: request.model.clone(),
+        evidence: ModelSwitchEvidence::LiveSessionRecord,
+    };
+    outcome.confirmation = ModelSwitchConfirmation::Observed {
+        model: "old".into(),
+        evidence: ModelSwitchEvidence::LiveSessionRecord,
+    };
+    finish_staged_selection(&request, &mut tab, &queue, Some(&outcome));
+    assert!(tab.pending_model_selection.is_some());
+    outcome.confirmation = ModelSwitchConfirmation::Observed {
+        model: request.model.clone(),
+        evidence: ModelSwitchEvidence::LiveSessionRecord,
+    };
+    let (tx, _) = channel();
+    queue.replace(request.clone(), tx);
+    finish_staged_selection(&request, &mut tab, &queue, Some(&outcome));
+    assert!(tab.pending_model_selection.is_some());
+    assert!(queue.claim(&request));
+    finish_staged_selection(&request, &mut tab, &queue, Some(&outcome));
+    assert!(tab.pending_model_selection.is_none());
+}

@@ -111,11 +111,12 @@ impl ServiceContext {
                 "the session model does not match the requested effort's model".into(),
             ));
         }
-        if observed().as_deref() == Some(requested) {
+        if effort.is_some() && observed().as_deref() == Some(requested) {
             return Ok(());
         }
         let signal = command_signal(&mut self.screen_state.lock(), &target.pty_id);
         crate::service::boot_wait::observe_boot_changes(&signal);
+        let started = Instant::now();
         let result = (|| -> Result<(), String> {
             let wake = signal.clone();
             let watched_path = path.clone();
@@ -177,7 +178,9 @@ impl ServiceContext {
                         input,
                         deadline.saturating_duration_since(Instant::now()),
                         &injected,
-                    )
+                    )?;
+                    log::info!("[agent-model/timing] tab={} source=session_identity phase=injected effort={} elapsed_ms={}", target.tab_id, effort.is_some(), started.elapsed().as_millis());
+                    Ok(())
                 },
                 || loop {
                     let generation = signal.generation();
@@ -212,6 +215,7 @@ impl ServiceContext {
                         changed_target(&baseline, &bytes, requested, observed().as_deref())
                     }) && model_current()
                     {
+                        log::info!("[agent-model/timing] tab={} source=session_identity phase=identity_confirmed effort={} elapsed_ms={}", target.tab_id, effort.is_some(), started.elapsed().as_millis());
                         break target.current(self);
                     }
                     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
@@ -251,6 +255,9 @@ impl ServiceContext {
         self.screen_state
             .lock()
             .unsubscribe_screen_changes(&target.pty_id, &signal);
+        if let Err(error) = &result {
+            log::warn!("[agent-model/timing] tab={} source=session_identity phase=refused elapsed_ms={} error={error}", target.tab_id, started.elapsed().as_millis());
+        }
         result.map_err(fail)
     }
 }
@@ -258,6 +265,15 @@ impl ServiceContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stale_target_summary_cannot_skip_a_model_command() {
+        use crate::agent::provider::ModelSwitchConfirmationSource as Source;
+        assert!(model_command_required(Source::SessionIdentity, true, false));
+        assert!(model_command_required(Source::SessionIdentity, false, true));
+        assert!(!model_command_required(Source::SessionIdentity, true, true));
+        assert!(!model_command_required(Source::Transcript, true, false));
+    }
 
     #[test]
     fn changed_own_identity_confirms_only_requested_value() {

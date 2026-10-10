@@ -485,14 +485,10 @@ impl ServiceContext {
             crate::service::pty_frame_timing::unix_ms()
         );
         {
-            let mut mux = self.mux.write();
             let mut tracker = self.restart_tracker.lock();
             if !tracker.staged_models.claim(&request) {
                 log::info!("[agent-model/completion] tab={} request={} phase=staged_claim refused=true at_ms={}", request.tab_id, request.id, crate::service::pty_frame_timing::unix_ms());
                 return;
-            }
-            if let Some(tab) = mux.get_tab_mut(&request.tab_id) {
-                tab.pending_model_selection = None;
             }
         }
         log::info!(
@@ -517,7 +513,24 @@ impl ServiceContext {
                 )
             })
         };
+        {
+            let mut mux = self.mux.write();
+            let tracker = self.restart_tracker.lock();
+            if let Some(tab) = mux.get_tab_mut(&request.tab_id) {
+                finish_staged_selection(
+                    &request,
+                    tab,
+                    &tracker.staged_models,
+                    result.as_ref().ok(),
+                );
+            }
+        }
         if let Err(error) = result {
+            log::warn!(
+                "[agent-model/completion] tab={} request={} phase=staged_refused error={error}",
+                request.tab_id,
+                request.id
+            );
             self.create_notification_ext(
                 "Model switch refused".into(),
                 Some(format!("Tab {}: {error}", request.tab_id)),
@@ -530,6 +543,36 @@ impl ServiceContext {
             );
         }
         self.emit_state_changed();
+    }
+}
+
+fn finish_staged_selection(
+    request: &SwitchRequest,
+    tab: &mut Tab,
+    pending: &PendingSwitches,
+    outcome: Option<&ModelSwitchOutcome>,
+) {
+    let confirmed = outcome.is_some_and(|outcome| {
+        outcome.tab_id == request.tab_id
+            && outcome.session_id == request.session_id
+            && outcome.requested_model == request.model
+            && (matches!(&outcome.confirmation, ModelSwitchConfirmation::Observed { model, .. } if model == &request.model)
+                || (outcome.confirmation == ModelSwitchConfirmation::Pending
+                    && tab.pending_model_switch_observation.as_ref().is_some_and(|observation| {
+                        observation.session_id == request.session_id && observation.launched_model == request.model
+                    })))
+    });
+    let own_selection = tab
+        .pending_model_selection
+        .as_ref()
+        .is_some_and(|selection| {
+            selection.model == request.model && selection.effort == request.effort
+        });
+    let own_binding = tab.agent_session_id.as_deref() == Some(&request.session_id)
+        && tab.session_binding_nonce.as_deref() == Some(&request.nonce)
+        && tab.reported_session_binding_nonce.as_deref() == Some(&request.nonce);
+    if confirmed && own_selection && own_binding && !pending.0.contains_key(&request.tab_id) {
+        tab.pending_model_selection = None;
     }
 }
 
