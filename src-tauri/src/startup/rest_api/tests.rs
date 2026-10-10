@@ -92,6 +92,29 @@ fn assert_recoverable_failure(status: &RestApiStatus, detail: &str) {
 }
 
 #[tokio::test]
+async fn health_proof_deadline_fails_the_bound_generation_with_address_diagnostic() {
+    let control = Arc::new(RestApiControl::new());
+    let address = reserve_initial_listener(&control).await;
+    let mut status = control.subscribe_status();
+    let router = axum::Router::new().route(
+        "/api/health",
+        axum::routing::get(|| std::future::pending::<&'static str>()),
+    );
+    let server = start(control.clone(), address.to_string(), router);
+    tokio::pin!(server);
+    let failed = tokio::select! {
+        _ = &mut server => panic!("supervisor exited instead of reporting health failure"),
+        failed = wait_for_status(&control, &mut status, |s| s.phase == RestApiPhase::Failed) => failed,
+    };
+    assert_eq!(failed.generation, 1);
+    assert_eq!(failed.diagnostic, Some(RestApiDiagnostic::WorkersBlocked));
+    assert!(control.listener_owned());
+    assert!(control.listeners.ready().is_empty());
+    assert_recoverable_failure(&failed, "failure deadline");
+    assert_recoverable_failure(&failed, &address.to_string());
+}
+
+#[tokio::test]
 async fn occupied_port_release_event_rebinds_the_real_listener() {
     let control = Arc::new(RestApiControl::new());
     let address = reserve_initial_listener(&control).await;

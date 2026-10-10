@@ -464,14 +464,13 @@ fn probe_address(address: SocketAddr) -> SocketAddr {
     }
 }
 
-async fn prove_health(address: SocketAddr) -> Result<(), String> {
-    const HEALTH_PROOF_DEADLINE: Duration = Duration::from_secs(5);
+async fn prove_health(address: SocketAddr, deadline: tokio::time::Instant) -> Result<(), String> {
     let client = reqwest::Client::builder()
         .no_proxy()
         .build()
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| format!("health proof client for {address} failed: {error}"))?;
     let url = format!("http://{}/api/health", probe_address(address));
-    let status = tokio::time::timeout(HEALTH_PROOF_DEADLINE, async {
+    let status = tokio::time::timeout_at(deadline, async {
         let response = client
             .get(url)
             .header(reqwest::header::CONNECTION, "close")
@@ -482,12 +481,12 @@ async fn prove_health(address: SocketAddr) -> Result<(), String> {
         Ok::<_, reqwest::Error>(status)
     })
     .await
-    .map_err(|_| "health proof exceeded its failure deadline".to_string())?
-    .map_err(|error| error.to_string())?;
+    .map_err(|_| format!("health proof for {address} exceeded its failure deadline waiting for a complete /api/health response"))?
+    .map_err(|error| format!("health proof for {address} failed: {error}"))?;
     if status.is_success() {
         Ok(())
     } else {
-        Err(format!("health proof returned {status}"))
+        Err(format!("health proof for {address} returned {status}"))
     }
 }
 
