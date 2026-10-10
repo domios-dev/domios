@@ -24,7 +24,7 @@ test('only exact peer, origin, composite tab and output path match', () => {
   const cursor = Buffer.from(JSON.stringify({ tabs: { fixture: 0 } })).toString('base64url');
   assert.ok(matchesOutputRequest('http://gateway/api/output/stream?since=' + cursor, local));
   const aggregate = Buffer.from(JSON.stringify({ tabs: { fixture: 0, other: 0 } })).toString('base64url');
-  assert.equal(matchesOutputRequest('http://gateway/api/output/stream?since=' + aggregate, local), false);
+  assert.equal(matchesOutputRequest('http://gateway/api/output/stream?since=' + aggregate, local), true);
 });
 
 test('headers followed by first non-empty parse resolve from events, with waiter cleanup', async () => {
@@ -106,4 +106,13 @@ test('init probe registers real write-parsed listener at hook assignment, withou
     globalThis.window.__b3OutputParseProbe.dispose();
     assert.equal(disposed, 2);
   } finally { Object.assign(globalThis, prior); }
+});
+
+
+test('local aggregate readiness requires exact target membership, not a single-tab cursor', () => {
+  const local = { ...target, peerId: null };
+  const request = tabs => 'http://gateway/api/output/stream?since=' + Buffer.from(JSON.stringify({ boot: 'own-boot', tabs })).toString('base64url');
+  assert.equal(matchesOutputRequest(request({ fixture: 0, shell: 0 }), local), true);
+  assert.equal(matchesOutputRequest(request({ 'fixture-other': 0, shell: 0 }), local), false);
+  assert.equal(matchesOutputRequest(request({}), local), false);
 });
