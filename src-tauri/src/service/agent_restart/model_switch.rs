@@ -107,6 +107,7 @@ pub(crate) enum ModelSwitchError {
     },
     LiveSwitchFailed(String),
     LiveCommandFailed(String),
+    InputNotReady(String),
 }
 
 impl std::fmt::Display for ModelSwitchError {
@@ -134,7 +135,7 @@ impl std::fmt::Display for ModelSwitchError {
                 formatter,
                 "relaunched with {launched_model}, but the current session reported {observed}"
             ),
-            Self::LiveSwitchFailed(reason) | Self::LiveCommandFailed(reason) => {
+            Self::LiveSwitchFailed(reason) | Self::LiveCommandFailed(reason) | Self::InputNotReady(reason) => {
                 write!(formatter, "live model switch failed: {reason}")
             }
         }
@@ -571,7 +572,13 @@ impl ServiceContext {
             self.cancel_staged_model_switch(&snap.tab_id);
         }
         if declared_mode == ModelSwitchMode::LiveCommand {
-            return self.switch_model_by_command(&snap, &session_id, requested, effort.as_deref());
+            return self.switch_model_by_command(
+                &snap,
+                &session_id,
+                requested,
+                effort.as_deref(),
+                staged.is_some(),
+            );
         }
         if declared_mode == ModelSwitchMode::NextTurn {
             return self.switch_model_on_next_turn(

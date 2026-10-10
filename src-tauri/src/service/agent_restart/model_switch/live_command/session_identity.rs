@@ -104,7 +104,9 @@ impl ServiceContext {
                 && self.command_tab_idle(target)
         };
         if !idle() {
-            return Err(fail("the agent is busy or waiting on a prompt".into()));
+            return Err(ModelSwitchError::InputNotReady(
+                "the agent is busy or waiting on a prompt".into(),
+            ));
         }
         if !model_current() {
             return Err(fail(
@@ -116,6 +118,7 @@ impl ServiceContext {
         }
         let signal = command_signal(&mut self.screen_state.lock(), &target.pty_id);
         crate::service::boot_wait::observe_boot_changes(&signal);
+        let not_ready = std::cell::Cell::new(false);
         let started = Instant::now();
         let result = (|| -> Result<(), String> {
             let wake = signal.clone();
@@ -141,7 +144,11 @@ impl ServiceContext {
             let injected = std::cell::Cell::new(false);
             let failure = std::cell::RefCell::new(None::<String>);
             let result = execute_command(
-                idle,
+                || {
+                    let ready = idle();
+                    not_ready.set(!ready);
+                    ready
+                },
                 || {
                     if identity_bytes(&path)? != baseline {
                         return Err(
@@ -258,7 +265,13 @@ impl ServiceContext {
         if let Err(error) = &result {
             log::warn!("[agent-model/timing] tab={} source=session_identity phase=refused elapsed_ms={} error={error}", target.tab_id, started.elapsed().as_millis());
         }
-        result.map_err(fail)
+        result.map_err(|error| {
+            if not_ready.get() {
+                ModelSwitchError::InputNotReady(error)
+            } else {
+                fail(error)
+            }
+        })
     }
 }
 

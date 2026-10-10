@@ -146,6 +146,8 @@ pub struct ModelSwitchCommands {
     pub transcript: ModelSwitchTranscript,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_completion: Option<ModelSwitchTurnCompletion>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ready_input_regex: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

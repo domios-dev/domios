@@ -254,11 +254,35 @@ fn claimed_switch_stays_pending_until_confirmed_and_survives_refusal() {
         model: request.model.clone(),
         evidence: ModelSwitchEvidence::LiveSessionRecord,
     };
+    assert!(queue.release(&request));
     let (tx, _) = channel();
     queue.replace(request.clone(), tx);
     finish_staged_selection(&request, &mut tab, &queue, Some(&outcome));
     assert!(tab.pending_model_selection.is_some());
     assert!(queue.claim(&request));
+    queue.finish(&request);
     finish_staged_selection(&request, &mut tab, &queue, Some(&outcome));
     assert!(tab.pending_model_selection.is_none());
+}
+
+#[test]
+fn unwritten_readiness_refusal_releases_claim_and_next_event_can_retry() {
+    let (request, _) = fixture();
+    let mut queue = PendingSwitches::default();
+    let (tx, rx) = channel();
+    queue.replace(request.clone(), tx);
+    queue.signal_completed(&request.tab_id, &request.session_id, &request.nonce);
+    assert!(queue.claim(&request));
+    assert!(queue.warn_once(&request));
+    assert!(!queue.warn_once(&request));
+    assert!(queue.release(&request));
+    queue.signal_idle(&request.tab_id);
+    assert!(rx.try_recv().is_ok());
+    assert!(queue.claim(&request));
+    queue.signal_started(&request.tab_id);
+    assert!(!queue.completed(&request));
+    queue.signal_completed(&request.tab_id, &request.session_id, &request.nonce);
+    assert!(queue.completed(&request));
+    queue.finish(&request);
+    assert!(!queue.claim(&request));
 }
