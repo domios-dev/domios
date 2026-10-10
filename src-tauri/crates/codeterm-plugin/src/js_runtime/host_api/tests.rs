@@ -1171,3 +1171,5 @@ mod command_transcript;
 fn command_transcript_parser_native_js_parity() {
     command_transcript::verify();
 }
+
+mod boolean_record;

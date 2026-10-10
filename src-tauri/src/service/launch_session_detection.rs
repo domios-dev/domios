@@ -200,6 +200,7 @@ pub(crate) fn marked_provider_launch_command_for_service(
     canonical_project: Option<&str>,
     params: &mut crate::agent::provider::AgentLaunchParams,
 ) -> Option<String> {
+    super::directory_pre_trust::for_tab(service, registry, provider_id, tab_id, cwd);
     super::task_files::capture(service, tab_id, || {
         marked_provider_launch_command(
             registry,

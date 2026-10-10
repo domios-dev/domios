@@ -15,6 +15,7 @@ mod launch_session;
 mod onboarding;
 mod permission_prompt;
 mod permission_request;
+mod pre_trust;
 mod sessions;
 mod signals;
 mod usage_sources;

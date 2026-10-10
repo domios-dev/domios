@@ -476,6 +476,12 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    fn pre_trust_directory(&self, _path: &str) -> Result<crate::provider::PreTrustOutcome, String> {
+        Ok(crate::provider::PreTrustOutcome::Skipped(
+            "not supported".into(),
+        ))
+    }
+
     fn is_directory_trusted(&self, _path: &str) -> Result<bool, String> {
         Ok(false)
     }

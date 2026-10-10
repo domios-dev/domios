@@ -878,6 +878,13 @@ fn build_relaunch_command(
     session_present: bool,
     launch_task: Option<&str>,
 ) -> Option<String> {
+    super::directory_pre_trust::for_tab(
+        svc,
+        &svc.agent_registry,
+        provider,
+        &snap.tab_id,
+        snap.cwd.as_deref(),
+    );
     let auto_approve = match crate::service::permission_policy::configured_permission_bypass(
         &svc.agent_registry,
         provider,

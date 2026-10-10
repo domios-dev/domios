@@ -381,6 +381,21 @@ impl AgentProvider for JsProvider {
         Some(crate::provider::DirectoryTrustPromptResponse::from_wire_steps(decoded))
     }
 
+    fn pre_trust_directory(&self, path: &str) -> Result<crate::provider::PreTrustOutcome, String> {
+        if self.has_js("preTrustDirectory") {
+            return self
+                .try_call("preTrustDirectory", &[json!(path)])
+                .ok_or_else(|| "pre-trust capability failed".to_string());
+        }
+        self.native()
+            .map(|native| native.pre_trust_directory(path))
+            .unwrap_or_else(|| {
+                Ok(crate::provider::PreTrustOutcome::Skipped(
+                    "not supported".into(),
+                ))
+            })
+    }
+
     fn is_directory_trusted(&self, path: &str) -> Result<bool, String> {
         const METHOD: &str = "isDirectoryTrusted";
         if self.has_js(METHOD) {

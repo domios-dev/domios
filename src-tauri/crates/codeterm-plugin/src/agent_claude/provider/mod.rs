@@ -19,6 +19,7 @@ mod model_switch;
 mod onboarding;
 mod permission_hook;
 mod permission_prompt;
+pub(crate) mod pre_trust;
 mod read_home;
 mod schemas;
 mod sessions;
@@ -417,6 +418,14 @@ impl AgentProvider for ClaudeProvider {
 
     fn live_prompt_response(&self, option_index: usize, screen: &str) -> Option<Vec<Vec<u8>>> {
         Some(self.build_prompt_response(option_index, screen))
+    }
+
+    fn pre_trust_directory(&self, path: &str) -> Result<crate::provider::PreTrustOutcome, String> {
+        Ok(pre_trust::grant(path))
+    }
+
+    fn is_directory_trusted(&self, path: &str) -> Result<bool, String> {
+        pre_trust::trusted(path)
     }
 
     fn directory_trust_prompt_response(
