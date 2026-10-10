@@ -371,6 +371,7 @@ function captureLogs(n) {
 
 async function runRound(n) {
   const health = await checkHealth();
+  if (result.workspace?.id) await dc("workspace", "focus", result.workspace.id);
   const readiness = [];
   for (const fixture of result.fixtures.filter((fixture) => fixture.id)) {
     const signal = AbortSignal.timeout(deadlineMs);
@@ -388,7 +389,10 @@ async function runRound(n) {
   result.rounds.push(entry);
   save();
   for (const fixture of result.fixtures) {
-    entry.rows.push(await probe(fixture, n));
+    const failedReadiness = readiness.find((record) => record.id === fixture.id)?.readiness_error;
+    entry.rows.push(failedReadiness
+      ? { id: fixture.id, cohort: fixture.cohort, provider: fixture.provider, pass: false, reason: failedReadiness, phase: "restore_readiness_failed" }
+      : await probe(fixture, n));
     save();
   }
   for (const fixture of result.existing) {
