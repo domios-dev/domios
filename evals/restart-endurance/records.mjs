@@ -52,7 +52,7 @@ export function nextTurnModel(boundary, marker) {
         const answer = parts.filter((part) => part.type === "text").map((part) => part.text).join("\n");
         if (answer.includes(marker) && data.time?.completed) return {
           source: path, session, message_id: row.id, model: `${data.providerID}/${data.modelID}`,
-          answer, completed_at: data.time.completed, record: data,
+          answer, completed_at: data.time.completed, turn_completed: true, record: data,
         };
       }
     } finally { db.close(); }
@@ -83,5 +83,5 @@ export function nextTurnModel(boundary, marker) {
     }
   }
   return ownUser && answer.includes(marker) && model && completed
-    ? { source: path, session, model, answer, completed_at: completed } : null;
+    ? { source: path, session, model, answer, completed_at: completed, turn_completed: true } : null;
 }
