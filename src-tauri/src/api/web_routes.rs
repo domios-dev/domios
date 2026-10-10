@@ -2,6 +2,7 @@
 //! the browser bundle needs (the bridge in src/lib/bridge.ts maps to
 //! these), plus the SSE event stream that replaces Tauri event emits.
 
+use crate::api::stream_census::{track, StreamCensus, StreamKind, STREAMS};
 use axum::{
     extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
@@ -282,15 +283,22 @@ pub async fn events_stream(
 {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
 
+    Ok(events_sse(state.events, q, &STREAMS))
+}
+
+pub(crate) fn events_sse(
+    events: crate::api::events::EventBroadcasterState,
+    q: EventsStreamQuery,
+    census: &StreamCensus,
+) -> Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>> {
     use crate::api::events::ReplayPlan;
     // between the snapshot and buffered live events is deduped by seq below.
-    let mut rx = state.events.subscribe();
-    let snap = state.events.snapshot_ring();
+    let mut rx = events.subscribe();
+    let snap = events.snapshot_ring();
     let boot = snap.boot_id.clone();
     let since = q.since.as_deref().and_then(parse_since);
     let cursor_seq = since.as_ref().map(|(_, s)| *s);
     let plan = snap.plan(since.as_ref().map(|(b, s)| (b.as_str(), *s)));
-    let events = state.events.clone();
     let tab_id = q.tab_id;
 
     let stream = async_stream::stream! {
@@ -335,7 +343,14 @@ pub async fn events_stream(
             }
         }
     };
-    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+    Sse::new(track(
+        stream,
+        census.open(
+            StreamKind::Events,
+            crate::api::stream_census::StreamScope::Local,
+        ),
+    ))
+    .keep_alive(KeepAlive::default())
 }
 
 // ── PWA manifest — served per-token because installed iOS web apps get a storage container separate from Safari ──
