@@ -1,4 +1,4 @@
-import type { Tab, Team } from "../../lib/types";
+import type { Tab, TabAgentState, Team } from "../../lib/types";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../Canvas/cards/fixtures.testdata";
 import type { Plan, Task } from "../Canvas/types";
@@ -23,6 +23,10 @@ export function tab(
     can_spawn: overridesOrRowId.role_profile === "orchestrator",
     ...overridesOrRowId,
   } as Tab;
+}
+
+export function boundAgent(id: string, state: TabAgentState["state"] = "working"): Partial<Tab> {
+  return { agent_type: "claude", agent_session_id: `session-${id}`, agent_state: { state } };
 }
 
 export function task(id: string, status: Task["status"]): Task {
