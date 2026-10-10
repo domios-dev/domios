@@ -3523,6 +3523,7 @@ Bind an existing plan to a Team
 
 Attach the one optional Cartographer Manager to a Team
 
+- `--brief-file` — UTF-8 brief file, or - to read stdin; delivered to a new or existing Cartographer
 - `--model` — Provider model ID
 - `--provider` — Agent provider ID
 - `<team_id>` — Team ID
