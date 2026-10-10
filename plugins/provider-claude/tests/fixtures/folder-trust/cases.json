@@ -1,4 +1,5 @@
 [
+  { "file": "claude-2.1.296-auto-mode.txt", "expect": "move-down" },
   { "file": "trust-local-preapproved-no-first.txt", "expect": "move-down" },
   { "file": "quick-safety-no-first.txt", "expect": "move-down" },
   { "file": "quick-safety-yes-focused.txt", "expect": "enter" },
