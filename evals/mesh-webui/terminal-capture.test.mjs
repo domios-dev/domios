@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { runInNewContext } from 'node:vm';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { captureTerminal, readTerminalState } from './terminal-capture.mjs';
+import { armTerminalEvents, captureTerminal, readTerminalState } from './terminal-capture.mjs';
 
 function fixture({ visible = true, count = 1, bufferType = 'normal' } = {}) {
   const cell = {
@@ -65,4 +66,21 @@ test('changing screenshot capture retains before and after state as failure evid
     assert.equal(saved.before.lines[0].text, 'before');
     assert.equal(saved.after.lines[0].text, 'after');
   } finally { await rm(temp, { recursive: true, force: true }); }
+});
+
+
+test('probe arming works on an HTTP browser without crypto.randomUUID', async () => {
+  const window = {};
+  const listener = () => ({ dispose() {} });
+  const term = { onRender: listener, onResize: listener, onScroll: listener,
+    onCursorMove: listener, onWriteParsed: listener, buffer: { onBufferChange: listener } };
+  const root = { dataset: { tabId: 'fixture' }, getClientRects: () => [1],
+    querySelector: () => ({ __codetermTerminal: term }) };
+  const page = { evaluate: async (fn, args) => runInNewContext(`(${fn.toString()})(args)`, {
+    args, window, crypto: {}, document: { querySelectorAll: () => [root] },
+  }) };
+  const id = await armTerminalEvents(page, 'fixture');
+  assert.match(id, /^[0-9a-f-]{36}$/);
+  assert.equal(window.__b3TerminalProbes.get(id).tabId, 'fixture');
+  assert.equal(window.__b3TerminalProbes.get(id).handles.length, 6);
 });
