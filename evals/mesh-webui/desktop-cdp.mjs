@@ -26,8 +26,10 @@ export async function attachDesktop(manifest,out) {
     page.__b2Out=out;page.__b2Manifest=manifest;page.__b2Gateway='windows';
     diagnostics=await deadline(armBrowserDiagnostics(page,path.join(out,'diagnostics')),'Desktop diagnostics');
     return {page,async detach() {
-      await deadline(diagnostics.finish(),'Desktop diagnostics finish');
-      await deadline(browser.close(),'CDP transport disconnect');
+      try {
+        await page.evaluate(()=>{window.__b2Activity?.observer.disconnect();delete window.__b2Activity;});
+        await deadline(diagnostics.finish(),'Desktop diagnostics finish');
+      } finally {await deadline(browser.close(),'CDP transport disconnect');}
     }};
   } catch(error) {
     if(diagnostics) await deadline(diagnostics.finish('attach-failed'),'Desktop diagnostic failure finish');
