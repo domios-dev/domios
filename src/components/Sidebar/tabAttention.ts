@@ -13,6 +13,7 @@ export interface TabAttention {
   notificationIds: string[];
   cleared: boolean;
   showMark: boolean;
+  starting: "starting" | "connecting" | null;
 }
 
 export function attentionNotifications(tabId: string, notifications: readonly Notification[]): Notification[] {
@@ -36,6 +37,9 @@ export function tabAttention(tab: Tab, status: TabStatus | null | undefined, not
     notificationIds: candidates.map((item) => item.id),
     cleared: candidates.length === 0 && (!waiting || active),
     showMark: kind !== null && !active,
+    starting: activity.kind === "starting"
+      ? tab.boot_stage === "launch_binding_unconfirmed" ? "connecting" : "starting"
+      : null,
   };
 }
 
@@ -51,4 +55,14 @@ export function attentionActions(notification: Notification | null) {
   if (!notification || notification.resolved || notification.answer?.answered
     || (notification.answer && isAnswerUndeliverable(notification.answer))) return [];
   return notification.actions ?? [];
+}
+
+export type TabStatusMark = { kind: "attention"; label: string; level: TabAttentionKind | null }
+  | { kind: "starting"; label: string };
+
+export function tabStatusMark(title: string, attention: TabAttention | null | undefined, active = false): TabStatusMark | null {
+  if (!attention) return null;
+  if (attention.showMark && !active) return { kind: "attention", label: tabAttentionLabel(title, attention), level: attention.kind };
+  if (attention.starting) return { kind: "starting", label: `${title} ${attention.starting === "connecting" ? "waiting to connect" : "starting"}` };
+  return null;
 }

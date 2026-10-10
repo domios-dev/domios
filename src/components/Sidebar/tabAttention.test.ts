@@ -1,6 +1,6 @@
 import { describe, expect, finish, it } from "../../test/standaloneTest";
 import type { Notification, Tab } from "../../lib/types";
-import { attentionActions, tabAttention, tabAttentionByTab } from "./tabAttention";
+import { attentionActions, tabAttention, tabAttentionByTab, tabStatusMark } from "./tabAttention";
 
 const tab: Tab = { id: "agent", title: "Agent", pty_id: null, tab_type: "Terminal", cwd: null };
 function notice(id: string, level: Notification["level"], overrides: Partial<Notification> = {}): Notification {
@@ -47,6 +47,19 @@ describe("tab attention model", () => {
     expect(tabAttention(tab, "Waiting", [], true).cleared).toBe(true);
     expect(tabAttention(tab, "Waiting", [], false).showMark).toBe(true);
     expect(tabAttentionByTab({ [tab.id]: tab }, { [tab.id]: "Waiting" }, [notification])[tab.id].kind).toBe("failure");
+  });
+  it("selects one icon mark with failure and attention ahead of startup", () => {
+    const starting = { ...tab, agent_type: "fixture", boot_stage: "agent_launching" as const };
+    const model = tabAttention(starting, "Working", []);
+    expect(tabStatusMark(tab.title, model)?.kind).toBe("starting");
+    expect(tabStatusMark(tab.title, model, true)?.kind).toBe("starting");
+    const connecting = tabAttention({ ...starting, boot_stage: "launch_binding_unconfirmed" }, "Working", []);
+    expect(connecting.starting).toBe("connecting");
+    for (const level of ["action_needed", "failure"] as const) {
+      const mark = tabStatusMark(tab.title, tabAttention(starting, "Working", [notice(level, level)]));
+      expect(mark?.kind).toBe("attention");
+      expect(mark?.kind === "attention" ? mark.level : null).toBe(level);
+    }
   });
   it("does not offer stale choices after resolution, answering or loss of the asking tab", () => {
     const n = notice("choice", "action_needed", { actions: [{ type: "answer", label: "choice-token" }] });

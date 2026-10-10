@@ -1,3 +1,4 @@
+import { TabLoadingIndicator } from "./TabLoadingIndicator";
 import type { TabActivity } from "../../lib/tabActivity";
 
 import React from "react";
@@ -34,6 +35,7 @@ export function BusyState({
   "data-testid": testId = "busy-state",
 }: BusyStateProps) {
   const text = activity?.label ?? label ?? busyLabel(labelKey, locale);
+  if (activity?.kind === "starting") return <TabLoadingIndicator label={text} />;
   const base = inline ? "inline-flex items-baseline gap-2" : "ct-agent-row";
   return (
     <span

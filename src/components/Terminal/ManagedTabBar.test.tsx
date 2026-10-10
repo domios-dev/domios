@@ -13,7 +13,7 @@ test("managed ownership wires Stop and releases input after manager closure", as
   document.body.append(host);
   const root = createRoot(host);
   let stopped = 0;
-  await act(async () => root.render(<ManagedTabBar activity={tabActivity({ agent_state: { state: "working" } })} managed={managed} onStop={() => stopped++} />));
+  await act(async () => root.render(<ManagedTabBar activity={tabActivity({ agent_session_id: "bound-session", agent_state: { state: "working" } })} managed={managed} onStop={() => stopped++} />));
   assert.equal(host.querySelector('[role="status"]')?.getAttribute("aria-label"), "Managed by Scout");
   const stop = host.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]');
   assert.ok(stop);
@@ -21,10 +21,10 @@ test("managed ownership wires Stop and releases input after manager closure", as
   assert.equal(stopped, 1);
   await act(async () => root.render(<ManagedTabBar activity={tabActivity({ agent_state: { state: "idle" } })} managed={managed} onStop={() => stopped++} />));
   assert.equal(host.querySelector('button[aria-label="Stop generation"]'), null);
-  await act(async () => root.render(<ManagedTabBar activity={tabActivity({ agent_state: { state: "working" } })} managed={{ ...managed, manager_closed: true }} onStop={() => stopped++} />));
+  await act(async () => root.render(<ManagedTabBar activity={tabActivity({ agent_session_id: "bound-session", agent_state: { state: "working" } })} managed={{ ...managed, manager_closed: true }} onStop={() => stopped++} />));
   assert.ok(host.querySelector('[role="status"]'));
   assert.equal(host.querySelector('button'), null);
-  await act(async () => root.render(<ManagedTabBar activity={tabActivity({ agent_state: { state: "working" } })} managed={null} onStop={() => stopped++} />));
+  await act(async () => root.render(<ManagedTabBar activity={tabActivity({ agent_session_id: "bound-session", agent_state: { state: "working" } })} managed={null} onStop={() => stopped++} />));
   assert.equal(host.querySelector('[role="status"]'), null);
   await act(async () => root.unmount());
   host.remove();

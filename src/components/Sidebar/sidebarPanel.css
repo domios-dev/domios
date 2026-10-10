@@ -121,8 +121,7 @@
     transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
 }
 
-.ct-compact-rail__tab[data-activity="working"] .ct-compact-rail__status,
-.ct-compact-rail__tab[data-activity="starting"] .ct-compact-rail__status {
+.ct-compact-rail__tab[data-activity="working"] .ct-compact-rail__status {
   background: var(--ct-accent);
   opacity: 1;
   transform: scale(1);
@@ -328,4 +327,19 @@
 .ct-compact-rail__tab > .tab-attention-mark {
   right: 7px;
   bottom: 7px;
+}
+
+.tab-starting-mark {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: inline-flex;
+  color: var(--ct-muted-fg);
+  background: var(--ct-bg);
+  border-radius: 50%;
+}
+
+.ct-compact-rail__tab > .tab-starting-mark {
+  right: 5px;
+  bottom: 5px;
 }
