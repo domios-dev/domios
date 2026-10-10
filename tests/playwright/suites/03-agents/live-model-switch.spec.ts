@@ -10,7 +10,7 @@ import { dc, identity, records, turnEvidence, assertModel, restoreManifest, grok
 import { openAgent, readChat, type AgentUi } from "../16-chat-view/chat-send-matrix.live.helpers";
 import { detectChatPrefix } from "../../../../src/lib/chatPrefixes";
 import { completedTurn, waitForCompletedTurn } from "../../helpers/live-switch-completion";
-import { waitForNewLaunchBinding, type BindingSnapshot } from "../../helpers/live-switch-restore";
+import { waitForNewLaunchBinding, restoredBindingEvidence, type BindingSnapshot } from "../../helpers/live-switch-restore";
 
 const providers = (process.env.PW_SWITCH_PROVIDERS ?? "claude,codex,grok").split(",");
 if (providers.some(id => !["claude", "codex", "opencode", "grok"].includes(id))) throw new Error("Unknown switch matrix provider");
@@ -64,7 +64,7 @@ for (let run = startRun; run < startRun + repeats; run++) {
           expect(descriptor, `provider ${providerId} installed`).toBeDefined();
           expect(descriptor.model_switch, "restart modes must be explicitly reviewed, not silently exercised").not.toBe("restart_resume");
           const choices = descriptor.available_models;
-          const { a, b } = switchModels(descriptor);
+          let { a, b } = switchModels(descriptor);
           expect(a, "model A exists").toBeDefined();
           expect(b, "model B exists").toBeDefined();
           const prior = restored?.tabs.find(tab => tab.provider === providerId);
@@ -87,7 +87,9 @@ for (let run = startRun; run < startRun + repeats; run++) {
               expect(inspected).toHaveLength(1);
               return inspected[0];
             }, prior, wake => target.events.subscribe(() => wake()), 60_000);
-            writeFileSync(info.outputPath(`${providerId}-restored-binding.json`), JSON.stringify(binding, null, 2));
+            writeFileSync(info.outputPath(`${providerId}-restored-binding.json`), JSON.stringify({
+              evidence: restoredBindingEvidence(binding, prior), snapshot: binding,
+            }, null, 2));
           }
           let baseline = await identity(api, target.tabId);
           expect(baseline.session_binding_nonce).toBeTruthy();
@@ -101,8 +103,8 @@ for (let run = startRun; run < startRun + repeats; run++) {
             await target.composer.fill(text);
             await target.composer.press("Enter");
           };
-          const ack = async (model: Model, effort?: string, switchedAtMs?: number) => {
-            console.log(`[switch-step] ${providerId}/${step} ACK ${model.id}`);
+          const ack = async (model?: Model, effort?: string, switchedAtMs?: number) => {
+            console.log(`[switch-step] ${providerId}/${step} ACK ${model?.id ?? "observed baseline"}`);
             const effortProof = providerId === "grok" && effort && switchedAtMs !== undefined
               ? await grokEffortEvidence(baseline.agent_session_id, switchedAtMs, effort) : undefined;
             if (effortProof) {
@@ -125,7 +127,7 @@ for (let run = startRun; run < startRun + repeats; run++) {
             writeFileSync(info.outputPath(`${providerId}-${step}-raw.json`), JSON.stringify(evidence, null, 2));
             const exact = turnEvidence(providerId, evidence, marker);
             await info.attach(`${providerId}-${step}-records.json`, { body: JSON.stringify({ path: evidence.path, ...exact }, null, 2), contentType: "application/json" });
-            assertModel(providerId, exact.model, model.id);
+            if (model) assertModel(providerId, exact.model, model.id);
             if (effort && !effortProof) expect(exact.effort, "effort must come from the exact provider turn record").toBe(effort);
             const realUser = (m: { type: string; content: string }) => {
               const prefix = detectChatPrefix(m.content);
@@ -226,7 +228,14 @@ for (let run = startRun; run < startRun + repeats; run++) {
             }
           };
           step = "baseline";
-          await ack(a);
+          const baselineModel = await ack(prior ? undefined : a);
+          if (prior) {
+            try { assertModel(providerId, baselineModel, a.id); }
+            catch {
+              assertModel(providerId, baselineModel, b.id);
+              [a, b] = [b, a];
+            }
+          }
           const scenario = async (name: string, action: () => Promise<void>) => {
             if (selectedSteps && !selectedSteps.includes(name)) return;
             step = name;
