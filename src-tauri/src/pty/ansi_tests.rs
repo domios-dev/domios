@@ -45,7 +45,7 @@ fn long_wrapped_echo_preserves_short_output() {
     let echo = "x".repeat(16_227);
     let raw = format!("{echo}\r\n{}\r\n", RECEIPTS.join("\r\n"));
     let expected = format!("{echo}\n{}", RECEIPTS.join("\n"));
-    for rows in [1, 2, 24, 43] {
+    for rows in [2, 24, 43] {
         assert_eq!(clean_terminal_output_sized(&raw, rows, 120), expected);
     }
 }
@@ -73,4 +73,20 @@ fn scrollback_preserves_more_than_ten_thousand_lines() {
 fn zsh_partial_line_survives_real_viewport() {
     let raw = include_str!("../../crates/codeterm-util/testdata/zsh_partial_line_120col.raw");
     assert!(clean_terminal_output_sized(raw, 40, 120).contains("MARKER_RED_TEST"));
+}
+
+#[test]
+fn undersized_viewport_clamps_to_safe_dimensions() {
+    let raw = format!("{}\r\nreceipt\r\n", "x".repeat(16_227));
+    let expected = clean_terminal_output_sized(&raw, 2, 120);
+    assert_eq!(expected, format!("{}\nreceipt", "x".repeat(16_227)));
+    for rows in [0, 1] {
+        assert_eq!(clean_terminal_output_sized(&raw, rows, 120), expected);
+    }
+    let narrow = "abc\r\nreceipt";
+    let expected = clean_terminal_output_sized(narrow, 2, 1);
+    assert_eq!(expected, "abc\nreceipt");
+    for rows in [0, 1, 2] {
+        assert_eq!(clean_terminal_output_sized(narrow, rows, 0), expected);
+    }
 }
