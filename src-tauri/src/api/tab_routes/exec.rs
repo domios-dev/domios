@@ -55,7 +55,7 @@ pub async fn exec_in_tab(
         .resolve_pty_id(&tab_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found or has no PTY"))?;
 
-    let start_offset = output_len(&state, &pty_id);
+    let start_offset = state.svc.output_buf.lock().total_written(&pty_id);
     let waiter = ExecWaiter::register(&pty_id);
     let svc = state.svc.clone();
     let spawn_pty = pty_id.clone();
@@ -70,14 +70,7 @@ pub async fn exec_in_tab(
         .wait(std::time::Duration::from_millis(timeout_ms))
         .await;
 
-    let text = state
-        .svc
-        .output_buf
-        .lock()
-        .get_text(&pty_id)
-        .unwrap_or_default();
-    let offset = text.len();
-    let raw_output = text.get(start_offset..).unwrap_or_default().to_string();
+    let (raw_output, offset) = output_since(&state.svc.output_buf.lock(), &pty_id, start_offset);
     let output = if body.strip_ansi.unwrap_or(false) {
         // Re-emulate at the pty's REAL width: shell partial-line redraws
         // (zsh's % padding) erase the last output line at any other width.
@@ -115,12 +108,31 @@ fn tab_shell_exited(state: &AppState, tab_id: &str) -> bool {
     })
 }
 
-fn output_len(state: &AppState, pty_id: &str) -> usize {
-    state
-        .svc
-        .output_buf
-        .lock()
-        .get_text(pty_id)
-        .map(|text| text.len())
-        .unwrap_or(0)
+// The retained ring stops growing at its cap, so only the monotonic total is a stable cursor.
+fn output_since(
+    buf: &codeterm_pty::pty::manager::OutputBuffer,
+    pty_id: &str,
+    start: u64,
+) -> (String, u64) {
+    let (bytes, total) = buf.read_since(pty_id, start);
+    (String::from_utf8_lossy(&bytes).into_owned(), total)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::output_since;
+    use codeterm_pty::pty::manager::OutputBuffer;
+
+    #[test]
+    fn exec_output_survives_a_full_retained_ring() {
+        let mut buf = OutputBuffer::new(64);
+        buf.append("pty", &[b'x'; 64]);
+        let start = buf.total_written("pty");
+        let ring_len_before = buf.get_text("pty").map_or(0, |t| t.len());
+        buf.append("pty", b"resource-json");
+        assert_eq!(buf.get_text("pty").map_or(0, |t| t.len()), ring_len_before);
+        let (output, offset) = output_since(&buf, "pty", start);
+        assert_eq!(output, "resource-json");
+        assert_eq!(offset, start + 13);
+    }
 }
