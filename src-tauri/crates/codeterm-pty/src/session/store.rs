@@ -306,18 +306,25 @@ pub struct SessionBackupInfo {
 
 pub struct SessionStore {
     pub(crate) session_dir: PathBuf,
+    pub(crate) scrollback_writes: parking_lot::Mutex<super::scrollback::ScrollbackWriteCache>,
 }
 
 impl SessionStore {
     pub fn new() -> Self {
         let dir = codeterm_paths::data_dir().join("sessions");
         let _ = fs::create_dir_all(&dir);
-        Self { session_dir: dir }
+        Self {
+            session_dir: dir,
+            scrollback_writes: Default::default(),
+        }
     }
 
     pub fn for_test_dir(dir: PathBuf) -> Self {
         let _ = fs::create_dir_all(&dir);
-        Self { session_dir: dir }
+        Self {
+            session_dir: dir,
+            scrollback_writes: Default::default(),
+        }
     }
 
     #[cfg(test)]
