@@ -113,6 +113,64 @@ fn session_effort_confirmed_command_and_later_turn_native_js_parity() {
     std::fs::remove_dir(path.parent().unwrap()).unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn session_effort_symlinked_cwd_reads_only_owned_transcript_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let config = temp.path().join("config");
+    let evidence = temp.path().join("evidence");
+    let _env = EnvGuard::new(&[
+        ("CLAUDE_CONFIG_DIR", config.to_str().unwrap()),
+        (
+            crate::session_evidence::EVIDENCE_DIR_ENV,
+            evidence.to_str().unwrap(),
+        ),
+    ]);
+    let project = temp.path().join("project");
+    let alias = temp.path().join("alias");
+    std::fs::create_dir_all(&project).unwrap();
+    std::os::unix::fs::symlink(&project, &alias).unwrap();
+    let cwd = alias.to_str().unwrap();
+    let (native, js) = pair();
+    let path = native.session_jsonl_path(cwd, "owned").unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let prior = serde_json::json!({"type":"assistant","message":{"metadata":{"effort":"low"}}});
+    let command = serde_json::json!({"type":"user","message":{"content":"<local-command-stdout>Set effort level to medium (this session only): details</local-command-stdout>"}});
+    std::fs::write(&path, format!("{prior}\n{command}")).unwrap();
+    std::fs::write(
+        path.with_file_name("sibling.jsonl"),
+        r#"{"type":"assistant","effort":"max"}"#,
+    )
+    .unwrap();
+    for provider in [&native as &dyn AgentProvider, &js as &dyn AgentProvider] {
+        assert_eq!(
+            provider
+                .detect_session_reasoning_effort(cwd, "owned")
+                .as_deref(),
+            Some("medium")
+        );
+        assert_eq!(
+            provider.detect_session_reasoning_effort(cwd, "missing"),
+            None
+        );
+    }
+    let later = serde_json::json!({"type":"assistant","message":{"metadata":{"effort":"high"}}});
+    std::fs::write(&path, format!("{prior}\n{command}\n{later}")).unwrap();
+    assert_eq!(
+        native
+            .detect_session_reasoning_effort(cwd, "owned")
+            .as_deref(),
+        Some("high")
+    );
+    assert_eq!(
+        js.detect_session_reasoning_effort(cwd, "owned").as_deref(),
+        Some("high")
+    );
+}
+
 /// AS3 (Case B): the real claude plugin.js classifies a rate-limit menu as
 /// `RateLimited` through the QuickJS runtime, and its wire output round-trips
 /// into the native `TabStateClassification` types — confirm-wait keys + a
