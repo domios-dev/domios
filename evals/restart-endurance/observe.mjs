@@ -370,7 +370,20 @@ function captureLogs(n) {
 
 async function runRound(n) {
   const health = await checkHealth();
+  const readiness = [];
+  for (const fixture of result.fixtures.filter((fixture) => fixture.id)) {
+    const signal = AbortSignal.timeout(deadlineMs);
+    const events = new Events(signal);
+    try {
+      await events.open();
+      readiness.push(await waitReady(events, fixture.id, signal, fixture.first_turn_policy));
+    } catch (error) {
+      readiness.push({ id: fixture.id, readiness_error: error.message });
+    } finally { events.close(); }
+  }
   const entry = { round: n, health, rows: [], started_at: result.round_started_at };
+  entry.restore_ready_at = new Date().toISOString();
+  entry.restore_readiness = readiness;
   result.rounds.push(entry);
   save();
   for (const fixture of result.fixtures) {
