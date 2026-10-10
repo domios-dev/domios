@@ -1,3 +1,57 @@
+# macOS named-instance trial
+
+This lane also supports the authorized aiderqa instance on port 7697. Keep the
+application checkout at ba961da8c while running the trial. Start only that DEV:
+
+```bash
+CODETERM_INSTANCE=aiderqa CODETERM_API_PORT=7697 ./build.sh dev --wait
+CODETERM_INSTANCE=aiderqa CODETERM_API_PORT=7697 bash evals/restart-endurance/run.sh \
+  --out target-check/evals/endure-mac-trial-1 --notice-hook /absolute/path/to/notice.sh
+```
+
+Named trials create only fresh/used provider fixtures in Endure. They require
+Claude, Codex and OpenCode, use deepseek/deepseek-flash for OpenCode, and include
+Grok when installed. They leave General siblings and setup alone. Empty fresh
+sessions may acquire a new session id at the first restart; continuity becomes
+mandatory after the fixture completes its first answer.
+Set ENDURE_WORKSPACE_NAME to a distinct workspace name for a scored trial after
+a setup rehearsal; prior fixtures and their evidence remain preserved.
+
+Every restart waits for all created fixtures to reach agent_ready, then probes
+concurrently with one 120-second answer deadline per tab. A parallel failure
+retains its verdict, timestamps and health latency; one serial retry is recorded
+separately. Grok answers allow a marker prefix to tolerate its output suffix;
+a submitted Grok probe is never sent again in the same round.
+
+When owner login is pending, setup can defer Grok with ENDURE_DEFER_GROK=1.
+After credentials are available, repair-setup OUTPUT_DIR PROVIDER observes an
+existing fresh fixture and seeds an unanswered used fixture, spawning missing
+fixtures through the normal path. Original failures remain in results.json and
+recovery observations are appended. An explicit PROVIDER:FRESH_TAB argument can
+journal an interrupted fixture creation after checking its provider, workspace
+and cwd. It never approves trust dialogs or restarts failed agents.
+
+Use --continue-from-setup only after reviewing a completed setup with no restart
+round or fatal error. The runner refuses to replay an incomplete trial.
+
+After round 3, discover alternate models with dc agent models PROVIDER, then run
+these observers through the named DEV library:
+
+```bash
+source evals/_lib/lib.sh
+dev_run node evals/restart-endurance/observe.mjs switch OUTPUT_DIR PROVIDER:MODEL
+```
+
+Switch proof requires the same session and the next completed answer's persisted
+provider model, read from the exact session's Claude JSONL, Codex rollout,
+OpenCode SQLite assistant row, or Grok updates.jsonl. The model observer appends
+model_switches to results.json. Node with node:sqlite support is required.
+
+The external notice hook uses the assigned Orchestrator's return route. When the
+Orchestrator requests no progress messages, retain the notice locally instead.
+Keep all authored messages in the caller's AgentPad. Stop only
+aiderqa after evidence collection; retain the worktree and trial artifacts.
+
 # Restart endurance (live LLM eval)
 
 Run only in the canonical checkout, in one Team-bound QA utility shell, under
