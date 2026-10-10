@@ -77,3 +77,17 @@ pub(super) fn mem_calibration_stale(
         .with_conn(|conn| stale_from_params(conn, &p, &hygiene))
         .map_err(internal_error)
 }
+
+pub(super) fn mem_area_merge(
+    params: Option<serde_json::Value>,
+    svc: &ServiceState,
+) -> Result<serde_json::Value, JsonRpcError> {
+    let body: crate::api::mem_routes::area_merge::AreaMergeBody = parse_params(params)?;
+    let out = crate::api::mem_routes::area_merge::merge_area(svc, &body, body.worker_id.as_deref())
+        .map_err(invalid_params)?;
+    if !body.dry_run {
+        let ids = serde_json::from_value(out["item_ids"].clone()).unwrap_or_default();
+        emit_activity(svc, "update", ids);
+    }
+    Ok(out)
+}
