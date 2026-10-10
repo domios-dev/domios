@@ -373,6 +373,11 @@ for (let run = startRun; run < startRun + repeats; run++) {
             finally { signal.removeEventListener("abort", expired); }
           }
           if (agent) await info.attach(`${providerId}-stream-resyncs.json`, { body: JSON.stringify(agent.events.resyncs, null, 2), contentType: "application/json" });
+          if (agent) {
+            try {
+              writeFileSync(info.outputPath(`${providerId}-command-log.json`), JSON.stringify(await deliveryLog(agent.tabId), null, 2));
+            } catch (error) { console.log(`[switch-log-capture] ${agent.tabId}: ${String(error)}`); }
+          }
           await agent?.events.close();
         }
       }
