@@ -2,8 +2,8 @@ import { resolve } from 'node:path';
 import { runDc } from './command.mjs';
 import { writeEvidence } from './evidence.mjs';
 const [peer, root] = process.argv.slice(2);
-if (!peer || !root || !/^[a-f0-9-]{6,}$/.test(peer)) throw new Error('Exact meshqa identity and run directory required');
-const lib = resolve(import.meta.dirname, '../_lib/lib.sh');
+if (!peer || !root || !/^[a-f0-9-]{6,}$/.test(peer)) throw new Error('Exact windows identity and run directory required');
+const lib = '/Users/kandrey/Developer/codeterm-worktrees/pl-fni7jw-task-1yh44r-f2ec7f4f/evals/_lib/lib.sh';
 for (const [name, args] of [
   ['local-mesh', ['mesh', 'status', '--json']],
   ['remote-mesh', ['mesh', 'status', '--mesh', peer, '--json']],

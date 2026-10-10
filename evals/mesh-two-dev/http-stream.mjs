@@ -3,7 +3,7 @@ import { streamPaths, collectState } from './stream.mjs';
 export function devStreamClient({ port, token, peer, fetcher = fetch }) {
   validateTarget('aiderqa', port);
   if (!token) throw new Error('Bench-resolved DEV credentials required');
-  if (peer && !/^[a-f0-9-]{6,}$/.test(peer)) throw new Error('Pinned meshqa identity required');
+  if (peer && !/^[a-f0-9-]{6,}$/.test(peer)) throw new Error('Pinned windows identity required');
   const base = `http://127.0.0.1:${port}`, paths = streamPaths(peer);
   async function request(path, signal, body) {
     const response = await fetcher(base + path, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined, signal });

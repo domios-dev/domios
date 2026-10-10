@@ -1,7 +1,8 @@
-import { validateTarget } from './sampling.mjs';
+import { validateTarget, targetNames } from './targets.mjs';
 export function verifyPair(endpoints, expected) {
-  if (!expected.aiderqa || !expected.meshqa || expected.aiderqa === expected.meshqa) throw new Error('Two distinct pinned identities required');
-  for (const [name, other] of [['aiderqa', 'meshqa'], ['meshqa', 'aiderqa']]) {
+  if (!expected.aiderqa || !expected.windows || expected.aiderqa === expected.windows) throw new Error('Two distinct pinned identities required');
+  for (const name of targetNames) {
+    const other = targetNames.find(candidate => candidate !== name);
     const { status, peers } = endpoints[name] ?? {};
     if (!status || !peers) throw new Error(`Missing endpoint: ${name}`);
     validateTarget(name, status.api_port);
