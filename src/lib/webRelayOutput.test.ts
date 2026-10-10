@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { finish, it, vi } from "../test/standaloneTest";
 
-it("whole-peer Web terminals use tab-scoped gateway streams without cross-peer output", async () => {
+function stubBrowser(): void {
   const values = new Map<string, string>();
   const storage = {
     getItem: (key: string) => values.get(key) ?? null,
@@ -14,6 +14,10 @@ it("whole-peer Web terminals use tab-scoped gateway streams without cross-peer o
   vi.stubGlobal("window", browser);
   vi.stubGlobal("localStorage", storage);
   vi.stubGlobal("sessionStorage", storage);
+}
+
+it("whole-peer Web terminals use tab-scoped gateway streams without cross-peer output", async () => {
+  stubBrowser();
   const api = await import("./webApi");
   const output = await import("./outputStream");
   api.setTokenFor("http://gateway.test:7685", "opaque-local-token");
@@ -31,12 +35,15 @@ it("whole-peer Web terminals use tab-scoped gateway streams without cross-peer o
       controller.enqueue(encode({ tab_id: "same-tab", output: "owned", offset: 5, boot: "boot" }));
     } }));
   }));
+  const peerA = "928b06dd-1234-4567-890a-123456789abc";
+  const peerB = "827b06dd-2345-5678-901b-234567890bcd";
+  const peerC = "726b06dd-3456-6789-012c-345678901cde";
   const unsubscribers: Array<() => void> = [];
   try {
     for (const [selected, tabId, expectedPeer] of [
-      ["peer-a", "same-tab", "peer-a"],
-      ["peer-b", "same-tab", "peer-b"],
-      ["peer-b", "mesh:peer-c/same-tab", "peer-c"],
+      [peerA, "same-tab", peerA],
+      [peerB, "same-tab", peerB],
+      [peerB, `mesh:${peerC}/same-tab`, peerC],
     ]) {
       api.setRelayTarget(selected, selected);
       const received: string[] = [];
@@ -47,12 +54,47 @@ it("whole-peer Web terminals use tab-scoped gateway streams without cross-peer o
       }));
       assert.equal(requests[requests.length - 1]?.searchParams.get("tab"), `mesh:${expectedPeer}/same-tab`);
       assert.equal(requests[requests.length - 1]?.searchParams.get("peer"), expectedPeer);
+      assert.equal(requests[requests.length - 1]?.searchParams.has("since"), false);
       await delivered;
       assert.deepEqual(received, ["owned"]);
     }
   } finally {
     for (const unsubscribe of unsubscribers) unsubscribe();
     output.resetOutputStream();
+    vi.unstubAllGlobals();
+  }
+});
+
+it("HTTP 400 reaches the terminal error sink and failed output channel without busy retry", async () => {
+  stubBrowser();
+  const output = await import("./outputStream");
+  const { onRemoteTransportState } = await import("./remoteTabTransportState");
+  const failures: Error[] = [];
+  const states: string[] = [];
+  let requests = 0;
+  vi.stubGlobal("fetch", async () => {
+    requests += 1;
+    return new Response(null, { status: 400 });
+  });
+  const tabId = "mesh:928b06dd-1234-4567-890a-123456789abc/refused";
+  const stopState = onRemoteTransportState((state) => {
+    if (state.ordinaryTabId === tabId && state.channel === "output") states.push(state.availability);
+  });
+  const unsubscribe = output.subscribeTabOutput(tabId, {
+    onOutput() { throw new Error("Refused stream must not deliver output"); },
+    onTruncated() {}, onEnded() {},
+    onStreamError(error) { failures.push(error); },
+  });
+  try {
+    await output.waitForRemoteOutputGenerationSettlement(tabId, output.remoteOutputSubscriptionGeneration(tabId));
+    assert.equal(failures.length, 1);
+    assert.match(failures[0].message, /HTTP 400/);
+    assert.deepEqual(states, ["unavailable"]);
+    assert.equal(requests, 1);
+    assert.equal(output.remoteOutputSubscriptionSnapshot(tabId).hasController, false);
+  } finally {
+    unsubscribe();
+    stopState();
     vi.unstubAllGlobals();
   }
 });
