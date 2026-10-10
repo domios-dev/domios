@@ -6,6 +6,7 @@ import { exactReply, firstTurnPolicy, kind, probeReady } from "./oracle.mjs";
 import { digest, logLines, newEvidence } from "./logs.mjs";
 import { recordBoundary, nextTurnModel } from "./records.mjs";
 import { snapshotAfterEvent, tabSnapshot } from "./snapshots.mjs";
+import { restartObserved } from "./restart.mjs";
 import { restoreReady, reconcileReadiness } from "./readiness.mjs";
 
 const script = fileURLToPath(import.meta.url);
@@ -47,6 +48,7 @@ function save() {
       row.before_probe?.agent_type, `${row.previous_session ?? "—"} → ${row.after_probe?.agent_session_id ?? row.before_probe?.agent_session_id ?? "—"}`,
       row.answer ?? "—", row.elapsed_ms, `${row.pass ? "PASS" : row.observed_only ? "OBSERVED" : "FAIL"}: ${row.reason ?? ""}`,
     ].map(cell).join(" | ")} |`);
+    if (entry.restart) lines.push("", `Restart: ${entry.restart.pass ? "PASS" : "FAIL"}; listener ${entry.restart.before?.pid ?? "unknown"} → ${entry.restart.after?.pid ?? "unknown"}; process start (epoch microseconds) ${entry.restart.before?.started_us ?? "unknown"} → ${entry.restart.after?.started_us ?? "unknown"}.`);
     lines.push("", `Log evidence: [round-${entry.round}.log](round-${entry.round}.log). Full tab records, lifecycle and transcripts are in results.json.`, "");
     for (const row of entry.rows.filter((row) => !row.pass && !row.observed_only)) {
       lines.push(`### ${cell(row.id ?? row.provider)} failure`, "", `${cell(row.reason)}`, "", "```text");
@@ -434,7 +436,9 @@ function captureLogs(n) {
 
 async function runRound(n) {
   const health = await checkHealth();
-  const entry = { round: n, health, rows: [], started_at: result.round_started_at,
+  const restart = JSON.parse(readFileSync(join(out, `restart-${n}.json`), "utf8"));
+  if (!restart.pass || !restartObserved(restart.before, restart.after)) throw new Error("restart_not_observed");
+  const entry = { round: n, health, restart, rows: [], started_at: result.round_started_at,
     health_observed_at: new Date().toISOString() };
   result.rounds.push(entry);
   save();
@@ -611,13 +615,21 @@ async function main() {
     save();
   } else if (mode === "round") await runRound(round);
   else if (mode === "abort") {
-    result.fatal = `DEV restart ${round} failed; see restart-${round}.log`;
-    captureLogs(round);
+    const evidencePath = join(out, `restart-${round}.json`);
+    const restart = existsSync(evidencePath) ? JSON.parse(readFileSync(evidencePath, "utf8")) : null;
+    result.fatal = `restart_not_observed: DEV restart ${round} failed; see restart-${round}.log`;
+    const lines = captureLogs(round);
+    result.rounds.push({ round, restart, started_at: result.round_started_at, rows: result.fixtures.map((fixture) => ({
+      ...fixture, pass: false, phase: "restart_not_observed", reason: result.fatal,
+      log_evidence: lines.filter((line) => line.includes(fixture.id)),
+    })) });
     save();
+    writeFileSync(join(out, "complete"), "1\n");
   } else if (mode === "finish") {
     const failed = result.coverage.some((entry) => entry.status === "required unavailable") ||
       result.rounds.some((entry) => entry.rows.some((row) => !row.pass && !row.observed_only)) ||
-      result.rounds.filter((entry) => entry.round > 0).length !== 3;
+      result.rounds.filter((entry) => entry.round > 0).length !== 3 ||
+      result.rounds.filter((entry) => entry.round > 0).some((entry) => !entry.restart?.pass || !restartObserved(entry.restart.before, entry.restart.after));
     result.finished_at = new Date().toISOString();
     result.pass = !failed;
     save();
