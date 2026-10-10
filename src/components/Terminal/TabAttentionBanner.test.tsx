@@ -22,6 +22,7 @@ for (const key of ["window", "document", "navigator", "HTMLElement", "SVGElement
 const tab: Tab = { id: "agent", title: "tab-token", agent_type: "test-provider", pty_id: null, tab_type: "Terminal", cwd: null };
 const notification: Notification = { id: "n", tab_id: tab.id, workspace_id: "ws", title: "reason-token", body: "body-token", level: "failure", severity: "Info", read: false, timestamp: 1, actions: [{ type: "answer", label: "choice-token" }] };
 const reads: string[] = [];
+const readCount = (): number => reads.length;
 const answers: string[] = [];
 const markRead = (id: string) => { reads.push(id); };
 const host = document.createElement("div");
@@ -46,7 +47,7 @@ async function run() {
   assert(rail.includes(`role="img" aria-label="${label}"`), "rail renders the same accessible mark");
   const notices = [notification, { ...notification, id: "action", level: "action_needed" as const }];
   await render(false, notices);
-  assert(reads.length === 0 && !host.querySelector('[role="region"]'), "unvisited tabs neither clear nor show a banner");
+  assert(readCount() === 0 && !host.querySelector('[role="region"]'), "unvisited tabs neither clear nor show a banner");
   const open = host.querySelector<HTMLButtonElement>(`button[aria-label="Open tab ${tab.title}"]`);
   assert(open, "tab has an accessible activation control");
   await act(async () => open.click());
@@ -55,7 +56,7 @@ async function run() {
   assert(region?.getAttribute("aria-label") === label, "banner exposes the model's accessible name");
   assert(region.textContent?.includes(notification.title) && region.textContent.includes(notification.body!), "banner renders the supplied title and body");
   await render(true, notices.map((item) => ({ ...item, read: true })));
-  assert(reads.length === 2, "read projection does not repeat mark-read");
+  assert(readCount() === 2, "read projection does not repeat mark-read");
   assert(host.querySelector('[role="region"]')?.textContent?.includes(notification.title), "reason remains visible after the read update");
   const choice = [...host.querySelectorAll("button")].find((button) => button.textContent === notification.actions![0].label);
   assert(choice, "existing choice is available inline");
