@@ -26,7 +26,7 @@ assert.equal(
 );
 assert.equal(surfaceCallUrl("https://host", "t1"), "https://host/api/surfaces/t1/call");
 
-const state = { targetId: "target-1", owner: "Jev", title: "Login", url: "https://a.test/", activity: "typing", needsHuman: "none", profile: "clean", profiles: ["Work", 3] };
+const state = { owner: "Jev", title: "Login", url: "https://a.test/", activity: "typing", needsHuman: "none", profile: "clean", profiles: ["Work", 3] };
 assert.deepEqual(surfaceStreamEvent({ event: "state", data: JSON.stringify(state) }), {
   type: "state",
   state: { ...state, profiles: ["Work"] },

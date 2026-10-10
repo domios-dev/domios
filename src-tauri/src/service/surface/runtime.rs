@@ -19,8 +19,6 @@ pub(crate) struct SurfaceState {
     pub owner: String,
     pub title: String,
     pub url: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub target_id: String,
     pub activity: String,
     /// The agent driving `activity` when it is not the surface owner.
     #[serde(skip_serializing_if = "String::is_empty")]

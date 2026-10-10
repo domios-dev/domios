@@ -63,7 +63,6 @@ function optionalString(value: unknown): string | undefined {
 
 function toState(value: Record<string, unknown>): SurfaceState {
   const state: SurfaceState = { owner: optionalString(value.owner) ?? "" };
-  if (typeof value.targetId === "string") state.targetId = value.targetId;
   if (typeof value.title === "string") state.title = value.title;
   if (typeof value.url === "string") state.url = value.url;
   if (typeof value.activity === "string" || value.activity === null) state.activity = value.activity;

@@ -133,9 +133,9 @@ impl Inner {
 
 /// Browser-level CDP connection with flattened target sessions; owned by Rust, never the webview.
 #[derive(Clone)]
-struct SocketConnection(Arc<Inner>);
+pub struct CdpClient(Arc<Inner>);
 
-impl SocketConnection {
+impl CdpClient {
     pub async fn connect(endpoint: &str) -> Result<Self, String> {
         validate_loopback_endpoint(endpoint, &["ws"])?;
         let request = endpoint
@@ -178,6 +178,10 @@ impl SocketConnection {
 
     pub fn close(&self, reason: &str) {
         self.0.close(reason);
+    }
+
+    pub async fn send(&self, method: &str, params: Value) -> Reply {
+        self.send_to(None, method, params, COMMAND_DEADLINE).await
     }
 
     pub async fn send_to(
@@ -240,88 +244,7 @@ impl SocketConnection {
             client: Arc::downgrade(&self.0),
         }
     }
-}
 
-#[async_trait::async_trait]
-pub trait CdpConnection: Send + Sync {
-    fn endpoint(&self) -> &str;
-    fn closed(&self) -> watch::Receiver<Option<String>>;
-    fn close(&self, reason: &str);
-    fn subscribe(&self, filter: EventFilter) -> EventStream;
-    async fn send_to(
-        &self,
-        session_id: Option<&str>,
-        method: &str,
-        params: Value,
-        deadline: Duration,
-    ) -> Reply;
-}
-
-#[async_trait::async_trait]
-impl CdpConnection for SocketConnection {
-    fn endpoint(&self) -> &str {
-        self.endpoint()
-    }
-    fn closed(&self) -> watch::Receiver<Option<String>> {
-        self.closed()
-    }
-    fn close(&self, reason: &str) {
-        self.close(reason);
-    }
-    fn subscribe(&self, filter: EventFilter) -> EventStream {
-        self.subscribe(filter)
-    }
-    async fn send_to(
-        &self,
-        session_id: Option<&str>,
-        method: &str,
-        params: Value,
-        deadline: Duration,
-    ) -> Reply {
-        self.send_to(session_id, method, params, deadline).await
-    }
-}
-
-#[derive(Clone)]
-pub struct CdpClient(Arc<dyn CdpConnection>);
-
-impl CdpClient {
-    pub async fn connect(endpoint: &str) -> Result<Self, String> {
-        Ok(Self::from_connection(Arc::new(
-            SocketConnection::connect(endpoint).await?,
-        )))
-    }
-
-    pub fn from_connection(connection: Arc<dyn CdpConnection>) -> Self {
-        Self(connection)
-    }
-    pub fn endpoint(&self) -> &str {
-        self.0.endpoint()
-    }
-    pub fn closed(&self) -> watch::Receiver<Option<String>> {
-        self.0.closed()
-    }
-    pub fn close_reason(&self) -> Option<String> {
-        self.closed().borrow().clone()
-    }
-    pub fn close(&self, reason: &str) {
-        self.0.close(reason);
-    }
-    pub fn subscribe(&self, filter: EventFilter) -> EventStream {
-        self.0.subscribe(filter)
-    }
-    pub async fn send(&self, method: &str, params: Value) -> Reply {
-        self.send_to(None, method, params, COMMAND_DEADLINE).await
-    }
-    pub async fn send_to(
-        &self,
-        session_id: Option<&str>,
-        method: &str,
-        params: Value,
-        deadline: Duration,
-    ) -> Reply {
-        self.0.send_to(session_id, method, params, deadline).await
-    }
     /// Flattened session: page commands share this socket and carry `sessionId`.
     pub async fn attach_page(&self, target_id: &str) -> Result<PageChannel, CdpError> {
         let result = self
@@ -419,14 +342,6 @@ pub struct EventStream {
 }
 
 impl EventStream {
-    pub fn from_receiver(receiver: mpsc::Receiver<Arc<CdpEvent>>) -> Self {
-        Self {
-            receiver,
-            id: 0,
-            client: Weak::new(),
-        }
-    }
-
     /// `None` once the connection closed.
     pub async fn recv(&mut self) -> Option<Arc<CdpEvent>> {
         self.receiver.recv().await
