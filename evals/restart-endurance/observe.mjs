@@ -398,6 +398,17 @@ async function runRound(n) {
     } finally { events.close(); }
   }
   const entry = { round: n, health, rows: [], started_at: result.round_started_at };
+  entry.initial_readiness = readiness.map((record) => ({ ...record }));
+  const settled = await tabs();
+  for (let index = 0; index < readiness.length; index++) {
+    if (!readiness[index].readiness_error) continue;
+    const fixture = result.fixtures.find((fixture) => fixture.id === readiness[index].id);
+    const record = settled.find((record) => record.id === fixture?.id);
+    if (probeReady(record, fixture?.first_turn_policy)) {
+      readiness[index] = { ...record, recovered_readiness_error: readiness[index].readiness_error };
+    }
+  }
+  entry.materialized_pty_count = settled.filter((record) => record.pty_id).length;
   entry.restore_ready_at = new Date().toISOString();
   entry.restore_readiness = readiness;
   result.rounds.push(entry);
