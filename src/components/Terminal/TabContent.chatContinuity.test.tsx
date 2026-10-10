@@ -216,6 +216,15 @@ async function flush(): Promise<void> {
   });
 }
 
+async function settleUntil(done: () => boolean, label: string): Promise<void> {
+  for (let turn = 0; turn < 50 && !done(); turn++) {
+    await act(async () => {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    });
+  }
+  assert(done(), label);
+}
+
 async function main(): Promise<void> {
   const hookWindow = setupDom();
   const bridgeModule = await import("../../lib/bridge");
@@ -287,9 +296,8 @@ async function main(): Promise<void> {
   await act(async () => {
     window.dispatchEvent(new CustomEvent("codeterm-peer-switch-rebind"));
   });
-  await flush();
-  assert(catalogRequests.some((url) => url.endsWith("/api/mesh/relay-to")), "peer switch did not refresh catalog");
-  assert(!host.querySelector('[data-testid="provider-capability-state"]'), "resolved descriptor retained missing state");
+  await settleUntil(() => catalogRequests.some((url) => url.endsWith("/api/mesh/relay-to")), "peer switch did not refresh catalog");
+  await settleUntil(() => !host.querySelector('[data-testid="provider-capability-state"]'), "resolved descriptor retained missing state");
   const switchBeforeRefresh = host.querySelector('[data-testid="tab-mode-switch"]');
   assert(switchBeforeRefresh, "bound provider did not expose the Terminal/Chat switch");
   assert(
