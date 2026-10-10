@@ -10,6 +10,7 @@ import { dc, identity, records, turnEvidence, assertModel, restoreManifest, grok
 import { openAgent, readChat, type AgentUi } from "../16-chat-view/chat-send-matrix.live.helpers";
 import { detectChatPrefix } from "../../../../src/lib/chatPrefixes";
 import { completedTurn, waitForCompletedTurn } from "../../helpers/live-switch-completion";
+import { waitForNewLaunchBinding, type BindingSnapshot } from "../../helpers/live-switch-restore";
 
 const providers = (process.env.PW_SWITCH_PROVIDERS ?? "claude,codex,grok").split(",");
 if (providers.some(id => !["claude", "codex", "opencode", "grok"].includes(id))) throw new Error("Unknown switch matrix provider");
@@ -80,6 +81,14 @@ for (let run = startRun; run < startRun + repeats; run++) {
           const capsule = ui.page.locator(`[data-tab-id="${target.tabId}"]`).getByTestId("status-model-trigger").filter({ visible: true });
           const picker = ui.page.getByTestId("status-model-picker");
           await expect(capsule).toHaveCount(1);
+          if (prior) {
+            const binding = await waitForNewLaunchBinding(async () => {
+              const inspected = await dc<BindingSnapshot[]>("tab", "inspect", "--tab", target.tabId, "--lifecycle");
+              expect(inspected).toHaveLength(1);
+              return inspected[0];
+            }, prior, wake => target.events.subscribe(() => wake()), 60_000);
+            writeFileSync(info.outputPath(`${providerId}-restored-binding.json`), JSON.stringify(binding, null, 2));
+          }
           let baseline = await identity(api, target.tabId);
           expect(baseline.session_binding_nonce).toBeTruthy();
           if (prior) {
@@ -388,7 +397,7 @@ for (let run = startRun; run < startRun + repeats; run++) {
       console.log(JSON.stringify(summary));
       if (run === startRun + repeats - 1 && !restored && process.env.PW_SWITCH_KEEP === "1") {
         writeFileSync(info.outputPath("restore-manifest.json"), JSON.stringify(summary, null, 2));
-      } else await dc("workspace", "close", workspaceId, "--force");
+      } else if (!restored) await dc("workspace", "close", workspaceId, "--force");
       if (originalWorkspace && originalWorkspace !== workspace) await api.focusWorkspace(originalWorkspace);
     }
     expect(failures, "all requested providers and steps must pass; no retries").toEqual([]);
