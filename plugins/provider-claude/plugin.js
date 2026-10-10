@@ -24,6 +24,28 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-claude/src/preTrust.ts
+function claudeProjectKey(canonical, windows) {
+  if (!windows) return canonical;
+  return canonical.replace(/\\/g, "/").replace(/^\/\/\?\/UNC\//, "//").replace(/^\/\/\?\//, "").replace(/^[a-z]:/, (drive) => drive.toUpperCase());
+}
+function claudeTrustRecord(host2, cwd, grant) {
+  const root = host2.envGet("CLAUDE_CONFIG_DIR") || host2.homeDir();
+  const canonical = host2.canonicalPath(cwd);
+  if (!root) return { status: "skipped", reason: "configuration root unavailable" };
+  if (!canonical) return { status: "skipped", reason: "launch cwd cannot be resolved" };
+  const windows = host2.platform() === "windows";
+  const absoluteRoot = windows ? /^(?:[a-z]:[\\/]|[\\/]{2})/i.test(root) : root.startsWith("/");
+  if (!absoluteRoot) return { status: "skipped", reason: "configuration root unavailable" };
+  const key = claudeProjectKey(canonical, windows);
+  const path = root.replace(/[\\/]$/, "") + "/.claude.json";
+  try {
+    return JSON.parse(host2.jsonBooleanRecord(path, JSON.stringify(["projects", key, "hasTrustDialogAccepted"]), grant));
+  } catch {
+    return { status: "failed", reason: "record capability failed" };
+  }
+}
+
 // plugins/provider-shared/updatePrompt.ts
 function updatePromptSafeChoice(prompt) {
   if (prompt.options.length < 2 || !prompt.options.some(([label2]) => /\bupdate\b/i.test(label2))) {
@@ -2289,6 +2311,12 @@ var plugin = {
   },
   buildPromptResponse(optionIndex, screen) {
     return buildClaudePromptResponse(optionIndex, String(screen || ""));
+  },
+  preTrustDirectory(path) {
+    return claudeTrustRecord(host, path, true);
+  },
+  isDirectoryTrusted(path) {
+    return claudeTrustRecord(host, path, false).status === "already_trusted";
   },
   directoryTrustPromptResponse(screen) {
     return claudeFolderTrustResponse(screen);
