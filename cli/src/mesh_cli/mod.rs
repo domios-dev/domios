@@ -293,6 +293,31 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
         return;
     }
 
+    if let Commands::Agent {
+        action: action @ (super::AgentAction::Providers | super::AgentAction::Models { .. }),
+    } = &cli.command
+    {
+        let answer = relay::mesh_relay_invoke_with_peer(
+            target,
+            "GET",
+            "/api/agents/providers",
+            None,
+            cli.json,
+        );
+        if !cli.json {
+            relay::announce_answering_peer(target, answer.peer.as_ref());
+        }
+        let output = match action {
+            super::AgentAction::Models { provider } => {
+                crate::cmd::agent::render_agent_models(&answer.data, provider, cli.json)
+            }
+            _ => crate::cmd::agent::render_agent_providers(&answer.data, cli.json),
+        }
+        .unwrap_or_else(|error| crate::cmd::print::exit_with_cli_error(cli.json, &error));
+        print!("{output}");
+        return;
+    }
+
     let (method, path, body) = api_map::cli_command_to_api(&cli.command);
     if method == api_map::UNSUPPORTED_OVER_MESH {
         crate::cmd::print::fail(2, path.to_string());

@@ -14,9 +14,12 @@ mod agent_compatibility;
 mod agent_model_switch;
 #[path = "agent_models.rs"]
 mod agent_models;
-use agent_models::{format_agent_models, format_agent_models_json, provider_availability_marker};
+use agent_models::select_provider;
 #[cfg(test)]
-use agent_models::{AVAILABILITY_UNAVAILABLE, AVAILABILITY_UNKNOWN};
+use agent_models::{format_agent_models, format_agent_models_json};
+#[cfg(test)]
+use agent_models::{provider_availability_marker, AVAILABILITY_UNAVAILABLE, AVAILABILITY_UNKNOWN};
+pub(crate) use agent_models::{render_agent_models, render_agent_providers};
 
 fn provider_requires_live_model_discovery(provider: &serde_json::Value) -> bool {
     provider
@@ -321,53 +324,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     };
                     crate::cmd::print::fail_http(1, status.as_u16(), &body);
                 }
-                if json {
-                    println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    return;
-                }
-                let Some(arr) = val.as_array() else {
-                    crate::cmd::print::fail(
-                        1,
-                        format!("Unexpected response shape (HTTP {})", status),
-                    );
-                };
-                if arr.is_empty() {
-                    println!("No agent providers registered.");
-                    return;
-                }
-                for p in arr {
-                    let kind = p.get("transport").and_then(|v| v.as_str()).unwrap_or("pty");
-                    let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-                    let name = p.get("display_name").and_then(|v| v.as_str()).unwrap_or(id);
-                    let default_model = p
-                        .get("default_model")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("-");
-                    let models_count = p
-                        .get("available_models")
-                        .and_then(|v| v.as_array())
-                        .map(|a| a.len())
-                        .unwrap_or(0);
-                    println!(
-                        "{:<12} {:<6} {:<20} default={}  models={}{}",
-                        id,
-                        kind,
-                        name,
-                        default_model,
-                        models_count,
-                        provider_availability_marker(p)
-                    );
-                    if let Some(line) = agent_compatibility::status_line(p) {
-                        println!("  {line}");
-                    }
-                    if let Some(status) = p.get("cli_status") {
-                        if status.get("installed").and_then(|v| v.as_bool()) != Some(true) {
-                            for line in crate::cmd::plugin::cli_status::status_lines(id, status) {
-                                println!("  {line}");
-                            }
-                        }
-                    }
-                }
+                let output = render_agent_providers(&val, json)
+                    .unwrap_or_else(|error| crate::cmd::print::exit_with_cli_error(json, &error));
+                print!("{output}");
             }
             Err(e) => {
                 crate::cmd::print::fail(1, e.to_string());
@@ -379,25 +338,14 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 .send()
             {
                 Ok(resp) => {
+                    let status = resp.status();
                     let mut val: serde_json::Value = resp.json().unwrap_or_default();
-                    let Some(arr) = val.as_array() else {
-                        crate::cmd::print::fail(1, "Unexpected response shape");
-                    };
-                    let target = arr
-                        .iter()
-                        .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(provider.as_str()));
-                    let Some(target) = target else {
-                        let known: Vec<&str> = arr
-                            .iter()
-                            .filter_map(|p| p.get("id").and_then(|v| v.as_str()))
-                            .collect();
-                        eprintln!(
-                            "Unknown provider: '{}'. Known: [{}]",
-                            provider,
-                            known.join(", ")
-                        );
-                        std::process::exit(1);
-                    };
+                    if !status.is_success() {
+                        crate::cmd::print::fail_http(1, status.as_u16(), &val.to_string());
+                    }
+                    let target = select_provider(&val, &provider).unwrap_or_else(|error| {
+                        crate::cmd::print::exit_with_cli_error(json, &error)
+                    });
                     let discovery_required = provider_requires_live_model_discovery(target);
                     let observed_version = catalogue_version(target);
                     // Explicit CLI listing asks core to refresh the provider catalogue.
@@ -439,20 +387,11 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                             crate::cmd::print::fail_http(1, status.as_u16(), &val.to_string());
                         }
                     }
-                    let Some(arr) = val.as_array() else {
-                        crate::cmd::print::fail(1, "Unexpected response shape");
-                    };
-                    let Some(target) = arr
-                        .iter()
-                        .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(provider.as_str()))
-                    else {
-                        crate::cmd::print::fail(1, format!("Provider disappeared: {provider}"));
-                    };
-                    if json {
-                        println!("{}", format_agent_models_json(target));
-                        return;
-                    }
-                    print!("{}", format_agent_models(target, &provider));
+                    let output =
+                        render_agent_models(&val, &provider, json).unwrap_or_else(|error| {
+                            crate::cmd::print::exit_with_cli_error(json, &error)
+                        });
+                    print!("{output}");
                 }
                 Err(e) => {
                     crate::cmd::print::fail(1, e.to_string());
