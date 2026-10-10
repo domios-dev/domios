@@ -85,6 +85,7 @@ const SIDEBAR_COLLAPSED_WIDTH = 0;
 const SIDEBAR_COMPACT_WIDTH = 64;
 const SIDEBAR_COMPACT_SNAP = 150;
 const SIDEBAR_COLLAPSE_BELOW = 48;
+const SIDEBAR_DEFAULT_WIDTH = 280;
 const SIDEBAR_MAX_WIDTH = 400;
 const SIDEBAR_PEEK_DWELL_MS = 280;
 
@@ -381,9 +382,9 @@ export function Sidebar({
     });
   }, []);
 
-  const [sidebarWidth, setSidebarWidth] = useState(220);
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const lastExpandedWidth = useRef(220);
+  const lastExpandedWidth = useRef(SIDEBAR_DEFAULT_WIDTH);
   const sidebarDragging = useRef(false);
   const sidebarMoved = useRef(false);
   const [peeking, setPeeking] = useState(false);
