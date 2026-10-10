@@ -9,7 +9,7 @@ use codeterm_util::lock_hold::TimedRwLock;
 use std::sync::Arc;
 
 #[test]
-fn restored_uncertain_turn_never_enters_launch_submit_seam() {
+fn restored_launch_input_filters_uncertain_turn_from_recording_sink() {
     let historical = "opaque-historical-user-turn";
     let bootstrap = "opaque-new-launch-identity";
     let mut pending =
@@ -47,7 +47,7 @@ fn restored_uncertain_turn_never_enters_launch_submit_seam() {
         Some("fixture-cwd"),
         true,
         super::lifecycle::restore_payload::resolve_restored_payload,
-        |_, _| panic!("uncertain historical turn cannot fail launch"),
+        |_, _, _| panic!("uncertain historical turn cannot fail launch"),
         |launch, payload| {
             let input = restored_snapshot_launch_input(&registry, launch, payload, None);
             if let Some(task) = input.launch_task {
@@ -82,7 +82,7 @@ fn restored_uncertain_turn_never_enters_launch_submit_seam() {
 }
 
 #[test]
-fn restored_never_written_turn_is_retained_without_submit() {
+fn restored_pending_input_refuses_launch_and_preserves_record() {
     let pending = PendingDeliveryRecord::new(
         "missing-body".into(),
         PendingDeliveryChannel::InteractiveInput,
@@ -102,7 +102,7 @@ fn restored_never_written_turn_is_retained_without_submit() {
         None,
         false,
         super::lifecycle::restore_payload::resolve_restored_payload,
-        |stage, _| events.lock().push(stage),
+        |stage, _, _| events.lock().push(stage),
         |_, _| panic!("retained user turn must not reach launch submit")
     )
     .is_err());

@@ -74,11 +74,7 @@ impl Fixture {
             Some("fixture-cwd"),
             true,
             resolve_restored_payload,
-            |stage, reason| {
-                assert!(
-                    self.mux.try_write().is_some(),
-                    "publication must not hold mux"
-                );
+            |stage, reason, _| {
                 self.events.lock().push((stage, reason.to_string()));
             },
             |launch, payload| {
@@ -306,7 +302,7 @@ fn delayed_restore_failure_cannot_retire_successor_launch() {
                             };
                             delayed_lookup.and_then(|_| resolve_restored_payload(captured))
                         },
-                        |stage, reason| fixture.events.lock().push((stage, reason.into())),
+                        |stage, reason, _| fixture.events.lock().push((stage, reason.into())),
                         |_, _| {
                             fixture.launches.fetch_add(1, Ordering::SeqCst);
                         },
@@ -396,7 +392,7 @@ fn changed_pending_record_cannot_be_loaded_or_claimed_by_old_restore() {
                         boundary.wait("pending changed before classification");
                         resolve_restored_payload(captured)
                     },
-                    |stage, reason| fixture.events.lock().push((stage, reason.into())),
+                    |stage, reason, _| fixture.events.lock().push((stage, reason.into())),
                     |_, _| panic!("superseded pending must not launch"),
                 )
                 .map(|launch| launch.is_some())
@@ -467,7 +463,7 @@ fn delayed_successful_restore_cannot_claim_reset_launch() {
                     boundary.wait("successful restore released");
                     resolve_restored_payload(captured)
                 },
-                |_, _| panic!("stale success cannot emit failure"),
+                |_, _, _| panic!("stale success cannot emit failure"),
                 |_, _| panic!("stale success cannot claim successor"),
             )
             .map(|launch| launch.is_some())
@@ -490,4 +486,128 @@ fn delayed_successful_restore_cannot_claim_reset_launch() {
             .unwrap()
             .restored_from_snapshot
     );
+}
+
+#[test]
+fn restore_failure_publication_precedes_successor_ready_event() {
+    use crate::service::boot_stage::{
+        apply_boot_stage, boot_stage_event, commit_boot_stage_transition,
+    };
+    use crate::service::pty_io::test_support::TEST_WAIT_DEADLINE;
+    use std::sync::mpsc;
+
+    let pending = record(
+        PendingDeliveryChannel::InteractiveInput,
+        PendingDeliveryState::Pending,
+        false,
+    );
+    let fixture = Arc::new(Fixture::new(pending.clone(), true));
+    {
+        let mut mux = fixture.mux.write();
+        let tab = mux.get_tab_mut(&fixture.tab_id).unwrap();
+        tab.lifecycle_epoch = Some(9);
+        tab.lifecycle_operation_id = Some("old-operation".into());
+    }
+    let events = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let (committed_tx, committed_rx) = mpsc::sync_channel(1);
+    let (release_tx, release_rx) = mpsc::sync_channel(1);
+    let (successor_attempt_tx, successor_attempt_rx) = mpsc::sync_channel(1);
+    let (successor_published_tx, successor_published_rx) = mpsc::sync_channel(1);
+    let old = {
+        let fixture = fixture.clone();
+        let events = events.clone();
+        std::thread::spawn(move || {
+            super::super::restore_materialization_core(
+                &fixture.mux,
+                &fixture.tab_id,
+                "fixture-provider",
+                Some("original-used-session"),
+                Some("fixture-cwd"),
+                true,
+                resolve_restored_payload,
+                |stage, reason, tab| {
+                    assert_eq!(tab.boot_stage, Some(BootStage::SpawnFailed));
+                    assert!(tab.reported_session_binding_nonce.is_none());
+                    let event = boot_stage_event(&fixture.tab_id, tab, stage, Some(reason));
+                    committed_tx.send(()).unwrap();
+                    release_rx
+                        .recv_timeout(TEST_WAIT_DEADLINE)
+                        .expect("release old failure publisher");
+                    events.lock().push(event);
+                },
+                |_, _| panic!("never-written historical input cannot launch"),
+            )
+            .map(|launch| launch.is_some())
+        })
+    };
+    committed_rx
+        .recv_timeout(TEST_WAIT_DEADLINE)
+        .expect("old failure committed before publication");
+    assert!(
+        fixture.mux.try_write().is_none(),
+        "failure mutation and publisher must retain the same mux boundary"
+    );
+    let successor = {
+        let fixture = fixture.clone();
+        let events = events.clone();
+        std::thread::spawn(move || {
+            successor_attempt_tx.send(()).unwrap();
+            commit_boot_stage_transition(
+                &fixture.mux,
+                &fixture.tab_id,
+                |tab| {
+                    tab.lifecycle_epoch = Some(10);
+                    tab.lifecycle_operation_id = Some("successor-operation".into());
+                    tab.pty_id = Some("successor-pty".into());
+                    tab.session_binding_nonce = Some("successor-nonce".into());
+                    tab.reported_session_binding_nonce = Some("successor-nonce".into());
+                    tab.restored_from_snapshot = false;
+                    tab.agent_booting = false;
+                    apply_boot_stage(tab, BootStage::AgentReady, None);
+                    true
+                },
+                |tab| {
+                    events.lock().push(boot_stage_event(
+                        &fixture.tab_id,
+                        tab,
+                        BootStage::AgentReady,
+                        None,
+                    ));
+                    successor_published_tx.send(()).unwrap();
+                },
+            )
+        })
+    };
+    successor_attempt_rx
+        .recv_timeout(TEST_WAIT_DEADLINE)
+        .expect("successor attempts publication");
+    assert!(matches!(
+        successor_published_rx.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    release_tx.send(()).unwrap();
+    assert!(join(old, "serialized restore failure publisher")
+        .unwrap()
+        .is_err());
+    assert!(join(successor, "serialized successor publisher").unwrap());
+    successor_published_rx
+        .recv_timeout(TEST_WAIT_DEADLINE)
+        .expect("successor publication completed");
+    let events = events.lock();
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0]["stage"], "spawn_failed");
+    assert_eq!(
+        events[0]["launch_generation"],
+        serde_json::json!({ "epoch": 9, "operation_id": "old-operation", "pty_id": "current-shell", "binding_nonce": "current-nonce" })
+    );
+    assert_eq!(events[1]["stage"], "agent_ready");
+    assert_eq!(
+        events[1]["launch_generation"],
+        serde_json::json!({ "epoch": 10, "operation_id": "successor-operation", "pty_id": "successor-pty", "binding_nonce": "successor-nonce" })
+    );
+    let mux = fixture.mux.read();
+    let tab = mux.get_tab(&fixture.tab_id).unwrap();
+    assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
+    assert!(tab.launch_session_authenticated());
+    assert_eq!(tab.pending_delivery.as_ref(), Some(&pending));
 }

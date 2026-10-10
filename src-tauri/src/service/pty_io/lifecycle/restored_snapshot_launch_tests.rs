@@ -137,7 +137,7 @@ fn restored_materialization_preserves_worker_identity_without_assignment_replay(
             Some("fixture-cwd"),
             true,
             super::restore_payload::resolve_restored_payload,
-            |_, _| panic!("restored fixture must not fail"),
+            |_, _, _| panic!("restored fixture must not fail"),
             |launch, restored_task| {
                 *observed.lock() = Some(restored_snapshot_launch_input(
                     &registry,
@@ -220,7 +220,7 @@ fn restored_team_member_resume_carries_bypass_only_when_granted() {
             Some("fixture-cwd"),
             true,
             |_| Ok(None),
-            |_, _| panic!("restored fixture must not fail"),
+            |_, _, _| panic!("restored fixture must not fail"),
             |launch, restored_task| {
                 *observed.lock() = Some(restored_snapshot_launch_input(
                     &registry,
