@@ -19,7 +19,7 @@ WS="$(dc workspace list 2>&1 | awk -v n="$WS_NAME" '$1 == n {print $2; exit}')"
 SPAWNED=()
 
 cleanup() {
-  for tab in "${SPAWNED[@]}"; do dc tab close --tab "$tab" >/dev/null 2>&1 || true; done
+  for tab in ${SPAWNED[@]+"${SPAWNED[@]}"}; do dc tab close --tab "$tab" >/dev/null 2>&1 || true; done
   [ -n "$WS" ] && dc workspace close "$WS" >/dev/null 2>&1 || true
   rm -rf "$SCRATCH"
 }

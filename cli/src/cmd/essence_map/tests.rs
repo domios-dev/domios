@@ -310,7 +310,7 @@ fn essence_truth_model_preserves_capability_statuses_and_shipped_core_nodes() {
         nodes["capability:essence-anchored-code-map"]
             .status
             .as_deref(),
-        Some("in rollout: source-map generation, validation and Cartographer; code-to-essence mapping and canvas planned")
+        Some("in rollout: source-map generation, validation, Cartographer and workspace map canvas; code-to-essence mapping planned")
     );
     assert_eq!(
         nodes["capability:agent-providers"].status.as_deref(),
