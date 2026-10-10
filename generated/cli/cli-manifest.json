@@ -6604,9 +6604,19 @@
         },
         {
           "name": "connect",
-          "about": "Initiate pairing with a discovered peer",
+          "about": "Initiate owner-approved pairing with a discovered peer or explicit address",
           "aliases": [],
           "args": [
+            {
+              "name": "addr",
+              "positional": false,
+              "required": false,
+              "value_name": "ADDR",
+              "possible_values": [],
+              "default": null,
+              "help": "Read the peer identity directly at this IP:port before pairing",
+              "aliases": []
+            },
             {
               "name": "instance_id",
               "positional": true,
@@ -6614,7 +6624,7 @@
               "value_name": "INSTANCE_ID",
               "possible_values": [],
               "default": null,
-              "help": "Instance ID or name of the discovered peer",
+              "help": "Instance ID or advertised name; --addr also accepts a hexadecimal ID prefix",
               "aliases": []
             }
           ],
