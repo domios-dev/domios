@@ -20,8 +20,8 @@ if is_windows; then ENDURE_BASH="$(cygpath -w "$ENDURE_BASH")"; fi
 export ENDURE_BASH
 if [ "${1:-}" = --dc ]; then
   shift
-  dc "$@"
-  exit
+  # A lazy tab has no session yet; the lib's optional grep may return 1.
+  if dc "$@"; then exit 0; else exit "$?"; fi
 fi
 OUT= NOTICE_HOOK=
 while [ "$#" -gt 0 ]; do
