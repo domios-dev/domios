@@ -349,7 +349,8 @@ impl ControlFixture {
             events: libc::POLLIN | libc::POLLHUP,
             revents: 0,
         };
-        assert_eq!(unsafe { libc::poll(&mut poll, 1, 3000) }, 1);
+        let deadline_ms = NATIVE_TEST_RUNTIME.as_millis() as libc::c_int;
+        assert_eq!(unsafe { libc::poll(&mut poll, 1, deadline_ms) }, 1);
         let mut ack = [0u8; 32];
         let read = unsafe {
             libc::read(
