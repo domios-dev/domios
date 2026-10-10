@@ -44,7 +44,7 @@ import { TabBootOverlay, tabBootOverlayView } from "./bootOverlay";
 import { useStartNewSession } from "./useStartNewSession";
 import { TerminalViewControls } from "./TerminalViewControls";
 import { shouldOfferScrollToBottom } from "../../hooks/terminal/terminalFollowState";
-import { TERMINAL_INPUT_WRITE_FAILED_EVENT } from "../../hooks/terminal/terminalInputWrite";
+import { terminalInputTarget, TERMINAL_INPUT_WRITE_FAILED_EVENT } from "../../hooks/terminal/terminalInputWrite";
 import { openNewSessionPicker } from "../../lib/newSessionChoice";
 
 interface TerminalTabProps {
@@ -89,8 +89,9 @@ export const TerminalTab = memo(function TerminalTab({
   const managedView = managedTabPresentation(tab?.managed);
   useEffect(() => {
     const onInputWriteFailure = (event: Event) => {
-      const detail = (event as CustomEvent<{ ptyId?: string }>).detail;
-      if (!detail?.ptyId || detail.ptyId !== connectedPtyRef.current) return;
+      const detail = (event as CustomEvent<{ targetId?: string }>).detail;
+      const currentPty = connectedPtyRef.current;
+      if (!currentPty || detail?.targetId !== terminalInputTarget(tabId, currentPty)) return;
       addNotification({
         tab_id: tabId,
         workspace_id: null,
@@ -172,7 +173,7 @@ export const TerminalTab = memo(function TerminalTab({
   });
 
   const completion = useTabCompletion({
-    termRef, containerRef, connectedPtyRef,
+    tabId, termRef, containerRef, connectedPtyRef,
   });
 
   const { writePty } = usePtyConnection({
@@ -319,8 +320,8 @@ export const TerminalTab = memo(function TerminalTab({
   });
 
   const { copySelection, pasteFromClipboard } = useTerminalInput({
-    termRef, connectedPtyRef, containerRef, termReady,
-    terminalActive: terminalVisible,
+    tabId, termRef, connectedPtyRef, containerRef, termReady,
+    terminalActive: terminalVisible && isVisible,
     onTabKey: completion.handleTab,
     onNonTabKey: completion.dismissCompletions,
     onInputData: completion.feedInput,

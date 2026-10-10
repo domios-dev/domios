@@ -8,6 +8,7 @@ import type { CompletionItem } from "../../lib/completions/types";
 import { writeTerminalInput } from "./terminalInputWrite";
 
 export interface UseTabCompletionOptions {
+  tabId: string;
   termRef: React.MutableRefObject<Terminal | null>;
   containerRef: React.RefObject<HTMLDivElement | null>;
   connectedPtyRef: React.MutableRefObject<string | null>;
@@ -27,6 +28,7 @@ export interface UseTabCompletionReturn {
 }
 
 export function useTabCompletion({
+  tabId,
   termRef,
   containerRef,
   connectedPtyRef,
@@ -59,7 +61,7 @@ export function useTabCompletion({
         const insert = getCompletionInsert(parsed, items[0]);
         if (!insert) return false;
         const ptyId = connectedPtyRef.current;
-        if (ptyId) void writeTerminalInput(ptyId, insert, false);
+        if (ptyId) void writeTerminalInput(tabId, ptyId, insert, false);
         tracker.feed(insert);
         return true;
       }
@@ -74,7 +76,7 @@ export function useTabCompletion({
       }
     }
     return false;
-  }, [termRef, containerRef, connectedPtyRef]);
+  }, [tabId, termRef, containerRef, connectedPtyRef]);
 
   const dismissCompletions = useCallback(() => {
     setCompletionItems([]);
@@ -96,10 +98,10 @@ export function useTabCompletion({
     const insert = getCompletionInsert(parsed, item);
     if (!insert) return;
     const ptyId = connectedPtyRef.current;
-    if (ptyId) void writeTerminalInput(ptyId, insert, false);
+    if (ptyId) void writeTerminalInput(tabId, ptyId, insert, false);
     tracker.feed(insert);
     setCompletionItems([]);
-  }, [connectedPtyRef]);
+  }, [tabId, connectedPtyRef]);
 
   return {
     completionItems,
