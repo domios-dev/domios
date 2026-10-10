@@ -154,6 +154,7 @@ async fn backend_read_loop(
         // Blocking read in a dedicated thread — same pattern as read_pty.
         let read_started = std::time::Instant::now();
         let read_role = format!("pty-read:{pty_id}");
+        let trace_pty_id = pty_id.clone();
         let result = tokio::task::spawn_blocking(move || {
             let _role = codeterm_util::named_thread::Scope::enter(&read_role);
             let mut buf = vec![0u8; 8192];
@@ -161,15 +162,19 @@ async fn backend_read_loop(
             if n == 0 {
                 return Err("EOF".to_string());
             }
+            let receipt = super::pty_frame_timing::Receipt::read_completed(&trace_pty_id, n);
             buf.truncate(n);
 
-            Ok((buf, reader))
+            Ok((buf, reader, receipt))
         })
         .await;
         let read_block_us = read_started.elapsed().as_micros();
 
         match result {
-            Ok(Ok((data, reader_back))) => {
+            Ok(Ok((data, reader_back, receipt))) => {
+                if let Some(receipt) = &receipt {
+                    receipt.phase("read_resumed", data.len());
+                }
                 reader = reader_back;
 
                 if !first_byte_logged {
@@ -200,7 +205,14 @@ async fn backend_read_loop(
                 }
                 let _ = frontend_tx.try_send(data.clone());
                 let data_len = data.len();
-                if feed_tx.send(data).await.is_err() {
+                if let Some(receipt) = &receipt {
+                    receipt.phase("enqueue_started", data_len);
+                }
+                let packet = OutputBatch {
+                    data,
+                    receipts: receipt.into_iter().collect(),
+                };
+                if feed_tx.send(packet).await.is_err() {
                     log::error!(
                         "[backend-reader] output processor closed for {}",
                         &pty_id[..pty_id.len().min(8)]
@@ -248,8 +260,13 @@ async fn backend_read_loop(
     );
 }
 
+struct OutputBatch {
+    data: Vec<u8>,
+    receipts: Vec<super::pty_frame_timing::Receipt>,
+}
+
 fn process_pty_feed(
-    mut rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
+    mut rx: tokio::sync::mpsc::Receiver<OutputBatch>,
     svc: ServiceState,
     pty_id: String,
     generation: u64,
@@ -259,12 +276,18 @@ fn process_pty_feed(
     while let Some(mut data) = rx.blocking_recv() {
         drain_feed_batch(&mut rx, &mut data, FEED_BATCH_CAP);
         let started = std::time::Instant::now();
-        let (prev, now) = svc.feed_pty_output_for_generation(&pty_id, generation, &data);
-        if rd_trace && data.len() > 16 {
+        for receipt in &data.receipts {
+            receipt.phase("feed_started", data.data.len());
+        }
+        let (prev, now) = svc.feed_pty_output_for_generation(&pty_id, generation, &data.data);
+        for receipt in &data.receipts {
+            receipt.phase("feed_completed", data.data.len());
+        }
+        if rd_trace && data.data.len() > 16 {
             log::info!(
                 "[feed-batch] pty={} n={} elapsed={}us",
                 &pty_id[..pty_id.len().min(8)],
-                data.len(),
+                data.data.len(),
                 started.elapsed().as_micros(),
             );
         }
@@ -272,10 +295,17 @@ fn process_pty_feed(
     }
 }
 
-fn drain_feed_batch(rx: &mut tokio::sync::mpsc::Receiver<Vec<u8>>, data: &mut Vec<u8>, cap: usize) {
-    while data.len() < cap {
+fn drain_feed_batch(
+    rx: &mut tokio::sync::mpsc::Receiver<OutputBatch>,
+    data: &mut OutputBatch,
+    cap: usize,
+) {
+    while data.data.len() < cap {
         match rx.try_recv() {
-            Ok(next) => data.extend_from_slice(&next),
+            Ok(next) => {
+                data.data.extend_from_slice(&next.data);
+                data.receipts.extend(next.receipts);
+            }
             Err(_) => break,
         }
     }
@@ -651,17 +681,46 @@ mod tests {
     }
 
     #[test]
+    fn traced_feed_batch_preserves_bytes_and_read_receipts() {
+        let _scope = super::super::pty_frame_timing::Scope::begin("batch-test-pty", "tab");
+        let (tx, mut rx) = tokio::sync::mpsc::channel(3);
+        for data in [b"first".to_vec(), b"second".to_vec(), b"third".to_vec()] {
+            let receipt = super::super::pty_frame_timing::Receipt::read_completed(
+                "batch-test-pty",
+                data.len(),
+            )
+            .unwrap();
+            assert!(tx
+                .try_send(super::OutputBatch {
+                    data,
+                    receipts: vec![receipt]
+                })
+                .is_ok());
+        }
+        let mut batch = rx.blocking_recv().unwrap();
+        super::drain_feed_batch(&mut rx, &mut batch, 6);
+        assert_eq!(batch.data, b"firstsecond");
+        assert_eq!(batch.receipts.len(), 2);
+        assert_eq!(rx.try_recv().unwrap().data, b"third");
+    }
+
+    #[test]
     fn resize_burst_is_drained_as_one_available_feed_batch() {
         let (tx, mut rx) = tokio::sync::mpsc::channel(300);
         for _ in 0..269 {
-            tx.try_send(vec![b'x'; 112]).unwrap();
+            tx.try_send(super::OutputBatch {
+                data: vec![b'x'; 112],
+                receipts: Vec::new(),
+            })
+            .ok()
+            .unwrap();
         }
         drop(tx);
 
         let mut data = rx.blocking_recv().unwrap();
         super::drain_feed_batch(&mut rx, &mut data, 256 * 1024);
 
-        assert_eq!(data.len(), 269 * 112);
+        assert_eq!(data.data.len(), 269 * 112);
         assert!(rx.blocking_recv().is_none());
     }
 

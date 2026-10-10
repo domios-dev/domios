@@ -862,9 +862,22 @@ for (const [name, fixture] of [
   eq(files.get(settingsPath + ".codeterm-backup"), original, "Claude backup preserves exact original bytes");
   const installed = JSON.parse(files.get(settingsPath) || "{}");
   assert(installed.foreign === true, "Claude install preserves foreign settings");
+  const stopCommand = installed.hooks.Stop[0].hooks[0].command;
+  assert(stopCommand.includes('--data-binary "@-"'), "Stop forwards the provider completion payload");
+  assert(stopCommand.includes('--header "X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE"'),
+    "Stop authenticates the exact launch binding");
   assert(!installed.hooks.PreCompact, "Claude never installs raw memory export");
   assert(p.restoreIntegration().ok === true, "Claude restore succeeds");
   eq(files.get(settingsPath), original, "Claude restore reproduces exact original bytes");
+  installed.hooks.Stop[0].hooks[0].command = stopCommand
+    .replace('--data-binary "@-"', '--data-binary "{}"')
+    .replace('--header "X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE"', "");
+  files.set(settingsPath, JSON.stringify(installed));
+  assert(p.checkIntegration().hook_contract_current === false,
+    "the empty unverified Stop request requires repair");
+  assert(p.installIntegration(7686, { consent: true }).ok === true, "consented Stop repair succeeds");
+  assert(p.checkIntegration().hook_contract_current === true, "repaired Stop completion contract is current");
+
 }
 
 console.log("--- permission_request ingestion ---");

@@ -2765,7 +2765,7 @@ var plugin = {
         integration_state: "unreadable"
       };
     }
-    function present(key) {
+    function present(key, completion = false) {
       const arr = json.hooks && json.hooks[key];
       if (!Array.isArray(arr)) return false;
       for (let i = 0; i < arr.length; i++) {
@@ -2775,7 +2775,7 @@ var plugin = {
         for (let j = 0; j < hooks.length; j++) {
           const hook = hooks[j];
           const command = hook && hook.command;
-          if (typeof command === "string" && isCurrentHookCommand(command, host.platform()) && command.indexOf("CODETERM_TAB_ID") !== -1 && command.indexOf("CODETERM_API_URL") !== -1 && command.indexOf("CODETERM_API_TOKEN") !== -1 && command.indexOf("CODETERM_API_PORT") === -1 && command.indexOf("CODETERM_PANE_ID") === -1) return true;
+          if (typeof command === "string" && (!completion || command.includes("CODETERM_SESSION_BINDING_NONCE") && command.includes('--data-binary "@-"')) && isCurrentHookCommand(command, host.platform()) && command.indexOf("CODETERM_TAB_ID") !== -1 && command.indexOf("CODETERM_API_URL") !== -1 && command.indexOf("CODETERM_API_TOKEN") !== -1 && command.indexOf("CODETERM_API_PORT") === -1 && command.indexOf("CODETERM_PANE_ID") === -1) return true;
         }
       }
       return false;
@@ -2796,7 +2796,7 @@ var plugin = {
     }
     const n = present("Notification");
     const pr = present("PermissionRequest");
-    const s = present("Stop");
+    const s = present("Stop", true);
     const pc = Array.isArray(json.hooks?.PreCompact) && json.hooks.PreCompact.some(isCodetermHook);
     const ss = sessionStartCurrent();
     const installed = n && pr && s && ss;
@@ -2864,7 +2864,7 @@ var plugin = {
     };
     const nonceHeader = '--header "X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE"';
     const notifyCmd = hookCommand("/api/tabs/$CODETERM_TAB_ID/hook/permission", "", nonceHeader, true);
-    const stopCmd = hookCommand("/api/tabs/$CODETERM_TAB_ID/hook/stop", "{}", "", false);
+    const stopCmd = hookCommand("/api/tabs/$CODETERM_TAB_ID/hook/stop", "", nonceHeader, true);
     const sessionStartCmd = hookCommand(
       "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
       "",
