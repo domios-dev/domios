@@ -312,6 +312,8 @@ impl ServiceContext {
                 "the session changed before reading its current model".into(),
             ));
         }
+        let _frame_timing =
+            crate::service::pty_frame_timing::Scope::begin(&target.pty_id, &target.tab_id);
         self.restart_tracker.lock().command_ptys.insert(
             target.tab_id.clone(),
             (target.pty_id.clone(), target.binding_nonce.clone()),
@@ -628,10 +630,11 @@ impl ServiceContext {
                     &input,
                 );
                 log::info!(
-                    "[agent-model/timing] tab={} command={} phase=injected elapsed_ms={}",
+                    "[agent-model/timing] tab={} command={} phase=injected elapsed_ms={} at_ms={}",
                     target.tab_id,
                     command,
-                    started.elapsed().as_millis()
+                    started.elapsed().as_millis(),
+                    crate::service::pty_frame_timing::unix_ms()
                 );
                 Ok(())
             },
