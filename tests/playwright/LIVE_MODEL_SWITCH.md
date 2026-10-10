@@ -24,7 +24,7 @@ $env:PW_SWITCH_KEEP = '1'
 pnpm exec playwright test -c tests/playwright --project=live-model-switch
 ```
 
-Include `opencode` only after the Orchestrator confirms hook v7 is on DEV.
+Include `opencode` only after the Orchestrator confirms its current hook is on DEV.
 For a coordinated single run, set `PW_SWITCH_RUNS=1` and
 `PW_SWITCH_RUN_NUMBER` to its stability index (1..3). Optional
 `PW_SWITCH_WORKSPACE` must name an empty provisioned `SwitchQA-*` workspace;
@@ -72,8 +72,8 @@ Scoped SSE `lagged` frames trigger exact own-tab status and delivery-ledger
 resync, adopt the supplied replay cursor and continue live frames. Resyncs are
 recorded; a current Idle snapshot cannot manufacture a past Working transition.
 Unexpected DEV boot changes remain failures outside the explicit restored leg.
-Busy completion waits on filesystem changes to the exact session record store,
-bounded at 240 seconds. Claude requires the marked assistant's `end_turn`;
+Busy completion re-reads exact session records on filesystem changes and own-tab
+status/chat SSE notifications, bounded at 240 seconds. Claude requires the marked assistant's `end_turn`;
 Codex requires the exact turn's marked `task_complete`; Grok and OpenCode retain
 their completed-record oracles. A transient Idle never proves completion.
 
