@@ -9,7 +9,7 @@ export function matchesOutputRequest(url, { origin, peerId, tabId }) {
   try {
     const cursor = JSON.parse(Buffer.from(u.searchParams.get('since'), 'base64url').toString());
     const ids = Object.keys(cursor.tabs ?? {});
-    return ids.length === 1 && ids[0] === tabId;
+    return ids.includes(tabId);
   } catch { return false; }
 }
 
