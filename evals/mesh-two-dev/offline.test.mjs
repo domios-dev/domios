@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { targets } from './targets.mjs';
 import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { verifyPair } from './identity.mjs';
@@ -7,38 +8,38 @@ import { clockBounds, correlate } from './clock.mjs';
 import { SseParser, EventOrder, collectState } from './stream.mjs';
 import { observeRendered } from './rendered.mjs';
 import { verifyConvergence, verifyRestart, coordinateRestart } from './convergence.mjs';
-const ids = { aiderqa: 'aaaaaa', meshqa: 'bbbbbb' };
+const ids = { aiderqa: 'aaaaaa', windows: 'bbbbbb' };
 function pair() {
-  return Object.fromEntries(['aiderqa', 'meshqa'].map((name, i) => [name, {
-    status: { instance_id: ids[name], enabled: true, api_port: 7697 + i, paired_count: 1 },
-    peers: { local_dev: true, paired: [{ instance_id: ids[i ? 'aiderqa' : 'meshqa'], api_port: i ? 7697 : 7698, online: true }], incoming_requests: [] },
+  return Object.fromEntries(['aiderqa', 'windows'].map((name, i) => [name, {
+    status: { instance_id: ids[name], enabled: true, api_port: targets[name].api_port, paired_count: 1 },
+    peers: { local_dev: true, paired: [{ instance_id: ids[i ? 'aiderqa' : 'windows'], api_port: targets[i ? 'aiderqa' : 'windows'].api_port, online: true }], incoming_requests: [] },
   }]));
 }
 test('paired-only verifier refuses production, extra identities, offline and unproven DEV', () => {
   assert.equal(verifyPair(pair(), ids).paired, true);
   for (const mutate of [
-    value => value.meshqa.status.api_port = 7686,
+    value => value.windows.status.api_port = 7685,
     value => value.aiderqa.peers.paired.push({ instance_id: 'prod', api_port: 7685 }),
-    value => value.meshqa.peers.local_dev = false,
+    value => value.windows.peers.local_dev = false,
     value => value.aiderqa.peers.paired[0].online = false,
     value => value.aiderqa.peers.paired[0].instance_id = 'foreign',
   ]) { const value = pair(); mutate(value); assert.throws(() => verifyPair(value, ids)); }
 });
 test('opposite-origin driver qualifies routes and preserves failures before stopping', async () => {
   const writes = [], fixture = { tabId: 'tab', sessionId: 'session', payloadPad: 'probe.md', reportPad: 'report.md', payloadDigest: createHash('sha256').update('opaque-probe').digest('hex') };
-  for (const origin of ['aiderqa', 'meshqa']) {
+  for (const origin of ['aiderqa', 'windows']) {
     const plan = originPlan(origin, ids, fixture);
     assert.ok(plan.every(step => step.args.includes('--mesh') && step.home !== origin));
-    const results = await driveOrigin(plan, async step => ({ originName: origin, originPort: origin === 'aiderqa' ? 7697 : 7698, originPeerId: ids[origin], answeredBy: step.targetPeerId, code: 0, pasteId: 'paste-id', body: 'opaque-probe' }), async value => { writes.push(value); return 'evidence.json'; }, new AbortController().signal);
+    const results = await driveOrigin(plan, async step => ({ originName: origin, originPort: origin === 'aiderqa' ? 7697 : 7686, originPeerId: ids[origin], answeredBy: step.targetPeerId, code: 0, pasteId: 'paste-id', body: 'opaque-probe' }), async value => { writes.push(value); return 'evidence.json'; }, new AbortController().signal);
     assert.equal(results.length, 6);
   }
   const plan = originPlan('aiderqa', ids, fixture);
-  await assert.rejects(driveOrigin(plan, async () => ({ originName: 'meshqa', originPort: 7698 }), async value => writes.push(value), new AbortController().signal), /Unproven/);
+  await assert.rejects(driveOrigin(plan, async () => ({ originName: 'windows', originPort: 7686 }), async value => writes.push(value), new AbortController().signal), /Unproven/);
   assert.equal(writes.at(-1).status, 'FAIL');
 });
 test('report receipt requires persistence and visibility at the actual origin', () => {
-  const expected = { originPeerId: ids.aiderqa, homePeerId: ids.meshqa, tabId: 'tab', sessionId: 'session', body: 'opaque-report' };
-  const receipt = { ...expected, senderPeerId: ids.meshqa, persisted: true, visible: true };
+  const expected = { originPeerId: ids.aiderqa, homePeerId: ids.windows, tabId: 'tab', sessionId: 'session', body: 'opaque-report' };
+  const receipt = { ...expected, senderPeerId: ids.windows, persisted: true, visible: true };
   assert.equal(verifyReport(receipt, expected), true);
   assert.throws(() => verifyReport({ ...receipt, visible: false }, expected));
   assert.throws(() => verifyReport({ ...receipt, sessionId: 'sibling' }, expected));
@@ -87,7 +88,7 @@ test('rendered observations are mutation-driven and dispose the observer', () =>
 });
 const baseline = { tabs: [{ id: 't', sessionId: 's', provider: 'p', turnIds: ['1', '2'] }] };
 function restart() {
-  return { instance: 'meshqa', oldBoot: 'old', newBoot: 'new', lifecycle: { listenerReady: true, reconnected: true, boot: 'new' }, baseline,
+  return { instance: 'windows', oldBoot: 'old', newBoot: 'new', lifecycle: { listenerReady: true, reconnected: true, boot: 'new' }, baseline,
     views: Object.fromEntries(['local', 'remote', 'web'].map(view => [view, { ...structuredClone(baseline), boot: 'new', reconciled: true }])) };
 }
 test('restart oracle requires changed boot and complete history in all three views', () => {
@@ -102,27 +103,44 @@ test('restart oracle requires changed boot and complete history in all three vie
   assert.equal(verifyConvergence(baseline, { tabs: [] }, ['t']), true);
   assert.throws(() => verifyConvergence(baseline, baseline, ['t']));
 });
-test('restart coordinator cannot restart owner DEV or run without exact canonical utility authorization', async () => {
+test('restart coordinator refuses PROD and unknown endpoint authorization', async () => {
   let restarts = 0;
-  const adapter = { snapshot: async () => baseline, authorizedUtility: async instance => ({ instance, port: 7686, canonical: true, exactGate: 'restart' }), restart: async () => restarts++ };
-  await assert.rejects(coordinateRestart(adapter, 'meshqa', new AbortController().signal, async () => {}), /authorization/);
+  const adapter = { snapshot: async () => baseline, authorizedUtility: async instance => ({ instance, port: 7685, canonical: true, exactGate: 'restart' }), restart: async () => restarts++ };
+  await assert.rejects(coordinateRestart(adapter, 'windows', new AbortController().signal, async () => {}), /authorization/);
   await assert.rejects(coordinateRestart(adapter, 'owner', new AbortController().signal, async () => {}), /named/);
   assert.equal(restarts, 0);
 });
 test('authorized restart waits for event-backed convergence and preserves exact failure evidence', async () => {
   const written = [];
   const proof = restart();
-  const adapter = { snapshot: async () => baseline, authorizedUtility: async instance => ({ instance, port: 7698, canonical: true, exactGate: 'meshqa named DEV restart' }), restart: async () => {}, waitReconverged: async () => proof };
-  assert.equal(await coordinateRestart(adapter, 'meshqa', new AbortController().signal, async value => written.push(value)), true);
+  const adapter = { snapshot: async () => baseline, authorizedUtility: async instance => ({ instance, port: 7686, canonical: true, exactGate: 'Windows DEV restart coordinated by Fermi', via: 'Euler', owner: 'Fermi' }), requestRestart: async () => {}, restart: async () => { throw new Error('Tester cannot restart Windows directly'); }, waitReconverged: async () => proof };
+  assert.equal(await coordinateRestart(adapter, 'windows', new AbortController().signal, async value => written.push(value)), true);
   adapter.waitReconverged = async () => { throw new Error('reconnect deadline'); };
-  await assert.rejects(coordinateRestart(adapter, 'meshqa', new AbortController().signal, async value => written.push(value)), /reconnect deadline/);
+  await assert.rejects(coordinateRestart(adapter, 'windows', new AbortController().signal, async value => written.push(value)), /reconnect deadline/);
   assert.equal(written.at(-1).status, 'FAIL');
   assert.deepEqual(written.at(-1).before, baseline);
 });
 test('both-origin driver refuses incomplete pairing before invoking a command adapter', async () => {
   let calls = 0;
   const endpoints = pair();
-  endpoints.meshqa.peers.paired = [];
+  endpoints.windows.peers.paired = [];
   await assert.rejects(driveBoth({ endpoints, ids, fixtures: {}, adapters: { aiderqa: async () => calls++ }, write: async () => {}, signal: new AbortController().signal }), /exclusively/);
   assert.equal(calls, 0);
+});
+
+test('Windows lifecycle refuses wrong authority and missing request route before process control', async () => {
+  for (const patch of [{ via: 'other' }, { owner: 'other' }, { requestRestart: undefined }]) {
+    let calls = 0;
+    const written = [];
+    const adapter = {
+      snapshot: async () => baseline,
+      authorizedUtility: async instance => ({ instance, port: 7686, canonical: true, exactGate: 'Windows DEV restart', via: patch.via ?? 'Euler', owner: patch.owner ?? 'Fermi' }),
+      requestRestart: async () => calls++,
+      restart: async () => calls++,
+    };
+    if (Object.hasOwn(patch, 'requestRestart')) adapter.requestRestart = patch.requestRestart;
+    await assert.rejects(coordinateRestart(adapter, 'windows', new AbortController().signal, async value => written.push(value)), /Euler to Fermi/);
+    assert.equal(calls, 0);
+    assert.equal(written.at(-1).status, 'FAIL');
+  }
 });

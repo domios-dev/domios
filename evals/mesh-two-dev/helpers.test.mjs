@@ -47,7 +47,9 @@ test('artifact paths are confined, immutable and nonempty', async () => {
 });
 test('sampling is DEV constrained and mesh ids qualify all selected-tab reads', () => {
   validateTarget('aiderqa', 7697);
-  validateTarget('meshqa', 7698);
+  validateTarget('windows', 7686);
+  assert.throws(() => validateTarget('windows', 7698));
+  assert.throws(() => validateTarget('windows', 7685));
   for (const port of [7685, 7686]) assert.throws(() => validateTarget('aiderqa', port));
   assert.ok(sampleCommands('tab', 'session', 'abcdef').every(args => args.includes('--mesh')));
   assert.throws(() => sampleCommands('bad;id', 'session', 'abcdef'));

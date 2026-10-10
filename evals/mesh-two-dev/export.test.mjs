@@ -14,13 +14,13 @@ with tempfile.TemporaryDirectory() as tmp:
   db.executemany('INSERT INTO session VALUES (?)',[('own',),('foreign',)])
   db.executemany('INSERT INTO message VALUES (?,?,?,?)',[('m1','own',1,'{"role":"user","model":{"modelID":"cheap"}}'),('m2','foreign',2,'{"role":"assistant","modelID":"expensive"}')])
   db.execute('INSERT INTO part VALUES (?,?,?,?,?)',('p1','own','m1',1,'{"type":"text","text":"probe"}'))
- binding={'home':'meshqa','port':7698,'tab_id':'tab','session_id':'own','provider':'opencode','format':'opencode-sqlite','tab_snapshot':{'id':'tab','agent_session_id':'own','agent_type':'opencode'},'metadata':{'session_id':'own','provider':'opencode','file_path':str(p)}}
+ binding={'home':'windows','port':7686,'tab_id':'tab','session_id':'own','provider':'opencode','format':'opencode-sqlite','tab_snapshot':{'id':'tab','agent_session_id':'own','agent_type':'opencode'},'metadata':{'session_id':'own','provider':'opencode','file_path':str(p)}}
  before=hashlib.sha256(p.read_bytes()).hexdigest()
  raw,proof=m.export(binding)
  assert b'expensive' not in raw and b'probe' in raw
  assert proof['records']==3 and proof['read_only'] is True
  assert before==hashlib.sha256(p.read_bytes()).hexdigest()
- try: m.export({**binding,'port':7686}); raise AssertionError('owner DEV accepted')
+ try: m.export({**binding,'port':7685}); raise AssertionError('PROD accepted')
  except ValueError: pass
  with sqlite3.connect(p) as db: db.execute('INSERT INTO part VALUES (?,?,?,?,?)',('p2','own','m2',2,'{}'))
  try: m.export(binding); raise AssertionError('foreign join accepted')

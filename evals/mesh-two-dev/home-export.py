@@ -5,12 +5,14 @@ import pathlib
 import sqlite3
 import urllib.parse
 
+TARGETS = json.loads(pathlib.Path(__file__).with_name("targets.json").read_text())
+
 MAX_BYTES = 16 * 1024 * 1024
 MAX_RECORDS = 10000
 
 
 def validate_binding(binding):
-    expected = {"aiderqa": 7697, "meshqa": 7698}
+    expected = {name: target["api_port"] for name, target in TARGETS.items()}
     if binding.get("home") not in expected or binding.get("port") != expected[binding["home"]]:
         raise ValueError("Only named QA DEV home records are allowed")
     if not binding.get("tab_id") or not binding.get("session_id"):

@@ -1,10 +1,11 @@
+import { targetNames } from './targets.mjs';
 export const providers = ['claude', 'codex', 'opencode', 'grok'];
-export const directions = ['aiderqa->meshqa', 'meshqa->aiderqa'];
+export const directions = targetNames.map(name => `${name}->${targetNames.find(other => other !== name)}`);
 export const views = ['local', 'remote', 'web'];
 export const requirements = {
   1: ['working', 'done', 'sending-dot', 'elapsed', 'progress', 'parity-1000ms'],
   3: ['15-30-turns', 'tools', 'code-blocks', 'attachments', 'stop', 'model-switch', 'reload-history'],
-  4: ['ordered-events', 'restart-aiderqa', 'restart-meshqa', 'reconverged', 'no-ghosts', 'remote-close'],
+  4: ['ordered-events', 'restart-aiderqa', 'restart-windows', 'reconverged', 'no-ghosts', 'remote-close'],
 };
 export const meshOps = ['pair-only', 'tab-list', 'send', 'get-text', 'agent-report', 'paste-roundtrip'];
 export function matrix(extraProviders = []) {

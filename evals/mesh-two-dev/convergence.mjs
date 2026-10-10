@@ -1,3 +1,4 @@
+import { targetFor, targetNames } from './targets.mjs';
 function indexTabs(tabs) {
   const map = new Map();
   for (const tab of tabs) {
@@ -24,7 +25,7 @@ export function verifyConvergence(before, after, closed = []) {
   return true;
 }
 export function verifyRestart({ instance, oldBoot, newBoot, lifecycle, views, baseline, closed = [] }) {
-  if (!['aiderqa', 'meshqa'].includes(instance) || !oldBoot || !newBoot || oldBoot === newBoot) throw new Error('Named DEV restart generation required');
+  if (!targetNames.includes(instance) || !oldBoot || !newBoot || oldBoot === newBoot) throw new Error('Named DEV restart generation required');
   if (!lifecycle?.listenerReady || !lifecycle?.reconnected || lifecycle.boot !== newBoot) throw new Error('Restart readiness events missing');
   for (const view of ['local', 'remote', 'web']) {
     if (!views[view] || views[view].boot !== newBoot || views[view].reconciled !== true) throw new Error(`View not reconverged: ${view}`);
@@ -35,7 +36,7 @@ export function verifyRestart({ instance, oldBoot, newBoot, lifecycle, views, ba
   return true;
 }
 export async function coordinateRestart(adapter, instance, signal, write) {
-  if (!['aiderqa', 'meshqa'].includes(instance)) throw new Error('Only named QA DEVs may restart');
+  if (!targetNames.includes(instance)) throw new Error('Only named QA DEVs may restart');
   const bounded = AbortSignal.any([signal, AbortSignal.timeout(120000)]);
   let before;
   try {
@@ -43,8 +44,12 @@ export async function coordinateRestart(adapter, instance, signal, write) {
     before = await adapter.snapshot(instance, bounded);
     await write({ kind: 'before-restart', instance, before });
     const authorization = await adapter.authorizedUtility(instance, bounded);
-    if (authorization.instance !== instance || authorization.port !== (instance === 'aiderqa' ? 7697 : 7698) || authorization.canonical !== true || !authorization.exactGate) throw new Error('Exact canonical named-DEV utility authorization required');
-    await adapter.restart(authorization, bounded);
+    if (authorization.instance !== instance || authorization.port !== targetFor(instance).api_port || authorization.canonical !== true || !authorization.exactGate) throw new Error('Exact canonical named-DEV utility authorization required');
+    const target = targetFor(instance);
+    if (target.lifecycle_via) {
+      if (authorization.via !== target.lifecycle_via || authorization.owner !== target.lifecycle_owner || !adapter.requestRestart) throw new Error('Windows lifecycle must go through Euler to Fermi');
+      await adapter.requestRestart(authorization, bounded);
+    } else await adapter.restart(authorization, bounded);
     const evidence = await adapter.waitReconverged(instance, bounded);
     await write({ kind: 'after-restart', instance, evidence });
     return verifyRestart({ ...evidence, instance, baseline: before });

@@ -1,0 +1,15 @@
+{
+  "aiderqa": {
+    "api_port": 7697,
+    "tailnet_ip": "100.64.10.2",
+    "gateway": "http://127.0.0.1:7697",
+    "lifecycle_owner": "Euler"
+  },
+  "windows": {
+    "api_port": 7686,
+    "tailnet_ip": "100.64.10.1",
+    "lifecycle_owner": "Fermi",
+    "lifecycle_via": "Euler",
+    "access": "aiderqa dc --mesh only"
+  }
+}

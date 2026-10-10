@@ -1,8 +1,8 @@
 import { verifyPair } from './identity.mjs';
 import { createHash } from 'node:crypto';
-import { validateTarget } from './sampling.mjs';
+import { validateTarget, targetNames } from './targets.mjs';
 export function originPlan(origin, ids, fixture) {
-  const home = origin === 'aiderqa' ? 'meshqa' : origin === 'meshqa' ? 'aiderqa' : null;
+  const home = targetNames.includes(origin) ? targetNames.find(name => name !== origin) : null;
   if (!home || !ids[home] || !ids[origin]) throw new Error('Pinned origin/home identities required');
   const mesh = ['--mesh', ids[home]];
   const tab = ['--tab', fixture.tabId];
@@ -50,7 +50,7 @@ export function verifyReport(receipt, expected) {
 export async function driveBoth({ endpoints, ids, fixtures, adapters, write, signal }) {
   verifyPair(endpoints, ids);
   const results = {};
-  for (const origin of ['aiderqa', 'meshqa']) {
+  for (const origin of targetNames) {
     results[origin] = await driveOrigin(originPlan(origin, ids, fixtures[origin]), adapters[origin], write, signal);
   }
   return results;

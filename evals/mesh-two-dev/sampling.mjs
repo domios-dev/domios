@@ -1,8 +1,4 @@
-export function validateTarget(instance, port) {
-  if (!((instance === 'aiderqa' && port === 7697) || (instance === 'meshqa' && port === 7698))) {
-    throw new Error('Only aiderqa:7697 and meshqa:7698 are allowed');
-  }
-}
+export { validateTarget } from './targets.mjs';
 export function sampleCommands(tab, session, peer) {
   if (!/^[a-zA-Z0-9_-]+$/.test(tab) || !/^[a-zA-Z0-9_-]+$/.test(session)) throw new Error('Invalid identity');
   if (peer && !/^[a-f0-9-]{6,}$/.test(peer)) throw new Error('Exact peer identity required');
