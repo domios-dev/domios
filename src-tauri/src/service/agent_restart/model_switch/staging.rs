@@ -320,7 +320,7 @@ impl ServiceContext {
             .signal_started(tab_id);
     }
     pub(super) fn staged_completion_boundary(&self, tab_id: &str) -> Option<CompletionBoundary> {
-        let (session_id, nonce, mut generation, epoch, provider, cwd, completed_anchor) = {
+        let (session_id, nonce, mut generation, epoch, provider, cwd, completed_anchor, working) = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id)?;
             let session_id = tab.agent_session_id.clone()?;
@@ -351,35 +351,9 @@ impl ServiceContext {
                 tab.agent_type.clone()?,
                 tab.cwd.clone(),
                 completed_anchor,
+                self.resolved_tab_status(tab) == Some(codeterm_types::pty::TabStatus::Working),
             )
         };
-        if let Some(anchor) = completed_anchor {
-            let transcript = self
-                .agent_registry
-                .with_provider(&provider, |provider| {
-                    provider
-                        .model_switch_commands()
-                        .map(|commands| commands.transcript)
-                })
-                .flatten();
-            let no_foreign_turn = transcript.is_some_and(|transcript| {
-                crate::service::chat_send_evidence::window_has_foreign_user_turn(
-                    &self.agent_registry,
-                    &anchor,
-                    &transcript,
-                ) == Ok(false)
-            });
-            generation = self
-                .restart_tracker
-                .lock()
-                .staged_models
-                .boundary_generation(tab_id, &session_id, &nonce, no_foreign_turn);
-            if no_foreign_turn {
-                log::info!(
-                    "[agent-model/completion] tab={tab_id} phase=accepted_completion_latched"
-                );
-            }
-        }
         let declared = self
             .agent_registry
             .with_provider(&provider, |provider| {
@@ -409,6 +383,49 @@ impl ServiceContext {
             }
             None => None,
         };
+        if let Some(anchor) = completed_anchor {
+            let transcript = self
+                .agent_registry
+                .with_provider(&provider, |provider| {
+                    provider
+                        .model_switch_commands()
+                        .map(|commands| commands.transcript)
+                })
+                .flatten();
+            let no_foreign_turn = transcript.is_some_and(|transcript| {
+                crate::service::chat_send_evidence::window_has_foreign_user_turn(
+                    &self.agent_registry,
+                    &anchor,
+                    &transcript,
+                ) == Ok(false)
+            });
+            let current_generation = generation;
+            generation = {
+                let mux = self.mux.read();
+                let still_not_working = mux.get_tab(tab_id).is_some_and(|tab| {
+                    self.resolved_tab_status(tab) != Some(codeterm_types::pty::TabStatus::Working)
+                });
+                let reuse = completion_reuse_allowed(
+                    working || !still_not_working,
+                    records
+                        .as_ref()
+                        .is_some_and(|records| records.in_progress()),
+                    no_foreign_turn,
+                );
+                if !reuse {
+                    log::info!("[agent-model/completion] tab={tab_id} phase=accepted_completion_reuse_refused working={} declared_turn_in_progress={} foreign_turn={}", working || !still_not_working, records.as_ref().is_some_and(|records| records.in_progress()), !no_foreign_turn);
+                }
+                self.restart_tracker
+                    .lock()
+                    .staged_models
+                    .boundary_generation(tab_id, &session_id, &nonce, reuse)
+            };
+            if generation < current_generation {
+                log::info!(
+                    "[agent-model/completion] tab={tab_id} phase=accepted_completion_latched"
+                );
+            }
+        }
         Some(CompletionBoundary {
             session_id,
             nonce,
@@ -796,6 +813,14 @@ fn finish_staged_selection(
     if confirmed && own_selection && own_binding && !pending.0.contains_key(&request.tab_id) {
         tab.pending_model_selection = None;
     }
+}
+
+fn completion_reuse_allowed(
+    working: bool,
+    declared_turn_in_progress: bool,
+    no_foreign_turn: bool,
+) -> bool {
+    !working && !declared_turn_in_progress && no_foreign_turn
 }
 
 fn completion_anchor(
