@@ -373,21 +373,18 @@ async function runRound(n) {
   const health = await checkHealth();
   const restored = await tabs();
   let workspace;
-  for (const fixture of result.fixtures.filter((fixture) => fixture.id)) {
-    const record = restored.find((record) => record.id === fixture.id);
-    if (!record) continue;
-    if (workspace !== record.workspace_id) {
-      await dc("workspace", "focus", record.workspace_id);
-      workspace = record.workspace_id;
-    }
-    await dc("tab", "focus", "--tab", fixture.id);
-  }
   const readiness = [];
   for (const fixture of result.fixtures.filter((fixture) => fixture.id)) {
     const signal = AbortSignal.timeout(deadlineMs);
     const events = new Events(signal);
     try {
       await events.open();
+      const record = restored.find((record) => record.id === fixture.id);
+      if (record && workspace !== record.workspace_id) {
+        await dc("workspace", "focus", record.workspace_id);
+        workspace = record.workspace_id;
+      }
+      await dc("tab", "focus", "--tab", fixture.id);
       readiness.push(await waitReady(events, fixture.id, signal, fixture.first_turn_policy));
     } catch (error) {
       readiness.push({ id: fixture.id, readiness_error: error.message });
