@@ -1,5 +1,5 @@
 import {execFile} from 'node:child_process';
-import {promisify} from 'node:util';
+import {promisify,stripVTControlCharacters} from 'node:util';
 import {readFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import assert from 'node:assert/strict';
@@ -15,8 +15,9 @@ export async function dc(args) {
 }
 const MAX_EXPORT_BYTES = 16 * 1024 * 1024;
 export function nativePasteReceipt(output) {
-  const receipts = String(output).split(/\r?\n/).flatMap(line => {
-    try { const value = JSON.parse(line); return value.kind === 'phaseb_native_paste' ? [value] : []; }
+  const candidates = stripVTControlCharacters(String(output)).match(/\{[^{}]*\}/g) ?? [];
+  const receipts = candidates.flatMap(candidate => {
+    try { const value = JSON.parse(candidate); return value.kind === 'phaseb_native_paste' ? [value] : []; }
     catch { return []; }
   });
   assert.equal(receipts.length, 1, 'Exactly one native paste receipt required');
@@ -76,7 +77,9 @@ export async function snapshot(manifest, machineKey, tab) {
       '--timeout','25000','--json',...remote]);
     assert.equal(result.exit_code,0);
     assert.notEqual(result.output_truncated, true, 'Compact native receipt was truncated');
-    const receipt = nativePasteReceipt(result.output);
+    let receipt;
+    try { receipt = nativePasteReceipt(result.output); }
+    catch (error) { error.nativeExportResponse = result; throw error; }
     const paste = await dc(['paste','get',receipt.paste_id,'--json',...remote]);
     output = nativePasteBody(receipt, paste);
   }

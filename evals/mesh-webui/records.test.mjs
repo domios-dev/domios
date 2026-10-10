@@ -25,3 +25,11 @@ test('byte length, hash and body envelope are verified before native parsing', (
   assert.throws(()=>nativePasteBody({...receipt,sha256:'0'.repeat(64)},{body}));
   assert.throws(()=>nativePasteBody(receipt,{output:body}));
 });
+
+test('receipt extraction tolerates terminal decoration and adjacent prompt framing', () => {
+  const receipt=transfer('opaque');
+  const output='\x1b[?25lcommand echo\r\n\x1b[32m'+JSON.stringify(receipt)+'\x1b[0mPS C:\x5cfixture> ';
+  assert.deepEqual(nativePasteReceipt(output),receipt);
+  assert.deepEqual(nativePasteReceipt(JSON.stringify(receipt,null,2)),receipt);
+  assert.throws(()=>nativePasteReceipt(output+'\r\n'+JSON.stringify(receipt)));
+});
