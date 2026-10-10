@@ -32,8 +32,11 @@ recovery observations are appended. An explicit PROVIDER:FRESH_TAB argument can
 journal an interrupted fixture creation after checking its provider, workspace
 and cwd. It never approves trust dialogs or restarts failed agents.
 
-Use --continue-from-setup only after reviewing a completed setup with no restart
-round or fatal error. The runner refuses to replay an incomplete trial.
+Use --continue-from-setup only after reviewing a completed setup before the
+first launcher invocation or restart round. A pre-launch harness failure is
+archived with its original manifest and retained in harness_failures; the
+continuation keeps completed seeds and never repeats setup prompts. Any launcher
+log or restart-round evidence refuses continuation.
 
 After round 3, discover alternate models with dc agent models PROVIDER, then run
 these observers through the named DEV library:
