@@ -1,11 +1,7 @@
 --- a/src-tauri/vendor/tauri-runtime-wry/src/owner_thread/tests.rs
 +++ b/src-tauri/vendor/tauri-runtime-wry/src/owner_thread/tests.rs
-@@ -158,7 +158,7 @@
- 
- #[test]
+@@ -160,3 +160,3 @@
  fn windows_rc_ownership_regression_context_field_shared_count_invariant() {
 -    assert_context_clone_keeps_native_count(|native| Arc::new(OwnerThread::new(native)));
 +    assert_context_clone_keeps_native_count(|native| native);
  }
- 
- #[test]
