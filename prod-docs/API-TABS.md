@@ -178,7 +178,7 @@ Custom themes are `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/
 | GET | `/api/mesh/status` | — | Mesh identity, peers, discovery status |
 | GET | `/api/mesh/peers` | — | List peers (paired + discovered) |
 | POST | `/api/mesh/discover` | — | Run discovery, return discovered peers |
-| POST | `/api/mesh/connect` | `{instance_id, addr?}` | Initiate owner-approved pairing; optional literal IP:port reads and registers the peer identity first |
+| POST | `/api/mesh/connect` | `{instance_id, addr?}` | Owner-approved pairing; optional IP:port reads and registers the identity first |
 | POST | `/api/mesh/approve` | `{request_id}` | Accept an incoming pairing request |
 | POST | `/api/mesh/reject` | `{request_id}` | Reject and block an incoming pairing request |
 | POST | `/api/mesh/disconnect` | `{instance_id}` | Unpair from a paired peer (notifies remote side) |
@@ -198,7 +198,7 @@ Custom themes are `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/
 | GET | `/api/mesh/relay-asset/{peer}/{*path}` | `?token=<LOCAL>` | Read-only, `plugins/{id}/ui/*`-scoped byte proxy for a peer's plugin-UI iframe. |
 | DELETE | `/api/mesh/peers/{id}` | — | Remove a peer (internal, disconnect broadcast) |
 | POST | `/api/mesh/refresh` | — | Refresh local addresses and announce to peers |
-| POST | `/api/mesh/peers/add-manual` | `{address, port}` | Read the signed identity at IP/port and register a `Manual` sighting through shared discovery (no pairing). Returns `{ok, instance_id}` and emits `mesh-state-changed`. |
+| POST | `/api/mesh/peers/add-manual` | `{address, port}` | Read signed identity at IP/port; register a `Manual` sighting without pairing. Returns `{ok, instance_id}`; emits `mesh-state-changed`. |
 | POST | `/api/mesh/peers/approve/{id}` | — | Path-style alias for `POST /api/mesh/approve` (`request_id` in URL). |
 | POST | `/api/mesh/peers/reject/{id}` | — | Path-style alias for `POST /api/mesh/reject`. |
 | POST | `/api/mesh/peers/disconnect/{id}` | — | Path-style alias for `POST /api/mesh/disconnect` (`instance_id` in URL). |
