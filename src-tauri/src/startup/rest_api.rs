@@ -1,5 +1,4 @@
 use std::collections::VecDeque;
-use std::future::IntoFuture;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
@@ -87,7 +86,7 @@ pub(crate) struct RestApiControl {
     #[cfg(test)]
     bind_error: Arc<AtomicBool>,
     #[cfg(test)]
-    initial_listener: Arc<Mutex<Option<tokio::net::TcpListener>>>,
+    initial_listener: Arc<Mutex<Option<std::net::TcpListener>>>,
 }
 
 #[derive(Debug)]
@@ -440,12 +439,12 @@ impl RestApiControl {
     }
 
     #[cfg(test)]
-    fn install_initial_listener(&self, listener: tokio::net::TcpListener) {
+    fn install_initial_listener(&self, listener: std::net::TcpListener) {
         *self.initial_listener.lock() = Some(listener);
     }
 
     #[cfg(test)]
-    fn take_initial_listener(&self) -> Option<tokio::net::TcpListener> {
+    fn take_initial_listener(&self) -> Option<std::net::TcpListener> {
         self.initial_listener.lock().take()
     }
 }
@@ -513,7 +512,7 @@ fn enable_shared_port_binding(socket: &tokio::net::TcpSocket) -> std::io::Result
     }
 }
 
-async fn bind_listener(bind_addr: &str) -> std::io::Result<tokio::net::TcpListener> {
+async fn bind_listener(bind_addr: &str) -> std::io::Result<std::net::TcpListener> {
     let address = bind_addr
         .parse::<SocketAddr>()
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
@@ -526,7 +525,7 @@ async fn bind_listener(bind_addr: &str) -> std::io::Result<tokio::net::TcpListen
     #[cfg(unix)]
     enable_shared_port_binding(&socket)?;
     socket.bind(address)?;
-    socket.listen(1024)
+    socket.listen(1024)?.into_std()
 }
 
 fn listener_exit_message(result: Result<(), std::io::Error>) -> String {
@@ -651,6 +650,22 @@ where
             }
         }
     }
+}
+
+pub(crate) fn spawn(
+    control: RestApiControlState,
+    bind_addr: String,
+    router: axum::Router,
+) -> std::thread::JoinHandle<()> {
+    codeterm_util::named_thread::spawn("rest-api", move || {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .thread_name("rest-api-worker")
+            .worker_threads(4)
+            .enable_all()
+            .build()
+            .expect("Failed to create Tokio runtime for REST API");
+        runtime.block_on(start(control, bind_addr, router));
+    })
 }
 
 pub(crate) async fn start(control: RestApiControlState, bind_addr: String, router: axum::Router) {
@@ -778,16 +793,7 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
             .transpose()
             .expect("successfully bound tailnet listener has an address");
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
-        let primary = axum::serve(
-            listener,
-            router
-                .clone()
-                .into_make_service_with_connect_info::<SocketAddr>(),
-        )
-        .with_graceful_shutdown(async {
-            let _ = shutdown_rx.await;
-        })
-        .into_future();
+        let primary = listeners::serve_listener(listener, router.clone(), shutdown_rx);
         let mut server = Box::pin(listeners::serve(
             primary,
             remote_listener,
