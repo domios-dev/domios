@@ -676,6 +676,7 @@ pub fn build_tab_summary_json(
                 "backing_kind": backing_kind,
                 "pending_delivery": tab.pending_delivery,
                 "agent_liveness": liveness,
+                "agent_state": tab.agent_state,
                 // A session model is observed at runtime and only some providers
                 // report one; the requested model is still the tab's identity.
                 "agent_label": codeterm_types::pty::agent_bracket_label(

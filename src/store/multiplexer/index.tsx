@@ -44,7 +44,7 @@ import { createMuxStateStore } from "./selectorStore";
 import { createRefreshCoalescer } from "./refreshCoalescer";
 import { createPeerRebindGate } from "./peerRebindGate";
 import type { Tab } from "../../lib/types";
-import { remoteTabsFromOrdinaryProjection, shouldRefreshRemoteTabs } from "./remoteTabProjection";
+import { remoteTabsFromOrdinaryProjection, refreshAttachedRemoteAgentStates, shouldRefreshRemoteTabs } from "./remoteTabProjection";
 import {
   loadAttachedRemoteTabs,
   projectAttachedRemoteTab,
@@ -211,7 +211,16 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     const ordinary = await invoke<Tab[]>("ordinary_tabs_list");
     if (!remoteProjectionActiveRef.current) return;
     const remote = remoteTabsFromOrdinaryProjection(ordinary);
-    applyRemoteProjection(remote);
+    const projected = await refreshAttachedRemoteAgentStates(
+      reconcileAttachedRemoteTabs(remote, attachedRemoteTabsRef.current),
+      remote,
+      (peerId) => invoke<RemotePeerTabs>("mesh_peer_tabs_list", { peerId }),
+    );
+    if (!remoteProjectionActiveRef.current) return;
+    for (const id of Object.keys(attachedRemoteTabsRef.current)) {
+      if (projected[id]) attachedRemoteTabsRef.current[id] = projected[id];
+    }
+    applyRemoteProjection(projected);
     resumeRemoteOutputStreams();
     resumeRemoteTabEvents();
   }, [applyRemoteProjection]);

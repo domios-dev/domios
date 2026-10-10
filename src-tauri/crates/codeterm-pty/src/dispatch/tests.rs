@@ -649,7 +649,7 @@ fn tab_summary_is_workspace_scoped_and_excludes_full_payload_fields() {
     let tab = summaries.first().expect("summary Tab");
     assert_eq!(tab["id"].as_str(), Some(initial_tab.as_str()));
     assert_eq!(tab["workspace_id"].as_str(), Some(workspace.id.as_str()));
-    assert!(tab.get("agent_state").is_none());
+    assert!(tab["agent_state"].is_null());
     assert!(tab.get("model_fallback").is_none());
     for identity in [
         "agent_session_id",
@@ -939,4 +939,33 @@ fn tab_list_keeps_tab_info_after_rename_to_fibonacci() {
         Some("Fibonacci"),
     );
     assert!(tabs[0].get("tab_title").is_none());
+}
+
+#[test]
+fn tab_summary_preserves_live_agent_state_transitions() {
+    use crate::multiplexer::state::MultiplexerState;
+    use codeterm_types::pty::{TabVerdict, TimelineState};
+
+    let (mut state, tab_id) = MultiplexerState::new();
+    for live in [
+        TimelineState::Idle,
+        TimelineState::Working,
+        TimelineState::Idle,
+    ] {
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        tab.agent_state = Some(
+            TabVerdict {
+                state: live,
+                subtype: None,
+            }
+            .into(),
+        );
+        let expected = serde_json::to_value(&tab.agent_state).unwrap();
+        let rows = build_tab_summary_json(&state.snapshot(), None, None, false, false);
+        let row = rows
+            .iter()
+            .find(|row| row["id"] == tab_id.as_str())
+            .unwrap();
+        assert_eq!(row["agent_state"], expected);
+    }
 }
