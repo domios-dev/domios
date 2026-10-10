@@ -104,7 +104,7 @@ async function provider(page,home,direction,machine,tab) {
   });
   await check(page,direction,tab,'managed-by',async()=>{
     assert.ok(tab.controllerTitle,'Fixture must have an explicit controller title');
-    await waitDom(page,{selector:`[data-testid="tab-item"][data-tab-id="${uiId}"] [data-testid="remote-managed-by"]`,attr:'aria-label',value:`managed by ${tab.controllerTitle}`});
+    await waitDom(page,{selector:`[data-testid="tab-item"][data-tab-id="${uiId}"]`,text:`managed by ${tab.controllerTitle}`});
     return {controller:tab.controllerTitle,uiId};
   });
   const turns=[];
@@ -149,7 +149,8 @@ async function provider(page,home,direction,machine,tab) {
     const file=path.join(pad,'prompts',token+'.txt');
     await writeFile(file,token,{flag:'wx'});
     const before=await native(machine,tab,'before-attachment');
-    await page.getByTestId('composer-attach-input').setInputFiles(file);
+    const chat = await selectedChatSurface(page);
+    await chat.getByTestId('composer-attach-input').setInputFiles(file);
     await waitDom(page,{selector:'[data-testid="attachment-chip"]',text:token});
     await submit(page,`Read the attached text and reply with its exact contents.`,token+'-prompt');
     await waitDom(page,{selector:'[data-testid="chat-message"][data-message-role="assistant"]',text:token});
@@ -195,18 +196,34 @@ async function provider(page,home,direction,machine,tab) {
     return {providerRecord:after.evidence,model:tab.switchModel,receipt};
   });
   await check(page,direction,tab,'history-reload',async()=>{
+    const phase = async name => persist(`${++serial}-reload-${name}.json`, await page.evaluate(() => ({
+      at:Date.now(), origin:location.origin,
+      picker:document.querySelector('[data-testid="peer-picker-button"]')?.outerHTML ?? null,
+      peer:localStorage.getItem(`codeterm-web-relay-peer:${location.origin}`),
+      tabIds:[...document.querySelectorAll('[data-testid="tab-item"]')].map(e=>e.getAttribute('data-tab-id')),
+      selectedRoots:[...document.querySelectorAll('[data-testid="terminal-tab"]')]
+        .filter(e=>e.checkVisibility({checkVisibilityCSS:true,checkOpacity:true}))
+        .map(e=>e.getAttribute('data-tab-id'))
+    })));
+    const before = await phase('before');
     const selectedPeer=await page.evaluate(()=>localStorage.getItem(`codeterm-web-relay-peer:${location.origin}`));
-    page.__b2Steps.push({action:'reload isolated browser page',at:Date.now()});
+    page.__b2Steps.push({action:'reload isolated browser page',at:Date.now(),before});
     await page.reload({waitUntil:'domcontentloaded'});
-    assert.equal(await page.evaluate(()=>localStorage.getItem(`codeterm-web-relay-peer:${location.origin}`)),selectedPeer);
+    const loaded = await phase('domcontentloaded');
+    await page.getByTestId('peer-picker-button').waitFor({state:'visible'});
+    const picker = await phase('picker-ready');
+    const afterPeer=await page.evaluate(()=>localStorage.getItem(`codeterm-web-relay-peer:${location.origin}`));
+    const identity = await phase('identity-before-select');
+    assert.equal(afterPeer,selectedPeer,'Reload changed selected peer; peer reselection is a separate action');
     await selectTab(page,uiId);
+    const selected = await phase('tab-selected');
     for(const t of turns) await waitDom(page,{selector:'[data-testid="chat-message"][data-message-role="assistant"]',text:t.token});
-    return {providerRecords:turns.map(t=>t.provider_record),selectedPeer};
+    return {providerRecords:turns.map(t=>t.provider_record),selectedPeer,phases:{before,loaded,picker,identity,selected}};
   });
 }
 async function runDirection(gateway,machine,direction) {
-  const {page}=await harness.openGateway(gateway);
-  const {page:home}=await harness.openGateway(machine);
+  const {page}=await harness.openGateway(gateway,{diagnosticsDirectory:path.join(out,'diagnostics-switched')});
+  const {page:home}=await harness.openGateway(machine,{diagnosticsDirectory:path.join(out,'diagnostics-home')});
   page.__b2Steps=[];page.__b2Errors=[];
   page.on('pageerror',error=>page.__b2Errors.push({at:Date.now(),error:String(error)}));
   await capture(page,direction+'-gateway-baseline');

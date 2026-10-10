@@ -1,5 +1,7 @@
 import {createRequire} from 'node:module';
 import {armBrowserDiagnostics} from './browser-diagnostics.mjs';
+import {installSelectedActivityObserver} from './activity-observer.mjs';
+import {selectedChatSurface} from './chat-selection.mjs';
 import {readFile, mkdir, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {validateManifest,validateOutput} from './model.mjs';
@@ -101,26 +103,8 @@ export async function captureTerminalView(page, tabId, label) {
   } finally { await terminalObserver.releaseTerminalEvents(page,probeId); }
 }
 export async function observe(page) {
-  await page.evaluate(() => {
-    window.__b2Activity?.observer.disconnect();
-    const events = [];
-    let prior = '';
-    const collect = () => {
-      const visible = s => [...document.querySelectorAll(s)].find(e => e.getClientRects().length);
-      const chat = visible('[data-testid="tab-session-chat"]');
-      const agent = chat?.querySelector('[data-testid="agent-state"]');
-      const log = chat?.querySelector('[role="log"]');
-      const row = {tabId:chat?.getAttribute('data-tab-id'), state:agent?.getAttribute('data-agent-state'),
-        phase:agent?.getAttribute('data-agent-phase'), status:agent?.textContent,
-        sending:!!chat?.querySelector('[data-state="sending"]'),
-        progress:log?.textContent?.slice(-4000), elapsed:agent?.textContent?.match(/\b\d+(?:\.\d+)?\s*(?:s|sec|seconds|m|min)\b/)?.[0] ?? null};
-      const serialized = JSON.stringify(row);
-      if (serialized !== prior) { events.push({...row,at:Date.now(),monotonic:performance.now()}); prior=serialized; }
-    };
-    const observer = new MutationObserver(collect);
-    observer.observe(document.documentElement, {subtree:true,childList:true,attributes:true,characterData:true});
-    window.__b2Activity = {observer,events}; collect();
-  });
+  await selectedChatSurface(page);
+  await page.evaluate(installSelectedActivityObserver,{tabId:page.__b2SelectedTabId});
 }
 export async function activity(page) { return page.evaluate(() => window.__b2Activity?.events ?? []); }
 export async function capture(page, label, {tabId = page.__b2SelectedTabId} = {}) {
@@ -143,6 +127,7 @@ export async function createHarness(manifest, outDir) {
   const {chromium} = require('@playwright/test');
   const browser = await chromium.launch({headless:true,timeout:STEP_MS});
   const contexts = [];
+  const diagnosticCollectors = new Set();
   return {browser, async openGateway(machineKey, { diagnosticsDirectory, outputTabId } = {}) {
     const machine = manifest[machineKey];
     if (!machine || !['mac','windows'].includes(machineKey)) throw new Error('Unknown gateway');
@@ -161,6 +146,7 @@ export async function createHarness(manifest, outDir) {
     }, {origin:machine.origin,token});
     const page = await context.newPage();
     const diagnostics = diagnosticsDirectory ? await deadline(armBrowserDiagnostics(page, diagnosticsDirectory, { secrets: [token], outputTabId }), 'Arm browser diagnostics') : null;
+    if (diagnostics) diagnosticCollectors.add(diagnostics);
     const evaluate = page.evaluate.bind(page);
     page.evaluate = (...args) => deadline(evaluate(...args), 'Browser protocol evaluate');
     page.__b2Out = outDir;
@@ -171,11 +157,13 @@ export async function createHarness(manifest, outDir) {
       await page.getByTestId('peer-picker-button').waitFor({state:'visible'});
       return {page,context,diagnostics,provenance:{gateway:machineKey,origin:machine.origin}};
     } catch (error) {
-      try { await diagnostics?.finish('gateway-open-failed'); }
+      try { await diagnostics?.finish('gateway-open-failed'); diagnosticCollectors.delete(diagnostics); }
       finally { await deadline(context.close(), 'Failed gateway context close'); }
       throw error;
     }
   }, async close() {
+    for (const diagnostics of diagnosticCollectors) await deadline(diagnostics.finish(),'Finish browser diagnostics');
+    diagnosticCollectors.clear();
     for (const context of contexts) await deadline(context.close(),'Context close');
     await deadline(browser.close(),'Browser close');
   }};
