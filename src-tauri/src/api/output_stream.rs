@@ -120,10 +120,14 @@ fn drain_tab_output(
         if chunk.is_empty() {
             break;
         }
-        *offset = total;
+        let read = plan_emit(*offset, &chunk, total, usize::MAX);
+        if read.output.is_empty() {
+            break;
+        }
+        *offset = read.new_offset;
         frames.push(TabOutputFrame {
-            output: String::from_utf8_lossy(&chunk).into_owned(),
-            offset: total,
+            output: String::from_utf8_lossy(&read.output).into_owned(),
+            offset: read.new_offset,
         });
     }
     frames
@@ -240,21 +244,57 @@ fn plan_emit(offset: u64, chunk: &[u8], total: u64, cap: usize) -> TabRead {
     } else {
         None
     };
-    let mut take = chunk.len().min(cap);
-    // would corrupt it via `from_utf8_lossy` here and on the next sweep.
-    while take > 0 && take < chunk.len() && (chunk[take] & 0b1100_0000) == 0b1000_0000 {
-        take -= 1;
-    }
+    let mut take = utf8_complete_prefix(chunk, cap);
     if take == 0 {
-        take = chunk.len().min(cap); // guarantee forward progress
+        if chunk.len() < 4 && cap >= chunk.len() {
+            // Only an incomplete character so far: wait for its remaining bytes.
+            return TabRead {
+                truncated_from,
+                output: Vec::new(),
+                new_offset: base,
+                has_more: false,
+            };
+        }
+        take = chunk.len().min(cap); // invalid bytes: guarantee forward progress
     }
     let new_offset = base + take as u64;
     TabRead {
         truncated_from,
         output: chunk[..take].to_vec(),
         new_offset,
-        has_more: new_offset < total,
+        has_more: cap < chunk.len(),
     }
+}
+
+fn utf8_continuation(byte: u8) -> bool {
+    byte & 0b1100_0000 == 0b1000_0000
+}
+
+fn utf8_sequence_len(lead: u8) -> usize {
+    match lead {
+        0xC0..=0xDF => 2,
+        0xE0..=0xEF => 3,
+        0xF0..=0xF7 => 4,
+        _ => 1,
+    }
+}
+
+/// Length of `chunk[..limit]` that ends on a UTF-8 character boundary, so a
+/// character split by the cap or by a partial PTY read is never decoded in halves.
+fn utf8_complete_prefix(chunk: &[u8], limit: usize) -> usize {
+    let mut take = limit.min(chunk.len());
+    while take > 0 && take < chunk.len() && utf8_continuation(chunk[take]) {
+        take -= 1;
+    }
+    if let Some(lead) = (take.saturating_sub(4)..take)
+        .rev()
+        .find(|&i| !utf8_continuation(chunk[i]))
+    {
+        if lead + utf8_sequence_len(chunk[lead]) > take {
+            take = lead;
+        }
+    }
+    take
 }
 
 /// Per-tab cursor + whether an `ended` frame was already emitted (emit once).
