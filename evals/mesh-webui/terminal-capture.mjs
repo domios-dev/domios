@@ -102,7 +102,29 @@ function readProbeEvents(id) {
   return events;
 }
 
-export async function captureTerminal(page, { tabId, probeId, directory, provenance }) {
+export function semanticCaptureEligible(evidence, tabId) {
+  return evidence?.failure === 'FAIL unstable surface: three capture attempts exhausted'
+    && evidence.after?.tabId === tabId && evidence.attempts?.length === 3
+    && evidence.attempts.every(attempt => attempt.unchanged === false
+      && JSON.stringify(attempt.before) === JSON.stringify(attempt.candidate)
+      && JSON.stringify(attempt.candidate) === JSON.stringify(attempt.after));
+}
+
+export function captureEventRates(events) {
+  const timed = events.filter(event => Number.isFinite(event.at));
+  const counts = Object.fromEntries(['render', 'write-parsed', 'cursor', 'resize', 'scroll', 'buffer']
+    .map(type => [type, timed.filter(event => event.type === type).length]));
+  const spanSeconds = timed.length > 1 ? (timed.at(-1).at - timed[0].at) / 1000 : 0;
+  return { spanSeconds, counts, perSecond: spanSeconds > 0
+    ? Object.fromEntries(Object.entries(counts).map(([type, count]) => [type, count / spanSeconds])) : null };
+}
+
+export async function captureTerminal(page, { tabId, probeId, directory, provenance,
+  stabilityMode = 'strict', strictExhaustionEvidence = null }) {
+  if (!['strict', 'semantic'].includes(stabilityMode)) throw new Error('Unknown capture stability mode');
+  if (stabilityMode === 'semantic' && !semanticCaptureEligible(strictExhaustionEvidence, tabId)) {
+    throw new Error('Semantic capture requires strict zero-diff exhaustion on this tab');
+  }
   const out = resolve(directory);
   const expiresAt = Date.now() + 30000;
   const signal = AbortSignal.timeout(30000);
@@ -133,17 +155,19 @@ export async function captureTerminal(page, { tabId, probeId, directory, provena
     const middleRevision = await within(page.evaluate(readProbeRevision, probeId));
     const candidate = await within(page.evaluate(readTerminalState, { tabId }));
     const screenshotRevision = await within(page.evaluate(readProbeRevision, probeId));
-    const ready = startRevision === middleRevision && middleRevision === screenshotRevision
+    const ready = (stabilityMode === 'semantic'
+      || (startRevision === middleRevision && middleRevision === screenshotRevision))
       && JSON.stringify(before) === JSON.stringify(candidate);
     const screenshot = ready ? `screen-attempt-${number}.png` : null;
     if (screenshot) await within(page.screenshot({ path: resolve(out, screenshot), timeout: remaining() }));
     const after = screenshot ? await within(page.evaluate(readTerminalState, { tabId })) : candidate;
     const endRevision = await within(page.evaluate(readProbeRevision, probeId));
-    const unchanged = ready && screenshotRevision === endRevision
+    const unchanged = ready && (stabilityMode === 'semantic' || screenshotRevision === endRevision)
       && JSON.stringify(candidate) === JSON.stringify(after);
     const events = await within(page.evaluate(readProbeEvents, probeId));
     const attempt = { number, before, candidate, after, startRevision, middleRevision,
-      screenshotRevision, endRevision, screenshot, unchanged, events };
+      screenshotRevision, endRevision, screenshot, unchanged, events, stabilityMode,
+      revisionDelta: endRevision - startRevision, eventRates: captureEventRates(events) };
     attempts.push(attempt);
     await writeFile(resolve(out, `attempt-${number}.json`), JSON.stringify(attempt, null, 2), { flag: 'wx' });
     if (before.truncated || candidate.truncated || after.truncated) {
@@ -171,7 +195,8 @@ export async function captureTerminal(page, { tabId, probeId, directory, provena
     }
   }
   const last = attempts.at(-1);
-  await writeFile(resolve(out, 'state.json'), JSON.stringify({ provenance,
+  await writeFile(resolve(out, 'state.json'), JSON.stringify({ provenance, stabilityMode,
+    revisionDelta: last.endRevision - last.startRevision, eventRates: captureEventRates(last.events),
     before: last.before, after: last.after, unchanged: stable, revision: last.endRevision,
     events: last.events, attempts, failure: stable ? null : failure }, null, 2), { flag: 'wx' });
   await writeFile(resolve(out, 'viewport.txt'), last.after.lines
