@@ -9,7 +9,7 @@ use crate::service::boot_stage::BootStage;
 use crate::service::ServiceContext;
 
 mod empty_session;
-mod restore_payload;
+pub(super) mod restore_payload;
 
 #[derive(Clone)]
 pub(crate) struct RestoredLaunch {
@@ -22,15 +22,15 @@ pub(crate) struct RestoredLaunch {
     pub role_profile: Option<String>,
 }
 
-struct RestoredSnapshotLaunchInput {
+pub(super) struct RestoredSnapshotLaunchInput {
     params: crate::service::SpawnAgentParams,
     launch_parameters: crate::multiplexer::types::RestorableLaunchParameters,
-    launch_task: Option<String>,
-    fallback_spec: Option<crate::service::launch_delivery::FallbackDeliverySpec>,
+    pub(super) launch_task: Option<String>,
+    pub(super) fallback_spec: Option<crate::service::launch_delivery::FallbackDeliverySpec>,
     origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
 }
 
-fn restored_snapshot_launch_input(
+pub(super) fn restored_snapshot_launch_input(
     registry: &crate::agent::registry::AgentRegistry,
     launch: RestoredLaunch,
     _historical_task: Option<String>,
@@ -224,6 +224,24 @@ pub(crate) fn claim_restored_launch(
     let tab = mux
         .get_tab_mut(tab_id)
         .ok_or_else(|| format!("Tab {tab_id} not found or has no PTY"))?;
+    claim_restored_tab(
+        tab,
+        tab_id,
+        observed_provider_id,
+        observed_session_id,
+        observed_cwd,
+        session_valid,
+    )
+}
+
+fn claim_restored_tab(
+    tab: &mut crate::multiplexer::types::Tab,
+    tab_id: &str,
+    observed_provider_id: &str,
+    observed_session_id: Option<&str>,
+    observed_cwd: Option<&str>,
+    session_valid: bool,
+) -> Result<Option<RestoredLaunch>, String> {
     let Some(provider_id) = tab.agent_type.clone() else {
         return Ok(None);
     };
@@ -316,40 +334,50 @@ pub(crate) fn restore_materialization_core<R, B, L>(
     launcher: L,
 ) -> Result<Option<RestoredLaunch>, String>
 where
-    R: FnOnce() -> Result<Option<String>, String>,
+    R: FnOnce(
+        Option<&crate::multiplexer::types::PendingDeliveryRecord>,
+    ) -> Result<Option<String>, String>,
     B: FnOnce(BootStage, &str),
     L: FnOnce(RestoredLaunch, Option<String>),
 {
-    let eligible = {
+    let authority = {
         let mux = mux.read();
         let tab = mux
             .get_tab(tab_id)
             .ok_or_else(|| format!("Tab {tab_id} not found or has no PTY"))?;
-        tab.restored_from_snapshot
-            && !tab.agent_booting
-            && !tab.protected
-            && matches_restore_observation(tab, provider_id, session_id, cwd)
+        if !tab.restored_from_snapshot
+            || tab.agent_booting
+            || tab.protected
+            || !matches_restore_observation(tab, provider_id, session_id, cwd)
+        {
+            return Ok(None);
+        }
+        restore_payload::RestoreAuthority::capture(tab)
     };
-    if !eligible {
-        return Ok(None);
-    }
-    let payload = match resolve_payload() {
+    let payload = match resolve_payload(authority.pending.as_ref()) {
         Ok(payload) => payload,
         Err(error) => {
+            if !restore_payload::commit_restore_failure(mux, tab_id, &authority, &error) {
+                return Ok(None);
+            }
             boot_stage(BootStage::SpawnFailed, &error);
             return Err(error);
         }
     };
-    restore_and_schedule_launch(
-        mux,
-        tab_id,
-        provider_id,
-        session_id,
-        cwd,
-        session_valid,
-        payload,
-        launcher,
-    )
+    let launch = {
+        let mut mux = mux.write();
+        let Some(tab) = mux.get_tab_mut(tab_id) else {
+            return Ok(None);
+        };
+        if !authority.matches(tab) {
+            return Ok(None);
+        }
+        claim_restored_tab(tab, tab_id, provider_id, session_id, cwd, session_valid)?
+    };
+    if let Some(launch) = launch.as_ref() {
+        launcher(launch.clone(), payload);
+    }
+    Ok(launch)
 }
 
 impl ServiceContext {
@@ -650,20 +678,17 @@ impl ServiceContext {
             session_id.as_deref(),
             cwd.as_deref(),
             session_valid,
-            || {
-                let pending = self
-                    .mux
-                    .read()
-                    .get_tab(tab_id)
-                    .and_then(|tab| tab.pending_delivery.clone());
-                restore_payload::resolve_restored_payload(pending.as_ref(), || {
-                    self.resolve_pending_delivery(tab_id)
-                        .map_err(|error| error.to_string())
-                })
-            },
+            restore_payload::resolve_restored_payload,
             |stage, error| {
-                self.void_launch_session_proof(tab_id);
-                self.emit_boot_stage(tab_id, stage, Some(error));
+                crate::api::events::emit_everywhere(
+                    &self.app_handle,
+                    "tab-boot-stage",
+                    serde_json::json!({ "tab_id": tab_id, "stage": stage, "reason": error }),
+                );
+                super::super::boot_wait::notify_boot_changed();
+                crate::service::general_agent::binding_wait::notify_binding_state_changed();
+                self.emit_session_binding_state(tab_id);
+                self.settle_restore_report();
             },
             |launch, restored_task| {
                 let input = restored_snapshot_launch_input(
@@ -953,7 +978,7 @@ mod restore_boot_stage_tests {
             None,
             Some("fixture-cwd"),
             false,
-            || {
+            |_| {
                 fixture
                     .store
                     .resolve(&fixture.digest)

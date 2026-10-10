@@ -230,7 +230,7 @@ fn restore_missing_payload_spawnfailed_zero_launch_pending() {
         None,
         Some("fixture-cwd"),
         false,
-        || {
+        |_| {
             store
                 .resolve(&digest)
                 .map(Some)
