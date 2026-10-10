@@ -87,14 +87,17 @@ General Agent setup. If necessary, the Orchestrator first runs the authorized
 `./build.sh dev --wait --wait-build` in its Team-bound utility shell. The eval
 checks health identity and build SHA before fixture creation and each round.
 
-The runner uses `./build.sh dev-prebuilt --wait --wait-build` for the three
-rounds. That owning command validates the saved app/CLI/frontend provenance
-before its DEV-only kill and starts the same binary with a bounded health wait.
-It runs no Cargo rebuild when provenance matches. A stale-provenance refusal
-before DEV is stopped uses the incremental `dev --wait --wait-build` fallback;
-other launcher failures stop the trial. Authorize both lifecycle commands for
-the default runner. A caller-mandated launcher instead uses the observer's
-`setup`, `before`, `round`, and `finish` phases with the same output directory.
+Freeze checkout HEAD at the scored build before starting. For each round the
+runner captures the selected port's listener PID and kernel process start time,
+then runs `./build.sh kill` followed by `./build.sh dev-prebuilt --wait --wait-build`.
+The owning commands scope lifecycle operations to the selected DEV instance;
+prebuilt validates saved app/CLI/frontend provenance and starts the same binary
+with a bounded health wait. There is no rebuild or already-ready fallback.
+A different listener PID with a later process start is mandatory. Missing or
+unchanged identity records restart_not_observed, marks the round FAIL, and stops
+before any probe. Authorize both lifecycle commands. The observer's `setup`,
+`before`, `round`, and `finish` phases require the same restart evidence produced
+by launch.mjs when a caller owns the launcher orchestration.
 
 `--notice-hook` is a required, caller-owned Bash file **outside `evals/`**. It
 runs in the QA shell's original parent connection, before every restart, with
@@ -179,7 +182,8 @@ answer authentication prompts.
 - `results.json`: incremental machine-readable manifest, setup round 0,
   rounds 1–3, full observations and provider availability.
 - `results.md`: one table per round and a section for every failed fixture.
-- `restart-N.log`: launcher/provenance/health output.
+- `restart-N.log`: explicit stop/start, provenance, and health output.
+- `restart-N.json`: listener PID/start before and after, launcher phase and restart verdict.
 - `notice-N.log`: evidence that the notice hook completed before restart.
 - `round-N.log`: new restore/launch/identity-clear/failure lines from DEV logs,
   including retained rotated files. Line hashes captured before restart exclude
