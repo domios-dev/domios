@@ -4,6 +4,7 @@
  */
 
 import { runSessionModelTests } from "./session-model";
+import { runFolderTrustRegionTests } from "./folder-trust-region";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
@@ -421,6 +422,8 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
     const screen = fs.readFileSync(path.join(dir, c.file), "utf8");
     eq(hostPlugin.directoryTrustPromptResponse(screen), keys[c.expect], `folder trust ${c.file} -> ${c.expect}`);
   }
+
+  runFolderTrustRegionTests(hostPlugin, dir, eq, assert);
 
   const preapproved = fs.readFileSync(path.join(dir, "trust-local-preapproved-no-first.txt"), "utf8");
   const preapprovedPrompt = hostPlugin.parseDirectoryTrustPrompt(preapproved);

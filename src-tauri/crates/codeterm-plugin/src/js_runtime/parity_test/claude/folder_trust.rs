@@ -67,6 +67,22 @@ fn folder_trust_native_js_parity_on_shared_fixtures() {
 }
 
 #[test]
+fn transcript_quote_has_no_native_or_js_live_trust_prompt() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    let screen =
+        std::fs::read_to_string(fixtures_dir().join("claude-transcript-quotes-trust-dialog.txt"))
+            .expect("quoted trust fixture");
+    for provider in [&native as &dyn AgentProvider, &js as &dyn AgentProvider] {
+        assert_eq!(provider.directory_trust_prompt_response(&screen), None);
+        assert_eq!(provider.parse_directory_trust_prompt(&screen), None);
+        assert_eq!(provider.parse_prompt(&screen), None);
+    }
+}
+
+#[test]
 fn trust_context_above_bypass_has_no_native_or_js_folder_trust_response() {
     if require_plugins().is_none() {
         return;
