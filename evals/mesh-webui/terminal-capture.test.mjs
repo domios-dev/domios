@@ -4,7 +4,7 @@ import { runInNewContext } from 'node:vm';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { armTerminalEvents, captureTerminal, readTerminalState } from './terminal-capture.mjs';
+import { armTerminalEvents, captureTerminal, readTerminalState, waitTerminalEvent, releaseTerminalEvents } from './terminal-capture.mjs';
 
 function fixture({ visible = true, count = 1, bufferType = 'normal' } = {}) {
   const cell = {
@@ -84,7 +84,7 @@ test('revision changes with identical text require an event before a stable seco
     assert.equal(page.shots, 2);
     assert.equal(page.waits.length, 1);
     assert.deepEqual(page.waits[0].types, ['write-parsed', 'render']);
-    assert.equal(page.waits[0].after, 1);
+    assert.equal(page.waits[0].after, 0);
     assert.ok(page.waits[0].deadlineMs > 0 && page.waits[0].deadlineMs <= 30000);
     const saved = JSON.parse(await readFile(join(directory, 'state.json'), 'utf8'));
     assert.equal(saved.attempts.length, 2);
@@ -165,4 +165,38 @@ test('truncated state cannot become a successful stable capture', async () => {
     assert.equal(saved.unchanged, false);
     await assert.rejects(readFile(join(directory, 'screen.png')), { code: 'ENOENT' });
   });
+});
+
+
+test('transition completion already observed during reads satisfies the event wait', async () => {
+  const probe = { tabId: 'fixture', revision: 7,
+    events: [{ type: 'write-parsed', revision: 4 }, { type: 'render', revision: 7 }],
+    waiters: new Set() };
+  const window = { __b3TerminalProbes: new Map([['probe', probe]]) };
+  const page = { evaluate: (fn, args) => runInNewContext(`(${fn.toString()})(args)`, {
+    args, window, AbortSignal,
+  }) };
+  const event = await waitTerminalEvent(page, 'probe', {
+    types: ['write-parsed', 'render'], after: 0,
+  });
+  assert.equal(event.revision, 4);
+  assert.equal(probe.waiters.size, 0);
+});
+
+test('probe release cancels a pending event wait and disposes observers', async () => {
+  let disposed = 0;
+  const probe = { tabId: 'fixture', events: [], waiters: new Set(),
+    handles: [{ dispose() { disposed++; } }] };
+  const window = { __b3TerminalProbes: new Map([['probe', probe]]) };
+  const page = { evaluate: (fn, args) => runInNewContext(`(${fn.toString()})(args)`, {
+    args, window, AbortSignal,
+  }) };
+  const pending = waitTerminalEvent(page, 'probe', { type: 'render', after: 0 });
+  const rejected = assert.rejects(pending, /Terminal wait cancelled/);
+  assert.equal(probe.waiters.size, 1);
+  await releaseTerminalEvents(page, 'probe');
+  await rejected;
+  assert.equal(probe.waiters.size, 0);
+  assert.equal(window.__b3TerminalProbes.has('probe'), false);
+  assert.equal(disposed, 1);
 });

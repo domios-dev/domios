@@ -83,6 +83,7 @@ export async function waitTerminalEvent(page, id, { type, types = [type], after 
       };
       const waiter = event => { if (matches(event)) { cleanup(); resolve(event); } };
       const expired = () => { cleanup(); reject(new Error(`FAIL deadline waiting for ${types.join("/")} on ${probe.tabId}`)); };
+      waiter.cancel = () => { cleanup(); reject(new Error(`Terminal wait cancelled for ${probe.tabId}`)); };
       probe.waiters.add(waiter);
       signal.addEventListener('abort', expired, { once: true });
     });
@@ -145,7 +146,7 @@ export async function captureTerminal(page, { tabId, probeId, directory, provena
     if (number < 3) {
       try {
         attempt.resumeEvent = await waitTerminalEvent(page, probeId, {
-          types: ['write-parsed', 'render'], after: endRevision, deadlineMs: remaining(),
+          types: ['write-parsed', 'render'], after: startRevision, deadlineMs: remaining(),
         });
       } catch (error) {
         attempt.waitError = error.message;
@@ -174,7 +175,7 @@ export async function releaseTerminalEvents(page, id) {
     const probes = window.__b3TerminalProbes;
     const probe = probes?.get(id);
     if (!probe) return;
-    if (probe.waiters.size) throw new Error('Cannot release a pending event wait');
+    for (const waiter of [...probe.waiters]) waiter.cancel();
     for (const handle of probe.handles) handle.dispose();
     probes.delete(id);
   }, id);
