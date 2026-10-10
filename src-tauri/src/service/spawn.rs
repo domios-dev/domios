@@ -573,23 +573,31 @@ impl ServiceContext {
                 t.clone()
             }
         });
-        let (system_prompt_capable, native_starter_capable) = self
-            .agent_registry
-            .with_provider(
-                &agent_cmd,
-                crate::service::launch_delivery::visible_spawn_capabilities,
-            )
-            .unwrap_or((false, false));
-        let task_selection = crate::service::launch_delivery::select_visible_spawn_task(
+        let startup_handshake = crate::service::launch_delivery::startup_starter_prompt_for_class(
+            startup_supervised,
+            task_identity.is_some(),
+            self.agent_registry
+                .with_provider(&agent_cmd, |provider| provider.is_tool_less())
+                .unwrap_or(false),
+        );
+        let mut legacy_params = spec.to_agent_launch_params(resolved_cwd.clone())?;
+        let input_provider = self.agent_registry.provider_arc(&agent_cmd);
+        let spawn_input = crate::service::launch_delivery::prepare_spawn_input(
+            input_provider.as_deref(),
             agent.role.as_deref(),
             preamble_wrapped_task.as_deref(),
-            system_prompt_capable,
-            native_starter_capable,
+            legacy_params.starter_prompt,
+            startup_handshake,
+            |task| {
+                self.spawn_task_message(&tab_id, task)
+                    .unwrap_or_else(|| task.to_string())
+            },
         );
+        legacy_params.starter_prompt = spawn_input.starter_prompt;
         let role_suffixed_task = super::orchestrator::provider_launch_task(
             &self.agent_registry,
             &agent_cmd,
-            task_selection.provider_launch,
+            spawn_input.provider_task,
             agent.role.as_deref(),
             agent.role_profile.as_deref(),
         );
@@ -612,39 +620,6 @@ impl ServiceContext {
                 permission_bypass_requested: permission_bypass,
             },
         );
-        let startup_handshake = crate::service::launch_delivery::startup_starter_prompt_for_class(
-            startup_supervised,
-            task_identity.is_some(),
-            self.agent_registry
-                .with_provider(&agent_cmd, |provider| provider.is_tool_less())
-                .unwrap_or(false),
-        );
-        let confirmed_first_turn = if startup_handshake.is_some() {
-            crate::service::launch_delivery::startup_handshake_confirmed_first_turn(
-                native_starter_capable,
-            )
-            .map(|prompt| {
-                let text = self
-                    .agent_registry
-                    .with_provider(&agent_cmd, |provider| provider.starter_prompt_text(prompt))
-                    .flatten();
-                crate::service::launch_delivery::mark_starter_prompt(
-                    prompt,
-                    text.unwrap_or_default(),
-                )
-            })
-        } else {
-            task_selection
-                .confirmed_first_turn
-                .map(|turn| self.confirmed_spawn_first_turn(&tab_id, &agent_cmd, turn))
-        };
-
-        let mut legacy_params = spec.to_agent_launch_params(resolved_cwd.clone())?;
-        if let Some(prompt) =
-            visible_spawn_starter_prompt(startup_handshake, task_selection.provider_starter)
-        {
-            legacy_params.starter_prompt = prompt;
-        }
         legacy_params.skip_permissions = Some(permission_bypass);
         legacy_params.permission_bypass_authorization = permission_bypass_authorization;
         legacy_params.model = launch_model;
@@ -655,23 +630,9 @@ impl ServiceContext {
                 &tab_id,
                 &resolved_cwd.clone().unwrap_or_default(),
             );
-        let provider_fallback_delivery = self
-            .agent_registry
-            .with_provider(&agent_cmd, |provider| {
-                matches!(
-                    provider.task_delivery(),
-                    crate::agent::provider::TaskDelivery::PtyInput
-                ) && !system_prompt_capable
-            })
-            .unwrap_or(true);
-        let fallback_task = confirmed_first_turn.as_deref().or_else(|| {
-            provider_fallback_delivery
-                .then_some(role_suffixed_task.as_deref())
-                .flatten()
-        });
-        let fallback_spec = crate::service::launch_delivery::fallback_delivery_spec(
+        let fallback_spec = spawn_input.fallback_spec(
             None,
-            fallback_task,
+            role_suffixed_task.as_deref(),
             self.agent_registry
                 .with_provider(&agent_cmd, |provider| {
                     provider.starter_prompt_text(legacy_params.starter_prompt)
@@ -712,7 +673,7 @@ impl ServiceContext {
             fallback_spec.as_ref(),
             role_suffixed_task.as_deref(),
             false,
-            confirmed_first_turn.as_deref(),
+            spawn_input.confirmed_first_turn.as_deref(),
         );
         launch_agent_in_background_with_env(
             self.clone(),
