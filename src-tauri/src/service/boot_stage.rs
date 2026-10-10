@@ -191,11 +191,30 @@ fn apply_late_readiness(tab: &mut Tab, evidence: &crate::service::ProviderSessio
     true
 }
 
-fn commit_boot_stage_transition(
+pub(crate) fn boot_stage_event(
+    tab_id: &str,
+    tab: &Tab,
+    stage: BootStage,
+    reason: Option<&str>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "tab_id": tab_id,
+        "stage": stage,
+        "reason": stage.carries_reason().then_some(reason).flatten(),
+        "launch_generation": {
+            "epoch": tab.lifecycle_epoch,
+            "operation_id": tab.lifecycle_operation_id,
+            "pty_id": tab.pty_id,
+            "binding_nonce": tab.session_binding_nonce,
+        },
+    })
+}
+
+pub(crate) fn commit_boot_stage_transition(
     mux: &crate::MuxState,
     tab_id: &str,
     transition: impl FnOnce(&mut Tab) -> bool,
-    publish: impl FnOnce(),
+    publish: impl FnOnce(&Tab),
 ) -> bool {
     let mut mux = mux.write();
     let Some(tab) = mux.get_tab_mut(tab_id) else {
@@ -204,7 +223,7 @@ fn commit_boot_stage_transition(
     if !transition(tab) {
         return false;
     }
-    publish();
+    publish(tab);
     true
 }
 
@@ -326,17 +345,23 @@ impl ServiceContext {
         transition: impl FnOnce(&mut Tab) -> bool,
     ) -> bool {
         let reason = stage.carries_reason().then_some(reason).flatten();
-        commit_boot_stage_transition(&self.mux, tab_id, transition, || {
-            crate::api::events::emit_everywhere(
-                &self.app_handle,
-                "tab-boot-stage",
-                serde_json::json!({
-                    "tab_id": tab_id,
-                    "stage": stage,
-                    "reason": reason,
-                }),
-            );
+        commit_boot_stage_transition(&self.mux, tab_id, transition, |tab| {
+            self.publish_boot_stage_transition(tab_id, tab, stage, reason);
         })
+    }
+
+    pub(crate) fn publish_boot_stage_transition(
+        &self,
+        tab_id: &str,
+        tab: &Tab,
+        stage: BootStage,
+        reason: Option<&str>,
+    ) {
+        crate::api::events::emit_everywhere(
+            &self.app_handle,
+            "tab-boot-stage",
+            boot_stage_event(tab_id, tab, stage, reason),
+        );
     }
 
     fn finish_boot_stage_transition(&self, tab_id: &str, stage: BootStage, reason: Option<&str>) {
