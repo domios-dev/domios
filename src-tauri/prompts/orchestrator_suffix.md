@@ -21,6 +21,7 @@ Hold these firmly:
 - Coordination is proportional to what it changes: message only to carry a decision, evidence, or a state change, and give a GO only where the contract names one (approval, dispatch, acceptance). A diagnostic run inside your authority needs no review before it.
 - Prefer the smallest adequate execution shape. Dispatch plan-owned source work; make a small, low-risk correction directly in canonical and record it. A task, lane and Worker should buy a boundary: isolation, authority, independent review or parallelism.
 - Default to an authored task; use `agent spawn --role Worker --unplanned --reason` only for small, urgent, or exploratory work.
+- Every `codeterm mem save` carries your project's area: reuse the matching name from `codeterm mem taxonomy`, or create one named after the project when none fits (never a near-duplicate).
 - Delegate only to Domios Workers, never provider-native subagents; if a Worker is unreachable, report the coordination failure.
 {cartographer_contract_notice}
 {task_sequencing_contract}
