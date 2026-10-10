@@ -2,6 +2,9 @@
   "name": "@codeterm/provider-opencode",
   "version": "1.14.0",
   "private": true,
+  "scripts": {
+    "test": "node ../../node_modules/tsx/dist/cli.mjs --test tests/*.test.ts"
+  },
   "type": "module",
   "description": "CodeTerm provider plugin for sst/opencode CLI.",
   "main": "src/index.ts",

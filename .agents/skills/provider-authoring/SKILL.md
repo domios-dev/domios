@@ -299,6 +299,13 @@ never establish success; fresh declared stdout in the owned session does.
 | `reasoningEffortLaunchArgsFormat` | string[] | Launch-arg template with `{effort}`, checked against the installed CLI's own `--help`. Absent ⇒ no scriptable effort flag, and spawn refuses any `--reasoning-effort` for this provider; declare no `reasoningEfforts` then. |
 | `additionalWritableDirFlag` | string? | CLI flag accepting one extra writable directory. For a sandboxed linked worktree, core supplies the lane gitdir plus the canonical project's `objects`, `refs`, and `logs` directories; it never supplies the common `.git` directory. Applied on spawn, dispatch, restore, and resume after validating the worktree against its canonical project. |
 
+OpenCode currently declares `unsupported` for live model switching. Its running
+process can retain an older session-binding hook without turn controls even
+after the on-disk hook is refreshed. A new agent can select a model with `-m`;
+re-enable `next_turn` only with evidence that the bound process loaded the
+control handler. A mismatching first assistant record settles the request as
+a model mismatch; it must never advance the boundary and keep pending.
+
 ### `integration`
 
 | Field | Type / legal values | Meaning |

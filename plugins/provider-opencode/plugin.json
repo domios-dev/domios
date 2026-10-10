@@ -162,7 +162,7 @@
       "--variant",
       "{effort}"
     ],
-    "modelSwitch": "next_turn"
+    "modelSwitch": "unsupported"
   },
   "permissions": {
     "subprocess": {
