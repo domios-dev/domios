@@ -248,7 +248,8 @@ fn spawn_backend_pty(
         .spawn(None, cwd, 120, 40, env_vars)
         .map_err(|error| LaunchFailure::PtySpawn(error.to_string()))?;
     crate::service::agent_restart::timing::stage(tab_id, &pty_id, "relaunch-pty-created");
-    svc.screen_state.lock().resize(&pty_id, 120, 40);
+    crate::service::pty_resize::resize(&svc.pty, &svc.screen_state, &pty_id, None)
+        .map_err(LaunchFailure::PtySpawn)?;
     let reader = start_backend_reader(svc, &pty_id)?;
 
     Ok(BackendPty { id: pty_id, reader })
