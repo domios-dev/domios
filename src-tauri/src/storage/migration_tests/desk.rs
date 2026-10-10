@@ -1,5 +1,8 @@
 use super::*;
 
+/// Most snapshots the legacy desk backup retention could keep at once.
+const LEGACY_DESK_BACKUP_RETENTION: u64 = 142;
+
 fn desk_snapshot(storage: &Storage) -> codeterm_storage::DeskSnapshot {
     storage
         .desk()
@@ -433,5 +436,43 @@ fn storage_migration_desk_commit_failure_rolls_back_and_restart_is_idempotent() 
         marker(&storage).map(|marker| marker.revision),
         Some(receipt.revision)
     );
+    close(storage);
+}
+
+#[test]
+fn storage_migration_root_at_full_legacy_backup_retention_imports_whole() {
+    let fixture = Fixture::seeded_with_desk();
+    for age in 0..LEGACY_DESK_BACKUP_RETENTION {
+        fixture.put(
+            &format!("sessions/backups/{}.json", 1_790_000_000 + age),
+            NAMED_DESK.as_bytes(),
+        );
+    }
+    for index in 0..crate::persisted_state::DEFAULT_BACKUPS as u64 {
+        let name = format!("1790000000000-{index:06}.bak");
+        fixture.put(
+            &format!("state-backups/crons.json/{name}"),
+            CRONS.as_bytes(),
+        );
+        fixture.put(
+            &format!("state-backups/sentinels.json/{name}"),
+            SENTINELS.as_bytes(),
+        );
+    }
+    let originals = tree(&fixture.source());
+    assert!(
+        originals.len() > 128,
+        "the root exceeds the former file cap"
+    );
+    assert_eq!(fixture.capture().files().len(), originals.len());
+    let storage = fixture.open();
+
+    let receipt = committed(import_copied_root(&storage, &fixture.request()));
+
+    assert_eq!(receipt.archive, Ok(()));
+    assert!(receipt.comparison.expect("comparison").is_clean());
+    assert_eq!(desk_snapshot(&storage).workspaces.len(), 2);
+    assert_eq!(tree(&fixture.backup().join("originals")), originals);
+    assert_eq!(tree(&fixture.source()), originals);
     close(storage);
 }

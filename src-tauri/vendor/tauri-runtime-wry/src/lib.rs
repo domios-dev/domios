@@ -147,7 +147,7 @@ use std::{
 pub type WebviewId = u32;
 type IpcHandler = dyn Fn(Request<String>) + 'static;
 
-#[cfg(not(debug_assertions))]
+#[cfg(all(not(debug_assertions), windows))]
 mod dialog;
 mod monitor;
 #[cfg(any(
