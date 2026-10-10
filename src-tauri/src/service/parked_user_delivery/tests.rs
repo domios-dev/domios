@@ -520,8 +520,8 @@ impl crate::agent::provider::AgentProvider for QueueProvider {
     fn session_jsonl_path(&self, cwd: &str, session: &str) -> Option<std::path::PathBuf> {
         self.session_file_path(cwd, session)
     }
-    fn session_exists(&self, _: &str, _: &str) -> bool {
-        true
+    fn session_exists(&self, _: &str, _: &str) -> Option<bool> {
+        Some(true)
     }
     fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
         None

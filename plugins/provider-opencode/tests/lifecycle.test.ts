@@ -176,3 +176,31 @@ test("provider_lifecycle_events_report_the_bound_session", async () => {
     ],
   );
 });
+
+test("session_lookup_error_or_foreign_confirmation_never_reports_a_binding", async () => {
+  for (const sessionGet of [
+    async () => { throw new Error("store unreadable"); },
+    async () => ({ data: { id: "ses_foreign" } }),
+    async () => ({ error: { message: "session unavailable" } }),
+  ]) {
+    const binding = await loadBinding({ resumeSession: "ses_owned", sessionGet });
+    assert.deepEqual(binding.posts, []);
+  }
+});
+
+test("sqlite_read_failure_is_unknown_and_only_empty_success_is_absent", () => {
+  const source = fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8");
+  for (const [raw, expected] of [
+    [null, null], ["[]", false], [JSON.stringify([{ id: "ses_owned" }]), true],
+  ] as const) {
+    const context = {
+      host: {
+        platform: () => "linux", envGet: () => null, expandHome: (path: string) => path,
+        sqliteQueryAllJson: () => raw,
+      },
+      module: { exports: {} as { default?: { sessionExists: (cwd: string, id: string) => boolean | null } } }, exports: {},
+    };
+    new vm.Script(source).runInNewContext(context);
+    assert.equal(context.module.exports.default!.sessionExists("/work", "ses_owned"), expected);
+  }
+});

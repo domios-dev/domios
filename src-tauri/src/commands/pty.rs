@@ -215,6 +215,10 @@ pub async fn spawn_pty_core(
         let stored_agent_type = restore.provider_id;
         let restored_session_id = restore.session_id;
         let resume_enabled = crate::config::resume_sessions_enabled(&stored_agent_type);
+        log::debug!(
+            "[restore-resume-target] tab={} provider={} saved_session={:?} resume_enabled={} cwd={:?}",
+            pid, stored_agent_type, restored_session_id, resume_enabled, restore.cwd
+        );
         let session_id = restored_resume_session_id(resume_enabled, restored_session_id.as_deref())
             .map(str::to_owned);
         if !resume_enabled && restored_session_id.is_some() {
@@ -242,17 +246,25 @@ pub async fn spawn_pty_core(
             let provider_id = agent_type;
 
             // Clear stale id if session is gone to avoid resume loop.
-            let session_valid = tab_cwd
-                .as_deref()
-                .map(|cwd| {
-                    svc.agent_registry
-                        .with_provider(&provider_id, |p| p.session_exists(cwd, &session_id))
-                        .unwrap_or(false)
+            let presence = svc
+                .agent_registry
+                .with_provider(&provider_id, |provider| {
+                    provider.session_exists(tab_cwd.as_deref().unwrap_or_default(), &session_id)
                 })
-                .unwrap_or(false);
+                .flatten();
+            let session_valid =
+                crate::service::restored_launch::restored_session_resumable(presence);
+            log::debug!(
+                "[restore-session-probe] tab={} provider={} session={} cwd={:?} presence={:?}",
+                pid,
+                provider_id,
+                session_id,
+                tab_cwd,
+                presence
+            );
             if !session_valid {
                 log::info!(
-                    "[resume] session {} for Tab {} has no backing file under {:?} — clearing, will try fresh launch",
+                    "[resume] session {} for Tab {} is confirmed absent under {:?} — clearing, will try fresh launch",
                     session_id, pid, tab_cwd
                 );
                 svc.set_agent_session_id(pid, None);

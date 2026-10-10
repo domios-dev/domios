@@ -496,13 +496,15 @@ impl AgentProvider for JsProvider {
         provider::usage_sources_from_session_file(self, cwd, session_id)
     }
 
-    fn session_exists(&self, cwd: &str, session_id: &str) -> bool {
-        if let Some(b) = self.try_call::<bool>("sessionExists", &[json!(cwd), json!(session_id)]) {
-            return b;
+    fn session_exists(&self, cwd: &str, session_id: &str) -> Option<bool> {
+        if self.has_js("sessionExists") {
+            return self
+                .try_call::<Option<bool>>("sessionExists", &[json!(cwd), json!(session_id)])
+                .flatten();
         }
-        self.owned_session_file_path(cwd, session_id)
-            .map(|p| p.exists())
-            .unwrap_or(false)
+        self.owned_session_file_path(cwd, session_id)?
+            .try_exists()
+            .ok()
     }
 
     fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<String> {

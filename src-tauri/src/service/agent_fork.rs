@@ -47,7 +47,9 @@ impl ServiceContext {
         }
         if !self
             .agent_registry
-            .with_provider(provider, |provider| provider.session_exists(cwd, session))
+            .with_provider(provider, |provider| {
+                provider.session_exists(cwd, session) == Some(true)
+            })
             .unwrap_or(false)
         {
             return Err("source session transcript is unavailable".into());

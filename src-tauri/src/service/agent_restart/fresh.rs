@@ -50,7 +50,7 @@ impl ServiceContext {
             .or(tab.cwd.as_deref());
         session_id.zip(cwd).and_then(|(session, cwd)| {
             self.agent_registry
-                .with_provider(provider, |p| p.session_exists(cwd, session))
+                .with_provider(provider, |p| p.session_exists(cwd, session) == Some(true))
         })
     }
 

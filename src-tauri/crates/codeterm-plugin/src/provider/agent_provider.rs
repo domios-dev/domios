@@ -221,13 +221,9 @@ pub trait AgentProvider: Send + Sync {
         max_age: Option<Duration>,
     ) -> Option<String>;
 
-    /// Whether a session id still has a backing file (JSONL / session store / whatever
-    /// the provider keeps). Default implementation is `session_file_path(...).exists()`.
-    /// Providers without file-based session storage override this.
-    fn session_exists(&self, cwd: &str, session_id: &str) -> bool {
-        self.session_file_path(cwd, session_id)
-            .map(|p| p.exists())
-            .unwrap_or(false)
+    /// Some(false) is confirmed absence; None is an unreadable or unknown store.
+    fn session_exists(&self, cwd: &str, session_id: &str) -> Option<bool> {
+        self.session_file_path(cwd, session_id)?.try_exists().ok()
     }
 
     /// Session creation time, for providers whose sessions have no per-session
