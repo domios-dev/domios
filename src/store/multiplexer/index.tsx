@@ -112,6 +112,7 @@ function buildInitialState(): ExtendedState {
 export function isSnapshotRefusal(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return (
+    (error instanceof DOMException && error.name === "AbortError") ||
     (error instanceof WebApiError && error.status === 503 && message.includes("state snapshot")) ||
     message.includes("state snapshot unavailable while tab state is initializing or changing") ||
     message.includes("tab summary unavailable while tab state is initializing or changing")
@@ -176,6 +177,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     applyBackendState(s);
     reconciledRef.current = true;
     writeGateRef.current.unlock();
+    peerRebindGateRef.current.acceptedSnapshot(peerSwitchRef.current);
     if (IS_WEB && !wasReconciled) window.dispatchEvent(new Event("codeterm-cache-reconciled"));
   }, [applyBackendState]);
 
@@ -241,7 +243,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const s = await invoke<MultiplexerState>("mux_get_state");
       if (s) {
         acceptBackendState(s);
-        peerRebindGateRef.current.acceptedSnapshot(peerSwitchRef.current);
       }
       return !!s;
     } catch (e) {
