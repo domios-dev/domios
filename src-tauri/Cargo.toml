@@ -6,7 +6,7 @@ default-run = "codeterm"
 
 [workspace]
 members = [".", "crates/codeterm-types", "crates/codeterm-util", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage"]
-exclude = ["pty-fork"]
+exclude = ["pty-fork", "vendor/tauri-runtime-wry"]
 resolver = "2"
 
 [dependencies]
@@ -195,3 +195,6 @@ debug = false
 [[bin]]
 name = "convert-plan-storage"
 path = "../scripts/convert-plan-storage.rs"
+
+[patch.crates-io]
+tauri-runtime-wry = { path = "vendor/tauri-runtime-wry" }
