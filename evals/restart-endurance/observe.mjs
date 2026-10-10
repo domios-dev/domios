@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { exactReply, firstTurnPolicy, kind, probeReady } from "./oracle.mjs";
 import { digest, logLines, newEvidence } from "./logs.mjs";
 import { recordBoundary, nextTurnModel } from "./records.mjs";
-import { snapshotAfterEvent } from "./snapshots.mjs";
+import { snapshotAfterEvent, tabSnapshot } from "./snapshots.mjs";
 import { restoreReady, reconcileReadiness } from "./readiness.mjs";
 
 const script = fileURLToPath(import.meta.url);
@@ -158,15 +158,13 @@ class Events {
 
 const touches = (event, id) => event.data?.tab_id === id || event.event_type?.includes(id) || event.event_type === "mux-state-changed";
 const terminalStages = new Set(["spawn_failed", "launch_deadline_elapsed", "launch_binding_unconfirmed", "awaiting_owner_prompt"]);
-async function tabs(signal) {
-  const [summaries, state] = await Promise.all([
-    api("/api/tabs?local_only=true&all_workspaces=true", "GET", undefined, signal),
-    api("/api/mux/state", "GET", undefined, signal),
-  ]);
-  const full = Object.fromEntries(Object.values(state.tabs ?? {}).map((record) => [record.id, record]));
-  return summaries.map((summary) => ({ ...summary, ...full[summary.id] }));
+async function tabs(signal = AbortSignal.timeout(deadlineMs), events) {
+  return tabSnapshot({ events, createEvents: () => new Events(signal),
+    summaries: () => api("/api/tabs?local_only=true&all_workspaces=true", "GET", undefined, signal),
+    state: () => api("/api/mux/state", "GET", undefined, signal),
+  });
 }
-async function tab(id, signal) { return (await tabs(signal)).find((record) => record.id === id); }
+async function tab(id, signal, events) { return (await tabs(signal, events)).find((record) => record.id === id); }
 function failure(record) {
   if (!record) return "Tab absent from the all-tabs projection";
   if (terminalStages.has(record.boot_stage)) return `${record.boot_stage}: ${record.boot_failure_reason ?? JSON.stringify(record.pending_prompt ?? null)}`;
@@ -174,7 +172,7 @@ function failure(record) {
 }
 async function waitReady(events, id, signal, policy, requireSession = false, requireLaunch = false) {
   for (;;) {
-    const record = await snapshotAfterEvent(events, () => tab(id, signal));
+    const record = await tab(id, signal, events);
     const reason = failure(record);
     if (reason) throw new Error(reason);
     if (probeReady(record, policy, requireSession) && (!requireLaunch || record.boot_stage === "agent_ready")) return record;
@@ -223,7 +221,7 @@ async function probe(fixture, n, observeOnly = false) {
   let subscribed = false;
   try {
     await events.open();
-    row.initial = await snapshotAfterEvent(events, () => tab(fixture.id, signal));
+    row.initial = await tab(fixture.id, signal, events);
     if (observeOnly) {
       row.before_probe = row.initial;
       row.reason = failure(row.initial) ?? "Existing tab inspected; no message authorized outside Endure fixtures";
@@ -270,7 +268,7 @@ async function probe(fixture, n, observeOnly = false) {
       const snapshot = await snapshotAfterEvent(events, () => transcript(fixture.id, signal));
       row.transcript = snapshot;
       const answer = exactReply(snapshot.messages, baseline, row.prompt, marker, fixture.provider === "grok");
-      const current = await snapshotAfterEvent(events, () => tab(fixture.id, signal));
+      const current = await tab(fixture.id, signal, events);
       let completedRecord;
       if (answer && row.record_boundary) {
         try { completedRecord = nextTurnModel(row.record_boundary, marker); }
@@ -447,7 +445,7 @@ async function runRound(n) {
     const events = new Events(signal);
     try {
       await events.open();
-      const record = await snapshotAfterEvent(events, () => tab(fixture.id, signal));
+      const record = await tab(fixture.id, signal, events);
       if (record && workspace !== record.workspace_id) {
         await dc("workspace", "focus", record.workspace_id);
         workspace = record.workspace_id;
@@ -463,7 +461,7 @@ async function runRound(n) {
   const events = new Events(signal);
   try {
     await events.open();
-    const settled = await snapshotAfterEvent(events, () => tabs(signal));
+    const settled = await tabs(signal, events);
     entry.restore_readiness = reconcileReadiness(readiness, settled, result.fixtures);
     entry.materialized_pty_count = settled.filter((record) => record.pty_id).length;
     entry.restore_ready_at = new Date().toISOString();

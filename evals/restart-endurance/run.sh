@@ -62,12 +62,17 @@ fi
 mkdir "$OUT/run.lock" || { echo 'Output directory already has an active run lock.' >&2; exit 2; }
 trap 'rmdir "$OUT/run.lock" 2>/dev/null || true' EXIT
 if [ "$CONTINUE_SETUP" -eq 1 ]; then
-  node - "$OUT/results.json" <<'JS'
-const fs = require('node:fs');
-const result = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-if (!result.setup_complete || result.rounds.some((round) => round.round > 0) || result.fatal) {
-  throw new Error('Only an explicitly completed setup with no restart round can continue.');
-}
+  node --input-type=module - "$OUT" <<'JS'
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { resumeSetup } from "./evals/restart-endurance/resume.mjs";
+const out = process.argv[2];
+const path = join(out, "results.json");
+const original = readFileSync(path, "utf8");
+const now = new Date().toISOString();
+const result = resumeSetup(JSON.parse(original), [1, 2, 3].some((n) => existsSync(join(out, `restart-${n}.log`))), now);
+writeFileSync(join(out, `results-before-resume-${now.replaceAll(":", "-")}.json`), original);
+writeFileSync(path, `${JSON.stringify(result, null, 2)}\n`);
 JS
 else
   dev_run node "$ROOT/evals/restart-endurance/observe.mjs" setup "$OUT"
