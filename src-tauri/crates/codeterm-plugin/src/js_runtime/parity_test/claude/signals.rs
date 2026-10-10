@@ -69,11 +69,18 @@ fn parity_claude_transcript_observations() {
         return;
     }
     let (native, js) = pair();
+    assert_eq!(
+        native
+            .parse_session_observations(&json!({"permissionMode":"auto"}))
+            .and_then(|observations| observations.permission_mode),
+        Some(codeterm_types::agent::provider_signals::PermissionMode::Auto)
+    );
     for record in [
         json!({"isApiErrorMessage":true,"error":"rate_limit"}),
         json!({"isApiErrorMessage":true,"error":{"type":"authentication_error"}}),
         json!({"isApiErrorMessage":false,"error":"rate_limit"}),
         json!({"permissionMode":"plan"}),
+        json!({"permissionMode":"auto"}),
         json!({"permissionMode":"opaque"}),
         json!({"type":"assistant","message":{}}),
         json!({}),
