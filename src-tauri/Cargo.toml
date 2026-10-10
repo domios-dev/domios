@@ -37,7 +37,7 @@ codeterm-bridge = { path = "crates/codeterm-bridge" }
 codeterm-pty = { path = "crates/codeterm-pty" }
 codeterm-plugin = { path = "crates/codeterm-plugin" }
 codeterm-storage = { path = "crates/codeterm-storage" }
-log = "0.4"
+log = { version = "0.4", features = ["release_max_level_info"] }
 fern = "0.7"
 parking_lot = "0.12"
 base64 = "0.22"
