@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { activateAndSelectFixture, readVisibleFixtureControl } from './workspace-selection.mjs';
 
-function fixture({ workspaceVisible = true, rowVisibleAfterActivation = true, overflow = false } = {}) {
+function fixture({ workspaceVisible = true, rowVisibleAfterActivation = true, overflow = false, initializing = false } = {}) {
   const clicks = [];
+  let initialized = !initializing;
   const workspace = { id: '05799f42', visible: workspaceVisible && !overflow, selected: false };
   const row = { id: '6c8da59e', visible: false };
   const node = state => ({
@@ -12,7 +13,7 @@ function fixture({ workspaceVisible = true, rowVisibleAfterActivation = true, ov
     getClientRects: () => [{ width: 80, height: 24 }],
   });
   const locator = state => ({
-    count: async () => Number(state !== workspace || !overflow || workspace.visible),
+    count: async () => Number(state !== workspace || initialized && (!overflow || workspace.visible)),
     isVisible: async () => state.visible,
     waitFor: async () => { if (!state.visible) throw new Error('hidden'); },
     click: async options => {
@@ -25,11 +26,16 @@ function fixture({ workspaceVisible = true, rowVisibleAfterActivation = true, ov
   });
   const page = {
     locator: selector => locator(selector.includes('workspace-card') ? workspace : row),
-    getByTestId: () => ({ count: async () => Number(overflow), isVisible: async () => workspaceVisible,
+    getByTestId: () => ({ count: async () => Number(initialized && overflow), isVisible: async () => workspaceVisible,
       click: async () => { clicks.push('more'); workspace.visible = workspaceVisible; } }),
     evaluate: async (fn, spec) => fn({ ...spec, nodes: [node(spec.attribute === 'data-workspace-id' ? workspace : row)] }),
   };
   const waitDom = async (_, spec) => {
+    if (spec.selector?.includes('workspace-card-more')) {
+      initialized = true;
+      clicks.push('inventory-ready');
+      return;
+    }
     assert.equal(spec.value, 'true');
     assert.equal(workspace.selected, true);
     clicks.push('activation-confirmed');
@@ -47,7 +53,7 @@ test('inactive-workspace fixture row becomes visible before its normal click', a
 test('collapsed workspace inventory expands through the visible UI control', async () => {
   const f = fixture({ overflow: true });
   await activateAndSelectFixture(f.page, { workspaceId: '05799f42', tabId: '6c8da59e' }, f.waitDom);
-  assert.deepEqual(f.clicks, ['more', '05799f42', 'activation-confirmed', '6c8da59e']);
+  assert.deepEqual(f.clicks, ['inventory-ready', 'more', '05799f42', 'activation-confirmed', '6c8da59e']);
 });
 
 test('missing inventory workspace and hidden workspace or tab fail before tab click', async () => {
@@ -89,4 +95,10 @@ test('optional workspaceId preserves selection of an already-visible fixture row
   f.row.visible = true;
   await activateAndSelectFixture(f.page, { tabId: '6c8da59e' }, f.waitDom);
   assert.deepEqual(f.clicks, ['6c8da59e']);
+});
+
+test('overflow prerequisite waits for inventory hydration before inspecting its control', async () => {
+  const f = fixture({ overflow: true, initializing: true });
+  await activateAndSelectFixture(f.page, { workspaceId: '05799f42', tabId: '6c8da59e' }, f.waitDom);
+  assert.deepEqual(f.clicks, ['inventory-ready', 'more', '05799f42', 'activation-confirmed', '6c8da59e']);
 });
