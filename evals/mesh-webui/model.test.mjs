@@ -51,3 +51,14 @@ test('manifest admits only the two authorized gateway origins',()=>{
     assert.throws(()=>validateManifest(other));
   }
 });
+
+test('manifest refuses gateway token files and missing secret names',()=>{
+  const m=JSON.parse(readFileSync(new URL('./manifest.example.json',import.meta.url),'utf8'));
+  m.mac.peerId='abcdef01';m.windows.peerId='abcdef02';
+  for(const key of ['mac','windows']) {
+    const missing=structuredClone(m);delete missing[key].tokenSecret;
+    assert.throws(()=>validateManifest(missing));
+    const plaintext=structuredClone(m);plaintext[key].tokenFile='/opaque-fixture-file';
+    assert.throws(()=>validateManifest(plaintext));
+  }
+});
