@@ -10,9 +10,8 @@ import {
   type ReactNode,
 } from "react";
 import { listen } from "../lib/bridge";
-import type { ApiConfig } from "../lib/types";
 import { useConfig } from "./useConfig";
-import { checkForUpdate, getUpdateStatus, installAppUpdate } from "./updateTransport";
+import { checkForUpdate, getUpdateStatus, installAppUpdate, requestUpdateChannel } from "./updateTransport";
 
 export type UpdateStatus =
   | "idle"
@@ -108,15 +107,6 @@ interface UpdateContextValue {
 }
 
 const UpdateContext = createContext<UpdateContextValue | null>(null);
-
-function baseUrl(api: ApiConfig): string {
-  const host = api.host === "0.0.0.0" ? "127.0.0.1" : api.host;
-  return `http://${host}:${api.port}`;
-}
-
-function authHeaders(api: ApiConfig): HeadersInit {
-  return api.token ? { Authorization: `Bearer ${api.token}` } : {};
-}
 
 function isUpdateInfo(v: unknown): v is UpdateInfo {
   if (typeof v !== "object" || v === null) return false;
@@ -298,9 +288,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const fetchChannel = useCallback(async (): Promise<void> => {
     const a = apiRef.current;
     try {
-      const res = await fetch(`${baseUrl(a)}/api/update/channel`, {
-        headers: authHeaders(a),
-      });
+      const res = await requestUpdateChannel(a);
       if (res.status === 404) {
         setChannelSupported(false);
         return;
@@ -319,11 +307,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       const prev = channel;
       setChannelState(next);
       try {
-        const res = await fetch(`${baseUrl(a)}/api/update/channel`, {
-          method: "POST",
-          headers: { ...authHeaders(a), "Content-Type": "application/json" },
-          body: JSON.stringify({ channel: next }),
-        });
+        const res = await requestUpdateChannel(a, next);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         await refresh(true);
       } catch (e) {

@@ -4,6 +4,7 @@ import { flushSync } from "react-dom";
 import { createPortal } from "react-dom";
 import { listen } from "../../lib/bridge";
 import { resetWebEvents } from "../../lib/webEvents";
+import { resetOutputStream } from "../../lib/outputStream";
 import { formatLastActiveBadge, rankPeersByLastActive } from "../../lib/peerRanking";
 import {
   clearRelayTarget,
@@ -181,6 +182,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
       }
       invalidateWebRequestContext();
       closeMenu();
+      resetOutputStream();
       resetWebEvents();
       window.dispatchEvent(new CustomEvent("codeterm-peer-switch-rebind", { detail: { switchId } }));
     },
