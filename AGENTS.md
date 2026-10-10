@@ -374,7 +374,7 @@ technical status or silently retry it.
 
 ## Debug instrumentation
 
-Instrument suspected failure paths with `log::debug!`/`log::trace!` early, before a bug is reported, and keep it: debug builds (every DEV) log it, and release builds strip it at compile time (`log` feature `release_max_level_info` in `src-tauri/Cargo.toml`; Cargo unifies it across crates). Never use `info!` or higher for temporary diagnostics, and never ship a prod-visible debug path; frontend debug output sits behind `if (import.meta.env.DEV)`, which Vite compiles out of production bundles; never a bare `console.log` in shipped code.
+Instrument suspected failure paths with `log::debug!`/`log::trace!` early, before a bug is reported, and keep it: debug builds (every DEV) log it, and release builds strip it at compile time (`log` feature `release_max_level_info` in `src-tauri/Cargo.toml`; Cargo unifies it across crates). Never use `info!` or higher for temporary diagnostics, and never ship a prod-visible debug path; frontend debug output sits behind `DEV_BUILD` from `src/lib/devBuild.ts` (the compile-time `__CODETERM_DEV__`, false in release bundles), never `import.meta.env.DEV`, which DEV watch builds leave false; never a bare `console.log` in shipped code.
 
 ## Code style
 

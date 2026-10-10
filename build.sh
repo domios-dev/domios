@@ -1410,10 +1410,10 @@ start_web_watch() {
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
-      NODE_ENV=development CODETERM_FRONTEND_DEV=1 node "$vite_entry" build --mode development --watch </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 node "$vite_entry" build --watch </dev/null >> "$log" 2>&1 &
       ;;
     *)
-      NODE_ENV=development CODETERM_FRONTEND_DEV=1 nohup node "$vite_entry" build --mode development --watch </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 nohup node "$vite_entry" build --watch </dev/null >> "$log" 2>&1 &
       ;;
   esac
   shell_pid=$!

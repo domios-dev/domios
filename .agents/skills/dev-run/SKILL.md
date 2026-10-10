@@ -212,12 +212,13 @@ well as the immediate environment before declaring recovery complete.
 - **2026-10-10: `Cannot arm missing DEV xterm` or `DEV xterm instance unavailable`
   in a DEV web terminal capture** — the browser serves the watched `dist/`
   bundle through `CODETERM_WEB_DIST`. A default `vite build --watch` uses
-  production `NODE_ENV`, so `import.meta.env.DEV` is false and
-  `host.__codetermTerminal` is absent even when the titlebar says DEV.
-  `CODETERM_FRONTEND_DEV=1` controls the label, not Vite's diagnostics.
-  `build.sh start_web_watch` scopes `NODE_ENV=development` and
-  `--mode development` to both platform watcher commands. Release `pnpm build`
-  keeps its default production environment and mode.
+  production `NODE_ENV`, so `import.meta.env.DEV` is false. DEV-only
+  diagnostics therefore gate on `DEV_BUILD` (`src/lib/devBuild.ts`), the
+  compile-time `__CODETERM_DEV__` that `CODETERM_FRONTEND_DEV=1` sets in
+  `vite.config.ts`, never on `import.meta.env.DEV`. The watcher stays a
+  production-mode build: a 2026-10-10 switch to `--mode development` (React
+  development build) grew the Windows WebView2 renderer by about 0.5 GB/min of
+  native memory. Release `pnpm build` leaves the flag false.
 - **Recovery** — after canonical integration, restart only the affected DEV
   through its existing scoped launcher (`./build.sh kill`, then `./build.sh dev`;
   Windows uses `build.ps1`). Preserve any named-instance/port settings. Confirm
