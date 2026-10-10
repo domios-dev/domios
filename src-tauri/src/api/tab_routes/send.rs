@@ -148,7 +148,14 @@ async fn run_programmatic_delivery<T: Send + 'static>(
     tab: &str,
     delivery: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, SendRejection> {
-    delivery().map_err(|error| classify_delivery_failure(tab, &error).into())
+    log::debug!("[api/send] tab={tab} branch=blocking_programmatic_delivery");
+    tokio::task::spawn_blocking(delivery)
+        .await
+        .map_err(|error| DeliveryError::SubmitUnconfirmed {
+            tab: tab.to_string(),
+            detail: format!("programmatic delivery task failed; replay refused: {error}"),
+        })?
+        .map_err(|error| classify_delivery_failure(tab, &error).into())
 }
 
 #[cfg(test)]
@@ -174,6 +181,13 @@ pub struct SendRejection {
 
 impl IntoResponse for SendRejection {
     fn into_response(self) -> Response {
+        log::warn!(
+            "[api/send] status={} code={} tab={} bytes_written={}",
+            self.status,
+            self.body["error"]["code"],
+            self.body["error"]["tab"],
+            self.body["error"]["bytes_written"]
+        );
         (self.status, Json(self.body)).into_response()
     }
 }
@@ -778,32 +792,6 @@ pub async fn send_text(
     }
 
     let raw_text = body.text.unwrap_or_default();
-    if source_envelope.is_some()
-        && body
-            .source_peer
-            .as_deref()
-            .is_some_and(|peer| !peer.is_empty())
-        && transport == TabInputTransport::Pty
-    {
-        let raw_text = stage(raw_text);
-        let envelope = source_envelope.expect("checked above");
-        let svc = state.svc.clone();
-        let target = tab_id.clone();
-        let payload = raw_text.clone();
-        let (_delivery, pad_file) = run_programmatic_delivery(&tab_id, move || {
-            crate::service::messenger::Messenger::deliver_with_pad_file(
-                &svc, &target, envelope, &payload,
-            )
-        })
-        .await?;
-        record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
-        return Ok(Json(serde_json::json!({
-            "ok": true,
-            "mesh": true,
-            "delivery": "sent",
-            "pad_file": pad_file.map(|path| path.display().to_string())
-        })));
-    }
     if let Some(envelope) = source_envelope {
         let raw_text = stage(raw_text);
         let svc = state.svc.clone();
@@ -816,11 +804,21 @@ pub async fn send_text(
         })
         .await?;
         record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
-        return Ok(Json(serde_json::json!({
+        let mut response = serde_json::json!({
             "ok": true,
             "delivery": "pending",
             "pad_file": pad_file.map(|path| path.display().to_string())
-        })));
+        });
+        if transport == TabInputTransport::Pty
+            && body
+                .source_peer
+                .as_deref()
+                .is_some_and(|peer| !peer.is_empty())
+        {
+            response["mesh"] = serde_json::json!(true);
+            response["delivery"] = serde_json::json!("sent");
+        }
+        return Ok(Json(response));
     }
 
     let raw_text = stage(raw_text);
@@ -853,14 +851,16 @@ pub async fn send_text(
     if origin == SendOrigin::Programmatic && target_has_agent && transport == TabInputTransport::Pty
     {
         let text = crate::service::pty_io::sanitize_agent_prompt_input(&text);
-        let delivery = state
-            .svc
-            .deliver_agent_payload(
-                &tab_id,
+        let svc = state.svc.clone();
+        let target = tab_id.clone();
+        let payload = text.clone();
+        let delivery = run_programmatic_delivery(&tab_id, move || {
+            svc.deliver_agent_payload(
+                &target,
                 crate::service::messenger::AgentDeliveryPayload {
                     trace_id: None,
                     transport: crate::service::messenger::QueuedAgentPayload::Text {
-                        text: text.clone(),
+                        text: payload.clone(),
                     },
                     observer: None,
                     idempotency_key: None,
@@ -868,9 +868,10 @@ pub async fn send_text(
                     expected_session_id: None,
                     expected_binding_nonce: None,
                 },
-                &text,
+                &payload,
             )
-            .map_err(|error| classify_delivery_failure(&tab_id, &error))?;
+        })
+        .await?;
         record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
         return Ok(Json(serde_json::json!({
             "ok": true,
