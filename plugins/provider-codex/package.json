@@ -18,5 +18,8 @@
   },
   "peerDependencies": {
     "react": "^19.0.0"
+  },
+  "scripts": {
+    "test": "bash ../../scripts/plugin-tests.sh provider-codex"
   }
 }

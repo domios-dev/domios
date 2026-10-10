@@ -13,6 +13,10 @@ pub fn resolved_tab_status(
     tracker: &TabStatusTracker,
     resolve: impl Fn(&Tab, TabStatus) -> TabStatus,
 ) -> Option<TabStatus> {
+    if tab.provider_signals.access_lost() {
+        log::debug!("[provider-access] status waiting tab={}", tab.id);
+        return Some(TabStatus::Waiting);
+    }
     let tracked = tab
         .pty_id
         .as_deref()
@@ -30,6 +34,9 @@ pub fn resolved_tab_status(
 /// The status every tab surface reports. A tab with no tracked PTY (a chat
 /// backend, or a PTY not spawned yet) reports its provider-declared state.
 pub fn effective_tab_status(tab: &Tab, resolved: Option<TabStatus>) -> TabStatus {
+    if tab.provider_signals.access_lost() {
+        return TabStatus::Waiting;
+    }
     resolved.unwrap_or_else(|| match tab.agent_state.as_ref().map(|s| s.state) {
         Some(TimelineState::Working) => TabStatus::Working,
         Some(TimelineState::Question) => TabStatus::Waiting,

@@ -1,3 +1,4 @@
+import {classifyAccessError} from "../../provider-shared/accessError";
 import type {ProviderAuthStatus, ProviderSessionObservations} from "@codeterm/plugin-sdk";
 
 export function authStatusProbe() {
@@ -26,9 +27,7 @@ export function parseSessionObservations(value: unknown): ProviderSessionObserva
   const modes = ["default", "acceptEdits", "bypassPermissions", "plan", "dontAsk", "auto"];
   const permission_mode = (typeof record.permissionMode === "string" && modes.includes(record.permissionMode) ? record.permissionMode : null) as ProviderSessionObservations["permission_mode"];
   const isError = record.isApiErrorMessage === true;
-  const error = typeof record.error === "string" ? record.error : object(record.error)?.type;
-  const api_error = !isError ? null : error === "rate_limit" || error === "rate_limit_error" ? "rate_limit"
-    : error === "authentication_error" || error === "auth" ? "authentication" : "other";
+  const api_error = isError ? classifyAccessError(record.error, record) : null;
   const clears_api_error = record.type === "assistant" && !isError && !!object(record.message);
   return isError || permission_mode || clears_api_error ? {api_error, permission_mode, clears_api_error} : null;
 }

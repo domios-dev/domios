@@ -47,6 +47,9 @@ mod update_prompt;
 #[path = "parity_test/account_home.rs"]
 mod account_home;
 
+#[path = "parity_test/access_errors.rs"]
+mod access_errors;
+
 type PluginsDir = PathBuf;
 
 fn workspace_plugins_root() -> PathBuf {
