@@ -70,3 +70,82 @@ No live matrix results exist yet. capture-web.mjs is new and has no executed syn
 Shared integration source verification complete: Engelbart's model.validateOutput now accepts only direct RC eval children mesh-webui-* or mesh-terminals-*; browser.capture includes visible terminal-tab selectedTabId and terminalVisible. B3 capture-web imports that same output guard rather than maintaining duplicate path policy. Prior shared path/provenance blockers are resolved in source; runtime remains unexecuted pending GO. The latest capture-web revision still needs the deferred syntax check.
 
 Current respawn wiring: Engelbart supplied ec518d63/b2/browser.mjs and model.mjs. B3 imports those shared modules; browser.mjs imports this pad’s terminal-capture.mjs. Inspected exports and Windows origin guard http://100.84.159.37:7686. No syntax/runtime gate or browser connection executed. Await Euler GO live, exact peer id and populated manifest.
+
+
+## Missing DEV xterm and wrong fixture provenance
+
+Symptom: phase-B web terminal captures fail with `Cannot arm missing DEV xterm`
+(or `DEV xterm instance unavailable`) although the desktop DEV has the hook.
+The DEV daemon serves `CODETERM_WEB_DIST`; its watcher previously ran Vite's
+production build defaults. `CODETERM_FRONTEND_DEV` supplies the DEV titlebar
+label only. `build.sh start_web_watch` now supplies command-local
+`NODE_ENV=development` and `--mode development` for both Windows and Unix.
+Both are intentional: Vite mode alone does not override production `NODE_ENV`
+for a build. Production `pnpm build` and release preparation are unchanged.
+
+Recovery belongs to the Orchestrator after merge: restart the affected DEV
+through its scoped launcher, confirm the watcher completed a fresh bundle,
+reload its web UI, select the manifest fixture in Terminal mode, and inspect
+that exact root's xterm host for `__codetermTerminal`. Then rerun the approved
+capture in a fresh run directory. Preserve original failure evidence; no
+DOM-text substitute or production hook is allowed. See the dev-run skill's
+all-platform troubleshooting entry for lifecycle details.
+
+A mounted hidden General Agent root can still have client rectangles and
+previously supplied the wrong `selectedTabId`. Shared `capture(page, label,
+{tabId})` now evaluates `readSelectedTab` from `provenance.mjs`, matching the
+requested `data-tab-id` verbatim and requiring visible CSS/opacity plus positive
+geometry. Missing, hidden, zero-size or ambiguous matches throw. Successful
+`selectTab` records the requested identity for subsequent B2 captures; peer
+switch completion clears it. A gateway-return capture without a requested tab
+requires exactly one visible root. B3 and `captureTerminalView` pass the
+fixture identity explicitly. `terminalVisible` comes from that same root and
+can be false for a chat capture; terminal capture separately requires true.
+
+Deferred canonical oracles (no browser launch or Rust compile):
+
+```bash
+node --test evals/mesh-webui/*.test.mjs
+node --test scripts/tests/dev-wait.test.mjs
+```
+
+The provenance fixtures include a hidden `46137477` root before the requested
+fixture, exact mesh identities and rejection paths. The existing dev-wait
+suite now guards both platform watcher commands and the unchanged release
+frontend command. Runtime acceptance still requires the rebuilt DEV browser's
+hook and capture metadata `selectedTabId` equal to the requested fixture, with
+`terminalVisible` true for the terminal leg, followed by coherent buffer and
+screenshot evidence under the existing capture contract.
+
+
+## Fixture row hidden in an inactive workspace
+
+Symptom: `selectTab` times out on an existing fixture row, such as BMacShell
+`6c8da59e`, because its workspace is inactive. Mounting or inventory presence
+does not prove the row is visible. Copy `workspace_id` from the fixture
+inventory into that fixture's optional capture-manifest `workspaceId` (phase-B Mac
+`05799f42`, Windows `d2d28502`). The manifest author performs this copy; the
+harness never reads phaseb-fixtures.json.
+The example manifest includes this required selection input.
+
+Shared `selectTab` resolves the fixture workspace from the current gateway or
+selected peer's inventory, preserving exact mesh-qualified tab identities.
+It expands the workspace-card grid through `workspace-card-more` when needed,
+requires one visible matching `workspace-card[data-workspace-id]`, clicks its
+normal Select workspace button, and observes `data-selected="true"`. Only then
+may it click the visible fixture row. Hidden workspace controls or hidden/ambiguous fixture rows fail with workspace/tab
+identity; no force-click or direct daemon workspace mutation is used.
+
+Recovery: verify inventory belongs to the intended home peer, populate its
+fixture's `workspaceId` in the capture manifest, and rerun the approved capture in a
+fresh evidence directory. The observable pass is the fixture workspace card
+selected, the row visible and selected, and exact fixture root/provenance in
+Terminal mode. `workspace-selection.test.mjs` covers inactive workspace
+activation before tab selection, grid expansion, visibility failures and local
+versus remote inventory resolution using fixture DOM objects. It runs in the
+existing deferred `node --test evals/mesh-webui/*.test.mjs` gate.
+
+If `workspaceId` is omitted, selection still requires a visible fixture row.
+A row in an inactive workspace needs its copied inventory value; omission does
+not authorize a force-click or a guessed workspace. Supplied workspace IDs are
+validated as nonempty safe UI identities in `model.mjs`.

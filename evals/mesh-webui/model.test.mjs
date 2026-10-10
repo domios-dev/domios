@@ -62,3 +62,22 @@ test('manifest refuses gateway token files and missing secret names',()=>{
     assert.throws(()=>validateManifest(plaintext));
   }
 });
+
+test('manifest validates optional fixture workspace identities before UI selection', () => {
+  const m = JSON.parse(readFileSync(new URL('./manifest.example.json', import.meta.url), 'utf8'));
+  m.mac.peerId = 'abcdef01'; m.windows.peerId = 'abcdef02';
+  m.mac.tabs[0].workspaceId = '05799f42';
+  assert.equal(validateManifest(m), m);
+  delete m.mac.tabs[0].workspaceId;
+  assert.equal(validateManifest(m), m);
+  for (const workspaceId of ['', ' ', null, 42, 'bad"selector', 'mesh:peer/workspace']) {
+    const other = structuredClone(m);
+    other.mac.tabs[0].workspaceId = workspaceId;
+    assert.throws(() => validateManifest(other), /workspaceId/);
+  }
+  for (const kind of ['shells', 'terminals']) {
+    const other = structuredClone(m);
+    other.windows[kind] = [{ tabId: 'shell-fixture', workspaceId: '' }];
+    assert.throws(() => validateManifest(other), /workspaceId/);
+  }
+});

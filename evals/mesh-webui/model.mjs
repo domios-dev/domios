@@ -19,6 +19,12 @@ export function validateManifest(m) {
     assert.equal(typeof machine.tokenSecret, 'string');
     assert.ok(machine.tokenSecret.trim());
     assert.equal(machine.tokenFile, undefined, 'Gateway credentials must come from the secret store');
+    for (const fixture of [...machine.tabs, ...(machine.shells ?? []), ...(machine.terminals ?? [])]) {
+      if (fixture.workspaceId !== undefined) {
+        assert.equal(typeof fixture.workspaceId, 'string', 'Fixture workspaceId must be a string');
+        assert.match(fixture.workspaceId, /^[a-zA-Z0-9_-]+$/, 'Fixture workspaceId must be a safe UI identity');
+      }
+    }
     assert.equal(machine.tabs.length, 4);
     assert.deepEqual([...new Set(machine.tabs.map(t => t.provider))].sort(), [...providers].sort());
     for (const tab of machine.tabs) {
