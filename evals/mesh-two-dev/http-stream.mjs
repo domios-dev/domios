@@ -21,7 +21,7 @@ export function devStreamClient({ port, token, peer, fetcher = fetch }) {
       const response = await request(paths.state, readSignal, peer ? { target_peer_id: peer, method: 'GET', path: '/api/mux/state', body: null } : null);
       const state = await response.json();
       if (!peer) return state;
-      if (state.ok !== true || state.status < 200 || state.status >= 300 || state.data == null) throw new Error('Target state relay refused');
+      if (state.ok !== true || !Number.isInteger(state.status) || state.status < 200 || state.status >= 300 || state.data == null) throw new Error('Target state relay refused');
       return state.data;
     },
   };

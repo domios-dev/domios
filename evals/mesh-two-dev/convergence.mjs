@@ -47,7 +47,7 @@ export async function coordinateRestart(adapter, instance, signal, write) {
     await adapter.restart(authorization, bounded);
     const evidence = await adapter.waitReconverged(instance, bounded);
     await write({ kind: 'after-restart', instance, evidence });
-    return verifyRestart({ instance, baseline: before, ...evidence });
+    return verifyRestart({ ...evidence, instance, baseline: before });
   } catch (error) {
     await write({ kind: 'restart-failure', instance, before, error: error.message, status: 'FAIL' });
     throw error;
