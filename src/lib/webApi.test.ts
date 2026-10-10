@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, finish, it, vi } from "../test/standaloneTest";
 import { withFailureDeadline } from "../test/withFailureDeadline";
+import { agentProvidersFromResponse, syncAgentDescriptorCache } from "../hooks/useAgentProviders";
+import { getAgentDescriptor } from "./agentDescriptorCache";
+import type { ProviderDescriptor } from "./types";
 import { webJson, invalidateWebRequestContext } from "./webApi";
 
 describe("web JSON prompt response transport", () => {
@@ -79,6 +82,32 @@ describe("web config response context", () => {
       finishBody(JSON.stringify({ mesh: { instance_name: "opaque-a" } }));
       await withFailureDeadline(refused, "stale body refusal");
     } finally { finishBody("{}"); }
+  });
+});
+
+describe("peer provider catalog relay", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("routes to the owning peer and unwraps its descriptor catalog once", async () => {
+    vi.stubGlobal("window", {
+      location: { protocol: "http:", host: "gateway:7686" },
+      dispatchEvent: () => true,
+      CustomEvent: class {},
+    });
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => key.includes("relay-peer:") ? "owning-peer" : null,
+    });
+    const descriptor = { id: "peer-only-provider", supports_chat_ui: true } as ProviderDescriptor;
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      expect(url).toBe("http://gateway:7686/api/mesh/relay-to");
+      expect(JSON.parse(String(init.body))).toEqual({
+        target_peer_id: "owning-peer", method: "GET", path: "/api/agents/providers", body: null,
+      });
+      return new Response(JSON.stringify({ ok: true, status: 200, data: [descriptor], error: null }));
+    });
+    const catalog = agentProvidersFromResponse(await webJson("GET", "/api/agents/providers"));
+    syncAgentDescriptorCache(catalog, false, null);
+    expect(getAgentDescriptor(descriptor.id)?.supports_chat_ui).toBe(true);
   });
 });
 
