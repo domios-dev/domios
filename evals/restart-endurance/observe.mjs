@@ -189,7 +189,8 @@ async function paddedPrompt(id, marker) {
 
 async function probe(fixture, n, observeOnly = false) {
   const row = { id: fixture.id, cohort: fixture.cohort, provider: fixture.provider,
-    previous_session: fixture.last_session ?? null, pass: false, observed_only: observeOnly };
+    previous_session: fixture.last_session ?? null, pass: false, observed_only: observeOnly,
+    started_at: new Date().toISOString() };
   if (!fixture.id) { row.reason = fixture.spawn_error; return row; }
   const start = performance.now();
   const signal = AbortSignal.timeout(deadlineMs);
@@ -250,10 +251,13 @@ async function probe(fixture, n, observeOnly = false) {
     row.reason = error.message;
   } finally {
     row.elapsed_ms = Math.round(performance.now() - start);
+    row.finished_at = new Date().toISOString();
     events.close();
     row.after_probe ??= await tab(fixture.id).catch(() => null);
     row.before_probe ??= row.initial ?? row.after_probe;
-    row.lifecycle = await dcJson("tab", "inspect", "--tab", fixture.id, "--lifecycle").catch((error) => ({ error: error.message }));
+    if (!observeOnly || failure(row.initial)) {
+      row.lifecycle = await dcJson("tab", "inspect", "--tab", fixture.id, "--lifecycle").catch((error) => ({ error: error.message }));
+    }
     if (subscribed) await api(`/api/tabs/${fixture.id}/chat-raw/stop`, "POST", { subscriptionId: `endure-${fixture.id}-${n}` }).catch((error) => { row.subscription_stop_error = error.message; });
     console.log(`${observeOnly ? "OBSERVED" : row.pass ? "PASS" : "FAIL"} round=${n} tab=${fixture.id} provider=${fixture.provider} ${row.reason ?? row.answer ?? ""}`);
   }
@@ -275,6 +279,8 @@ async function checkHealth() {
 
 async function setup() {
   result.health = await checkHealth();
+  const modelOverrides = JSON.parse(process.env.ENDURE_MODEL_OVERRIDES ?? "{}");
+  result.model_overrides = modelOverrides;
   const providers = await dcJson("agent", "providers");
   result.provider_descriptors = providers;
   const inventory = await dcJson("plugin", "list");
@@ -310,13 +316,14 @@ async function setup() {
         continue;
       }
       result.coverage.push({ provider, cohort, status: "launch requested" });
-      const fixture = { provider, cohort, first_turn_policy: policies.get(provider) ?? firstTurnPolicy(null) };
+      const fixture = { provider, cohort, requested_model: modelOverrides[provider], first_turn_policy: policies.get(provider) ?? firstTurnPolicy(null) };
       result.fixtures.push(fixture);
       save();
       try {
         const spawned = await dcJson("agent", "spawn", provider, "--workspace", workspace.id,
           "--cwd", workspace.cwd, "--title", `${provider}${cohort === "fresh" ? "F" : "U"}`,
-          "--description", `Restart endurance ${cohort} fixture`, "--non-user-facing");
+          "--description", `Restart endurance ${cohort} fixture`, "--non-user-facing",
+          ...(fixture.requested_model ? ["--model", fixture.requested_model] : []));
         fixture.id = spawned.tab_id;
         if (!fixture.id) throw new Error(`Spawn did not return tab_id: ${JSON.stringify(spawned)}`);
       } catch (error) { fixture.spawn_error = error.message; }
@@ -350,8 +357,10 @@ async function setup() {
         await events.open();
         record = await waitReady(events, fixture.id, signal, fixture.first_turn_policy);
         snapshot = await transcript(fixture.id, signal);
-        if (snapshot.messages.some((message) => ["user", "assistant"].includes(kind(message)))) reason = "Fresh fixture has conversation turns before any eval probe";
-        fixture.last_session = record.agent_session_id;
+        const hasTurns = snapshot.messages.some((message) => ["user", "assistant"].includes(kind(message)));
+        if (hasTurns) reason = "Fresh fixture has conversation turns before any eval probe";
+        fixture.empty_session_id = hasTurns ? null : record.agent_session_id;
+        fixture.last_session = hasTurns ? record.agent_session_id : null;
       } catch (error) { reason = error.message; }
       finally { events.close(); }
       entry.rows.push({ ...fixture, before_probe: record, transcript: snapshot, pass: !reason, reason: reason ?? "No user or assistant turn before restart" });
@@ -370,13 +379,48 @@ function captureLogs(n) {
 
 async function runRound(n) {
   const health = await checkHealth();
+  const restored = await tabs();
+  let workspace;
+  const readiness = [];
+  for (const fixture of result.fixtures.filter((fixture) => fixture.id)) {
+    const signal = AbortSignal.timeout(deadlineMs);
+    const events = new Events(signal);
+    try {
+      await events.open();
+      const record = restored.find((record) => record.id === fixture.id);
+      if (record && workspace !== record.workspace_id) {
+        await dc("workspace", "focus", record.workspace_id);
+        workspace = record.workspace_id;
+      }
+      await dc("tab", "focus", "--tab", fixture.id);
+      readiness.push(await waitReady(events, fixture.id, signal, fixture.first_turn_policy));
+    } catch (error) {
+      readiness.push({ id: fixture.id, readiness_error: error.message });
+    } finally { events.close(); }
+  }
   const entry = { round: n, health, rows: [], started_at: result.round_started_at };
+  entry.initial_readiness = readiness.map((record) => ({ ...record }));
+  const settled = await tabs();
+  for (let index = 0; index < readiness.length; index++) {
+    if (!readiness[index].readiness_error) continue;
+    const fixture = result.fixtures.find((fixture) => fixture.id === readiness[index].id);
+    const record = settled.find((record) => record.id === fixture?.id);
+    if (probeReady(record, fixture?.first_turn_policy)) {
+      readiness[index] = { ...record, recovered_readiness_error: readiness[index].readiness_error };
+    }
+  }
+  entry.materialized_pty_count = settled.filter((record) => record.pty_id).length;
+  entry.restore_ready_at = new Date().toISOString();
+  entry.restore_readiness = readiness;
   result.rounds.push(entry);
   save();
-  await Promise.all(result.fixtures.map(async (fixture) => {
-    entry.rows.push(await probe(fixture, n));
+  for (const fixture of result.fixtures) {
+    const failedReadiness = readiness.find((record) => record.id === fixture.id)?.readiness_error;
+    entry.rows.push(failedReadiness
+      ? { id: fixture.id, cohort: fixture.cohort, provider: fixture.provider, pass: false, reason: failedReadiness, phase: "restore_readiness_failed" }
+      : await probe(fixture, n));
     save();
-  }));
+  }
   for (const fixture of result.existing) {
     entry.rows.push(await probe(fixture, n, true));
     save();
