@@ -633,3 +633,32 @@ fn reset_input_modes_restores_shell_defaults() {
     assert!(!screen.application_keypad());
     assert_eq!(screen.mouse_protocol_mode(), vt100::MouseProtocolMode::None);
 }
+
+#[test]
+fn resized_screen_keeps_latest_output_at_current_height() {
+    let mut state = ScreenState::new();
+    state.resize("fixture", 120, 40);
+    for n in 1..=100 {
+        state.process("fixture", format!("B3:{n:03}\r\n").as_bytes());
+    }
+    for (cols, rows, first, last) in [(152, 58, 101, 180), (80, 24, 181, 240)] {
+        state.resize("fixture", cols, rows);
+        for n in first..=last {
+            state.process("fixture", format!("B3:{n:03}\r\n").as_bytes());
+        }
+        state.process("fixture", b"B3:COMPLETE");
+        let mut expected = ((last - rows + 2)..=last)
+            .map(|n| format!("B3:{n:03}"))
+            .collect::<Vec<_>>();
+        expected.push("B3:COMPLETE".into());
+        assert_eq!(state.get_screen_rows("fixture").unwrap(), expected);
+        assert_eq!(
+            state.get_screen_text("fixture").unwrap(),
+            expected.join("\n")
+        );
+        let mut rendered = vt100::Parser::new(rows, cols, 0);
+        rendered.process(&state.get_screen_formatted("fixture").unwrap());
+        assert_eq!(rendered.screen().contents(), expected.join("\n"));
+        state.process("fixture", b"\r\n");
+    }
+}

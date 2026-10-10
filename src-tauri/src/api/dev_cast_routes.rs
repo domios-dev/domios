@@ -132,7 +132,12 @@ async fn inject_paced(
                 .await;
             }
             CastEvent::Resize { cols, rows, .. } if apply_resize => {
-                let _ = state.svc.pty.lock().resize(&pty_id, cols, rows);
+                let _ = crate::service::pty_resize::resize(
+                    &state.svc.pty,
+                    &state.svc.screen_state,
+                    &pty_id,
+                    Some((cols, rows)),
+                );
             }
             CastEvent::Resize { .. } => {}
         }
