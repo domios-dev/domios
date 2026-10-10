@@ -740,6 +740,7 @@ pub fn create_router(state: AppState) -> Router {
             "/api/mesh/pair/request",
             post(mesh_routes::mesh_pair_request),
         )
+        .route("/api/mesh/pair/identity", post(mesh_routes::connection::mesh_pair_identity))
         .route("/api/mesh/pair/accept", post(mesh_routes::mesh_pair_accept))
         .route(
             "/api/mesh/pair/confirm",

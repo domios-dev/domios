@@ -134,8 +134,8 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
         MeshAction::Tabs { target } => {
             mesh_cli::mesh_relay_cmd(&target, "tabs", "", json);
         }
-        MeshAction::Connect { instance_id } => {
-            let body = serde_json::json!({"instance_id": instance_id});
+        MeshAction::Connect { instance_id, addr } => {
+            let body = connect_body(&instance_id, addr.as_ref());
             let result = http
                 .post(format!("{}/api/mesh/connect", base))
                 .header(
@@ -565,4 +565,15 @@ fn set_mesh_enabled(
             crate::cmd::print::fail(1, e.to_string());
         }
     }
+}
+
+pub(crate) fn connect_body(
+    instance_id: &str,
+    addr: Option<&std::net::SocketAddr>,
+) -> serde_json::Value {
+    let mut body = serde_json::json!({"instance_id": instance_id});
+    if let Some(addr) = addr {
+        body["addr"] = serde_json::json!(addr.to_string());
+    }
+    body
 }
