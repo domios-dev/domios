@@ -267,7 +267,8 @@ pub async fn workers_log(
                 .lock()
                 .get_full_text(&pty_id)
                 .unwrap_or_default();
-            let clean = codeterm_util::terminal::clean_terminal_output_sized(&output, 500, 120);
+            let (cols, rows) = state.svc.pty.lock().size(&pty_id).unwrap_or((120, 50));
+            let clean = codeterm_util::terminal::clean_terminal_output_sized(&output, rows, cols);
             return Ok((
                 StatusCode::OK,
                 [(

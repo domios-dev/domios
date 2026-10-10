@@ -73,16 +73,9 @@ pub async fn exec_in_tab(
     let (raw_output, offset, truncated) =
         output_since(&state.svc.output_buf.lock(), &pty_id, start_offset);
     let output = if body.strip_ansi.unwrap_or(false) {
-        // Re-emulate at the pty's REAL width: shell partial-line redraws
-        // (zsh's % padding) erase the last output line at any other width.
-        let cols = state
-            .svc
-            .pty
-            .lock()
-            .size(&pty_id)
-            .map(|(c, _)| c)
-            .unwrap_or(200);
-        crate::pty::ansi::clean_terminal_output_sized(&raw_output, 500, cols)
+        // ConPTY cursor addresses and shell redraws refer to the real viewport.
+        let (cols, rows) = state.svc.pty.lock().size(&pty_id).unwrap_or((200, 50));
+        crate::pty::ansi::clean_terminal_output_sized(&raw_output, rows, cols)
     } else {
         raw_output
     };
