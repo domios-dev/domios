@@ -49,6 +49,8 @@ When splitting a file with inline `#[cfg(test)] mod tests`, keep `mod tests;` in
 
 Use `build.sh` (`build.ps1` from PowerShell). It scopes lifecycle operations to dev and never kills prod.
 
+**One build implementation for every platform.** `build.sh` holds all build, dev, test and report logic; `build.ps1` only locates Git Bash and forwards to it (plus Windows-only glue: `-NotifyTab` forwarding and a post-`dev` WebView2 reload). A build change lands once in `build.sh`, never as a parallel PowerShell branch, and the owning skill (`.agents/skills/dev-run`, `build`, `gates`, `utility-shell-reports`) is updated in the same change. Do not write ad-hoc build, restart or report scripts: dev readiness reports through `./build.sh dev --wait --notify-tab <tab>`, and QA runs through `QA_NOTIFY_TAB=<tab> scripts/qa-report.sh`.
+
 Choose the operation before running a command: shared development is `.agents/skills/dev-run/SKILL.md`; a local production installer for this machine is `.agents/skills/build/SKILL.md#local-production-build-and-self-install`; public publishing is `.agents/skills/github-release/SKILL.md`. Do not substitute one for another. For every newly discovered build failure, fix the owning step and add the symptom, cause, and recovery to that operation's troubleshooting section before declaring it complete.
 
 ```bash
