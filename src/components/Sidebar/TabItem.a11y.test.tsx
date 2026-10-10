@@ -83,7 +83,7 @@ describe("tab row accessibility surface", () => {
       title: "release cut",
       pending_prompt: { question: "Overwrite the tag?", options: [] },
     });
-    expect(html).toContain('title="Overwrite the tag?"');
+    expect(html).toContain('aria-label="shell, release cut needs your input: Overwrite the tag?"');
     expect(html).toContain('role="img"');
   });
 

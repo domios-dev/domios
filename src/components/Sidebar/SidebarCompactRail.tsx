@@ -5,6 +5,8 @@ import { tabActivity } from "../../lib/tabActivity";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { AgentIcon } from "../AgentIcon";
 import { TerminalIcon } from "../Icons";
+import type { TabAttention } from "./tabAttention";
+import { TabAttentionMark } from "./TabAttentionMark";
 import { TabItem } from "./TabItem";
 
 export interface CompactRailGroup {
@@ -16,6 +18,7 @@ export interface CompactRailGroup {
 
 interface Props {
   groups: CompactRailGroup[];
+  attentionByTab?: Readonly<Record<string, TabAttention>>;
   tabStatuses: Record<string, TabStatus>;
   onActivate: (workspaceId: string, tabId: string) => void;
 }
@@ -37,7 +40,7 @@ function monogram(label: string): string {
 }
 
 /** Narrowest useful sidebar: General agents and the selected workspace's orchestrators only. */
-export function SidebarCompactRail({ groups, tabStatuses, onActivate }: Props) {
+export function SidebarCompactRail({ groups, tabStatuses, onActivate, attentionByTab = {} }: Props) {
   const [peek, setPeek] = useState<Peek | null>(null);
   const releaseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hold = () => {
@@ -83,7 +86,8 @@ export function SidebarCompactRail({ groups, tabStatuses, onActivate }: Props) {
                 onMouseLeave={release}
               >
                 {tab.agent_type ? <AgentIcon providerId={tab.agent_type} className="text-[15px]" /> : <TerminalIcon size={14} />}
-                <span className="ct-compact-rail__status" aria-hidden="true" />
+                <TabAttentionMark title={title} attention={attentionByTab[tab.id]} active={active} />
+                {(activity === "working" || activity === "starting") && !attentionByTab[tab.id]?.showMark && <span className="ct-compact-rail__status" aria-hidden="true" />}
               </button>
             );
           })}
@@ -108,6 +112,7 @@ export function SidebarCompactRail({ groups, tabStatuses, onActivate }: Props) {
             workspaceId={peek.workspaceId}
             hasAgent={Boolean(peek.tab.agent_type)}
             status={tabStatuses[peek.tab.id] ?? null}
+            attention={attentionByTab[peek.tab.id]}
           />
         </div>,
         document.body,

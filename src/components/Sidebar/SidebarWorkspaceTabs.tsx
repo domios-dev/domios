@@ -29,7 +29,7 @@ import { DropdownMenu } from "../shared/DropdownMenu";
 import { RowMenuButton } from "../shared/RowMenuButton";
 import { TeamJobsUnit } from "../Jobs/TeamJobsUnit";
 import type { JobsTarget } from "../Jobs/JobsView";
-import type { DeclaredAttentionLevel } from "./declaredAttention";
+import type { TabAttention } from "./tabAttention";
 import { surfaceOwnerTitle } from "../../lib/surfaceTab";
 import { cronReportTitle, terminalOrigin } from "./teamRowLabels";
 import { SurfaceOwnerBlock } from "./SurfaceAttachments";
@@ -137,7 +137,7 @@ export interface SidebarWorkspaceTabsProps {
   sortedTabs: Tab[];
   tabs: Record<string, Tab>;
   tabStatuses: Record<string, TabStatus>;
-  declaredAttentionByTab?: Readonly<Record<string, DeclaredAttentionLevel>>;
+  tabAttentionByTab?: Readonly<Record<string, TabAttention>>;
   teams: Team[];
   planIndex: PlanIndexEntry[];
   plans: Plan[];
@@ -178,7 +178,7 @@ export function SidebarWorkspaceTabs({
   sortedTabs: allSortedTabs,
   tabs,
   tabStatuses,
-  declaredAttentionByTab = {},
+  tabAttentionByTab = {},
   teams,
   planIndex,
   plans,
@@ -253,7 +253,7 @@ export function SidebarWorkspaceTabs({
     isActiveVisual,
     workspaceCanvasActive,
     tabStatuses,
-    declaredAttentionByTab,
+    tabAttentionByTab,
     orchestrators,
     touchMode,
     uiFontScale,
@@ -555,7 +555,7 @@ export interface SidebarCollapsedActiveTabProps {
   activeTabId: string | null;
   tabs: Record<string, Tab>;
   tabStatuses: Record<string, TabStatus>;
-  declaredAttentionByTab?: Readonly<Record<string, DeclaredAttentionLevel>>;
+  tabAttentionByTab?: Readonly<Record<string, TabAttention>>;
   planIndex: PlanIndexEntry[];
   isActiveVisual: boolean;
   workspaceCanvasActive: boolean;
@@ -572,7 +572,7 @@ export function SidebarCollapsedActiveTab({
   activeTabId,
   tabs,
   tabStatuses,
-  declaredAttentionByTab = {},
+  tabAttentionByTab = {},
   planIndex,
   isActiveVisual,
   workspaceCanvasActive,
@@ -606,7 +606,7 @@ export function SidebarCollapsedActiveTab({
       workspaceId={ws.id}
       hasAgent={Boolean(activeTab.agent_type)}
       status={tabStatuses[activeTab.id] ?? null}
-      declaredAttention={declaredAttentionByTab[activeTab.id] ?? null}
+      attention={tabAttentionByTab[activeTab.id] ?? null}
       onRename={(title) => {
         onRenameTab(activeTab.id, title);
         persistTabRename(ws.id, activeTab.id, title);
