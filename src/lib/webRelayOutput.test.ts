@@ -1,6 +1,20 @@
 import assert from "node:assert/strict";
 import { finish, it, vi } from "../test/standaloneTest";
 
+it("relay output transport cannot be disabled by the local aggregate killswitch", async () => {
+  stubBrowser();
+  const { webOutputTransportActive } = await import("./outputStream");
+  try {
+    for (const enabled of [false, true]) {
+      assert.equal(webOutputTransportActive(true, "928b06dd-0631-43e2-9252-3c6573b54b8d", enabled), true);
+      assert.equal(webOutputTransportActive(true, null, enabled), enabled);
+      assert.equal(webOutputTransportActive(false, null, enabled), false);
+    }
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
 function stubBrowser(): void {
   const values = new Map<string, string>();
   const storage = {
