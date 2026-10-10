@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 if [ "${1:-}" = --help ]; then
-  echo 'Usage: bash evals/restart-endurance/run.sh --out DIR --notice-hook FILE'
+  echo 'Usage: bash evals/restart-endurance/run.sh --out DIR --notice-hook FILE [--model PROVIDER=MODEL]'
   echo 'Offline: bash evals/restart-endurance/run.sh --dry-run --out DIR --from-results FILE --log-dir DIR'
   echo 'Canonical QA only. Real LLM turns; three DEV 7686 restarts. See README.md.'
   exit 0

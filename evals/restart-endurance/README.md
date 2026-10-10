@@ -30,9 +30,11 @@ checks health identity and build SHA before fixture creation and each round.
 The runner uses `./build.sh dev-prebuilt --wait --wait-build` for the three
 rounds. That owning command validates the saved app/CLI/frontend provenance
 before its DEV-only kill and starts the same binary with a bounded health wait.
-It runs no Cargo rebuild. Missing/stale provenance stops the trial; the eval
-does not silently rebuild or retry. Approve this exact canonical QA command
-when dispatching the live verification.
+It runs no Cargo rebuild when provenance matches. A stale-provenance refusal
+before DEV is stopped uses the incremental `dev --wait --wait-build` fallback;
+other launcher failures stop the trial. Authorize both lifecycle commands for
+the default runner. A caller-mandated launcher instead uses the observer's
+`setup`, `before`, `round`, and `finish` phases with the same output directory.
 
 `--notice-hook` is a required, caller-owned Bash file **outside `evals/`**. It
 runs in the QA shell's original parent connection, before every restart, with
@@ -83,7 +85,9 @@ is bounded at 30 seconds by the runner and must not ask an interactive question.
 4. Announces and performs three provenance-checked DEV restarts. After each,
    focuses each fixture in its workspace to materialize lazy PTYs, waits for every
    fixture's launch readiness, then probes fixtures serially with the round
-   marker. Readiness failures are retained without another wait or a send.
+   marker. A final authoritative snapshot can reconcile a missed readiness
+   event; the original stream gap remains in the result. Unresolved readiness
+   failures receive neither another wait nor a probe.
    Waits use an SSE subscription established before sending, a single
    120-second failure deadline per observation, and event-triggered snapshot
    reads. There are no fixed-delay warmups or probe retries. Sends read their
