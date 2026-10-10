@@ -47,6 +47,7 @@ import { ReceiverTargetMarks } from "./ReceiverTargetMark";
 import { usePluginTabMenu } from "../../lib/pluginTabMenu";
 import { useComposerInsertions } from "./useComposerInsertions";
 import { ComposerCapsuleField } from "./ComposerCapsuleField";
+import { ComposerTextInput } from "./ComposerTextInput";
 import { hasCapsuleTokens } from "./composerCapsules";
 import { useComposerCapsules, type InlineAttachmentSink } from "./useComposerCapsules";
 import { ComposerMentionPicker, useComposerMentions } from "./ComposerMentionPicker";
@@ -557,7 +558,7 @@ function ChatComposerImpl({
             marginPx={composerLayout.editorPx > COMPOSER_MIN_HEIGHT ? 8 : 0}
             onRemove={capsules.remove}
           >
-            <textarea
+            <ComposerTextInput
               data-testid="chat-composer"
               data-tab-id={tabId}
               aria-label="Message composer"
@@ -655,22 +656,12 @@ function ChatComposerImpl({
               placeholder={pendingPrompt
                 ? "Agent may be waiting in the terminal."
                 : "Message"}
-              rows={1}
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="sentences"
-              spellCheck={false}
               enterKeyHint={touchMode ? "enter" : "send"}
-              inputMode="text"
-              className="block w-full min-h-5 resize-none bg-transparent py-0 pr-1 text-[14px] leading-5 outline-none placeholder:text-[var(--ct-muted-fg)]"
               style={{
                 color: capsulesActive ? "transparent" : "var(--ct-fg, #c9d1d9)",
-                caretColor: "var(--ct-fg, #c9d1d9)",
-                border: "none",
                 lineHeight: `${COMPOSER_MIN_HEIGHT}px`,
                 // Margin, not padding: padding would feed back into the scrollHeight autosize.
                 margin: composerLayout.editorPx > COMPOSER_MIN_HEIGHT ? "8px 0" : 0,
-                overflowY: "auto",
               }}
             />
           </ComposerCapsuleField>
