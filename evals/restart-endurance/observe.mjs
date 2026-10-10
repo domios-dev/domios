@@ -371,7 +371,17 @@ function captureLogs(n) {
 
 async function runRound(n) {
   const health = await checkHealth();
-  if (result.workspace?.id) await dc("workspace", "focus", result.workspace.id);
+  const restored = await tabs();
+  let workspace;
+  for (const fixture of result.fixtures.filter((fixture) => fixture.id)) {
+    const record = restored.find((record) => record.id === fixture.id);
+    if (!record) continue;
+    if (workspace !== record.workspace_id) {
+      await dc("workspace", "focus", record.workspace_id);
+      workspace = record.workspace_id;
+    }
+    await dc("tab", "focus", "--tab", fixture.id);
+  }
   const readiness = [];
   for (const fixture of result.fixtures.filter((fixture) => fixture.id)) {
     const signal = AbortSignal.timeout(deadlineMs);
