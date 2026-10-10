@@ -10,6 +10,7 @@ import { forwardTerminalFallback } from "../../lib/terminalFallbackInput";
 import { __setInvokeForTest } from "../../lib/bridge";
 import { setAgentDescriptors } from "../../lib/agentDescriptorCache";
 import {
+  boundAgent,
   plan,
   planIndexEntry,
   tab,
@@ -168,7 +169,7 @@ test("teamless_tabs_render_plain", async () => {
 test("team header renders the live compact status tally", async () => {
   const tabs = {
     orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
-    worker: tab({ id: "worker", title: "Worker", role: "Worker", team_id: TEAM.id }),
+    worker: tab({ id: "worker", title: "Worker", role: "Worker", team_id: TEAM.id, ...boundAgent("worker") }),
   };
   const currentPlan = plan([
     task("pending-one", TaskStatus.Pending),
@@ -415,8 +416,8 @@ test("team_card_activation_covers_title_tally_and_lower_area", async () => {
 test("workers_collapse_summary", async () => {
   const tabs = {
     orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
-    workerOne: tab({ id: "workerOne", title: "Worker One", role: "Worker", team_id: TEAM.id }),
-    workerTwo: tab({ id: "workerTwo", title: "Worker Two", role: "Worker", team_id: TEAM.id }),
+    workerOne: tab({ id: "workerOne", title: "Worker One", role: "Worker", team_id: TEAM.id, ...boundAgent("workerOne") }),
+    workerTwo: tab({ id: "workerTwo", title: "Worker Two", role: "Worker", team_id: TEAM.id, ...boundAgent("workerTwo") }),
     workerThree: tab({ id: "workerThree", title: "Worker Three", role: "Worker", team_id: TEAM.id }),
   };
   const sortedTabs = Object.keys(tabs).map((id, index) => tab(`tab-${id}`, id, index));
@@ -473,13 +474,15 @@ test("clicking a team worker activates it", async () => {
     const [activeTabId, setActiveTabId] = useState("orchestrator");
     const [managerStatus, setManagerStatus] = useState<TabStatus>("Working");
     updateManagerStatus = setManagerStatus;
+    const manager = { ...tabs.orchestrator, ...boundAgent("orchestrator", managerStatus === "Working" ? "working" : "idle") };
+    const liveTabs: Record<string, Tab> = { ...tabs, orchestrator: manager };
     return (
       <SidebarDnd handlers={{ reorderTabs: () => {}, reorderDisplay: () => {}, reorderWorkspaces: () => {} }}>
         <SidebarWorkspaceTabs
           workspace={workspace}
           activeTabId={activeTabId}
-          sortedTabs={sortedTabs.map((tabId) => tabs[tabId]).filter(Boolean)}
-          tabs={tabs}
+          sortedTabs={sortedTabs.map((tabId) => liveTabs[tabId]).filter(Boolean)}
+          tabs={liveTabs}
           tabStatuses={{ orchestrator: managerStatus, worker: "Idle" }}
           teams={[TEAM]}
           planIndex={[]}
@@ -493,7 +496,7 @@ test("clicking a team worker activates it", async () => {
           touchMode={false}
           compact={false}
           sidebarActionText="text-xs"
-          orchestrators={[tabs.orchestrator]}
+          orchestrators={[manager]}
           onBeforeOpenPlan={() => {}}
           onActivateTab={(tabId) => { activations.push(tabId); setActiveTabId(tabId); }}
           onCloseTab={() => {}}
@@ -544,7 +547,7 @@ test("clicking a team worker activates it", async () => {
   await act(async () => root.unmount());
 });
 
-test("waiting team worker keeps prompt pill without status rail", async () => {
+test("waiting team worker shows a quiet attention mark without status rail", async () => {
   const tabs: Record<string, Tab> = {
     orchestrator: tab({
       id: "orchestrator",
@@ -569,10 +572,10 @@ test("waiting team worker keeps prompt pill without status rail", async () => {
     sortedTabs,
     tabs,
     statuses: { attention: "Waiting" },
-    activeTabId: "attention",
+    activeTabId: "orchestrator",
   });
   const row = host.querySelector('[data-tab-id="attention"]');
-  assert(row?.querySelector('span[title="Allow team action?"]'), "prompt pill remains visible");
+  assert(row?.querySelector('[role="img"][aria-label^="Attention"]'), "inactive waiting worker exposes a named attention mark");
   assert(!row?.querySelector('[data-testid="tab-status-rail"]'), "waiting worker has no left status rail");
   await act(async () => root.unmount());
 });
@@ -590,7 +593,7 @@ test("working team worker keeps activity dots without status rail", async () => 
       title: "Worker",
       role: "Worker",
       team_id: TEAM.id,
-      agent_type: "claude",
+      ...boundAgent("worker"),
     }),
   };
   const sortedTabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-worker", "worker", 1)];
