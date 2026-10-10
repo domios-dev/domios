@@ -19,6 +19,7 @@ export class PtyInputWriteQueue {
   constructor(
     private readonly write: PtyInputWriter,
     private readonly onFailure: PtyInputWriteFailure,
+    private readonly onSuccess: (targetId: string) => void = () => {},
   ) {}
 
   enqueue(ptyId: string, data: string, raw?: boolean): Promise<void> {
@@ -44,25 +45,22 @@ export class PtyInputWriteQueue {
   }
 
   private async drain(ptyId: string, pending: PendingWrites): Promise<void> {
-    let failedDataLength = 0;
-    let firstFailure: unknown;
     try {
       while (pending.nextBatch < pending.batches.length) {
         const batch = pending.batches[pending.nextBatch++];
         try {
           await this.write(ptyId, batch.data, batch.raw);
           this.failedPtys.delete(ptyId);
+          this.onSuccess(ptyId);
         } catch (error) {
-          failedDataLength += batch.data.length;
-          firstFailure ??= error;
+          if (!this.failedPtys.has(ptyId)) {
+            this.failedPtys.add(ptyId);
+            this.onFailure(ptyId, batch.data.length, error);
+          }
         }
       }
     } finally {
       if (this.pending.get(ptyId) === pending) this.pending.delete(ptyId);
-    }
-    if (failedDataLength > 0 && !this.failedPtys.has(ptyId)) {
-      this.failedPtys.add(ptyId);
-      this.onFailure(ptyId, failedDataLength, firstFailure);
     }
   }
 }
