@@ -4,7 +4,7 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{
     DeliveryAttemptProvenance, PendingDeliveryChannel, PendingDeliveryRecord, PendingDeliveryState,
 };
-use crate::service::boot_stage::{apply_boot_stage, commit_boot_stage_transition, BootStage};
+use crate::service::boot_stage::BootStage;
 use crate::service::pty_io::test_support::{join, DeadlineBarrier};
 use codeterm_util::lock_hold::TimedRwLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -38,9 +38,8 @@ fn record(
 struct Fixture {
     mux: MuxState,
     tab_id: String,
-    loads: AtomicUsize,
     launches: AtomicUsize,
-    historical_writes: AtomicUsize,
+    historical_handoffs: AtomicUsize,
     events: parking_lot::Mutex<Vec<(BootStage, String)>>,
 }
 
@@ -60,14 +59,13 @@ impl Fixture {
         Self {
             mux: Arc::new(TimedRwLock::new("restore-payload-test", mux)),
             tab_id,
-            loads: AtomicUsize::new(0),
             launches: AtomicUsize::new(0),
-            historical_writes: AtomicUsize::new(0),
+            historical_handoffs: AtomicUsize::new(0),
             events: Default::default(),
         }
     }
 
-    fn restore(&self, body_present: bool) -> Result<bool, String> {
+    fn restore(&self) -> Result<bool, String> {
         super::super::restore_materialization_core(
             &self.mux,
             &self.tab_id,
@@ -75,39 +73,23 @@ impl Fixture {
             Some("original-used-session"),
             Some("fixture-cwd"),
             true,
-            || {
-                let pending = self
-                    .mux
-                    .read()
-                    .get_tab(&self.tab_id)
-                    .unwrap()
-                    .pending_delivery
-                    .clone();
-                resolve_restored_payload(pending.as_ref(), || {
-                    self.loads.fetch_add(1, Ordering::SeqCst);
-                    if body_present {
-                        Ok(Some("historical-user-turn".into()))
-                    } else {
-                        Err("RestorePayloadMissing: historical-body-digest".into())
-                    }
-                })
-            },
+            resolve_restored_payload,
             |stage, reason| {
-                assert!(commit_boot_stage_transition(
-                    &self.mux,
-                    &self.tab_id,
-                    |tab| {
-                        apply_boot_stage(tab, stage, Some(reason));
-                        true
-                    },
-                    || self.events.lock().push((stage, reason.to_string())),
-                ));
+                assert!(
+                    self.mux.try_write().is_some(),
+                    "publication must not hold mux"
+                );
+                self.events.lock().push((stage, reason.to_string()));
             },
             |launch, payload| {
+                assert!(
+                    self.mux.try_write().is_some(),
+                    "launch callback must not hold mux"
+                );
                 assert_eq!(launch.session_id.as_deref(), Some("original-used-session"));
                 self.launches.fetch_add(1, Ordering::SeqCst);
                 if payload.is_some() {
-                    self.historical_writes.fetch_add(1, Ordering::SeqCst);
+                    self.historical_handoffs.fetch_add(1, Ordering::SeqCst);
                 }
                 assert!(payload.is_none());
             },
@@ -137,13 +119,8 @@ fn restored_payload_eligibility_respects_state_channel_and_attempt() {
                     && state == PendingDeliveryState::Pending
                     && !attempted;
                 assert_eq!(requires_pending_input(Some(&pending)), expected);
-                let loads = AtomicUsize::new(0);
-                let result = resolve_restored_payload(Some(&pending), || {
-                    loads.fetch_add(1, Ordering::SeqCst);
-                    Ok(Some("body".into()))
-                });
+                let result = resolve_restored_payload(Some(&pending));
                 assert_eq!(result.is_err(), expected);
-                assert_eq!(loads.load(Ordering::SeqCst), usize::from(expected));
                 if !expected {
                     assert_eq!(result.unwrap(), None);
                 }
@@ -159,27 +136,24 @@ fn restored_uncertain_payload_does_not_block_lazy_provider_launch() {
         PendingDeliveryState::Unconfirmed,
         PendingDeliveryState::Ingested,
     ] {
-        for body_present in [false, true] {
-            let pending = record(PendingDeliveryChannel::InteractiveInput, state, true);
-            let fixture = Fixture::new(pending.clone(), true);
-            assert!(fixture.restore(body_present).unwrap());
-            assert!(!fixture.restore(body_present).unwrap());
-            assert_eq!(fixture.loads.load(Ordering::SeqCst), 0);
-            assert_eq!(fixture.launches.load(Ordering::SeqCst), 1);
-            assert_eq!(fixture.historical_writes.load(Ordering::SeqCst), 0);
-            assert!(fixture.events.lock().is_empty());
-            let mux = fixture.mux.read();
-            let tab = mux.get_tab(&fixture.tab_id).unwrap();
-            assert_eq!(tab.pending_delivery.as_ref(), Some(&pending));
-            assert_eq!(
-                tab.agent_session_id.as_deref(),
-                Some("original-used-session")
-            );
-            assert_eq!(tab.session_binding_nonce.as_deref(), Some("current-nonce"));
-            assert!(!tab.launch_session_authenticated());
-            assert!(tab.agent_booting);
-            assert!(!tab.restored_from_snapshot);
-        }
+        let pending = record(PendingDeliveryChannel::InteractiveInput, state, true);
+        let fixture = Fixture::new(pending.clone(), true);
+        assert!(fixture.restore().unwrap());
+        assert!(!fixture.restore().unwrap());
+        assert_eq!(fixture.launches.load(Ordering::SeqCst), 1);
+        assert_eq!(fixture.historical_handoffs.load(Ordering::SeqCst), 0);
+        assert!(fixture.events.lock().is_empty());
+        let mux = fixture.mux.read();
+        let tab = mux.get_tab(&fixture.tab_id).unwrap();
+        assert_eq!(tab.pending_delivery.as_ref(), Some(&pending));
+        assert_eq!(
+            tab.agent_session_id.as_deref(),
+            Some("original-used-session")
+        );
+        assert_eq!(tab.session_binding_nonce.as_deref(), Some("current-nonce"));
+        assert!(!tab.launch_session_authenticated());
+        assert!(tab.agent_booting);
+        assert!(!tab.restored_from_snapshot);
     }
 }
 
@@ -198,7 +172,7 @@ fn restored_lazy_activation_has_one_launch_claim() {
             let barrier = barrier.clone();
             std::thread::spawn(move || {
                 barrier.wait("restore activation");
-                fixture.restore(false).unwrap()
+                fixture.restore().unwrap()
             })
         })
         .collect::<Vec<_>>();
@@ -209,8 +183,7 @@ fn restored_lazy_activation_has_one_launch_claim() {
         .sum::<usize>();
     assert_eq!(claims, 1);
     assert_eq!(fixture.launches.load(Ordering::SeqCst), 1);
-    assert_eq!(fixture.loads.load(Ordering::SeqCst), 0);
-    assert_eq!(fixture.historical_writes.load(Ordering::SeqCst), 0);
+    assert_eq!(fixture.historical_handoffs.load(Ordering::SeqCst), 0);
     assert_eq!(
         fixture
             .mux
@@ -226,40 +199,36 @@ fn restored_lazy_activation_has_one_launch_claim() {
 #[test]
 fn restored_pending_input_failure_reaches_boot_event_seam() {
     for live_shell in [false, true] {
-        for body_present in [false, true] {
-            let pending = record(
-                PendingDeliveryChannel::InteractiveInput,
-                PendingDeliveryState::Pending,
-                false,
-            );
-            let fixture = Fixture::new(pending.clone(), live_shell);
-            let reason = fixture.restore(body_present).unwrap_err();
-            assert!(reason.starts_with("restored_input_pending:"));
-            assert_eq!(
-                fixture.events.lock().as_slice(),
-                [(BootStage::SpawnFailed, reason.clone())]
-            );
-            assert_eq!(fixture.launches.load(Ordering::SeqCst), 0);
-            assert_eq!(fixture.historical_writes.load(Ordering::SeqCst), 0);
-            let mux = fixture.mux.read();
-            let tab = mux.get_tab(&fixture.tab_id).unwrap();
-            assert_eq!(tab.boot_stage, Some(BootStage::SpawnFailed));
-            assert_eq!(tab.boot_failure_reason.as_deref(), Some(reason.as_str()));
-            assert_eq!(tab.pending_delivery.as_ref(), Some(&pending));
-            assert_eq!(
-                tab.agent_session_id.as_deref(),
-                Some("original-used-session")
-            );
-            assert!(tab.restored_from_snapshot);
-            assert!(!tab.agent_booting);
-            assert_eq!(
-                super::super::reattach_boot_stage(
-                    tab.boot_stage,
-                    tab.boot_failure_reason.as_deref()
-                ),
-                None
-            );
-        }
+        let pending = record(
+            PendingDeliveryChannel::InteractiveInput,
+            PendingDeliveryState::Pending,
+            false,
+        );
+        let fixture = Fixture::new(pending.clone(), live_shell);
+        let reason = fixture.restore().unwrap_err();
+        assert!(reason.starts_with("restored_input_pending:"));
+        assert_eq!(
+            fixture.events.lock().as_slice(),
+            [(BootStage::SpawnFailed, reason.clone())]
+        );
+        assert_eq!(fixture.launches.load(Ordering::SeqCst), 0);
+        assert_eq!(fixture.historical_handoffs.load(Ordering::SeqCst), 0);
+        let mux = fixture.mux.read();
+        let tab = mux.get_tab(&fixture.tab_id).unwrap();
+        assert_eq!(tab.boot_stage, Some(BootStage::SpawnFailed));
+        assert_eq!(tab.boot_failure_reason.as_deref(), Some(reason.as_str()));
+        assert!(tab.reported_session_binding_nonce.is_none());
+        assert_eq!(tab.pending_delivery.as_ref(), Some(&pending));
+        assert_eq!(
+            tab.agent_session_id.as_deref(),
+            Some("original-used-session")
+        );
+        assert!(tab.restored_from_snapshot);
+        assert!(!tab.agent_booting);
+        assert_eq!(
+            super::super::reattach_boot_stage(tab.boot_stage, tab.boot_failure_reason.as_deref()),
+            None
+        );
     }
 }
 
@@ -279,8 +248,7 @@ fn active_or_claimed_tab_never_resolves_historical_input() {
             tab.agent_booting = booting;
             tab.boot_stage = Some(BootStage::AgentReady);
         }
-        assert!(!fixture.restore(false).unwrap());
-        assert_eq!(fixture.loads.load(Ordering::SeqCst), 0);
+        assert!(!fixture.restore().unwrap());
         assert!(fixture.events.lock().is_empty());
         assert_eq!(
             fixture
@@ -292,4 +260,234 @@ fn active_or_claimed_tab_never_resolves_historical_input() {
             Some(BootStage::AgentReady)
         );
     }
+}
+
+#[test]
+fn delayed_restore_failure_cannot_retire_successor_launch() {
+    for body_present in [false, true] {
+        for change in [
+            "launch",
+            "provider",
+            "session",
+            "cwd",
+            "epoch",
+            "operation",
+            "pty",
+            "nonce",
+            "proof",
+            "pending",
+            "aba",
+        ] {
+            let pending = record(
+                PendingDeliveryChannel::InteractiveInput,
+                PendingDeliveryState::Pending,
+                false,
+            );
+            let fixture = Arc::new(Fixture::new(pending, true));
+            let boundary = Arc::new(DeadlineBarrier::new(2));
+            let old = {
+                let fixture = fixture.clone();
+                let boundary = boundary.clone();
+                std::thread::spawn(move || {
+                    super::super::restore_materialization_core(
+                        &fixture.mux,
+                        &fixture.tab_id,
+                        "fixture-provider",
+                        Some("original-used-session"),
+                        Some("fixture-cwd"),
+                        true,
+                        |captured| {
+                            boundary.wait("old restore observed");
+                            boundary.wait("old restore released");
+                            let delayed_lookup = if body_present {
+                                Ok(Some("old successful body".to_string()))
+                            } else {
+                                Err("old body lookup failed".to_string())
+                            };
+                            delayed_lookup.and_then(|_| resolve_restored_payload(captured))
+                        },
+                        |stage, reason| fixture.events.lock().push((stage, reason.into())),
+                        |_, _| {
+                            fixture.launches.fetch_add(1, Ordering::SeqCst);
+                        },
+                    )
+                    .map(|launch| launch.is_some())
+                })
+            };
+            boundary.wait("successor installed after observation");
+            let expected = {
+                let mut mux = fixture.mux.write();
+                let tab = mux.get_tab_mut(&fixture.tab_id).unwrap();
+                match change {
+                    "launch" => {
+                        tab.lifecycle_epoch = Some(10);
+                        tab.pty_id = Some("successor-pty".into());
+                        tab.session_binding_nonce = Some("successor-nonce".into());
+                        tab.reported_session_binding_nonce = Some("successor-nonce".into());
+                        tab.restored_from_snapshot = false;
+                        tab.agent_booting = false;
+                        tab.boot_stage = Some(BootStage::AgentReady);
+                        assert!(tab.launch_session_authenticated());
+                    }
+                    "provider" => tab.agent_type = Some("successor-provider".into()),
+                    "session" => tab.agent_session_id = Some("successor-session".into()),
+                    "cwd" => tab.cwd = Some("successor-cwd".into()),
+                    "epoch" => tab.lifecycle_epoch = Some(10),
+                    "operation" => tab.lifecycle_operation_id = Some("successor-operation".into()),
+                    "pty" => tab.pty_id = Some("successor-pty".into()),
+                    "nonce" => tab.session_binding_nonce = Some("successor-nonce".into()),
+                    "proof" => {
+                        tab.reported_session_binding_nonce = tab.session_binding_nonce.clone()
+                    }
+                    "pending" => {
+                        tab.pending_delivery = Some(record(
+                            PendingDeliveryChannel::InteractiveInput,
+                            PendingDeliveryState::Unconfirmed,
+                            true,
+                        ))
+                    }
+                    "aba" => {
+                        tab.restored_from_snapshot = false;
+                        tab.agent_booting = true;
+                        tab.lifecycle_epoch = Some(10);
+                        tab.restored_from_snapshot = true;
+                        tab.agent_booting = false;
+                    }
+                    _ => unreachable!(),
+                }
+                serde_json::to_value(tab).unwrap()
+            };
+            boundary.wait("release stale restore");
+            assert!(!join(old, "stale restore").unwrap().unwrap());
+            assert!(fixture.events.lock().is_empty(), "stale event for {change}");
+            assert_eq!(fixture.launches.load(Ordering::SeqCst), 0);
+            assert_eq!(
+                serde_json::to_value(fixture.mux.read().get_tab(&fixture.tab_id).unwrap()).unwrap(),
+                expected
+            );
+        }
+    }
+}
+
+#[test]
+fn changed_pending_record_cannot_be_loaded_or_claimed_by_old_restore() {
+    for replacement in [false, true] {
+        let pending = record(
+            PendingDeliveryChannel::InteractiveInput,
+            PendingDeliveryState::Pending,
+            false,
+        );
+        let fixture = Arc::new(Fixture::new(pending.clone(), true));
+        let boundary = Arc::new(DeadlineBarrier::new(2));
+        let old = {
+            let fixture = fixture.clone();
+            let boundary = boundary.clone();
+            std::thread::spawn(move || {
+                super::super::restore_materialization_core(
+                    &fixture.mux,
+                    &fixture.tab_id,
+                    "fixture-provider",
+                    Some("original-used-session"),
+                    Some("fixture-cwd"),
+                    true,
+                    |captured| {
+                        assert_eq!(captured, Some(&pending));
+                        boundary.wait("pending captured");
+                        boundary.wait("pending changed before classification");
+                        resolve_restored_payload(captured)
+                    },
+                    |stage, reason| fixture.events.lock().push((stage, reason.into())),
+                    |_, _| panic!("superseded pending must not launch"),
+                )
+                .map(|launch| launch.is_some())
+            })
+        };
+        boundary.wait("replace pending");
+        let expected = {
+            let mut mux = fixture.mux.write();
+            let tab = mux.get_tab_mut(&fixture.tab_id).unwrap();
+            if replacement {
+                let mut uncertain = record(
+                    PendingDeliveryChannel::InteractiveInput,
+                    PendingDeliveryState::Unconfirmed,
+                    true,
+                );
+                uncertain.content_digest = "successor-uncertain-digest".into();
+                tab.pending_delivery = Some(uncertain);
+            } else {
+                tab.pending_delivery
+                    .as_mut()
+                    .unwrap()
+                    .begin_attempt(DeliveryAttemptProvenance {
+                        attempt_id: "successor-attempt".into(),
+                        started_at_ms: 19,
+                    })
+                    .unwrap();
+                tab.pending_delivery.as_mut().unwrap().mark_unconfirmed();
+            }
+            tab.pending_delivery.clone()
+        };
+        boundary.wait("release old classifier");
+        assert!(!join(old, "pending replacement restore").unwrap().unwrap());
+        assert!(fixture.events.lock().is_empty());
+        assert_eq!(
+            fixture
+                .mux
+                .read()
+                .get_tab(&fixture.tab_id)
+                .unwrap()
+                .pending_delivery,
+            expected
+        );
+    }
+}
+
+#[test]
+fn delayed_successful_restore_cannot_claim_reset_launch() {
+    let pending = record(
+        PendingDeliveryChannel::InteractiveInput,
+        PendingDeliveryState::Unconfirmed,
+        true,
+    );
+    let fixture = Arc::new(Fixture::new(pending, true));
+    let boundary = Arc::new(DeadlineBarrier::new(2));
+    let old = {
+        let fixture = fixture.clone();
+        let boundary = boundary.clone();
+        std::thread::spawn(move || {
+            super::super::restore_materialization_core(
+                &fixture.mux,
+                &fixture.tab_id,
+                "fixture-provider",
+                Some("original-used-session"),
+                Some("fixture-cwd"),
+                true,
+                |captured| {
+                    boundary.wait("successful restore captured");
+                    boundary.wait("successful restore released");
+                    resolve_restored_payload(captured)
+                },
+                |_, _| panic!("stale success cannot emit failure"),
+                |_, _| panic!("stale success cannot claim successor"),
+            )
+            .map(|launch| launch.is_some())
+        })
+    };
+    boundary.wait("reset launch");
+    fixture
+        .mux
+        .write()
+        .get_tab_mut(&fixture.tab_id)
+        .unwrap()
+        .lifecycle_epoch = Some(10);
+    boundary.wait("release stale success");
+    assert!(!join(old, "stale successful restore").unwrap().unwrap());
+    assert!(
+        fixture
+            .mux
+            .read()
+            .get_tab(&fixture.tab_id)
+            .unwrap()
+            .restored_from_snapshot
+    );
 }
