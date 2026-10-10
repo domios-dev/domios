@@ -103,8 +103,9 @@ impl BrowserProcess {
         let readiness = tokio::time::timeout(deadline, async {
             tokio::select! {
                 ready = &mut ready_rx => ready.unwrap_or_else(|_| Err("browser stderr reader stopped".into())),
-                exited = exit.wait_for(Option::is_some) => {
-                    let code = exited.ok().and_then(|exit| *exit).and_then(|exit| exit.code);
+                code = async {
+                    exit.wait_for(Option::is_some).await.ok().and_then(|status| *status).and_then(|status| status.code)
+                } => {
                     match ready_rx.await {
                         Ok(Err(detail)) => Err(format!("browser exited before DevTools was ready (code {code:?}): {detail}")),
                         _ => Err(format!("browser exited before DevTools was ready (code {code:?})")),
