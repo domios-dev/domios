@@ -286,3 +286,16 @@ fn supporter_feed_passive_no_adapter_source_sets_fallback_honestly() {
     assert_eq!(feed["observation_status"], "unavailable");
     assert!(feed.get("correlation").is_none());
 }
+
+#[test]
+fn supporter_feed_tab_title_is_scrubbed_capped_and_optional() {
+    let mut value = record(json!([]));
+    assert!(entry(&value).unwrap().get("tab_title").is_none());
+    value["tab_title"] = json!(format!("sk-private-subject {}", "界".repeat(200)));
+    let feed = entry(&value).unwrap();
+    let title = feed["tab_title"].as_str().unwrap();
+    assert!(!title.contains("sk-private-subject"));
+    assert!(title.chars().count() <= narrative::MAX_NAME_CHARS);
+    value["tab_title"] = json!("supplied-title\nsecond-line");
+    assert_eq!(entry(&value).unwrap()["tab_title"], "supplied-title second-line");
+}

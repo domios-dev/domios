@@ -129,6 +129,10 @@ pub(crate) fn runtime_with_notifications(svc: &super::ServiceContext) -> Arc<Sup
     let runtime = runtime();
     let mux = svc.mux.clone();
     let app = svc.app_handle.clone();
+    let title_mux = svc.mux.clone();
+    runtime.attach_tab_titles(Arc::new(move |tab| {
+        title_mux.read().get_tab(tab).map(|tab| tab.title.clone())
+    }));
     runtime.attach_visibility(
         Arc::new(move |tab| mux.read().get_tab(tab).and_then(|tab| tab.team_id.clone())),
         Arc::new(move |event| {
