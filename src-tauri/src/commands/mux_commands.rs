@@ -316,7 +316,7 @@ pub async fn mux_add_team_member(
         role,
         caller_tab_id.filter(|tab_id| !tab_id.trim().is_empty()),
         title,
-        crate::service::team::team_member_brief(task, brief)?,
+        crate::service::team_member_brief(task, brief)?,
         model,
     )
     .await

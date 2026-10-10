@@ -105,9 +105,9 @@ async fn reused_cartographer_receives_the_exact_brief_once() {
     let attachment = existing_cartographer_attachment(&mux, &team_id).unwrap();
     let token = "opaque-reuse-brief\n`$()`";
     let mut sends = Vec::new();
-    let result = deliver_reused_cartographer(attachment, Some(token.into()), |tab, brief| async {
+    let result = deliver_reused_cartographer(attachment, Some(token.into()), |tab, brief| {
         sends.push((tab, brief));
-        Ok(())
+        std::future::ready(Ok(()))
     })
     .await
     .unwrap();

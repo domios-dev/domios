@@ -279,7 +279,7 @@ pub use tab::{normalize_tab_description, MAX_TAB_DESCRIPTION_CHARS};
 pub use tab_budget::{evaluate_tab_budget, TabBudgetLevel, TabBudgetNotice};
 pub(crate) use team::TeamMutationCaller;
 pub(crate) use team::TeamPlanError;
-pub(crate) use team::{AddTeamMemberParams, AddTeamMemberResult};
+pub(crate) use team::{team_member_brief, AddTeamMemberParams, AddTeamMemberResult};
 pub(crate) use team::{TeamCartographerAttachLocks, TeamOrchestratorAttachLocks};
 pub(crate) use worker_identity::{
     persist_attempt_executor_identity, persist_attempt_executor_identity_for_mux,
