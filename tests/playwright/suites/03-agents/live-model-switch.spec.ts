@@ -291,8 +291,41 @@ for (let run = startRun; run < startRun + repeats; run++) {
           const change = await apply(busyModel, undefined, true);
           await expect(target.chat.locator('[data-agent-state="working"]'), "Apply happened before long turn completed").toHaveCount(1);
           expect((await identity(api, target.tabId)).agent_session_model).toBe(busyBefore.agent_session_model);
-          const rawBusy = await waitForCompletedTurn(providerId, startedRecords, marker, 240_000);
+          const responsiveness: Array<{ at: string; elapsedMs: number; completedAtSnapshot: boolean; error?: string }> = [];
+          const cdp = providerId === "opencode" ? await ui.page.context().newCDPSession(ui.page) : undefined;
+          const probeRenderer = cdp ? async (snapshot: Awaited<ReturnType<typeof records>>) => {
+            let completedAtSnapshot = false;
+            try { completedTurn(providerId, snapshot, marker); completedAtSnapshot = true; } catch {}
+            const started = performance.now();
+            const at = new Date().toISOString();
+            const signal = AbortSignal.timeout(15_000);
+            let expired!: () => void;
+            const deadline = new Promise<never>((_resolve, reject) => {
+              expired = () => reject(new Error("Renderer CDP ping exceeded 15s"));
+              signal.addEventListener("abort", expired, { once: true });
+            });
+            try {
+              const result = await Promise.race([cdp.send("Runtime.evaluate", { expression: "1", returnByValue: true }), deadline]);
+              expect(result.result.value).toBe(1);
+              responsiveness.push({ at, elapsedMs: performance.now() - started, completedAtSnapshot });
+            } catch (error) { responsiveness.push({ at, elapsedMs: performance.now() - started, completedAtSnapshot, error: String(error) }); }
+            finally { signal.removeEventListener("abort", expired); }
+          } : undefined;
+          let rawBusy;
+          const subscribeWake = (wake: () => void) => target.events.subscribe(event => {
+            if (event.data.tab_id === target.tabId && ["tab-status-changed", `tab-chat-${target.tabId}`,
+              `tab-chat-msg-${target.tabId}`].includes(event.event_type)) wake();
+          });
+          try { rawBusy = await waitForCompletedTurn(providerId, startedRecords, marker, 240_000, probeRenderer, subscribeWake); }
+          finally {
+            if (cdp) {
+              writeFileSync(info.outputPath(`${providerId}-${step}-cdp-responsiveness.json`), JSON.stringify(responsiveness, null, 2));
+              await cdp.detach().catch(() => {});
+            }
+          }
           writeFileSync(info.outputPath(`${providerId}-${step}-raw.json`), JSON.stringify(rawBusy, null, 2));
+          expect(responsiveness.filter(sample => sample.error), "renderer responds to CDP during OpenCode stream").toEqual([]);
+          if (cdp) expect(responsiveness.some(sample => !sample.completedAtSnapshot), "CDP measurement covers the active long turn").toBe(true);
           const busyRecords = completedTurn(providerId, rawBusy, marker);
           assertModel(providerId, busyRecords.model, activeModels[0].id);
           await expect(target.chat.locator('[data-agent-state="idle"]')).toHaveCount(1, { timeout: 15_000 });

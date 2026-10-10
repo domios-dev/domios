@@ -11,17 +11,21 @@ export function completedTurn(provider: string, evidence: Evidence, marker: stri
   return turn;
 }
 
-export function waitForCompletedTurn(provider: string, initial: Evidence, marker: string, timeoutMs: number): Promise<Evidence> {
+export function waitForCompletedTurn(provider: string, initial: Evidence, marker: string, timeoutMs: number,
+  onSnapshot?: (evidence: Evidence) => Promise<void>,
+  subscribeWake?: (wake: () => void) => () => void): Promise<Evidence> {
   return new Promise((resolve, reject) => {
     const signal = AbortSignal.timeout(timeoutMs);
     let loading = false;
     let dirty = false;
     let finished = false;
     let lastError: unknown;
+    let unsubscribe: (() => void) | undefined;
     const finish = (error?: Error, evidence?: Evidence) => {
       if (finished) return;
       finished = true;
       watcher.close();
+      unsubscribe?.();
       signal.removeEventListener("abort", expired);
       if (error) reject(error);
       else resolve(evidence!);
@@ -37,6 +41,7 @@ export function waitForCompletedTurn(provider: string, initial: Evidence, marker
           dirty = false;
           try {
             const evidence = await records(provider, initial.session, initial.path);
+            await onSnapshot?.(evidence);
             completedTurn(provider, evidence, marker);
             finish(undefined, evidence);
           } catch (error) { lastError = error; }
@@ -48,6 +53,7 @@ export function waitForCompletedTurn(provider: string, initial: Evidence, marker
       if (!filename || [basename, `${basename}-wal`, `${basename}-shm`].includes(filename.toString())) void inspect();
     });
     watcher.on("error", error => finish(error));
+    unsubscribe = subscribeWake?.(() => { void inspect(); });
     signal.addEventListener("abort", expired, { once: true });
     void inspect();
   });
