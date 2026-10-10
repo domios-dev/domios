@@ -1440,9 +1440,10 @@ Start broadcasting for the configured duration
 
 #### `codeterm mesh connect`
 
-Initiate pairing with a discovered peer
+Initiate owner-approved pairing with a discovered peer or explicit address
 
-- `<instance_id>` — Instance ID or name of the discovered peer
+- `--addr` — Read the peer identity directly at this IP:port before pairing
+- `<instance_id>` — Instance ID or advertised name; --addr also accepts a hexadecimal ID prefix
 
 #### `codeterm mesh disconnect`
 
