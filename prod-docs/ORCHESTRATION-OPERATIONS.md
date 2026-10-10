@@ -236,4 +236,13 @@ advises only `codeterm team adopt-plan <team-id> <plan>`, which clears the flag.
 A workspace close passes its `force` through as `force_busy`. A workspace with
 no tabs and no Teams closes for any caller, even without tab identity.
 
-<!-- revision: 13 -->
+## Provider access loss and archive advisories
+
+A provider access-loss incident sends a `[provider access lost]` system notice to the tab's parent (a roleless spawned child included); a role tab without a parent falls back to its plan's Orchestrator. A top-level Orchestrator escalates through the owner notification. The `provider-access-lost` event identifies the affected tab, provider, bound session, notification and target. The work owner can recover login or respawn the work on another provider; an access refusal never means a completed task.
+
+Archive succeeds without a retrospective and reports the optional
+`plan.retrospective_unrecorded` advisory. If a durable note would help, record
+it at plan wrap-up with
+`codeterm plan retrospective <plan> --body-file <pad-relative-path>`.
+
+<!-- revision: 14 -->

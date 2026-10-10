@@ -76,11 +76,6 @@ The live Plan owner may cancel, pend, reassign, respawn, or dispatch a task whos
 Worker tab is gone; the recovery retires the stale attempt in the same transition.
 Ownership proof, verb allowlists, and refusals: `codeterm docs API-PLAN`.
 
-Archive succeeds without a retrospective and reports the optional
-`plan.retrospective_unrecorded` advisory. If a durable note would help, record
-it at plan wrap-up with
-`codeterm plan retrospective <plan> --body-file <pad-relative-path>`.
-
 ## The loop
 
 Run this loop after every report, reminder, task close, tab death, or gate:
@@ -182,6 +177,6 @@ delivered heartbeat names a next step. Reports, owner messages, decisions and
 failure alerts still reach you through their own channels. Record deliberate
 holds with `plan review hold --note-from-pad`.
 
-A provider access-loss incident also sends a `[provider access lost]` system notice to the tab's parent (a roleless spawned child included); a role tab without a parent falls back to its plan's Orchestrator. A top-level Orchestrator escalates through the owner notification. The `provider-access-lost` event identifies the affected tab, provider, bound session, notification and target. The work owner can recover login or respawn the work on another provider; an access refusal never means a completed task.
+A `[provider access lost]` notice means recover the login or respawn on another provider, never a completed task; routing is in `ORCHESTRATION-OPERATIONS`.
 
-<!-- revision: 111 -->
+<!-- revision: 112 -->

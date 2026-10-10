@@ -282,6 +282,7 @@ mod no_inference {
         "service/launch_artifacts.rs",
         "service/provider_cli_actions.rs",
         "service/provider_signals.rs",
+        "service/provider_signals/incident.rs",
         "service/structured_prompt/subscriber.rs",
         "service/worker_loss/pending.rs",
         "service/directory_trust.rs",
