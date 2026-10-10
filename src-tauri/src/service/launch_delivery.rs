@@ -1,3 +1,6 @@
+mod spawn_input;
+pub(crate) use spawn_input::{prepare_spawn_input, select_visible_spawn_task};
+
 use sha2::{Digest, Sha256};
 
 use crate::agent::provider::SystemPromptDelivery;
@@ -318,51 +321,6 @@ pub(crate) fn command_task(
         system_prompt,
         task_is_first_turn: inline_task,
     }
-}
-
-pub(crate) fn select_visible_spawn_task<'a>(
-    role: Option<&str>,
-    task: Option<&'a str>,
-    system_prompt_capable: bool,
-    native_starter_capable: bool,
-) -> VisibleSpawnTaskSelection<'a> {
-    let task = task.filter(|text| !text.trim().is_empty());
-    match (role, task, system_prompt_capable, native_starter_capable) {
-        (None, Some(task), true, true) => VisibleSpawnTaskSelection {
-            provider_launch: Some(task),
-            provider_starter: Some(crate::agent::provider::StarterPrompt::AssignedTask),
-            confirmed_first_turn: None,
-        },
-        (None, Some(task), true, false) => VisibleSpawnTaskSelection {
-            provider_launch: Some(task),
-            provider_starter: None,
-            confirmed_first_turn: Some(VisibleSpawnFirstTurn::AssignedTaskStarter),
-        },
-        (None, Some(task), false, _) => VisibleSpawnTaskSelection {
-            provider_launch: None,
-            provider_starter: None,
-            confirmed_first_turn: Some(VisibleSpawnFirstTurn::Task(task)),
-        },
-        _ => VisibleSpawnTaskSelection {
-            provider_launch: task,
-            provider_starter: None,
-            confirmed_first_turn: None,
-        },
-    }
-}
-
-pub(crate) fn visible_spawn_capabilities(
-    provider: &dyn crate::agent::provider::AgentProvider,
-) -> (bool, bool) {
-    (
-        matches!(
-            mode_for_descriptor(&provider.system_prompt_delivery()),
-            LaunchDeliveryMode::SystemPrompt
-        ),
-        provider
-            .starter_prompt_text(crate::agent::provider::StarterPrompt::AssignedTask)
-            .is_some(),
-    )
 }
 
 pub(crate) fn assigned_task_starter(provider_text: Option<&str>) -> String {

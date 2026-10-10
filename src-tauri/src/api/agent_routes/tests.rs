@@ -573,3 +573,5 @@ fn enumeration_agrees_with_the_shared_resolver() {
         "the row must be the shared resolver's verdict, not a second ladder's"
     );
 }
+
+mod spawn_input;
