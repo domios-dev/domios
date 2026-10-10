@@ -159,6 +159,7 @@ impl ServiceContext {
     /// status value: a tab whose status never flips still finishes turns.
     pub(crate) fn on_agent_turn_settled(&self, tab_id: &str) {
         self.request_kpi_usage_ingest(tab_id);
+        self.record_lane_turn_boundary(tab_id);
     }
 
     /// Queues a forward-only pass over each of the tab's provider session logs, every one

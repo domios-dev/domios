@@ -81,12 +81,34 @@ pub struct InstallUpdateQuery {
     /// at the manifest fetch layer (rejected in release builds for non-https
     /// schemes). Used by local end-to-end tests.
     pub manifest_url: Option<String>,
-    /// Message to inject into the General Agent tab after the new daemon
-    /// boots. Persisted to disk before restart so the next boot picks it up.
+    /// Message to continue through the General Agent's restart-resume claim.
+    /// Persisted before restart so the next boot folds it into that one claim.
     pub after_update: Option<String>,
     /// Tab that initiated the update — excluded from the shutdown sweep so the
     /// caller survives to hand off / relaunch (Defect 3).
     pub continue_tab: Option<String>,
+}
+
+fn validate_after_update_enabled(
+    requested: bool,
+    continue_after_restart: bool,
+) -> Result<(), &'static str> {
+    if requested && !continue_after_restart {
+        Err(crate::service::turn_resume::DISABLED)
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_initiating_tab(
+    caller_tab_id: Option<&str>,
+    requested_tab_id: Option<&str>,
+) -> Result<(), &'static str> {
+    if requested_tab_id.is_some_and(|requested| caller_tab_id != Some(requested)) {
+        Err(crate::service::turn_resume::NOT_CALLER_TAB)
+    } else {
+        Ok(())
+    }
 }
 
 pub async fn install_update(
@@ -95,10 +117,38 @@ pub async fn install_update(
     Query(q): Query<InstallUpdateQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    if q.after_update.is_some() {
+        validate_after_update_enabled(
+            true,
+            crate::config::load_config().agent.continue_after_restart,
+        )
+        .map_err(|reason| (StatusCode::BAD_REQUEST, reason))?;
+    }
+    let caller_tab_id = crate::api::tab_routes::caller_tab_header(&headers);
+    if q.method.as_deref() == Some("auto") {
+        validate_initiating_tab(caller_tab_id.as_deref(), q.continue_tab.as_deref())
+            .map_err(|reason| (StatusCode::BAD_REQUEST, reason))?;
+    }
 
-    // Persist before restart — the new daemon picks this up on boot and injects into the General Agent tab.
+    // Persist before restart — the next boot folds it into the General Agent's resume claim.
     if let Some(text) = q.after_update.as_deref() {
-        if let Err(e) = crate::update::post_update::stash(text) {
+        let tab_id = caller_tab_id.ok_or((
+            StatusCode::BAD_REQUEST,
+            crate::service::turn_resume::CALLER_TAB_REQUIRED,
+        ))?;
+        let sender = {
+            let mux = state.svc.mux.read();
+            let tab = mux
+                .get_tab(&tab_id)
+                .ok_or((StatusCode::BAD_REQUEST, "caller_tab_not_found"))?;
+            crate::multiplexer::types::TurnResumeSender {
+                tab_id,
+                label: tab.title.clone(),
+                from_agent: Some(tab.agent_type.is_some()),
+                from_model: tab.agent_session_model.clone(),
+            }
+        };
+        if let Err(e) = crate::update::post_update::stash(text, Some(sender)) {
             log::warn!("[updater] failed to stash after_update message: {}", e);
         }
     }
@@ -337,4 +387,26 @@ pub async fn set_channel(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&_state, &headers)?;
     Err((StatusCode::CONFLICT, "update channel switching is disabled"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{validate_after_update_enabled, validate_initiating_tab};
+
+    #[test]
+    fn after_update_request_is_refused_when_resume_is_disabled() {
+        assert_eq!(validate_after_update_enabled(true, false), Err("disabled"));
+        assert!(validate_after_update_enabled(false, false).is_ok());
+        assert!(validate_after_update_enabled(true, true).is_ok());
+    }
+
+    #[test]
+    fn auto_update_initiating_tab_must_match_authenticated_caller() {
+        assert_eq!(
+            validate_initiating_tab(Some("caller"), Some("other")),
+            Err("not_caller_tab")
+        );
+        assert!(validate_initiating_tab(Some("caller"), Some("caller")).is_ok());
+        assert!(validate_initiating_tab(None, None).is_ok());
+    }
 }

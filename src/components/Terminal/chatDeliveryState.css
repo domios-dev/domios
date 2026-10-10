@@ -1,0 +1,88 @@
+/* Delivery state sits beside the user bubble as one quiet liquid dot. */
+.ct-delivery {
+  position: absolute;
+  right: calc(100% + 8px);
+  bottom: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-direction: row-reverse;
+}
+
+/* Ring and fill are pseudo layers so the pulse animates only transform and opacity on the compositor. */
+.ct-delivery__dot {
+  --ct-delivery-fill: var(--ct-accent);
+  --ct-delivery-duration: 1.6s;
+  position: relative;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  animation: ct-delivery-breathe var(--ct-delivery-duration) var(--ct-ease-liquid-settle, ease-in-out) infinite;
+}
+
+.ct-delivery__dot::before,
+.ct-delivery__dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.ct-delivery__dot::before {
+  background: color-mix(in srgb, var(--ct-accent) 40%, transparent);
+  animation: ct-delivery-ring var(--ct-delivery-duration) var(--ct-ease-liquid-settle, ease-in-out) infinite;
+}
+
+.ct-delivery__dot::after {
+  background: var(--ct-delivery-fill);
+}
+
+.ct-delivery[data-state="queued"] .ct-delivery__dot {
+  --ct-delivery-fill: var(--ct-muted-fg);
+  --ct-delivery-duration: 2.4s;
+}
+
+.ct-delivery[data-state="failed"] .ct-delivery__dot {
+  --ct-delivery-fill: var(--ct-err);
+  animation: none;
+}
+
+.ct-delivery[data-state="failed"] .ct-delivery__dot::before {
+  animation: none;
+  opacity: 0;
+}
+
+.ct-delivery__retry {
+  border: 1px solid color-mix(in srgb, var(--ct-err) 35%, transparent);
+  border-radius: 999px;
+  padding: 1px 8px;
+  background: color-mix(in srgb, var(--ct-err) 8%, transparent);
+  color: var(--ct-fg);
+  font: inherit;
+  font-size: 11px;
+  line-height: 18px;
+  cursor: pointer;
+  transition: background-color var(--ct-duration-fast) ease;
+}
+
+.ct-delivery__retry:hover,
+.ct-delivery__retry:focus-visible {
+  background: color-mix(in srgb, var(--ct-err) 16%, transparent);
+  outline: none;
+}
+
+@keyframes ct-delivery-breathe {
+  0%, 100% { transform: scale(0.85); opacity: 0.55; }
+  50% { transform: scale(1); opacity: 1; }
+}
+
+/* 15/7: the old 4px box-shadow spread around the 7px dot. */
+@keyframes ct-delivery-ring {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(2.143); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-delivery__dot { animation: none; opacity: 0.8; }
+  .ct-delivery__dot::before { animation: none; opacity: 0; }
+}

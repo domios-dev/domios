@@ -462,6 +462,19 @@ fn pending_delivery_failure_reverts_task_dispatch_and_rolls_back_tab() {
     let fallback_spec =
         crate::service::launch_delivery::fallback_delivery_spec(None, params.task.as_deref(), None)
             .unwrap();
+    use sha2::Digest;
+    let digest = format!(
+        "{:x}",
+        sha2::Sha256::digest(fallback_spec.payload.as_bytes())
+    );
+    std::fs::write(
+        fixture
+            .service
+            .pending_delivery_payloads
+            .path_for_test(&digest),
+        b"conflicting payload at expected digest",
+    )
+    .unwrap();
     let error = create_pending_delivery_or_rollback_dispatch(
         &fixture.service,
         &params,
@@ -469,7 +482,7 @@ fn pending_delivery_failure_reverts_task_dispatch_and_rolls_back_tab() {
         &fallback_spec,
     )
     .unwrap_err();
-    assert!(error.contains("SessionState not registered"), "{error}");
+    assert!(error.contains("digest mismatch"), "{error}");
     assert!(fixture.service.mux.read().get_tab(&tab_id).is_some());
     fixture.service.rollback_failed_agent_spawn(&tab_id, &error);
     let mux = fixture.service.mux.read();
@@ -687,7 +700,11 @@ fn external_idle_manager_bootstrap_keeps_the_team_starter_turn() {
         "a provider without system prompts still needs the CodeTerm envelope turn"
     );
     assert_eq!(params.task.as_deref(), Some(bootstrap.as_str()));
-    assert!(team_bootstrap_payload(false, bootstrap).contains("codeterm:system"));
+    let fallback = team_bootstrap_payload(false, bootstrap);
+    assert_eq!(
+        codeterm_types::message_markers::parse_host_injected(&fallback).map(|frame| frame.kind),
+        Some("system".to_string())
+    );
 }
 
 #[test]
@@ -766,22 +783,23 @@ fn native_planner_startup_keeps_manager_contract_and_onboarding() {
 
     assert!(payload.starts_with("system contract"));
     assert!(payload.ends_with("planner startup"));
-    assert!(!payload.contains("codeterm:system"));
+    assert!(!payload.contains(codeterm_types::domios::DOMIOS_CLOSE_TAG));
 }
 
 #[test]
 fn team_bootstrap_marks_only_the_fallback_transport() {
     let system_prompt = team_bootstrap_payload(true, "system contract".into());
     assert_eq!(system_prompt, "system contract");
-    assert!(!system_prompt.contains("codeterm:system"));
 
     let fallback = team_bootstrap_payload(false, "fallback contract".into());
+    let frame = codeterm_types::domios::parse_message(&fallback).expect("fallback is one frame");
+    assert_eq!(frame.attr("from"), Some("system"));
+    assert_eq!(frame.attr("context"), Some("team-bootstrap"));
+    assert_eq!(frame.attr("tab"), None);
     assert_eq!(
-        fallback,
-        "-=-codeterm:system context=team-bootstrap-=-\nfallback contract"
+        frame.content, "fallback contract",
+        "no reply hint or typed suffix"
     );
-    assert!(!fallback.contains("tab="));
-    assert!(!fallback.contains("[to reply"));
 }
 
 #[test]

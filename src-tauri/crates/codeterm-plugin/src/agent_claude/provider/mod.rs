@@ -5,6 +5,8 @@
 //! sibling modules. This file owns `ClaudeProvider` and the `AgentProvider`
 //! trait impl, which delegates each method to the right child.
 
+mod background_work;
+mod context;
 mod detection;
 mod folder_trust;
 pub mod hook_ownership;
@@ -12,10 +14,16 @@ pub mod integration;
 mod interactive;
 mod launch;
 pub(crate) mod launch_session;
+mod model_capabilities;
+mod model_switch;
 mod onboarding;
+mod permission_hook;
 mod permission_prompt;
+pub(crate) mod pre_trust;
+mod read_home;
 mod schemas;
 mod sessions;
+mod signals;
 mod subagents;
 mod usage;
 
@@ -51,12 +59,75 @@ impl ClaudeProvider {
 }
 
 impl AgentProvider for ClaudeProvider {
+    fn session_jsonl_path(&self, cwd: &str, session_id: &str) -> Option<std::path::PathBuf> {
+        sessions::session_file_path(cwd, session_id)
+    }
+    fn capability_probe(&self) -> Option<crate::provider::CapabilityProbe> {
+        schemas::capability_probe()
+    }
+    fn fork_session_args(&self) -> Option<Vec<String>> {
+        schemas::fork_session_args()
+    }
+    fn tracks_background_work(&self) -> bool {
+        true
+    }
+    fn parse_background_work(
+        &self,
+        record: &serde_json::Value,
+    ) -> Vec<codeterm_types::agent::background_work::BackgroundWorkObservation> {
+        background_work::parse(record)
+    }
+    fn reasoning_effort_launch_args_for_model(
+        &self,
+        model: Option<&str>,
+        effort: &str,
+    ) -> Vec<String> {
+        model_capabilities::effort_args(model, effort)
+    }
+    fn auth_status_probe(&self) -> Option<crate::provider::AuthStatusProbe> {
+        Some(signals::probe())
+    }
+
+    fn parse_auth_status(&self, record: &serde_json::Value) -> Option<crate::provider::AuthStatus> {
+        signals::auth(record)
+    }
+
+    fn parse_session_observations(
+        &self,
+        record: &serde_json::Value,
+    ) -> Option<crate::provider::SessionObservations> {
+        signals::session(record)
+    }
+    fn parse_context_usage(
+        &self,
+        record: &serde_json::Value,
+    ) -> Option<codeterm_types::agent::context::TurnContext> {
+        context::parse(record)
+    }
+    fn cli_compatibility(&self) -> Option<crate::provider_compat::CompatibilityManifest> {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Manifest {
+            cli_compatibility: crate::provider_compat::CompatibilityManifest,
+        }
+        serde_json::from_str::<Manifest>(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/provider-claude/plugin.json"
+        )))
+        .ok()
+        .map(|manifest| manifest.cli_compatibility)
+    }
+
     fn id(&self) -> &str {
         "claude"
     }
 
     fn supports_chat_ui(&self) -> bool {
         true
+    }
+
+    fn permission_hook_capability(&self) -> Option<crate::provider::PermissionHookCapability> {
+        Some(permission_hook::capability())
     }
 
     fn supports_structured_prompts(&self) -> bool {
@@ -86,7 +157,8 @@ impl AgentProvider for ClaudeProvider {
     fn paste_capability(&self) -> Option<PasteCapability> {
         Some(PasteCapability {
             untrusted_above_lines: 4,
-            typed_follow_up: " Handle the pasted message above as my request.".into(),
+            typed_follow_up: " Handle the paste as my request.".into(),
+            requires_typed_instruction_for_routed_messages: true,
         })
     }
 
@@ -101,6 +173,10 @@ impl AgentProvider for ClaudeProvider {
     fn session_id_injection(&self) -> SessionIdInjection {
         // Claude Code 2.1.x writes no transcript for a fresh interactive --session-id launch — let it pick its own id, we detect it after launch.
         SessionIdInjection::None
+    }
+
+    fn supports_launch_session_detection(&self) -> bool {
+        true
     }
 
     fn detect_launch_session(
@@ -161,6 +237,7 @@ impl AgentProvider for ClaudeProvider {
             unwrap_pasted_content_wrapper: true,
             collapse_horizontal_whitespace: true,
             drop_supplementary_characters: false,
+            drop_line_breaks: false,
         }
     }
 
@@ -218,9 +295,8 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<String> {
-        sessions::detect_session_model(cwd, session_id).map(|family| {
-            crate::model_catalog::resolve_family_model("claude", &family).unwrap_or(family)
-        })
+        sessions::detect_session_model(cwd, session_id)
+            .map(|family| crate::model_catalog::resolve_observed_model("claude", family))
     }
 
     fn session_model_transcript_boundary(
@@ -237,9 +313,8 @@ impl AgentProvider for ClaudeProvider {
         session_id: &str,
         boundary: &codeterm_types::agent::SessionModelTranscriptBoundary,
     ) -> Option<String> {
-        sessions::detect_session_model_after_boundary(cwd, session_id, boundary).map(|family| {
-            crate::model_catalog::resolve_family_model("claude", &family).unwrap_or(family)
-        })
+        sessions::detect_session_model_after_boundary(cwd, session_id, boundary)
+            .map(|family| crate::model_catalog::resolve_observed_model("claude", family))
     }
 
     fn detect_session_reasoning_effort(&self, cwd: &str, session_id: &str) -> Option<String> {
@@ -307,8 +382,17 @@ impl AgentProvider for ClaudeProvider {
         onboarding::parse(text)
             .map(|prompt| (prompt.question, prompt.options))
             .or_else(|| folder_trust::parse_prompt(text))
-            .or_else(|| crate::detector::parse_permission_prompt(text))
             .map(|(question, options)| crate::prompt::build_prompt(question, options))
+            .or_else(|| interactive::parse_screen_prompt(text))
+            .or_else(|| {
+                crate::detector::parse_permission_prompt(text)
+                    .map(|(question, options)| crate::prompt::build_prompt(question, options))
+            })
+    }
+
+    fn delivery_modal_visible(&self, snapshot: &crate::tab_state::TabStateSnapshot) -> bool {
+        self.parse_prompt(&snapshot.screen_text).is_some()
+            || crate::provider::provider_classified_delivery_modal_visible(self, snapshot)
     }
 
     fn has_hooks(&self) -> bool {
@@ -334,6 +418,14 @@ impl AgentProvider for ClaudeProvider {
 
     fn live_prompt_response(&self, option_index: usize, screen: &str) -> Option<Vec<Vec<u8>>> {
         Some(self.build_prompt_response(option_index, screen))
+    }
+
+    fn pre_trust_directory(&self, path: &str) -> Result<crate::provider::PreTrustOutcome, String> {
+        Ok(pre_trust::grant(path))
+    }
+
+    fn is_directory_trusted(&self, path: &str) -> Result<bool, String> {
+        pre_trust::trusted(path)
     }
 
     fn directory_trust_prompt_response(
@@ -409,11 +501,19 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn model_switch(&self) -> crate::provider::ModelSwitchMode {
-        crate::provider::ModelSwitchMode::RestartResume
+        crate::provider::ModelSwitchMode::LiveCommand
+    }
+
+    fn model_switch_commands(&self) -> Option<crate::provider::ModelSwitchCommands> {
+        Some(model_switch::commands())
     }
 
     fn exit_command(&self) -> Option<&str> {
         Some("/exit")
+    }
+
+    fn supports_idle_restart_termination(&self) -> bool {
+        true
     }
 
     fn stop_keystroke(&self) -> Option<&str> {
@@ -579,11 +679,11 @@ mod tests {
     }
 
     #[test]
-    fn claude_switches_model_by_resuming_with_launch_args() {
+    fn claude_switches_model_by_restart_resume() {
         let p = ClaudeProvider::new();
         assert_eq!(
             p.model_switch(),
-            crate::provider::ModelSwitchMode::RestartResume
+            crate::provider::ModelSwitchMode::LiveCommand
         );
         assert_eq!(p.model_launch_args("sonnet"), vec!["--model", "sonnet"]);
     }

@@ -254,7 +254,7 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
         if let Err(e) = relay_post(&target_id, "/api/bridge/announce", &payload) {
             eprintln!("Warning: announce failed (non-fatal): {}", e);
         } else {
-            log_step(json, "announce", "queued sentinel message on target");
+            log_step(json, "announce", "queued Blueprint message on target");
         }
     }
 

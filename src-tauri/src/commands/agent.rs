@@ -2,64 +2,24 @@ use tauri::State;
 
 use crate::service::ServiceState;
 
-#[derive(serde::Serialize)]
-pub struct InstallTabResult {
-    pub tab_id: String,
-    pub launch_state: &'static str,
-}
+pub use crate::service::provider_cli_actions::CliLaunch as InstallTabResult;
 
-fn dispatch_install_command(
-    svc: &ServiceState,
-    tab_id: &str,
-    install_cmd: &str,
-) -> Result<(), String> {
-    svc.ensure_tab_pty_for_send(tab_id)
-        .map_err(|error| format!("installer PTY launch failed: {error}"))?;
-    let pty_id = svc
-        .resolve_pty_id(tab_id)
-        .map_err(|error| format!("installer PTY acknowledgement failed: {error}"))?;
-    svc.send_shell_spawn(&pty_id, install_cmd)
-        .map_err(|error| format!("installer command dispatch failed: {error}"))
-}
-
+#[cfg(any(test, debug_assertions))]
 fn install_provider_in_tab_with_dispatch(
     svc: &ServiceState,
     provider_id: String,
     dispatch: impl FnOnce(&ServiceState, &str, &str) -> Result<(), String>,
 ) -> Result<InstallTabResult, String> {
-    let platform = crate::agent::provider::current_platform_tag();
-    let install_cmd = svc
-        .agent_registry
-        .with_provider(&provider_id, |p| p.install_command(platform))
-        .ok_or_else(|| format!("Unknown provider: {}", provider_id))?
-        .ok_or_else(|| {
-            format!(
-                "Provider '{}' has no install command for {}",
-                provider_id, platform
-            )
-        })?;
-
-    let ws_id = {
-        let mux = svc.mux.write();
-        mux.snapshot()
-            .active_workspace_id
-            .clone()
-            .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
-            .ok_or("No workspace found")?
-    };
-
-    let tab_id = svc.create_named_tab(&ws_id, &format!("Install-{provider_id}"))?;
-    if let Err(error) = dispatch(svc, &tab_id, &install_cmd) {
-        let _ = svc.close_tab_with_reason(
-            &tab_id,
-            crate::multiplexer::types::TabCloseReason::SpawnRollback,
-        );
-        return Err(error);
-    }
-    Ok(InstallTabResult {
-        tab_id,
-        launch_state: "command_dispatched",
-    })
+    crate::service::provider_cli_actions::launch_with_dispatch(
+        svc,
+        &provider_id,
+        crate::service::provider_cli_actions::CliOperation::Install,
+        None,
+        |svc, tab_id, command| {
+            let service = std::sync::Arc::new(svc.clone());
+            dispatch(&service, tab_id, command)
+        },
+    )
 }
 
 /// Spawn a fresh tab and return only after its PTY accepts the provider's
@@ -68,7 +28,12 @@ pub fn install_provider_in_tab_core(
     svc: &ServiceState,
     provider_id: String,
 ) -> Result<InstallTabResult, String> {
-    install_provider_in_tab_with_dispatch(svc, provider_id, dispatch_install_command)
+    crate::service::provider_cli_actions::launch(
+        svc,
+        &provider_id,
+        crate::service::provider_cli_actions::CliOperation::Install,
+        None,
+    )
 }
 
 #[cfg(debug_assertions)]
@@ -96,11 +61,19 @@ pub(crate) fn install_provider_in_tab_with_fixture_failure(
 pub async fn install_provider_in_tab(
     svc: State<'_, ServiceState>,
     provider_id: String,
+    caller_tab_id: Option<String>,
 ) -> Result<InstallTabResult, String> {
     let svc = (*svc).clone();
-    tokio::task::spawn_blocking(move || install_provider_in_tab_core(&svc, provider_id))
-        .await
-        .map_err(|error| format!("installer launch worker failed: {error}"))?
+    tokio::task::spawn_blocking(move || {
+        crate::service::provider_cli_actions::launch(
+            &svc,
+            &provider_id,
+            crate::service::provider_cli_actions::CliOperation::Install,
+            caller_tab_id,
+        )
+    })
+    .await
+    .map_err(|error| format!("installer launch worker failed: {error}"))?
 }
 
 #[tauri::command]
@@ -118,6 +91,19 @@ pub fn complete_general_agent_first_run(
         &provider_id,
         full_access,
     )
+}
+
+#[tauri::command]
+pub async fn spawn_general_agent_session(
+    svc: State<'_, ServiceState>,
+    config: State<'_, crate::config::ConfigState>,
+    params: crate::service::general_agent::FreshGeneralSessionRequest,
+) -> Result<crate::service::transport::AtomicSpawn, String> {
+    let svc = (*svc).clone();
+    let config = (*config).clone();
+    tokio::task::spawn_blocking(move || svc.spawn_fresh_general_session(&config, params))
+        .await
+        .map_err(|error| format!("General session launch worker failed: {error}"))?
 }
 
 #[tauri::command]
@@ -175,19 +161,36 @@ pub fn restart_general_agent_tab(
 }
 
 #[tauri::command]
-pub async fn restart_agent_tab(svc: State<'_, ServiceState>, tab_id: String) -> Result<(), String> {
+pub async fn restart_agent_tab(
+    svc: State<'_, ServiceState>,
+    tab_id: String,
+    fresh: Option<bool>,
+) -> Result<(), String> {
     let svc = (*svc).clone();
     tokio::task::spawn_blocking(move || {
-        svc.agent_restart(
+        svc.agent_restart_observed_with_options(
             &tab_id,
-            false,
-            crate::service::agent_restart::DEFAULT_GRACE_SECS,
+            crate::service::agent_restart::RestartOptions {
+                grace_secs: crate::service::agent_restart::DEFAULT_GRACE_SECS,
+                fresh: fresh.unwrap_or(false),
+                ..Default::default()
+            },
         )
+        .map_err(|error| match error {
+            crate::service::agent_restart::RestartAttemptError::Request(error) => error,
+            crate::service::agent_restart::RestartAttemptError::Failed { reason, .. } => {
+                crate::service::agent_restart::AgentRestartError::Internal(reason)
+            }
+        })
     })
     .await
     .map_err(|error| format!("restart worker failed: {error}"))?
     .map(|_| ())
     .map_err(|error| match error {
+        crate::service::agent_restart::AgentRestartError::BackgroundWork { items } => format!(
+            "restart refused while background work is running: {}",
+            items.join(", ")
+        ),
         crate::service::agent_restart::AgentRestartError::NotFound(message)
         | crate::service::agent_restart::AgentRestartError::BadRequest(message)
         | crate::service::agent_restart::AgentRestartError::Internal(message) => message,
@@ -198,17 +201,47 @@ pub async fn restart_agent_tab(svc: State<'_, ServiceState>, tab_id: String) -> 
 }
 
 #[tauri::command]
+pub async fn fork_agent_tab(
+    svc: State<'_, ServiceState>,
+    tab_id: String,
+) -> Result<crate::service::agent_fork::ForkResult, String> {
+    let svc = svc.inner().clone();
+    tokio::task::spawn_blocking(move || svc.agent_fork(&tab_id))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 pub async fn switch_agent_model(
     svc: State<'_, ServiceState>,
     tab_id: String,
     model: String,
+    reasoning_effort: Option<String>,
+    runtime_mode: Option<crate::service::codex_rpc::model::RuntimeMode>,
+    restart_resume: Option<bool>,
+    cancel: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     let svc = (*svc).clone();
-    tokio::task::spawn_blocking(move || svc.agent_switch_model(&tab_id, &model))
-        .await
-        .map_err(|error| format!("model switch worker failed: {error}"))?
-        .map(|outcome| crate::api::agent_model_routes::model_switch_success_body(&outcome))
-        .map_err(|error| error.to_string())
+    if cancel == Some(true) {
+        svc.cancel_staged_model_switch(&tab_id);
+        return Ok(serde_json::json!({"ok": true, "cancelled": true}));
+    }
+    tokio::task::spawn_blocking(move || {
+        svc.agent_switch_model_with_restart_fallback(
+            &tab_id,
+            &model,
+            reasoning_effort.as_deref(),
+            runtime_mode,
+            crate::service::codex_rpc::model::ModelSwitchOptions {
+                force: false,
+                restart_resume: restart_resume == Some(true),
+            },
+        )
+    })
+    .await
+    .map_err(|error| format!("model switch worker failed: {error}"))?
+    .map(|outcome| crate::api::agent_model_routes::model_switch_success_body(&outcome))
+    .map_err(|error| error.to_string())
 }
 
 /// Re-probe one CLI binary through the shared resolver, dropping its memo first
@@ -219,6 +252,23 @@ pub async fn check_cli_installed(binary: String) -> Result<bool, String> {
     tokio::task::spawn_blocking(move || crate::service::spawn::cli_binary_on_path(&binary))
         .await
         .map_err(|error| format!("cli probe worker failed: {error}"))
+}
+
+#[tauri::command]
+pub async fn provider_cli_status(
+    svc: State<'_, ServiceState>,
+    provider_id: String,
+) -> Result<codeterm_plugin::provider_cli::ProviderCliStatus, String> {
+    let svc = (*svc).clone();
+    tokio::task::spawn_blocking(move || {
+        crate::service::provider_cli::provider_cli_status(
+            &svc.provider_registry,
+            &provider_id,
+            crate::agent::provider::current_platform_tag(),
+        )
+    })
+    .await
+    .map_err(|error| format!("CLI status worker failed: {error}"))?
 }
 
 #[cfg(test)]
@@ -334,6 +384,7 @@ mod install_provider_tests {
         let (_fixture, service) = fixture_with_provider("install-failure", "echo never-dispatched");
         let failure = "opaque installer dispatch failure b921";
         let provisional_pty = RefCell::new(None);
+        let before = service.mux.read().snapshot().tabs.len();
         let result = install_provider_in_tab_with_dispatch(
             &service,
             "install-failure".into(),
@@ -345,11 +396,7 @@ mod install_provider_tests {
         );
         assert_eq!(result.err().as_deref(), Some(failure));
         let mux = service.mux.read();
-        assert!(mux
-            .snapshot()
-            .tabs
-            .values()
-            .all(|tab| tab.title != "Install-install-failure"));
+        assert_eq!(mux.snapshot().tabs.len(), before);
         drop(mux);
         let pty_id = provisional_pty
             .into_inner()
@@ -358,29 +405,27 @@ mod install_provider_tests {
     }
 }
 
-/// TTL-gated re-probe for a reader that just opened the model picker. An open
-/// is an explicit user action, not a poll, and the TTL bounds it to at most one
-/// probe per window — except while a verdict is still unknown, which is retried.
+/// Explicitly refresh a provider's catalogue for a caller that requests it.
+/// The live refresh runs on the blocking pool or the chatBackend catalogue thread.
 #[tauri::command]
 pub async fn refresh_provider_models(
-    app: tauri::AppHandle,
     svc: State<'_, ServiceState>,
     provider_id: String,
 ) -> Result<bool, String> {
-    let Some(provider) = svc.agent_registry.provider_arc(&provider_id) else {
-        return Ok(false);
-    };
-    let refreshed = crate::agent::model_catalog::refresh_for_reader(provider)
-        .await
-        .is_some();
-    if refreshed {
-        crate::api::events::emit_everywhere(
-            &app,
-            "models-updated",
-            serde_json::json!({ "provider": provider_id }),
-        );
+    if let Some(provider) = svc.agent_registry.provider_arc(&provider_id) {
+        crate::agent::model_catalog::invalidate(&provider_id);
+        return Ok(crate::agent::model_catalog::refresh_models(provider, true)
+            .await
+            .is_some());
     }
-    Ok(refreshed)
+    if svc.chatbackend_registry.get(&provider_id).is_none() {
+        return Ok(false);
+    }
+    crate::agent::model_catalog::invalidate(&provider_id);
+    let registry = svc.chatbackend_registry.clone();
+    tokio::task::spawn_blocking(move || registry.refresh_and_wait(&provider_id))
+        .await
+        .map_err(|error| format!("chatBackend catalogue refresh failed: {error}"))
 }
 
 /// Per-group usage for the model picker. The provider owns both the grouping

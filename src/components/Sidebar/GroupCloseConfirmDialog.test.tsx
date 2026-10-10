@@ -105,6 +105,7 @@ test("Team close inventory lists its crons and lanes", async () => {
       orchestratorTitle="QA fixtures"
       members={[member("worker", "Worker", null)]}
       crons={["Daily review"]}
+      blueprints={["Echo pipeline"]}
       lanes={["API plan: Add route"]}
       onConfirm={() => {}}
       onCancel={() => {}}
@@ -112,6 +113,7 @@ test("Team close inventory lists its crons and lanes", async () => {
   );
   assert(document.body.textContent?.includes("Crons (1)"), "cron count appears");
   assert(document.body.textContent?.includes("Daily review"), "cron name appears");
+  assert(document.body.textContent?.includes("Echo pipeline"), "running Blueprint appears");
   assert(document.body.textContent?.includes("Lanes (1)"), "lane count appears");
   assert(document.body.textContent?.includes("API plan: Add route"), "lane name appears");
   await act(async () => root.unmount());

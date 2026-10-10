@@ -43,7 +43,12 @@ pub(crate) fn role_onboarding_task(
     {
         Some(worker_agent_system_prompt(assignment.as_deref(), kind))
     } else {
-        Some(agent_system_prompt(assignment.as_deref()))
+        let mut prompt = agent_system_prompt(assignment.as_deref());
+        if resolved.is_none() {
+            prompt.push_str("\n\n");
+            prompt.push_str(crate::prompts::MEM_MANAGEMENT.trim());
+        }
+        Some(prompt)
     }
 }
 
@@ -67,6 +72,12 @@ pub(crate) fn provider_launch_task(
     role: Option<&str>,
     role_profile: Option<&str>,
 ) -> Option<String> {
+    if registry
+        .with_provider(provider_id, |provider| provider.is_tool_less())
+        .unwrap_or(false)
+    {
+        return tool_less_prompt(assignment);
+    }
     let system_prompt_capable = registry
         .with_provider(provider_id, |provider| {
             matches!(
@@ -81,11 +92,28 @@ pub(crate) fn provider_launch_task(
 }
 
 pub(crate) fn agent_system_prompt(assignment: Option<&str>) -> String {
-    let mut sections = vec![
-        crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string(),
+    agent_system_prompt_with_plugins(
+        assignment,
+        crate::service::plugin_prompt::built_in_plugins_section().as_deref(),
+    )
+}
+
+fn primer_sections(built_in_plugins: Option<&str>) -> Vec<String> {
+    let mut sections = vec![crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string()];
+    sections.extend(built_in_plugins.map(str::to_string));
+    sections
+}
+
+fn agent_system_prompt_with_plugins(
+    assignment: Option<&str>,
+    built_in_plugins: Option<&str>,
+) -> String {
+    let mut sections = primer_sections(built_in_plugins);
+    sections.extend([
+        crate::prompts::UTILITY_TAB_GUIDANCE.trim().to_string(),
         crate::prompts::AGENT_PAD_RULE.trim().to_string(),
         crate::prompts::RICH_RENDERING_GUIDANCE.trim().to_string(),
-    ];
+    ]);
     if let Some(assignment) = assignment.filter(|text| !text.trim().is_empty()) {
         sections.push(format!("## Assignment\n\n{assignment}"));
     }
@@ -106,13 +134,27 @@ fn worker_agent_system_prompt_from_identity(
     assignment: &str,
     role_profile: Option<&str>,
 ) -> String {
+    worker_agent_system_prompt_with_plugins(
+        identity,
+        assignment,
+        role_profile,
+        crate::service::plugin_prompt::built_in_plugins_section().as_deref(),
+    )
+}
+
+fn worker_agent_system_prompt_with_plugins(
+    identity: Option<&str>,
+    assignment: &str,
+    role_profile: Option<&str>,
+    built_in_plugins: Option<&str>,
+) -> String {
     let mut sections = vec![crate::service::persona::guidance_for(
         crate::service::persona::Occasion::WorkerLaunchIdentity,
         Some(crate::multiplexer::types::AgentRole::Worker),
         role_profile,
         identity,
     )];
-    sections.push(crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string());
+    sections.extend(primer_sections(built_in_plugins));
     sections.push(crate::prompts::WORKER_CODETERM_CONTEXT.trim().to_string());
     sections.push(crate::prompts::AGENT_PAD_RULE.trim().to_string());
     sections.push(crate::prompts::RICH_RENDERING_GUIDANCE.trim().to_string());
@@ -187,4 +229,37 @@ pub(crate) fn spawn_launch_task(
         Some(prompt) => format!("{prompt}\n\n{context}"),
         None => context,
     })
+}
+
+pub(crate) fn tool_less_prompt(assignment: Option<&str>) -> Option<String> {
+    assignment.map(|assignment| {
+        let (identity, assignment) =
+            crate::service::plan::worker_identity::split_worker_identity(assignment);
+        let assignment = assignment
+            .strip_prefix(crate::service::plan::worker_identity::WORKER_ACK_INSTRUCTION)
+            .unwrap_or(assignment)
+            .trim_start();
+        [identity, Some(assignment)]
+            .into_iter()
+            .flatten()
+            .filter(|part| !part.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    })
+}
+
+pub(crate) fn spawn_launch_task_for_provider(
+    registry: &AgentRegistry,
+    params: &SpawnAgentParams,
+    system_prompt_capable: bool,
+) -> Option<String> {
+    if registry
+        .with_provider(params.agent.as_deref().unwrap_or_default(), |provider| {
+            provider.is_tool_less()
+        })
+        .unwrap_or(false)
+    {
+        return tool_less_prompt(params.task.as_deref());
+    }
+    spawn_launch_task(params, system_prompt_capable)
 }

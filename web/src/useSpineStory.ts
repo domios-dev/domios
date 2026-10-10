@@ -1,45 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { clamp } from './hero/physics';
-import { advanceStory, createStory } from './spineStory';
+import { advanceStory, createStory, STORY_LEGS, STORY_ROUTES } from './spineStory';
 import type { StoryNode, StoryState } from './spineStory';
+import { curvePose, storyCurve } from './spineGeometry';
+import type { StoryCurve } from './spineGeometry';
 
-type Point = { x: number; y: number };
-type Route = { id: string; from: StoryNode; to: StoryNode };
-type RoutePoints = { from: Point; to: Point };
-
-const ROUTES: Route[] = [
-  { id: 'team-home', from: 'team', to: 'home' },
-  { id: 'home-memory', from: 'home', to: 'memory' },
-  { id: 'home-engine', from: 'home', to: 'engine' },
-  { id: 'home-telegram', from: 'home', to: 'telegram' },
-];
-
-const CUES = [
-  'Recall request',
-  'Read memory',
-  'Return knowledge',
-  'Return to Team',
-  'Needs input',
-  'Ask JEV to observe',
-  'JEV state label',
-  'Notify with evidence',
-  'Telegram reply',
-  'Team response',
-];
-
-function edgePoint(rect: DOMRect, towardX: number, towardY: number, origin: DOMRect): Point {
-  const centerX = rect.left + rect.width / 2;
-  const centerY = rect.top + rect.height / 2;
-  const dx = towardX - centerX;
-  const dy = towardY - centerY;
-  const scaleX = Math.abs(dx) > 0.001 ? rect.width / 2 / Math.abs(dx) : Number.POSITIVE_INFINITY;
-  const scaleY = Math.abs(dy) > 0.001 ? rect.height / 2 / Math.abs(dy) : Number.POSITIVE_INFINITY;
-  const scale = Math.min(scaleX, scaleY);
-  return { x: centerX + dx * scale - origin.left, y: centerY + dy * scale - origin.top };
-}
-
-function routeFor(from: StoryNode, to: StoryNode): { route: Route; forward: boolean } | undefined {
-  const route = ROUTES.find((candidate) => candidate.from === from && candidate.to === to
+function routeFor(from: StoryNode, to: StoryNode) {
+  const route = STORY_ROUTES.find((candidate) => candidate.from === from && candidate.to === to
     || candidate.from === to && candidate.to === from);
   return route ? { route, forward: route.from === from } : undefined;
 }
@@ -58,7 +25,7 @@ function writeState(
   if (element.dataset.storyFrom !== state.from) element.dataset.storyFrom = state.from;
   if (element.dataset.storyTo !== state.to) element.dataset.storyTo = state.to;
   if (element.dataset.storyCycle !== cycles) element.dataset.storyCycle = cycles;
-  if (cue.textContent !== CUES[state.phase]) cue.textContent = CUES[state.phase];
+  if (cue.textContent !== STORY_LEGS[state.phase].cue) cue.textContent = STORY_LEGS[state.phase].cue;
   const activeRoute = routeFor(state.from, state.to)?.route.id;
   paths.forEach((path, id) => {
     const active = String(id === activeRoute);
@@ -71,7 +38,7 @@ function writeState(
       else delete node.dataset.storyFlow;
     }
   });
-  const evidence = state.phase === 7 ? 'active' : 'idle';
+  const evidence = state.to === 'telegram' ? 'active' : 'idle';
   if (element.dataset.storyEvidence !== evidence) element.dataset.storyEvidence = evidence;
 }
 
@@ -104,7 +71,7 @@ export function useSpineStory() {
     let frame = 0;
     let previous = 0;
     let geometryDirty = true;
-    const routePoints = new Map<string, RoutePoints>();
+    const routePoints = new Map<string, StoryCurve>();
     const paths = new Map<string, SVGPathElement>();
     svg.querySelectorAll<SVGPathElement>('[data-story-route]').forEach((path) => {
       const id = path.dataset.storyRoute;
@@ -128,17 +95,16 @@ export function useSpineStory() {
 
       svg.setAttribute('viewBox', `0 0 ${bounds.width} ${bounds.height}`);
       routePoints.clear();
-      ROUTES.forEach((route) => {
+      STORY_ROUTES.forEach((route) => {
         const from = rects.get(route.from);
         const to = rects.get(route.to);
         const path = paths.get(route.id);
         if (!from || !to || !path) return;
-        const start = edgePoint(from, to.left + to.width / 2, to.top + to.height / 2, bounds);
-        const end = edgePoint(to, from.left + from.width / 2, from.top + from.height / 2, bounds);
-        path.setAttribute('d', `M${start.x},${start.y}L${end.x},${end.y}`);
-        routePoints.set(route.id, { from: start, to: end });
+        const points = storyCurve(from, to, bounds, route.kind);
+        path.setAttribute('d', `M${points.from.x},${points.from.y}C${points.controlFrom.x},${points.controlFrom.y} ${points.controlTo.x},${points.controlTo.y} ${points.to.x},${points.to.y}`);
+        routePoints.set(route.id, points);
       });
-      geometryDirty = routePoints.size !== ROUTES.length;
+      geometryDirty = routePoints.size !== STORY_ROUTES.length;
       return !geometryDirty;
     }
 
@@ -150,18 +116,14 @@ export function useSpineStory() {
         return;
       }
 
-      const start = match.forward ? points.from : points.to;
-      const end = match.forward ? points.to : points.from;
       const progress = current.stage === 'landing' ? 1 : clamp(current.progress);
-      const x = start.x + (end.x - start.x) * progress;
-      const y = start.y + (end.y - start.y) * progress;
-      const angle = Math.atan2(end.y - start.y, end.x - start.x) * 180 / Math.PI;
+      const { x, y, angle } = curvePose(points, match.forward ? progress : 1 - progress);
       const stretch = current.stage === 'landing'
         ? clamp(current.landing, -1, 1) * 0.22
         : Math.min(0.32, Math.abs(current.velocity) * 0.12);
       const scaleX = 1 + stretch;
       const scaleY = 1 / Math.sqrt(Math.max(0.7, scaleX));
-      signal.setAttribute('transform', `translate(${x} ${y}) rotate(${angle}) scale(${scaleX} ${scaleY})`);
+      signal.setAttribute('transform', `translate(${x} ${y}) rotate(${angle + (match.forward ? 0 : 180)}) scale(${scaleX} ${scaleY})`);
       if (signal.getAttribute('opacity') !== '1') signal.setAttribute('opacity', '1');
     }
 

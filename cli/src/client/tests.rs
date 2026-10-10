@@ -193,21 +193,124 @@ fn deterministic_socket_uses_plain_dev_port() {
 }
 
 #[test]
-fn deterministic_socket_treats_non_prod_port_as_dev() {
+fn custom_port_does_not_guess_the_default_dev_socket() {
     let _guard = crate::test_env_lock().lock().unwrap();
     let prev_instance = std::env::var("CODETERM_INSTANCE").ok();
     let prev_port = std::env::var("CODETERM_API_PORT").ok();
     std::env::remove_var("CODETERM_INSTANCE");
     std::env::set_var("CODETERM_API_PORT", "7694");
 
-    assert_eq!(
-        deterministic_socket_name().as_deref(),
-        Some("codeterm-dev.sock")
-    );
+    assert_eq!(deterministic_socket_name(), None);
     assert!(!socket_path_matches_port_pref("codeterm-12345.sock", true));
 
     restore_env("CODETERM_INSTANCE", prev_instance);
     restore_env("CODETERM_API_PORT", prev_port);
+}
+
+#[test]
+fn socket_resolution_handles_each_environment_combination() {
+    let cases = [
+        (None, None, None, None),
+        (
+            Some("codeterm-dev-coreqa.sock"),
+            None,
+            None,
+            Some("codeterm-dev-coreqa.sock"),
+        ),
+        (None, None, Some("7686"), Some("codeterm-dev.sock")),
+        (None, Some("coreqa"), None, Some("codeterm-dev-coreqa.sock")),
+        (
+            Some("codeterm-dev-coreqa.sock"),
+            None,
+            Some("7712"),
+            Some("codeterm-dev-coreqa.sock"),
+        ),
+        (
+            Some("codeterm-dev-coreqa.sock"),
+            Some("coreqa"),
+            None,
+            Some("codeterm-dev-coreqa.sock"),
+        ),
+        (
+            None,
+            Some("coreqa"),
+            Some("7712"),
+            Some("codeterm-dev-coreqa.sock"),
+        ),
+        (
+            Some("codeterm-dev-coreqa.sock"),
+            Some("coreqa"),
+            Some("7712"),
+            Some("codeterm-dev-coreqa.sock"),
+        ),
+    ];
+
+    for (socket, instance, port, expected) in cases {
+        let resolved = resolve_socket_selection(socket, instance, port).unwrap();
+        assert_eq!(resolved.map(|value| value.path).as_deref(), expected);
+        if socket.is_some() {
+            assert_eq!(
+                resolve_socket_selection(socket, instance, port)
+                    .unwrap()
+                    .map(|value| value.source),
+                Some(ResolutionSource::CodeTermSocketPath)
+            );
+        }
+    }
+}
+
+#[test]
+fn explicit_socket_is_not_replaced_by_a_derived_socket() {
+    let resolved = resolve_socket_selection(Some("codeterm-dev-coreqa.sock"), None, Some("7712"))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(resolved.path, "codeterm-dev-coreqa.sock");
+    assert_eq!(resolved.source, ResolutionSource::CodeTermSocketPath);
+}
+
+#[test]
+fn explicit_named_socket_supplies_the_instance_when_env_is_absent() {
+    assert_eq!(
+        instance_socket_name_from_path("/tmp/codeterm-dev-coreqa.sock").as_deref(),
+        Some("coreqa")
+    );
+    assert_eq!(
+        instance_socket_name_from_path("\\\\.\\pipe\\codeterm-dev-coreqa.sock").as_deref(),
+        Some("coreqa")
+    );
+    assert_eq!(instance_socket_name_from_path("codeterm-dev.sock"), None);
+    assert_eq!(
+        instance_socket_name_from_path("codeterm-dev-CoreQA.sock"),
+        None
+    );
+}
+
+#[test]
+fn conflicting_socket_instance_and_port_selectors_are_refused() {
+    let mismatch_cases = [
+        (
+            Some("codeterm-dev-other.sock"),
+            Some("coreqa"),
+            Some("7712"),
+        ),
+        (Some("codeterm-dev-other.sock"), Some("coreqa"), None),
+        (Some("codeterm-12345.sock"), None, Some("7712")),
+        (Some("custom.sock"), None, Some("7712")),
+        (Some("codeterm-dev-coreqa.sock"), None, Some("7685")),
+        (Some("codeterm-dev-coreqa.sock"), None, Some("7686")),
+        (Some("codeterm-dev.sock"), None, Some("7712")),
+        (None, Some("coreqa"), Some("7685")),
+        (None, Some("coreqa"), Some("7686")),
+        (None, None, Some("7712")),
+    ];
+
+    for (socket, instance, port) in mismatch_cases {
+        assert!(
+            resolve_socket_selection(socket, instance, port).is_err(),
+            "accepted conflicting socket={socket:?}, instance={instance:?}, port={port:?}"
+        );
+    }
 }
 
 #[test]

@@ -29,12 +29,14 @@ export interface CatalogEntry {
   updateAvailable: boolean;
   /** Installed after daemon start, capability waiting on a reload to activate (§1.8). */
   pendingReload?: boolean | null;
+  loadError?: { message: string; path: string; atMs: number; keptPrevious: boolean } | null;
   capabilities?: PluginCapabilities | null;
   grantedPermissions?: string[] | null;
   networkAllow?: string[] | null;
   effectiveNetworkAllow?: string[] | null;
   settingsSchema?: SettingField[] | null;
   description?: string | null;
+  pitch?: string | null;
   /** Opt-in agent-facing instructions. Absent means AI configuration is unsupported. */
   configHelp?: string | null;
   homepage?: string | null;
@@ -52,8 +54,6 @@ export interface PrimaryAction {
   disabled: boolean;
   reason?: string;
 }
-
-const UPDATE_DRIFTS = new Set(["update_available", "hash_drift"]);
 
 function caps(c?: PluginCapabilities | null): PluginCapabilities {
   return c ?? {};
@@ -93,19 +93,23 @@ function entryFromInstalled(p: InstalledPlugin): CatalogEntry {
     removable: p.removable !== false && p.system !== true,
     dev: p.dev === true,
     version: p.version ?? null,
-    remoteVersion: null,
+    remoteVersion: p.update?.remote_version ?? null,
     channel: sourceChannel,
     drift: null,
     compatible: true,
     blockedReason: null,
-    updateAvailable: false,
+    updateAvailable: p.dev !== true && p.update?.available === true,
     pendingReload: p.pending_reload ?? false,
+    loadError: p.load_error
+      ? { message: p.load_error.message, path: p.load_error.path, atMs: p.load_error.at_ms, keptPrevious: p.load_error.kept_previous === true }
+      : null,
     capabilities: p.capabilities ?? null,
     grantedPermissions: p.granted_permissions ?? null,
     networkAllow: p.network_allow ?? [],
     effectiveNetworkAllow: p.effective_network_allow ?? [],
     settingsSchema: p.settings_schema ?? null,
     description: p.description ?? null,
+    pitch: p.pitch ?? null,
     configHelp: p.config_help ?? null,
     homepage: p.homepage ?? null,
     readmeMarkdown: p.readme_markdown ?? null,
@@ -119,7 +123,8 @@ function entryFromInstalled(p: InstalledPlugin): CatalogEntry {
 function mergeMarketplace(base: CatalogEntry | undefined, m: MarketplaceRow): CatalogEntry {
   const installed = base?.installed ?? m.installed === true;
   const compatible = m.compatible !== false;
-  const updateAvailable = installed && UPDATE_DRIFTS.has(m.drift);
+  const updateAvailable = base?.updateAvailable ?? false;
+  const ownsChannel = !base || base.channel === m.channel;
   const entry: CatalogEntry = {
     id: m.id,
     displayName: base?.displayName || m.display_name || m.id,
@@ -130,13 +135,14 @@ function mergeMarketplace(base: CatalogEntry | undefined, m: MarketplaceRow): Ca
     removable: base?.removable ?? false,
     dev: base?.dev ?? false,
     version: base?.version ?? m.local_version ?? null,
-    remoteVersion: m.remote_version ?? null,
-    channel: m.channel ?? null,
-    drift: m.drift ?? null,
-    compatible,
-    blockedReason: m.blocked_reason ?? null,
+    remoteVersion: base?.remoteVersion ?? (ownsChannel ? m.remote_version ?? null : null),
+    channel: base ? base.channel : m.channel ?? null,
+    drift: ownsChannel ? m.drift ?? null : base?.drift ?? null,
+    compatible: base ? base.compatible : compatible,
+    blockedReason: base ? base.blockedReason : m.blocked_reason ?? null,
     updateAvailable,
     pendingReload: base?.pendingReload ?? false,
+    loadError: base?.loadError ?? null,
     // back to the channel manifest for not-yet-installed plugins.
     capabilities: base?.capabilities ?? m.capabilities ?? null,
     grantedPermissions: base?.grantedPermissions ?? m.granted_permissions ?? null,
@@ -144,6 +150,7 @@ function mergeMarketplace(base: CatalogEntry | undefined, m: MarketplaceRow): Ca
     effectiveNetworkAllow: base?.effectiveNetworkAllow ?? m.effective_network_allow ?? [],
     settingsSchema: base?.settingsSchema ?? null,
     description: base?.description ?? m.description ?? null,
+    pitch: base?.pitch ?? m.pitch ?? null,
     configHelp: base?.configHelp ?? m.config_help ?? null,
     homepage: base?.homepage ?? m.homepage ?? null,
     readmeMarkdown: base?.readmeMarkdown ?? m.readme_markdown ?? null,

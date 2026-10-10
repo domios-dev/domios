@@ -162,6 +162,20 @@ fn authenticated_tab(current: Option<BootStage>) -> Tab {
 }
 
 #[test]
+fn restored_session_cannot_release_queued_input_without_current_nonce() {
+    let mut tab = authenticated_tab(Some(BootStage::ProviderReady));
+    tab.reported_session_binding_nonce = None;
+    assert!(!session_allows_user_readiness(&tab));
+    tab.reported_session_binding_nonce = Some("old-launch".into());
+    assert!(!session_allows_user_readiness(&tab));
+    tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
+    assert!(session_allows_user_readiness(&tab));
+    tab.agent_session_id = None;
+    tab.reported_session_binding_nonce = None;
+    assert!(session_allows_user_readiness(&tab));
+}
+
+#[test]
 fn launch_nonce_is_proven_only_when_this_launch_echoed_it() {
     assert!(authenticated_tab(Some(BootStage::ProviderReady)).launch_session_authenticated());
 

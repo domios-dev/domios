@@ -77,6 +77,7 @@ fn enrich_from_manifest_with_icon(
         "view": cap_bool("view"),
         "chat_backend": cap_bool("chatBackend") || cap_present("chatBackend"),
         "chat_preprocessor": cap_bool("chatPreprocessor") || cap_present("chatPreprocessor"),
+        "graph_nodes": cap_enabled("graphNodes"),
     });
     // Persisted grants.yaml override wins over the manifest request. Keys are canonical snake_case, camelCase accepted as fallback.
     let grants = crate::plugin::js_runtime::grants::load_grants(dir);
@@ -129,6 +130,9 @@ fn enrich_from_manifest_with_icon(
         if perm_on("agent_commands", "agentCommands") {
             granted.push("agent_commands");
         }
+        if perm_on("surfaces", "surfaces") {
+            granted.push("surfaces");
+        }
         if perm_on("manage_workspaces", "manageWorkspaces") {
             granted.push("manage_workspaces");
         }
@@ -137,6 +141,9 @@ fn enrich_from_manifest_with_icon(
         }
         if perm_on("analytics", "analytics") {
             granted.push("analytics");
+        }
+        if perm_on("graph_events", "graphEvents") {
+            granted.push("graph_events");
         }
     }
     let settings_schema = m
@@ -195,6 +202,9 @@ fn enrich_from_manifest_with_icon(
         // Doc surface for the detail tab: description/homepage strings + a bounded README markdown blob.
         if let Some(desc) = m.get("description").and_then(|v| v.as_str()) {
             obj.insert("description".into(), serde_json::json!(desc));
+        }
+        if let Some(pitch) = m.get("pitch").and_then(|v| v.as_str()) {
+            obj.insert("pitch".into(), serde_json::json!(pitch));
         }
         // Configure-with-AI is opt-in. A description alone does not imply configurability.
         if let Some(help) = m.get("configHelp").and_then(|v| v.as_str()) {
@@ -299,6 +309,7 @@ pub(super) fn build_snapshot(
             enrich_from_manifest_with_icon(&mut entry, dir, m, icon_svg.as_deref());
             arr.push(entry);
         }
+        attach_load_errors(arr, crate::plugin::js_runtime::plugin_load_errors());
     }
     // Best-effort register the default channel so its plugins surface as available; offline failures retry next snapshot.
     let _ = run_plugin_cli(&["plugin", "channel", "ensure-default", "--json"]);
@@ -306,7 +317,7 @@ pub(super) fn build_snapshot(
     // Cold completion stays inside the blocking snapshot worker.
     let diff = super::diff_cache::cached_diff(fetch_channel_diff);
 
-    let plugins_arr = plugins
+    let mut plugins_arr = plugins
         .get("plugins")
         .cloned()
         .unwrap_or_else(|| serde_json::json!([]));
@@ -318,6 +329,8 @@ pub(super) fn build_snapshot(
         .get("diff")
         .cloned()
         .unwrap_or_else(|| serde_json::json!([]));
+
+    reconcile_update_availability(&mut plugins_arr, &diff_arr);
 
     let installed_ids: std::collections::HashSet<String> = plugins_arr
         .as_array()
@@ -346,6 +359,93 @@ pub(super) fn build_snapshot(
         "audit": audit,
         "lastOutput": last_output,
     }))
+}
+
+/// Joins live watcher load failures onto plugin rows; a plugin with no row (its manifest is
+/// not even JSON) gets a minimal one so the failure stays visible.
+fn attach_load_errors(
+    arr: &mut Vec<Value>,
+    errors: Vec<crate::plugin::js_runtime::PluginLoadError>,
+) {
+    let mut errors: std::collections::HashMap<String, Value> = errors
+        .into_iter()
+        .map(|error| {
+            let id = error.id.clone();
+            (id, serde_json::to_value(error).unwrap_or(Value::Null))
+        })
+        .collect();
+    for entry in arr.iter_mut() {
+        let Some(obj) = entry.as_object_mut() else {
+            continue;
+        };
+        let Some(id) = obj.get("id").and_then(Value::as_str).map(String::from) else {
+            continue;
+        };
+        obj.insert(
+            "load_error".into(),
+            errors.remove(&id).unwrap_or(Value::Null),
+        );
+    }
+    let mut orphans: Vec<(String, Value)> = errors.into_iter().collect();
+    orphans.sort_by(|a, b| a.0.cmp(&b.0));
+    for (id, error) in orphans {
+        let install_path = error["path"]
+            .as_str()
+            .map(std::path::Path::new)
+            .and_then(std::path::Path::parent)
+            .map(|dir| dir.to_string_lossy().into_owned());
+        arr.push(serde_json::json!({
+            "id": id,
+            "state": "error",
+            "system": false,
+            "removable": false,
+            "dev": true,
+            "install_path": install_path,
+            "load_error": error,
+        }));
+    }
+}
+
+fn reconcile_update_availability(plugins: &mut Value, diff: &Value) {
+    use codeterm_plugins::{update_availability, UpdateOffer, UpdateSource};
+    let Some(plugins) = plugins.as_array_mut() else {
+        return;
+    };
+    for plugin in plugins {
+        let id = plugin["id"].as_str().unwrap_or_default();
+        let source = &plugin["source"];
+        let channel = source["channel"].as_str();
+        let update_source = match (plugin["state"].as_str(), source["kind"].as_str()) {
+            (_, Some("dir")) => UpdateSource::Local,
+            (Some("bundled"), _) => UpdateSource::Unknown,
+            (_, Some("channel" | "system_channel")) => channel
+                .map(UpdateSource::Channel)
+                .unwrap_or(UpdateSource::Unknown),
+            _ => UpdateSource::Unknown,
+        };
+        let row = diff
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|row| row["id"].as_str() == Some(id) && row["channel"].as_str() == channel);
+        let offer = row.and_then(|row| {
+            Some(UpdateOffer {
+                channel: row["channel"].as_str()?,
+                version: row["remote_version"].as_str(),
+                payload_version: row["payload_version"].as_str(),
+                compatible: row["compatible"].as_bool() == Some(true),
+            })
+        });
+        let decision = update_availability(plugin["version"].as_str(), update_source, offer);
+        let update = serde_json::json!({
+            "available": decision.available,
+            "reason": decision.reason,
+            "channel": channel,
+            "remote_version": row.and_then(|row| row["remote_version"].as_str()),
+            "basis": "channel_diff",
+        });
+        plugin["update"] = update;
+    }
 }
 
 /// Build marketplace rows from the channel diff: each keeps its diff fields, gains
@@ -427,6 +527,67 @@ fn manifest_icon_svg(dir: &std::path::Path, manifest: &Value) -> Option<String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn load_errors_attach_to_their_row_and_orphans_get_a_row() {
+        let mut arr = vec![
+            serde_json::json!({"id": "claude", "state": "active"}),
+            serde_json::json!({"id": "healthy", "state": "active"}),
+        ];
+        let error = |id: &str, path: &str| crate::plugin::js_runtime::PluginLoadError {
+            id: id.to_string(),
+            path: std::path::PathBuf::from(path),
+            message: "parse: unknown field `prompt`".to_string(),
+            at_ms: 7,
+            kept_previous: true,
+        };
+        attach_load_errors(
+            &mut arr,
+            vec![
+                error("claude", "/p/provider-claude/plugin.json"),
+                error("broken", "/p/broken/plugin.json"),
+            ],
+        );
+        assert_eq!(
+            arr[0]["load_error"]["message"],
+            "parse: unknown field `prompt`"
+        );
+        assert_eq!(arr[0]["load_error"]["at_ms"], 7);
+        assert!(arr[1]["load_error"].is_null());
+        assert_eq!(arr.len(), 3);
+        assert_eq!(arr[2]["id"], "broken");
+        assert_eq!(arr[2]["state"], "error");
+        assert!(arr[2]["install_path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("broken")));
+    }
+
+    #[test]
+    fn update_reconciliation_uses_current_install_and_owning_channel() {
+        let mut plugins = serde_json::json!([
+            {"id":"demo", "version":"1.0.0", "source":{"kind":"channel", "channel":"store"}},
+            {"id":"local", "version":"1.0.0", "source":{"kind":"dir"}},
+            {"id":"workspace", "version":"1.0.0", "dev":true},
+            {"id":"unknown", "version":"1.0.0"}
+        ]);
+        let diff = serde_json::json!([
+            {"id":"demo", "channel":"store", "local_version":"0.1.0", "remote_version":"1.0.0", "payload_version":"1.0.0", "compatible":true, "drift":"update_available"},
+            {"id":"demo", "channel":"other", "remote_version":"9.0.0", "payload_version":"9.0.0", "compatible":true},
+            {"id":"local", "channel":"store", "remote_version":"9.0.0", "payload_version":"9.0.0", "compatible":true}
+        ]);
+        reconcile_update_availability(&mut plugins, &diff);
+        assert_eq!(plugins[0]["update"]["reason"], "same_version");
+        assert_eq!(plugins[1]["update"]["reason"], "local_install");
+        assert_eq!(plugins[2]["update"]["reason"], "unknown_source");
+        assert_eq!(plugins[3]["update"]["reason"], "unknown_source");
+        for plugin in plugins.as_array().unwrap() {
+            assert_eq!(plugin["update"]["available"], false);
+        }
+        plugins[0]["version"] = serde_json::json!("0.1.0");
+        reconcile_update_availability(&mut plugins, &diff);
+        assert_eq!(plugins[0]["update"]["available"], true);
+        assert_eq!(plugins[0]["update"]["remote_version"], "1.0.0");
+    }
 
     #[test]
     fn plugin_icon_svg_manifest_the_strict_loader_rejects_still_enriches() {
@@ -534,6 +695,7 @@ mod tests {
             "version": "0.2.0",
             "displayName": "Demo",
             "description": "Does a demo thing.",
+            "pitch": "Demo things happen for you.",
             "homepage": "https://example.com/demo",
             "capabilities": { "statusBubble": true },
         });
@@ -545,6 +707,10 @@ mod tests {
         assert_eq!(
             entry["description"],
             serde_json::json!("Does a demo thing.")
+        );
+        assert_eq!(
+            entry["pitch"],
+            serde_json::json!("Demo things happen for you.")
         );
         assert_eq!(
             entry["homepage"],
@@ -735,5 +901,57 @@ mod tests {
         // Second row isn't in the channel cache → still present, installed flag honest.
         assert_eq!(market[1]["installed"], serde_json::json!(true));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn enrich_reports_graph_nodes_capability() {
+        let dir = std::env::temp_dir().join(format!("ct-graph-nodes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let manifest = serde_json::json!({
+            "id": "grapher",
+            "version": "1.0.0",
+            "displayName": "Grapher",
+            "capabilities": {
+                "graphNodes": {
+                    "converters": [{ "from": "video", "to": "audio" }],
+                    "eventSources": [{ "kind": "fixture.event", "title": "Fixture" }]
+                }
+            },
+        });
+        let mut entry = serde_json::json!({ "id": "grapher" });
+        enrich_from_manifest_with_icon(&mut entry, &dir, &manifest, None);
+        assert_eq!(
+            entry["capabilities"]["graph_nodes"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            entry["capabilities"]["agent_provider"],
+            serde_json::json!(false)
+        );
+
+        let plain =
+            serde_json::json!({ "id": "plain", "version": "1.0.0", "displayName": "Plain" });
+        let mut plain_entry = serde_json::json!({ "id": "plain" });
+        enrich_from_manifest_with_icon(&mut plain_entry, &dir, &plain, None);
+        assert_eq!(
+            plain_entry["capabilities"]["graph_nodes"],
+            serde_json::json!(false)
+        );
+
+        let disabled = serde_json::json!({
+            "id": "off",
+            "version": "1.0.0",
+            "displayName": "Off",
+            "capabilities": { "graphNodes": false },
+        });
+        let mut disabled_entry = serde_json::json!({ "id": "off" });
+        enrich_from_manifest_with_icon(&mut disabled_entry, &dir, &disabled, None);
+        assert_eq!(
+            disabled_entry["capabilities"]["graph_nodes"],
+            serde_json::json!(false)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

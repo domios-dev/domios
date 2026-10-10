@@ -27,6 +27,8 @@ function snap(over: Partial<UsageSnapshot>): UsageSnapshot {
     account_id: null,
     captured_at: NOW,
     parsed_ok: true,
+    billing_mode: "unknown",
+    limits_reported: false,
     session_pct: null,
     session_resets_at: null,
     weekly_pct: null,

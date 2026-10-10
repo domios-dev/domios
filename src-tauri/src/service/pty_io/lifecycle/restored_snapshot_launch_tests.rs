@@ -1,6 +1,6 @@
 use super::{
-    restore_materialization_core, restored_snapshot_launch_command, restored_snapshot_launch_input,
-    RestoredLaunch, RestoredSnapshotLaunchInput,
+    claim_restored_launch, restore_materialization_core, restored_snapshot_launch_command,
+    restored_snapshot_launch_input, RestoredLaunch, RestoredSnapshotLaunchInput,
 };
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::state::MultiplexerState;
@@ -9,6 +9,60 @@ use crate::multiplexer::types::{
 };
 use codeterm_util::lock_hold::TimedRwLock;
 use std::sync::Arc;
+
+#[test]
+#[cfg_attr(not(windows), ignore = "mock Tauri fixture requires desktop runtime")]
+fn restored_structured_prompt_server_is_registered_by_the_shared_launch_builder() {
+    let (state, tab_id) = MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(state);
+    let launches = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("structured-restore-fixture")
+            .with_structured_prompt_launch_log(launches.clone()),
+    ));
+    let cwd = fixture.temp.path().to_string_lossy().into_owned();
+    let launch = RestoredLaunch {
+        provider_id: "structured-restore-fixture".into(),
+        session_id: Some("owned-restored-session".into()),
+        cwd: Some(cwd.clone()),
+        model: None,
+        launch_parameters: RestorableLaunchParameters::default(),
+        role: None,
+        role_profile: None,
+    };
+    let input = restored_snapshot_launch_input(&fixture.service.agent_registry, launch, None, None);
+    assert!(input.params.structured_prompt_server.is_none());
+    assert!(crate::service::structured_endpoint::sse(&tab_id).is_none());
+
+    let command = super::restored_snapshot_launch_command_for_service(
+        &fixture.service,
+        &tab_id,
+        "structured-restore-fixture",
+        &input,
+    );
+
+    let endpoint = crate::service::structured_endpoint::sse(&tab_id);
+    crate::service::structured_prompt::clear_tab(&tab_id);
+    assert!(!command.is_empty());
+    let launches = launches.lock();
+    assert_eq!(launches.len(), 1);
+    assert_eq!(
+        launches[0].session_id.as_deref(),
+        Some("owned-restored-session")
+    );
+    let server = launches[0].structured_prompt_server.as_ref().unwrap();
+    assert_eq!(server.hostname, "127.0.0.1");
+    assert_ne!(server.port, 0);
+    assert_eq!(
+        endpoint,
+        Some((format!("http://127.0.0.1:{}", server.port), cwd))
+    );
+    assert_eq!(
+        crate::service::launch_session_detection::registered_launch_marker(&tab_id).as_deref(),
+        Some("owned-restored-session")
+    );
+    crate::service::launch_session_detection::clear_launch_marker(&tab_id);
+}
 
 fn restored_worker(
     historical_task: Option<&str>,
@@ -30,6 +84,9 @@ fn restored_worker(
     tab.agent_session_id = Some("fixture-session".into());
     tab.agent_session_model = Some("fixture-model".into());
     tab.restorable_launch = RestorableLaunchParameters {
+        context_files: None,
+        context_skills: None,
+        worker_restart: None,
         captured: true,
         identity_instructions: Some("opaque-worker-identity-instructions".into()),
         permission_bypass_requested: true,
@@ -249,6 +306,10 @@ fn parsed_flag_value(command: &str, flag: &str) -> Option<String> {
 
 fn launch_parameters() -> RestorableLaunchParameters {
     RestorableLaunchParameters {
+        failed_provider: None,
+        context_files: None,
+        context_skills: None,
+        worker_restart: None,
         captured: true,
         requested_model: Some("gpt-6-luna".into()),
         model: Some("gpt-6-luna".into()),
@@ -258,6 +319,7 @@ fn launch_parameters() -> RestorableLaunchParameters {
         agent_name: Some("restore-agent".into()),
         identity_instructions: Some("opaque-instruction-fragment".into()),
         permission_bypass_requested: false,
+        structured_runtime_mode: None,
     }
 }
 
@@ -287,6 +349,86 @@ fn restored_codex_launch_keeps_model_and_reasoning_effort() {
     assert_eq!(
         parsed_flag_value(&command, "--effort").as_deref(),
         Some("xhigh")
+    );
+}
+
+#[test]
+fn restored_snapshot_resumes_the_tab_owned_session_for_each_provider() {
+    for provider in ["claude", "codex", "opencode", "grok"] {
+        let registry = crate::agent::registry::AgentRegistry::new();
+        registry.register_provider(Box::new(
+            crate::agent::test_provider::MockProvider::new(provider).with_launch_binary(provider),
+        ));
+        let session_id = format!("{provider}-owned-session");
+        let launch = RestoredLaunch {
+            provider_id: provider.into(),
+            session_id: Some(session_id.clone()),
+            cwd: Some("fixture-cwd".into()),
+            model: None,
+            launch_parameters: RestorableLaunchParameters::default(),
+            role: None,
+            role_profile: None,
+        };
+
+        let input = restored_snapshot_launch_input(&registry, launch, None, None);
+        let command =
+            restored_snapshot_launch_command(&registry, "tab-provider-resume", provider, &input);
+
+        assert_eq!(
+            input.params.resume_session_id.as_deref(),
+            Some(session_id.as_str())
+        );
+        assert!(
+            command.contains(&format!("--resume {session_id}")),
+            "{provider}"
+        );
+    }
+}
+
+#[test]
+fn disabled_resume_uses_a_fresh_command_and_keeps_session_binding_history() {
+    use crate::service::restored_launch::restored_resume_session_id;
+
+    let registry = crate::agent::registry::AgentRegistry::new();
+    registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("snapshot-marked")
+            .with_launch_binary("snapshot-marked"),
+    ));
+    let (mut state, tab_id) = MultiplexerState::new();
+    let tab = state.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("snapshot-marked".into());
+    tab.agent_session_id = Some("persisted-session".into());
+    tab.session_binding_nonce = Some("prior-launch-nonce".into());
+    tab.cwd = Some("fixture-cwd".into());
+    tab.restored_from_snapshot = true;
+    let mux = Arc::new(TimedRwLock::new("disabled-resume-history", state));
+    let session_id = restored_resume_session_id(false, Some("persisted-session"));
+    assert_eq!(session_id, None);
+
+    let launch = claim_restored_launch(
+        &mux,
+        &tab_id,
+        "snapshot-marked",
+        Some("persisted-session"),
+        Some("fixture-cwd"),
+        session_id.is_some(),
+    )
+    .unwrap()
+    .expect("disabled resume claims a fresh launch");
+    let input = restored_snapshot_launch_input(&registry, launch.clone(), None, None);
+    let command = restored_snapshot_launch_command(&registry, &tab_id, "snapshot-marked", &input);
+    let guard = mux.read();
+    let tab = guard.get_tab(&tab_id).unwrap();
+
+    assert_eq!(launch.session_id, None);
+    assert!(!command.contains("--resume"));
+    assert!(command.contains("--launch-marker"));
+    assert!(tab.agent_session_id.is_none());
+    assert_eq!(
+        tab.prior_session_binding_nonces
+            .last()
+            .and_then(|entry| entry.session_id.as_deref()),
+        Some("persisted-session")
     );
 }
 

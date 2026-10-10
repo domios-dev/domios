@@ -2,6 +2,7 @@ use super::machine::{self, Route};
 use super::provenance::{Classification, Scope};
 use super::store::{Create, Owner, Store};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 
 fn owner() -> Owner {
     Owner {
@@ -14,9 +15,22 @@ fn owner() -> Owner {
 
 fn definition() -> Value {
     json!({
+        "name": "handler-result-watch",
         "probe": "status", "question": "state?", "buckets": ["done"],
         "every": "10s", "matches": {"done": "^done$"}, "timeout": "1h"
     })
+}
+
+#[test]
+fn sentinel_none_route_has_no_handler_and_does_not_fall_back_to_notify() {
+    let routes = super::handlers::definitions(
+        &["quiet".into()],
+        BTreeMap::from([("quiet".into(), "none".into())]),
+        None,
+    )
+    .unwrap();
+
+    assert!(routes["quiet"].is_empty());
 }
 
 #[test]
@@ -123,6 +137,47 @@ fn sentinel_handlers_exact_sentinel_route_is_a_supported_closed_action() {
     ] {
         assert!(Route::parse(value).is_err(), "{value}");
     }
+}
+
+#[test]
+fn sentinel_respond_prompt_route_and_handlers_file_parse_safe_kinds() {
+    assert_eq!(
+        Route::parse("respond_prompt:onboarding").unwrap(),
+        Route::RespondPrompt(super::machine::SafeKind::Onboarding)
+    );
+    let definitions = BTreeMap::from([(
+        "done".into(),
+        vec![super::handlers::Definition {
+            id: "answer".into(),
+            kind: "respond_prompt".into(),
+            parameters: super::handlers::Parameters {
+                target: Some("permission".into()),
+                ..Default::default()
+            },
+        }],
+    )]);
+    let handlers =
+        super::handlers::definitions(&["done".into()], BTreeMap::new(), Some(definitions)).unwrap();
+    assert_eq!(
+        handlers["done"][0].action,
+        Route::RespondPrompt(super::machine::SafeKind::Permission)
+    );
+}
+
+#[test]
+fn sentinel_respond_prompt_shell_probe_source_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::new(
+        dir.path().join("sentinels.json"),
+        crate::cron::clock::MockClock::starting_at(1000),
+    );
+    let mut value = definition();
+    value["routes"] = json!({"done": "respond_prompt:onboarding"});
+    let params: Create = serde_json::from_value(value).unwrap();
+    assert!(store
+        .create(params, owner(), false)
+        .unwrap_err()
+        .contains("tab observation source"));
 }
 
 fn transition(store: &mut Store, job: &super::store::Sentinel) -> (super::store::Sentinel, String) {
@@ -413,9 +468,9 @@ fn sentinel_handlers_unsupported_and_corrupt_stores_preserve_bytes_and_refuse_wo
         );
         let error = store.ensure_available().unwrap_err();
         assert!(error.starts_with(if raw.contains("routes") {
-            "sentinel_store_unsupported_format:"
+            "blueprint_store_unsupported_format:"
         } else {
-            "sentinel_store_load_failed:"
+            "blueprint_store_load_failed:"
         }));
         assert!(store
             .create(
@@ -443,7 +498,7 @@ fn sentinel_handlers_io_failure_and_corruption_after_load_hold_the_original_path
     assert!(unavailable
         .ensure_available()
         .unwrap_err()
-        .starts_with("sentinel_store_load_failed:"));
+        .starts_with("blueprint_store_load_failed:"));
     assert!(unavailable.due().is_err());
     assert!(path.is_dir());
     std::fs::remove_dir(&path).unwrap();
@@ -500,6 +555,7 @@ fn sentinel_handlers_real_execution_id_is_preserved_independently_from_durable_c
                 status: super::handlers::Status::Completed,
                 execution_id: Some("supplied-real-run-id".into()),
                 command_result: None,
+                reason: None,
             },
         )
         .unwrap();
@@ -572,4 +628,59 @@ fn sentinel_handlers_activation_requires_durable_declared_claim_and_checks_activ
         .unwrap_err()
         .contains("capacity"));
     assert!(store.get(&target).unwrap().machine.paused);
+}
+
+#[test]
+fn sentinel_causal_run_json_activation_and_downstream_accept_survive_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sentinels.json");
+    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let mut store = Store::new(path.clone(), clock.clone());
+    let mut child_definition = definition();
+    child_definition["paused"] = json!(true);
+    let child = store
+        .create(
+            serde_json::from_value(child_definition).unwrap(),
+            owner(),
+            false,
+        )
+        .unwrap();
+    let mut parent_definition = definition();
+    parent_definition["handlers"] =
+        json!({"done":[{"id":"child","type":"blueprint","parameters":{"target":child.id}}]});
+    let parent = store
+        .create(
+            serde_json::from_value(parent_definition).unwrap(),
+            owner(),
+            false,
+        )
+        .unwrap();
+    let (parent, id) = transition(&mut store, &parent);
+    store
+        .claim_handler(&parent, &id, &parent.routes["done"][0])
+        .unwrap()
+        .unwrap();
+    assert!(store.activate(&parent, &id, &child.id).unwrap());
+    let context = store.get(&child.id).unwrap().causal_run.clone().unwrap();
+    assert_eq!(context.parent.as_ref().unwrap().node, parent.id);
+    assert_eq!(context.parent.as_ref().unwrap().transition, id);
+    drop(store);
+    let mut store = Store::new(path, clock);
+    let child = store.get(&child.id).unwrap().clone();
+    assert_eq!(child.causal_run.as_ref(), Some(&context));
+    transition(&mut store, &child);
+    assert_eq!(
+        store.get(&child.id).unwrap().transitions[0]
+            .causal_run
+            .as_ref(),
+        Some(&context)
+    );
+    assert_eq!(
+        store.get(&parent.id).unwrap().transitions[0]
+            .causal_run
+            .as_ref()
+            .unwrap()
+            .id,
+        context.id
+    );
 }

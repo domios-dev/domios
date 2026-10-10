@@ -1,0 +1,397 @@
+.ct-spinal-btn {
+  position: relative;
+  display: inline-flex;
+  height: 22px;
+  margin-left: auto;
+  align-items: center;
+  gap: 0;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ct-muted);
+  cursor: pointer;
+  transition: gap var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    border-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.ct-spinal-btn[data-connected] {
+  color: color-mix(in srgb, var(--ct-green) 14%, var(--ct-fg));
+}
+
+.ct-spinal-btn[data-connected]:hover,
+.ct-spinal-btn[data-connected]:focus-visible,
+.ct-spinal-btn[data-connected][aria-expanded="true"] {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--ct-fg) 6%, transparent);
+  color: color-mix(in srgb, var(--ct-green) 14%, var(--ct-fg));
+}
+
+.ct-spinal-btn[data-connected]:hover .ct-spinal-vertebrae rect,
+.ct-spinal-btn[data-connected]:focus-visible .ct-spinal-vertebrae rect {
+  fill: currentColor;
+}
+
+.ct-spinal-btn[data-connected] .ct-spinal-vertebrae {
+  fill: currentColor;
+  opacity: 0.85;
+}
+
+.ct-spinal-vertebrae--reflex rect {
+  animation: ct-spinal-reflex 720ms var(--ct-ease-liquid-settle) both;
+}
+
+.ct-spinal-vertebrae--reflex rect:nth-child(2) { animation-delay: 70ms; }
+.ct-spinal-vertebrae--reflex rect:nth-child(3) { animation-delay: 140ms; }
+
+.ct-spinal-btn__reflex {
+  position: absolute;
+  top: 50%;
+  left: 11px;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ct-green) 38%, transparent);
+  pointer-events: none;
+  animation: ct-spinal-reflex-ring 760ms var(--ct-ease-liquid-settle) both;
+}
+
+@keyframes ct-spinal-reflex {
+  0% { fill: currentColor; transform: scale(1); }
+  35% { fill: color-mix(in srgb, var(--ct-green) 70%, var(--ct-fg)); transform: scale(1.25, 1.12); }
+  100% { fill: currentColor; transform: scale(1); }
+}
+
+@keyframes ct-spinal-reflex-ring {
+  from { opacity: 1; transform: scale(0.6); }
+  to { opacity: 0; transform: scale(1.9); }
+}
+
+.ct-spinal-btn:hover,
+.ct-spinal-btn:focus-visible,
+.ct-spinal-btn[aria-expanded="true"] {
+  gap: 6px;
+  border-color: color-mix(in srgb, var(--ct-accent) 26%, transparent);
+  background: color-mix(in srgb, var(--ct-accent) 8%, var(--ct-bg));
+  color: var(--ct-fg);
+  outline: none;
+}
+
+.ct-spinal-vertebrae {
+  width: 9px;
+  height: 14px;
+  flex: none;
+  fill: currentColor;
+}
+
+.ct-spinal-vertebrae rect {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.ct-spinal-btn:hover .ct-spinal-vertebrae rect,
+.ct-spinal-btn:focus-visible .ct-spinal-vertebrae rect {
+  animation: ct-spinal-bone-wave 900ms var(--ct-ease-liquid-settle) both;
+  fill: var(--ct-accent);
+}
+
+.ct-spinal-btn:hover .ct-spinal-vertebrae rect:nth-child(2) { animation-delay: 90ms; }
+.ct-spinal-btn:hover .ct-spinal-vertebrae rect:nth-child(3) { animation-delay: 180ms; }
+
+.ct-spinal-btn__label {
+  max-width: 0;
+  overflow: hidden;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  opacity: 0;
+  transition: max-width var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
+    opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.ct-spinal-btn:hover .ct-spinal-btn__label,
+.ct-spinal-btn:focus-visible .ct-spinal-btn__label,
+.ct-spinal-btn[aria-expanded="true"] .ct-spinal-btn__label {
+  max-width: 90px;
+  opacity: 1;
+}
+
+.ct-spinal-btn__invite {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ct-accent);
+  animation: ct-spinal-breathe 2.8s var(--ct-ease-liquid-breathe) infinite;
+}
+
+.ct-spinal-pop {
+  padding: 12px;
+}
+
+.ct-spinal-pop__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 2px 8px;
+}
+
+.ct-spinal-pop__badge {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ct-accent) 14%, transparent);
+  color: var(--ct-accent);
+}
+
+.ct-spinal-pop__settings {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  margin-left: auto;
+  align-self: flex-start;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+  transition: background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.ct-spinal-pop__settings > svg {
+  transition: transform var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
+}
+
+.ct-spinal-pop__settings:hover,
+.ct-spinal-pop__settings:focus-visible {
+  background: color-mix(in srgb, var(--ct-fg) 8%, transparent);
+  color: var(--ct-fg);
+  outline: none;
+}
+
+.ct-spinal-pop__settings:hover > svg,
+.ct-spinal-pop__settings:focus-visible > svg {
+  transform: rotate(60deg);
+}
+
+.ct-spinal-pop .ct-spend {
+  margin: 4px -4px 12px;
+}
+
+.ct-spinal-pop__title {
+  display: block;
+  color: var(--ct-fg);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ct-spinal-pop__subtitle {
+  display: block;
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+}
+
+.ct-spinal-graphic {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 2px 0 6px;
+}
+
+.ct-spinal-graphic__line {
+  fill: none;
+  stroke: color-mix(in srgb, var(--ct-fg) 12%, transparent);
+  stroke-width: 1.4;
+}
+
+.ct-spinal-graphic__pulse {
+  fill: none;
+  stroke: var(--ct-accent);
+  stroke-dasharray: 6 120;
+  stroke-linecap: round;
+  stroke-width: 2;
+  animation: ct-spinal-pulse 2.4s var(--ct-ease-liquid-settle) infinite;
+}
+
+.ct-spinal-graphic__pulse--out {
+  stroke: color-mix(in srgb, var(--ct-green) 80%, var(--ct-accent));
+}
+
+.ct-spinal-graphic__node {
+  fill: color-mix(in srgb, var(--ct-fg) 5%, var(--ct-bg));
+  stroke: color-mix(in srgb, var(--ct-fg) 16%, transparent);
+}
+
+.ct-spinal-graphic__node--sense {
+  stroke: color-mix(in srgb, var(--ct-green) 30%, transparent);
+}
+
+.ct-spinal-graphic__label {
+  fill: var(--ct-muted-fg);
+  font-size: 8.5px;
+  text-anchor: middle;
+}
+
+.ct-spinal-graphic__cord {
+  stroke: color-mix(in srgb, var(--ct-accent) 40%, transparent);
+  stroke-width: 2;
+}
+
+.ct-spinal-graphic__bone {
+  fill: color-mix(in srgb, var(--ct-accent) 22%, var(--ct-bg));
+  stroke: color-mix(in srgb, var(--ct-accent) 45%, transparent);
+  animation: ct-spinal-bone-glow 2.4s var(--ct-ease-liquid-breathe) infinite;
+}
+
+.ct-spinal-pop__points {
+  display: grid;
+  gap: 6px;
+  margin: 4px 2px 10px;
+  padding: 0;
+  list-style: none;
+  color: var(--ct-fg);
+  font-size: 12px;
+}
+
+.ct-spinal-pop__points li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ct-spinal-pop__points svg {
+  flex: none;
+  color: var(--ct-accent);
+}
+
+.ct-spinal-pop__pulse {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 2px 10px;
+  color: var(--ct-fg);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ct-spinal-pop__beat {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ct-green);
+
+  --ct-live-pulse-easing: var(--ct-ease-liquid-settle);
+}
+
+.ct-spinal-pop__feed {
+  max-height: 260px;
+  margin: 0 -4px;
+  padding: 8px 6px;
+  overflow-y: auto;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ct-fg) 3%, transparent);
+}
+
+.ct-spinal-pop__feed h3 {
+  margin: 0 4px 6px;
+  color: var(--ct-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+
+.ct-spinal-pop__nudge {
+  margin: 0 2px 10px;
+  color: var(--ct-muted-fg);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.ct-spinal-pop__ask {
+  display: flex;
+  width: 100%;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ct-accent);
+  color: var(--ct-on-accent);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell),
+    filter var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.ct-spinal-pop__ask:hover {
+  filter: brightness(1.08);
+  animation: ct-bar-pill-sway var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
+}
+
+.ct-spinal-pop__ask:active {
+  transform: scale(0.97);
+  transition-duration: var(--ct-duration-liquid-press);
+}
+
+.ct-spinal-pop__ask[data-ask-state="sent"] {
+  background: color-mix(in srgb, var(--ct-green) 22%, var(--ct-bg));
+  color: var(--ct-fg);
+}
+
+@keyframes ct-spinal-breathe {
+  0%, 100% { opacity: 0.35; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+@keyframes ct-spinal-bone-wave {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.25, 1.1); }
+  100% { transform: scale(1); }
+}
+
+@keyframes ct-spinal-pulse {
+  from { stroke-dashoffset: 126; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes ct-spinal-bone-glow {
+  0%, 100% { fill: color-mix(in srgb, var(--ct-accent) 16%, var(--ct-bg)); }
+  50% { fill: color-mix(in srgb, var(--ct-accent) 38%, var(--ct-bg)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-spinal-btn,
+  .ct-spinal-btn__label,
+  .ct-spinal-pop__settings > svg,
+  .ct-spinal-pop__ask {
+    transition: none;
+  }
+
+  .ct-spinal-btn__invite,
+  .ct-spinal-btn__reflex,
+  .ct-spinal-vertebrae--reflex rect,
+  .ct-spinal-pop__beat,
+  .ct-spinal-graphic__pulse,
+  .ct-spinal-graphic__bone,
+  .ct-spinal-btn:hover .ct-spinal-vertebrae rect {
+    animation: none;
+  }
+}

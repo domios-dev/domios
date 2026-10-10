@@ -107,6 +107,10 @@ struct Pending<H: ShadowHost> {
     model_verdict: Option<identity::correlation::ModelVerdict>,
 }
 
+pub(super) fn receipt_authorization_deadline(captured_at: Instant, configured_ms: u64) -> Instant {
+    captured_at + std::time::Duration::from_millis(configured_ms.max(1)).min(DEADLINE)
+}
+
 impl<H: ShadowHost> Pending<H> {
     fn current(&self, adapter_id: &str, adapter: &Arc<dyn DecisionModel>) -> bool {
         let Some(envelope) = self.metadata.envelope.as_ref() else {
@@ -176,6 +180,7 @@ pub(crate) fn spawn<H: ShadowHost>(
     )
 }
 
+#[cfg(test)]
 pub(crate) fn spawn_with_origin<H: ShadowHost>(
     host: &H,
     config: &SupporterConfig,
@@ -188,6 +193,31 @@ pub(crate) fn spawn_with_origin<H: ShadowHost>(
         + Send
         + 'static,
 ) -> Option<scheduler::ObservationHandle> {
+    spawn_with_origin_and_id(
+        host,
+        config,
+        tab,
+        expected_screen,
+        trigger,
+        parent_observation_id,
+        expected_local,
+        decided,
+    )
+    .map(|(handle, _)| handle)
+}
+
+pub(crate) fn spawn_with_origin_and_id<H: ShadowHost>(
+    host: &H,
+    config: &SupporterConfig,
+    tab: &str,
+    expected_screen: Option<&str>,
+    trigger: ObservationTrigger,
+    parent_observation_id: Option<u64>,
+    expected_local: Option<&identity::LocalIdentity>,
+    decided: impl FnOnce(Option<CandidateVerdict>, identity::DecisionSource, &dyn Fn() -> bool)
+        + Send
+        + 'static,
+) -> Option<(scheduler::ObservationHandle, u64)> {
     let adapter_id = config.active_id()?.to_owned();
     if !observer::connected(host, config, &adapter_id) {
         return None;
@@ -203,14 +233,14 @@ pub(crate) fn spawn_with_origin<H: ShadowHost>(
     )
     .ok()?;
     let envelope = metadata.envelope.as_mut()?;
+    let observation_id = envelope.observation_id;
     envelope.adapter = Some(adapter.clone());
     envelope.policy_hash = Some(identity::supporter_policy(config));
-    let captured_at = envelope.captured_at;
     let mut pending = Pending {
         host: host.clone(),
         tab: tab.into(),
         metadata,
-        source: identity::DecisionSource::Error,
+        source: identity::DecisionSource::unavailable(),
         recorded: false,
         model_verdict: None,
     };
@@ -234,71 +264,80 @@ pub(crate) fn spawn_with_origin<H: ShadowHost>(
     pending.source = identity::DecisionSource::Budget;
     let critical = matches!(
         trigger,
-        ObservationTrigger::PromptEstablished | ObservationTrigger::PromptConfirmation
+        ObservationTrigger::PromptEstablished
+            | ObservationTrigger::PromptConfirmation
+            | ObservationTrigger::SentinelRequest
     );
-    scheduler::global().submit(tab.into(), critical, request.questions.len(), move || {
-        pending.source = identity::DecisionSource::Error;
-        if !pending.current(&adapter_id, &adapter) {
-            return None;
-        }
-        let deadline = captured_at + Duration::from_millis(config.deadline_ms.max(1)).min(DEADLINE);
-        let result = if Instant::now() >= deadline {
-            Err(DecisionError::Deadline)
-        } else if observer::choice_model(&pending.host.supporter_models(), &adapter_id).is_none() {
-            Err(DecisionError::Unsupported)
-        } else {
-            let model = supporter::budgeted_model_with_activity(
-                adapter.clone(),
-                pending.host.supporter_runtime(),
-                config.calls_per_hour.unwrap_or(0),
-                VerdictKind::TabState,
-                Some(pending.tab.clone()),
-                Some(criteria_version),
-                Some(supporter::ActivityContext::TabState {
-                    title: pending.metadata.title.clone(),
-                    declared_safe_choice: pending.metadata.declared_safe_choice.clone(),
-                }),
-            );
-            model.decide_questions(&request, deadline)
-        };
-        pending.model_verdict = result
-            .as_ref()
-            .ok()
-            .and_then(identity::correlation::ModelVerdict::from_response);
-        if !pending.current(&adapter_id, &adapter) {
-            return None;
-        }
-        let (mut verdict, source) = select(result);
-        if !request.questions.contains_key("safe_choice") {
-            if let Some(verdict) = verdict.as_mut() {
-                verdict.safe_choice = None;
+    scheduler::global()
+        .submit(tab.into(), critical, request.questions.len(), move || {
+            pending.source = identity::DecisionSource::unavailable();
+            if !pending.current(&adapter_id, &adapter) {
+                return None;
             }
-        }
-        pending.record(source, verdict.as_ref());
-        let envelope = pending.metadata.envelope.as_ref()?;
-        let ledgers = pending.host.ledger_snapshot(&pending.tab);
-        let ticket = coordinator::global().claim(&envelope.observation, ledgers.clone())?;
-        if !coordinator::global().ticket_is_current(&ticket, &ledgers)
-            || !pending.current(&adapter_id, &adapter)
-        {
-            return None;
-        }
-        if let Some(verdict) = verdict.as_mut() {
-            verdict.receipt = Some(safe_response::Receipt {
-                metadata: pending.metadata.clone(),
-                adapter_id: adapter_id.clone(),
-                ticket: ticket.clone(),
-                deadline,
-            });
-        }
-        let valid = || {
-            coordinator::global()
-                .ticket_is_current(&ticket, &pending.host.ledger_snapshot(&pending.tab))
-                && pending.current(&adapter_id, &adapter)
-        };
-        decided(verdict, source, &valid);
-        None
-    })
+            let captured_at = pending.metadata.envelope.as_ref()?.captured_at;
+            let runtime = pending.host.supporter_runtime();
+            let receipt_deadline = receipt_authorization_deadline(captured_at, config.deadline_ms);
+            let adapter_deadline =
+                runtime.decision_deadline(&adapter_id, config.deadline_ms, Instant::now());
+            let result = if observer::choice_model(&pending.host.supporter_models(), &adapter_id)
+                .is_none()
+            {
+                Err(DecisionError::Unsupported)
+            } else {
+                let model = supporter::budgeted_model_with_activity(
+                    adapter.clone(),
+                    runtime,
+                    config.calls_per_hour.unwrap_or(0),
+                    VerdictKind::TabState,
+                    Some(pending.tab.clone()),
+                    Some(criteria_version),
+                    Some(supporter::ActivityContext::TabState {
+                        title: pending.metadata.title.clone(),
+                        declared_safe_choice: pending.metadata.declared_safe_choice.clone(),
+                        decision_point: trigger.label().into(),
+                    }),
+                );
+                model.decide_questions(&request, adapter_deadline)
+            };
+            pending.model_verdict = result
+                .as_ref()
+                .ok()
+                .and_then(identity::correlation::ModelVerdict::from_response);
+            if !pending.current(&adapter_id, &adapter) {
+                return None;
+            }
+            let (mut verdict, source) = select(result);
+            if !request.questions.contains_key("safe_choice") {
+                if let Some(verdict) = verdict.as_mut() {
+                    verdict.safe_choice = None;
+                }
+            }
+            pending.record(source, verdict.as_ref());
+            let envelope = pending.metadata.envelope.as_ref()?;
+            let ledgers = pending.host.ledger_snapshot(&pending.tab);
+            let ticket = coordinator::global().claim(&envelope.observation, ledgers.clone())?;
+            if !coordinator::global().ticket_is_current(&ticket, &ledgers)
+                || !pending.current(&adapter_id, &adapter)
+            {
+                return None;
+            }
+            if let Some(verdict) = verdict.as_mut() {
+                verdict.receipt = Some(safe_response::Receipt {
+                    metadata: pending.metadata.clone(),
+                    adapter_id: adapter_id.clone(),
+                    ticket: ticket.clone(),
+                    deadline: receipt_deadline,
+                });
+            }
+            let valid = || {
+                coordinator::global()
+                    .ticket_is_current(&ticket, &pending.host.ledger_snapshot(&pending.tab))
+                    && pending.current(&adapter_id, &adapter)
+            };
+            decided(verdict, source, &valid);
+            None
+        })
+        .map(|handle| (handle, observation_id))
 }
 
 impl ServiceContext {
@@ -331,28 +370,69 @@ impl ServiceContext {
         parent_observation_id: Option<u64>,
         expected_local: Option<&identity::LocalIdentity>,
     ) -> bool {
-        if self
-            .prompt_detector
-            .lock()
-            .active_prompt_explicit(&snapshot.tab_id)
-            == Some(true)
+        self.observe_scrape_candidate_from_inner(
+            snapshot,
+            fallback,
+            trigger,
+            parent_observation_id,
+            expected_local,
+            None,
+        )
+        .is_some()
+    }
+
+    pub(super) fn observe_sentinel_prompt_candidate(
+        &self,
+        snapshot: crate::agent::tab_state::TabStateSnapshot,
+        expected_local: &identity::LocalIdentity,
+        kind: safe_response::Kind,
+        requested_by: &str,
+        parent_observation_id: Option<u64>,
+    ) -> Option<u64> {
+        self.observe_scrape_candidate_from_inner(
+            snapshot,
+            |_| {},
+            ObservationTrigger::SentinelRequest,
+            parent_observation_id,
+            Some(expected_local),
+            Some((kind, requested_by.to_owned())),
+        )
+    }
+
+    fn observe_scrape_candidate_from_inner(
+        &self,
+        snapshot: crate::agent::tab_state::TabStateSnapshot,
+        fallback: impl FnOnce(&ServiceContext) + Send + 'static,
+        trigger: ObservationTrigger,
+        parent_observation_id: Option<u64>,
+        expected_local: Option<&identity::LocalIdentity>,
+        sentinel_request: Option<(safe_response::Kind, String)>,
+    ) -> Option<u64> {
+        if sentinel_request
+            .as_ref()
+            .is_none_or(|(kind, _)| *kind != safe_response::Kind::Permission)
+            && self
+                .prompt_detector
+                .lock()
+                .active_prompt_explicit(&snapshot.tab_id)
+                == Some(true)
         {
-            return false;
+            return None;
         }
         let local = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(&snapshot.tab_id) else {
-                return false;
+                return None;
             };
             if tab.agent_type.as_deref() != Some(snapshot.agent_type.as_str())
                 || tab.agent_session_id != snapshot.session_id
                 || tab.cwd != snapshot.cwd
             {
-                return false;
+                return None;
             }
             let local = identity::LocalIdentity::of_tab(tab);
             if expected_local.is_some_and(|expected| &local != expected) {
-                return false;
+                return None;
             }
             local
         };
@@ -361,7 +441,7 @@ impl ServiceContext {
         let tab = snapshot.tab_id.clone();
         let screen = snapshot.screen_text.clone();
         let expected_local = local.clone();
-        candidates::spawn_with_origin(
+        candidates::spawn_with_origin_and_id(
             self,
             &config,
             &tab,
@@ -383,7 +463,18 @@ impl ServiceContext {
                 }
                 if source == identity::DecisionSource::Adapter {
                     if let Some(verdict) = verdict {
-                        if trigger.is_internal_candidate() {
+                        if let Some((kind, requested_by)) = sentinel_request.as_ref() {
+                            if valid() {
+                                host.try_sentinel_safe_response(
+                                    &snapshot,
+                                    &verdict,
+                                    *kind,
+                                    requested_by,
+                                );
+                            } else {
+                                safe_response::cancel_for_verdict(&snapshot.tab_id, &verdict);
+                            }
+                        } else if trigger.is_internal_candidate() {
                             if valid() {
                                 host.try_model_safe_response_from_receipt(
                                     &snapshot.tab_id,
@@ -407,7 +498,7 @@ impl ServiceContext {
                 }
             },
         )
-        .is_some()
+        .map(|(_, observation_id)| observation_id)
     }
 
     pub(crate) fn observe_model_prompt_established(

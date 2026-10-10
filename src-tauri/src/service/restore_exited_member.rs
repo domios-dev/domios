@@ -15,6 +15,35 @@ use crate::session::lifecycle::{JournalRecord, LifecycleTransition, TabLifecycle
 static AUTO_RECOVERY_CLAIMS: LazyLock<Mutex<HashSet<String>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
 
+const RESTORED_ROLE_WITHOUT_PROVIDER_REASON: &str =
+    "restored_role_without_provider: this role has no recorded provider or session";
+
+pub(crate) fn legacy_role_shell_failure(tab: &Tab) -> Option<&'static str> {
+    (tab.restored_from_snapshot
+        && !tab.protected
+        && (tab.role.is_some() || tab.role_profile.is_some())
+        && tab.agent_type.is_none()
+        && tab.agent_session_id.is_none()
+        && latest_prior_session(&tab.prior_session_binding_nonces).is_none())
+    .then_some(RESTORED_ROLE_WITHOUT_PROVIDER_REASON)
+}
+
+pub(crate) fn mark_legacy_role_shell_failures(
+    mux: &mut MultiplexerState,
+) -> Vec<(String, &'static str)> {
+    let failures = mux
+        .all_tabs()
+        .filter_map(|tab| legacy_role_shell_failure(tab).map(|reason| (tab.id.clone(), reason)))
+        .collect::<Vec<_>>();
+    for (tab_id, reason) in &failures {
+        if let Some(tab) = mux.get_tab_mut(tab_id) {
+            tab.boot_stage = Some(crate::service::boot_stage::BootStage::SpawnFailed);
+            tab.boot_failure_reason = Some((*reason).into());
+        }
+    }
+    failures
+}
+
 /// The lineage session exit recovery resumes for a restored tab with no agent.
 pub(crate) fn exited_member_session(tab: &Tab) -> Option<&str> {
     if !tab.restored_from_snapshot

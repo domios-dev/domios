@@ -1,3 +1,8 @@
+import { LocalArtifactScope } from "@codeterm/chat-ui";
+import { documentsFromTranscript } from "./chatDocuments";
+import { chatDocumentsStore } from "./chatDocumentsStore";
+import { chatChangesStore } from "./chatChangesStore";
+import { RemovedChatPlugin } from "./RemovedChatPlugin";
 import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
 import {
@@ -7,7 +12,7 @@ import {
   OutboundReportCard,
   sessionIntentFromMessages,
 } from "@codeterm/chat-ui";
-import { extractPlanRefs } from "@codeterm/chat-ui";
+import { ChatBlockHostProvider, PluginNameProvider, extractPlanRefs } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler, OutboundReportDescriptor } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
 import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
@@ -24,17 +29,22 @@ import {
   tabAsksEqual,
 } from "../../store/multiplexer/selectors";
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
+import { getAgentDescriptor } from "../../lib/agentDescriptorCache";
 import { formatModelBadge } from "../../lib/formatModelBadge";
+import { statusLineModelName } from "./statusLinePickerModel";
 import { usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { usePlanTargetNavigation } from "../Canvas/teamViewNavigation";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
+import { ManagedTabBar } from "./ManagedTabBar";
+import { managedTabPresentation } from "../../lib/managedTab";
+import { ComposerApprovalDock } from "./ComposerApprovalDock";
 import { PendingPromptCard } from "./PendingPromptCard";
 import { AutoConfirmedPromptRows, autoConfirmationsForSession } from "./PermissionAutoConfirm";
 import { AgentStateIndicator } from "./AgentStateIndicator";
-import type { AgentState } from "./AgentStateIndicator";
-import { useSteadyAgentState } from "./useSteadyAgentState";
+import { TabStatusLineModelPicker } from "./StatusLineModelPicker";
+import { useTabActivity } from "../../lib/useTabActivity";
 import { useAttachments } from "./useAttachments";
 import { useChatSession, isCodeTermFrontendTestMode, paintTailSignature } from "./useChatSession";
 import { chatProjectionMonitor, scheduleAfterPaint } from "./chatProjectionDiagnostics";
@@ -42,9 +52,11 @@ import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
 import { PluginIcon } from "../Extensions/PluginIcon";
 import { getPluginProviderMeta, pluginProviderMetaVersion, subscribePluginProviderMeta } from "../../lib/pluginProviderMeta";
+import { usePluginDisplayNameResolver } from "../../hooks/usePluginProviderMeta";
+import type { ChatOrigin } from "../../lib/chatPrefixes";
 import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
 import { ScrollToLatestButton } from "./ScrollToLatestButton";
-import { ChatSetupState, chatSetupStageLabel, chatSetupSubject, chatSetupView } from "./ChatSetupState";
+import { ChatSetupState, chatSetupView } from "./ChatSetupState";
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { chatPlanRefView } from "./chatPlanRef";
 import { useChatScroll } from "./useChatScroll";
@@ -53,10 +65,30 @@ import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 import { useAgentReportProjection } from "./agentReportProjection";
 import { chatBodyView, chatRailsVisible, placeChatRails } from "./chatBodyVisibility";
 import { messageTimeMs, normalizeEpochMs } from "./outboundReportPlacement";
+import { agentMessageTimeIds } from "./chatMessageTimePlacement";
 import { ChatAskCard } from "../Notifications/ChatAskCard";
 import { useChatMessageReveal } from "./useChatMessageReveal";
 import { useSessionBindingSurface } from "./useSessionBindingSurface";
 import { SessionBindingRecoveryForm } from "./SessionBindingRecoveryForm";
+import { BlueprintChatCards } from "./BlueprintChatCards";
+import { useTabChatBlockHost } from "./pinnedBlocks";
+import { interruptAgentArgs } from "../../lib/agentInterrupt";
+import { useTabChoiceHost } from "./useTabChoiceHost";
+import { ChatMessageRow } from "./ChatMessageRow";
+import { ChatDeliveryState } from "./ChatDeliveryState";
+import { deliveryState, sendForRow } from "./chatDeliveryModel";
+import { beginChatSendRetry, failChatSendRequest, useChatSends } from "./chatSendStore";
+import { sendTrackedChatMessage } from "./chatSendStatus";
+import { prepareChatDelivery } from "./chatDeliveryPreparation";
+import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
+import { MessageSelectionBar } from "./MessageSelectionBar";
+import { useChatMessageSelection } from "./useChatMessageSelection";
+import { streamingMessageId } from "./streamingMessage";
+import { jumpToMessage } from "./jumpToMessage";
+import { HelperMomentCard } from "./HelperMomentCard";
+import { helperMoments } from "../../lib/helperMoments/helperMomentsWiring";
+import { latestAnswerText } from "../../lib/helperMoments/helperBlocks";
+import { isGeneralAgent } from "../../lib/roleKind";
 
 interface Props {
   tabId: string;
@@ -88,8 +120,13 @@ function isMicrophonePermissionError(message: string): boolean {
   );
 }
 
+// Runs for every row on every streamed chunk; only the head of a long message can reach the excerpt.
+const ACCESSIBLE_NAME_SCAN_CHARS = 1_000;
+
 function chatMessageAccessibleName(type: string, content: string): string {
-  const compact = content.replace(/\s+/g, " ").trim();
+  const head = content.length > ACCESSIBLE_NAME_SCAN_CHARS ? content.slice(0, ACCESSIBLE_NAME_SCAN_CHARS) : content;
+  let compact = head.replace(/\s+/g, " ").trim();
+  if (compact.length <= 80 && head.length < content.length) compact = content.replace(/\s+/g, " ").trim();
   const excerpt = compact.length > 80 ? `${compact.slice(0, 77)}…` : compact;
   return excerpt ? `${type} message: ${excerpt}` : `${type} message`;
 }
@@ -145,6 +182,9 @@ export function TabSessionChat({
   }
 
   const touchMode = useTouchOptimizedUi();
+  const deliverySends = useChatSends(tabId);
+  const { expand: expandDeliveryTasks, plansSink: deliveryPlansSink } = useDsTasksExpander(tabId);
+  const tabBlockHost = useTabChatBlockHost(tabId);
   const lastStopAtRef = useRef(0);
   const chatRootRef = useRef<HTMLDivElement>(null);
   const chatFollowTailRef = useRef(true);
@@ -153,6 +193,8 @@ export function TabSessionChat({
   const openPlanTarget = usePlanTargetNavigation();
   const tabSelector = useCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
+  const workspaceSelector = useCallback((s: Parameters<typeof selectTab>[0]) => s.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? s.tabs[tabId]?.workspace_id ?? null, [tabId]);
+  const workspaceId = useMuxSelector(workspaceSelector);
   const tabTitleMap = useMuxSelector(selectTabTitleMap, tabTitleMapEqual);
   const planNav = useMuxSelector(selectPlanNavContext, planNavContextEqual);
   const tabAgentTypes = useMuxSelector(selectTabAgentTypes, tabAgentTypesEqual);
@@ -168,19 +210,21 @@ export function TabSessionChat({
   );
   const shellSessionModel = useShellSessionModel(tab);
   const tabModel = tab?.agent_session_model ?? shellSessionModel;
-  const workingModelBadge = tabModel ? formatModelBadge(tabModel) : null;
+  const workingModelBadge = formatModelBadge(tab ? statusLineModelName(tab, shellSessionModel) : tabModel ?? "Unknown model");
   const agentSessionId = tab?.agent_session_id ?? null;
   const currentPtyId = tab?.pty_id ?? null;
-  const backendState = tab?.agent_state ?? null;
+  const agentActivity = useTabActivity(tabId);
   const sessionBindingSurface = useSessionBindingSurface(tabId, agentSessionId);
   const chatBacking = tab?.backing?.kind === "chat_backend" ? tab.backing : null;
   const effectiveChatBackend = chatBackend || chatBacking !== null;
   const watcherSpec = tab?.watcher ?? null;
   const isWatcherTab = watcherSpec != null;
   const pendingPrompt: PendingPrompt | null = tab?.pending_prompt ?? null;
+  const structuredPrompts = getAgentDescriptor(tabProvider)?.supports_structured_prompts === true;
   const autoConfirmations = autoConfirmationsForSession(tab?.permission_auto_confirmations, agentSessionId);
   const isActive = isVisible;
   const resolvePeerName = useMeshPeerNameResolver(isActive);
+  const resolvePluginName = usePluginDisplayNameResolver();
 
   const showComposerError = useCallback((message: string) => {
     addNotification({
@@ -210,6 +254,7 @@ export function TabSessionChat({
     backfillLoading,
     loadOlder,
     showLatest,
+    prepareMessage,
     setHistoryReading,
     addOptimistic,
     updateOptimistic,
@@ -224,6 +269,28 @@ export function TabSessionChat({
     allowUnboundAuthority: effectiveChatBackend,
     followTailRef: chatFollowTailRef,
   });
+  const retryChatDelivery = async (id: string) => {
+    const send = beginChatSendRetry(tabId, id);
+    if (!send) return;
+    let content = send.content;
+    try { content = await prepareChatDelivery(tabId, send, expandDeliveryTasks); }
+    catch { failChatSendRequest(tabId, id); return; }
+    try {
+      observeChatSendStatus(await sendTrackedChatMessage(tabId, send.correlationId ?? send.id, content));
+    } catch {
+      void invoke<import("./chatSendStatus").ChatSendStatus[]>("chat_send_status", { tabId })
+        .then((statuses) => statuses.forEach(observeChatSendStatus)).catch(() => {});
+    }
+  };
+  useEffect(() => {
+    chatChangesStore.bind(tabId, JSON.stringify([agentSessionId, tab?.session_binding_nonce]));
+  }, [tabId, agentSessionId, tab?.session_binding_nonce]);
+  useEffect(() => {
+    if (!isActive) return;
+    const documents = documentsFromTranscript(allMessages);
+    chatDocumentsStore.set(tabId, documents);
+    chatChangesStore.set(tabId, allMessages);
+  }, [tabId, allMessages, isActive]);
   const bootSetupView = chatSetupView(tab, attachmentState === "attached");
   const hasTranscript = enrichedMessages.length > 0;
   // 'Loading chat' gates on the CHAT channel only (transcript authority + chat
@@ -261,6 +328,7 @@ export function TabSessionChat({
     ready: isActive && !chatChannelLoading,
     contentVersion: enrichedMessages,
     revealMessage,
+    prepareMessage,
   });
 
   // A detached reader stays on its content through a send; only a followed tail
@@ -270,29 +338,45 @@ export function TabSessionChat({
     showLatest();
     rawFollowSentMessage();
   }, [showLatest, rawFollowSentMessage]);
+  const choiceHost = useTabChoiceHost(tabId, { messages: allMessages, addOptimistic, followSentMessage, observeChatSendStatus });
+  const chatBlockHost = useMemo(() => ({ ...tabBlockHost, choice: choiceHost }), [tabBlockHost, choiceHost]);
+
+  const generalAgent = isGeneralAgent(tab);
+  const willSendMessage = useCallback((text: string) => {
+    followSentMessage();
+    if (generalAgent) void helperMoments.observe({ kind: "user-message", text, at: Date.now() });
+  }, [followSentMessage, generalAgent]);
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
   const [bindingRecoveryOpen, setBindingRecoveryOpen] = useState(false);
-  // clears tab.pending_prompt shortly after on the next state poll.
+  const [contextSlot, setContextSlot] = useState<HTMLDivElement | null>(null);
   const [answeredPromptQuestion, setAnsweredPromptQuestion] = useState<string | null>(null);
-
   useEffect(() => {
     if (!sessionBindingSurface.showRecoveryAction) setBindingRecoveryOpen(false);
   }, [sessionBindingSurface.showRecoveryAction]);
-  const activePrompt = pendingPrompt && pendingPrompt.question !== answeredPromptQuestion ? pendingPrompt : null;
-  const inlinePrompt = effectiveChatBackend ? activePrompt : null;
+  const activePrompt = pendingPrompt && (structuredPrompts || pendingPrompt.question !== answeredPromptQuestion) ? pendingPrompt : null;
+  const inlinePrompt = activePrompt;
 
   useEffect(() => {
     if (!pendingPrompt) setAnsweredPromptQuestion(null);
   }, [pendingPrompt]);
 
+  const promptResponseInFlight = useRef(false);
   const handleRespondPrompt = useCallback(
-    (value: string) => {
-      if (pendingPrompt) setAnsweredPromptQuestion(pendingPrompt.question);
-      void invoke("mux_respond_prompt", { tabId, value })
-        .catch((e) => showComposerError(e instanceof Error ? e.message : String(e)));
+    async (value: string) => {
+      if (promptResponseInFlight.current) return;
+      promptResponseInFlight.current = true;
+      if (pendingPrompt && !structuredPrompts) setAnsweredPromptQuestion(pendingPrompt.question);
+      try {
+        await invoke("mux_respond_prompt", { tabId, value });
+      } catch (error) {
+        showComposerError(error instanceof Error ? error.message : String(error));
+        throw error;
+      } finally {
+        promptResponseInFlight.current = false;
+      }
     },
-    [pendingPrompt, tabId, showComposerError],
+    [pendingPrompt, structuredPrompts, tabId, showComposerError],
   );
   // input path the composer uses; jump surfaces the live terminal output.
   const handleRerunShellCommand = useCallback((command: string) => {
@@ -303,7 +387,7 @@ export function TabSessionChat({
     void invoke("write_pty_string", { ptyId: currentPtyId, data: command + "\r", raw: false }).catch(
       (e) => showComposerError(e instanceof Error ? e.message : String(e)),
     );
-  }, [currentPtyId, showComposerError]);
+  }, [currentPtyId, showComposerError, tabId, tab?.managed]);
 
   const handleJumpToShellCommand = useCallback(() => {
     onOpenTerminalFallback?.();
@@ -314,7 +398,8 @@ export function TabSessionChat({
   }, []);
 
   const handleStopAgent = useCallback(() => {
-    if (!currentPtyId) {
+    const args = interruptAgentArgs({ id: tabId, pty_id: currentPtyId, managed: tab?.managed });
+    if (!args) {
       showComposerError("Tab has no PTY");
       return;
     }
@@ -323,10 +408,14 @@ export function TabSessionChat({
       return;
     }
     lastStopAtRef.current = now;
-    void invoke("interrupt_agent", { ptyId: currentPtyId }).catch((e) =>
+    void invoke("interrupt_agent", args).catch((e) =>
       showComposerError(e instanceof Error ? e.message : String(e)),
     );
-  }, [currentPtyId, showComposerError]);
+  }, [currentPtyId, showComposerError, tabId, tab?.managed]);
+
+  const openJobs = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:jobs" } }));
+  }, []);
 
   const handleStopReminder = useCallback(async (id: string) => {
     try {
@@ -368,6 +457,7 @@ export function TabSessionChat({
     removeAttachment,
     clearAttachments,
     handlePasteEvent,
+    inlineSinkRef,
     webDragOver,
     webDropHandlers,
   } = useAttachments({
@@ -465,6 +555,13 @@ export function TabSessionChat({
   const renderedEnrichedMessages = useMemo(
     () => enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg)),
     [enrichedMessages],
+  );
+  const streamingId = streamingMessageId(renderedEnrichedMessages, agentActivity.active);
+  const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef, streamingMessageId: streamingId });
+  const jumpToQuoted = useCallback((messageId: string) => { jumpToMessage(scrollRef.current, messageId); }, [scrollRef]);
+  const agentTimeMessageIds = useMemo(
+    () => agentMessageTimeIds(renderedEnrichedMessages.map(({ msg }) => msg)),
+    [renderedEnrichedMessages],
   );
   const sessionIntent = useMemo(() => sessionIntentFromMessages(allMessages), [allMessages]);
   // The rails are content, so they answer to the same authority the setup view
@@ -569,7 +666,7 @@ export function TabSessionChat({
   }, [tabAgentTypes, planNav.workspaces, selectTabByTab]);
 
   // Preserve origin prop identities so streamed chunks do not re-render old bubbles.
-  type OriginProps = { key: string; onOriginClick?: () => void; originAvatar?: ReactNode };
+  type OriginProps = { key: string; origin?: ChatOrigin; onOriginClick?: () => void; originAvatar?: ReactNode };
   const originPropsCacheRef = useRef<Map<string, OriginProps>>(new Map());
   const originFocusRef = useRef<((tabId: string) => void) | null>(null);
   const originPropsById = useMemo(() => {
@@ -585,12 +682,14 @@ export function TabSessionChat({
       if (origin?.kind === "plugin") {
         const meta = getPluginProviderMeta(origin.pluginId);
         const iconSvg = origin.iconSvg ?? meta?.iconSvg;
-        const key = `plugin:${origin.pluginId}:${iconSvg ?? "fallback"}:${meta?.iconColor ?? ""}`;
+        const name = origin.name || resolvePluginName(origin.pluginId);
+        const key = `plugin:${origin.pluginId}:${name ?? ""}:${iconSvg ?? "fallback"}:${meta?.iconColor ?? ""}`;
         const prev = cache.get(msg.id);
         const entry: OriginProps = prev && prev.key === key
           ? prev
           : {
               key,
+              origin: name === origin.name ? origin : { ...origin, name },
               originAvatar: <OriginPluginAvatar pluginId={origin.pluginId} iconSvg={iconSvg} />,
             };
         next.set(msg.id, entry);
@@ -614,33 +713,7 @@ export function TabSessionChat({
     }
     originPropsCacheRef.current = next;
     return next;
-  }, [pluginMetaVersion, renderedEnrichedMessages, tabAgentTypes, setFocusedTab]);
-
-  // subtype); it arrives via the mux snapshot and events, no local polling needed.
-  const liveAgentState: AgentState = useMemo(() => {
-    const kind = backendState?.state ?? "idle";
-    return {
-      state: kind,
-      subtype: backendState?.subtype,
-      status_line: backendState?.status_line,
-      phase: backendState?.phase,
-    };
-  }, [
-    backendState?.state,
-    backendState?.status_line,
-    backendState?.phase,
-    backendState?.subtype,
-  ]);
-
-  const composerModelBubble = useMemo(() => {
-    if (!effectiveChatBackend || !chatBacking) return undefined;
-    return (
-      <>
-        <ChatModelBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
-        <ChatPresetBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
-      </>
-    );
-  }, [chatBacking, effectiveChatBackend]);
+  }, [pluginMetaVersion, renderedEnrichedMessages, resolvePluginName, tabAgentTypes, setFocusedTab]);
 
   const watcherModelBubble = useMemo(() => {
     if (!effectiveChatBackend || !chatBacking) return undefined;
@@ -652,25 +725,10 @@ export function TabSessionChat({
     );
   }, [chatBacking, effectiveChatBackend]);
 
-  const statusRowState: AgentState = useMemo(() => {
-    if (transcriptUnavailable) return { state: "idle", status_line: "Chat transcript unavailable" };
-    if (error) return { state: "idle", status_line: "Chat unavailable" };
-    if (chatChannelLoading) return { state: "working", status_line: "Loading chat…" };
-    if (!hasTranscript && bootSetupView.kind === "starting") {
-      return {
-        state: "working",
-        status_line: chatSetupStageLabel(
-          tab?.boot_stage,
-          chatSetupSubject(tab, provider?.displayName ?? "the agent"),
-        ),
-      };
-    }
-    if (sessionBindingSurface.agentState && liveAgentState.state !== "question") {
-      return sessionBindingSurface.agentState;
-    }
-    return liveAgentState;
-  }, [bootSetupView.kind, chatChannelLoading, error, hasTranscript, liveAgentState, provider?.displayName, sessionBindingSurface.agentState, tab, transcriptUnavailable]);
-  const steadyStatusRowState = useSteadyAgentState(statusRowState);
+  const helperAnswer = useMemo(
+    () => (generalAgent ? latestAnswerText(renderedEnrichedMessages.map(({ msg }) => msg)) : null),
+    [generalAgent, renderedEnrichedMessages],
+  );
   const showEmptyState = setupView.kind === "none"
     && !chatLoading
     && renderedEnrichedMessages.length === 0
@@ -679,9 +737,12 @@ export function TabSessionChat({
     && !inlinePrompt;
 
   return (
+    <LocalArtifactScope tabId={tabId}>
+    <ChatBlockHostProvider value={chatBlockHost}>
+    <PluginNameProvider resolve={resolvePluginName}>
     <div
       ref={chatRootRef}
-      className="w-full h-full flex flex-col relative"
+      className="ct-chat-shell w-full h-full flex flex-col relative"
       data-testid="tab-session-chat"
       data-tab-id={tabId}
       role="region"
@@ -705,6 +766,7 @@ export function TabSessionChat({
           <span className="text-sm font-mono">Drop files to attach</span>
         </div>
       )}
+      <RemovedChatPlugin error={effectiveChatBackend ? error : null} />
       <ChatSessionIntentLine intent={sessionIntent} />
       <div className="relative flex-1 min-h-0">
       {showEmptyState && (
@@ -721,7 +783,9 @@ export function TabSessionChat({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="ct-hover-reveal-scrollbar absolute inset-0 overflow-y-auto overscroll-contain p-3 select-text"
+        onKeyDown={messageSelection.onKeyDown}
+        data-selecting={messageSelection.active || undefined}
+        className="ct-chat-surface absolute inset-0 overflow-y-auto overscroll-contain px-5 py-3 select-text"
         data-testid="tab-session-chat-messages"
         role="log"
         aria-label="Conversation"
@@ -762,25 +826,33 @@ export function TabSessionChat({
         )}
         {(reportPlacement.afterIndex.get(-1) ?? []).map(renderOutboundReport)}
         {(askPlacement.afterIndex.get(-1) ?? []).map(renderAsk)}
+        <BlueprintChatCards tabId={tabId} workspaceId={workspaceId} />
         {renderedEnrichedMessages.map(({ msg, item, origin }, messageIndex) => {
           const originProps = originPropsById.get(msg.id);
           const following = reportPlacement.afterIndex.get(messageIndex) ?? [];
+          const nextId = renderedEnrichedMessages[messageIndex + 1]?.msg.id;
+          const deliverySend = sendForRow(deliverySends, msg);
           return (
             <Fragment key={msg.id}>
-            <div
-              key={msg.id}
-              data-testid="chat-message"
-              data-message-role={msg.type}
-              data-message-id={msg.id}
-              data-source-message-id={msg.sourceMessageId ?? msg.id}
-              role="article"
-              aria-label={chatMessageAccessibleName(msg.type, msg.content)}
+            <ChatMessageRow
+              msg={msg}
+              ariaLabel={chatMessageAccessibleName(msg.type, msg.content)}
+              selected={messageSelection.selected.has(msg.id)}
+              joinNext={nextId !== undefined && following.length === 0 && messageSelection.selected.has(nextId)}
+              selecting={messageSelection.active}
+              cursor={messageSelection.cursor ? messageSelection.cursor === msg.id : messageIndex === renderedEnrichedMessages.length - 1}
+              handlers={messageSelection.rowHandlers}
             >
               <MessageBubble
                 message={msg}
+                streaming={msg.id === streamingId}
+                userFooter={deliverySend && deliveryState(deliverySend) !== "delivered"
+                  ? <ChatDeliveryState state={deliveryState(deliverySend)} onRetry={() => void retryChatDelivery(deliverySend.id)} />
+                  : undefined}
+                showTimestamp={msg.type === "user" || agentTimeMessageIds.has(msg.id)}
                 item={item.kind === "tool" ? item : undefined}
                 isLatestFailedToolCall={msg.id === latestFailedToolCallId}
-                origin={origin}
+                origin={originProps?.origin ?? origin}
                 resolveTabName={resolveTabName}
                 resolvePeerName={resolvePeerName}
                 onOpenPlan={onOpenPlan}
@@ -790,12 +862,14 @@ export function TabSessionChat({
                 answeredInteractiveIds={answeredInteractiveIds}
                 onRerunShellCommand={handleRerunShellCommand}
                 onStopReminder={handleStopReminder}
+                onOpenJobs={openJobs}
                 onJumpToShellCommand={onOpenTerminalFallback ? handleJumpToShellCommand : undefined}
                 originAvatar={originProps?.originAvatar}
                 onOriginClick={originProps?.onOriginClick}
                 onFocusTab={resolveFocusTab}
+                onJumpToMessage={jumpToQuoted}
               />
-            </div>
+            </ChatMessageRow>
               {following.map(renderOutboundReport)}
               {(askPlacement.afterIndex.get(messageIndex) ?? []).map(renderAsk)}
             </Fragment>
@@ -803,6 +877,7 @@ export function TabSessionChat({
         })}
         {reportPlacement.trailing.map(renderOutboundReport)}
         {askPlacement.trailing.map(renderAsk)}
+        {generalAgent && <HelperMomentCard idle={agentActivity.kind === "idle"} latestAnswer={helperAnswer} />}
         <ChatSetupState
           tab={tab}
           view={setupView}
@@ -813,9 +888,16 @@ export function TabSessionChat({
           onEscape={focusComposer}
         />
         <AutoConfirmedPromptRows records={autoConfirmations} />
-        <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={handleRespondPrompt} />
         </div>
       </div>
+      <MessageSelectionBar
+        count={messageSelection.count}
+        partial={messageSelection.partial}
+        onCopy={messageSelection.copySelection}
+        onQuote={messageSelection.quoteSelection}
+        onAsk={messageSelection.askSelection}
+        onClear={messageSelection.clear}
+      />
       {showScrollDown && (
         <ScrollToLatestButton
           testId="chat-scroll-bottom"
@@ -828,6 +910,7 @@ export function TabSessionChat({
         />
       )}
       </div>
+      <div data-composer-height-surface className="ct-chat-bottom-bar shrink-0">
       {isWatcherTab && watcherSpec ? (
         <WatcherReadOnlyBar
           watcher={watcherSpec}
@@ -835,19 +918,22 @@ export function TabSessionChat({
         />
       ) : (
       <>
-      <div className="w-full px-3">
+      {chatChannelLoading && <span role="status" className="ct-composer-lane mx-auto block text-xs text-[var(--ct-muted-fg)]">Loading chat…</span>}
+      <div ref={setContextSlot} className="ct-ctx-slot" />
+      <div className="ct-composer-status w-full">
         <AgentStateIndicator
-          state={steadyStatusRowState}
+          activity={agentActivity}
           providerName={provider?.displayName ?? tabProvider}
           model={workingModelBadge}
           reasoningEffort={tab?.reasoning_effort_identity}
-          className="mx-auto w-full max-w-4xl"
+          className="ct-composer-lane mx-auto w-full"
           onStop={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
           onCancel={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
           onOpenTerminal={effectiveChatBackend ? undefined : onOpenTerminalFallback}
           onRebind={sessionBindingSurface.showRecoveryAction
             ? () => setBindingRecoveryOpen(true)
             : undefined}
+          renderIdentity={tab ? (label) => <TabStatusLineModelPicker tab={tab} label={label} /> : undefined}
         />        {bindingRecoveryOpen && (
           <SessionBindingRecoveryForm
             tabId={tabId}
@@ -856,7 +942,9 @@ export function TabSessionChat({
           />
         )}
       </div>
-      <ChatComposer
+      {deliveryPlansSink}
+      {tab?.managed && <ManagedTabBar managed={tab.managed} activity={agentActivity} onStop={handleStopAgent} />}
+      {!managedTabPresentation(tab?.managed).locked && <ChatComposer
         tabId={tabId}
         tabProvider={tabProvider}
         currentPtyId={currentPtyId}
@@ -868,16 +956,24 @@ export function TabSessionChat({
         removeAttachment={removeAttachment}
         clearAttachments={clearAttachments}
         handlePasteEvent={handlePasteEvent}
-        onWillSendMessage={followSentMessage}
+        inlineAttachmentSink={inlineSinkRef}
+        contextSlot={contextSlot}
+        onWillSendMessage={willSendMessage}
         addOptimistic={addOptimistic}
         updateOptimistic={updateOptimistic}
         observeChatSendStatus={observeChatSendStatus}
         showComposerError={showComposerError}
         onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
-        modelBubble={composerModelBubble}
-      />
+        promptDock={inlinePrompt && (agentActivity.subtype === "permission" && !inlinePrompt.multi_select && !inlinePrompt.sections?.length
+          ? <ComposerApprovalDock key={JSON.stringify(inlinePrompt)} prompt={inlinePrompt} tabId={tabId} active={isActive} onRespond={handleRespondPrompt} />
+          : <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={(value) => { void handleRespondPrompt(value).catch(() => {}); }} />)}
+      />}
       </>
       )}
+      </div>
     </div>
+    </PluginNameProvider>
+    </ChatBlockHostProvider>
+    </LocalArtifactScope>
   );
 }

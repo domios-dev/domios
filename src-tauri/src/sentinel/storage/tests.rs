@@ -17,10 +17,14 @@ use super::super::store::{Create, Lease, Owner, Sentinel, Store};
 use super::{codec, commit, legacy_import};
 use crate::cron::clock::MockClock;
 use crate::storage::{
-    Completion, DefinitionProvenance, MutationOutcome, Storage, StorageConfig, StoredSentinel,
+    Completion, DefinitionProvenance, DefinitionUpdate, Fence, MutationOutcome, StageRuntime,
+    Storage, StorageConfig, StoredSentinel,
 };
 
 mod coherence;
+mod decision_detail;
+mod graph_fields;
+mod pipeline_journal;
 mod races;
 
 /// Failure bound around event waits only; elapsed time never signals readiness.
@@ -32,8 +36,8 @@ const LEGACY: &str = r#"[
   "buckets":["done","failed","waiting"],"interval_ms":20000,
   "routes":{
    "done":[
-    {"id":"join","action":{"kind":"sentinel","target":"sentinel_child"},
-     "target":{"kind":"sentinel","id":"sentinel_child","workspace_id":"workspace","team_id":"team","owner_tab_id":"creator"}},
+    {"id":"join","action":{"kind":"blueprint","target":"sentinel_child"},
+     "target":{"kind":"blueprint","id":"sentinel_child","workspace_id":"workspace","team_id":"team","owner_tab_id":"creator"}},
     {"id":"build","action":{"kind":"command","target":{"command":"make check","label":"Check","timeout_ms":1000}},"target":null},
     {"id":"tell","action":{"kind":"send","target":"worker-tab"},
      "target":{"kind":"worker","id":"worker-tab","workspace_id":"workspace","team_id":"team","owner_tab_id":null}}],
@@ -113,6 +117,7 @@ fn owner(team: Option<&str>) -> Owner {
 
 fn params(paused: bool, handlers: Value) -> Create {
     serde_json::from_value(json!({
+        "name": "storage-state-watch",
         "probe": "status", "question": "state?", "buckets": ["done", "failed"], "every": "10s",
         "timeout": "1h", "matches": {"done": "^done$"}, "paused": paused, "handlers": handlers
     }))
@@ -197,7 +202,7 @@ fn stored(storage: &Storage, id: &str) -> StoredSentinel {
 }
 
 fn values(jobs: &[Sentinel]) -> Value {
-    serde_json::to_value(jobs).expect("serializable sentinels")
+    serde_json::to_value(jobs).expect("serializable blueprints")
 }
 
 fn statuses(store: &Mutex<Store>, id: &str) -> Vec<Status> {
@@ -219,7 +224,7 @@ fn import_legacy(storage: &Storage) -> Vec<Sentinel> {
     let records = legacy_import(LEGACY).expect("legacy decode");
     let committed = done(storage.sentinels().import(records));
     assert_eq!(committed.value.outcome, MutationOutcome::Applied);
-    serde_json::from_str(LEGACY).expect("fixture sentinels")
+    serde_json::from_str(LEGACY).expect("fixture blueprints")
 }
 
 #[test]
@@ -342,16 +347,28 @@ fn storage_sentinel_definition_versions_are_independent_of_runtime_state() {
     assert_eq!(first.definition.provenance, DefinitionProvenance::Authored);
     let mut revised = first.definition.definition.clone();
     revised.question = "Revised question?".into();
-    let updated = done(repo.update_definition(id.clone(), 1, revised.clone()));
+    let update = |definition| DefinitionUpdate {
+        definition,
+        author_tab_id: "creator".into(),
+        cause_transition_id: None,
+        authored_at: 1000,
+    };
+    let updated = done(repo.update_definition(id.clone(), 1, update(revised.clone())));
     assert_eq!(updated.value.outcome, MutationOutcome::Applied);
-    let stale = done(repo.update_definition(id.clone(), 1, revised));
-    assert!(matches!(stale.value.outcome, MutationOutcome::Fenced(_)));
+    let stale = done(repo.update_definition(id.clone(), 1, update(revised)));
+    assert_eq!(stale.value.outcome, MutationOutcome::Fenced(Fence::Version));
 
     let after = stored(&storage, &job.id).record;
     assert_eq!(after.definition.version, 2);
+    let generation = first.runtime.generation + 1;
     assert_eq!(
-        after.runtime, first.runtime,
-        "a new version never touches runtime"
+        after.runtime,
+        StageRuntime {
+            causal_run_json: None,
+            generation,
+            ..first.runtime.clone()
+        },
+        "a new version advances only the generation, exactly once"
     );
     let history = done(repo.history(id.clone())).value;
     assert_eq!(history.len(), 2);
@@ -362,9 +379,11 @@ fn storage_sentinel_definition_versions_are_independent_of_runtime_state() {
 
     let accepted = done(repo.accept_transition(
         id.clone(),
-        0,
+        generation,
         codec::outcome(&job),
         crate::storage::NewTransition {
+            causal_run_json: None,
+            decision_json: None,
             id: "eval-after-update".into(),
             bucket: "done".into(),
             accepted_at: 1000,
@@ -376,11 +395,53 @@ fn storage_sentinel_definition_versions_are_independent_of_runtime_state() {
     assert_eq!(stopped.value.outcome, MutationOutcome::Applied);
     let last = stored(&storage, &job.id).record;
     assert_eq!(last.transitions[0].definition_version, Some(2));
-    assert_eq!(last.runtime.generation, 1);
+    assert_eq!(last.runtime.generation, generation + 1);
     assert_eq!(
         done(repo.history(id)).value.len(),
         2,
         "operational changes are not versions"
+    );
+    close(storage);
+}
+
+#[test]
+fn storage_sentinel_rearm_configuration_survives_reopen_and_definition_history() {
+    let root = temp_root();
+    let storage = open(root.path());
+    let clock = MockClock::starting_at(1000);
+    let store = typed(&storage, &clock);
+    let mut definition = params(false, json!({}));
+    definition.rearm_on_change.insert("done".into());
+    let job = store
+        .lock()
+        .prepare(definition, owner(None), false)
+        .expect("rearm definition");
+    let id = job.id.clone();
+    commit(&store, |current| current.stage_insert(job)).expect("rearm definition committed");
+    close(storage);
+
+    let storage = open(root.path());
+    let restored = typed(&storage, &clock);
+    assert!(restored
+        .lock()
+        .get(&id)
+        .unwrap()
+        .rearm_on_change
+        .contains("done"));
+    let history = done(
+        storage
+            .sentinels()
+            .history(crate::storage::SentinelId::new(id).expect("sentinel id")),
+    )
+    .value;
+    assert!(
+        history[0]
+            .definition
+            .buckets
+            .iter()
+            .find(|bucket| bucket.name == "done")
+            .expect("stored done bucket")
+            .rearm_on_change
     );
     close(storage);
 }
@@ -392,7 +453,7 @@ fn storage_sentinel_two_parents_activate_child_once_and_survive_reopen() {
     let clock = MockClock::starting_at(1000);
     let store = typed(&storage, &clock);
     let child = create(&store, Some("team"), true, json!({}));
-    let join = json!({"done":[{"id":"join","type":"sentinel","parameters":{"target":child.id}}]});
+    let join = json!({"done":[{"id":"join","type":"blueprint","parameters":{"target":child.id}}]});
     let first = create(&store, Some("team"), false, join.clone());
     let second = create(&store, Some("team"), false, join);
     let leases = due(&store);
@@ -445,6 +506,26 @@ fn storage_sentinel_two_parents_activate_child_once_and_survive_reopen() {
     let child = restored.get(&child.id).unwrap();
     assert_eq!(child.machine.last_bucket.as_deref(), Some("done"));
     assert_eq!(child.revision, 1, "activated exactly once");
+    let first_run = restored.get(&first.id).unwrap().transitions[0]
+        .causal_run
+        .as_ref()
+        .unwrap();
+    let second_run = restored.get(&second.id).unwrap().transitions[0]
+        .causal_run
+        .as_ref()
+        .unwrap();
+    let child_run = child.transitions[0].causal_run.as_ref().unwrap();
+    assert_ne!(first_run.id, second_run.id);
+    assert_eq!(first_run.started_at, second_run.started_at);
+    assert_eq!(child_run.id, first_run.id);
+    assert_eq!(child.causal_run.as_ref(), Some(child_run));
+    assert_eq!(child_run.parent.as_ref().unwrap().node, first.id);
+    assert_eq!(child_run.parent.as_ref().unwrap().handler, "join");
+    assert_eq!(
+        child_run.parent.as_ref().unwrap().transition,
+        restored.get(&first.id).unwrap().transitions[0].id
+    );
+
     assert_eq!(
         restored.get(&second.id).unwrap().transitions[0].handlers[0].status,
         Status::Noop
@@ -600,4 +681,104 @@ fn storage_sentinel_codec_refuses_lossy_definitions() {
     job.routes.remove("undeclared");
     job.matches.insert("undeclared".into(), "x".into());
     assert!(codec::import(&job).is_err());
+}
+
+#[test]
+fn sentinel_escalate_typed_outcomes_persist_hold_resolve_and_expiry() {
+    let root = temp_root();
+    let mut storage = open(root.path());
+    let clock = MockClock::starting_at(1000);
+    let store = typed(&storage, &clock);
+    let params: Create = serde_json::from_value(json!({
+        "name": "escalation-outcome-watch",
+        "probe": "status",
+        "question": "state?",
+        "buckets": ["done", "failed"],
+        "every": "10s",
+        "timeout": "1h",
+        "matches": {"done": "^done$"},
+        "escalation_timeout_ms": 5000,
+        "handlers": {
+            "done": [{"id": "done_notice", "type": "notify", "parameters": {}}],
+            "other": [{"id": "ask_creator", "type": "escalate", "parameters": {"target": "creator"}}]
+        }
+    }))
+    .unwrap();
+    let job = store
+        .lock()
+        .prepare(params, owner(Some("team")), false)
+        .expect("escalation definition");
+    let job = commit(&store, |current| current.stage_insert(job)).unwrap();
+    let lease = due(&store).remove(0);
+    run(&store, &lease, "unknown", "other", |_, _, _| {
+        Ok(Status::Completed)
+    });
+    store.lock().release(&job.id);
+    let held = store.lock().get(&job.id).unwrap().clone();
+    let held_transition = held.machine.held.clone().expect("typed held state");
+    let original_hash = held.machine.last_hash.clone().expect("observation hash");
+    assert_eq!(
+        codec::outcome(&held).held.as_deref(),
+        Some(held_transition.as_str())
+    );
+
+    assert!(commit(&store, |current| {
+        current.stage_resolve_escalation(&job.id, &held_transition)
+    })
+    .unwrap());
+    let resolved = store.lock().get(&job.id).unwrap().clone();
+    assert!(resolved.machine.held.is_none());
+    assert!(resolved.machine.last_hash.is_none());
+    assert_eq!(resolved.machine.last_bucket.as_deref(), Some("other"));
+    assert!(store.lock().wake_stage(&job.id));
+
+    let lease = due(&store).remove(0);
+    run(&store, &lease, "unknown", "other", |_, _, _| {
+        Ok(Status::Completed)
+    });
+    store.lock().release(&job.id);
+    let held_again = store.lock().get(&job.id).unwrap().clone();
+    let expired_transition = held_again.machine.held.clone().expect("second held state");
+    let expired_hash = held_again
+        .machine
+        .last_hash
+        .clone()
+        .expect("second observation hash");
+    assert_ne!(original_hash, "");
+
+    clock.advance_ms(5000);
+    let (_, staged) = store
+        .lock()
+        .stage_expire_escalation()
+        .expect("expired hold");
+    assert!(staged.settle(&store).unwrap());
+    let expired = store.lock().get(&job.id).unwrap().clone();
+    assert!(expired.machine.held.is_none());
+    assert_eq!(
+        expired.machine.last_hash.as_deref(),
+        Some(expired_hash.as_str())
+    );
+    assert_eq!(expired.machine.last_bucket.as_deref(), Some("other"));
+    assert_eq!(expired.last_reason.as_deref(), Some("escalation_expired"));
+    assert!(codec::outcome(&expired).held.is_none());
+    assert_eq!(
+        codec::outcome(&expired).last_hash.as_deref(),
+        Some(expired_hash.as_str())
+    );
+    assert_ne!(expired_transition, held_transition);
+
+    drop(store);
+    close(storage);
+    storage = open(root.path());
+    let reopened = typed(&storage, &clock);
+    let restored = reopened.lock().get(&job.id).unwrap().clone();
+    assert!(restored.machine.held.is_none());
+    assert_eq!(
+        restored.machine.last_hash.as_deref(),
+        Some(expired_hash.as_str())
+    );
+    assert_eq!(restored.machine.last_bucket.as_deref(), Some("other"));
+    assert_eq!(restored.last_reason.as_deref(), Some("escalation_expired"));
+    drop(reopened);
+    close(storage);
 }

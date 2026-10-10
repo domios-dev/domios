@@ -4,7 +4,7 @@ import { Window } from "happy-dom";
 import { afterEach, expect, finish, it, vi } from "../../test/standaloneTest";
 
 interface StreamHarness {
-  controller: ReadableStreamDefaultController<Uint8Array>;
+  controllers: Map<string, ReadableStreamDefaultController<Uint8Array>>;
   requests: string[];
 }
 
@@ -21,16 +21,16 @@ let useChatSession: typeof import("./useChatSession")["useChatSession"];
 
 function installStream(): StreamHarness {
   const requests: string[] = [];
-  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const controllers = new Map<string, ReadableStreamDefaultController<Uint8Array>>();
   vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
     requests.push(String(input));
     return new Response(new ReadableStream<Uint8Array>({
       start(next) {
-        controller = next;
+        controllers.set(String(input), next);
       },
     }));
   });
-  return { get controller() { return controller; }, requests };
+  return { controllers, requests };
 }
 
 function emitChat(
@@ -38,6 +38,7 @@ function emitChat(
   eventTabId: string,
   payloadTabId: string,
   content: string,
+  streamUrl = stream.requests[0],
 ): void {
   const frame = {
     boot: "web-chat-boot",
@@ -50,7 +51,9 @@ function emitChat(
       messages: [{ id: `${eventTabId}-message`, type: "assistant", content, timestamp: "1" }],
     },
   };
-  stream.controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(frame)}\n\n`));
+  const controller = stream.controllers.get(streamUrl);
+  expect(controller !== undefined).toBe(true);
+  controller!.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(frame)}\n\n`));
 }
 
 async function mountChat(tabId: string): Promise<MountedChat> {
@@ -164,9 +167,10 @@ async function main(): Promise<void> {
     const stream = installStream();
     const mounted = await mountChat("mesh:peer-b/remote-tab");
 
-    expect(stream.requests[0]).toContain("peer=peer-b");
-    expect(stream.requests[0]).toContain("tab=mesh%3Apeer-b%2Fremote-tab");
-    emitChat(stream, "remote-tab", "remote-tab", "attached mesh arrival");
+    const remoteStreams = stream.requests.filter((url) => url.includes("peer=peer-b"));
+    expect(remoteStreams.length).toBe(1);
+    expect(remoteStreams[0]).toContain("tab=mesh%3Apeer-b%2Fremote-tab");
+    emitChat(stream, "remote-tab", "remote-tab", "attached mesh arrival", remoteStreams[0]);
     await settleDelivery();
 
     expect(mounted.host.textContent).toContain("attached mesh arrival");

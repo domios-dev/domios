@@ -417,6 +417,7 @@ impl PlanStore {
                                 let personality_provenance =
                                     personality.as_ref().map(|_| IdentityProvenance::Suggested);
                                 let task = Task {
+                                    files: Default::default(),
                                     id: id.clone(),
                                     name: name.unwrap_or_else(|| handle.clone()),
                                     kind: kind.unwrap_or_else(|| "implement".into()),

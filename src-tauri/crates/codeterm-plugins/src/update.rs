@@ -23,75 +23,71 @@ pub(super) fn update_one(id: &str) -> Result<(), String> {
     if !plugin_dir(&parsed_id).exists() {
         return Err(format!("plugin '{id}' is not installed"));
     }
-    let record = read_install_record(id)?;
     let before = manifest_version(&plugin_dir(&parsed_id)).ok().flatten();
-    match record.source.clone() {
-        InstallSource::Dir { path } => {
-            let after = manifest_version(Path::new(&path)).ok().flatten();
-            let next_record = InstallRecord {
-                installed_at: now_rfc3339(),
-                version: after.clone(),
-                last_change: Some(last_change_for_update(before.clone(), after.clone(), None)),
-                ..record
-            };
-            let result = install_from_dir(Path::new(&path), id, Some(&next_record));
-            audit_plugin_result("update", Some(id), None, before, after, &result);
-            result
-        }
-        InstallSource::Channel { channel, path } => {
-            refresh_channel(Some(&channel))?;
-            let reg = read_channel_registry()?;
-            let ch = reg
-                .channels
-                .get(&channel)
-                .ok_or_else(|| format!("channel '{channel}' not registered"))?;
-            let source = Path::new(&ch.path).join(&path);
-            let after = manifest_version(&source).ok().flatten();
-            let next_record = InstallRecord {
-                installed_at: now_rfc3339(),
-                version: after.clone(),
-                last_change: Some(last_change_for_update(
-                    before.clone(),
-                    after.clone(),
-                    Some(channel.clone()),
-                )),
-                ..record
-            };
-            if let Err(reason) = compat_check(manifest_min_codeterm(&source).as_deref()) {
-                return Err(format!("plugin '{id}' {reason}"));
-            }
-            let result = install_from_dir(&source, id, Some(&next_record));
-            audit_plugin_result("update", Some(id), Some(&channel), before, after, &result);
-            result
-        }
-        InstallSource::SystemChannel { channel, path } => {
+    let record = read_install_record(id).map_err(|_| {
+        let decision = update_availability(before.as_deref(), UpdateSource::Unknown, None);
+        format!("plugin '{id}' is not updatable: {}", decision.reason)
+    })?;
+    let channel = match &record.source {
+        InstallSource::Channel { channel, .. } => channel,
+        InstallSource::SystemChannel { channel, .. } => {
             ensure_system_channel()?;
-            refresh_channel(Some(&channel))?;
-            let reg = read_channel_registry()?;
-            let ch = reg
-                .channels
-                .get(&channel)
-                .ok_or_else(|| format!("channel '{channel}' not registered"))?;
-            let source = Path::new(&ch.path).join(&path);
-            let after = manifest_version(&source).ok().flatten();
-            let next_record = InstallRecord {
-                installed_at: now_rfc3339(),
-                version: after.clone(),
-                last_change: Some(last_change_for_update(
-                    before.clone(),
-                    after.clone(),
-                    Some(channel.clone()),
-                )),
-                ..record
-            };
-            if let Err(reason) = compat_check(manifest_min_codeterm(&source).as_deref()) {
-                return Err(format!("plugin '{id}' {reason}"));
-            }
-            let result = install_from_dir(&source, id, Some(&next_record));
-            audit_plugin_result("update", Some(id), Some(&channel), before, after, &result);
-            result
+            channel
         }
+        InstallSource::Dir { .. } => {
+            let decision = update_availability(before.as_deref(), UpdateSource::Local, None);
+            return Err(format!(
+                "plugin '{id}' is not updatable: {}; reinstall with plugin install --from-dir",
+                decision.reason
+            ));
+        }
+    };
+    refresh_channel(Some(channel))?;
+    let status = installed_update_status(id, before.as_deref(), Some(&record.source));
+    if status["available"] != true {
+        return Err(format!(
+            "plugin '{id}' is not updatable: {}",
+            status["reason"].as_str().unwrap_or("unknown")
+        ));
     }
+    let registry = read_channel_registry()?;
+    let ch = registry
+        .channels
+        .get(channel)
+        .ok_or_else(|| format!("channel '{channel}' not registered"))?;
+    let manifest = read_channel_manifest(Path::new(&ch.path))?;
+    let plugin = manifest
+        .plugins
+        .iter()
+        .find(|plugin| plugin.id == id)
+        .ok_or_else(|| format!("plugin '{id}' not in channel '{channel}'"))?;
+    let path = plugin_path(plugin)?;
+    let source = Path::new(&ch.path).join(&path);
+    let after = manifest_version(&source).ok().flatten();
+    let next_source = match &record.source {
+        InstallSource::SystemChannel { .. } => InstallSource::SystemChannel {
+            channel: channel.clone(),
+            path,
+        },
+        _ => InstallSource::Channel {
+            channel: channel.clone(),
+            path,
+        },
+    };
+    let next_record = InstallRecord {
+        installed_at: now_rfc3339(),
+        version: after.clone(),
+        last_change: Some(last_change_for_update(
+            before.clone(),
+            after.clone(),
+            Some(channel.clone()),
+        )),
+        source: next_source,
+        ..record.clone()
+    };
+    let result = install_from_dir(&source, id, Some(&next_record));
+    audit_plugin_result("update", Some(id), Some(channel), before, after, &result);
+    result
 }
 
 pub(super) fn update_system_command(id: Option<String>) -> Result<serde_json::Value, String> {
@@ -104,6 +100,11 @@ pub(super) fn update_system_command(id: Option<String>) -> Result<serde_json::Va
         .ok_or_else(|| format!("channel '{SYSTEM_CHANNEL_NAME}' not registered"))?;
     let channel_path = PathBuf::from(&channel.path);
     let manifest = read_channel_manifest(&channel_path)?;
+    let current_ids: Vec<String> = manifest
+        .plugins
+        .iter()
+        .map(|plugin| plugin.id.clone())
+        .collect();
     let requested = match id {
         Some(id) => {
             let plugin = manifest
@@ -133,7 +134,26 @@ pub(super) fn update_system_command(id: Option<String>) -> Result<serde_json::Va
             blocked.push(format!("system plugin '{id}' {reason}"));
             continue;
         }
-        let version = plugin.version;
+        let before = manifest_version(&plugin_dir(&parsed_id)).ok().flatten();
+        let after = manifest_version(&source_dir).ok().flatten();
+        let version = plugin.version.or_else(|| after.clone());
+        let decision = update_availability(
+            before.as_deref().or(after.as_deref()),
+            UpdateSource::Channel(SYSTEM_CHANNEL_NAME),
+            Some(UpdateOffer {
+                channel: SYSTEM_CHANNEL_NAME,
+                version: version.as_deref(),
+                payload_version: after.as_deref(),
+                compatible: compat_check(manifest_min_codeterm(&source_dir).as_deref()).is_ok(),
+            }),
+        );
+        if !decision.available && decision.reason != "same_version" {
+            blocked.push(format!(
+                "system plugin '{id}' is not installable: {}",
+                decision.reason
+            ));
+            continue;
+        }
         let record = InstallRecord {
             id: id.clone(),
             version: version.clone(),
@@ -147,7 +167,6 @@ pub(super) fn update_system_command(id: Option<String>) -> Result<serde_json::Va
                 Some(SYSTEM_CHANNEL_NAME.to_string()),
             )),
         };
-        let before = manifest_version(&plugin_dir(&parsed_id)).ok().flatten();
         let result = install_from_dir(&source_dir, &id, Some(&record));
         audit_plugin_result(
             "update_system",
@@ -163,7 +182,7 @@ pub(super) fn update_system_command(id: Option<String>) -> Result<serde_json::Va
     if updated.is_empty() && !blocked.is_empty() {
         return Err(blocked.join("; "));
     }
-    let mut warnings = removed_system_channel_warnings(&updated)?;
+    let mut warnings = removed_system_channel_warnings(&current_ids)?;
     warnings.extend(blocked);
     Ok(serde_json::json!({
         "ok": true,

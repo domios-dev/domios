@@ -3,23 +3,31 @@ use crate::service::startup_nudge::StartupNudge;
 use crate::service::ServiceContext;
 
 pub(crate) trait HierarchyReportDelivery {
-    fn deliver(&self, recipient_tab_id: &str, report: &AgentReport) -> Result<(), String>;
+    fn deliver(&self, recipient_tab_id: &str, report: &AgentReport) -> Result<bool, String>;
 }
 
 impl HierarchyReportDelivery for ServiceContext {
-    fn deliver(&self, recipient_tab_id: &str, report: &AgentReport) -> Result<(), String> {
-        let envelope = crate::service::messenger::MessageEnvelope::report(
+    fn deliver(&self, recipient_tab_id: &str, report: &AgentReport) -> Result<bool, String> {
+        let mut envelope = crate::service::messenger::MessageEnvelope::report(
             &report.from_title,
             &report.from_tab_id,
         )
         .model(report.model.clone());
+        envelope.id = Some(report.id.clone());
+        envelope.delivery_observer =
+            Some(crate::service::messenger::DeliveryWriteObserver::Report {
+                report_id: report.id.clone(),
+                plan_id: report.plan_id.clone(),
+                task_id: report.task_id.clone(),
+                attempt_id: report.attempt_id.clone(),
+            });
         self.gateway_deliver(
             recipient_tab_id,
             envelope,
             &report.inject_body(),
             crate::service::message_gateway::DeliveryClass::AgentTraffic,
         )
-        .map(|_| ())
+        .map(|delivery| delivery.is_written())
     }
 }
 
@@ -64,14 +72,22 @@ impl ServiceContext {
             return false;
         }
         match delivery.deliver(&gate.recipient_tab_id, report) {
-            Ok(()) => {
+            Ok(true) => {
                 self.report_store.lock().mark_delivered(&report.id);
                 log::info!(
-                    "[report/lifecycle] target={} report={} delivered",
+                    "[report/lifecycle] target={} report={} outcome=written",
                     gate.recipient_tab_id,
                     report.id
                 );
                 true
+            }
+            Ok(false) => {
+                log::warn!(
+                    "[report/lifecycle] target={} report={} outcome=pending",
+                    gate.recipient_tab_id,
+                    report.id
+                );
+                false
             }
             Err(error) => {
                 self.report_store.lock().release_delivery(&report.id);

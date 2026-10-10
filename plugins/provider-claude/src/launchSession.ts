@@ -1,16 +1,16 @@
 // A registry record binds only when its pid is in this tab's process tree and its
 // recorded start equals the live process start (mirrors agent_claude launch_session.rs).
 import type { LaunchSessionDetection, LaunchSessionEvidence } from "@codeterm/plugin-sdk";
+import { effectiveReadPath } from "../../provider-shared/readHome";
 
 export const PROCESS_REGISTRY_DIR_ENV = "CODETERM_CLAUDE_PROCESS_REGISTRY_DIR";
 
 function registryDir(): string | null {
   const override = host.envGet(PROCESS_REGISTRY_DIR_ENV);
   if (override) return override;
-  const home = host.homeDir();
-  if (!home) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
-  return home + sep + ".claude" + sep + "sessions";
+  const home = host.homeDir();
+  return effectiveReadPath(host.envGet("CLAUDE_CONFIG_DIR"), home ? home + sep + ".claude" + sep + "sessions" : null, "sessions", sep);
 }
 
 export function registrySessionId(raw: string, pid: number, startToken: string): string | null {

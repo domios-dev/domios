@@ -8,12 +8,14 @@ use crate::service::hierarchy::heartbeat_gate::{
 use codeterm_plan::service_plan::state::orchestrator_actionable_task_ids;
 
 use super::non_empty;
+use super::BlockedNotice;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ReminderRequest {
     pub(crate) kind: ReminderKind,
     pub(crate) plan_id: Option<String>,
     pub(crate) tab_id: String,
+    pub(crate) delivery_observer: Option<crate::service::messenger::DeliveryWriteObserver>,
 }
 
 impl ReminderRequest {
@@ -22,6 +24,7 @@ impl ReminderRequest {
             kind,
             plan_id: Some(plan_id.into()),
             tab_id: tab_id.into(),
+            delivery_observer: None,
         }
     }
 
@@ -30,6 +33,7 @@ impl ReminderRequest {
             kind: ReminderKind::Worker,
             plan_id: None,
             tab_id: tab_id.into(),
+            delivery_observer: None,
         }
     }
 }
@@ -38,6 +42,7 @@ impl ReminderRequest {
 pub(crate) enum ReminderOutcome {
     Suppressed(&'static str),
     Accepted,
+    Pending,
     Failed(String),
 }
 
@@ -46,7 +51,7 @@ impl ReminderOutcome {
     pub(crate) fn into_delivery(self) -> Result<bool, String> {
         match self {
             Self::Accepted => Ok(true),
-            Self::Suppressed(_) => Ok(false),
+            Self::Suppressed(_) | Self::Pending => Ok(false),
             Self::Failed(error) => Err(error),
         }
     }
@@ -91,6 +96,13 @@ pub(crate) trait ReminderHost {
         previous: &Observation,
         now: u64,
     ) -> (Snapshot, Observation);
+    fn observe_worker(
+        &self,
+        plan: &Plan,
+        scope: &Scope,
+        previous: &Observation,
+        now: u64,
+    ) -> (Snapshot, Observation);
     fn compose(
         &self,
         plan: &Plan,
@@ -98,7 +110,14 @@ pub(crate) trait ReminderHost {
         snapshot: &Snapshot,
         decision: &Decision,
     ) -> Emission;
-    fn emit(&self, plan_id: &str, scope: &Scope, emission: &Emission) -> Result<(), String>;
+    fn emit(
+        &self,
+        plan_id: &str,
+        scope: &Scope,
+        emission: &Emission,
+        observer: Option<crate::service::messenger::DeliveryWriteObserver>,
+    ) -> Result<bool, String>;
+    fn notify_blocked(&self, owner_tab: &str, notice: &BlockedNotice);
 }
 
 pub(crate) fn scope_key(plan_id: &str, tab_id: &str) -> String {
@@ -154,6 +173,7 @@ pub(crate) fn admit(
     match outcome {
         ReminderOutcome::Suppressed(_) => log::debug!("{line}"),
         ReminderOutcome::Accepted => log::info!("{line}"),
+        ReminderOutcome::Pending => log::warn!("{line}"),
         ReminderOutcome::Failed(_) => log::warn!("{line}"),
     }
     outcome
@@ -169,6 +189,11 @@ fn admit_claimed(
 ) -> ReminderOutcome {
     let gate = host.gate();
     let supporter = host.supporter();
+    let soft_cooldown = if scope.kind == ReminderKind::Worker {
+        0
+    } else {
+        host.interval()
+    };
     let (Some(model), Some(adapter)) = (supporter.connected(&scope.tab_id), supporter.generation())
     else {
         return suppress(gate, claim, "no_adapter");
@@ -188,7 +213,7 @@ fn admit_claimed(
         now,
         Some(model.as_ref()),
         supporter.deadline(),
-        host.interval(),
+        soft_cooldown,
     );
     let Ok(mut decision) = decided else {
         return suppress(gate, claim, "gate_unavailable");
@@ -196,15 +221,36 @@ fn admit_claimed(
     decision.adapter = Some(model.id().to_string());
     decision.model = model.model_id();
     heartbeat_gate::journal(&supporter.runtime, &decision, &plan.id, now);
-    if !decision.wake {
-        return suppress(gate, claim, decision.reason);
-    }
     let current = |plan_id: &str| match resolve(host, request, Some(plan_id)) {
         Ok((plan, fresh)) if fresh == scope && connected_as(host, &supporter, &adapter) => {
             Some(plan)
         }
         _ => None,
     };
+    if decision.tick_label == "blocked" {
+        if decision.reason != "model_answer" || decision.decided_by == "cache" {
+            return suppress(gate, claim, decision.reason);
+        }
+        let Some(plan) = current(&plan.id) else {
+            return suppress(gate, claim, "stale_scope");
+        };
+        let (mut fresh, _) = observe(host, &plan, &scope, &previous, now);
+        fresh.scope = snapshot.scope.clone();
+        if fresh.hash() != decision.snapshot_hash {
+            return suppress(gate, claim, "stale_observation");
+        }
+        if let Some(owner_tab) = non_empty(plan.owner.tab_id.as_deref()) {
+            for notice in super::blocked_notices(&plan, &scope, &fresh) {
+                if gate.claim_blocker_notice(&notice.event_key) {
+                    host.notify_blocked(owner_tab, &notice);
+                }
+            }
+        }
+        return suppress(gate, claim, "recipient_blocked");
+    }
+    if !decision.wake {
+        return suppress(gate, claim, decision.reason);
+    }
     let Some(plan) = current(&plan.id) else {
         return suppress(gate, claim, "stale_scope");
     };
@@ -214,16 +260,32 @@ fn admit_claimed(
     if fresh.hash() != decision.snapshot_hash {
         return suppress(gate, claim, "stale_observation");
     }
+    if scope.kind == ReminderKind::Worker
+        && scope.task_id.as_deref().is_some_and(|task_id| {
+            plan.tasks
+                .iter()
+                .find(|task| task.id == task_id)
+                .is_some_and(|task| task.status == crate::plan::TaskStatus::Blocked)
+        })
+    {
+        return suppress(gate, claim, "recipient_not_actionable");
+    }
     let emission = host.compose(&plan, &scope, &snapshot, &decision);
     // Re-observation and compose can take IO time; the last check is bound to the handoff.
     if current(&plan.id).is_none() || !gate.attempt(claim, &decision) {
         return suppress(gate, claim, "stale_scope");
     }
-    match host.emit(&plan.id, &scope, &emission) {
-        Ok(()) => {
+    match host.emit(
+        &plan.id,
+        &scope,
+        &emission,
+        request.delivery_observer.clone(),
+    ) {
+        Ok(true) => {
             gate.delivered(key, &snapshot, &decision, now);
             ReminderOutcome::Accepted
         }
+        Ok(false) => ReminderOutcome::Pending,
         Err(error) => {
             gate.failed(key);
             ReminderOutcome::Failed(error)
@@ -246,7 +308,7 @@ fn observe(
     now: u64,
 ) -> (Snapshot, Observation) {
     match scope.kind {
-        ReminderKind::Worker => heartbeat_gate::collect_worker_scope(plan, scope, previous),
+        ReminderKind::Worker => host.observe_worker(plan, scope, previous, now),
         _ => host.observe_owner(plan, &scope.tab_id, previous, now),
     }
 }

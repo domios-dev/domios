@@ -128,3 +128,59 @@ failure they are kept and the run directory
 
 The script prints `== restore lifecycle PASS` and exits 0. Any `FAIL` line exits
 non-zero and names the tab, field, and before/after values.
+
+### Controlled roleless restore authentication fixture
+
+For a shared owner DEV, use a controlled restart scheduled by the Orchestrator;
+do not invoke `run.sh`, which owns its own restart cycles. Source
+`evals/_lib/lib.sh` and use `dc` for every probe command.
+
+Create a provisioned scratch workspace and a roleless agent declaring
+`session_starts_on_first_user_turn`. Have it run `codeterm identify` and
+`codeterm workspace current`, then wait. Capture that exact tab with
+`dc tab inspect --tab <id> --lifecycle`: require an authenticated binding
+(`reported_session_binding_nonce == session_binding_nonce`, both nonempty).
+After the Orchestrator restarts DEV, inspect the same tab and session without
+sending a turn that could hide a missing restore bootstrap. Require a new,
+authenticated nonce and exactly one new restore binding turn in its transcript.
+Then ask the agent to execute the same commands and require its actual successful
+results. A restored delegated member additionally needs its Team command to
+authorize on its existing assignment. A missing binding must instead leave
+`launch_binding_unconfirmed` and a standalone recovery incident; an idle
+composer alone is not a pass. Preserve unresolved delivery records and verify
+that their payloads never appear again after restore.
+
+## Close/Undo release regression fixture
+
+Run these cases on the rebuilt DEV release SHA after the restart bench, using
+`source evals/_lib/lib.sh` and `dc` for every probe and mutation. Record the CLI
+compatibility verdict, lifecycle inspection, exact session id, visible history,
+and model/effort before close and after Undo/Recently Closed restore.
+
+| Case | Trigger | Observable pass condition |
+|------|---------|---------------------------|
+| Fresh OpenCode | Route a pad-backed send before any UI composer turn | Send is accepted or held; exactly one own-session user turn and contextual answer appear. |
+| OpenCode 1.18.35 | Close, then Undo | Compatibility is supported; the original session id, prior messages and contextual answer remain. |
+| Immediate Undo send | Make a pad-backed contextual send the next operation after Undo, without waiting for readiness | Send is held against the incoming launch; after its own session authenticates, exactly one user turn and contextual answer appear. |
+| Immediate relaunch send | Send when a confirmed restart/resume picker closes, before readiness | Send is held; the new launch authenticates the saved session and receives exactly one user turn and contextual answer. |
+| Failed pending launch | Hold a send during a launch that then fails before input | One `launch_ended_before_write` settlement reports `bytes_written: false`; no payload reaches this or a subsequent launch. |
+| Aider | Close, then Recently Closed restore; route input at reader_ready | Input is held until exact saved history-marker binding, then written once; original history and contextual answer appear. |
+| Grok | Close, then Recently Closed restore; route input before binding | Input is held until current-PTY PID-registry binding, then written once; original session history and contextual answer appear. |
+| Codex | Confirm low effort, close, then Undo and complete one reply | Original session and model remain; requested/resolved effort remain low; actual effort returns to low with actual_source session-owned. |
+| Unresumable conversation | Restore a saved conversation unavailable to its provider | UI shows a restore failure with a reason; no replacement session starts. |
+| Missing conversation | Provider confirms the saved session is absent and journal or exact provider content proves a user turn | Card retains Start new session and Keep shell; no automatic replacement. |
+| Empty missing session (Volta) | Rebuild DEV and restore Restoreprobe tab `32ffb66f` with no ConversationStarted or exact provider user content | Same tab becomes a fresh Claude Manager automatically; recorded provider, model, effort, permission/runtime mode, role/profile, Team/plan, cwd, title and launch prompt remain; one quiet system notice appears in Chat; no failure card. |
+| Unknown restore evidence | Provider check or transcript read is inconclusive, journal is unreadable/corrupt, or launch parameters were not captured | Failure card remains and the saved session binding is preserved. |
+| Explicit fresh recovery | Provider confirms the saved session is absent; click Start new session | One fresh session becomes ready in the same tab; tab id, title, role, Team, plan binding, cwd, model and effort remain; dead session and exact restore flag are cleared; lifecycle names the old session. |
+| Existing unresumable session | Provider still owns the exact session but cannot resume it | Card offers Keep shell without Start new session; explicit `dc agent restart --tab <id> --fresh` refuses without changing the binding. |
+
+Use a unique opaque token in the first turn and require the post-restore answer
+to recall it. An accepted send or reader_ready alone is not a pass. Send one
+additional routed turn after readiness; check both turns appear exactly once.
+Unknown OpenCode versions remain blocked for direct SQLite reads; do not mark
+such a run supported merely because the database columns look familiar.
+
+For Codex, capture `dc tab inspect --tab <id> --lifecycle --json` before close,
+immediately after Undo, and after the contextual reply completes. Runtime
+effort may be unverified immediately after restore; the completed reply must
+confirm it without a model/effort change or an extra verification turn.

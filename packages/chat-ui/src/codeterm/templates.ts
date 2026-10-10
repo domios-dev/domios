@@ -1,5 +1,6 @@
 import type { CodetermInvocation } from "./recognize";
 import { decodeCliMessageText } from "./messageText";
+import { describePluginAction, type PluginNameResolver } from "./pluginAction";
 
 export interface CardStatus {
   ok: boolean;
@@ -204,11 +205,11 @@ function commandObject(command: string | undefined): string | undefined {
 }
 
 function reportFields(inv: CodetermInvocation, result?: string): Array<{ label: string; value: string }> {
-  const rawBody = resolvedText(result) ?? flagText(inv, "text") ?? inv.positionals.find((value) => /(?:^|\n|\\n)(?:STATUS|CHANGES|TESTS RUN|GATES REQUESTED|FOLLOWUP):/i.test(value));
+  const rawBody = resolvedText(result) ?? flagText(inv, "text") ?? inv.positionals.find((value) => /(?:^|\n|\\n)(?:STATUS|CHANGES|TESTS RUN|TESTS COVERING CHANGES|GATES REQUESTED|FOLLOWUP):/i.test(value));
   const body = rawBody ? decodeCliMessageText(rawBody) : undefined;
   const fields = new Map<string, string>();
   for (const line of body?.split(/\r?\n/) ?? []) {
-    const match = /^(STATUS|CHANGES|TESTS RUN|GATES REQUESTED|FOLLOWUP):\s*(.*)$/i.exec(line.trim());
+    const match = /^(STATUS|CHANGES|TESTS RUN|TESTS COVERING CHANGES|GATES REQUESTED|FOLLOWUP):\s*(.*)$/i.exec(line.trim());
     if (match) fields.set(match[1].toLowerCase().replace(" run", ""), match[2]);
   }
   const status = flagText(inv, "status") ?? fields.get("status");
@@ -219,13 +220,13 @@ function reportFields(inv: CodetermInvocation, result?: string): Array<{ label: 
 }
 
 /** Build the compact lead/object/chips payload used by the action card header; the object never repeats the lead. */
-export function describeAction(inv: CodetermInvocation, result?: string, resolve?: TabNameResolver, resolvePeer?: PeerNameResolver): ActionDescriptor {
-  const descriptor = describeInvocation(inv, result, resolve, resolvePeer);
+export function describeAction(inv: CodetermInvocation, result?: string, resolve?: TabNameResolver, resolvePeer?: PeerNameResolver, resolvePlugin?: PluginNameResolver): ActionDescriptor {
+  const descriptor = describeInvocation(inv, result, resolve, resolvePeer, resolvePlugin);
   const object = descriptor.object?.trim();
   return object && object.toLowerCase() !== descriptor.lead.trim().toLowerCase() ? descriptor : { ...descriptor, object: undefined };
 }
 
-function describeInvocation(inv: CodetermInvocation, result?: string, resolve?: TabNameResolver, resolvePeer?: PeerNameResolver): ActionDescriptor {
+function describeInvocation(inv: CodetermInvocation, result?: string, resolve?: TabNameResolver, resolvePeer?: PeerNameResolver, resolvePlugin?: PluginNameResolver): ActionDescriptor {
   const path = inv.path.join(" ");
   if (isHelp(inv)) {
     return { lead: path, object: "help", chips: [] };
@@ -355,7 +356,8 @@ function describeInvocation(inv: CodetermInvocation, result?: string, resolve?: 
   if (path === "orchestrator status") {
     return { lead: "agents", object: resultCount(result, "live") ?? "orchestration", chips: [], detail: flagText(inv, "plan") };
   }
-  if (inv.path[0] === "cron" || inv.path[0] === "keepawake" || inv.path[0] === "plugin" || inv.path[0] === "docs") {
+  if (inv.path[0] === "plugin") return { ...describePluginAction(inv, resolvePlugin), chips: [] };
+  if (inv.path[0] === "cron" || inv.path[0] === "keepawake" || inv.path[0] === "docs") {
     return { lead: path, object: firstMeaningful(inv) ?? flagText(inv, "schedule", "task", "name"), chips: [], detail: flagText(inv, "schedule", "task") };
   }
   const card = renderTemplate(inv, result, resolve);

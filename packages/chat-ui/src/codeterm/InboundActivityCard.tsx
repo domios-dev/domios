@@ -1,6 +1,10 @@
 import type { NormalizedChatMessage as ChatMessage, ToolEvent } from "@codeterm/chat-core";
 import type { ReactNode } from "react";
-import { ToolCardActionButton, ToolCardFrame } from "../toolcard/ToolCardFrame";
+import { Copy, MessageSquarePlus } from "lucide-react";
+import { useChatBlockHost, type ChatCardMenuItem } from "../blocks/ChatBlockHost";
+import { askExcerpt, copyPlainText } from "../ChatCardMenu";
+import { ToolCardActionButton, ToolCardChips, ToolCardFrame } from "../toolcard/ToolCardFrame";
+import { decodeCliMessageText } from "./messageText";
 import type { ToolKindVisual } from "../toolcard/toolKindVisual";
 
 interface Props {
@@ -31,7 +35,15 @@ export function inboundActivityEvent(message: ChatMessage, summary: string, stat
 }
 
 export function InboundActivityCard({ message, testId, title, summary, presentationSummary, chips = [], status = "success", visual, expanded, onToggle, onFocusTab, children, disclosureLabel }: Props) {
+  const host = useChatBlockHost();
   const event = inboundActivityEvent(message, summary, status);
+  const text = decodeCliMessageText(message.content).trim();
+  const menu: ChatCardMenuItem[] = [];
+  if (text) menu.push({ label: "Copy text", icon: <Copy size={14} aria-hidden />, onSelect: () => copyPlainText(text) });
+  if (host.askAbout && text) {
+    const askAbout = host.askAbout;
+    menu.push({ label: "Ask about this", icon: <MessageSquarePlus size={14} aria-hidden />, onSelect: () => askAbout({ title: `${title}: ${summary}`, text: `About this ${visual.label} (${title}, ${summary}):\n\n${askExcerpt(text)}` }) });
+  }
 
   return (
     <ToolCardFrame
@@ -44,7 +56,8 @@ export function InboundActivityCard({ message, testId, title, summary, presentat
       variant="codeterm"
       visualOverride={visual}
       disclosureLabel={disclosureLabel}
-      metric={chips.length ? <span className="flex min-w-0 gap-1">{chips.map((chip) => <span key={chip} className="max-w-40 truncate rounded border px-1.5 py-0.5 text-[10px]" style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}>{chip}</span>)}</span> : undefined}
+      metric={chips.length ? <ToolCardChips chips={chips} /> : undefined}
+      menu={menu}
       action={onFocusTab ? <ToolCardActionButton label="Show Tab" onClick={onFocusTab} testId="inbound-show-tab" /> : undefined}
     >
       {children}

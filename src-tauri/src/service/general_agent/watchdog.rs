@@ -78,7 +78,7 @@ impl ServiceContext {
         event: WatchdogEvent,
         tree_key: Option<crate::service::process_tree::ProviderTreeKey>,
     ) {
-        if !super::is_general_agent(tab) {
+        if !super::session_contract::owns_main(&self.mux.read(), tab) {
             return;
         }
         let provider_absent = tree_key.as_ref().is_some_and(|key| {

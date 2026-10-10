@@ -1,0 +1,18 @@
+name: Fixture event delivery
+owner: tab
+trigger:
+  type: event
+  kind: fixture.message
+  params:
+    channel: fixture
+steps:
+  - name: match fixture payload
+    input: text
+    kind:
+      kind: filter
+      pattern: fixture-message
+      bucket: matched
+    on:
+      matched: stop
+result:
+  to: owner

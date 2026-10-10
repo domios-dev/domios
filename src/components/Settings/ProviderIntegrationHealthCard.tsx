@@ -20,12 +20,6 @@ export type ProviderIntegrationState =
   | "unknown"
   | "error";
 
-export function providersWithIntegrationHealth(
-  providers: readonly ProviderDescriptor[],
-): ProviderDescriptor[] {
-  return providers.filter((provider) => provider.has_hooks);
-}
-
 export function providerIntegrationState(
   health: ProviderIntegrationHealth | null,
 ): Exclude<ProviderIntegrationState, "checking" | "error"> {
@@ -132,9 +126,9 @@ export function ProviderIntegrationHealthCard({
   return (
     <SettingsCard
       icon={<Cable size={16} />}
-      title={`${provider.display_name} hooks`}
+      title="Provider integration"
       headerRight={<IntegrationStatePill state={phase} />}
-      description="Domios reads the provider's installed hook configuration directly."
+      description={`${provider.display_name} hooks tell Domios when a session starts and stops, so each tab binds to its own session.`}
     >
       <div
         aria-live="polite"

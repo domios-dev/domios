@@ -242,6 +242,13 @@ fn adapter(endpoint: String, with_token: bool) -> (tempfile::TempDir, TypeSafeAd
     (dir, TypeSafeAdapter::new(store, Some(endpoint), None))
 }
 
+#[test]
+fn typesafe_adapter_builds_http_client_before_its_first_decision() {
+    let (_dir, adapter) = adapter("http://127.0.0.1:1/".into(), false);
+
+    assert!(adapter.client.is_ok());
+}
+
 fn read_head(stream: &mut std::net::TcpStream) -> String {
     let mut bytes = Vec::new();
     let mut buf = [0u8; 512];

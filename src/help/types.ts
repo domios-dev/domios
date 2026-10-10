@@ -5,10 +5,13 @@ export type HelpSectionId =
   | "workspaces"
   | "agents"
   | "plans"
+  | "blueprints"
   | "memory"
   | "supporter-agent"
   | "mesh"
-  | "integrations"
+  | "messengers"
+  | "phone"
+  | "messenger-plugins"
   | "tips";
 
 export type HelpFigureId =
@@ -18,7 +21,7 @@ export type HelpFigureId =
   | "supporter-recall"
   | "supporter-tab-state";
 
-export type HelpSettingsTarget = "supporter-agent";
+export type HelpSettingsTarget = "supporter-agent" | "telegram-bridge";
 
 export type HelpShortcutSource =
   | { kind: "config"; key: keyof KeybindingsConfig }
@@ -40,6 +43,8 @@ export type HelpBlock =
   | { type: "tip"; text: string }
   | { type: "ask"; label: string; question: string }
   | { type: "settings-link"; label: string; target: HelpSettingsTarget }
+  | { type: "plugin"; pluginId: string }
+  | { type: "connect"; bridgeId: string }
   | { type: "details"; summary: string; blocks: HelpBlock[] }
   | { type: "measurement"; label: string; text: string }
   | {

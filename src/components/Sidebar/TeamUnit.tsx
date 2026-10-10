@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type AnimationEvent as ReactAnimationEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, ClipboardList, LogOut, UsersRound } from "lucide-react";
+import { ChevronLeft, ChevronRight, ClipboardList, LogOut, Pencil, UserPlus, UsersRound } from "lucide-react";
 import type { ModelInfo, Tab, ProviderDescriptor, Team } from "../../lib/types";
 import type { TeamCloseInventory, TeamMemberRole } from "../../lib/teamActions";
 import { ProviderGlyph } from "../ProviderGlyph";
@@ -10,6 +10,7 @@ import { summarizeWorkers } from "./orchestrationSections";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { clampFloatingPosition } from "../shared/floatingPosition";
 import { ActivityDots } from "../shared/ActivityDots";
+import { KebabGlyph } from "../shared/RowMenuButton";
 import {
   PLAN_STATUS_COLORS,
   SegmentedDonut,
@@ -23,7 +24,6 @@ import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDiscl
 import { refusalText } from "../../lib/refusalText";
 import { useProviderModelUsage } from "../../hooks/useProviderModelUsage";
 import { formatModelUsage, hasModelUsage, usageForModel } from "../../lib/modelGroups";
-import { invoke } from "../../lib/bridge";
 
 export interface SidebarTeamActions {
   /// `managerTabId` is null when the Team holds no member that can spawn. The
@@ -168,13 +168,6 @@ function TeamMenu({
     (provider) => provider.transport === "pty" || provider.transport === "chat_backend",
   );
   const modelUsage = useProviderModelUsage(selectedProvider?.id ?? null);
-  // Opening this step explicitly re-probes, so credential changes surface
-  // without a rebuild; TTL limits unchanged providers to one probe per window.
-  useEffect(() => {
-    if (!selectedProviderId) return;
-    void invoke("refresh_provider_models", { providerId: selectedProviderId }).catch(() => {});
-  }, [selectedProviderId]);
-
   const positionMenu = useCallback((x: number, y: number) => {
     const width = menuRef.current?.offsetWidth || 174;
     const height = menuRef.current?.offsetHeight || 220;
@@ -262,7 +255,7 @@ function TeamMenu({
         aria-label="Team actions"
         aria-haspopup="menu"
         aria-expanded={open}
-        className="sidebar-team-kebab"
+        className="ct-row-kebab sidebar-team-kebab"
         onClick={(event) => {
           event.stopPropagation();
           if (open) {
@@ -273,7 +266,7 @@ function TeamMenu({
           openAt(rect.right - 174, rect.bottom + 2);
         }}
       >
-        ⋮
+        <KebabGlyph />
       </button>
       {open && createPortal(
         <div
@@ -281,7 +274,7 @@ function TeamMenu({
           data-testid="team-menu"
           role="menu"
           aria-label="Team actions"
-          className="sidebar-team-menu"
+          className="ct-portal-menu ct-menu sidebar-team-menu"
           style={{ ...position, overflowY: "auto" }}
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(event) => {
@@ -302,19 +295,20 @@ function TeamMenu({
         >
           {providerRole && selectedProvider ? (
             <>
-              <button type="button" role="menuitem" onClick={() => {
+              <button type="button" role="menuitem" className="ct-menu-row ct-menu-back" onClick={() => {
                 pendingProviderFocus.current = selectedProvider.id;
                 setSelectedProviderId(null);
               }}>
-                <ChevronRight size={11} className="rotate-180" /> Back
+                <span className="ct-menu-row__icon"><ChevronLeft size={14} /></span> Back
               </button>
-              <div className="sidebar-team-menu-label">Choose model</div>
+              <div className="ct-menu-caption">Choose model</div>
               {selectedProvider.available_models?.length ? (() => {
                 const sections = groupOptionsByLabel(selectedProvider.available_models);
                 const modelButton = (model: ModelInfo) => {
                   const usage = usageForModel(modelUsage, selectedProvider.model_groups, model.id);
                   return (
                     <button
+                      className="ct-menu-row"
                       type="button"
                       key={model.id}
                       data-testid={`team-picker-model-${model.id}`}
@@ -356,6 +350,7 @@ function TeamMenu({
                           role="menuitem"
                           aria-expanded={!collapsed}
                           data-testid={`team-picker-group-${section.label}`}
+                          className="ct-menu-group-label"
                           onClick={(event) => {
                             event.stopPropagation();
                             setCollapsedGroups((current) => {
@@ -366,7 +361,7 @@ function TeamMenu({
                             });
                           }}
                         >
-                          <ChevronRight size={11} className={collapsed ? "" : "rotate-90"} />
+                          <ChevronRight size={12} className={collapsed ? "" : "rotate-90"} />
                           <span className="sidebar-team-picker-model-label">{section.label}</span>
                         </button>
                       )}
@@ -380,14 +375,15 @@ function TeamMenu({
             </>
           ) : providerRole ? (
             <>
-              <button type="button" role="menuitem" onClick={() => setProviderRole(null)}>
-                <ChevronRight size={11} className="rotate-180" /> Back
+              <button type="button" role="menuitem" className="ct-menu-row ct-menu-back" onClick={() => setProviderRole(null)}>
+                <span className="ct-menu-row__icon"><ChevronLeft size={14} /></span> Back
               </button>
-              <div className="sidebar-team-menu-label">Choose agent</div>
+              <div className="ct-menu-caption">Choose agent</div>
               {providersLoading ? <div data-testid="team-picker-loading" role="status">Loading available providers…</div> : null}
               {!providersLoading && spawnProviders.length === 0 ? <div data-testid="team-picker-empty" role="status">No providers are available to add.</div> : null}
               {onAddMember && !providersLoading && spawnProviders.map((provider) => (
                 <button
+                  className="ct-menu-row"
                   type="button"
                   key={provider.id}
                   ref={(element) => {
@@ -403,24 +399,24 @@ function TeamMenu({
                     setSelectedProviderId(provider.id);
                   }}
                 >
-                  <ProviderGlyph iconSvg={provider.icon_svg} iconColor={provider.icon_color} iconHint={provider.icon_hint} title={provider.display_name} />
+                  <span className="ct-menu-row__icon"><ProviderGlyph iconSvg={provider.icon_svg} iconColor={provider.icon_color} iconHint={provider.icon_hint} title={provider.display_name} /></span>
                   {provider.display_name}
                 </button>
               ))}
             </>
           ) : (
             <>
-              {onOpenPlan && <button type="button" role="menuitem" onClick={() => run(onOpenPlan)}><ClipboardList size={11} /> Open Plan</button>}
-              {onRename && <button type="button" role="menuitem" onClick={() => run(onRename)}>Rename</button>}
+              {onOpenPlan && <button className="ct-menu-row" type="button" role="menuitem" onClick={() => run(onOpenPlan)}><span className="ct-menu-row__icon"><ClipboardList size={14} /></span> Open Plan</button>}
+              {onRename && <button className="ct-menu-row" type="button" role="menuitem" onClick={() => run(onRename)}><span className="ct-menu-row__icon"><Pencil size={14} /></span> Rename</button>}
               {onAddMember && (addableRoles ?? (["orchestrator", "planner", "worker"] as const)).map((role) => (
-                <button type="button" role="menuitem" aria-haspopup="menu" key={role} onClick={() => setProviderRole(role)}>
-                  Add {role} <ChevronRight size={11} className="ml-auto" />
+                <button className="ct-menu-row" type="button" role="menuitem" aria-haspopup="menu" key={role} onClick={() => setProviderRole(role)}>
+                  <span className="ct-menu-row__icon"><UserPlus size={14} /></span> Add {role} <ChevronRight size={14} className="ct-menu-row__chevron ml-auto" />
                 </button>
               ))}
               {onCloseTeam && <>
-                <div className="sidebar-team-menu-separator" />
-                <button type="button" role="menuitem" className="sidebar-team-menu-danger" onClick={() => run(onCloseTeam)}>
-                  <LogOut size={11} /> Close Team
+                <div role="separator" className="ct-menu-separator" />
+                <button type="button" role="menuitem" className="ct-menu-row" data-danger="true" onClick={() => run(onCloseTeam)}>
+                  <span className="ct-menu-row__icon"><LogOut size={14} /></span> Close Team
                 </button>
               </>}
             </>
@@ -753,7 +749,7 @@ export function TeamUnit({
                   {workingWorkerCount > 0 && (
                     <ActivityDots size="small" tone="muted" active />
                   )}
-                  <span className="sidebar-team-summary-kebab">⋮</span>
+                  <span className="sidebar-team-summary-kebab"><KebabGlyph /></span>
                 </div>
               )}
             </div>

@@ -13,6 +13,7 @@ Full fields returned by `GET /api/tabs/inspect` for each selected tab:
 | `tab_type` | `string` | `"Terminal"` or `"Choice"` |
 | `title` | `string` | The tab's single-word name, at most 64 characters, without whitespace or control characters; the sole name field in tab payloads. |
 | `description` | `string?` | One-line activity summary, max 200 chars, without control characters; shown in the sidebar tooltip/subtitle and persisted in session snapshots. |
+| `shell_profile` | `object?` | Shell profile retained across restore; see `/api/shells`. |
 | `cwd` | `string?` | Current working directory (updated via OSC 7) |
 | `agent_type` | `string?` | Agent running in tab, e.g. `"claude"` |
 | `claude_session_id` | `string?` | Linked Claude Code session ID for resume |
@@ -22,17 +23,19 @@ Full fields returned by `GET /api/tabs/inspect` for each selected tab:
 | `connected_services` | `string[]` | External services connected to this tab (e.g. `["telegram"]`), shown as sidebar icons. |
 | `depth` | `number` | Hierarchy depth: 0 (no role), 1 (Orchestrator), 2 (Worker under Orchestrator) |
 
+Tab creation accepts `shell` (profile id). `GET /api/shells?refresh=true` refreshes detection; otherwise cached. Socket: `tab.new` (`shell`), `tab.shells` (`refresh`). Unknown ids refuse creation. Shells alone accept profiles; agents remain native.
+
 ### Text input routes: `/send` vs `/chat-send`
 
 Both routes exist as distinct handlers; choosing is route selection.
 
 | Route | Returns |
 |-------|---------|
-| `POST /api/tabs/{id}/send` | `{ok:true, delivery:"sent"}` after confirmed delivery, `{ok:true, delivery:"pending"}` when an enveloped send is accepted in the background, or a structured delivery error with its `bytes_written` status. Long limited-provider sends add `pad_file`; batches add `pad_files`. |
+| `POST /api/tabs/{id}/send` | `{ok:true, delivery:"sent"}` after confirmed delivery, `{ok:true, delivery:"pending"}` when a user send or an enveloped/programmatic agent send is accepted by its background queue, or a structured delivery error with its `bytes_written` status. User sends also return `send_id`. Long limited-provider sends add `pad_file`; batches add `pad_files`. |
 | `POST /api/tabs/{id}/chat-send` | One `ChatSendStatus` — `send_id`, `state`, `ledger_id`, `sequence`, optional `correlationId`, and optional `pad_file`; accepts a tab with agent identity at any launch stage or a chat-backend tab, and refuses shell-only tabs with `tab_busy_refused` and `bytes_written:false` |
 | `GET /api/tabs/{id}/chat-send` | `ChatSendStatus[]` for the tab, reconciled against session-turn evidence on read |
 
-`POST .../send` is the synchronous REST write path for mesh relays, service push-token writes, and low-level `actions` / `raw` / `batch` terminal input; its `delivery` values are in the table above. A failure serializes the delivery taxonomy (`tab_not_reachable_on_peer`, `tab_busy_refused`, `pty_unavailable`, `submit_unconfirmed`).
+`POST .../send` is the REST send path for user text, mesh relays, service push-token writes, and low-level `actions` / `raw` / `batch` terminal input; its `delivery` values are in the table above. User text accepted while a provider dialog is classified stays in the durable user-send queue until a PTY state-change event makes delivery safe. Agent and programmatic text uses the delivery outbox for the same hold-and-release behavior. A failure serializes the delivery taxonomy (`tab_not_reachable_on_peer`, `tab_busy_refused`, `pty_unavailable`, `submit_unconfirmed`).
 
 Local `codeterm send` uses socket `tab.send_text`: `OK (sent)` after a confirmed write, `OK (pending)` when the route accepted background work or wrote bytes without submit confirmation, a refusal when no bytes were written. A substituted send names its recipient inbox file as `pad_file`; human output prints the path and multi-target JSON reports `pad_files`. With `--json`, `delivery` and any `bytes_written` field carry the same distinction for one target; multi-target JSON includes `pending_written` for accepted writes that still lack submit confirmation. The resolved payload echo is emitted for confirmed delivery or a pending write.
 
@@ -179,8 +182,8 @@ Custom themes are `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/
 | POST | `/api/mesh/approve` | `{request_id}` | Accept an incoming pairing request |
 | POST | `/api/mesh/reject` | `{request_id}` | Reject and block an incoming pairing request |
 | POST | `/api/mesh/disconnect` | `{instance_id}` | Unpair from a paired peer (notifies remote side) |
-| POST | `/api/mesh/pair/identity` | `{address, nonce}` | Public discovery-only endpoint: signed identity, key, dev flag and ready addresses bound to a UUID challenge and literal IP:port; grants no trust |
-| POST | `/api/mesh/pair/request` | `PairingRequest` | Inbound pairing request; returns `{ok, instance_id}` so a manual target is promoted before acceptance |
+| POST | `/api/mesh/pair/identity` | `{address, nonce}` | Signed discovery identity, key, dev flag and ready addresses bound to a UUID challenge and literal IP:port; grants no trust |
+| POST | `/api/mesh/pair/request` | `PairingRequest` | Inbound pending pairing request; returns `{ok, instance_id}` for identity correlation |
 | POST | `/api/mesh/pair/accept` | `PairingAccept` | Inbound acceptance for a pairing request |
 | POST | `/api/mesh/pair/confirm` | `PairingConfirm` | Inbound pairing confirmation |
 | POST | `/api/mesh/pair/reject` | `{request_id}` | Inbound pairing rejection and block; `404` when the id is unknown or already processed |
@@ -189,7 +192,7 @@ Custom themes are `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/
 | POST | `/api/mesh/broadcast/start` | — | Start local discovery broadcast |
 | POST | `/api/mesh/broadcast/stop` | — | Stop local discovery broadcast |
 | POST | `/api/mesh/relay` | `{method, path, body}` | Relay an API call to a remote peer |
-| POST | `/api/mesh/relay-to` | `{target_peer_id, method, path, body}` | Local browser gateway call: a signed relay request that never exposes the target token. Requires relay protocol version `1`. |
+| POST | `/api/mesh/relay-to` | `{target_peer_id, method, path, body}` | Local browser gateway call: a signed relay request that never exposes the target token. Requires a supported relay protocol version (`1` or `2`). |
 | POST | `/api/mesh/rpc` | `{method, params, request_id}` | Execute allowlisted plan/spec/task/team JSON-RPC through the peer's in-process dispatcher. Requires full peer access and deduplicates by request ID. |
 | GET | `/api/mesh/relay-stream` | `?peer=<id>&path=<streamable>&since=<cursor>` | Browser→local byte-pipe of a peer's own `/api/events/stream` or `/api/output/stream`, cursor-resumed and un-timed. Peer unreachable → `504` `peer-unreachable`. |
 | GET | `/api/mesh/relay-asset/{peer}/{*path}` | `?token=<LOCAL>` | Read-only, `plugins/{id}/ui/*`-scoped byte proxy for a peer's plugin-UI iframe. |
@@ -207,7 +210,7 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 **Relay streaming (`relay-stream` / `relay-asset`).** These let a browser reach a paired peer without knowing its address. `relay-stream` opens a signed mesh request to the peer's own `/api/events/stream` or `/api/output/stream` (the only whitelisted paths) and copies bytes straight through, never buffered, filtered, or reordered, so the stream's cursor/overflow contract carries over. `relay-asset` is scoped to read-only `plugins/{id}/ui/*` GETs (path traversal rejected) because an `<iframe src>` can't send a `Bearer` header: the `.html` entry self-verifies the caller's LOCAL api token via `?token=` (an exact path allowlist exempts it from bearer auth), and the daemon reaches the peer with a server-minted signed mesh token never serialized to the browser.
 
-**Relay security.** Direct signed peer requests and `/api/mesh/relay` share one access policy. `/api/secrets/*` and `/api/mesh/debug/sign` are local-only for every peer access level. REST `GET /api/config` always returns `api.token: null`; the browser retains only its gateway token locally. Relay, relay-stream, and relay-asset reject peers whose announced `relay_protocol_version` is not `1` with `426 Upgrade Required`.
+**Relay security.** Direct signed peer requests and `/api/mesh/relay` share one access policy. `/api/secrets/*` and `/api/mesh/debug/sign` are local-only for every peer access level. REST `GET /api/config` always returns `api.token: null`; the browser retains only its gateway token locally. Relay, relay-stream, and relay-asset accept announced `relay_protocol_version` values `1` and `2`; unknown versions receive `426 Upgrade Required`. Send bodies remain raw across the relay and are framed once by the destination daemon.
 
 **Tauri IPC (Mesh):**
 | Command | Params | Description |
@@ -220,4 +223,4 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 52 -->
+<!-- revision: 55 -->

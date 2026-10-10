@@ -7,6 +7,7 @@ import type {
 } from "../../lib/types";
 import type { RemotePeerTabs } from "../../lib/remoteTabPortal";
 import type { MuxStateStore } from "./selectorStore";
+import type { SessionLaunchIntent } from "../../lib/generalSession";
 
 /** Ids returned by a successful spawn — enough to resolve + select the tab. */
 export interface SpawnedTab {
@@ -24,15 +25,17 @@ export interface MultiplexerActionsContextType {
    *  reorder children of that parent; otherwise reorder a workspace's top-level
    *  tabs. Within-group only — the order list never crosses groups. */
   reorderTabs: (args: { workspaceId?: string; parentTabId?: string; orderedTabIds: string[] }) => void;
+  /** Rewrite a workspace's display order across every tab level; `sort_order` follows list position. */
+  reorderDisplay: (args: { workspaceId: string; orderedTabIds: string[] }) => void;
   /** Reorder the workspace list to the given order. */
   reorderWorkspaces: (orderedWorkspaceIds: string[]) => void;
-  createTab: (workspaceId: string, cwd?: string) => Promise<{ id: string } | void>;
+  createTab: (workspaceId: string, cwd?: string, shell?: string) => Promise<{ id: string } | void>;
   attachRemoteTab?: (workspaceId: string, peer: RemotePeerTabs, tab: RemotePeerTabs["tabs"][number]) => void;
   closeTab: (workspaceId: string, tabId: string) => void;
   /** Reopen a recently-closed tab (index 0 = most recent). */
   reopenClosed: (workspaceId: string, index?: number) => void;
   /** Reopen a whole closed group (cascade subtree or workspace) by id. */
-  reopenGroup: (groupId: string) => void;
+  reopenGroup: (groupId: string) => void | Promise<void>;
   /** Reopen a tab from the orphaned ring (workspace was deleted). */
   restoreOrphaned: (tabId: string) => void;
   setActiveTab: (workspaceId: string, tabId: string) => void;
@@ -60,6 +63,8 @@ export interface MultiplexerActionsContextType {
     cwd?: string,
     model?: string,
     reasoningEffort?: string,
+    preset?: string,
+    intent?: SessionLaunchIntent,
   ) => Promise<SpawnedTab | null>;
   /** Paired creation (task_7e5f9354): create a plan plus an Orchestrator +
    *  Planner tab bound to it, in one call. */

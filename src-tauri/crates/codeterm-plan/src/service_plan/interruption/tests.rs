@@ -105,6 +105,9 @@ fn bound_store() -> (tempfile::TempDir, PlanStore, String, String, String) {
             4,
         )
         .unwrap();
+    store
+        .acknowledge_live_task_attempt_for_tab("old-tab", Some(&plan.id), Some(&task_id), 4)
+        .unwrap();
     (dir, store, plan.id, task_id, attempt_id)
 }
 
@@ -189,6 +192,7 @@ fn exhaustion_after_dirty_edit_recovers_handoff_required() {
         .unwrap();
     let task = store.show_task(&task_id).unwrap().task;
     assert!(task.interruption.handoff_required);
+    assert_eq!(task.status, crate::plan::TaskStatus::InProgress);
     assert_eq!(task.status_label.as_deref(), Some("handoff_required"));
     assert_eq!(task.interruption.checkpoint, Some(sealed));
     assert!(task.execution_attempts[0].closed_at.is_some());
@@ -218,6 +222,7 @@ fn restart_preserves_handoff_projection_and_interrupted_attempt_ledger() {
         crate::service_plan::state::task_projection(&plan, task).presentation,
         crate::service_plan::TaskPresentation::HandoffRequired
     );
+    assert_eq!(task.status, crate::plan::TaskStatus::InProgress);
     let attempt = task
         .execution_attempts
         .iter()

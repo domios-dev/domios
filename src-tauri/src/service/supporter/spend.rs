@@ -53,11 +53,6 @@ struct Account {
     month: String,
     today: Totals,
     monthly: Totals,
-    since_balance: Totals,
-    balance_usd: Option<f64>,
-    balance_set_at: Option<i64>,
-    entry: String,
-    low_alerted: bool,
     exhausted: bool,
     exhausted_alerted: bool,
     next_probe_at: Option<i64>,
@@ -76,24 +71,6 @@ impl Account {
             self.month = month;
             self.monthly = Totals::default();
         }
-    }
-
-    fn remaining(&self) -> Option<f64> {
-        self.balance_usd
-            .zip(self.since_balance.estimated_usd)
-            .map(|(a, b)| a - b)
-    }
-
-    fn low_alert(&mut self, name: &str) -> Option<SpendAlert> {
-        if self.low_alerted || !self.remaining().is_some_and(|remaining| remaining < 1.0) {
-            return None;
-        }
-        self.low_alerted = true;
-        Some(SpendAlert {
-            title: format!("{name} balance below $1 (estimate)"),
-            level: NotifyLevel::ActionNeeded,
-            event_key: format!("supporter:{name}:{}:low", self.entry),
-        })
     }
 }
 
@@ -164,12 +141,10 @@ impl SpendBook {
         if price.is_none() || (usage.is_none() && error.is_none()) {
             account.today.estimated_usd = None;
             account.monthly.estimated_usd = None;
-            account.since_balance.estimated_usd = None;
         }
         if let Some(usage) = usage {
             account.today.add(usage, price);
             account.monthly.add(usage, price);
-            account.since_balance.add(usage, price);
         }
         if error.is_none() {
             account.exhausted = false;
@@ -185,44 +160,13 @@ impl SpendBook {
                 account.exhausted_alerted = true;
                 alerts.push(SpendAlert {
                     title: format!(
-                        "{name} balance exhausted, Supporter falling back to deterministic"
+                        "{name} is out of credit; Supporter is using deterministic results"
                     ),
                     level: NotifyLevel::Failure,
-                    event_key: format!("supporter:{adapter}:{}:exhausted:{now}", account.entry),
+                    event_key: format!("supporter:{adapter}:exhausted:{now}"),
                 });
             }
         }
-        if let Some(alert) = account.low_alert(name) {
-            alerts.push(alert);
-        }
-        self.persist(&mut state)?;
-        Ok(alerts)
-    }
-
-    pub(super) fn set_balance(
-        &self,
-        adapter: &str,
-        name: &str,
-        price: Option<&DecisionPricing>,
-        balance: Option<f64>,
-        now: i64,
-    ) -> Result<Vec<SpendAlert>, DecisionError> {
-        if balance.is_some_and(|value| !value.is_finite() || value < 0.0) {
-            return Err(DecisionError::Parse("invalid_balance".into()));
-        }
-        let mut state = self.state.lock();
-        let account = state.accounts.entry(adapter.into()).or_default();
-        account.balance_usd = balance;
-        account.balance_set_at = balance.map(|_| now / 1000);
-        account.since_balance = Totals::default();
-        account.since_balance.estimated_usd =
-            price.and_then(|price| price.estimated_usd(DecisionUsage::default()));
-        account.entry = uuid::Uuid::new_v4().to_string();
-        account.low_alerted = false;
-        account.exhausted = false;
-        account.exhausted_alerted = false;
-        account.next_probe_at = None;
-        let alerts = account.low_alert(name).into_iter().collect();
         self.persist(&mut state)?;
         Ok(alerts)
     }
@@ -231,9 +175,7 @@ impl SpendBook {
         let state = self.state.lock();
         let mut account = state.accounts.get(adapter).cloned().unwrap_or_default();
         account.rollover(now);
-        json!({ "today": account.today, "month": account.monthly, "since_balance": account.since_balance,
-            "balance_usd": account.balance_usd, "balance_set_at": account.balance_set_at,
-            "remaining_usd": account.remaining(), "exhausted": account.exhausted,
+        json!({ "today": account.today, "month": account.monthly, "exhausted": account.exhausted,
             "next_probe_at": account.next_probe_at.map(|at| (at + 999) / 1000), "storage_ready": state.storage_ready })
     }
 }

@@ -23,14 +23,18 @@ fn inputs(agent: &str) -> CronSpawnInputs {
 
 fn expected_pty_spec() -> SpawnTabSpec {
     SpawnTabSpec {
+        shell: None,
         workspace_id: Some("ws-1".into()),
         parent_tab_id: None,
         team_id: Some("team-1".into()),
         creator_tab_id: Some("tab-creator".into()),
         detach_from_team: false,
+        purpose: Default::default(),
         cwd: Some("/lane".into()),
         title: Some("cron:nightly".into()),
         description: None,
+        icon: None,
+        cmd: None,
         visibility: TabVisibility::Hidden,
         audience: TabAudience::UserOwnedAutomation,
         eager: false,

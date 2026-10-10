@@ -1,0 +1,67 @@
+[
+  {
+    "record": {"type":"user","message":{"content":"<local-command-stdout>Set effort level to medium (saved as your default for new sessions): Balanced approach with standard implementation and testing</local-command-stdout>"}},
+    "stdout": "Set effort level to medium (saved as your default for new sessions): Balanced approach with standard implementation and testing",
+    "foreign": false
+  },
+  {
+    "record": {
+      "type": "user",
+      "message": {
+        "content": "<local-command-caveat>Local command protocol caveat</local-command-caveat>"
+      }
+    },
+    "stdout": null,
+    "foreign": false
+  },
+  {
+    "record": {
+      "type": "user",
+      "message": {
+        "content": "<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args></command-args>"
+      }
+    },
+    "stdout": null,
+    "foreign": false
+  },
+  {
+    "record": {
+      "type": "user",
+      "message": {
+        "content": "<local-command-stdout>Set model to `Sonnet 5.5` for this session only</local-command-stdout>"
+      }
+    },
+    "stdout": "Set model to `Sonnet 5.5` for this session only",
+    "foreign": false
+  },
+  {
+    "record": {
+      "type": "user",
+      "message": {
+        "content": "Set model to `Haiku 5.5` for this session only"
+      }
+    },
+    "stdout": null,
+    "foreign": true
+  },
+  {
+    "record": {
+      "type": "assistant",
+      "message": {
+        "content": "<local-command-stdout>Set model to `Haiku 5.5` for this session only</local-command-stdout>"
+      }
+    },
+    "stdout": null,
+    "foreign": false
+  },
+  {
+    "record": {
+      "type": "user",
+      "message": {
+        "content": "<local-command-stdout>output</local-command-stdout>\nPlease inspect the build"
+      }
+    },
+    "stdout": null,
+    "foreign": true
+  }
+]

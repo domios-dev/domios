@@ -1,0 +1,175 @@
+.ct-bar-pill {
+  --ct-bar-pill-tone: var(--ct-fg);
+  --ct-bar-pill-edge: inset 0 0 0 1px color-mix(in srgb, var(--ct-bar-pill-tone) 7%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--ct-fg) 7%, transparent);
+  position: relative;
+  display: inline-flex;
+  height: var(--ct-tab-pill-h, 28px);
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-fg) 6%, var(--ct-bg));
+  box-shadow: var(--ct-bar-pill-edge);
+  color: color-mix(in srgb, var(--ct-fg) 78%, var(--ct-muted-fg));
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    box-shadow var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
+}
+
+.ct-bar-pill > svg:first-child {
+  margin-left: -3px;
+  opacity: 0.8;
+}
+
+.ct-bar-pill:hover,
+.ct-bar-pill:focus-visible {
+  background: color-mix(in srgb, var(--ct-fg) 10%, var(--ct-bg));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-bar-pill-tone) 12%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--ct-fg) 10%, transparent);
+  color: var(--ct-fg);
+  outline: none;
+  animation: ct-bar-pill-sway var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
+}
+
+@keyframes ct-bar-pill-sway {
+  0% { transform: scale(1, 1); }
+  35% { transform: scale(1.025, 0.975); }
+  70% { transform: scale(0.995, 1.01); }
+  100% { transform: scale(1, 1); }
+}
+
+.ct-bar-pill:active {
+  transform: scale(0.96);
+  transition-duration: var(--ct-duration-liquid-press);
+}
+
+.ct-bar-pill[aria-expanded="true"],
+.ct-bar-pill.is-open {
+  background: color-mix(in srgb, var(--ct-accent) 14%, var(--ct-bg));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-accent) 30%, transparent), 0 4px 14px rgb(0 0 0 / 28%);
+  color: var(--ct-fg);
+}
+
+.ct-bar-pill:focus-visible {
+  box-shadow: var(--ct-bar-pill-edge), 0 0 0 2px color-mix(in srgb, var(--ct-accent) 45%, transparent);
+}
+
+.ct-bar-pill--static,
+.ct-bar-pill--static:hover {
+  cursor: default;
+  transform: none;
+}
+
+.ct-bar-meter {
+  width: 28px;
+  height: 4px;
+  border: 0;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--ct-fg) 10%, transparent);
+  overflow: hidden;
+  appearance: none;
+}
+
+.ct-bar-meter::-webkit-meter-bar {
+  border: 0;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--ct-fg) 10%, transparent);
+}
+
+.ct-bar-meter::-webkit-meter-optimum-value,
+.ct-bar-meter::-webkit-meter-suboptimum-value,
+.ct-bar-meter::-webkit-meter-even-less-good-value {
+  border-radius: 99px;
+  background: var(--ct-accent);
+}
+
+.ct-bar-meter::-moz-meter-bar {
+  border-radius: 99px;
+  background: var(--ct-accent);
+}
+
+.ct-bar-pill--tinted {
+  color: var(--ct-bar-pill-tone);
+}
+
+.ct-bar-pill--primary {
+  --ct-bar-pill-tone: var(--ct-accent);
+  --ct-bar-pill-edge: inset 0 0 0 1px color-mix(in srgb, var(--ct-accent) 26%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--ct-fg) 8%, transparent);
+  background: color-mix(in srgb, var(--ct-accent) 16%, var(--ct-bg));
+  color: var(--ct-fg);
+}
+
+.ct-bar-pill--primary:hover,
+.ct-bar-pill--primary:focus-visible {
+  background: color-mix(in srgb, var(--ct-accent) 23%, var(--ct-bg));
+}
+
+.ct-bar-pill--primary:hover {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-accent) 38%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--ct-fg) 10%, transparent);
+}
+
+.ct-bar-pill:disabled {
+  cursor: not-allowed;
+  animation: none;
+}
+
+.ct-bar-pill-group {
+  display: inline-flex;
+  height: var(--ct-tab-pill-h, 28px);
+  align-items: stretch;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-fg) 6%, var(--ct-bg));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-fg) 7%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--ct-fg) 7%, transparent);
+  overflow: hidden;
+}
+
+.ct-bar-pill-group:empty {
+  display: none;
+}
+
+.ct-bar-pill-group > .ct-bar-pill {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.ct-bar-pill-group > .ct-bar-pill:hover,
+.ct-bar-pill-group > .ct-bar-pill:focus-visible,
+.ct-bar-pill-group > .ct-bar-pill[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--ct-fg) 7%, transparent);
+  box-shadow: none;
+  animation: none;
+}
+
+.ct-bar-pill-group > .ct-bar-pill + .ct-bar-pill,
+.ct-bar-pill-group > .ct-bar-pill + .ct-bar-pill:hover {
+  box-shadow: inset 1px 0 0 color-mix(in srgb, var(--ct-fg) 10%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-bar-pill {
+    transition: none;
+  }
+
+  .ct-bar-pill:hover,
+  .ct-bar-pill:active {
+    transform: none;
+    animation: none;
+  }
+}

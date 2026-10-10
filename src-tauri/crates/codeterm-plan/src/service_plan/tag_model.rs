@@ -93,6 +93,12 @@ pub fn apply_tags(tags: &mut Vec<String>, add: &[String], primary: Option<&str>)
     }
 }
 
+pub fn inherit_parent_tags(parent: &[String], child: &[String]) -> Vec<String> {
+    let mut tags = parent.to_vec();
+    apply_tags(&mut tags, child, None);
+    tags
+}
+
 fn facet_key(tag: &str) -> Option<&str> {
     let (key, value) = tag.split_once(':')?;
     if key.is_empty() || value.is_empty() {
@@ -293,6 +299,16 @@ mod tests {
     }
 
     #[test]
+    fn inherit_parent_tags_keeps_parent_and_lets_child_replace_facets() {
+        let parent: Vec<String> = vec!["work:backend".into(), "area:plan".into(), "topic".into()];
+        assert_eq!(inherit_parent_tags(&parent, &[]), parent);
+        assert_eq!(
+            inherit_parent_tags(&parent, &["work:qa".into(), "extra".into()]),
+            vec!["area:plan", "topic", "work:qa", "extra"]
+        );
+    }
+
+    #[test]
     fn preview_handle_matches_normalized_seed() {
         let tags = vec!["area:nav".into(), "pan-zoom".into()];
         assert_eq!(preview_handle(&tags, "Pan Zoom"), "nav-pan-zoom");
@@ -311,6 +327,7 @@ mod tests {
     fn normalize_caps_legacy_stored_handles() {
         let mut plan = Plan::new("P".into(), "/repo".into(), OrchestratorRef::default());
         plan.tasks.push(crate::plan::Task {
+            files: Default::default(),
             id: "task_1".into(),
             handle: Some("legacy-uncapped-handle-".repeat(10)),
             ..task_fixture()
@@ -384,6 +401,7 @@ mod tests {
 
     fn task_fixture() -> crate::plan::Task {
         crate::plan::Task {
+            files: Default::default(),
             id: "task_1".into(),
             name: "Pan Zoom".into(),
             kind: "implement".into(),

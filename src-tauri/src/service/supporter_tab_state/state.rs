@@ -150,6 +150,10 @@ fn state_for_session<'a>(
     state
 }
 
+pub(crate) fn episode(tab: &str, session: &str) -> u64 {
+    state_for_session(&mut episodes().lock(), tab, session).episode
+}
+
 pub(crate) fn observation_revision(tab_id: &str) -> u64 {
     episodes().lock().get(tab_id).map_or(0, |state| {
         super::frame_hash(&format!(
@@ -205,25 +209,6 @@ pub(crate) fn note_output(tab_id: &str) {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    if state.signaled {
-        let session_key = state.session_key.clone();
-        let previous_screen_hash = state.previous_screen_hash;
-        let spawn_observed = state.spawn_observed;
-        let spawn_claim = state.spawn_claim;
-        let episode = state.episode.saturating_add(1);
-        let output_sequence = state.output_sequence;
-        let output_epoch_seconds = state.output_epoch_seconds;
-        *state = EpisodeState {
-            session_key,
-            episode,
-            output_sequence,
-            output_epoch_seconds,
-            spawn_observed,
-            spawn_claim,
-            previous_screen_hash,
-            ..EpisodeState::default()
-        };
-    }
 }
 
 pub(crate) fn last_output_epoch_seconds(tab_id: &str) -> u64 {
@@ -369,5 +354,4 @@ fn apply_verdict_to_state(state: &mut EpisodeState, label: &str, confidence: f64
 }
 
 #[cfg(test)]
-#[path = "state_tests.rs"]
 mod tests;

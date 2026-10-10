@@ -9,6 +9,7 @@ const fixture = vi.hoisted(() => ({ state: null as ExtendedState | null }));
 
 vi.mock("../../store/multiplexer", () => ({
   useMuxState: () => fixture.state,
+  useMuxSelector: (select: (state: unknown) => unknown) => select(fixture.state),
   useMultiplexer: () => ({}),
 }));
 vi.mock("../../hooks/useAgentProviders", () => ({
@@ -118,6 +119,15 @@ describe("web host picker placement", () => {
     pickerButton();
   });
 
+  it("General has no Map or Jobs navigation even when their handlers are supplied", async () => {
+    fixture.state!.workspaces = [general];
+    await act(async () => root!.render(<Sidebar onOpenWorkspaceMap={vi.fn()} onOpenWorkspaceAutomation={vi.fn()} />));
+    const contents = host.querySelector('[data-testid="general-section"]');
+    expect(contents).not.toBeNull();
+    expect(contents!.querySelector('button[aria-label="Map"]')).toBeNull();
+    expect(contents!.querySelector('button[aria-label^="Jobs"]')).toBeNull();
+  });
+
   it("stays mounted when the sidebar collapses", async () => {
     fixture.state!.workspaces = [general];
     await renderShell();
@@ -136,7 +146,7 @@ describe("web host picker placement", () => {
     await act(async () => sidebarHandle().dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: 220 })));
     await act(async () => document.dispatchEvent(new MouseEvent("mousemove", { clientX: 80 })));
     await act(async () => document.dispatchEvent(new MouseEvent("mouseup")));
-    expect(host.querySelector<HTMLElement>('[data-testid="sidebar"]')!.style.width).toBe("80px");
+    expect(host.querySelector<HTMLElement>('[data-testid="sidebar"]')!.parentElement!.style.width).toBe("64px");
     expect(sidebarHandle().getAttribute("aria-expanded")).toBe("true");
     expect(host.querySelector('[data-testid="general-section"]')).toBeNull();
     expect(pickerButton()).toBe(trigger);

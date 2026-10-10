@@ -293,6 +293,26 @@ test("fullscreen Mermaid fits its viewport and exposes accessible view controls"
   HTMLElement.prototype.releasePointerCapture = originalReleasePointerCapture;
 });
 
+for (const source of ["const answer = 42;\nconsole.log(answer);\n", `${"x".repeat(200_001)}\nsecond line\n`]) {
+  test(`numbered code preserves copied source (${source.length} characters)`, async () => {
+    let copied: string | null = null;
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => { copied = text; } },
+    });
+    const { host, root } = await render(<CodeBlock text={source} language="typescript" showLineNumbers wrapLines />);
+    try {
+      const copy = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Copy");
+      assert(copy, "copy action is available for numbered source");
+      await act(async () => copy.click());
+      assert(copied === source, "copy preserves source without line numbers");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+}
+
 const started = performance.now();
 let failed = 0;
 for (const [name, fn] of tests) {

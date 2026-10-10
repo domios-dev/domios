@@ -30,7 +30,10 @@ pub(crate) fn observation_questions(
     let event = metadata.context["observation_event"]
         .as_str()
         .unwrap_or_default();
-    if matches!(event, "prompt_candidate" | "startup_escalation" | "anomaly") {
+    if matches!(
+        event,
+        "prompt_candidate" | "startup_escalation" | "anomaly" | "user_delivery_readiness"
+    ) {
         add_choice(
             &mut questions,
             "input_area",

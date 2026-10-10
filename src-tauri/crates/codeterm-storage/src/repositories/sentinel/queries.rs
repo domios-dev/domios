@@ -2,9 +2,9 @@
 
 use super::definitions;
 use super::records::{
-    CaptureRecord, CommandResultRecord, HandlerResultRecord, SentinelId, SentinelIdentity,
-    SentinelRecord, SentinelScope, StageRuntime, StoredSentinel, TransitionRecord,
-    MAX_SENTINEL_RECORDS,
+    CaptureRecord, CommandResultRecord, HandlerResultRecord, RunRecord, SentinelId,
+    SentinelIdentity, SentinelRecord, SentinelScope, StageRuntime, StoredSentinel,
+    TransitionRecord, MAX_SENTINEL_RECORDS,
 };
 use super::runtime::{command_status_from, corrupt, handler_status_from};
 use crate::error::{sqlite_error, StorageError};
@@ -30,15 +30,22 @@ struct Header {
     last_hash: Option<String>,
     last_bucket: Option<String>,
     last_reason: Option<String>,
+    held: Option<String>,
+    run_id: Option<String>,
+    run_tab_id: Option<String>,
+    run_bound_at: Option<i64>,
+    run_transitions: Option<i64>,
+    causal_run_json: Option<String>,
 }
 
 fn header(conn: &Connection, id: &str) -> Result<Option<Header>, StorageError> {
     conn.prepare_cached(
         "SELECT s.ordinal, s.creator_tab_id, s.workspace_id, s.team_id, s.cwd, \
          s.agent_authored, s.scenario_id, s.revision, h.version, r.generation, r.next_run, \
-         r.expires_at, r.paused, r.stopped, r.last_hash, r.last_bucket, r.last_reason \
-         FROM sentinels s LEFT JOIN sentinel_heads h ON h.sentinel_id = s.id \
-         LEFT JOIN sentinel_runtime r ON r.sentinel_id = s.id WHERE s.id = ?1",
+         r.expires_at, r.paused, r.stopped, r.last_hash, r.last_bucket, r.last_reason, \
+         r.held, r.run_id, r.run_tab_id, r.run_bound_at, r.run_transitions, r.causal_run_json \
+         FROM blueprints s LEFT JOIN blueprint_heads h ON h.blueprint_id = s.id \
+         LEFT JOIN blueprint_runtime r ON r.blueprint_id = s.id WHERE s.id = ?1",
     )
     .and_then(|mut statement| {
         statement
@@ -61,6 +68,12 @@ fn header(conn: &Connection, id: &str) -> Result<Option<Header>, StorageError> {
                     last_hash: row.get(14)?,
                     last_bucket: row.get(15)?,
                     last_reason: row.get(16)?,
+                    held: row.get(17)?,
+                    run_id: row.get(18)?,
+                    run_tab_id: row.get(19)?,
+                    run_bound_at: row.get(20)?,
+                    run_transitions: row.get(21)?,
+                    causal_run_json: row.get(22)?,
                 })
             })
             .optional()
@@ -78,7 +91,17 @@ pub(super) fn load_one(
     };
     let missing = || corrupt("stage lacks its head or runtime");
     let version = from_sql_u64("definition version", header.version.ok_or_else(missing)?)?;
+    let run = match (header.run_id, header.run_tab_id, header.run_bound_at) {
+        (None, None, None) => None,
+        (Some(run_id), Some(tab_id), Some(bound_at)) => Some(RunRecord {
+            run_id,
+            tab_id,
+            bound_at: from_sql_u64("run bound time", bound_at)?,
+        }),
+        _ => return Err(corrupt("partial run binding")),
+    };
     let runtime = StageRuntime {
+        causal_run_json: header.causal_run_json,
         generation: from_sql_u64("generation", header.generation.ok_or_else(missing)?)?,
         next_run: from_sql_u64("next run", header.next_run.ok_or_else(missing)?)?,
         expires_at: header
@@ -90,6 +113,13 @@ pub(super) fn load_one(
         last_hash: header.last_hash,
         last_bucket: header.last_bucket,
         last_reason: header.last_reason,
+        held: header.held,
+        run,
+        run_transitions: u16::try_from(from_sql_u64(
+            "run transition count",
+            header.run_transitions.ok_or_else(missing)?,
+        )?)
+        .map_err(|_| corrupt("run transition count exceeds its bound"))?,
     };
     let identity = SentinelIdentity {
         id: SentinelId::trusted(id.to_string()),
@@ -106,6 +136,7 @@ pub(super) fn load_one(
             identity,
             scenario_id: header.scenario_id.map(SentinelId::trusted),
             definition: definitions::load_version(conn, id, version)?,
+            amendments: definitions::load_lineage(conn, id, version)?,
             runtime,
             transitions: load_transitions(conn, id)?,
         },
@@ -121,13 +152,13 @@ fn ids(
 ) -> Result<Vec<String>, StorageError> {
     let mut statement = conn
         .prepare_cached(sql)
-        .map_err(|e| sqlite_error("list sentinels", e))?;
+        .map_err(|e| sqlite_error("list blueprints", e))?;
     let rows = statement
         .query_map(params, |row| row.get(0))
-        .map_err(|e| sqlite_error("list sentinels", e))?;
+        .map_err(|e| sqlite_error("list blueprints", e))?;
     let ids: Vec<String> = rows
         .collect::<Result<_, _>>()
-        .map_err(|e| sqlite_error("list sentinels", e))?;
+        .map_err(|e| sqlite_error("list blueprints", e))?;
     if ids.len() > MAX_SENTINEL_RECORDS {
         return Err(corrupt("inventory exceeds its bound"));
     }
@@ -141,7 +172,7 @@ fn load_all(conn: &Connection, ids: Vec<String>) -> Result<Vec<StoredSentinel>, 
 }
 
 pub(super) fn inventory(conn: &Connection) -> Result<Vec<StoredSentinel>, StorageError> {
-    let ids = ids(conn, "SELECT id FROM sentinels ORDER BY ordinal", [])?;
+    let ids = ids(conn, "SELECT id FROM blueprints ORDER BY ordinal", [])?;
     load_all(conn, ids)
 }
 
@@ -153,8 +184,20 @@ pub(super) fn scope(
 ) -> Result<Vec<StoredSentinel>, StorageError> {
     let ids = ids(
         conn,
-        "SELECT id FROM sentinels WHERE workspace_id = ?1 AND team_id IS ?2 ORDER BY ordinal",
+        "SELECT id FROM blueprints WHERE workspace_id = ?1 AND team_id IS ?2 ORDER BY ordinal",
         params![workspace, team],
+    )?;
+    load_all(conn, ids)
+}
+
+pub(super) fn workspace(
+    conn: &Connection,
+    workspace: &str,
+) -> Result<Vec<StoredSentinel>, StorageError> {
+    let ids = ids(
+        conn,
+        "SELECT id FROM blueprints WHERE workspace_id = ?1 ORDER BY ordinal",
+        [workspace],
     )?;
     load_all(conn, ids)
 }
@@ -176,7 +219,7 @@ fn load_transitions(conn: &Connection, id: &str) -> Result<Vec<TransitionRecord>
         let mut statement = conn
             .prepare_cached(
                 "SELECT transition_id, handler_id, status, claim_id, execution_id, accepted_at, \
-                 reason FROM sentinel_handler_results WHERE sentinel_id = ?1 \
+                 reason FROM blueprint_handler_results WHERE blueprint_id = ?1 \
                  ORDER BY transition_id, ordinal",
             )
             .map_err(|e| sqlite_error("read sentinel results", e))?;
@@ -218,8 +261,8 @@ fn load_transitions(conn: &Connection, id: &str) -> Result<Vec<TransitionRecord>
     }
     let mut statement = conn
         .prepare_cached(
-            "SELECT transition_id, bucket, accepted_at, terminal, definition_version \
-             FROM sentinel_transitions WHERE sentinel_id = ?1 ORDER BY ordinal",
+            "SELECT transition_id, bucket, accepted_at, terminal, definition_version, decision_json, causal_run_json \
+             FROM blueprint_transitions WHERE blueprint_id = ?1 ORDER BY ordinal",
         )
         .map_err(|e| sqlite_error("read sentinel transitions", e))?;
     let rows = statement
@@ -230,14 +273,18 @@ fn load_transitions(conn: &Connection, id: &str) -> Result<Vec<TransitionRecord>
                 row.get::<_, i64>(2)?,
                 row.get::<_, bool>(3)?,
                 row.get::<_, Option<i64>>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<String>>(6)?,
             ))
         })
         .map_err(|e| sqlite_error("read sentinel transitions", e))?;
     let mut transitions = Vec::new();
     for row in rows {
-        let (transition, bucket, accepted_at, terminal, version) =
+        let (transition, bucket, accepted_at, terminal, version, decision_json, causal_run_json) =
             row.map_err(|e| sqlite_error("read sentinel transitions", e))?;
         transitions.push(TransitionRecord {
+            causal_run_json,
+            decision_json,
             handlers: results.remove(&transition).unwrap_or_default(),
             id: transition,
             bucket,
@@ -283,7 +330,7 @@ fn load_commands(
                 "SELECT transition_id, handler_id, status, exit_code, resources_confirmed, \
                  stdout_total, stdout_retained, stdout_truncated, stderr_total, \
                  stderr_retained, stderr_truncated, started_at, finished_at, primary_failure \
-                 FROM sentinel_command_results WHERE sentinel_id = ?1",
+                 FROM blueprint_command_results WHERE blueprint_id = ?1",
             )
             .map_err(|e| sqlite_error("read sentinel commands", e))?;
         let mut rows = statement
@@ -320,8 +367,8 @@ fn load_commands(
     }
     let mut statement = conn
         .prepare_cached(
-            "SELECT transition_id, handler_id, error FROM sentinel_command_cleanup \
-             WHERE sentinel_id = ?1 ORDER BY transition_id, handler_id, ordinal",
+            "SELECT transition_id, handler_id, error FROM blueprint_command_cleanup \
+             WHERE blueprint_id = ?1 ORDER BY transition_id, handler_id, ordinal",
         )
         .map_err(|e| sqlite_error("read sentinel cleanup", e))?;
     let rows = statement

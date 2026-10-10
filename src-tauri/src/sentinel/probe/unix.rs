@@ -11,6 +11,7 @@ use super::cancellation::{
     Cancellation,
 };
 use super::capture::{self, CaptureData};
+use super::environment::Environment;
 use super::owner::{ProbeResourceOwner, Reservation, RetainedResources, Settlement};
 use super::process::{cancellation_target, Deadlines, LeaderOwnership, ProbeFailure, ResourceKind};
 use super::Output;
@@ -37,6 +38,7 @@ pub(super) fn run(
     owner: &Arc<ProbeResourceOwner>,
     cancellation: &Cancellation,
     cancellation_required: bool,
+    environment: &Environment,
 ) -> Result<Output, ProbeFailure> {
     let mut process = UnixRun::new(deadlines, reservation, owner);
     if cancellation_required {
@@ -85,6 +87,15 @@ pub(super) fn run(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .process_group(0);
+    child_command.envs(
+        environment
+            .variables
+            .iter()
+            .map(|(key, value)| (key, value)),
+    );
+    for key in &environment.removed {
+        child_command.env_remove(key);
+    }
     if cancellation.load(std::sync::atomic::Ordering::SeqCst) {
         process.set_failure("probe_cancelled");
         return process.finish_failure();
@@ -517,6 +528,9 @@ impl UnixRun {
         let error = io::Error::last_os_error();
         if result == -1 && error.raw_os_error() == Some(libc::ESRCH) {
             self.group_absent = true;
+            if let Some(reservation) = self.reservation.as_mut() {
+                reservation.release_process_admission();
+            }
             let registered = std::mem::replace(&mut self.group_registered, false);
             self.settle_resource(ResourceKind::ProcessGroup, registered);
         } else {
@@ -682,6 +696,10 @@ impl UnixRun {
             failure.primary = "probe_cancel_wake_failed";
             failure.cleanup_error(error);
         }
+        failure.processes_confirmed = self.status.is_some()
+            && self.child.is_none()
+            && self.group_absent
+            && !self.group_unconfirmed;
         failure.exit_code = self.status.and_then(|status| status.code());
         failure.stdout = (self.child_id != 0).then(|| self.stdout.data.metadata());
         failure.stderr = (self.child_id != 0).then(|| self.stderr.data.metadata());
@@ -888,6 +906,39 @@ impl UnixPending {
 }
 
 impl RetainedResources for UnixPending {
+    fn processes_settled(&mut self) -> bool {
+        if let Some(child) = self.run.child.as_mut() {
+            if let Ok(Some(status)) = child.try_wait() {
+                self.run.parent_finished(status);
+            }
+        }
+        if self.run.child_id == 0 {
+            return self.run.child.is_none();
+        }
+        if self.run.child_id <= 1
+            || self.run.child_id > i32::MAX as u32
+            || self.run.status.is_none()
+            || self.run.ownership != LeaderOwnership::Retired(self.run.child_id)
+        {
+            return false;
+        }
+        if !self.run.group_absent {
+            let result = unsafe { libc::kill(-(self.run.child_id as i32), 0) };
+            self.run.group_absent =
+                result == -1 && io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+        }
+        self.run.group_absent
+    }
+
+    fn try_settle(&mut self) -> bool {
+        self.run.child.is_none()
+            && (self.run.child_id == 0 || (self.run.status.is_some() && self.run.group_absent))
+            && !self.run.has_open_streams()
+            && !self.run.stdout.close_unknown
+            && !self.run.stderr.close_unknown
+            && self.run.events.is_none()
+    }
+
     fn request_cancel(&mut self) -> Vec<String> {
         let mut failure = ProbeFailure::new("probe_cleanup");
         self.run.request_cancel(&mut failure);
@@ -896,10 +947,7 @@ impl RetainedResources for UnixPending {
 
     fn wait_for_settlement(&mut self) -> Settlement {
         self.wait_events();
-        let remains_unconfirmed = self.run.permanent_unconfirmed
-            || self.run.group_unconfirmed
-            || self.run.stdout.close_unknown
-            || self.run.stderr.close_unknown;
+        let remains_unconfirmed = !self.try_settle();
         let failure = self.run.failure.take();
         Settlement {
             primary: failure.as_ref().map(|failure| failure.primary.to_string()),

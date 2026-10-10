@@ -1,5 +1,6 @@
-use super::supporter_policy;
+use super::{supporter_policy, DecisionErrorCategory, DecisionSource};
 use codeterm_types::config::{SupporterConfig, SupporterConnection};
+use codeterm_types::decision::DecisionError;
 use std::collections::BTreeMap;
 
 #[test]
@@ -35,4 +36,53 @@ fn supporter_connections_observation_policy_tracks_only_active_connection_settin
     config.connections.clear();
     assert_eq!(supporter_policy(&config), disconnected);
     assert_ne!(disconnected, initial);
+}
+
+#[test]
+fn supporter_decision_error_categories_are_sanitized_into_records() {
+    let cases = [
+        (
+            DecisionError::Transport("token=private-transport".into()),
+            DecisionErrorCategory::Transport,
+        ),
+        (DecisionError::Http(503), DecisionErrorCategory::Http),
+        (
+            DecisionError::Unavailable("token=private-unavailable".into()),
+            DecisionErrorCategory::Unavailable,
+        ),
+        (
+            DecisionError::Unsupported,
+            DecisionErrorCategory::Unsupported,
+        ),
+        (
+            DecisionError::Parse("token=private-parse".into()),
+            DecisionErrorCategory::Parse,
+        ),
+        (
+            DecisionError::Parse("invalid_observation".into()),
+            DecisionErrorCategory::InvalidObservation,
+        ),
+    ];
+
+    for (error, category) in cases {
+        let source = DecisionSource::error(&error);
+        let record = super::journal("tab", 1, source, "other", None, "title");
+        assert_eq!(source.as_str(), "fallback(error)");
+        assert_eq!(record["error_category"], category.as_str());
+        assert!(!record.to_string().contains("private-"));
+    }
+}
+
+#[test]
+fn supporter_decision_error_categories_leave_timeout_and_budget_distinct() {
+    for (error, expected) in [
+        (DecisionError::Deadline, DecisionSource::Timeout),
+        (DecisionError::Budget, DecisionSource::Budget),
+        (DecisionError::CreditExhausted, DecisionSource::Budget),
+    ] {
+        let source = DecisionSource::error(&error);
+        let record = super::journal("tab", 1, source, "other", None, "title");
+        assert_eq!(source, expected);
+        assert!(record["error_category"].is_null());
+    }
 }

@@ -81,18 +81,32 @@ pub fn task_dir() -> PathBuf {
         .join("task-files")
 }
 
-pub fn release_tab(root: &Path, owner: &str, paths: &[PathBuf]) -> Vec<PathBuf> {
+pub fn owned_paths(root: &Path, owner: &str) -> Vec<PathBuf> {
     let marker = instance_marker_for_task_dir(root);
     let prefix = file_prefix(&marker, owner);
-    let mut candidates = paths.to_vec();
-    if let Ok(entries) = std::fs::read_dir(root) {
-        candidates.extend(entries.flatten().map(|entry| entry.path()).filter(|path| {
+    std::fs::read_dir(root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
             path.file_name()
                 .is_some_and(|name| name.to_string_lossy().starts_with(&prefix))
-        }));
-    }
+        })
+        .collect()
+}
+
+pub fn release_tab(root: &Path, owner: &str, paths: &[PathBuf]) -> Vec<PathBuf> {
+    let mut candidates = paths.to_vec();
+    candidates.extend(owned_paths(root, owner));
+    release_paths(root, owner, &candidates)
+}
+
+pub fn release_paths(root: &Path, owner: &str, paths: &[PathBuf]) -> Vec<PathBuf> {
+    let marker = instance_marker_for_task_dir(root);
+    let prefix = file_prefix(&marker, owner);
     let mut removed = Vec::new();
-    for path in candidates {
+    for path in paths {
         if path.parent() != Some(root)
             || !path
                 .file_name()
@@ -100,8 +114,8 @@ pub fn release_tab(root: &Path, owner: &str, paths: &[PathBuf]) -> Vec<PathBuf> 
         {
             continue;
         }
-        if std::fs::remove_file(&path).is_ok() {
-            removed.push(path);
+        if std::fs::remove_file(path).is_ok() {
+            removed.push(path.clone());
         }
     }
     removed
@@ -185,6 +199,34 @@ fn encode(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn settings_files_release_only_superseded_owned_paths_then_close() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("runtime/task-files");
+        let marker = instance_marker_for(temp.path());
+        let old = write_at(&root, &marker, "tab", "old", Some(".ct-settings.json")).unwrap();
+        let current = write_at(&root, &marker, "tab", "new", Some(".ct-settings.json")).unwrap();
+        let sibling =
+            write_at(&root, &marker, "other", "other", Some(".ct-settings.json")).unwrap();
+        let foreign = temp.path().join("foreign.ct-settings.json");
+        fs::write(&foreign, "user").unwrap();
+        let owned = owned_paths(&root, "tab");
+        assert!(owned.contains(&old) && owned.contains(&current));
+        assert_eq!(
+            release_paths(
+                &root,
+                "tab",
+                &[old.clone(), sibling.clone(), foreign.clone()]
+            ),
+            vec![old.clone()]
+        );
+        assert!(!old.exists());
+        assert!(current.exists() && sibling.exists() && foreign.exists());
+        assert_eq!(release_tab(&root, "tab", &[]), vec![current.clone()]);
+        assert!(!current.exists());
+        assert!(sibling.exists() && foreign.exists());
+    }
 
     #[test]
     fn captured_files_land_in_the_instance_task_directory_and_are_owned_by_tab() {

@@ -38,6 +38,30 @@ fn xterm_paste_keeps_single_line_chat_input_in_one_paste_frame() {
     );
 }
 
+#[test]
+fn routed_tags_are_typed_around_a_bracketed_body_only() {
+    let open = "<domios from=\"tab\" label=\"sender\" tab=\"abc12345\">";
+    let body = "line one\nline two";
+    let suffix = format!(
+        " [reply hint] {}{}",
+        codeterm_types::domios::DOMIOS_TYPED_INSTRUCTION,
+        codeterm_types::domios::DOMIOS_CLOSE_TAG
+    );
+    let encoded = encode_paste_frame(
+        body,
+        Some(open),
+        Some(&suffix),
+        Some(false),
+        PasteEncodingCapability::LiveModeOnly,
+    );
+    let encoded = String::from_utf8(encoded).unwrap();
+
+    assert_eq!(
+        encoded,
+        format!("{open}{BRACKETED_PASTE_START}line one\nline two{BRACKETED_PASTE_END}{suffix}")
+    );
+}
+
 #[derive(Default)]
 struct SubmitSemantics {
     payload_writes: usize,
@@ -81,7 +105,8 @@ fn multiline_tui_bootstrap_encodes_as_one_hidden_system_turn() {
         crate::service::messenger::MessageEnvelope::codeterm_reminder("general-bootstrap"),
     )
     .wrap(opaque_body);
-    assert_eq!(payload.matches(crate::message_markers::OPEN).count(), 1);
+    assert_eq!(payload.matches(crate::message_markers::OPEN).count(), 0);
+    assert!(payload.starts_with("<domios from=\"system\""));
 
     let frames = initial_submit_frames(
         &payload,
@@ -112,4 +137,29 @@ fn multiline_tui_bootstrap_encodes_as_one_hidden_system_turn() {
     assert_eq!(hidden_system.kind, "system");
     assert_eq!(hidden_system.attr("context"), Some("general-bootstrap"));
     assert_eq!(hidden_system.payload.replace('\r', "\n"), opaque_body);
+}
+
+#[test]
+fn prompt_line_launch_brief_uses_one_frame_even_when_live_paste_mode_is_disabled() {
+    let brief = "opaque guidance\nopaque executor\nopaque assignment";
+    let prefix = crate::service::launch_delivery::launch_input_frame_prefix(
+        crate::agent::provider::ComposerCursorPosition::PromptLine,
+    );
+    let encoded = encode_paste_frame(
+        brief,
+        prefix,
+        None,
+        Some(false),
+        PasteEncodingCapability::MultilineTui,
+    );
+    assert_eq!(
+        encoded,
+        format!("{BRACKETED_PASTE_START}{brief}{BRACKETED_PASTE_END}").as_bytes()
+    );
+    for composer in [
+        crate::agent::provider::ComposerCursorPosition::BottomRegion,
+        crate::agent::provider::ComposerCursorPosition::VisibleAnywhere,
+    ] {
+        assert!(crate::service::launch_delivery::launch_input_frame_prefix(composer).is_none());
+    }
 }

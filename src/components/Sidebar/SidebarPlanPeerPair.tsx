@@ -4,8 +4,8 @@ import type { Plan } from "../Canvas/types";
 import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
 import type { TabTabActivity } from "../Canvas/tabTabActivity";
 import { resolvePlanPeerPair } from "../shared/PairAffordance";
-import { SortableRow, TAB_PREFIX } from "./sortable";
-import { TabItem } from "./TabItem";
+import { SortableRow, TAB_PREFIX, type SortableGroupData } from "./sortable";
+import { TabItem, type AttachmentToggle, type TabStartedBy } from "./TabItem";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import type { DeclaredAttentionLevel } from "./declaredAttention";
 
@@ -52,6 +52,12 @@ export interface SidebarTabItemRowProps {
   collapsed?: boolean;
   onToggleCollapse?: () => void;
   collapsedSummary?: string | null;
+  ownerTitle?: string | null;
+  variant?: "attachment";
+  insetPx?: number;
+  ownerBadgeTab?: Tab | null;
+  attachmentToggle?: AttachmentToggle | null;
+  startedBy?: TabStartedBy | null;
   onActivateTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
   onRenameTab: (tabId: string, title: string) => void;
@@ -78,6 +84,12 @@ function SidebarTabItemRow({
   collapsed,
   onToggleCollapse,
   collapsedSummary,
+  ownerTitle,
+  variant,
+  insetPx,
+  ownerBadgeTab,
+  attachmentToggle,
+  startedBy,
   onActivateTab,
   onCloseTab,
   onRenameTab,
@@ -112,14 +124,21 @@ function SidebarTabItemRow({
       collapsed={collapsed}
       onToggleCollapse={onToggleCollapse}
       collapsedSummary={collapsedSummary}
+      ownerTitle={ownerTitle}
+      variant={variant}
+      insetPx={insetPx}
+      ownerBadgeTab={ownerBadgeTab}
+      attachmentToggle={attachmentToggle}
+      startedBy={startedBy}
     />
   );
 }
 
 export interface SidebarSingleTabRowProps extends SidebarTabItemRowProps {
-  group: "tab" | "child";
+  group: "tab" | "team" | "child";
   groupKey: string;
   pinnedIds: string[];
+  toWorkspaceOrder?: SortableGroupData["toWorkspaceOrder"];
 }
 
 export function isTabDragDisabled(tab: Pick<Tab, "protected">): boolean {
@@ -130,13 +149,14 @@ export function SidebarSingleTabRow({
   group,
   groupKey,
   pinnedIds,
+  toWorkspaceOrder,
   ...rowProps
 }: SidebarSingleTabRowProps) {
   return (
     <SortableRow
       id={`${TAB_PREFIX}${rowProps.tab.id}`}
       disabled={isTabDragDisabled(rowProps.tab)}
-      data={{ group, groupKey, pinnedIds }}
+      data={{ group, groupKey, pinnedIds, toWorkspaceOrder }}
     >
       <SidebarTabItemRow {...rowProps} />
     </SortableRow>

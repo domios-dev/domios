@@ -1,7 +1,8 @@
 import { useRef, useState, type ReactNode } from "react";
 import { ExternalLink } from "lucide-react";
+import { KebabGlyph } from "../shared/RowMenuButton";
+import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { Button } from "../shared/Button";
-import { UI_INPUT } from "../shared/design";
 import { AboutLink, SettingsPill } from "./shared";
 import { SupporterTokenField } from "./SupporterTokenField";
 import type { SupporterControls, SupporterConnection } from "./useDecisionToken";
@@ -12,6 +13,7 @@ interface Props {
   row: SupporterConnection;
   controls: SupporterControls;
   stale: boolean;
+  unavailableReason?: string;
   children?: ReactNode;
   removed: (selection: RemovalSelection) => void;
   unconfirmedRemoval: () => void;
@@ -27,12 +29,14 @@ function safeLink(value?: string | null) {
   }
 }
 
-export function SupporterConnectionRow({ row, controls, stale, children, removed, unconfirmedRemoval }: Props) {
-  const menu = useRef<HTMLDetailsElement>(null);
+export function SupporterConnectionRow({ row, controls, stale, unavailableReason, children, removed, unconfirmedRemoval }: Props) {
+  const trigger = useRef<HTMLDivElement>(null);
   const removalPending = useRef(false);
   const [confirming, setConfirming] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [repairing, setRepairing] = useState(false);
+  const [editingToken, setEditingToken] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const disabled = controls.busy || controls.statusFailed;
   const name = row.metadata?.display_name ?? row.adapter;
   const options = controls.catalog.find((adapter) => adapter.id === row.adapter)?.models ?? [];
@@ -49,10 +53,15 @@ export function SupporterConnectionRow({ row, controls, stale, children, removed
   const settings = safeLink(row.metadata?.settings_url);
   const address = safeLink(row.metadata?.server_address);
   const server = address ? new URL(address).origin : undefined;
+  const tokenUnavailable = row.token_mode === "required" && (!row.token.present || row.token.mode_ok === false);
+  const tokenReason = tokenUnavailable ? (row.token.present ? "Token needs repair" : "Token required") : undefined;
+  const unavailable =
+    stale || Boolean(failure) || Boolean(unavailableReason) || tokenUnavailable || Boolean(controls.saved[row.adapter] && !row.active);
+  const statusLabel = unavailable ? "Unavailable" : row.active ? "Active" : "Inactive";
   const cancel = () => {
     if (controls.busy || removing) return;
     setConfirming(false);
-    menu.current?.querySelector("summary")?.focus();
+    trigger.current?.querySelector<HTMLButtonElement>("button")?.focus();
   };
   const remove = async () => {
     if (removalPending.current || disabled) return;
@@ -72,111 +81,129 @@ export function SupporterConnectionRow({ row, controls, stale, children, removed
     if (saved && repairing) setRepairing(false);
     return saved;
   };
-  const modelName = options.find((model) => model.id === row.model)?.display_name ?? row.model ?? "Model unavailable";
+  const run = (action: () => void) => {
+    trigger.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    action();
+  };
+  const menuItems: DropdownMenuItem[] = [
+    ...(!row.active
+      ? [{ label: "Make active", disabled, onClick: () => run(() => void controls.activate(row.adapter)) }]
+      : []),
+    ...(failure || (controls.saved[row.adapter] && !row.active)
+      ? [{ label: "Retry activation", disabled, onClick: () => run(() => void controls.activate(row.adapter)) }]
+      : []),
+    ...(repairable && !repairing
+      ? [{ label: "Repair credentials", disabled, onClick: () => run(() => setRepairing(true)) }]
+      : []),
+    ...(row.active && (row.token_mode === "required" || row.token_mode === "optional")
+      ? [{
+          label: row.token.present ? "Replace token" : "Add token",
+          disabled,
+          onClick: () => run(() => setEditingToken(true)),
+        }]
+      : []),
+    {
+      label: "Delete",
+      danger: true,
+      disabled,
+      onClick: () => run(() => setConfirming(true)),
+    },
+  ];
+  const failureReason = failure?.message || (stale ? "Last-known status; refresh to verify." : unavailableReason || tokenReason);
+  const tokenSummary = row.token_mode === "none"
+    ? "No token needed"
+    : !row.token_mode
+      ? "Token requirements unknown"
+      : row.token.present
+        ? "Token saved"
+        : "No token stored";
+
   return (
     <section
       tabIndex={-1}
       data-adapter={row.adapter}
       aria-label={`${name} connection`}
-      className="rounded-md border border-[var(--ct-border)] p-3 flex flex-col gap-2"
+      className="ct-row flex flex-col gap-1.5 px-2 py-2"
     >
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-sm text-[var(--ct-fg)]">{name}</span>
-        <SettingsPill tone={row.active && !stale ? "green" : "muted"}>
-          {row.active ? (stale ? "Last known current" : "Active") : "Inactive"}
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="min-w-0 flex-1 truncate text-sm text-[var(--ct-fg)]">{name}</span>
+        <SettingsPill tone={statusLabel === "Active" ? "green" : statusLabel === "Unavailable" ? "amber" : "muted"}>
+          {statusLabel}
         </SettingsPill>
-        {!row.active && (
-          <Button variant="ghost" size="sm" disabled={disabled} onClick={() => void controls.activate(row.adapter)}>
-            Make active
-          </Button>
-        )}
-        <details ref={menu} className="relative">
-          <summary aria-label={`Actions for ${name}`} className="cursor-pointer">
-            Actions
-          </summary>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={disabled}
-            onClick={() => {
-              if (menu.current) menu.current.open = false;
-              setConfirming(true);
-            }}
-          >
-            Remove connection
-          </Button>
-        </details>
-      </div>
-      <span className="text-[11px] text-[var(--ct-muted)]">
-        {stale
-          ? "Last-known connection status"
-          : row.active
-            ? "Selected connection"
-            : "Configured connection · reachability not verified"}
-      </span>
-      {controls.saved[row.adapter] && !row.active && <span role="status">Saved, not active</span>}
-      <div className="flex flex-col gap-1">
-        {row.active ? (
-          <>
-            <label htmlFor={`supporter-model-${row.adapter}`}>Model</label>
-            <select
-              id={`supporter-model-${row.adapter}`}
-              value={row.model ?? ""}
-              className={UI_INPUT.fullCompact}
-              disabled={disabled || controls.catalogFailed || !options.length}
-              onChange={(event) => void controls.selectModel(row.adapter, event.target.value)}
-            >
-              {!options.some((model) => model.id === row.model) && (
-                <option value={row.model ?? ""}>{row.model ?? "No models available"}</option>
-              )}
-              {options.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.display_name}
-                </option>
-              ))}
-            </select>
-          </>
-        ) : (
-          <span>Model: {modelName}</span>
-        )}
-      </div>
-      {stale ? (
-        <span>
-          {row.token_mode === "none"
-            ? "Token status last known: No token needed"
-            : !row.token_mode
-              ? "Token status last known: requirements unknown"
-              : `Token status last known: ${row.token.present ? "Token saved, hidden" : "No token stored"}`}
-        </span>
-      ) : row.active ? (
-        row.token_mode === "none" ? (
-          <span className="text-xs">No token needed</span>
-        ) : row.token_mode ? (
-          <SupporterTokenField
-            adapter={row.adapter}
-            mode={row.token_mode}
-            hasToken={row.token.present}
-            busy={disabled}
-            saveToken={saveToken}
+        <div ref={trigger} className="shrink-0">
+          <DropdownMenu
+            items={menuItems}
+            menuLabel={`${name} connection actions`}
+            onOpenChange={setMenuOpen}
+            className="shrink-0"
+            trigger={
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-label={`Actions for ${name}`}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                className="!h-7 !w-7 !min-h-7 !p-0"
+              >
+                <KebabGlyph />
+              </Button>
+            }
           />
-        ) : (
-          <span>Token requirements unknown</span>
-        )
-      ) : !row.token_mode ? (
-        <span>Token requirements unknown</span>
-      ) : row.token_mode === "none" ? (
-        <span className="text-xs">No token needed</span>
-      ) : (
-        <span>{row.token.present ? "Token saved, hidden" : "No token stored"}</span>
+        </div>
+      </div>
+      {failureReason && (
+        <p role="alert" className="truncate text-xs text-[var(--ct-muted-fg)]" title={failureReason}>
+          {stale && !failure ? "Last-known status; refresh to verify." : failureReason}
+        </p>
       )}
-      {repairable && !repairing && (
-        <Button variant="ghost" size="sm" disabled={disabled} onClick={() => setRepairing(true)}>
-          Repair credentials
-        </Button>
+      {!row.active && (controls.saved[row.adapter] || row.token.present) && (
+        <p role="status" className="text-xs text-[var(--ct-muted-fg)]">
+          {[controls.saved[row.adapter] ? "Saved, not active" : null, row.token.present ? "Token saved, hidden" : null]
+            .filter(Boolean)
+            .join(" · ")}
+        </p>
+      )}
+      {row.active && (
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--ct-muted-fg)]">
+          <label className="sr-only" htmlFor={`supporter-model-${row.adapter}`}>Model for {name}</label>
+          <select
+            id={`supporter-model-${row.adapter}`}
+            aria-label={`Model for ${name}`}
+            value={row.model ?? ""}
+            className="ct-field max-w-52 min-w-28"
+            disabled={disabled || controls.catalogFailed || !options.length}
+            onChange={(event) => void controls.selectModel(row.adapter, event.target.value)}
+          >
+            {!options.some((model) => model.id === row.model) && (
+              <option value={row.model ?? ""}>{row.model ?? "No models available"}</option>
+            )}
+            {options.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.display_name}
+              </option>
+            ))}
+          </select>
+          {(row.token_mode === "required" || row.token_mode === "optional") ? (
+            <SupporterTokenField
+              adapter={row.adapter}
+              mode={row.token_mode}
+              hasToken={row.token.present}
+              busy={disabled}
+              saveToken={saveToken}
+              showTrigger={false}
+              editing={editingToken}
+              onEditingChange={setEditingToken}
+            />
+          ) : (
+            <span>{tokenSummary}</span>
+          )}
+          {children}
+        </div>
       )}
       {repairable && repairing && (
-        <div aria-label={`${name} credential repair`} className="rounded border border-[var(--ct-border)] p-2">
-          <p>Repair credentials for {name}. Saving will not activate this connection or change its model.</p>
+        <div aria-label={`${name} credential repair`} className="flex flex-wrap items-center gap-2 rounded border border-[var(--ct-border)] p-2">
+          <p className="text-xs text-[var(--ct-muted-fg)]">Repair credentials for {name}. Saving will not activate this connection or change its model.</p>
           <SupporterTokenField
             adapter={row.adapter}
             mode="required"
@@ -188,27 +215,6 @@ export function SupporterConnectionRow({ row, controls, stale, children, removed
             Cancel repair
           </Button>
         </div>
-      )}
-      {failure && (
-        <div role="alert" className="text-xs text-[var(--ct-red)]">
-          <span>
-            {failure.code === "authentication_failed"
-              ? "Authentication failed"
-              : failure.code === "no_token"
-                ? "Token required"
-                : failure.code === "token_unusable"
-                  ? "Token needs repair"
-                  : "Unavailable"}: {failure.message}
-          </span>
-          <Button variant="ghost" size="sm" disabled={disabled} onClick={() => void controls.activate(row.adapter)}>
-            Retry activation
-          </Button>
-        </div>
-      )}
-      {controls.saved[row.adapter] && !row.active && !failure && (
-        <Button disabled={disabled} size="sm" onClick={() => void controls.activate(row.adapter)}>
-          Retry activation
-        </Button>
       )}
       {confirming && (
         <div
@@ -225,7 +231,7 @@ export function SupporterConnectionRow({ row, controls, stale, children, removed
         >
           <p>
             {row.active
-              ? `${name} is the current Supporter. Removing this connection${row.token.present ? " and its stored token" : ""} will stop the Supporter; there is no automatic fallback.`
+              ? `${name} is the current Spinal Cord. Removing this connection${row.token.present ? " and its stored token" : ""} will stop the Spinal Cord; there is no automatic fallback.`
               : `Remove ${name} connection${row.token.present ? " and its stored token" : ""}?`}
           </p>
           {removing && <p role="status">Removal request pending. Escape will not cancel the server request.</p>}
@@ -237,12 +243,16 @@ export function SupporterConnectionRow({ row, controls, stale, children, removed
           </Button>
         </div>
       )}
-      {server && <span className="text-xs">Server: {server}</span>}
-      <div className="flex gap-3 text-xs">
-        {settings && <AboutLink href={settings} label="Open adapter settings" Icon={ExternalLink} />}
-        {help && <AboutLink href={help} label="Adapter help" Icon={ExternalLink} />}
-      </div>
-      {children}
+      {!row.active && (server || settings || help) && (
+        <details className="text-xs text-[var(--ct-muted-fg)]">
+          <summary className="w-fit cursor-pointer">Connection info</summary>
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            {server && <span>Server: {server}</span>}
+            {settings && <AboutLink href={settings} label="Open adapter settings" Icon={ExternalLink} />}
+            {help && <AboutLink href={help} label="Adapter help" Icon={ExternalLink} />}
+          </div>
+        </details>
+      )}
     </section>
   );
 }

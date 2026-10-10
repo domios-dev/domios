@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { invoke } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
 import { getCachedConfig, loadConfig, setUiSettings } from "../../lib/clientSettings";
@@ -205,13 +205,12 @@ export function KeepAwakeTray() {
       {open && pos && createPortal(
         <div
           ref={menuRef}
-          className="ct-portal-menu fixed w-[260px] border border-[rgba(255,255,255,0.12)] rounded-lg shadow-2xl backdrop-blur-xl overflow-hidden"
-          style={{ top: pos.top, right: pos.right, background: "var(--ct-surface, #1e1e2e)" }}
+          className="ct-portal-menu ct-menu fixed w-[260px]"
+          style={{ top: pos.top, right: pos.right, "--ct-menu-origin": "top right" } as CSSProperties}
         >
-          {/* Header row */}
-          <div className="flex items-center h-10 px-3">
-            <div className="flex-1 flex items-baseline gap-1.5 min-w-0">
-              <span className="text-[12px] font-semibold text-[var(--ct-fg)]">Keep Awake</span>
+          <div className="ct-menu-head">
+            <div className="flex min-w-0 items-baseline gap-1.5 px-2 pt-1.5 pb-1">
+              <span className="text-[13px] font-semibold text-[var(--ct-fg)]">Keep Awake</span>
               {status.active && (
                 <>
                   <span className="text-[11px] text-[var(--ct-muted)]">—</span>
@@ -229,9 +228,7 @@ export function KeepAwakeTray() {
             </div>
           </div>
 
-          <div className="h-px bg-[rgba(255,255,255,0.08)]" />
-
-          <div className="flex items-center gap-2 px-3 py-2">
+          <div className="flex items-center gap-2 px-1 py-1">
             <button
               type="button"
               className="ct-keepawake-off"
@@ -252,19 +249,18 @@ export function KeepAwakeTray() {
             />
           </div>
 
-          <div className="h-px bg-[rgba(255,255,255,0.08)]" />
+          <div role="separator" className="ct-menu-separator" />
 
-          {/* Display sleep toggle */}
           <button
             type="button"
             role="switch"
             aria-checked={displaySleep}
             onClick={flipDisplay}
-            className="flex items-center justify-between w-full px-3 py-2 text-[11px] text-[var(--ct-fg)] hover:bg-[rgba(255,255,255,0.06)] transition-colors"
+            className="ct-menu-row"
           >
-            <span className="flex flex-col items-start">
-              <span>Keep display awake</span>
-              <span className="text-[9.5px] text-[var(--ct-muted-fg)] mt-0.5">
+            <span className="min-w-0 flex-1">
+              <span className="block">Keep display awake</span>
+              <span className="ct-menu-row__description">
                 {displaySleep ? "Display stays on" : "Display can sleep"}
               </span>
             </span>

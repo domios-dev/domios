@@ -34,12 +34,42 @@ pub(super) fn model_switch_result(
 
 pub(super) fn render_model_switch(value: &serde_json::Value) -> String {
     let field = |key: &str| value.get(key).and_then(|v| v.as_str()).unwrap_or("-");
+    let fallback = value
+        .get("fallback_reason")
+        .and_then(|v| v.as_str())
+        .map(|reason| format!("; Live unavailable: {reason}"))
+        .unwrap_or_default();
+    if field("mode_used") == "live" {
+        if field("model_confirmation") == "pending" {
+            return format!(
+                "Requested live model switch for Tab {} to {}; session confirmation pending{}",
+                field("tab_id"),
+                field("requested_model"),
+                value
+                    .get("confirmation_detail")
+                    .and_then(|v| v.as_str())
+                    .map(|detail| format!(" ({detail})"))
+                    .unwrap_or_default(),
+            );
+        }
+        let observed_model = value
+            .get("observed_model")
+            .and_then(|v| v.as_str())
+            .unwrap_or_else(|| field("requested_model"));
+        return format!(
+            "Switched Tab {} to {} (was {}); model confirmed from its session record without a restart",
+            field("tab_id"),
+            observed_model,
+            field("previous_model"),
+        );
+    }
     if field("model_confirmation") == "pending" {
         return format!(
-            "Relaunched Tab {} in session {} with --model {}; agent ready, model confirmation pending",
+            "Relaunched Tab {} in session {} with --model {} using RestartResume; agent ready, model confirmation pending{}",
             field("tab_id"),
             field("session_id"),
             field("launched_model"),
+            fallback,
         );
     }
     let observed_model = value
@@ -47,11 +77,12 @@ pub(super) fn render_model_switch(value: &serde_json::Value) -> String {
         .and_then(|v| v.as_str())
         .unwrap_or_else(|| field("launched_model"));
     format!(
-        "Switched Tab {} to {} (was {}); resumed session {}, model confirmed by the provider",
+        "Switched Tab {} to {} using RestartResume (was {}); resumed session {}, model confirmed by the provider{}",
         field("tab_id"),
         observed_model,
         field("previous_model"),
         field("session_id"),
+        fallback,
     )
 }
 
@@ -113,6 +144,7 @@ mod tests {
         let success = serde_json::json!({
             "ok": true,
             "tab_id": "tab-4f3a",
+            "mode_used": "restart_resume",
             "launched_model": "opaque-model-9e",
             "model_confirmation": "pending",
             "session_id": "session-8b2c",
@@ -140,5 +172,44 @@ mod tests {
             rendered.contains("agent ready, model confirmation pending"),
             "{rendered}"
         );
+        assert!(rendered.contains("using RestartResume"), "{rendered}");
+    }
+
+    #[test]
+    fn agent_model_live_success_names_mode_and_session_confirmation() {
+        let success = serde_json::json!({
+            "ok": true,
+            "tab_id": "tab-4f3a",
+            "mode_used": "live",
+            "requested_model": "provider/model-next",
+            "observed_model": "provider/model-next",
+            "previous_model": "provider/model-old",
+            "model_confirmation": "observed",
+            "evidence": "live_session_record",
+            "session_id": "session-8b2c",
+        });
+        let value = model_switch_result(reqwest::StatusCode::OK, &success.to_string())
+            .expect("live model switch is successful");
+        let rendered = render_model_switch(&value);
+        assert!(rendered.contains("model confirmed from its session record"));
+        assert!(rendered.contains("without a restart"));
+    }
+
+    #[test]
+    fn agent_model_fallback_reports_restart_reason() {
+        let success = serde_json::json!({
+            "ok": true,
+            "tab_id": "tab-4f3a",
+            "mode_used": "restart_resume",
+            "launched_model": "provider/model-next",
+            "model_confirmation": "observed",
+            "fallback_reason": "the session route is absent",
+            "session_id": "session-8b2c",
+        });
+        let value = model_switch_result(reqwest::StatusCode::OK, &success.to_string())
+            .expect("fallback switch is successful");
+        let rendered = render_model_switch(&value);
+        assert!(rendered.contains("using RestartResume"));
+        assert!(rendered.contains("Live unavailable: the session route is absent"));
     }
 }

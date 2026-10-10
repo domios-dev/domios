@@ -56,6 +56,7 @@ impl ServiceContext {
         std::thread::spawn(move || {
             svc.replay_planner_requests_if_routable(&tab_id);
             svc.replay_pending_reports_if_routable(&tab_id);
+            svc.replay_pending_worker_losses_if_routable(&tab_id);
         });
     }
 
@@ -290,8 +291,13 @@ impl ServiceContext {
                 {
                     return Err("agent_unavailable".into());
                 }
-                let envelope =
+                let mut envelope =
                     crate::service::messenger::MessageEnvelope::codeterm_reminder(context);
+                envelope.delivery_observer =
+                    Some(crate::service::messenger::DeliveryWriteObserver::PlanRole {
+                        plan_id: plan_id.to_string(),
+                        role: "planner".into(),
+                    });
                 crate::service::messenger::Messenger::deliver_planner_session(
                     self,
                     target,
@@ -301,9 +307,9 @@ impl ServiceContext {
                     body,
                     message_id,
                 )
-                .map(|_| ())
             },
         )
+        .map(|_| ())
     }
 
     pub(crate) fn acknowledge_planner_request(
@@ -449,7 +455,9 @@ impl ServiceContext {
             )?;
             if matches!(
                 authority,
-                PlanOnlyReportAuthority::EvidenceReporter(_) | PlanOnlyReportAuthority::PlanOwner
+                PlanOnlyReportAuthority::EvidenceReporter(_)
+                    | PlanOnlyReportAuthority::PlanOwner
+                    | PlanOnlyReportAuthority::ParentMessage
             ) {
                 if details.status.is_some() {
                     return Err("PLAN EVIDENCE AUTHORITY REFUSED: a task-less plan evidence report cannot carry --status or transition any task".to_string().into());
@@ -468,27 +476,40 @@ impl ServiceContext {
 
         let mut notices: Vec<String> = Vec::new();
         let mut binding_refused = false;
-        let (eff_plan_id, eff_task_id) =
-            match resolve_plan_ctx(&self.plan_store, tab_id, plan_id, task_id, &mut notices) {
-                Ok(context) => context,
-                Err(cause) => {
-                    binding_refused = true;
-                    report_outcome = Some(ReportOutcomeClass::StaleBindingConflict);
-                    task_transition_refusal = Some(match task_transition_refusal {
-                        Some(existing) => format!("{existing}\n{cause}"),
-                        None => cause,
-                    });
-                    let fallback_plan = plan_id
-                        .map(str::trim)
-                        .filter(|id| !id.is_empty() && self.plan_store.owner_of(id).is_some())
-                        .map(str::to_string);
-                    let fallback_task = task_id
-                        .map(str::trim)
-                        .filter(|id| !id.is_empty())
-                        .map(str::to_string);
-                    (fallback_plan, fallback_task)
-                }
-            };
+        let report_plan_hint = if matches!(
+            plan_only_authority,
+            Some(PlanOnlyReportAuthority::ParentMessage)
+        ) {
+            None
+        } else {
+            plan_id
+        };
+        let (eff_plan_id, eff_task_id) = match resolve_plan_ctx(
+            &self.plan_store,
+            tab_id,
+            report_plan_hint,
+            task_id,
+            &mut notices,
+        ) {
+            Ok(context) => context,
+            Err(cause) => {
+                binding_refused = true;
+                report_outcome = Some(ReportOutcomeClass::StaleBindingConflict);
+                task_transition_refusal = Some(match task_transition_refusal {
+                    Some(existing) => format!("{existing}\n{cause}"),
+                    None => cause,
+                });
+                let fallback_plan = plan_id
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty() && self.plan_store.owner_of(id).is_some())
+                    .map(str::to_string);
+                let fallback_task = task_id
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_string);
+                (fallback_plan, fallback_task)
+            }
+        };
         let mut persisted_task = None;
         let mut rejected_task_transition =
             task_transition_refusal.map(|cause| RejectedTaskTransition {
@@ -560,7 +581,10 @@ impl ServiceContext {
             .into());
         }
 
-        let foreign = is_explicit_plan_foreign(plan_id, eff_plan_id.as_deref());
+        let foreign = !matches!(
+            plan_only_authority,
+            Some(PlanOnlyReportAuthority::ParentMessage)
+        ) && is_explicit_plan_foreign(plan_id, eff_plan_id.as_deref());
         let homed_to_remote = if eff_plan_id.is_none() || foreign {
             let h_plan = plan_id.map(str::trim).filter(|s| !s.is_empty());
             let h_task = task_id.map(str::trim).filter(|s| !s.is_empty());
@@ -572,8 +596,7 @@ impl ServiceContext {
                         h_task.to_string(),
                         from_ref.clone(),
                         task_status,
-                        (details.status == Some(ReportStatus::Blocked))
-                            .then(|| message.to_string()),
+                        None,
                         milestone_text(message, details.status),
                         milestone_kind.unwrap_or("status_update").to_string(),
                     ) {
@@ -687,6 +710,9 @@ impl ServiceContext {
                 match persistence {
                     Ok(task_id) => {
                         persisted_task = Some((plan_id.clone(), task_id));
+                        if details.status == Some(ReportStatus::Blocked) {
+                            report_outcome = Some(ReportOutcomeClass::BlockProposed);
+                        }
                         self.plan_turn_counter.reset_activity(tab_id);
                         crate::api::events::emit_everywhere(
                             &self.app_handle,
@@ -731,7 +757,7 @@ impl ServiceContext {
         );
         if rejected_task_transition.is_some() {
             notices.push(format!(
-                "task transition was rejected and this report is NOT attributed to that task; the report itself was recorded and delivered to '{storage_key}', resolved live from this tab's own hierarchy - so do not resend it"
+                "task transition was rejected and this report is NOT attributed to that task; the report itself was recorded for delivery to '{storage_key}', resolved live from this tab's own hierarchy - do not resend it while delivery is pending"
             ));
         }
         let report = self
@@ -747,6 +773,18 @@ impl ServiceContext {
                 report_outcome,
             );
         self.report_store.lock().claim(&report.id);
+        let trace_flow = report
+            .attempt_id
+            .clone()
+            .or_else(|| crate::flow_trace::tab_flow(self, tab_id));
+        crate::flow_trace::record_flow(
+            &report.id,
+            "report.emitted",
+            tab_id,
+            "",
+            "recorded",
+            trace_flow.as_deref(),
+        );
         report_requirement.accept();
 
         let task_report = report_event::task_report_outcome(
@@ -788,9 +826,17 @@ impl ServiceContext {
                 );
             }
             ReportTarget::Local(target_id) => {
-                let envelope =
+                let mut envelope =
                     crate::service::messenger::MessageEnvelope::report(&from_title, tab_id)
                         .model(model.clone());
+                envelope.id = Some(report.id.clone());
+                envelope.delivery_observer =
+                    Some(crate::service::messenger::DeliveryWriteObserver::Report {
+                        report_id: report.id.clone(),
+                        plan_id: report.plan_id.clone(),
+                        task_id: report.task_id.clone(),
+                        attempt_id: report.attempt_id.clone(),
+                    });
                 // Echo scraping can't decide delivery on a screen-owning TUI (it
                 // reflows/collapses input) — the store+broadcast above is the guarantee.
                 match self.gateway_deliver(
@@ -799,9 +845,20 @@ impl ServiceContext {
                     &report.inject_body(),
                     crate::service::message_gateway::DeliveryClass::AgentTraffic,
                 ) {
+                    Ok(crate::service::messenger::Delivery::Pending { delivery_id }) => {
+                        log::warn!(
+                            "[report] target={} outcome=pending delivery={}",
+                            target_id,
+                            delivery_id
+                        );
+                    }
                     Ok(delivery) => {
                         self.report_store.lock().mark_delivered(&report.id);
-                        log::info!("[report] target={} delivered via {:?}", target_id, delivery)
+                        log::info!(
+                            "[report] target={} outcome=written via {:?}",
+                            target_id,
+                            delivery
+                        )
                     }
                     Err(error) => {
                         self.report_store.lock().release_delivery(&report.id);
@@ -1083,7 +1140,7 @@ fn milestone_text(message: &str, status: Option<ReportStatus>) -> String {
         Some(ReportStatus::Done) => format!("DONE: {message}"),
         Some(ReportStatus::InReview) => format!("IN_REVIEW: {message}"),
         Some(ReportStatus::Partial) => format!("PARTIAL: {message}"),
-        Some(ReportStatus::Blocked) => format!("BLOCKED: {message}"),
+        Some(ReportStatus::Blocked) => format!("BLOCK PROPOSAL: {message}"),
         None => message.to_string(),
     }
 }

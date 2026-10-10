@@ -8,9 +8,11 @@ pub mod orphan;
 pub mod pause;
 pub mod planning_state;
 pub mod review;
+pub mod task_files;
 pub mod task_identity;
 pub mod task_key;
 pub mod types;
+pub use task_files::TaskFiles;
 pub mod work_facet;
 
 pub use attempt::*;

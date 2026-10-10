@@ -2,8 +2,31 @@ use std::process::{Child, Command};
 #[cfg(windows)]
 use std::time::Instant;
 
+pub(crate) trait ProcessChild {
+    fn id(&self) -> u32;
+    #[cfg(windows)]
+    fn kill(&mut self) -> std::io::Result<()>;
+    #[cfg(windows)]
+    fn process_handle(&self) -> windows_sys::Win32::Foundation::HANDLE;
+}
+
+impl ProcessChild for Child {
+    fn id(&self) -> u32 {
+        Child::id(self)
+    }
+    #[cfg(windows)]
+    fn kill(&mut self) -> std::io::Result<()> {
+        Child::kill(self)
+    }
+    #[cfg(windows)]
+    fn process_handle(&self) -> windows_sys::Win32::Foundation::HANDLE {
+        use std::os::windows::io::AsRawHandle;
+        self.as_raw_handle().cast()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum BoundaryCompletion {
+pub(crate) enum BoundaryCompletion {
     #[cfg(unix)]
     VisibleGroupAbsent,
     #[cfg(windows)]
@@ -12,7 +35,7 @@ pub(super) enum BoundaryCompletion {
 }
 
 impl BoundaryCompletion {
-    pub(super) fn confirmed(self) -> bool {
+    pub(crate) fn confirmed(self) -> bool {
         self != Self::PresentOrUnknown
     }
 }
@@ -25,7 +48,7 @@ enum LeaderOwnership {
     Lost,
 }
 
-pub(super) struct ProcessTree {
+pub(crate) struct ProcessTree {
     leader: LeaderOwnership,
     #[cfg(test)]
     termination_error: bool,
@@ -38,7 +61,7 @@ pub(super) struct ProcessTree {
 }
 
 impl ProcessTree {
-    pub(super) fn prepare(command: &mut Command) -> Result<Self, String> {
+    pub(crate) fn prepare(command: &mut Command) -> Result<Self, String> {
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
@@ -106,7 +129,7 @@ impl ProcessTree {
         }
     }
 
-    pub(super) fn record_spawn(&mut self, child: &Child) -> Result<(), String> {
+    pub(crate) fn record_spawn(&mut self, child: &impl ProcessChild) -> Result<(), String> {
         if self.leader != LeaderOwnership::Unspawned
             || child.id() <= 1
             || child.id() > i32::MAX as u32
@@ -117,45 +140,55 @@ impl ProcessTree {
         Ok(())
     }
 
-    pub(super) fn attach(&mut self, child: &Child) -> Result<(), String> {
+    pub(crate) fn attach(&mut self, child: &impl ProcessChild) -> Result<(), String> {
         if self.leader != LeaderOwnership::Retained(child.id()) {
             return Err("updater leader ownership lost before attach".into());
         }
         #[cfg(windows)]
         {
-            use std::os::windows::io::AsRawHandle;
-            use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
             #[link(name = "ntdll")]
             unsafe extern "system" {
                 fn NtResumeProcess(process: windows_sys::Win32::Foundation::HANDLE) -> i32;
             }
-            let process = child.as_raw_handle().cast();
-            if unsafe { AssignProcessToJobObject(self.job, process) } == 0 {
-                return Err(std::io::Error::last_os_error().to_string());
-            }
-            self.assigned = true;
-            let status = unsafe { NtResumeProcess(process) };
-            if status < 0 {
-                return Err(format!(
-                    "could not resume the bounded provider updater: NTSTATUS {status:#x}"
-                ));
-            }
+            return self.attach_with_resume(child, |process| unsafe { NtResumeProcess(process) });
+        }
+        #[cfg(not(windows))]
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    fn attach_with_resume(
+        &mut self,
+        child: &impl ProcessChild,
+        resume: impl FnOnce(windows_sys::Win32::Foundation::HANDLE) -> i32,
+    ) -> Result<(), String> {
+        use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
+        let process = child.process_handle();
+        if unsafe { AssignProcessToJobObject(self.job, process) } == 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        self.assigned = true;
+        let status = resume(process);
+        if status < 0 {
+            return Err(format!(
+                "could not resume the bounded provider updater: NTSTATUS {status:#x}"
+            ));
         }
         Ok(())
     }
 
-    pub(super) fn reaped(&mut self, child: &Child) {
+    pub(crate) fn reaped(&mut self, child: &impl ProcessChild) {
         self.leader = match self.leader {
             LeaderOwnership::Retained(id) if id == child.id() => LeaderOwnership::Retired(id),
             _ => LeaderOwnership::Lost,
         };
     }
 
-    pub(super) fn wait_failed(&mut self) {
+    pub(crate) fn wait_failed(&mut self) {
         self.leader = LeaderOwnership::Lost;
     }
 
-    pub(super) fn observe_event(&self) -> Result<BoundaryCompletion, String> {
+    pub(crate) fn observe_event(&self) -> Result<BoundaryCompletion, String> {
         #[cfg(unix)]
         {
             let id = match self.leader {
@@ -205,7 +238,7 @@ impl ProcessTree {
     }
 
     #[cfg(windows)]
-    pub(super) fn wait_completion(&self, deadline: Instant) -> Result<BoundaryCompletion, String> {
+    pub(crate) fn wait_completion(&self, deadline: Instant) -> Result<BoundaryCompletion, String> {
         use windows_sys::Win32::System::IO::GetQueuedCompletionStatus;
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -248,7 +281,7 @@ impl ProcessTree {
     }
 
     #[cfg(windows)]
-    pub(super) fn close_handles(&mut self) -> Result<(), String> {
+    pub(crate) fn close_handles(&mut self) -> Result<(), String> {
         let mut errors = Vec::new();
         for handle in [&mut self.job, &mut self.port] {
             let owned = std::mem::replace(handle, std::ptr::null_mut());
@@ -266,11 +299,11 @@ impl ProcessTree {
     }
 
     #[cfg(test)]
-    pub(super) fn inject_termination_error(&mut self, enabled: bool) {
+    pub(crate) fn inject_termination_error(&mut self, enabled: bool) {
         self.termination_error = enabled;
     }
 
-    pub(super) fn terminate(&self, child: &mut Child) -> Result<(), String> {
+    pub(crate) fn terminate(&self, child: &mut impl ProcessChild) -> Result<(), String> {
         #[cfg(test)]
         if self.termination_error {
             return Err("injected termination API error".into());

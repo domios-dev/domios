@@ -67,5 +67,4 @@ impl ServiceContext {
 }
 
 #[cfg(test)]
-#[path = "tab_budget_tests.rs"]
 mod tests;

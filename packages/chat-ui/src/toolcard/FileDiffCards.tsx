@@ -1,7 +1,7 @@
-import type { FileDiff, FileDiffHunk, ToolEvent } from "@codeterm/chat-core";
+import { hunkHeader, type FileDiff, type FileDiffHunk, type ToolEvent } from "@codeterm/chat-core";
 import { ChevronRight } from "lucide-react";
 import { useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import { Prism as SyntaxHighlighter, createElement } from "react-syntax-highlighter";
+import { SyntaxHighlighter, createElement } from "../syntaxHighlighter";
 import { RawCommandDisclosure } from "../codeterm/RawCommandDisclosure";
 import { knownLanguageFromPath } from "../codeLanguage";
 import { DIFF_HIGHLIGHT_MAX_LINES } from "../MarkdownBody";
@@ -26,10 +26,6 @@ const MARKER_COLOR: Record<LineTone, string> = {
 function lineTone(line: string): LineTone {
   const marker = line.charAt(0);
   return marker === "+" ? "add" : marker === "-" ? "del" : "context";
-}
-
-function hunkHeader(hunk: FileDiffHunk): string {
-  return `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`;
 }
 
 function hunkLabel(count: number): string {
@@ -104,7 +100,9 @@ export function DiffHunkLines({ hunk, path }: { hunk: FileDiffHunk; path: string
   );
 }
 
-function FileEditCard({ event, diff, showResult, initiallyExpanded }: { event: ToolEvent; diff: FileDiff; showResult: boolean; initiallyExpanded: boolean }) {
+type HunkActions = (diff: FileDiff, hunk: FileDiffHunk) => ReactNode;
+
+function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkActions, rawCommand }: { event: ToolEvent; diff: FileDiff; showResult: boolean; initiallyExpanded: boolean; renderHunkActions?: HunkActions; rawCommand: boolean }) {
   const [expanded, setExpanded] = useState(initiallyExpanded);
   const regionId = useId();
   const visual = toolKindVisual.edit;
@@ -117,9 +115,8 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded }: { event: T
       data-testid="file-diff-card"
       data-tool-status={event.status}
       aria-label={`${visual.label} ${heading}`}
-      className="min-w-0 overflow-hidden rounded-md border-l-2"
+      className="min-w-0 overflow-hidden rounded-md"
       style={{
-        borderLeftColor: failed ? "var(--ct-red)" : "var(--ct-border)",
         background: "color-mix(in srgb, var(--ct-surface) 60%, transparent)",
       }}
     >
@@ -146,26 +143,29 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded }: { event: T
           <div className="px-3 font-mono text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>Empty file</div>
         )}
         {expanded && diff.hunks.map((hunk, hunkIndex) => (
-          <div key={hunkIndex} data-testid="file-diff-hunk" className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} min-w-max`}>
-            <div data-testid="file-diff-hunk-header" className="px-3 py-0.5 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>{hunkHeader(hunk)}</div>
+          <div key={hunkIndex} data-testid="file-diff-hunk" className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} group/hunk min-w-max`}>
+            <div data-testid="file-diff-hunk-header" className="flex items-center gap-2 px-3 py-0.5 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>
+              <span>{hunkHeader(hunk)}</span>
+              {renderHunkActions && <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover/hunk:opacity-100 group-focus-within/hunk:opacity-100 [@media(hover:none)]:opacity-100">{renderHunkActions(diff, hunk)}</span>}
+            </div>
             <HunkLines hunk={hunk} language={language} />
           </div>
         ))}
         {expanded && showResult && failed && event.result && (
           <div data-testid="toolcard-result" className="px-3 pt-1"><ToolOutputContent text={event.result} maxHeight="12rem" /></div>
         )}
-        {expanded && <div className="px-3 pt-1"><RawCommandDisclosure raw={rawInput(event)} /></div>}
+        {expanded && rawCommand && <div className="px-3 pt-1"><RawCommandDisclosure raw={rawInput(event)} /></div>}
       </div>
     </section>
   );
 }
 
 /** One edit card per changed file, built from the source's structured diff. */
-export function FileDiffCards({ event, initiallyExpanded = false }: { event: ToolEvent; initiallyExpanded?: boolean }) {
+export function FileDiffCards({ event, initiallyExpanded = false, renderHunkActions, rawCommand = true }: { event: ToolEvent; initiallyExpanded?: boolean; renderHunkActions?: HunkActions; rawCommand?: boolean }) {
   const diffs = event.fileDiffs ?? [];
   return (
     <div data-testid="file-diff-cards" className="mx-auto mb-1.5 flex w-full max-w-4xl min-w-0 flex-col gap-1">
-      {diffs.map((diff, index) => <FileEditCard key={`${index}:${diff.path}`} event={event} diff={diff} showResult={index === 0} initiallyExpanded={initiallyExpanded} />)}
+      {diffs.map((diff, index) => <FileEditCard key={`${index}:${diff.path}`} event={event} diff={diff} showResult={index === 0} initiallyExpanded={initiallyExpanded} renderHunkActions={renderHunkActions} rawCommand={rawCommand} />)}
     </div>
   );
 }

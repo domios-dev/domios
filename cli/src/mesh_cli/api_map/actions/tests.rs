@@ -3,6 +3,9 @@ use crate::{AgentAction, Commands};
 use clap::Parser;
 
 const ACTIONS: &[(&str, &[&str], Option<(&str, &str, bool)>)] = &[
+    ("cli status", &["cli", "status", "fixture"], None),
+    ("cli install", &["cli", "install", "fixture"], None),
+    ("cli update", &["cli", "update", "fixture"], None),
     (
         "set-orchestrator",
         &["set-orchestrator", "--tab", "peer-tab"],
@@ -151,6 +154,47 @@ fn agent_restart_mesh_preserves_explicit_tab() {
             .unwrap(),
         serde_json::json!({"force": true, "grace_secs": 17})
     );
+}
+
+#[test]
+fn agent_restart_fresh_parses_and_reaches_remote_api() {
+    let action = parse_action(&["restart", "--tab", "restored-tab", "--fresh", "--force"]);
+    let (method, path, body) = agent_to_api(&action);
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/tabs/restored-tab/agent/restart");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&body.unwrap()).unwrap(),
+        serde_json::json!({"force": true, "grace_secs": 10, "fresh": true})
+    );
+}
+
+#[test]
+fn agent_restart_mesh_preserves_explicit_provider_and_history() {
+    for history in [false, true] {
+        let mut args = vec![
+            "restart",
+            "--tab",
+            "remote-tab",
+            "--provider",
+            "opaque-provider",
+        ];
+        if history {
+            args.push("--handoff-history");
+        }
+        let (method, path, body) = agent_to_api(&parse_action(&args));
+        assert_eq!(method, "POST");
+        assert_eq!(path, "/api/tabs/remote-tab/agent/restart");
+        let mut expected = serde_json::json!({
+            "force": false, "grace_secs": 10, "provider": "opaque-provider"
+        });
+        if history {
+            expected["handoff_history"] = serde_json::json!(true);
+        }
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&body.unwrap()).unwrap(),
+            expected
+        );
+    }
 }
 
 #[test]

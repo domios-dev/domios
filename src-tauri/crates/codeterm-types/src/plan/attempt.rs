@@ -63,6 +63,33 @@ pub struct TaskExecutionReportSnapshot {
     pub loaded_plan_skills: Vec<LoadedPlanSkillEvidence>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LaneCheckpointRefusal {
+    LfsRepository,
+    NonConeSparseCheckout,
+    GitFailure,
+    Deadline,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LaneTurnChangeStats {
+    pub turn: u32,
+    pub captured_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcript_turn_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub numstat: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staged_numstat: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub untracked_file_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_refusal: Option<LaneCheckpointRefusal>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PlanSkillManifestEntry {
     pub slug: String,
@@ -181,6 +208,8 @@ pub struct TaskExecutionAttempt {
     #[serde(default)]
     pub reported_at: Option<u64>,
     #[serde(default)]
+    pub report_target_written_at: Option<u64>,
+    #[serde(default)]
     pub reviewed_at: Option<u64>,
     #[serde(default)]
     pub closed_at: Option<u64>,
@@ -206,6 +235,8 @@ pub struct TaskExecutionAttempt {
     pub plan_skill_manifest: Vec<PlanSkillManifestEntry>,
     #[serde(default)]
     pub loaded_plan_skills: Vec<LoadedPlanSkillEvidence>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lane_turn_stats: Vec<LaneTurnChangeStats>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

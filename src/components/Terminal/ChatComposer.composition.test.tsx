@@ -8,13 +8,8 @@ import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { ChatComposer } from "./ChatComposer";
 import type { ChatSendStatus } from "./chatSendStatus";
-
-type TestFn = () => void | Promise<void>;
-const tests: Array<[string, TestFn]> = [];
-
-function test(name: string, fn: TestFn) {
-  tests.push([name, fn]);
-}
+import { test } from "vitest";
+import { formatAttachmentMarker } from "@codeterm/chat-core";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -55,6 +50,7 @@ interface Harness {
   renders: () => number;
   attachments: () => string[];
   replaceAttachments: (paths: string[]) => void;
+  optimisticCount: () => number;
   statuses: ChatSendStatus[];
   errors: string[];
 }
@@ -68,6 +64,7 @@ async function renderComposer(tabId: string, options: HarnessOptions = {}): Prom
   const sendCalls: SendCall[] = [];
   const listeners = new Map<string, BridgeListener>();
   const statuses: ChatSendStatus[] = [];
+  let optimisticCount = 0;
   const errors: string[] = [];
   const attachmentState: { current: string[]; replace: (paths: string[]) => void } = {
     current: options.attachments ?? [],
@@ -88,7 +85,7 @@ async function renderComposer(tabId: string, options: HarnessOptions = {}): Prom
       return {
         send_id: "send-1",
         tab_id: call.tabId,
-        state: "accepted",
+        state: "held",
         error: null,
         ledger_id: "ledger-1",
         sequence: 1,
@@ -125,7 +122,7 @@ async function renderComposer(tabId: string, options: HarnessOptions = {}): Prom
         clearAttachments={() => setAttachments([])}
         handlePasteEvent={() => {}}
         onWillSendMessage={() => {}}
-        addOptimistic={() => "optimistic-1"}
+        addOptimistic={() => { optimisticCount++; return "optimistic-1"; }}
         updateOptimistic={() => {}}
         observeChatSendStatus={(status) => statuses.push(status)}
         showComposerError={(message) => errors.push(message)}
@@ -144,7 +141,7 @@ async function renderComposer(tabId: string, options: HarnessOptions = {}): Prom
   assert(el instanceof window.HTMLTextAreaElement, "composer textarea rendered");
   const renders = () => window.__composerPerf?.renderCounts[tabId] ?? 0;
   return {
-    el, root, host, sendCalls, listeners, renders, statuses, errors,
+    el, root, host, sendCalls, listeners, renders, statuses, errors, optimisticCount: () => optimisticCount,
     attachments: () => attachmentState.current,
     replaceAttachments: (paths) => attachmentState.replace(paths),
   };
@@ -357,7 +354,6 @@ test("Escape-cancel: a canceled composition emits nothing", async () => {
     await teardown(h);
   }
 });
-
 test("ASCII negative control: plain typing is byte-identical through the same handlers", async () => {
   const h = await renderComposer("tab-ascii-control");
   try {
@@ -403,9 +399,9 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function acceptedStatus(tabId: string): ChatSendStatus {
+function heldStatus(tabId: string): ChatSendStatus {
   return {
-    send_id: "opaque-send-a", tab_id: tabId, state: "accepted", error: null,
+    send_id: "opaque-send-a", tab_id: tabId, state: "held", error: null,
     ledger_id: "opaque-ledger", sequence: 1, retained_from: 1,
   };
 }
@@ -415,7 +411,7 @@ for (const [name, refusal] of [
   ["storage refusal", new Error("opaque-storage-refusal")],
   ["ambiguous transport completion", new TypeError("opaque-transport-disconnect")],
 ] as const) {
-  test(`${name} preserves the draft and attachments without resubmitting`, async () => {
+  test(`${name} clears the draft and attachments without resubmitting`, async () => {
     const admission = deferred<ChatSendStatus>();
     const text = "opaque-draft-5ab1";
     const attachment = "/opaque/attachment-8c2f.txt";
@@ -428,13 +424,13 @@ for (const [name, refusal] of [
       await fire(h.el, keydownEvent({ key: "Enter", keyCode: 13 }));
       await flush();
       assert(h.sendCalls.length === 1, "the actual composer invoked admission once");
-      assert(h.sendCalls[0].text === `${text} ${attachment}`, "the complete draft and attachment reached admission");
+      assert(h.sendCalls[0].text === `${text} ${formatAttachmentMarker(attachment)}`, "the complete draft and attachment reached admission");
       assert(h.statuses.length === 0, "a pending request is not an accepted receipt");
       await act(async () => admission.reject(refusal));
       await flush();
 
-      assert(h.el.value === text, "unaccepted or ambiguous admission must retain the original draft");
-      assert(JSON.stringify(h.attachments()) === JSON.stringify([attachment]), "attachments remain owned by the draft");
+      assert(h.el.value === "", "rejection never restores the sent draft");
+      assert(h.attachments().length === 0, "sent attachments leave the composer");
       assert(h.statuses.length === 0, "a rejection must not fabricate acceptance or delivery");
       assert(h.errors.length === 0, "delivery state adds no composer error UI");
       await forceUnrelatedRerender(h, `tab-admission-${name}`);
@@ -463,7 +459,7 @@ for (const outcome of ["accepted", "refused", "ambiguous"] as const) {
       await fire(h.el, inputEvent({ isComposing: false }));
       await act(async () => h.replaceAttachments(["/opaque/newer-9ed5.txt"]));
       await act(async () => {
-        if (outcome === "accepted") admission.resolve(acceptedStatus(tabId));
+        if (outcome === "accepted") admission.resolve(heldStatus(tabId));
         else admission.reject(new Error(`opaque-${outcome}-completion`));
       });
       await flush();
@@ -471,19 +467,19 @@ for (const outcome of ["accepted", "refused", "ambiguous"] as const) {
       assert(h.el.value === newer, "completion of the older request must not clear a newer edit");
       assert(JSON.stringify(h.attachments()) === JSON.stringify(["/opaque/newer-9ed5.txt"]), "the newer attachment survives");
       if (outcome === "accepted") {
-        assert(h.statuses.length === 1 && h.statuses[0].state === "accepted", "the real acceptance is observed once");
+        assert(h.statuses.length === 1 && h.statuses[0].state === "held", "the durable hold receipt is observed once");
       } else {
         assert(h.statuses.length === 0, "an unacknowledged admission is not acceptance");
       }
       assert(h.sendCalls.length === 1, "the newer draft remains unsent");
     } finally {
-      admission.resolve(acceptedStatus(tabId));
+      admission.resolve(heldStatus(tabId));
       await teardown(h);
     }
   });
 }
 
-test("an admission receipt clears only the unchanged draft and attachments", async () => {
+test("send clears immediately and an admission receipt keeps the composer empty", async () => {
   const tabId = "tab-unchanged-admission";
   const admission = deferred<ChatSendStatus>();
   const h = await renderComposer(tabId, {
@@ -498,16 +494,16 @@ test("an admission receipt clears only the unchanged draft and attachments", asy
     await fire(h.el, keydownEvent({ key: "Enter", keyCode: 13 }));
     await flush();
     assert(h.sendCalls.length === 1, "one request reached the real composer transport");
-    assert(composerValue() === text, "pending admission retains the unsaved draft");
-    assert(h.attachments().length === 1, "pending admission retains its attachment");
+    assert(composerValue() === "", "send clears before admission resolves");
+    assert(h.attachments().length === 0, "send clears attachments before admission resolves");
     assert(statusCount() === 0, "pending transport supplies no receipt");
-    await act(async () => admission.resolve(acceptedStatus(tabId)));
+    await act(async () => admission.resolve(heldStatus(tabId)));
     await flush();
     assert(composerValue() === "", "the admitted unchanged draft clears");
     assert(h.attachments().length === 0, "the admitted unchanged attachment clears");
     assert(statusCount() === 1, "exactly one actual acceptance is observed");
   } finally {
-    admission.resolve(acceptedStatus(tabId));
+    admission.resolve(heldStatus(tabId));
     await teardown(h);
   }
 });
@@ -526,39 +522,50 @@ test("admission preserves a draft edited away and back to the same text", async 
       setDomValue(h.el, edit);
       await fire(h.el, inputEvent({ isComposing: false }));
     }
-    await act(async () => admission.resolve(acceptedStatus(tabId)));
+    await act(async () => admission.resolve(heldStatus(tabId)));
     await flush();
     assert(h.el.value === text, "a newer draft with equal text retains its own ownership");
     assert(h.sendCalls.length === 1, "the new equal-text draft is not automatically submitted");
     assert(h.statuses.length === 1, "the older acceptance is still observed");
   } finally {
-    admission.resolve(acceptedStatus(tabId));
+    admission.resolve(heldStatus(tabId));
     await teardown(h);
   }
 });
 
-async function main() {
-  let failures = 0;
-  try {
-    for (const [name, fn] of tests) {
-      try {
-        await fn();
-        console.log(`✓ ${name}`);
-      } catch (error) {
-        failures++;
-        console.error(`✗ ${name}`);
-        console.error(error);
-      }
-    }
-  } finally {
-    await (window as unknown as { happyDOM: { abort(): Promise<void> } }).happyDOM.abort();
-  }
-  if (failures > 0) {
-    console.error(`ChatComposer composition tests: ${failures} failed`);
-    process.exit(1);
-  }
-  console.log("ChatComposer composition tests: all passed");
-  process.exit(0);
-}
 
-void main();
+test("typed model commands use the ordinary send path without a composer picker", async () => {
+  const h = await renderComposer("tab-model-command");
+  try {
+    setDomValue(h.el, "/model fixture-model");
+    await fire(h.el, inputEvent({ isComposing: false }));
+    assert(!h.host.querySelector('[aria-label="Model and traits"]'), "model chip stays hidden");
+    assert(!h.host.querySelector('[aria-label="Select model"]'), "model dialog stays hidden");
+    await fire(h.el, keydownEvent({ key: "Enter", keyCode: 13 }));
+    await flush();
+    assert(h.sendCalls.length === 1, "command is submitted once");
+    assert(h.sendCalls[0].text === "/model fixture-model", "command reaches the existing send path unchanged");
+  } finally {
+    await teardown(h);
+  }
+});
+
+test("repeated pending Enter presses create one bubble and one request", async () => {
+  const admission = deferred<ChatSendStatus>();
+  const h = await renderComposer("tab-repeat-pending", { send: () => admission.promise });
+  try {
+    setDomValue(h.el, "opaque-repeat");
+    await fire(h.el, inputEvent({ isComposing: false }));
+    await act(async () => {
+      h.el.dispatchEvent(keydownEvent({ key: "Enter", keyCode: 13 }));
+      h.el.dispatchEvent(keydownEvent({ key: "Enter", keyCode: 13 }));
+    });
+    await flush();
+    assert(h.el.value === "", "pending send clears immediately");
+    assert(h.sendCalls.length === 1, "repeated press cannot admit another transaction");
+    assert(h.optimisticCount() === 1, "repeated press cannot create another bubble");
+  } finally {
+    admission.resolve(heldStatus("tab-repeat-pending"));
+    await teardown(h);
+  }
+});

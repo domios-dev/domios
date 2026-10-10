@@ -173,7 +173,9 @@ fn install_message(base: &str, id: &str, reload_required: bool) -> String {
     }
     msg.push_str(&format!(
         ". To configure it: run `codeterm plugin get {id}` to see options, \
-         ask the user what they want, then `codeterm plugin config {id} --set key=value`."
+         ask the user what they want, then use `codeterm plugin config {id} --set key=value` \
+         for non-secret fields. For secret fields, pipe the value to \
+         `codeterm plugin config {id} --secret FIELD`; never put the value in command arguments."
     ));
     msg
 }
@@ -339,6 +341,7 @@ pub(super) fn install_from_dir(
         let body = serde_json::to_string_pretty(record).map_err(|e| e.to_string())?;
         fs::write(tmp.join(".codeterm-install.json"), body).map_err(|e| e.to_string())?;
     }
+    carry_user_config(&dest, &tmp)?;
     if dest.exists() {
         fs::remove_dir_all(&dest).map_err(|e| format!("replace {}: {e}", dest.display()))?;
     }
@@ -429,5 +432,27 @@ pub(super) fn manifest_requires_reload(dir: &Path) -> bool {
 pub(super) fn manifest_hash(dir: &Path) -> Result<String, String> {
     let path = dir.join("plugin.json");
     let bytes = fs::read(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
-    Ok(format!("{:x}", Sha256::digest(&bytes)))
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|e| format!("parse {}: {e}", path.display()))?;
+    let canonical = canonicalize_manifest(manifest);
+    let canonical_bytes = serde_json::to_vec(&canonical).map_err(|e| e.to_string())?;
+    Ok(format!("{:x}", Sha256::digest(canonical_bytes)))
+}
+
+fn canonicalize_manifest(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(object) => {
+            let mut entries: Vec<_> = object.into_iter().collect();
+            entries.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+            let mut canonical = serde_json::Map::new();
+            for (key, value) in entries {
+                canonical.insert(key, canonicalize_manifest(value));
+            }
+            serde_json::Value::Object(canonical)
+        }
+        serde_json::Value::Array(values) => {
+            serde_json::Value::Array(values.into_iter().map(canonicalize_manifest).collect())
+        }
+        value => value,
+    }
 }

@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { Workspace } from "../../lib/types";
 import { SidebarDnd } from "./sortable";
-import { WorkspaceCardGrid, workspaceCardPosition } from "./WorkspaceCardGrid";
+import { mergeVisibleOrder, visibleWorkspaceIds, WorkspaceCardGrid } from "./WorkspaceCardGrid";
 
 const window = new Window({ url: "http://localhost/" });
 for (const [name, value] of Object.entries({
@@ -42,22 +42,14 @@ async function run() {
     /\.sidebar-workspace-card-working\s*\{[^}]*width:\s*12px;[^}]*height:\s*7px;[^}]*box-sizing:\s*border-box;[^}]*padding-bottom:\s*0\.75px;[^}]*align-items:\s*center;[^}]*border-radius:\s*999px;[^}]*background:\s*color-mix\(in srgb, var\(--ct-accent\) 62%, var\(--ct-surface\)\);[^}]*color:\s*var\(--ct-on-accent\);[^}]*box-shadow:\s*0 0 0 1px color-mix\(in srgb, var\(--ct-accent\) 22%, transparent\);/s,
     "working indicator is a compact theme-token pill with an optically centered dot baseline",
   );
-  assert.deepEqual(
-    Array.from({ length: 8 }, (_, index) => workspaceCardPosition(index, 3)),
-    [
-      { gridColumn: 1, gridRow: 1 },
-      { gridColumn: 2, gridRow: 1 },
-      { gridColumn: 3, gridRow: 1 },
-      { gridColumn: 1, gridRow: 2 },
-      { gridColumn: 2, gridRow: 2 },
-      { gridColumn: 3, gridRow: 2 },
-      { gridColumn: 4, gridRow: 1 },
-      { gridColumn: 5, gridRow: 1 },
-    ],
-    "cards fill left-to-right before using the second row and horizontal overflow",
-  );
+  const ids = ["a", "b", "c", "d", "e", "f", "g", "h"];
+  assert.deepEqual(visibleWorkspaceIds(ids.slice(0, 5), null, 3, false), { visible: ["a", "b", "c", "d", "e"], hidden: 0 }, "everything plus create fits in two rows");
+  assert.deepEqual(visibleWorkspaceIds(ids, null, 3, false), { visible: ["a", "b", "c", "d", "e"], hidden: 3 }, "two rows: five cards and a +N cell, no horizontal overflow");
+  assert.deepEqual(visibleWorkspaceIds(ids, "h", 3, false).visible, ["a", "b", "c", "d", "h"], "the selected workspace stays visible when collapsed");
+  assert.deepEqual(visibleWorkspaceIds(ids, null, 3, true), { visible: ids, hidden: 0 }, "expanded shows every workspace");
+  assert.deepEqual(mergeVisibleOrder(ids, ["b", "a", "c", "d", "h"]), ["b", "a", "c", "d", "e", "f", "g", "h"], "a reorder of the visible cards keeps hidden ones in place");
   await act(async () => root.render(
-    <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
+    <SidebarDnd handlers={{ reorderTabs: () => {}, reorderDisplay: () => {}, reorderWorkspaces: () => {} }}>
       <WorkspaceCardGrid
         workspaces={workspaces}
         selectedWorkspaceId="one"
@@ -70,14 +62,11 @@ async function run() {
   ));
 
   assert.equal(host.querySelector('[role="region"][aria-label="Workspace cards"]')?.querySelectorAll('[role="listitem"]').length, 2);
-  assert.equal((host.querySelector('[role="list"][aria-label="Workspaces"]') as HTMLElement).style.gridTemplateRows, "repeat(1, 40px)");
+  assert.equal(host.querySelector('[data-testid="workspace-card-more"]'), null, "no +N control when everything fits");
   assert.equal(host.querySelector('[aria-label="Select workspace CodeTerm"]')?.getAttribute("aria-current"), "true");
-  const firstGridItem = host.querySelector('[data-workspace-id="one"]')?.parentElement as HTMLElement;
   const secondGridItem = host.querySelector('[data-workspace-id="two"]')?.parentElement as HTMLElement;
-  assert.equal(`${firstGridItem.style.gridRow}/${firstGridItem.style.gridColumn}`, "1/1");
-  assert.equal(`${secondGridItem.style.gridRow}/${secondGridItem.style.gridColumn}`, "1/2");
   const createButton = host.querySelector('[aria-label="Create workspace"]') as HTMLButtonElement;
-  assert.equal(`${createButton.style.gridRow}/${createButton.style.gridColumn}`, "1/3");
+  assert.equal(secondGridItem.nextElementSibling, createButton, "create sits in the next free cell right after the last card");
   await act(async () => createButton.click());
   assert.equal(creates, 1, "create card owns the workspace creation action");
   assert.equal(

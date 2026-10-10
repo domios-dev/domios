@@ -1,7 +1,7 @@
 {
   "id": "claude",
-  "version": "1.12.3",
-  "minCodeterm": "1.12.3",
+  "version": "1.14.0",
+  "minCodeterm": "1.14.0",
   "hostApi": 2,
   "displayName": "Claude Code",
   "binaryName": "claude",
@@ -9,6 +9,10 @@
   "iconColor": "#d97757",
   "entry": "plugin.js",
   "spawn": {
+    "forkSessionArgs": [
+      "--fork-session"
+    ],
+    "capabilityProbe": "stream_json_initialize",
     "readinessStrategy": {
       "kind": "poll_shell_prompt",
       "timeoutSecs": 30
@@ -16,7 +20,8 @@
     "taskDelivery": "inline_flag",
     "paste": {
       "untrustedAboveLines": 4,
-      "typedFollowUp": " Handle the pasted message above as my request."
+      "typedFollowUp": " Handle the paste as my request.",
+      "requiresTypedInstructionForRoutedMessages": true
     },
     "systemPromptDelivery": {
       "kind": "cli_flag",
@@ -61,7 +66,11 @@
   "sessions": {
     "rootDir": "~/.claude/projects",
     "cwdEncoding": "dash_encoded",
-    "fileExtension": "jsonl"
+    "fileExtension": "jsonl",
+    "rootEnvironment": {
+      "variable": "CLAUDE_CONFIG_DIR",
+      "subdir": "projects"
+    }
   },
   "rule": {
     "path": "~/.claude/rules/codeterm.md"
@@ -73,48 +82,57 @@
   "models": [
     {
       "id": "opus",
-      "displayName": "Claude Opus",
-      "description": "Best for everyday, complex tasks."
+      "displayName": "Opus 5.5",
+      "description": "Best for everyday, complex tasks.",
+      "primary": true
     },
     {
       "id": "sonnet",
-      "displayName": "Claude Sonnet",
-      "description": "Efficient for routine tasks."
+      "displayName": "Sonnet 5.5",
+      "description": "Efficient for routine tasks.",
+      "primary": true
     },
     {
       "id": "haiku",
-      "displayName": "Claude Haiku",
-      "description": "Fastest for quick answers."
+      "displayName": "Haiku 5.5",
+      "description": "Fastest for quick answers.",
+      "primary": true
     },
     {
       "id": "fable",
-      "displayName": "Claude Fable",
-      "description": "Most capable for your hardest and longest-running tasks."
+      "displayName": "Fable 5.1",
+      "description": "Most capable for your hardest and longest-running tasks.",
+      "primary": true
     },
     {
       "id": "best",
       "displayName": "Claude Best",
-      "description": "Claude Code's dynamic best-model alias."
+      "description": "Claude Code's dynamic best-model alias.",
+      "group": "Additional models"
     },
     {
       "id": "sonnet[1m]",
       "displayName": "Claude Sonnet (1M context)",
-      "description": "Claude Code's Sonnet long-context alias."
+      "description": "Claude Code's Sonnet long-context alias.",
+      "group": "Additional models"
     },
     {
       "id": "opus[1m]",
       "displayName": "Claude Opus (1M context)",
-      "description": "Claude Code's Opus long-context alias."
+      "description": "Claude Code's Opus long-context alias.",
+      "group": "Additional models"
     },
     {
       "id": "fable[1m]",
       "displayName": "Claude Fable (1M context)",
-      "description": "Claude Code's Fable long-context alias."
+      "description": "Claude Code's Fable long-context alias.",
+      "group": "Additional models"
     },
     {
       "id": "opusplan",
       "displayName": "Claude Opus Plan",
-      "description": "Claude Code's Opus planning alias."
+      "description": "Claude Code's Opus planning alias.",
+      "group": "Additional models"
     }
   ],
   "defaultModel": "sonnet",
@@ -162,8 +180,53 @@
     "compact": "/compact",
     "freshContext": "/new",
     "exit": "/exit",
+    "idleRestartTermination": true,
     "stopKey": "\u001b",
-    "modelSwitch": "restart_resume",
+    "modelSwitch": "live_command",
+    "modelSwitchCommands": {
+      "readyInputRegex": "^\\s*❯\\s*$",
+      "transcript": {
+        "recordType": "user",
+        "contentPath": [
+          "message",
+          "content"
+        ],
+        "prefix": "<local-command-stdout>",
+        "suffix": "</local-command-stdout>",
+        "ignoredContentRegexes": [
+          "\\A<local-command-caveat>[^<>]*</local-command-caveat>\\z",
+          "\\A<command-name>/model</command-name>\\s*<command-message>model</command-message>\\s*<command-args>\\s*</command-args>\\z",
+          "\\A<command-name>/effort</command-name>\\s*<command-message>effort</command-message>\\s*<command-args>[^<>]*</command-args>\\z"
+        ]
+      },
+      "model": {
+        "command": "/model",
+        "confirmation": "(?i)^Set model to `?(?:{model}|{display_name})(?: [^`\\r\\n]+)?`? for this session only(?:$|[^a-z0-9_-])",
+        "prompt": {
+          "screenRegex": "(?im)^\\s*Switch model\\?\\s*$[\\s\\S]*^\\s*❯\\s*1\\. Yes, switch to (?:{model}|{display_name})(?: [^\\r\\n]+)?\\s*$[\\s\\S]*^\\s*2\\. No, go back\\s*(?:\\r?\\n\\s*(?:Enter to confirm|Esc to cancel)[^\\r\\n]*)?\\s*\\z",
+          "responseKeys": [
+            "\r"
+          ],
+          "cancelKeys": [
+            "\u001b"
+          ]
+        },
+        "picker": {
+          "screenRegex": "(?m)^\\s*Select model\\s*$[\\s\\S]*^\\s*Enter to set as default · s to use this session only · Esc to cancel\\s*\\z",
+          "selectedRegex": "(?m)^\\s*❯\\s*(?P<position>\\d+)\\.\\s+[^\\r\\n]+\\r?$",
+          "targetRegex": "(?im)^\\s*(?:❯\\s*)?(?P<position>\\d+)\\.\\s+(?P<label>{display_name}|{model})(?:\\s*[✓✔])?(?:\\s+[^\\r\\n]+)?\\r?$",
+          "position": "number",
+          "previousKey": "\u001b[A",
+          "nextKey": "\u001b[B",
+          "responseKey": "s",
+          "cancelKey": "\u001b"
+        }
+      },
+      "effort": {
+        "command": "/effort {effort}",
+        "confirmation": "(?i)^Set effort level to {effort} \\("
+      }
+    },
     "autoApproveFlags": [
       "--dangerously-skip-permissions"
     ],
@@ -189,5 +252,14 @@
       ]
     }
   },
-  "icon": "icon.svg"
+  "icon": "icon.svg",
+  "cliCompatibility": {
+    "supported": [
+      "=2.1.292"
+    ],
+    "breaking": [],
+    "modelMinimumCli": {
+      "fable": "2.1.258"
+    }
+  }
 }

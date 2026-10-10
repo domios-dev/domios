@@ -23,11 +23,11 @@ CLI:
 - `codeterm mem skill list` — list every registered skill folder.
 - Removing a skill: `codeterm mem delete <id>`. The delete records a tombstone for the folder's `SKILL.md`, so the Librarian never re-registers it; the folder stays on disk. `codeterm mem skill add <folder>` clears the tombstone.
 
-Inside `SKILL.md`, reference scripts by relative path (`./scripts/deploy.sh`). When the user invokes the skill, agents `cat SKILL.md` to recall the procedure, then execute the scripts directly. Edit any file in the folder → Librarian re-indexes on its next scan; `codeterm mem sync` triggers immediately.
+Inside `SKILL.md`, reference scripts by relative path (`./scripts/deploy.sh`). When the user invokes the skill, agents `cat SKILL.md` to recall the procedure, then execute the scripts directly. A search hit on a skill carries the `SKILL.md` body; list the rest of the folder with `ls $(dirname <source_path>)`. Edit any file in the folder → Librarian re-indexes on its next hourly scan; `codeterm mem sync` triggers immediately.
 
 ## Librarian (file sync daemon)
 
-A background loop that periodically scans every mem item carrying `source_path` (documents loaded with `--source-path`, skill `SKILL.md` files, etc.):
+A background loop that scans hourly (first pass about 30 seconds after start) every mem item carrying `source_path` (documents loaded with `--source-path`, skill `SKILL.md` files, etc.):
 
 - File mtime > index mtime → re-read body, re-vectorize, update FTS5.
 - File deleted → flag the item (kept searchable, not removed).
@@ -44,6 +44,8 @@ Extraction and REM run as hidden workers; inspect their status/logs and report e
 - On completion, `codeterm mem worker report` records that execution ended (and, with `--diary`/`--finalization`, whether the artifact actually landed); the full log is saved to `~/.codeterm/mem/workers/<id>.log`.
 - **Limits:** at most 200 workers are kept; the oldest finished workers and their logs are evicted.
 - The Memory tab lists workers with live or saved logs.
+- Extraction allows three attempts per unchanged source and launch configuration. Failed attempts back off for one minute, then two minutes, before becoming eligible on a later save or startup scan. After three failures the item is parked with its reason in Activity; `mem extract-pending` explicitly resets that budget. A changed source, provider/model, provider availability, or app build starts a new budget. A reported extraction with no graph additions is still completed.
+- Extraction and dreaming stop at their configured deadline, capped at 45 minutes. Process exits and launch failures record their reason and end time. Orphaned sessions show duration through their last observed activity, or unknown; age is labelled separately. Activity groups matching failures by intent, executor and reason.
 
 ## Dreaming
 
@@ -57,4 +59,4 @@ Requires `ANTHROPIC_API_KEY`. The phase is read-only against the DB; all mutatio
 
 `GET /api/mem/dream/report` returns the prepared targets and summary for the run.
 
-<!-- revision: 5 -->
+<!-- revision: 7 -->

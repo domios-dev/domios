@@ -330,7 +330,7 @@ npx tsx plugins/provider-claude/tests/parser.test.ts
 ```
 
 The host-side registry has its own suite at
-`src/lib/plugins/__tests__/registry.test.ts` covering
+`src/lib/plugins/registry.test.ts` covering
 `register/unregister/getPlugin/getAllPlugins/detectProvider/isProviderNoise`.
 
 The current test runner is a tiny `assert`/`eq` shim inside each test

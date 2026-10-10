@@ -1,11 +1,18 @@
 {
   "id": "codex",
-  "version": "1.12.3",
-  "minCodeterm": "1.12.3",
+  "version": "1.14.0",
+  "minCodeterm": "1.14.0",
   "hostApi": 2,
   "displayName": "Codex",
   "binaryName": "codex",
   "cliBinary": "codex",
+  "capabilities": {
+    "agentProvider": true,
+    "structuredControl": {
+      "protocol": "codex-app-server",
+      "minVersion": "0.160.0"
+    }
+  },
   "iconColor": "var(--ct-fg)",
   "entry": "plugin.js",
   "sessions": {
@@ -15,6 +22,10 @@
       "rootSubdir": "sessions",
       "directoryDepth": 3,
       "fileStemRegex": "^rollout-.{19}-([A-Za-z0-9._-]{1,128})$"
+    },
+    "rootEnvironment": {
+      "variable": "CODEX_HOME",
+      "subdir": ""
     }
   },
   "credentials": [
@@ -26,6 +37,10 @@
       },
       "secret": {
         "accessToken": "tokens.access_token"
+      },
+      "fileEnvironment": {
+        "variable": "CODEX_HOME",
+        "subdir": "auth.json"
       }
     }
   ],
@@ -86,6 +101,21 @@
       {
         "event": "Stop",
         "route": "stop"
+      },
+      {
+        "event": "turn/started",
+        "route": "session_state",
+        "verdict": "working"
+      },
+      {
+        "event": "turn/completed",
+        "route": "session_state",
+        "verdict": "idle"
+      },
+      {
+        "event": "serverRequest/pending",
+        "route": "session_state",
+        "verdict": "waiting"
       }
     ],
     "usageProbeCommand": "/status"
@@ -193,6 +223,7 @@
       "-m",
       "{model}"
     ],
+    "modelSwitch": "next_turn",
     "reasoningEffortLaunchArgsFormat": [
       "-c",
       "model_reasoning_effort=\"{effort}\""
@@ -212,5 +243,11 @@
       ]
     }
   },
-  "icon": "icon.svg"
+  "icon": "icon.svg",
+  "cliCompatibility": {
+    "supported": [
+      "=0.160.0"
+    ],
+    "breaking": []
+  }
 }

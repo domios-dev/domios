@@ -151,7 +151,8 @@ pub(crate) fn resolve_search<B: DecisionBackend + ?Sized>(
         crate::service::supporter::supporter_connected(
             cfg,
             models,
-            &crate::service::supporter::TokenSnapshot::read(
+            &crate::service::supporter::read_token_snapshot(
+                &backend.supporter_runtime(),
                 &decision::token_store(),
                 cfg.active_id().unwrap_or(""),
             ),

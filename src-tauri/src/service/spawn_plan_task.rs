@@ -332,7 +332,43 @@ impl ServiceContext {
         &self,
         params: &mut SpawnAgentParams,
     ) -> Result<(), String> {
-        prepare_worker_plan_task_prompt(&self.plan_store, params)
+        if worker_spawn_is_task_bound(params) {
+            let (tool_less, relay) = self
+                .agent_registry
+                .with_provider(params.agent.as_deref().unwrap_or_default(), |provider| {
+                    (provider.is_tool_less(), provider.supports_reply_relay())
+                })
+                .unwrap_or_default();
+            super::reply_relay::worker::validate_worker_lifecycle_capabilities(tool_less, relay)?;
+        }
+        let instruction = params.task.clone();
+        let owns_prompt = worker_spawn_plan_task_ref(params).is_some();
+        prepare_worker_plan_task_prompt(&self.plan_store, params)?;
+        if owns_prompt
+            && self
+                .agent_registry
+                .with_provider(params.agent.as_deref().unwrap_or_default(), |provider| {
+                    provider.is_tool_less()
+                })
+                .unwrap_or(false)
+        {
+            if let (Some(plan), Some(task_id)) =
+                (params.plan_id.as_deref(), params.task_id.as_deref())
+            {
+                let detail = self.plan_store.show_task(task_id).ok_or("task not found")?;
+                if detail.plan_id == plan {
+                    params.task = Some(
+                        crate::service::plan::task_brief::render_tool_less_task_brief(
+                            &detail.task,
+                            &detail.sections,
+                            detail.task.personality.as_deref(),
+                            instruction.as_deref(),
+                        ),
+                    );
+                }
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn bind_worker_plan_task_or_rollback_tab(

@@ -114,7 +114,7 @@ The build.sh bg task's own output stream also contains the Rust compile log and 
 
 ### Explicit named-dev tailnet access
 
-Keep `api.host` on loopback. A named development instance may opt into an
+Keep `api.host` on loopback. Any development instance (default or named) may opt into an
 additional listener with `api.mesh_tailnet_host` set to its locally assigned
 Tailscale IPv4 address. Use the named instance and port with the dev wrapper
 for `dc config set api.mesh_tailnet_host '"<tailnet-ip>"'`; never a bare CLI

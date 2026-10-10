@@ -194,6 +194,14 @@
   transform: scale(0.9);
 }
 
+.ct-agent-row--chat .activity-dots--still i,
+.ct-agent-row--chat .activity-dots--cooling i {
+  animation: none;
+  opacity: 0.5;
+  transform: none;
+  transition: opacity var(--ct-duration-smooth) var(--ct-ease-liquid-settle);
+}
+
 /* Going idle keeps the slot intact while the shared cooldown animation settles. */
 [data-agent-state="idle"] .ct-phase-dots {
   color: var(--ct-muted-fg);
@@ -235,6 +243,8 @@
    outline that doesn't compete with the dots) and resolves to danger only on
    intent (hover/focus), so interrupting reads as deliberate. */
 .ct-agent-stop {
+  margin-left: auto;
+  border-radius: 999px;
   color: var(--ct-muted-fg, #8b949e);
   background: transparent;
   border: 1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent);
@@ -247,6 +257,27 @@
   border-color: color-mix(in srgb, var(--ct-err) 45%, transparent);
   background: color-mix(in srgb, var(--ct-err) 12%, transparent);
   outline: none;
+}
+
+@media (max-width: 640px) {
+  .ct-chat-bottom-bar .ct-agent-stop {
+    position: absolute;
+    right: 4px;
+    bottom: calc(100% + 10px);
+    width: 32px;
+    height: 32px;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    background: var(--ct-glass-sheen), var(--ct-glass-bg);
+    box-shadow: var(--ct-glass-edge), var(--ct-shadow-capsule);
+    backdrop-filter: blur(var(--ct-glass-blur)) saturate(var(--ct-glass-saturate));
+    color: var(--ct-fg);
+  }
+
+  .ct-chat-bottom-bar .ct-agent-stop__label {
+    display: none;
+  }
 }
 
 /* Open-terminal control — tinted to the question's tone (color set inline);

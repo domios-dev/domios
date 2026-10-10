@@ -1,5 +1,15 @@
+import { formatAttachmentMarker } from "@codeterm/chat-core";
 import { classifyTabTarget, type TabTarget } from "../../lib/remoteTabTransport";
 import { planComposerAttachments, type ComposerAttachmentPlan } from "./composerAttachmentPlan";
+import { replyMarker, withReplyMarker, type ComposerReply } from "./composerReply";
+import {
+  capsuleMarker,
+  capsulesInDraft,
+  EMPTY_CAPSULES,
+  serializeCapsuleDraft,
+  type CapsuleRegistry,
+  type ComposerCapsule,
+} from "./composerCapsules";
 
 export type MeshAttachmentKind = "voice" | "file";
 
@@ -75,24 +85,60 @@ export async function resolveAttachmentParts(
 }
 
 /** Message text for a composer draft; the only change a remote target sees is
- * each attachment reference rewritten to its target-local copy. */
+ * each attachment reference rewritten to its target-local copy. Inline capsules
+ * become tags where they were typed; a reply leads the text as its quote tag. */
 export async function composeAttachmentDraft(
   tabId: string,
   text: string,
   attachments: string[],
   recordedVoiceAttachments: string[],
   deps: AttachmentHandoffDeps,
+  capsules: CapsuleRegistry = EMPTY_CAPSULES,
+  reply: ComposerReply | null = null,
 ): Promise<AttachmentDraft> {
   const target = attachmentHostTarget(tabId, deps.relayPeerId());
+  const inline = capsulesInDraft(text, capsules);
+  const markers = await resolveCapsuleMarkers(target, inline, deps);
+  const typed = serializeCapsuleDraft(text, capsules, (capsule) => markers.get(capsule.label) ?? capsuleMarker(capsule));
+  const body = reply ? withReplyMarker(await resolveReplyMarker(target, reply, deps), typed) : typed;
   const { parts, transcribeFailed } = await resolveAttachmentParts(
     target,
     planComposerAttachments(attachments, recordedVoiceAttachments),
     deps,
   );
   const pathLines = parts.join(" ");
-  const composed = text && pathLines ? `${text} ${pathLines}` : text || pathLines;
-  assertNoSourceAttachmentPaths(target, composed, attachments, deps.quote);
+  const composed = body && pathLines ? `${body} ${pathLines}` : body || pathLines;
+  const sourcePaths = [...attachments, ...inline.map((capsule) => capsule.path), ...(reply ? [reply.path] : [])];
+  assertNoSourceAttachmentPaths(target, composed, sourcePaths, deps.quote);
   return { composed, transcribeFailed };
+}
+
+async function resolveReplyMarker(target: TabTarget, reply: ComposerReply, deps: AttachmentHandoffDeps): Promise<string> {
+  if (target.kind === "invalid-remote") {
+    throw new AttachmentTransferError(`Invalid remote tab id "${target.value}"; attachments were not sent`);
+  }
+  if (target.kind !== "remote") return replyMarker(reply);
+  const copy = await transferCopy(target, { path: reply.path, transcribe: false }, deps);
+  return replyMarker(reply, copy.path);
+}
+
+async function resolveCapsuleMarkers(
+  target: TabTarget,
+  capsules: ComposerCapsule[],
+  deps: AttachmentHandoffDeps,
+): Promise<Map<string, string>> {
+  if (target.kind === "invalid-remote" && capsules.length) {
+    throw new AttachmentTransferError(`Invalid remote tab id "${target.value}"; attachments were not sent`);
+  }
+  if (target.kind !== "remote") return new Map(capsules.map((capsule) => [capsule.label, capsuleMarker(capsule)]));
+  const entries = await Promise.all(capsules.map(async (capsule): Promise<[string, string]> => {
+    if (capsule.kind === "folder") {
+      throw new AttachmentTransferError(`${capsule.label} is a folder on this machine; folders cannot be sent to a remote tab`);
+    }
+    const copy = await transferCopy(target, { path: capsule.path, transcribe: false }, deps);
+    return [capsule.label, capsuleMarker({ ...capsule, path: copy.path })];
+  }));
+  return new Map(entries);
 }
 
 async function resolveLocalParts(
@@ -102,23 +148,23 @@ async function resolveLocalParts(
   let transcribeFailed = false;
   const parts = await Promise.all(
     plans.map(async ({ path, transcribe }) => {
-      if (!transcribe) return deps.quote(path);
+      if (!transcribe) return formatAttachmentMarker(path);
       try {
         return await deps.transcribeLocal(path);
       } catch {
         transcribeFailed = true;
-        return deps.quote(path);
+        return formatAttachmentMarker(path);
       }
     }),
   );
   return { parts, transcribeFailed };
 }
 
-async function transferPart(
+async function transferCopy(
   target: { ordinaryTabId: string; peerId: string },
   plan: ComposerAttachmentPlan,
   deps: AttachmentHandoffDeps,
-): Promise<string> {
+): Promise<TransferredAttachment> {
   const kind: MeshAttachmentKind = plan.transcribe ? "voice" : "file";
   const name = attachmentName(plan.path);
   let transferred: TransferredAttachment;
@@ -135,7 +181,16 @@ async function transferPart(
   if (!transferred?.path || transferred.path === plan.path) {
     throw new AttachmentTransferError(`${name} was not sent to the remote tab: the target host kept no copy`);
   }
-  return kind === "voice" && transferred.reference ? transferred.reference : deps.quote(transferred.path);
+  return transferred;
+}
+
+async function transferPart(
+  target: { ordinaryTabId: string; peerId: string },
+  plan: ComposerAttachmentPlan,
+  deps: AttachmentHandoffDeps,
+): Promise<string> {
+  const transferred = await transferCopy(target, plan, deps);
+  return plan.transcribe && transferred.reference ? transferred.reference : formatAttachmentMarker(transferred.path);
 }
 
 export function assertNoSourceAttachmentPaths(

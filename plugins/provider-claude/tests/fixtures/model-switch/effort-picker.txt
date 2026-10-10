@@ -1,0 +1,19 @@
+ ▐▛███▛█   Claude Code v2.1.295
+▝▜██████▀  Opus 5.5 with high effort · Claude Max
+ ▝▝   ▝▝   ~\AppData\Local\Temp\codeterm-switch-scratch
+❯ /model                                                                                                                
+  ⎿  Set model to Sonnet 5.5 for this session only
+❯ /effort                                                                                                               
+  ⎿  Set effort level to high (this session only): Comprehensive implementation with extensive testing and documentation
+❯ Reply with SWITCH-PROBE only.                                                                                         
+● SWITCH-PROBE
+✻ Crunched for 3s · done 11:33
+❯ /model                                                                                                                
+  ⎿  Set model to Opus 5.5 for this session only
+❯ /effort                                                                                                               
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Effort
+                             Faster                             Smarter
+                             ────────────────────▲─────────────────────      Ultracode  off
+                             low     medium     high     xhigh      max      Tab to toggle
+  ←/→ to adjust · Enter to confirm · s for this session only · Esc to cancel

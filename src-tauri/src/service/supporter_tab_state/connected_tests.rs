@@ -1,6 +1,24 @@
 use super::*;
 
 #[test]
+fn unchanged_worker_frames_call_the_model_once() {
+    for answer in [
+        Ok(choice(READY_IDLE, 0.99)),
+        Err(DecisionError::Unsupported),
+    ] {
+        let (host, calls, _) = StubHost::new("unchanged-frame", StubModel::answering(answer));
+        let tab_id = tab();
+        run(&host, &tab_id, ObservationTrigger::WorkerIdle);
+        for _ in 0..100 {
+            state::note_output(&tab_id);
+            assert!(run(&host, &tab_id, ObservationTrigger::WorkerIdle).is_none());
+            assert!(run(&host, &tab_id, ObservationTrigger::BusyNoOutput).is_none());
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+}
+
+#[test]
 fn supporter_tab_state_other_label_takes_no_action() {
     let model = StubModel::answering(Ok(choice(OTHER, 0.99)));
     let (host, calls, _) = StubHost::new("ambiguous fixture", model);

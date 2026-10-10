@@ -97,6 +97,9 @@ pub enum PlanAction {
         /// Lane branch to delete after worktree removal, if merged into project HEAD
         #[arg(long, value_name = "BRANCH")]
         branch: Option<String>,
+        /// Force removal, discarding uncommitted and untracked lane content
+        #[arg(long)]
+        force: bool,
         /// Canonical checkout (needed for a missing worktree unless its task identifies the project)
         #[arg(long, value_name = "PATH")]
         project: Option<String>,
@@ -567,7 +570,7 @@ pub enum PlanGroupsAction {
         #[arg(long)]
         groups: String,
     },
-    /// Record a group's retrospective stride: closes its reflection window and clears its retrospective dispatch gate
+    /// Record an optional retrospective stride for a completed group
     Close {
         plan_id: String,
         key: String,

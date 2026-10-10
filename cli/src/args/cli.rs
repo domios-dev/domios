@@ -10,6 +10,7 @@ use clap::{Parser, Subcommand};
 use crate::mesh_cli::MeshAction;
 
 use super::agent::AgentAction;
+use super::blueprint::BlueprintAction;
 use super::cron::CronAction;
 use super::debug::DebugAction;
 use super::delayed::DelayedAction;
@@ -27,11 +28,11 @@ use super::pad::PadAction;
 use super::persona::PersonaAction;
 use super::plan::PlanAction;
 use super::plugin::PluginAction;
-use super::sentinel::SentinelAction;
 use super::service::ServiceAction;
 use super::sessions::SessionsAction;
 use super::spec::SpecAction;
 use super::supporter::SupporterAction;
+use super::surface::SurfaceAction;
 use super::system::SystemAction;
 use super::task::{CanvasAction, TaskAction};
 use super::team::TeamAction;
@@ -64,8 +65,19 @@ pub struct Cli {
     reason = "Clap command enums keep parsed options inline."
 )]
 pub enum Commands {
+    /// Read this instance's DEV flow trace without contacting the daemon
+    Trace {
+        #[command(subcommand)]
+        action: super::trace::TraceAction,
+    },
     /// Show Domios version and system info
     Identify,
+
+    /// Configure model endpoints through the installed provider capability
+    ModelProvider {
+        #[command(subcommand)]
+        action: super::model_provider::ModelProviderAction,
+    },
 
     /// List CLI commands and clearly marked RPC-only/internal methods
     Capabilities,
@@ -259,6 +271,12 @@ pub enum Commands {
         action: ThemeAction,
     },
 
+    /// Plugin surface tabs: app tabs whose content a plugin view renders
+    Surface {
+        #[command(subcommand)]
+        action: SurfaceAction,
+    },
+
     /// Agent hierarchy management
     Agent {
         #[command(subcommand)]
@@ -266,9 +284,9 @@ pub enum Commands {
     },
 
     /// Cheap hash-gated watchers with closed-set routes
-    Sentinel {
+    Blueprint {
         #[command(subcommand)]
-        action: SentinelAction,
+        action: BlueprintAction,
     },
 
     /// Cron job management
@@ -322,7 +340,8 @@ pub enum Commands {
         action: MemAction,
     },
 
-    /// Configure and inspect the Supporter Agent.
+    /// Configure and inspect Spinal Cord (Supporter Agent).
+    #[command(visible_alias = "spinal-cord")]
     Supporter {
         #[command(subcommand)]
         action: SupporterAction,

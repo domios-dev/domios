@@ -1,0 +1,480 @@
+.ct-surface {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--ct-bg);
+  color: var(--ct-fg);
+  font-family: var(--ct-font-ui);
+}
+
+.ct-surface-toolbar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+}
+
+.ct-surface-icon-btn {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ct-radius-md);
+  background: transparent;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+}
+
+.ct-surface-icon-btn:not(:disabled):hover {
+  background: var(--ct-bg-hover);
+  color: var(--ct-fg);
+}
+
+.ct-surface-icon-btn:not(:disabled):active {
+  background: var(--ct-bg-active);
+}
+
+.ct-surface-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.ct-surface-icon-btn[aria-pressed="true"] {
+  background: var(--ct-accent);
+  color: var(--ct-on-accent, #fff);
+}
+
+.ct-surface-icon-btn:focus-visible,
+.ct-surface-pill:focus-visible {
+  outline: 2px solid var(--ct-accent);
+  outline-offset: 1px;
+}
+
+.ct-surface-pill {
+  height: 28px;
+  box-sizing: border-box;
+  border: 1px solid var(--ct-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ct-fg);
+  font: 12px var(--ct-font-ui);
+}
+
+.ct-surface-pill:disabled {
+  color: var(--ct-muted-fg);
+  opacity: 0.6;
+  cursor: default;
+}
+
+.ct-surface-address {
+  flex: 1;
+  min-width: 120px;
+  margin: 0 6px;
+  padding: 0 12px;
+  font-size: 13px;
+  outline: none;
+}
+
+.ct-surface-address:focus {
+  border-color: var(--ct-border-focus);
+  box-shadow: 0 0 0 2px var(--ct-border-focus);
+}
+
+.ct-surface-select {
+  margin-left: 4px;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.ct-surface-take {
+  margin-left: 4px;
+  padding: 0 12px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.ct-surface-take:not(:disabled):hover {
+  background: var(--ct-bg-hover);
+}
+
+.ct-surface-take[aria-pressed="true"],
+.ct-surface-take[aria-pressed="true"]:not(:disabled):hover {
+  border-color: var(--ct-accent);
+  background: var(--ct-accent);
+  color: var(--ct-on-accent, #fff);
+}
+
+/* The pointer rests on the toggle right after a click; keep the pressed fill readable under hover. */
+.ct-surface-take[aria-pressed="true"]:not(:disabled):hover {
+  filter: brightness(1.08);
+}
+
+.ct-surface-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: #000;
+}
+
+.ct-surface-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  outline: none;
+}
+
+.ct-surface-canvas[data-mode="interactive"] {
+  outline: 1px solid var(--ct-accent);
+  outline-offset: -1px;
+}
+
+.ct-surface-canvas[data-mode="picking"] {
+  outline: 2px dashed var(--ct-accent);
+  outline-offset: -2px;
+  cursor: crosshair;
+}
+
+.ct-surface-snip {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  overflow: hidden;
+  background: color-mix(in srgb, #000 34%, transparent);
+  cursor: crosshair;
+  outline: none;
+  touch-action: none;
+  user-select: none;
+  animation: ct-surface-snip-in var(--ct-duration-liquid-hover, 140ms) var(--ct-ease-liquid-settle, ease-out) both;
+}
+
+.ct-surface-snip[data-dragging="true"] {
+  background: transparent;
+}
+
+.ct-surface-snip__hint {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  margin: 0;
+  padding: 5px 12px;
+  border: 1px solid color-mix(in srgb, var(--ct-accent) 30%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-surface) 82%, transparent);
+  backdrop-filter: blur(var(--ct-blur-md)) saturate(1.4);
+  color: var(--ct-fg);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.ct-surface-snip__box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--ct-accent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ct-accent) 8%, transparent);
+  box-shadow: 0 0 0 100vmax color-mix(in srgb, #000 34%, transparent);
+  pointer-events: none;
+}
+
+.ct-surface-snip__size {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-surface) 86%, transparent);
+  color: var(--ct-fg);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.ct-surface-snip-frame {
+  position: absolute;
+  z-index: 4;
+  box-sizing: border-box;
+  border: 1px solid var(--ct-accent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ct-accent) 7%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ct-accent) 14%, transparent);
+  pointer-events: none;
+  animation: ct-surface-snip-in var(--ct-duration-liquid-hover, 140ms) var(--ct-ease-liquid-settle, ease-out) both;
+}
+
+@keyframes ct-surface-snip-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-surface-snip,
+  .ct-surface-snip-frame {
+    animation: none;
+  }
+}
+
+.ct-surface-notice {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 80%;
+  padding: 4px 4px 4px 12px;
+  transform: translateX(-50%);
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-md);
+  background: var(--ct-surface);
+  box-shadow: var(--ct-shadow-md);
+  color: var(--ct-fg);
+  font-size: 12px;
+}
+
+.ct-surface-paused {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  max-width: min(360px, 80%);
+  transform: translate(-50%, -50%);
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.ct-surface-paused__toggle {
+  border: 0;
+  border-radius: var(--ct-radius-sm);
+  padding: 1px 6px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  font: inherit;
+  font-size: 10px;
+  opacity: 0.75;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.ct-surface-paused__toggle:hover,
+.ct-surface-paused__toggle:focus-visible {
+  color: var(--ct-fg);
+  opacity: 1;
+}
+
+.ct-surface-paused__detail {
+  font-family: var(--ct-font-mono);
+  font-size: 10px;
+  opacity: 0.7;
+  overflow-wrap: anywhere;
+  user-select: text;
+  pointer-events: auto;
+}
+
+.ct-surface-notice[data-tone="error"] .ct-surface-notice__text {
+  color: var(--ct-red);
+}
+
+.ct-surface-notice[data-tone="warn"] {
+  border-color: color-mix(in srgb, var(--ct-yellow) 55%, var(--ct-border));
+  background: color-mix(in srgb, var(--ct-yellow) 12%, var(--ct-surface));
+}
+
+.ct-surface-ask {
+  position: absolute;
+  z-index: 5;
+  box-sizing: border-box;
+  width: 340px;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--ct-accent) 26%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--ct-surface) 84%, transparent);
+  backdrop-filter: blur(var(--ct-blur-md)) saturate(1.4);
+  box-shadow: var(--ct-shadow-lg);
+  color: var(--ct-fg);
+  transform-origin: top left;
+  animation: ct-surface-ask-in 140ms var(--ct-ease-liquid-settle) both;
+  transition: border-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.ct-surface-ask:focus-within {
+  border-color: color-mix(in srgb, var(--ct-accent) 50%, transparent);
+}
+
+.ct-surface-ask .ct-composer-card,
+.ct-surface-ask .ct-composer-card:focus-within {
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.ct-surface-ask .ct-composer-card .ct-surface-ask__editor {
+  max-height: 80px;
+  color: var(--ct-fg);
+  caret-color: var(--ct-fg);
+  overflow-y: auto;
+}
+
+.ct-surface-ask__chip {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-fg) 8%, transparent);
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  line-height: 16px;
+  cursor: default;
+}
+
+.ct-surface-ask__chip > svg {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--ct-accent) 80%, var(--ct-muted-fg));
+}
+
+.ct-surface-ask__context {
+  flex: 1 1 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ct-surface-ask__chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ct-surface-ask[data-sending="true"] .ct-composer-voice-bubble:disabled {
+  opacity: 1;
+}
+
+.ct-surface-ask[data-sending="true"] .ct-composer-voice-bubble > svg,
+.ct-surface-ask[data-sending="true"] .ct-composer-voice-bubble > .ct-send-glyph {
+  opacity: 0;
+}
+
+.ct-surface-ask[data-sending="true"] .ct-composer-voice-bubble::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 14px;
+  height: 14px;
+  margin: auto;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: ct-surface-ask-spin 700ms linear infinite;
+}
+
+@keyframes ct-surface-ask-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes ct-surface-ask-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-surface-ask {
+    animation: none;
+    transition: none;
+  }
+}
+
+.ct-surface-owner-chip {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 45%;
+  flex-shrink: 1;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 999px;
+  padding: 1px 7px 1px 5px;
+  background: color-mix(in srgb, var(--ct-hover) 70%, transparent);
+  color: var(--ct-muted-fg);
+  font: inherit;
+}
+
+.ct-surface-owner-chip--link {
+  cursor: pointer;
+  transition:
+    color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.ct-surface-owner-chip--link:hover {
+  background: var(--ct-hover);
+  color: var(--ct-fg);
+}
+
+.ct-surface-owner-chip--link:focus-visible {
+  outline: 1px solid var(--ct-accent);
+  outline-offset: 1px;
+}
+
+.ct-surface-flow {
+  position: relative;
+  flex-shrink: 0;
+  height: 1px;
+  margin-top: -1px;
+  overflow: hidden;
+  background: transparent;
+  pointer-events: none;
+}
+
+.ct-surface-flow[data-state="controlled"] {
+  background: color-mix(in srgb, var(--ct-accent) 55%, transparent);
+}
+
+.ct-surface-flow__pass {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 38%;
+  border-radius: 1px;
+  background: linear-gradient(90deg, transparent, var(--ct-accent) 70%, transparent);
+  transform: translateX(-100%);
+  animation: ct-surface-flow-pass var(--ct-duration-liquid-sweep) var(--ct-ease-liquid-settle) forwards;
+}
+
+@keyframes ct-surface-flow-pass {
+  from { opacity: 1; transform: translateX(-100%); }
+  to { opacity: 0.2; transform: translateX(265%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-surface-flow__pass {
+    display: none;
+  }
+}

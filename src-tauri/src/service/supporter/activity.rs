@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -15,8 +15,10 @@ type JournalSink = Arc<dyn Fn(Value) + Send + Sync>;
 
 const HOUR: i64 = 3_600_000;
 const DAY: i64 = 86_400_000;
+const COLD_ADAPTER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
 
 pub(crate) struct DecisionEvidence<'a> {
+    pub(crate) decision_point: Option<&'a str>,
     pub(crate) model_id: Option<String>,
     pub(crate) criteria_version: &'a str,
     pub(crate) state_hash: &'a str,
@@ -31,6 +33,8 @@ struct Activity {
     last_verdict: BTreeMap<String, Value>,
     budget_reached: bool,
     storage_ready: bool,
+    ready_adapters: HashSet<String>,
+    token_acl_notices: HashSet<String>,
 }
 
 pub(crate) struct SupporterRuntime {
@@ -101,6 +105,50 @@ impl SupporterRuntime {
             .admit(adapter, chrono::Utc::now().timestamp_millis())
     }
 
+    pub(crate) fn decision_deadline(
+        &self,
+        adapter: &str,
+        configured_ms: u64,
+        now: std::time::Instant,
+    ) -> std::time::Instant {
+        let configured =
+            std::time::Duration::from_millis(configured_ms.max(1)).min(COLD_ADAPTER_DEADLINE);
+        let adapter_ready = self.activity.lock().ready_adapters.contains(adapter);
+        now + if adapter_ready {
+            configured
+        } else {
+            configured.max(COLD_ADAPTER_DEADLINE)
+        }
+    }
+
+    pub(crate) fn mark_adapter_ready(&self, adapter: &str) {
+        self.activity
+            .lock()
+            .ready_adapters
+            .insert(adapter.to_owned());
+    }
+
+    pub(crate) fn token_acl_state_changed(&self, adapter: &str, invalid: bool) {
+        let alert = {
+            let mut activity = self.activity.lock();
+            if invalid {
+                activity.token_acl_notices.insert(adapter.to_owned()).then(|| {
+                    super::spend::SpendAlert {
+                        title: "Supporter token permissions are invalid; save the token again to resume decisions".into(),
+                        level: codeterm_types::notification::NotifyLevel::Failure,
+                        event_key: format!("supporter:{adapter}:token-acl"),
+                    }
+                })
+            } else {
+                activity.token_acl_notices.remove(adapter);
+                None
+            }
+        };
+        if let Some(alert) = alert {
+            self.alerts(adapter, vec![alert]);
+        }
+    }
+
     pub(crate) fn admit_request_budget(&self, cap: usize) -> Result<(), DecisionError> {
         if cap == 0 {
             return Ok(());
@@ -150,8 +198,13 @@ impl SupporterRuntime {
             DecisionError::Deadline => "deadline",
             _ => "unavailable",
         };
+        let decision_point = context.map_or_else(
+            || kind.name(),
+            super::narrative::ActivityContext::decision_point,
+        );
         let _ = self.append(json!({ "time": chrono::Utc::now().timestamp(),
             "kind": kind, "tab": tab, "label": "other", "action": "notify_only", "reason": reason,
+            "decision_point": decision_point,
             "asked": context.map(|context| context.failure(reason)) }));
     }
 
@@ -193,26 +246,6 @@ impl SupporterRuntime {
         self.connection_epoch.load(Ordering::Acquire)
     }
 
-    pub(crate) fn set_balance(
-        &self,
-        adapter: &str,
-        price: Option<&DecisionPricing>,
-        balance: Option<f64>,
-    ) -> Result<(), DecisionError> {
-        let name = price.map_or(adapter, |price| price.display_name.as_str());
-        let alerts = self.spend.set_balance(
-            adapter,
-            name,
-            price,
-            balance,
-            chrono::Utc::now().timestamp_millis(),
-        )?;
-        let _ = self.append(json!({ "time": chrono::Utc::now().timestamp(), "kind": "balance",
-            "adapter": adapter, "action": "balance_set", "reason": "owner_value", "balance_usd": balance }));
-        self.alerts(adapter, alerts);
-        Ok(())
-    }
-
     pub(crate) fn spend_status(&self, adapter: &str) -> Value {
         self.spend
             .status(adapter, chrono::Utc::now().timestamp_millis())
@@ -239,6 +272,7 @@ impl SupporterRuntime {
         };
         let value = json!({ "time": chrono::Utc::now().timestamp(), "kind": kind, "tab": tab,
             "label": label, "confidence": confidence, "action": "verdict", "reason": "model_answer",
+            "decision_point": evidence.decision_point,
             "distribution": journal_answers(&response.answers), "usage": response.usage, "model_id": evidence.model_id,
             "criteria_version": evidence.criteria_version, "state_hash": evidence.state_hash, "question_set_hash": evidence.question_set_hash,
             "question_count": response.answers.len(), "asked": evidence.asked });

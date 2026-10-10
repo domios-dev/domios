@@ -324,7 +324,7 @@ ct_gateway_on_signal() {
 
 ct_gateway_acquire() {
   local command="$1" dir lock wait_mode deadline first owner job log queued_at source_sha worktree owner_command
-  local blocker_job blocker_command blocker_owner blocker_record
+  local blocker_job blocker_command blocker_owner blocker_record queued_notice=0
   dir="$(ct_gateway_dir)"
   lock="$dir/lock"
   wait_mode="${CODETERM_BUILD_GATEWAY_MODE:-queue}"
@@ -413,6 +413,20 @@ ct_gateway_acquire() {
       echo "Build gateway busy: job=$blocker_job owner=$blocker_owner command=$blocker_command" >&2
       echo "Command '$command' was not started. Re-run with --wait-build only when blocking is intentional." >&2
       return 75
+    fi
+    if [ -n "${CODETERM_INSTANCE:-}" ] && [ "$queued_notice" = 0 ] &&
+       { [ -d "$lock" ] || [ "$first" != "$CT_BUILD_QUEUE_KEY" ]; }; then
+      if [ -d "$lock" ]; then
+        blocker_job="$(cat "$lock/job_id" 2>/dev/null || echo unknown)"
+      else
+        blocker_job="$(cat "$dir/queue/$first/job_id" 2>/dev/null || echo unknown)"
+      fi
+      blocker_record="$dir/jobs/$blocker_job.json"
+      blocker_command="$(node -e 'try{process.stdout.write(require(process.argv[1]).command||"unknown")}catch{process.stdout.write("unknown")}' "$blocker_record")"
+      blocker_owner="$(node -e 'try{process.stdout.write(require(process.argv[1]).owner||"unknown")}catch{process.stdout.write("unknown")}' "$blocker_record")"
+      printf 'Build gateway queued: instance=%s job=%s behind job=%s owner=%s command=%s\n' \
+        "$CODETERM_INSTANCE" "$CT_BUILD_JOB_ID" "$blocker_job" "$blocker_owner" "$blocker_command" >&2
+      queued_notice=1
     fi
     ct_gateway_mutex_release "$dir"
     if [ "$(date +%s)" -gt "$deadline" ]; then

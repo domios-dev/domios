@@ -1,10 +1,22 @@
+mod detail;
+pub(crate) mod files;
+mod history;
+mod runs;
+pub(crate) use detail::configured_fallback;
+
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-use super::{handlers::ResultRecord, machine::Route, store::Sentinel};
+use super::{
+    handlers::ResultRecord,
+    machine::Route,
+    source::TabBinding,
+    storage::Staged,
+    store::{Sentinel, Store},
+};
 use crate::cron::store::{CronJob, CronRunInfo};
 use crate::multiplexer::{state::MultiplexerState, types::Tab};
 use crate::service::supporter::QuestionAnswer;
@@ -16,11 +28,21 @@ pub const MAX_RUNS_PER_CRON: usize = 64;
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Identity {
+    #[serde(deserialize_with = "identity_kind")]
     pub kind: String,
     pub id: String,
     pub workspace_id: String,
     pub team_id: Option<String>,
     pub owner_tab_id: Option<String>,
+}
+
+fn identity_kind<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let kind = String::deserialize(deserializer)?;
+    Ok(if kind == "sentinel" {
+        "blueprint".into()
+    } else {
+        kind
+    })
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -34,11 +56,15 @@ pub struct Scenario {
 pub struct Snapshot {
     pub workspace_id: String,
     pub team_id: Option<String>,
+    pub all_teams: bool,
     pub revision: String,
     pub scenarios: Vec<Scenario>,
     pub nodes: Vec<Value>,
+    pub runs: Vec<Value>,
+    pub blueprints: Vec<Value>,
     pub edges: Vec<Value>,
     pub truncated: bool,
+    pub configured_fallback: Value,
 }
 
 #[derive(Clone)]
@@ -50,7 +76,7 @@ pub struct ConnectedCron {
 
 pub fn identity(job: &Sentinel) -> Identity {
     Identity {
-        kind: "sentinel".into(),
+        kind: "blueprint".into(),
         id: job.id.clone(),
         workspace_id: job.workspace_id.clone(),
         team_id: job.team_id.clone(),
@@ -94,7 +120,7 @@ pub fn scoped_inventory(
 pub fn reachable_ids(jobs: &[Sentinel]) -> BTreeSet<String> {
     let mut pending: Vec<_> = jobs
         .iter()
-        .filter(|job| job.agent_authored && job.scenario_id.as_deref() == Some(job.id.as_str()))
+        .filter(|job| job.is_scenario_root())
         .map(|job| job.id.clone())
         .collect();
     let mut seen = BTreeSet::new();
@@ -102,13 +128,13 @@ pub fn reachable_ids(jobs: &[Sentinel]) -> BTreeSet<String> {
         if !seen.insert(id.clone()) {
             continue;
         }
-        let Some(source) = jobs.iter().find(|job| job.id == id && job.agent_authored) else {
+        let Some(source) = jobs.iter().find(|job| job.id == id) else {
             continue;
         };
         pending.extend(source.routes.values().flatten().filter_map(|handler| {
             if let Route::Sentinel(target) = &handler.action {
                 jobs.iter()
-                    .find(|job| job.id == *target && job.agent_authored && job.same_owner(source))
+                    .find(|job| job.id == *target && job.same_owner(source))
                     .map(|job| job.id.clone())
             } else {
                 None
@@ -116,6 +142,26 @@ pub fn reachable_ids(jobs: &[Sentinel]) -> BTreeSet<String> {
         }));
     }
     seen
+}
+
+pub fn host_delete_staged(
+    store: &mut Store,
+    mux: &MultiplexerState,
+    workspace: &str,
+    team: Option<&str>,
+    id: &str,
+) -> Result<Staged<()>, String> {
+    validate_scope(mux, workspace, team)?;
+    store.ensure_available()?;
+    let root = store.get(id).ok_or("Blueprint scenario not found")?;
+    if root.workspace_id != workspace
+        || root.team_id.as_deref() != team
+        || !root.is_scenario_root()
+        || !reachable_ids(store.list()).contains(id)
+    {
+        return Err("Blueprint scenario is unavailable in this automation scope".into());
+    }
+    Ok(store.stage_delete_scenario(id, workspace, team))
 }
 
 fn safe_name(text: &str) -> String {
@@ -143,7 +189,8 @@ pub fn scope_revision(jobs: &[Sentinel], workspace: &str, team: Option<&str>) ->
                 j.routes,
                 j.transitions,
                 j.expires_at,
-                j.next_run
+                j.next_run,
+                j.input().cloned()
             ])
         })
         .collect();
@@ -151,6 +198,40 @@ pub fn scope_revision(jobs: &[Sentinel], workspace: &str, team: Option<&str>) ->
         "{:x}",
         Sha256::digest(serde_json::to_vec(&rows).unwrap_or_default())
     )
+}
+
+/// The node source shape: probe, observe kind, or input metadata without inline text,
+/// path directories or the URL query.
+pub(crate) fn source_descriptor(job: &Sentinel) -> Value {
+    if job.pipeline().is_some() {
+        return json!({"type":"pipeline"});
+    }
+    if let Some(input) = &job.input().cloned() {
+        use codeterm_types::sentinel_input::DataRef;
+        let ref_type = match &input.data {
+            DataRef::Text(_) => "text",
+            DataRef::File(_) => "file",
+            DataRef::Url(_) => "url",
+        };
+        return json!({
+            "type": "input",
+            "kind": input.kind.as_str(),
+            "ref_type": ref_type,
+            "display_name": codeterm_types::sentinel_input::display_name(&input.data),
+            "convert_to": input.convert_to.map(|kind| kind.as_str()),
+        });
+    }
+    if let Some(binding) = &job.observe().cloned() {
+        if let Some(terminal) = &job.terminal().cloned() {
+            return json!({"type":"terminal","kind":"tab","pattern":terminal.pattern,"idle_ms":terminal.idle_ms,"max_payload_bytes":codeterm_types::blueprint_terminal::MAX_PAYLOAD_BYTES});
+        }
+        let kind = match binding {
+            TabBinding::Tab(_) => "tab",
+            TabBinding::CronRun(_) => "cron_run",
+        };
+        return json!({"type": "observe", "kind": kind});
+    }
+    json!({"type": "probe"})
 }
 
 fn record(result: &ResultRecord) -> Value {
@@ -162,7 +243,11 @@ fn record(result: &ResultRecord) -> Value {
 }
 
 fn placeholder(identity: &Identity) -> Value {
-    json!({"identity":identity,"name":format!("Missing {}", identity.kind),"purpose":null,"state":null,"availability":"missing","hidden":null,"schedule":null,"cadence_ms":null,"expires_at":null,"outcomes":[],"last_result":null,"stop":{"allowed":false,"reason":"exact target unavailable"},"executor":null})
+    let mut node = json!({"identity":identity,"name":format!("Missing {}", identity.kind),"purpose":null,"state":null,"availability":"missing","hidden":null,"schedule":null,"cadence_ms":null,"expires_at":null,"outcomes":[],"last_result":null,"stop":{"allowed":false,"reason":"exact target unavailable"},"executor":null});
+    if identity.kind == "blueprint" {
+        node["detail"] = detail::missing(identity);
+    }
+    node
 }
 
 pub fn tab_identity(tab: &Tab, workspace: &str) -> Identity {
@@ -178,7 +263,7 @@ pub fn tab_identity(tab: &Tab, workspace: &str) -> Identity {
 fn worker(tab: &Tab, identity: &Identity) -> Value {
     let configured = tab.agent_requested_model.clone();
     let reported = tab.agent_session_model.clone();
-    json!({"identity":identity,"name":safe_name(&tab.title),"purpose":tab.description.as_deref().map(safe_purpose),"state":if tab.agent_booting{Some("launching")}else{None},"state_source":"tab_lifecycle","availability":"available","hidden":tab.hidden,"schedule":null,"cadence_ms":null,"expires_at":null,"outcomes":[],"last_result":null,"stop":{"allowed":false,"reason":"graph stop applies only to Sentinels"},"executor":{"kind":"agent","selection":if configured.is_some(){"explicit"}else{"unknown"},"provider_id":tab.agent_type,"adapter_id":null,"model":reported.as_ref().or(configured.as_ref()),"configured_model":configured,"reported_model":reported,"capabilities":null}})
+    json!({"identity":identity,"name":safe_name(&tab.title),"purpose":tab.description.as_deref().map(safe_purpose),"state":if tab.agent_booting{Some("launching")}else{None},"state_source":"tab_lifecycle","availability":"available","hidden":tab.hidden,"schedule":null,"cadence_ms":null,"expires_at":null,"outcomes":[],"last_result":null,"stop":{"allowed":false,"reason":"graph stop applies only to Blueprints"},"executor":{"kind":"agent","selection":if configured.is_some(){"explicit"}else{"unknown"},"provider_id":tab.agent_type,"adapter_id":null,"model":reported.as_ref().or(configured.as_ref()),"configured_model":configured,"reported_model":reported,"capabilities":null}})
 }
 
 pub fn project_worker_states(
@@ -223,10 +308,15 @@ fn target(
     crons: &BTreeMap<String, ConnectedCron>,
 ) -> Option<(Identity, bool)> {
     let (kind, id, owner) = match action {
-        Route::Sentinel(id) => ("sentinel", id, Some(source.creator_tab_id.clone())),
+        Route::Sentinel(id) => ("blueprint", id, Some(source.creator_tab_id.clone())),
         Route::Send(id) => ("worker", id, None),
+        Route::Escalate(super::machine::EscalateTarget::Agent(id)) => ("worker", id, None),
         Route::Cron(id) => ("cron", id, None),
-        Route::Notify | Route::Stop | Route::Command(_) => return None,
+        Route::Notify
+        | Route::Stop
+        | Route::Command(_)
+        | Route::RespondPrompt(_)
+        | Route::Escalate(super::machine::EscalateTarget::Creator) => return None,
     };
     let unknown = Identity {
         kind: kind.into(),
@@ -238,12 +328,12 @@ fn target(
     let actual = match action {
         Route::Sentinel(id) => jobs
             .iter()
-            .find(|j| j.id == *id && j.same_owner(source) && j.agent_authored)
+            .find(|j| j.id == *id && j.same_owner(source))
             .map(identity),
-        Route::Send(id) => mux
+        Route::Send(id) | Route::Escalate(super::machine::EscalateTarget::Agent(id)) => mux
             .get_tab(id)
             .filter(|tab| {
-                tab.agent_type.is_some()
+                (matches!(action, Route::Send(_)) || tab.agent_type.is_some())
                     && tab.team_id == source.team_id
                     && mux.find_workspace_for_tab(id).as_deref() == Some(&source.workspace_id)
             })
@@ -275,7 +365,7 @@ fn add_cron(
     truncated: &mut bool,
 ) {
     nodes.entry(exact.clone()).or_insert_with(|| match &cron.job {
-        Some(job) => json!({"identity":exact,"name":safe_name(&job.name),"purpose":job.description.as_deref().map(safe_purpose),"state":if job.enabled{"enabled"}else{"disabled"},"availability":"available","hidden":null,"schedule":safe_purpose(&job.schedule),"cadence_ms":null,"expires_at":null,"outcomes":[],"last_result":null,"stop":{"allowed":false,"reason":"graph stop applies only to Sentinels"},"executor":null}),
+        Some(job) => json!({"identity":exact,"name":safe_name(&job.name),"purpose":job.description.as_deref().map(safe_purpose),"state":if job.enabled{"enabled"}else{"disabled"},"availability":"available","hidden":null,"schedule":safe_purpose(&job.schedule),"cadence_ms":null,"expires_at":null,"outcomes":[],"last_result":null,"stop":{"allowed":false,"reason":"graph stop applies only to Blueprints"},"executor":null}),
         None => placeholder(exact),
     });
     for run in cron.runs.iter().take(MAX_RUNS_PER_CRON) {
@@ -330,7 +420,7 @@ pub fn project(
     jobs: &[Sentinel],
     mux: &MultiplexerState,
     crons: &BTreeMap<String, ConnectedCron>,
-    decision_executor: Value,
+    configured_fallback: Value,
     now_ms: u64,
     live_leases: &BTreeSet<String>,
 ) -> Result<Snapshot, String> {
@@ -338,10 +428,7 @@ pub fn project(
     let mut scenarios: Vec<_> = jobs
         .iter()
         .filter(|j| {
-            j.agent_authored
-                && j.workspace_id == workspace
-                && j.team_id.as_deref() == team
-                && j.scenario_id.as_deref() == Some(j.id.as_str())
+            j.is_scenario_root() && j.workspace_id == workspace && j.team_id.as_deref() == team
         })
         .map(|job| Scenario {
             id: job.id.clone(),
@@ -359,6 +446,7 @@ pub fn project(
     let mut edges = Vec::new();
     let mut visited = BTreeSet::new();
     let mut truncated = false;
+    let mut history_budget = 4096;
     while let Some(exact) = pending.pop_front() {
         if !visited.insert(exact.clone()) {
             continue;
@@ -370,10 +458,7 @@ pub fn project(
         nodes
             .entry(exact.clone())
             .or_insert_with(|| placeholder(&exact));
-        let Some(job) = jobs
-            .iter()
-            .find(|j| identity(j) == exact && j.agent_authored)
-        else {
+        let Some(job) = jobs.iter().find(|j| identity(j) == exact) else {
             continue;
         };
         let expired = job.expires_at.is_some_and(|at| now_ms >= at);
@@ -437,7 +522,7 @@ pub fn project(
                         continue;
                     }
                     match target.kind.as_str() {
-                        "sentinel" => pending.push_back(target),
+                        "blueprint" => pending.push_back(target),
                         "worker" => {
                             if let Some(tab) = mux.get_tab(&target.id) {
                                 nodes.insert(target.clone(), worker(tab, &target));
@@ -462,16 +547,24 @@ pub fn project(
             }
             outcomes.push(json!({"bucket":bucket,"handlers":handlers}));
         }
-        let last_result = last.map(|t| json!({"bucket":t.bucket,"accepted_at":t.accepted_at,"handlers":t.handlers.iter().map(|r| { let mut value=record(r); value["handler_id"]=json!(r.handler_id); value }).collect::<Vec<_>>()}));
-        nodes.insert(exact.clone(),json!({"identity":exact,"name":safe_name(job.name.as_deref().unwrap_or(&job.id)),"purpose":safe_purpose(&job.question),"state":if job.machine.stopped && executing{"finishing"}else if job.machine.stopped{"stopped"}else if expired{"expired"}else if job.machine.paused{"paused"}else{"active"},"availability":"available","hidden":false,"schedule":null,"cadence_ms":job.interval_ms,"expires_at":job.expires_at,"outcomes":outcomes,"last_result":last_result,"stop":{"allowed":executing || (!job.machine.stopped && !expired),"reason":if executing{None}else if job.machine.stopped{job.last_reason.as_deref().map(safe_purpose)}else if expired{Some("deadline elapsed".into())}else{None}},"executor":decision_executor,"sentinel_definition":{"source":"stored_agent_definition","definition_id":job.id,"creator_tab_id":job.creator_tab_id}}));
+        let last_result = last.map(|t| { let mut result = json!({"bucket":t.bucket,"accepted_at":t.accepted_at,"handlers":t.handlers.iter().map(|r| { let mut value=record(r); value["handler_id"]=json!(r.handler_id); value }).collect::<Vec<_>>()}); detail::project_decision(&mut result, t.decision.as_ref()); result });
+        let history = history::project(job, &mut history_budget);
+        let history_truncated = history.len() < job.transitions.len();
+        nodes.insert(exact.clone(),json!({"identity":exact,"name":safe_name(job.name.as_deref().unwrap_or(&job.id)),"purpose":safe_purpose(&job.question),"state":if job.machine.stopped && executing{"finishing"}else if job.machine.stopped{"stopped"}else if expired{"expired"}else if job.machine.paused{"paused"}else{"active"},"availability":"available","hidden":false,"schedule":null,"cadence_ms":job.interval_ms,"conversation":{"enabled":job.session,"exchanges":super::session::usage(jobs,job,now_ms).exchanges,"actions":super::session::usage(jobs,job,now_ms).actions,"safety_limit":codeterm_types::blueprint_terminal::SESSION_SAFETY_LIMIT,"rate_limit_per_minute":codeterm_types::blueprint_terminal::SESSION_RATE_LIMIT},"expires_at":job.expires_at,"outcomes":outcomes,"last_result":last_result,"history":history,"history_truncated":history_truncated,"stop":{"allowed":executing || (!job.machine.stopped && !expired),"reason":if executing{None}else if job.machine.stopped{job.last_reason.as_deref().map(safe_purpose)}else if expired{Some("deadline elapsed".into())}else{None}},"executor":null,"detail":detail::project(job, mux, workspace, team, now_ms, executing),"source":source_descriptor(job),"blueprint_definition":{"source":"stored_agent_definition","definition_id":job.id,"creator_tab_id":job.creator_tab_id,"definition_version":job.definition_version,"lineage":job.amendments.iter().map(|amendment| json!({"version":amendment.version,"replaced_version":amendment.replaced_version,"author_tab_id":amendment.author_tab_id,"cause_transition_id":amendment.cause_transition_id,"at":amendment.at})).collect::<Vec<_>>()}}));
     }
+    let nodes: Vec<_> = nodes.into_values().collect();
+    let runs = runs::project(&nodes, jobs, now_ms, live_leases);
     Ok(Snapshot {
+        blueprints: Vec::new(),
         workspace_id: workspace.into(),
         team_id: team.map(str::to_owned),
+        all_teams: false,
         revision: scope_revision(jobs, workspace, team),
         scenarios,
-        nodes: nodes.into_values().collect(),
+        nodes,
+        runs,
         edges,
         truncated,
+        configured_fallback,
     })
 }

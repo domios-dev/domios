@@ -1,6 +1,7 @@
 use crate::args::plugin::{PluginAction, PluginChannelAction};
 use crate::{Cli, Commands};
 use clap::Parser;
+use std::io::Cursor;
 
 fn parse_plugin(args: &[&str]) -> PluginAction {
     let mut argv = vec!["codeterm", "plugin"];
@@ -12,6 +13,45 @@ fn parse_plugin(args: &[&str]) -> PluginAction {
         Commands::Plugin { action } => action,
         _ => panic!("expected plugin command"),
     }
+}
+
+#[test]
+fn plugin_config_secret_parses_field_without_value() {
+    assert!(matches!(
+        parse_plugin(&["config", "demo", "--secret", "SERVICE_TOKEN"]),
+        PluginAction::Config {
+            secret: Some(field),
+            ..
+        } if field == "SERVICE_TOKEN"
+    ));
+    assert!(Cli::try_parse_from([
+        "codeterm",
+        "plugin",
+        "config",
+        "demo",
+        "--secret",
+        "SERVICE_TOKEN",
+        "--set",
+        "enabled=true",
+    ])
+    .is_err());
+}
+
+#[test]
+fn plugin_config_secret_requires_nonterminal_nonempty_stdin() {
+    let mut terminal_input = Cursor::new(&b""[..]);
+    let terminal_error =
+        codeterm_plugins::PluginSecretValue::read_from(&mut terminal_input, true).unwrap_err();
+    assert!(terminal_error.contains("terminal"));
+
+    let mut empty_input = Cursor::new(&b"\r\n"[..]);
+    let empty_error =
+        codeterm_plugins::PluginSecretValue::read_from(&mut empty_input, false).unwrap_err();
+    assert!(empty_error.contains("no secret"));
+
+    let mut piped_input = Cursor::new(&b"fixture\r\n"[..]);
+    let value = codeterm_plugins::PluginSecretValue::read_from(&mut piped_input, false).unwrap();
+    assert!(!format!("{value:?}").contains("fixture"));
 }
 
 #[test]

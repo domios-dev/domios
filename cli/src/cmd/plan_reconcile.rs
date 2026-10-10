@@ -90,7 +90,10 @@ fn reconcile_command(plan_id: &str, task_id: &str, kind: &str) -> String {
             format!("codeterm task show {task_id} && codeterm plan task close {plan_id} {task_id}")
         }
         "in_progress_tab_gone" | "bound_to_closed_tab" => {
-            format!("codeterm task show {task_id} && codeterm plan task update {plan_id} {task_id} --status blocked --status-label needs-reassign")
+            format!("codeterm task show {task_id} && codeterm plan task update {plan_id} {task_id} --status blocked --status-label \"owner retired; Orchestrator chooses reassign or respawn\"")
+        }
+        "report_target_write_missing" => {
+            format!("codeterm task show {task_id} && codeterm plan reconcile {plan_id}")
         }
         _ => format!("codeterm task show {task_id} && codeterm plan reconcile {plan_id} --fix"),
     }
@@ -119,6 +122,13 @@ mod tests {
                     "kind": "bound_to_closed_tab",
                     "detail": "closed",
                     "suggested_fix": "clear"
+                },
+                {
+                    "plan_id": "pl_1",
+                    "task_id": "task_c",
+                    "kind": "report_target_write_missing",
+                    "detail": "attempt_1 was not written to target tab orch",
+                    "suggested_fix": "deliver report to orch"
                 }
             ]
         }));
@@ -127,8 +137,10 @@ mod tests {
             rendered.contains("codeterm task show task_a && codeterm plan task close pl_1 task_a")
         );
         assert!(rendered.contains(
-            "codeterm task show task_b && codeterm plan task update pl_1 task_b --status blocked --status-label needs-reassign"
+            "codeterm task show task_b && codeterm plan task update pl_1 task_b --status blocked --status-label \"owner retired; Orchestrator chooses reassign or respawn\""
         ));
+        assert!(rendered.contains("codeterm task show task_c && codeterm plan reconcile pl_1"));
+        assert!(!rendered.contains("codeterm plan reconcile pl_1 --fix"));
     }
 
     #[test]

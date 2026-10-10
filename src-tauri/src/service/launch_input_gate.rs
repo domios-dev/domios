@@ -190,12 +190,13 @@ impl LaunchInputDiagnostic {
         self.session_bound = GateFact::Observed(observation.session_bound);
         self.pending_prompt = GateFact::Observed(observation.pending_prompt);
         self.process_gate_allows = GateFact::Observed(observation.provider_process_alive);
-        let classification = observation.classification.as_ref().map(|value| {
-            GateClassification {
+        let classification = observation
+            .classification
+            .as_ref()
+            .map(|value| GateClassification {
                 state: value.state,
                 confidence: value.confidence,
-            }
-        });
+            });
         self.decision_inputs = GateFact::Observed(LaunchInputDecision {
             session_bound: observation.session_bound,
             composer_ready: observation.composer_ready,
@@ -292,6 +293,23 @@ fn decide_launch_input(
     }
 }
 
+fn decide_launch_input_at_deadline(
+    observation: LaunchInputObservation,
+    mode: LaunchInputMode,
+    expired: bool,
+    structural_composer: bool,
+    observed_tui_without_composer: bool,
+) -> Result<Option<LaunchInputEvidence>, LaunchInputRefusal> {
+    match decide_launch_input(observation, mode)? {
+        Some(evidence) => Ok(Some(evidence)),
+        None if expired => Err(launch_readiness_deadline_refusal(
+            structural_composer,
+            observed_tui_without_composer,
+        )),
+        None => Ok(None),
+    }
+}
+
 fn provider_composer_is_ready(
     mode: LaunchInputMode,
     declares_structural_composer: bool,
@@ -322,10 +340,26 @@ fn directory_trust_blocks_input(
     trust_state: codeterm_plugin::provider::DirectoryTrustState,
     prompt_visible: bool,
     prompt_observed: bool,
+    checkpoint_reached: bool,
 ) -> bool {
     prompt_visible
         || (trust_state == codeterm_plugin::provider::DirectoryTrustState::Untrusted
-            && !prompt_observed)
+            && !prompt_observed
+            && !checkpoint_reached)
+}
+
+fn directory_trust_checkpoint_reached(
+    mode: LaunchInputMode,
+    declares_structural_composer: bool,
+    composer_ready: bool,
+    pending_prompt: bool,
+    active_interactive_prompt: bool,
+) -> bool {
+    mode == LaunchInputMode::LazySessionStart
+        && declares_structural_composer
+        && composer_ready
+        && !pending_prompt
+        && !active_interactive_prompt
 }
 
 impl ServiceContext {
@@ -413,262 +447,286 @@ impl ServiceContext {
         let mut observed_tui_without_composer = false;
         let mut onboarding_choice_submitted = false;
         let mut directory_trust_prompt_observed = false;
+        let mut final_observation = false;
+        let mut composer_logged = false;
 
-        let result = (|| {
-            loop {
-                diagnostic.begin_frame(attempt, timeout, generation);
-                let Some(current) = LaunchAttempt::current(&self.mux, &attempt.tab_id, &attempt.pty_id)
-                else {
+        let result = (|| loop {
+            diagnostic.begin_frame(attempt, timeout, generation);
+            let Some(current) = LaunchAttempt::current(&self.mux, &attempt.tab_id, &attempt.pty_id)
+            else {
+                return Err(LaunchInputRefusal::AttemptSuperseded);
+            };
+            if &current != attempt {
+                return Err(LaunchInputRefusal::AttemptSuperseded);
+            }
+
+            let (
+                session_bound,
+                pending_prompt,
+                session_id,
+                cwd,
+                trust_lookup_path,
+                skip_permissions,
+                delegated_role,
+            ) = {
+                let mux = self.mux.read();
+                let Some(tab) = mux.get_tab(&attempt.tab_id) else {
                     return Err(LaunchInputRefusal::AttemptSuperseded);
                 };
-                if &current != attempt {
+                if !attempt_owns_tab(tab, attempt) {
                     return Err(LaunchInputRefusal::AttemptSuperseded);
                 }
-
-                let (
-                    session_bound,
-                    pending_prompt,
-                    session_id,
-                    cwd,
-                    trust_lookup_path,
-                    skip_permissions,
-                    delegated_role,
-                ) = {
-                    let mux = self.mux.read();
-                    let Some(tab) = mux.get_tab(&attempt.tab_id) else {
-                        return Err(LaunchInputRefusal::AttemptSuperseded);
-                    };
-                    if !attempt_owns_tab(tab, attempt) {
-                        return Err(LaunchInputRefusal::AttemptSuperseded);
+                (
+                    tab.launch_session_authenticated(),
+                    tab.pending_prompt.is_some(),
+                    tab.agent_session_id.clone(),
+                    tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone()),
+                    crate::service::directory_trust::directory_trust_check_applies(tab)
+                        .then(|| tab.cwd.clone())
+                        .flatten(),
+                    tab.auto_approve,
+                    delegated_role(tab.role, tab.role_profile.as_deref()),
+                )
+            };
+            let provider_process_alive = mode == LaunchInputMode::Standard
+                || self.provider_process_alive_in_tab_tree(&attempt.pty_id, &provider_binary_name);
+            diagnostic.session_bound = GateFact::Observed(session_bound);
+            diagnostic.pending_prompt = GateFact::Observed(pending_prompt);
+            diagnostic.process_gate_allows = GateFact::Observed(provider_process_alive);
+            if mode == LaunchInputMode::LazySessionStart {
+                diagnostic.provider_process_alive = GateFact::Observed(provider_process_alive);
+            }
+            let (screen, screen_rows, input) = {
+                let screen_state = self.screen_state.lock();
+                (
+                    screen_state
+                        .get_screen_text(&attempt.pty_id)
+                        .unwrap_or_default(),
+                    screen_state
+                        .get_screen_rows(&attempt.pty_id)
+                        .unwrap_or_default(),
+                    screen_state.composer_input_state(&attempt.pty_id),
+                )
+            };
+            let snapshot = TabStateSnapshot {
+                tab_id: attempt.tab_id.clone(),
+                agent_type: agent_id.to_string(),
+                session_id,
+                cwd,
+                screen_text: screen.clone(),
+            };
+            directory_trust_prompt_observed |= self
+                .agent_registry
+                .with_provider(agent_id, |provider| {
+                    provider.directory_trust_prompt_response(&screen).is_some()
+                })
+                .unwrap_or(false);
+            let onboarding_response = self
+                .agent_registry
+                .with_provider(agent_id, |provider| {
+                    provider.launch_onboarding_response(&screen)
+                })
+                .flatten();
+            let onboarding_auto_answer = self
+                .agent_registry
+                .with_provider(agent_id, |provider| provider.onboarding_auto_answer())
+                .unwrap_or_default();
+            if delegated_role
+                || (onboarding_response.is_some()
+                    && onboarding_auto_answer.answers_for_owner_launch())
+            {
+                let decision = self.respond_to_launch_onboarding(
+                    &attempt.tab_id,
+                    agent_id,
+                    &screen,
+                    signal.clone(),
+                );
+                let wait_for_response = match decision {
+                    crate::service::directory_trust::TrustDecision::Answer { step } => {
+                        onboarding_choice_submitted |= step.as_slice() == b"\r";
+                        true
                     }
-                    (
-                        tab.launch_session_authenticated(),
-                        tab.pending_prompt.is_some(),
-                        tab.agent_session_id.clone(),
-                        tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone()),
-                        crate::service::directory_trust::directory_trust_check_applies(tab)
-                            .then(|| tab.cwd.clone())
-                            .flatten(),
-                        tab.auto_approve,
-                        delegated_role(tab.role, tab.role_profile.as_deref()),
-                    )
-                };
-                let provider_process_alive = mode == LaunchInputMode::Standard
-                    || self.provider_process_alive_in_tab_tree(&attempt.pty_id, &provider_binary_name);
-                diagnostic.session_bound = GateFact::Observed(session_bound);
-                diagnostic.pending_prompt = GateFact::Observed(pending_prompt);
-                diagnostic.process_gate_allows = GateFact::Observed(provider_process_alive);
-                if mode == LaunchInputMode::LazySessionStart {
-                    diagnostic.provider_process_alive = GateFact::Observed(provider_process_alive);
-                }
-                let (screen, screen_rows, input) = {
-                    let screen_state = self.screen_state.lock();
-                    (
-                        screen_state
-                            .get_screen_text(&attempt.pty_id)
-                            .unwrap_or_default(),
-                        screen_state
-                            .get_screen_rows(&attempt.pty_id)
-                            .unwrap_or_default(),
-                        screen_state.composer_input_state(&attempt.pty_id),
-                    )
-                };
-                let snapshot = TabStateSnapshot {
-                    tab_id: attempt.tab_id.clone(),
-                    agent_type: agent_id.to_string(),
-                    session_id,
-                    cwd,
-                    screen_text: screen.clone(),
-                };
-                directory_trust_prompt_observed |= self
-                    .agent_registry
-                    .with_provider(agent_id, |provider| {
-                        provider.directory_trust_prompt_response(&screen).is_some()
-                    })
-                    .unwrap_or(false);
-                if delegated_role {
-                    let decision = self.respond_to_launch_onboarding(
-                        &attempt.tab_id,
-                        agent_id,
-                        &screen,
-                        signal.clone(),
-                    );
-                    let wait_for_response = match decision {
-                        crate::service::directory_trust::TrustDecision::Answer { step } => {
-                            onboarding_choice_submitted |= step.as_slice() == b"\r";
-                            true
-                        }
-                        crate::service::directory_trust::TrustDecision::Waiting => true,
-                        crate::service::directory_trust::TrustDecision::NoDialog
-                            if onboarding_choice_submitted =>
-                        {
-                            self.notify_launch_onboarding_applied_once(&attempt.tab_id);
-                            false
-                        }
-                        _ => false,
-                    };
-                    if wait_for_response {
-                        diagnostic.onboarding_wait = true;
-                        let remaining =
-                            deadline
-                                .checked_duration_since(Instant::now())
-                                .ok_or_else(|| {
-                                    launch_readiness_deadline_refusal(
-                                        declares_structural_composer,
-                                        observed_tui_without_composer,
-                                    )
-                                })?;
-                        if remaining.is_zero() || !signal.wait_after(generation, remaining) {
-                            return Err(launch_readiness_deadline_refusal(
-                                declares_structural_composer,
-                                observed_tui_without_composer,
-                            ));
-                        }
-                        generation = signal.generation();
-                        continue;
-                    }
-                }
-                let provider_observation = self.agent_registry.with_provider(agent_id, |provider| {
-                    let input_position = if mode == LaunchInputMode::LazySessionStart {
-                        composer_cursor_position
-                    } else {
-                        crate::agent::provider::ComposerCursorPosition::BottomRegion
-                    };
-                    let classification = provider.classify_tab_state(&snapshot);
-                    let classified_modal = classification.as_ref().is_some_and(|value| {
-                        matches!(
-                            value.state,
-                            codeterm_plugin::tab_state::TabState::WaitingOnAuth
-                                | codeterm_plugin::tab_state::TabState::UpdatePrompt
-                                | codeterm_plugin::tab_state::TabState::ClarifyingQuestion
-                        ) && value.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
-                    });
-                    let directory_trust_prompt =
-                        provider.directory_trust_prompt_response(&screen).is_some();
-                    let terminal_input_ready = input.as_ref().is_some_and(|state| {
-                        launch_composer_input_ready_for_frame(
-                            state,
-                            input_position,
-                            uses_prompt_glyph_fingerprint.then_some(screen_rows.as_slice()),
-                            status_bar_rows,
-                            directory_trust_prompt || classified_modal,
-                        )
-                    });
-                    let provider_tui = provider.screen_has_tui(&screen);
-                    let tui_evidence = if mode == LaunchInputMode::LazySessionStart
-                        && composer_cursor_position
-                            == crate::agent::provider::ComposerCursorPosition::VisibleAnywhere
+                    crate::service::directory_trust::TrustDecision::Waiting => true,
+                    crate::service::directory_trust::TrustDecision::NoDialog
+                        if onboarding_choice_submitted =>
                     {
-                        provider_tui
-                    } else {
-                        provider_tui || input.as_ref().is_some_and(|state| state.alternate_screen)
-                    };
-                    let composer_ready = provider_composer_is_ready(
-                        mode,
-                        declares_structural_composer,
-                        terminal_input_ready,
-                        tui_evidence,
-                    );
-                    let directory_trust_state = trust_lookup_path.as_deref().map_or(
-                        codeterm_plugin::provider::DirectoryTrustState::Unknown,
-                        |path| {
-                            provider
-                                .directory_trust_state(
-                                    &codeterm_paths::strip_verbatim_prefix(path),
-                                    skip_permissions,
-                                )
-                                .unwrap_or(codeterm_plugin::provider::DirectoryTrustState::Unknown)
-                        },
-                    );
-                    let provider_busy =
-                        provider_is_busy(mode, composer_cursor_position, classification.as_ref());
-                    let active_interactive_prompt = classification.as_ref().is_some_and(|value| {
-                        value.state == TabState::ClarifyingQuestion
-                            && value.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
-                    }) && provider.parse_prompt(&screen).is_some();
-                    (
-                        composer_ready,
-                        provider_tui,
-                        tui_evidence,
-                        terminal_input_ready,
-                        directory_trust_prompt,
-                        directory_trust_state,
-                        active_interactive_prompt,
-                        classification,
-                        provider_busy,
-                    )
-                });
-                let provider_evaluated = provider_observation.is_some();
-                let (
-                    composer_ready,
-                    provider_tui,
-                    tui_evidence,
-                    terminal_input_ready,
-                    directory_trust_prompt,
-                    directory_trust_state,
-                    active_interactive_prompt,
-                    classification,
-                    provider_busy,
-                ) = provider_observation.unwrap_or((
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
-                    codeterm_plugin::provider::DirectoryTrustState::Unknown,
-                    false,
-                    None,
-                    false,
-                ));
-                observed_tui_without_composer |=
-                    uses_prompt_glyph_fingerprint && provider_tui && !terminal_input_ready;
-                directory_trust_prompt_observed |= directory_trust_prompt;
-                let directory_trust_pending = directory_trust_blocks_input(
-                    directory_trust_state,
-                    directory_trust_prompt,
-                    directory_trust_prompt_observed,
-                );
-                let observation = LaunchInputObservation {
-                    session_bound,
-                    composer_ready,
-                    pending_prompt,
-                    provider_process_alive,
-                    provider_busy,
-                    directory_trust_prompt,
-                    directory_trust_pending,
-                    active_interactive_prompt,
-                    classification,
+                        self.notify_launch_onboarding_applied_once(&attempt.tab_id);
+                        false
+                    }
+                    _ => false,
                 };
-                diagnostic.observe_decision(
-                    &observation,
-                    provider_tui,
-                    tui_evidence,
-                    terminal_input_ready,
-                    directory_trust_state,
-                    provider_evaluated,
-                );
-                match decide_launch_input(observation, mode) {
-                    Err(refusal) => return Err(refusal),
-                    Ok(Some(readiness)) => return Ok(readiness),
-                    Ok(None) => {}
-                }
-
-                let remaining = deadline
-                    .checked_duration_since(Instant::now())
-                    .ok_or_else(|| {
-                        launch_readiness_deadline_refusal(
+                if wait_for_response {
+                    diagnostic.onboarding_wait = true;
+                    let remaining =
+                        deadline
+                            .checked_duration_since(Instant::now())
+                            .ok_or_else(|| {
+                                launch_readiness_deadline_refusal(
+                                    declares_structural_composer,
+                                    observed_tui_without_composer,
+                                )
+                            })?;
+                    if remaining.is_zero() || !signal.wait_after(generation, remaining) {
+                        return Err(launch_readiness_deadline_refusal(
                             declares_structural_composer,
                             observed_tui_without_composer,
-                        )
-                    })?;
-                if remaining.is_zero() || !signal.wait_after(generation, remaining) {
-                    return Err(launch_readiness_deadline_refusal(
-                        declares_structural_composer,
-                        observed_tui_without_composer,
-                    ));
+                        ));
+                    }
+                    generation = signal.generation();
+                    continue;
                 }
-                generation = signal.generation();
             }
+            let provider_observation = self.agent_registry.with_provider(agent_id, |provider| {
+                let input_position = if mode == LaunchInputMode::LazySessionStart {
+                    composer_cursor_position
+                } else {
+                    crate::agent::provider::ComposerCursorPosition::BottomRegion
+                };
+                let classification = provider.classify_tab_state(&snapshot);
+                let classified_modal = classification.as_ref().is_some_and(|value| {
+                    matches!(
+                        value.state,
+                        codeterm_plugin::tab_state::TabState::WaitingOnAuth
+                            | codeterm_plugin::tab_state::TabState::UpdatePrompt
+                            | codeterm_plugin::tab_state::TabState::ClarifyingQuestion
+                    ) && value.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
+                });
+                let directory_trust_prompt =
+                    provider.directory_trust_prompt_response(&screen).is_some();
+                let terminal_input_ready = input.as_ref().is_some_and(|state| {
+                    launch_composer_input_ready_for_frame(
+                        state,
+                        input_position,
+                        uses_prompt_glyph_fingerprint.then_some(screen_rows.as_slice()),
+                        status_bar_rows,
+                        directory_trust_prompt || classified_modal,
+                    )
+                });
+                let provider_tui = provider.screen_has_tui(&screen);
+                let tui_evidence = if mode == LaunchInputMode::LazySessionStart
+                    && composer_cursor_position
+                        == crate::agent::provider::ComposerCursorPosition::VisibleAnywhere
+                {
+                    provider_tui
+                } else {
+                    provider_tui || input.as_ref().is_some_and(|state| state.alternate_screen)
+                };
+                let composer_ready = provider_composer_is_ready(
+                    mode,
+                    declares_structural_composer,
+                    terminal_input_ready,
+                    tui_evidence,
+                );
+                let directory_trust_state = trust_lookup_path.as_deref().map_or(
+                    codeterm_plugin::provider::DirectoryTrustState::Unknown,
+                    |path| {
+                        provider
+                            .directory_trust_state(
+                                &codeterm_paths::strip_verbatim_prefix(path),
+                                skip_permissions,
+                            )
+                            .unwrap_or(codeterm_plugin::provider::DirectoryTrustState::Unknown)
+                    },
+                );
+                let provider_busy =
+                    provider_is_busy(mode, composer_cursor_position, classification.as_ref());
+                let active_interactive_prompt = classification.as_ref().is_some_and(|value| {
+                    value.state == TabState::ClarifyingQuestion
+                        && value.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
+                }) && provider.parse_prompt(&screen).is_some();
+                (
+                    composer_ready,
+                    provider_tui,
+                    tui_evidence,
+                    terminal_input_ready,
+                    directory_trust_prompt,
+                    directory_trust_state,
+                    active_interactive_prompt,
+                    classification,
+                    provider_busy,
+                )
+            });
+            let provider_evaluated = provider_observation.is_some();
+            let (
+                composer_ready,
+                provider_tui,
+                tui_evidence,
+                terminal_input_ready,
+                directory_trust_prompt,
+                directory_trust_state,
+                active_interactive_prompt,
+                classification,
+                provider_busy,
+            ) = provider_observation.unwrap_or((
+                false,
+                false,
+                false,
+                false,
+                false,
+                codeterm_plugin::provider::DirectoryTrustState::Unknown,
+                false,
+                None,
+                false,
+            ));
+            observed_tui_without_composer |=
+                uses_prompt_glyph_fingerprint && provider_tui && !terminal_input_ready;
+            directory_trust_prompt_observed |= directory_trust_prompt;
+            let directory_trust_pending = directory_trust_blocks_input(
+                directory_trust_state,
+                directory_trust_prompt,
+                directory_trust_prompt_observed,
+                directory_trust_checkpoint_reached(
+                    mode,
+                    declares_structural_composer,
+                    composer_ready,
+                    pending_prompt,
+                    active_interactive_prompt,
+                ),
+            );
+            let observation = LaunchInputObservation {
+                session_bound,
+                composer_ready,
+                pending_prompt,
+                provider_process_alive,
+                provider_busy,
+                directory_trust_prompt,
+                directory_trust_pending,
+                active_interactive_prompt,
+                classification,
+            };
+            if composer_ready && !composer_logged {
+                composer_logged = true;
+                crate::service::agent_restart::timing::stage(
+                    &attempt.tab_id,
+                    &attempt.pty_id,
+                    "first-composer",
+                );
+            }
+            diagnostic.observe_decision(
+                &observation,
+                provider_tui,
+                tui_evidence,
+                terminal_input_ready,
+                directory_trust_state,
+                provider_evaluated,
+            );
+            match decide_launch_input_at_deadline(
+                observation,
+                mode,
+                final_observation,
+                declares_structural_composer,
+                observed_tui_without_composer,
+            ) {
+                Err(refusal) => return Err(refusal),
+                Ok(Some(readiness)) => return Ok(readiness),
+                Ok(None) => {}
+            }
+
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() || !signal.wait_after(generation, remaining) {
+                final_observation = true;
+            }
+            generation = signal.generation();
         })();
         diagnostic.declares_structural_composer = declares_structural_composer;
         diagnostic.observed_tui_without_composer = observed_tui_without_composer;
@@ -726,6 +784,13 @@ fn launch_composer_input_ready_for_frame(
     }
     if cursor_position == crate::agent::provider::ComposerCursorPosition::VisibleAnywhere {
         return input.alternate_screen && input.cursor_visible;
+    }
+    if cursor_position == crate::agent::provider::ComposerCursorPosition::PromptLine {
+        return crate::agent::offline_state_classifier::prompt_line_cursor_ready(
+            input.cursor_visible,
+            input.cursor_row,
+            input.last_nonblank_row,
+        );
     }
     if let Some(screen_rows) = screen_rows {
         return crate::agent::offline_state_classifier::prompt_glyph_cursor_ready_for_frame(

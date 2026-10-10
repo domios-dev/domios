@@ -26,6 +26,7 @@ fn split_creates_children_with_parent_and_inherited_routing() {
                 acceptance_criteria: vec!["works".into()],
                 test_plan: Some("focused test".into()),
                 correctness: Some("preserve isolation".into()),
+                tags: vec!["area:plan".into(), "topic".into()],
                 ..Default::default()
             },
             5,
@@ -51,7 +52,7 @@ fn split_creates_children_with_parent_and_inherited_routing() {
     params["task_id"] = json!(parent_id.clone());
     params["children"] = json!([
         {"name":"Part A"},
-        {"name":"Part B", "body":"Part-specific context", "criteria":["part works"], "test_plan":"verify this part"}
+        {"name":"Part B", "body":"Part-specific context", "criteria":["part works"], "test_plan":"verify this part", "tags":["area:ui"]}
     ]);
 
     let response = dispatch(
@@ -83,10 +84,12 @@ fn split_creates_children_with_parent_and_inherited_routing() {
             assert_eq!(child.body, "Shared context");
             assert_eq!(child.acceptance_criteria, vec!["works".to_string()]);
             assert_eq!(child.test_plan.as_deref(), Some("focused test"));
+            assert_eq!(child.tags, ["area:plan", "topic"]);
         } else {
             assert_eq!(child.body, "Part-specific context");
             assert_eq!(child.acceptance_criteria, vec!["part works".to_string()]);
             assert_eq!(child.test_plan.as_deref(), Some("verify this part"));
+            assert_eq!(child.tags, ["topic", "area:ui"]);
         }
     }
 }

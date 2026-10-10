@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
 import { AutomationResource, type AutomationSnapshot } from "./resource";
-import { scopedAutomationGraph } from "./model";
-import { automationKey, type AutomationGraph } from "./types";
+import { isScenarioRoot, scopedAutomationGraph } from "./model";
+import { automationKindLabel, automationKey, type AutomationGraph } from "./types";
 import { attachment, cronIdentity, deferred, fixtureGraph, fixtureNode, FixtureTransport, identity, multiScenarioGraph, sentinelIdentity, workerIdentity } from "./fixtures.testdata";
 
 const tests: Array<[string, () => void | Promise<void>]> = [];
 function test(name: string, run: () => void | Promise<void>) { tests.push([name, run]); }
+test("Blueprint presentation preserves stored graph identity", () => {
+  const stored = { ...sentinelIdentity };
+  assert.equal(automationKindLabel(stored.kind), "node");
+  assert.equal(automationKindLabel(cronIdentity.kind), "cron");
+  assert.deepEqual(stored, sentinelIdentity);
+});
+
 function nextSnapshot(resource: AutomationResource, predicate: (snapshot: AutomationSnapshot) => boolean) {
   const ready = deferred<void>();
   const off = resource.subscribe(() => {
@@ -109,32 +116,33 @@ test("only stored agent Sentinel roots and exact connected participants enter pr
   const graph = fixtureGraph();
   const unrelatedCron = fixtureNode(identity("cron", "unrelated-cron"), "Unrelated schedule");
   const unrelatedWorker = fixtureNode(identity("worker", "unrelated-worker"), "Unrelated worker");
-  const internal = fixtureNode(identity("sentinel", "internal-monitor"), "Internal monitor");
+  const internal = fixtureNode(identity("blueprint", "internal-monitor"), "Internal monitor");
   const result = scopedAutomationGraph({ ...graph, nodes: [...graph.nodes, unrelatedCron, unrelatedWorker, internal], edges: [...graph.edges, { ...graph.edges[0], id: "internal-route", source: internal.identity, target: unrelatedWorker.identity }] }, attachment);
   assert.deepEqual(result.nodes.map((node) => node.identity.id), ["sentinel-a", "cron-a", "worker-a", "missing-a"]);
   assert.deepEqual(result.edges.map((edge) => edge.id).sort(), graph.edges.map((edge) => edge.id).sort());
 });
 
-test("missing or mismatched stored creator provenance never implies agent authorship", () => {
+test("scenario keys do not replace the declared root identity", () => {
   const graph = fixtureGraph();
   const root = graph.nodes[0];
-  for (const sentinel_definition of [null, { source: "stored_agent_definition" as const, definition_id: "other-definition", creator_tab_id: "owner-a" }, { source: "stored_agent_definition" as const, definition_id: "sentinel-a", creator_tab_id: "other-owner" }]) {
-    const result = scopedAutomationGraph({ ...graph, nodes: [{ ...root, sentinel_definition }, ...graph.nodes.slice(1)] }, attachment);
-    assert.deepEqual(result.nodes, []);
-    assert.deepEqual(result.edges, []);
-  }
+  const scenario = { ...graph.scenarios[0], id: "independent-view-key" };
+  const result = scopedAutomationGraph({ ...graph, scenarios: [scenario] }, attachment);
+  assert.ok(isScenarioRoot(root, scenario.root));
+  assert.ok(result.nodes.some((node) => node.identity.id === root.identity.id));
+  for (const identity of [
+    { ...root.identity, id: "other-root" },
+    { ...root.identity, workspace_id: "other-workspace" },
+    { ...root.identity, team_id: "other-team" },
+    { ...root.identity, owner_tab_id: "other-owner" },
+  ]) assert.equal(isScenarioRoot(root, identity), false);
 });
 
-test("referenced Sentinel without creator provenance remains unresolved exact target", () => {
+test("shell-created scenario roots remain visible without agent authorship", () => {
   const graph = fixtureGraph();
-  const target = fixtureNode(identity("sentinel", "unknown-author"), "Unproven author name");
-  const result = scopedAutomationGraph({ ...graph, nodes: [...graph.nodes, target], edges: [...graph.edges, { ...graph.edges[0], id: "unknown-route", target: target.identity }] }, attachment);
-  const unresolved = result.nodes.find((node) => node.identity.id === target.identity.id);
-  assert.ok(unresolved);
-  assert.deepEqual(unresolved.identity, target.identity);
-  assert.equal(unresolved.availability, "missing");
-  assert.equal(unresolved.name, target.identity.id);
-  assert.equal(unresolved.purpose, null);
+  const root = graph.nodes[0];
+  const result = scopedAutomationGraph({ ...graph, nodes: [{ ...root, blueprint_definition: null }, ...graph.nodes.slice(1)] }, attachment);
+  assert.ok(result.nodes.some((node) => node.identity.id === root.identity.id));
+  assert.equal(result.scenarios.length, graph.scenarios.length);
 });
 
 test("scenario roots preserve exact internal reachability and shared execution records", () => {

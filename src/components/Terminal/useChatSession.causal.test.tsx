@@ -101,6 +101,7 @@ class FakeChatServer {
   listens = 0;
   unlistens = 0;
   peakSubscriptions = 0;
+  statusListeners = 0;
 
   constructor(timeline: BoundedTimeline) {
     this.timeline = timeline;
@@ -110,7 +111,12 @@ class FakeChatServer {
     __setInvokeForTest: (fn: unknown) => void;
     __setListenForTest: (fn: unknown) => void;
   }): void {
-    bridge.__setListenForTest(async (_event: string, nextHandler: ChatHandler) => {
+    bridge.__setListenForTest(async (event: string, nextHandler: ChatHandler) => {
+      if (event === "chat-send-status") {
+        this.statusListeners += 1;
+        return () => { this.statusListeners -= 1; };
+      }
+      assert(event === "tab-chat-msg-tab", `unexpected event ${event}`);
       this.listens += 1;
       assert(this.handler == null, "H3 falsifier: a second live listener was acquired");
       this.handler = nextHandler;
@@ -120,6 +126,7 @@ class FakeChatServer {
       };
     });
     bridge.__setInvokeForTest(async (command: string, args: Record<string, unknown>) => {
+      if (command === "chat_send_status") return [];
       if (command === "chat_start") {
         this.snapshotReads += 1;
         const subscriptionId = String(args.subscriptionId ?? "");
@@ -360,6 +367,7 @@ async function main(): Promise<void> {
   await flush();
   assert(Number(server.subscribers.size) === 0, "unmount leaked the live subscription");
   assert(server.listens === 1 && server.unlistens === 1, "listener ownership was not one-in/one-out");
+  assert(server.statusListeners === 0, "unmount leaked the delivery-status listener");
 
   const summary = {
     instance: INSTANCE,

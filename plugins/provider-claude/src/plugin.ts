@@ -1,3 +1,4 @@
+import { claudeTrustRecord } from "./preTrust";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
 // plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
 import type {
@@ -9,6 +10,10 @@ import type {
   ResumeParams,
 } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
+import { permissionHookCapability } from "./permissionHook";
+import { parseContextUsage, statuslineLaunchArgs } from "./context";
+import { authStatusProbe, parseAuthStatus, parseSessionObservations } from "./signals";
+import {parseBackgroundWork} from "./backgroundWork";
 import { detectClaudeLaunchSession } from "./launchSession";
 import {
   fetchClaudeUsage,
@@ -22,7 +27,6 @@ import {
   aiTitleFromEntry,
   ClaudeToolUseResult,
   claudeSessionFilePath,
-  contentToText,
   detectSessionModelAfterBoundary,
   editedTextFilePath,
   extractSetModelFamily,
@@ -31,7 +35,8 @@ import {
   sessionModelTranscriptBoundary,
   validateEntry,
 } from "./session";
-import { discoverAnthropicModels } from "./models";
+import { discoverAnthropicModels, manifestModels } from "./models";
+import {reasoningEffortLaunchArgsForModel} from "./modelCapabilities";
 import { claudeFileDiffs } from "./fileDiffs";
 import {
   isAgentActivityBlock,
@@ -65,6 +70,7 @@ import {
   entryCarriesMarker,
   entryIsLegacyPaneCodetermHook,
   entriesCarryMarker,
+  isCurrentHookCommand,
   isCodetermHook,
 } from "./hookOwnership";
 import type { ClaudeSettings, HookEntry } from "./hookOwnership";
@@ -73,6 +79,8 @@ const TITLE_RE = /claude/i;
 // v2.1+ TUIs prefix the title with a braille spinner glyph or ✳/✻.
 const BRAILLE_LO = 0x2801;
 const BRAILLE_HI = 0x28ff;
+const QUARTER_CIRCLE_LO = 0x25d0;
+const QUARTER_CIRCLE_HI = 0x25d3;
 
 const OUTPUT_FINGERPRINTS = [
   "Claude Code",
@@ -156,7 +164,12 @@ function sessionProjectPath(head: string): string | null {
 function isBrailleSpinner(ch: string): boolean {
   if (!ch) return false;
   const code = ch.charCodeAt(0);
-  return (code >= BRAILLE_LO && code <= BRAILLE_HI) || ch === "✳" || ch === "✻";
+  return (
+    (code >= BRAILLE_LO && code <= BRAILLE_HI) ||
+    (code >= QUARTER_CIRCLE_LO && code <= QUARTER_CIRCLE_HI) ||
+    ch === "✳" ||
+    ch === "✻"
+  );
 }
 
 
@@ -170,6 +183,15 @@ function retainForeignPrecompactEntry(entry: HookEntry): boolean {
 }
 
 const plugin: PluginModule = {
+  authStatusProbe,
+  tracksBackgroundWork: () => true,
+  parseBackgroundWork,
+  reasoningEffortLaunchArgsForModel,
+  modelCatalogueSeed: manifestModels,
+  parseAuthStatus,
+  parseSessionObservations,
+  permissionHookCapability,
+  parseContextUsage,
   starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake"): string | undefined {
     return prompt === "team_bootstrap" ? undefined : starterPrompt(prompt);
   },
@@ -249,11 +271,7 @@ const plugin: PluginModule = {
   detectEvents(text: string): string[] {
     const t = String(text || "");
     const events: string[] = [];
-    if (parseClaudeWizardPrompt(t)) events.push("permission_request");
-    const numLines = (t.match(/^\s*\d+\.\s+/gm) || []).length;
-    const hasEscFooter = t.indexOf("Esc to cancel") !== -1 || t.indexOf("Tab to amend") !== -1;
-    const hasSelector = t.indexOf("❯") !== -1;
-    if (numLines >= 2 && (hasEscFooter || hasSelector)) {
+    if (parseClaudeWizardPrompt(t) || parseClaudeNumberedPrompt(t)) {
       events.push("permission_request");
     }
     // TaskComplete: "<CapitalizedVerb> for <digits><s|m|h>"
@@ -297,6 +315,14 @@ const plugin: PluginModule = {
     return buildClaudePromptResponse(optionIndex, String(screen || ""));
   },
 
+  preTrustDirectory(path: string) {
+    return claudeTrustRecord(host, path, true);
+  },
+
+  isDirectoryTrusted(path: string): boolean {
+    return claudeTrustRecord(host, path, false).status === "already_trusted";
+  },
+
   directoryTrustPromptResponse(screen: string): string[] | null {
     return claudeFolderTrustResponse(screen);
   },
@@ -336,9 +362,14 @@ const plugin: PluginModule = {
       parts.push("--session-id");
       parts.push(host.shell.quoteFor(p.sessionId, host.platform()));
     }
-    if (p.args && p.args.length > 0) {
+    const launchArgs = statuslineLaunchArgs(p.args || []);
+    if (!launchArgs) {
+      host.log("error", "[claude-launch] cannot compose launch settings");
+      return "";
+    }
+    if (launchArgs.length > 0) {
       // Quote each caller-supplied arg — it reaches a shell (a mesh peer could inject `; cmd`).
-      for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
+      for (const arg of launchArgs) parts.push(quoteArg(String(arg)));
     }
     // Keep large worker prompts out of shell parsing and argv on every platform.
     if (p.task) {
@@ -354,28 +385,22 @@ const plugin: PluginModule = {
     return parts.join(" ");
   },
 
-  buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
-    const win = host.platform() === "windows";
-    const unset = win
-      ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; "
-        + "$OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = "
-        + "[System.Text.Encoding]::UTF8; "
-        + "$PSNativeCommandArgumentPassing = 'Standard';"
-      : "unset CLAUDECODE &&";
-    const parts = [unset, "claude"];
-    if (skipPermissions) parts.push("--dangerously-skip-permissions");
-    parts.push("--resume");
-    parts.push(host.shell.quoteFor(sessionId, host.platform()));
-    return parts.join(" ");
+  buildResumeCommand(sessionId: string, skipPermissions?: boolean): string | null {
+    const args = statuslineLaunchArgs([]);
+    return args ? [resumeBase(sessionId, skipPermissions), ...args.map(quoteArg)].join(" ") : null;
   },
 
   // `--resume` restores the transcript but not the launch-time system prompt,
   // so it is re-applied through the same declared flag buildLaunchCommand uses.
-  buildResumeCommandWithContext(params: ResumeParams): string {
+  buildResumeCommandWithContext(params: ResumeParams): string | null {
     const p = params || ({} as ResumeParams);
-    const parts = [this.buildResumeCommand!(p.sessionId, p.skipPermissions)];
-    if (p.args && p.args.length > 0) {
-      for (let i = 0; i < p.args.length; i++) parts.push(quoteArg(String(p.args[i])));
+    const resumeArgs = statuslineLaunchArgs(p.args || []);
+    if (!resumeArgs) return null;
+
+
+    const parts = [resumeBase(p.sessionId, p.skipPermissions)];
+    if (resumeArgs.length > 0) {
+      for (const arg of resumeArgs) parts.push(quoteArg(String(arg)));
     }
     const systemPrompt = p.systemPrompt;
     if (systemPrompt && systemPrompt.trim()) {
@@ -395,14 +420,16 @@ const plugin: PluginModule = {
     const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
     if (!contents) return null;
     const lines = contents.split("\n");
+    const declaration = manifest()?.commands?.modelSwitchCommands?.transcript;
+    const declarationJson = declaration ? JSON.stringify(declaration) : null;
     for (let i = lines.length - 1; i >= 0; i--) {
       const line = lines[i];
       if (!line) continue;
       let v: ClaudeEntry;
       try { v = JSON.parse(line); } catch (_) { continue; }
       if (!v || !v.message) continue;
-      const raw = contentToText(v.message.content);
-      const fam = extractSetModelFamily(raw);
+      const stdout = declarationJson ? host.commandTranscriptStdout(line, declarationJson) : null;
+      const fam = stdout ? extractSetModelFamily(stdout) : null;
       if (fam) return fam;
       const m = v.message.model;
       if (typeof m === "string" && m && m !== "<synthetic>") {
@@ -421,11 +448,20 @@ const plugin: PluginModule = {
     const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
     if (!contents) return null;
     const supported: Record<string, boolean> = { low: true, medium: true, high: true, xhigh: true, max: true };
+    const commands = manifest()?.commands?.modelSwitchCommands;
+    const declarationJson = commands?.transcript ? JSON.stringify(commands.transcript) : null;
+    const confirmation = commands?.effort?.confirmation;
+    const confirmations = confirmation ? Object.keys(supported).map(effort => ({
+      effort, pattern: new RegExp(confirmation.replace("{effort}", effort).replace("(?i)", ""), "i"),
+    })) : [];
     const lines = contents.split("\n");
     for (let i = lines.length - 1; i >= 0; i--) {
       if (!lines[i]) continue;
       let value: Record<string, unknown>;
       try { value = JSON.parse(lines[i]) as Record<string, unknown>; } catch (_) { continue; }
+      const stdout = declarationJson ? host.commandTranscriptStdout(lines[i], declarationJson) : null;
+      const confirmed = stdout ? confirmations.find(confirmation => confirmation.pattern.test(stdout)) : null;
+      if (confirmed) return confirmed.effort;
       const message = value.message && typeof value.message === "object"
         ? value.message as Record<string, unknown>
         : null;
@@ -556,7 +592,16 @@ const plugin: PluginModule = {
         }
         continue;
       }
+      const emitObservations = () => {
+        const observations = parseSessionObservations(v), background = parseBackgroundWork(v);
+        if (!observations && !background.length) return false;
+        out.push({role:"system",blocks:[],ts:null,uuid:null,
+          provider_observations:observations, background_work:background,
+          provider_session_id:typeof v.sessionId === "string" ? v.sessionId : null});
+        return true;
+      };
       if (!validateEntry(v)) {
+        if (emitObservations()) continue;
         if (!hadInvalid) {
           if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionDelta: skipped invalid JSONL entry");
           hadInvalid = true;
@@ -703,6 +748,7 @@ const plugin: PluginModule = {
         // Input sent while the agent was busy is queued as a queued_command attachment; surface it as the user message it is.
         const att = v.attachment;
         if (!att || att.type !== "queued_command" || typeof att.prompt !== "string" || !att.prompt) {
+          emitObservations();
           continue;
         }
         const agentNotice = subAgentNotificationBlock(att.prompt, v);
@@ -722,13 +768,18 @@ const plugin: PluginModule = {
           blocks.push({ kind: "text", data: { text: att.prompt } });
         }
       } else {
-        continue;
+        emitObservations(); continue;
       }
-      if (!blocks.length) continue;
+      if (!blocks.length) {emitObservations(); continue;}
       if (t === "system" && sourceSubtype === "compact_boundary") {
         timelineMarker = { kind: "context_compaction" };
       }
+      const context = parseContextUsage(v);
       out.push({
+        ...(context ? { context_usage: context } : {}),
+        provider_observations: parseSessionObservations(v),
+        provider_session_id: typeof v.sessionId === "string" ? v.sessionId : null,
+        background_work: parseBackgroundWork(v),
         role: role,
         blocks: blocks,
         ts: ts,
@@ -816,7 +867,7 @@ const plugin: PluginModule = {
         integration_state: "unreadable",
       };
     }
-    function present(key: string): boolean {
+    function present(key: string, completion: boolean = false): boolean {
       const arr = json!.hooks && json!.hooks[key];
       if (!Array.isArray(arr)) return false;
       for (let i = 0; i < arr.length; i++) {
@@ -825,13 +876,17 @@ const plugin: PluginModule = {
         if (!Array.isArray(hooks)) continue;
         for (let j = 0; j < hooks.length; j++) {
           const hook = hooks[j];
+          const command = hook && hook.command;
           // Claude Code rewrites settings.json and its serializer drops `_source`, so requiring it reports a working hook as missing.
-          if (hook && typeof hook.command === "string"
-              && hook.command.indexOf("CODETERM_TAB_ID") !== -1
-              && hook.command.indexOf("CODETERM_API_URL") !== -1
-              && hook.command.indexOf("CODETERM_API_TOKEN") !== -1
-              && hook.command.indexOf("CODETERM_API_PORT") === -1
-              && hook.command.indexOf("CODETERM_PANE_ID") === -1) return true;
+          if (typeof command === "string"
+              && (!completion || (command.includes("CODETERM_SESSION_BINDING_NONCE")
+                && command.includes('--data-binary "@-"')))
+              && isCurrentHookCommand(command, host.platform())
+              && command.indexOf("CODETERM_TAB_ID") !== -1
+              && command.indexOf("CODETERM_API_URL") !== -1
+              && command.indexOf("CODETERM_API_TOKEN") !== -1
+              && command.indexOf("CODETERM_API_PORT") === -1
+              && command.indexOf("CODETERM_PANE_ID") === -1) return true;
         }
       }
       return false;
@@ -845,20 +900,22 @@ const plugin: PluginModule = {
         if (!Array.isArray(hooks)) continue;
         for (let j = 0; j < hooks.length; j++) {
           const h = hooks[j];
-          if (h && typeof h.command === "string"
-              && h.command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1
-              && h.command.indexOf("CODETERM_TAB_ID") !== -1
-              && h.command.indexOf("CODETERM_API_URL") !== -1
-              && h.command.indexOf("CODETERM_API_TOKEN") !== -1
-              && h.command.indexOf("CODETERM_API_PORT") === -1
-              && h.command.indexOf("CODETERM_PANE_ID") === -1) return true;
+          const command = h && h.command;
+          if (typeof command === "string"
+              && isCurrentHookCommand(command, host.platform())
+              && command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1
+              && command.indexOf("CODETERM_TAB_ID") !== -1
+              && command.indexOf("CODETERM_API_URL") !== -1
+              && command.indexOf("CODETERM_API_TOKEN") !== -1
+              && command.indexOf("CODETERM_API_PORT") === -1
+              && command.indexOf("CODETERM_PANE_ID") === -1) return true;
         }
       }
       return false;
     }
     const n = present("Notification");
     const pr = present("PermissionRequest");
-    const s = present("Stop");
+    const s = present("Stop", true);
     const pc = Array.isArray(json.hooks?.PreCompact) && json.hooks.PreCompact.some(isCodetermHook);
     const ss = sessionStartCurrent();
     const installed = n && pr && s && ss;
@@ -926,20 +983,22 @@ const plugin: PluginModule = {
     }
     if (!json.hooks) json.hooks = {};
 
-    const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
-    const authH = '-H "Authorization: Bearer $CODETERM_API_TOKEN" ' + CODETERM_HOOK_MARKER_ARG;
-    const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
-    const finish = " || true; fi";
-
-    const notifyCmd = guard + 'curl -s -o /dev/null -X POST "$CODETERM_API_URL'
-      + '/api/tabs/$CODETERM_TAB_ID/hook/permission" '
-      + "-H 'Content-Type: application/json' " + authH + " " + nonceH + " --data-binary @-" + finish;
-    const stopCmd = guard + 'curl -s -o /dev/null -X POST "$CODETERM_API_URL'
-      + '/api/tabs/$CODETERM_TAB_ID/hook/stop" '
-      + "-H 'Content-Type: application/json' " + authH + " -d '{}'" + finish;
-    const sessionStartCmd = guard + 'curl -s -o /dev/null -X POST "$CODETERM_API_URL'
-      + '/api/tabs/$CODETERM_TAB_ID/hook/session_start" '
-      + "-H 'Content-Type: application/json' " + authH + " " + nonceH + " --data-binary @-" + finish;
+    const executable = host.platform() === "windows" ? "curl.exe" : "curl";
+    const hookCommand = (path: string, body: string, extraHeaders: string, stdin: boolean): string => {
+      const payload = stdin ? '--data-binary "@-"' : `--data-binary "${body}"`;
+      return `${executable} --silent --request POST "$CODETERM_API_URL${path}" `
+        + `--header "Content-Type: application/json" --header "Authorization: Bearer $CODETERM_API_TOKEN" `
+        + `${CODETERM_HOOK_MARKER_ARG} ${extraHeaders} ${payload}`;
+    };
+    const nonceHeader = '--header "X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE"';
+    const notifyCmd = hookCommand("/api/tabs/$CODETERM_TAB_ID/hook/permission", "", nonceHeader, true);
+    const stopCmd = hookCommand("/api/tabs/$CODETERM_TAB_ID/hook/stop", "", nonceHeader, true);
+    const sessionStartCmd = hookCommand(
+      "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+      "",
+      nonceHeader,
+      true,
+    );
 
     function newEntry(matcher: string, cmd: string, timeout: number): HookEntry {
       return {
@@ -1115,5 +1174,22 @@ function randomShortHex(len: number): string {
   for (let i = 0; i < len; i++) out += hex.charAt((Math.random() * 16) | 0);
   return out;
 }
+
+function resumeBase(sessionId: string, skipPermissions?: boolean): string {
+    const win = host.platform() === "windows";
+    const unset = win
+      ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; "
+        + "$OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = "
+        + "[System.Text.Encoding]::UTF8; "
+        + "$PSNativeCommandArgumentPassing = 'Standard';"
+      : "unset CLAUDECODE &&";
+    const parts = [unset, "claude"];
+    if (skipPermissions) parts.push("--dangerously-skip-permissions");
+    parts.push("--resume");
+    parts.push(host.shell.quoteFor(sessionId, host.platform()));
+
+    return parts.join(" ");
+}
+
 
 export default plugin;

@@ -3,10 +3,17 @@
  * The adopt-only runners refuse to start one; this is the command they name.
  */
 import { assertReusableDevConsole, ensureDevConsole } from "../tests/playwright/helpers/dev-console";
-import { currentDevInstance } from "../tests/playwright/helpers/dev-instance";
+import { currentDevInstance, isAdoptTarget } from "../tests/playwright/helpers/dev-instance";
 
 export async function main(): Promise<void> {
   const instance = currentDevInstance();
+  if (isAdoptTarget()) {
+    await assertReusableDevConsole(instance);
+    process.stdout.write(
+      `[playwright:instance] adopted ${instance.name || "default"} at ${instance.apiBase} (CDP ${instance.cdpBase})\n`,
+    );
+    return;
+  }
   await ensureDevConsole(instance);
   await assertReusableDevConsole(instance);
   process.stdout.write(

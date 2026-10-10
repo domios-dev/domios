@@ -5,7 +5,7 @@ use super::{
     build_brief_with_personality, checkout_required, cleanup_succeeded,
     complete_dispatch_transaction, dispatch_authorized_gates, dispatch_ready_event,
     dispatch_startup_failed_event, dispatch_worker_identity, lane_metadata_for_dispatch,
-    preflight_dispatch_task_status, preflight_review_capacity, regression_blocked_error,
+    preflight_dispatch_task_status, preflight_review_capacity, regression_dispatch_warning,
     resolve_dispatch_lane, roll_back_dispatch_attempt, rollback_failed_dispatch,
     set_dispatch_task_brief, startup_wait_is_recoverable, task_launch_authority_for_dispatch,
     verify_dispatched_task_binding, worker_ack_timeout_event, DispatchEvidence,
@@ -17,7 +17,7 @@ use crate::plan::{
     IdentityProvenance, OrchestratorRef, Plan, PlanMode, Task, TaskLaneMetadata, TaskStatus,
 };
 use crate::pty::manager::PtyManager;
-use crate::service::plan::milestone_gates::RegressionGate;
+use crate::service::plan::milestone_gates::{RegressionDispatchDecision, RegressionGate};
 use crate::service::plan::task_queries::TaskSection;
 use crate::service::plan::{NewTask, PlanStore};
 use crate::service::{
@@ -37,6 +37,7 @@ mod checkout_occupancy;
 mod concurrent_dispatch;
 mod dispatch_placement;
 mod dispatch_recovery;
+mod explicit_cwd;
 mod invalid_model;
 mod lane_persist;
 mod lane_provisioning;
@@ -227,7 +228,7 @@ fn repository_lane_guards_remain_required_for_code_mutation() {
 }
 
 #[test]
-fn regression_block_error_names_every_gate_in_message_and_data() {
+fn regression_dispatch_returns_an_advisory_for_every_pending_gate() {
     let gates = vec![
         RegressionGate {
             key: "phase-1".into(),
@@ -242,21 +243,14 @@ fn regression_block_error_names_every_gate_in_message_and_data() {
         key: "phase-2".into(),
         label: "Phase 2".into(),
     }];
-    let err = regression_blocked_error(gates, retrospectives);
-    assert_eq!(err.code, -32010);
-    assert!(err.message.contains("phase-1"));
-    assert!(err.message.contains("web-ui-serve-discovery"));
-    assert!(err.message.contains("phase-2"));
-    let data = err.data.expect("structured block data");
-    assert_eq!(data["type"], "regression_gate_blocked");
-    assert_eq!(data["pending_retrospectives"][0]["key"], "phase-2");
-    let keys: Vec<&str> = data["blocking_gates"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|g| g["key"].as_str().unwrap())
-        .collect();
-    assert_eq!(keys, vec!["phase-1", "web-ui-serve-discovery"]);
+    let advisory = regression_dispatch_warning(RegressionDispatchDecision::Advisory {
+        regression_gates: gates,
+        retrospectives,
+    });
+    assert_eq!(
+        advisory.as_deref(),
+        Some("terminal-group gate advisory (dispatch allowed): phase-1, phase-2, web-ui-serve-discovery")
+    );
 }
 
 fn git(dir: &Path, args: &[&str]) {

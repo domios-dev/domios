@@ -1,42 +1,17 @@
 import { localThumbnailSource, type ThumbnailSource, type ToolEvent, type ToolRichResult } from "@codeterm/chat-core";
 import { Check, ChevronRight, CircleX, LoaderCircle, Minus } from "lucide-react";
-import { useEffect, useId, useState, type ReactNode } from "react";
-import { loadLocalArtifact } from "../localArtifactLoader";
+import { useId, type ReactNode } from "react";
+import { useLocalImage } from "../localImage";
+import { ToolOutputContent } from "../ToolOutputContent";
+import { ImageResultBody } from "./ImageResultBody";
 import { toolKindVisual } from "./toolKindVisual";
-
-interface ThumbnailState {
-  path: string;
-  src?: string;
-  failed?: boolean;
-}
 
 function fileName(path: string): string {
   const segments = path.split(/[\\/]/).filter(Boolean);
   return segments[segments.length - 1] ?? path;
 }
 
-function useLocalThumbnail(source: ThumbnailSource) {
-  const path = source.kind === "local" ? source.path : undefined;
-  const [state, setState] = useState<ThumbnailState | null>(null);
-  useEffect(() => {
-    if (!path) return;
-    let current = true;
-    loadLocalArtifact(path, "image").then(
-      (file) => { if (current) setState(file.data.startsWith("data:image/") ? { path, src: file.data } : { path, failed: true }); },
-      () => { if (current) setState({ path, failed: true }); },
-    );
-    return () => { current = false; };
-  }, [path]);
-  const own = path !== undefined && state?.path === path ? state : null;
-  return {
-    src: own?.failed ? undefined : own?.src,
-    failed: own?.failed === true,
-    markFailed: () => { if (path) setState({ path, failed: true }); },
-  };
-}
-
-function thumbnailNote(source: ThumbnailSource, shown: boolean, failed: boolean): string {
-  if (shown) return "shown from local file";
+function thumbnailNote(source: ThumbnailSource, failed: boolean): string {
   if (source.kind === "local") return failed ? "not shown: local file could not be read" : "not shown yet: reading local file";
   if (source.reason === "remote") return "not shown: path is not local, nothing was fetched";
   if (source.reason === "relative") return "not shown: path is not absolute";
@@ -72,9 +47,10 @@ export function RichResultCard({ event, expanded, onToggle }: { event: ToolEvent
   const Glyph = visual.glyph;
   const rich = event.richResult?.kind === event.kind ? event.richResult : undefined;
   const source = localThumbnailSource(rich?.kind === "image" ? rich.path : undefined);
-  const thumbnail = useLocalThumbnail(source);
+  const thumbnail = useLocalImage(source.kind === "local" ? source.path : undefined);
   const summary = rowSummary(rich, event) || "Result";
   const alt = `${rich?.origin === "viewed" ? "Viewed image" : "Generated image"}: ${rich?.path ? fileName(rich.path) : "local file"}`;
+  const imageShown = Boolean(thumbnail.src);
   const statusName = event.status === "unresolved" ? "no result" : event.status;
 
   return (
@@ -83,9 +59,8 @@ export function RichResultCard({ event, expanded, onToggle }: { event: ToolEvent
       data-rich-kind={event.kind}
       data-tool-status={event.status}
       aria-label={`${visual.label} result`}
-      className="mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-md border-l-2"
+      className="mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-md"
       style={{
-        borderLeftColor: event.status === "error" ? "var(--ct-red)" : "var(--ct-border)",
         background: "color-mix(in srgb, var(--ct-surface) 60%, transparent)",
       }}
     >
@@ -96,7 +71,9 @@ export function RichResultCard({ event, expanded, onToggle }: { event: ToolEvent
             src={thumbnail.src}
             alt={alt}
             onError={thumbnail.markFailed}
-            className="h-7 w-7 shrink-0 rounded object-cover"
+            className="h-9 w-9 shrink-0 rounded-md border object-cover"
+            style={{ borderColor: "var(--ct-border)" }}
+            draggable={false}
           />
         )}
         <button
@@ -120,9 +97,13 @@ export function RichResultCard({ event, expanded, onToggle }: { event: ToolEvent
         </button>
       </div>
       <div id={regionId} role="region" aria-label={`${visual.label} result details`} hidden={!expanded} className="pb-2 pl-8 pr-3">
+        {expanded && event.result && <ToolOutputContent text={event.result} />}
+        {expanded && thumbnail.src && rich?.path && source.kind === "local" && (
+          <ImageResultBody src={thumbnail.src} path={rich.path} localPath={source.path} name={fileName(source.path)} alt={alt} />
+        )}
         {expanded && (rich ? (
           <dl data-testid="chat-rich-result-detail" className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-0.5 font-mono text-[11.5px]">
-            {rich.origin && <Field name="source">{rich.origin === "viewed" ? "image view" : "image generation"}</Field>}
+            {rich.origin && !imageShown && <Field name="source">{rich.origin === "viewed" ? "image view" : "image generation"}</Field>}
             {rich.query !== undefined && <Field name="query">{rich.query}</Field>}
             {rich.kind === "web" && <Field name="results">{rich.resultCount ?? "not reported"}</Field>}
             {rich.action && <Field name="action">{rich.action}</Field>}
@@ -130,8 +111,8 @@ export function RichResultCard({ event, expanded, onToggle }: { event: ToolEvent
             {rich.pattern && <Field name="pattern">{rich.pattern}</Field>}
             {rich.status && <Field name="status">{rich.status}</Field>}
             {rich.prompt && <Field name="prompt">{rich.prompt}</Field>}
-            {rich.kind === "image" && <Field name="path">{rich.path ?? "not reported"}</Field>}
-            {rich.kind === "image" && <Field name="thumbnail">{thumbnailNote(source, Boolean(thumbnail.src), thumbnail.failed)}</Field>}
+            {rich.kind === "image" && !imageShown && <Field name="path">{rich.path ?? "not reported"}</Field>}
+            {rich.kind === "image" && !imageShown && <Field name="thumbnail">{thumbnailNote(source, thumbnail.failed)}</Field>}
           </dl>
         ) : (
           <p data-testid="chat-rich-result-unavailable" className="m-0 break-all font-mono text-[11.5px]" style={{ color: "var(--ct-muted-fg)" }}>

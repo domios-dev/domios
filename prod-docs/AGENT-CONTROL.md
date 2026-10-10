@@ -44,6 +44,12 @@ Domios has a 2-level role hierarchy: Orchestrator (depth 1) -> Worker (depth 2).
 
 Backward-compat alias: `Conductor` -> `Orchestrator`.
 
+**Placement rules.** The backend refuses a parent for an Orchestrator (`Orchestrator cannot have a parent`), requires a Worker's `--parent-tab` to be a spawning parent such as its Orchestrator, and refuses to make a tab that already has a parent an Orchestrator (`already in a hierarchy`). There is no middle coordinator: a sub-task that needs its own tree goes to a fresh Orchestrator spawned with `--workspace` in its own workspace, which owns the whole sub-request; a concrete leaf goes to a Worker under you. Workers fan out in parallel, one task each.
+
+**Briefs.** Pass a brief with `--task-file PATH` or `--task-file -` fed by a single-quoted heredoc. The CLI refuses a multiline or over-240-character inline `--task`, because the shell has already expanded its backticks, `$`, quotes and newlines; a short scalar such as `--task "run tests"` stays fine. Every Worker brief names its report command, or the Worker finishes without reporting.
+
+**Worker discipline.** A Worker executes its one task, reports with `codeterm agent report`, and stops: no spawning, sleeping or polling, and no "also do X" scope creep. A task too big for one Worker is reported `partial` with the needed decomposition, so the Orchestrator splits it. A Worker `--status blocked` report proposes an owner decision for an external dependency, persists its reason and evidence, and leaves the task unchanged; only the Plan owner or Planner explicitly blocks the task.
+
 **Push-based reports:** Reports go to the spawning Orchestrator, auto-injected into its PTY as `[Report from Name] message\r`, so Claude sees them as user input -- no polling needed.
 
 ```bash
@@ -122,19 +128,19 @@ Available batch methods: `spawn`, `send`, `rename`, `close`, `role`, `notify`, `
 
 ## General Agent recovery
 
-A connected Supporter Agent helps Domios notice when the General Agent is stuck. It works automatically, with no feature switches. Without a connected adapter, the existing dead-process recovery and normal tab behavior remain. Connect through Settings > Agents > Supporter Agent or `codeterm supporter use <adapter>`; required adapters first need a token through `token set --adapter <adapter>`. Saved connections keep their own models and tokens when switching. `codeterm supporter disconnect <adapter>` removes one; removing the active adapter stops the Supporter. Memory ranking, tab observations, the shared budget and sent text are explained in `codeterm docs MEMORY` and the Guide (`@ct-guide supporter-agent` on its own paragraph).
+A connected Supporter Agent helps Domios notice when the General Agent is stuck. It works automatically, with no feature switches. Without a connected adapter, the existing dead-process recovery and normal tab behavior remain. Connect through Settings > Agents > Supporter Agent or `codeterm supporter use <adapter>`; required adapters first need a token through `token set --adapter <adapter>`. Saved connections keep their own models and tokens when switching. `codeterm supporter disconnect <adapter>` removes one; removing the active adapter stops the Supporter. Memory ranking, tab observations, the shared budget and sent text are explained in `codeterm docs MEMORY` and the Guide (`@ds-guide supporter-agent` on its own paragraph).
 
 The General Agent watchdog reacts to PTY death, provider exit to a shell and launch settlement. It respects shutdown, launch grace and restart limits; screen text alone never authorizes restarting a live agent. Model-authorized recovery remains notify-only until a separate held-out accuracy check passes.
 
 | Observed condition | Required evidence and response |
 |---|---|
-| Update prompt | The automatic provider coordinator answers classified prompts with the declared safe option. Outside that coordinator, model recovery additionally requires agreement with the option; otherwise notify. Details: `codeterm docs CONFIG`. |
+| Update prompt | An agent-owned tab may answer with one calibrated choice at 0.80 or above among provider-declared options. Owner-launched tabs keep the prompt for the owner. See `codeterm docs CONFIG`. |
 | Crash to shell | The provider is absent from this tab's process tree and its recovery session is verified. Resume in the same tab. |
 | Startup failure after its deadline | One restart within the overall episode limit. |
 | Error loop | One restart, then an owner notification if the condition continues. |
 | Sign-in or unavailable model/quota | Notify the owner with choices; never answer or switch the model automatically. |
-| Folder trust | Use the existing trust responder: provenance, the shared trust cache or a live same-provider tab in the exact directory can authorize the declared option. Otherwise ask the owner. |
-| Command/tool permission | Follow the tab's own permission policy. A Supporter verdict cannot grant permission. |
+| Folder trust | Use the existing trust responder: provenance, the shared trust cache or a live same-provider tab in the exact directory can authorize the declared option. Agent-owned launch and cron prompts may also use one calibrated declared choice. |
+| Command/tool permission | An agent-owned tab may use one calibrated provider-declared choice; otherwise the tab's own permission policy applies. |
 | `other` | Record the verdict; no recovery or hint. |
 
 Model-authorized automatic actions require two agreeing observations, each at least 0.90 confidence, plus the deterministic evidence above. Owner notifications require two agreeing observations at or above 0.80. Below 0.60 is ignored. The separate held-out check must achieve at least 0.95 precision on automatic-action labels before those actions are enabled; an unqualified row notifies instead.
@@ -142,6 +148,8 @@ Model-authorized automatic actions require two agreeing observations, each at le
 There are at most two automatic restarts per General Agent episode (the configured maximum is capped at two). After that, Domios sends a failure notification and waits for owner action. Every automatic action is journaled and sends a brief activity notification. All Supporter model calls share the hourly budget; an exhausted budget produces no model observation or model-authorized action.
 
 Trust, permission and login notifications are suppressed for tabs the owner opened directly from the UI; the journal still records the condition. The General Agent, agent-spawned, Team, cron and hidden-worker tabs keep their notifications. After a Domios restart, restored tabs with the same condition produce one grouped notification per condition at restore completion. A durable key for tab, condition and launch prevents reporting the same condition twice across restarts.
+
+Agent-, Team-, worker- and cron-owned tabs, visible or hidden, may answer folder-trust, tool-permission and update prompts with one calibrated Supporter choice at 0.80 or above among provider-declared options. Domios uses the existing prompt response surface and never submits model-authored text. If the model is absent, fails, is capped, selects `other` or is below 0.80, the structural responder decides and unresolved prompts notify the owner. Folder-trust prompts at launch or in cron can use this choice without host provenance; provenance still decides elsewhere. Login, authentication, unavailable-model and quota prompts are never answered automatically. Tabs launched directly by the owner without agent or Team ownership keep owner-facing prompts. Details: `codeterm docs TAB-LIFECYCLE`.
 
 ## Command Palette
 
@@ -158,4 +166,4 @@ Domios tracks and restores terminal state across sessions:
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`, OpenCode's shared `opencode.db`) and names any provider store it could not fully search. `codeterm sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 18 -->
+<!-- revision: 23 -->

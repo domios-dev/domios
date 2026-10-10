@@ -14,6 +14,7 @@
 import { apiHost, currentToken, IS_WEB, relayTarget } from "./webApi";
 import { fireResync } from "./resync";
 import { createSeqGapTracker } from "./eventSeqGaps";
+import { transitionWebReconnect, type WebReconnectState } from "./webReconnectModel";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "./terminalViewerEvents";
 
 type Handler = (e: { payload: unknown }) => void;
@@ -39,6 +40,53 @@ let started = false;
 let lastFrameAt = 0;
 let forceImmediateRetry = false;
 let hasAttemptedConnection = false;
+let reconnectState: WebReconnectState = "connected";
+let cancelReconnectWait: (() => void) | null = null;
+let wakeReconnectWait: (() => void) | null = null;
+let streamGeneration = 0;
+let wakeRequested = false;
+let receiveDeadline: ReturnType<typeof setTimeout> | null = null;
+
+export function webReconnectEnabled(): boolean {
+  try {
+    return sessionStorage.getItem("codeterm-capability:web-reconnect-probe") === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function wakeWebEvents(): void {
+  if (wakeReconnectWait) {
+    wakeReconnectWait();
+  } else if (reconnectState === "connected" && Date.now() - lastFrameAt > RECEIVE_TIMEOUT_MS) {
+    wakeRequested = true;
+    streamAbort?.abort();
+  }
+}
+
+function armReceiveDeadline(abort: AbortController): void {
+  if (receiveDeadline) clearTimeout(receiveDeadline);
+  receiveDeadline = setTimeout(() => abort.abort(), RECEIVE_TIMEOUT_MS);
+  (receiveDeadline as unknown as { unref?: () => void }).unref?.();
+}
+
+function waitForReconnectFailure(delay: number, generation: number): Promise<boolean> {
+  reconnectState = transitionWebReconnect(reconnectState, "lost").state;
+  return new Promise((resolve) => {
+    const finish = (event: "wake" | "deadline" | "stop") => {
+      clearTimeout(deadline);
+      cancelReconnectWait = null;
+      wakeReconnectWait = null;
+      const next = transitionWebReconnect(reconnectState, event);
+      reconnectState = next.state;
+      resolve(generation === streamGeneration && next.action === "probe");
+    };
+    const deadline = setTimeout(() => finish("deadline"), delay);
+    (deadline as unknown as { unref?: () => void }).unref?.();
+    wakeReconnectWait = () => finish("wake");
+    cancelReconnectWait = () => finish("stop");
+  });
+}
 
 const CURSOR_KEY = "codeterm-web-events-cursor";
 const RECEIVE_TIMEOUT_MS = 30_000;
@@ -149,24 +197,48 @@ export function webEventStreamUrl(
 }
 
 async function runStream(): Promise<void> {
+  const generation = ++streamGeneration;
+  const probeFirst = webReconnectEnabled();
   let backoffMs = 1_000;
   for (;;) {
+    if (generation !== streamGeneration) return;
     const abort = new AbortController();
     streamAbort = abort;
     lastFrameAt = Date.now();
+    if (probeFirst) armReceiveDeadline(abort);
     const reconnecting = hasAttemptedConnection;
     hasAttemptedConnection = true;
     try {
       const token = currentToken();
-      const res = await fetch(webEventStreamUrl(cursor), {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        signal: abort.signal,
-      });
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+      if (probeFirst && reconnecting) {
+        const probe = await fetch(webEventStreamUrl(cursor), {
+          method: "HEAD",
+          cache: "no-store",
+          headers,
+          signal: abort.signal,
+        });
+        if (abort.signal.aborted || !probe.ok) throw new Error(`Stream probe HTTP ${probe.status}`);
+        const next = transitionWebReconnect(reconnectState, "probe-ok");
+        if (next.action !== "connect") throw new Error("Stale stream probe");
+        reconnectState = next.state;
+      }
+      const res = await fetch(webEventStreamUrl(cursor), { headers, signal: abort.signal });
       if (abort.signal.aborted) throw new DOMException("Aborted", "AbortError");
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-      if (reconnecting) window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
-      backoffMs = 1_000;
       const reader = res.body.getReader();
+      if (probeFirst) {
+        reconnectState = transitionWebReconnect(reconnectState, "connected").state;
+        armReceiveDeadline(abort);
+      }
+      if (reconnecting) {
+        window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT));
+        if (probeFirst) {
+          window.dispatchEvent(new Event("codeterm-refresh-mux-state"));
+          fireResync();
+        }
+      }
+      backoffMs = 1_000;
       const decoder = new TextDecoder();
       let buf = "";
       for (;;) {
@@ -174,6 +246,7 @@ async function runStream(): Promise<void> {
         if (abort.signal.aborted) throw new DOMException("Aborted", "AbortError");
         if (done) break;
         lastFrameAt = Date.now();
+        if (probeFirst) armReceiveDeadline(abort);
         buf += decoder.decode(value, { stream: true });
         let idx;
         while ((idx = buf.indexOf("\n\n")) >= 0) {
@@ -187,9 +260,21 @@ async function runStream(): Promise<void> {
     } catch {
       /* connection lost / aborted / watchdog-forced — fall through to retry */
     }
-    if (abort.signal.aborted && streamAbort !== abort) {
+    if (generation !== streamGeneration) return;
+    abort.abort();
+    if (probeFirst && receiveDeadline) {
+      clearTimeout(receiveDeadline);
+      receiveDeadline = null;
+    }
+    if (generation !== streamGeneration || (abort.signal.aborted && streamAbort !== abort)) {
       // Torn down by resetWebEvents (peer switch): the new loop owns it.
       return;
+    }
+    if (probeFirst && wakeRequested) {
+      wakeRequested = false;
+      reconnectState = transitionWebReconnect(reconnectState, "lost").state;
+      reconnectState = transitionWebReconnect(reconnectState, "wake").state;
+      continue;
     }
     if (forceImmediateRetry) {
       forceImmediateRetry = false;
@@ -198,7 +283,7 @@ async function runStream(): Promise<void> {
     }
     // Equal jitter: avoids a thundering-herd reconnect after a shared outage.
     const delay = backoffMs / 2 + Math.random() * (backoffMs / 2);
-    await new Promise((r) => setTimeout(r, delay));
+    if (!await waitForReconnectFailure(delay, generation)) return;
     backoffMs = Math.min(backoffMs * 2, 15_000);
   }
 }
@@ -220,7 +305,7 @@ function ensureStarted(): void {
   if (started || !IS_WEB) return;
   started = true;
   void runStream();
-  startWatchdog();
+  if (!webReconnectEnabled()) startWatchdog();
 }
 
 /** Silent seq discontinuities seen this page lifetime. Non-zero means the
@@ -245,6 +330,8 @@ export function webListen(event: string, handler: Handler): () => void {
 /** Tear down the SSE connection (peer switch) — it reconnects to the
  * current apiHost automatically, replaying from the last cursor. */
 export function resetWebEvents(): void {
+  stopReconnect();
+  hasAttemptedConnection = true;
   seqGaps.reset();
   cursor = readCursor();
   if (watchdogTimer) {
@@ -257,7 +344,18 @@ export function resetWebEvents(): void {
   ensureStarted();
 }
 
+function stopReconnect(): void {
+  ++streamGeneration;
+  cancelReconnectWait?.();
+  if (receiveDeadline) clearTimeout(receiveDeadline);
+  receiveDeadline = null;
+  reconnectState = "connected";
+  wakeRequested = false;
+  hasAttemptedConnection = false;
+}
+
 export function __resetWebEventsForTest(): void {
+  stopReconnect();
   seqGaps.reset();
   if (watchdogTimer) clearInterval(watchdogTimer);
   watchdogTimer = null;

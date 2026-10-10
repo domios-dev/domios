@@ -27,11 +27,11 @@ mod spawn_model_catalogue;
 pub use spawn_model::ModelFallbackNotice;
 pub(crate) use spawn_model::{
     attach_planned_model, normalize_session_model, persist_model_launch_identity,
-    resolve_fresh_agent_model, resolve_fresh_agent_model_with_notice,
-    unrequested_substitution_severity, CatalogBackgroundModelPort,
+    resolve_fresh_agent_model, resolve_fresh_agent_model_with_notice, CatalogBackgroundModelPort,
 };
 pub(crate) use spawn_model_catalogue::{
-    catalogue_models_match, resolve_agent_model_selection, validate_agent_model, InvalidModelError,
+    catalogue_lookup_model, catalogue_models_match, model_catalogue_capability,
+    resolve_agent_model_selection, validate_agent_model, InvalidModelError,
 };
 
 #[path = "spawn_hidden_delivery.rs"]
@@ -58,6 +58,8 @@ mod spawn_tab_identity;
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SpawnTabSpec {
     #[serde(default)]
+    pub shell: Option<String>,
+    #[serde(default)]
     pub workspace_id: Option<String>,
     #[serde(default)]
     pub parent_tab_id: Option<String>,
@@ -73,6 +75,12 @@ pub struct SpawnTabSpec {
     pub title: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(default)]
+    pub purpose: crate::multiplexer::types::ShellPurpose,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub cmd: Option<String>,
     #[serde(default)]
     pub visibility: TabVisibility,
     /// Audience axis for input-request notifications; declared here, never
@@ -158,6 +166,8 @@ pub struct AgentSpawnSpec {
     pub spawned_by_tab_id: Option<String>,
     #[serde(default)]
     pub resume_session_id: Option<String>,
+    #[serde(default, skip_deserializing)]
+    pub(crate) fork_session: bool,
     #[serde(default)]
     pub activate: Option<bool>,
     #[serde(skip)]
@@ -238,11 +248,11 @@ impl ServiceContext {
             (TabVisibility::Visible, TabCommand::Shell) => self.spawn_visible_shell_impl(spec),
             (TabVisibility::Hidden, TabCommand::Shell) => self.spawn_hidden_shell_impl(spec),
             (TabVisibility::Visible, TabCommand::ChatBackend { .. }) => {
-                super::permission_policy::configured_full_access()?;
+                super::permission_policy::configured_full_access_for(&self.app_handle)?;
                 self.spawn_chatbackend_impl_with_state_change(spec, emit_state_change)
             }
             (TabVisibility::Hidden, TabCommand::ChatBackend { .. }) => {
-                super::permission_policy::configured_full_access()?;
+                super::permission_policy::configured_full_access_for(&self.app_handle)?;
                 self.spawn_chatbackend_impl_with_state_change(spec, emit_state_change)
             }
         }
@@ -274,7 +284,8 @@ impl ServiceContext {
         let agent_cmd = model_selection.provider_id;
         let requested_model = model_selection.model;
         let permission_bypass_authorization =
-            super::permission_policy::configured_permission_bypass(
+            super::permission_policy::configured_permission_bypass_for(
+                &self.app_handle,
                 &self.agent_registry,
                 &agent_cmd,
             )?;
@@ -544,7 +555,11 @@ impl ServiceContext {
         } else {
             None
         };
-        if let Some(ref sid) = agent.resume_session_id {
+        if agent.fork_session {
+            if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
+                tab.fork_source_session_id = agent.resume_session_id.clone();
+            }
+        } else if let Some(ref sid) = agent.resume_session_id {
             self.set_agent_session_id(&tab_id, Some(sid.clone()));
         } else if let Some(ref sid) = launch_session_id {
             self.set_agent_session_id(&tab_id, Some(sid.clone()));
@@ -571,17 +586,15 @@ impl ServiceContext {
             system_prompt_capable,
             native_starter_capable,
         );
-        let role_suffixed_task = super::orchestrator::role_launch_task(
+        let role_suffixed_task = super::orchestrator::provider_launch_task(
+            &self.agent_registry,
+            &agent_cmd,
             task_selection.provider_launch,
             agent.role.as_deref(),
             agent.role_profile.as_deref(),
-            system_prompt_capable,
         );
-        let task_prefix = self.spawn_task_prefix(&tab_id);
-        let role_suffixed_task = role_suffixed_task.map(|task| match task_prefix.as_deref() {
-            Some(prefix) => format!("{prefix}{task}"),
-            None => task,
-        });
+        let role_suffixed_task =
+            role_suffixed_task.map(|task| self.spawn_task_message(&tab_id, &task).unwrap_or(task));
         super::restored_launch::capture_tab_launch_parameters(
             &self.mux,
             &tab_id,
@@ -599,9 +612,12 @@ impl ServiceContext {
                 permission_bypass_requested: permission_bypass,
             },
         );
-        let startup_handshake = crate::service::launch_delivery::startup_starter_prompt(
+        let startup_handshake = crate::service::launch_delivery::startup_starter_prompt_for_class(
             startup_supervised,
             task_identity.is_some(),
+            self.agent_registry
+                .with_provider(&agent_cmd, |provider| provider.is_tool_less())
+                .unwrap_or(false),
         );
         let confirmed_first_turn = if startup_handshake.is_some() {
             crate::service::launch_delivery::startup_handshake_confirmed_first_turn(
@@ -618,30 +634,12 @@ impl ServiceContext {
                 )
             })
         } else {
-            match task_selection.confirmed_first_turn {
-                Some(
-                    crate::service::launch_delivery::VisibleSpawnFirstTurn::AssignedTaskStarter,
-                ) => {
-                    let prompt = crate::agent::provider::StarterPrompt::AssignedTask;
-                    let text = self
-                        .agent_registry
-                        .with_provider(&agent_cmd, |provider| provider.starter_prompt_text(prompt))
-                        .flatten();
-                    Some(crate::service::launch_delivery::mark_starter_prompt(
-                        prompt,
-                        crate::service::launch_delivery::assigned_task_starter(text.as_deref()),
-                    ))
-                }
-                Some(crate::service::launch_delivery::VisibleSpawnFirstTurn::Task(task)) => Some(
-                    task_prefix
-                        .as_deref()
-                        .map_or_else(|| task.to_string(), |prefix| format!("{prefix}{task}")),
-                ),
-                None => None,
-            }
+            task_selection
+                .confirmed_first_turn
+                .map(|turn| self.confirmed_spawn_first_turn(&tab_id, &agent_cmd, turn))
         };
 
-        let mut legacy_params = spec.to_agent_params()?;
+        let mut legacy_params = spec.to_agent_launch_params(resolved_cwd.clone())?;
         if let Some(prompt) =
             visible_spawn_starter_prompt(startup_handshake, task_selection.provider_starter)
         {
@@ -757,11 +755,15 @@ impl ServiceContext {
         }
         self.require_agent_provider_ready(&agent.provider)?;
         let permission_bypass_authorization =
-            super::permission_policy::configured_permission_bypass(
+            super::permission_policy::configured_permission_bypass_for(
+                &self.app_handle,
                 &self.agent_registry,
                 &agent.provider,
             )?;
         let permission_bypass = permission_bypass_authorization.is_some();
+        let provider_key_env = self
+            .model_provider_launch_env(&agent.provider)
+            .map_err(|e| e.to_string())?;
         let clearance =
             provider_launch_preflight(&self.agent_registry, &agent.provider, permission_bypass)
                 .map_err(|e| e.to_string())?;
@@ -876,7 +878,11 @@ impl ServiceContext {
         } else {
             None
         };
-        if let Some(ref sid) = agent.resume_session_id {
+        if agent.fork_session {
+            if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
+                tab.fork_source_session_id = agent.resume_session_id.clone();
+            }
+        } else if let Some(ref sid) = agent.resume_session_id {
             self.set_agent_session_id(&tab_id, Some(sid.clone()));
         } else if let Some(ref sid) = launch_session_id {
             self.set_agent_session_id(&tab_id, Some(sid.clone()));
@@ -922,12 +928,14 @@ impl ServiceContext {
         for (k, v) in &agent.extra_env {
             env_vars.insert(k.clone(), v.clone());
         }
+        env_vars.extend(provider_key_env);
         crate::service::launch_diagnostics::log_launch_environment(
             "provider_spawn",
             &tab_id,
             &env_vars,
         );
 
+        super::codex_rpc::lifecycle::launch_env(self, &tab_id, &mut env_vars);
         let pty_id = match self.link_hidden_agent_pty(&tab_id, resolved_cwd, env_vars) {
             Ok(pty_id) => pty_id,
             Err(error) => {
@@ -950,6 +958,24 @@ impl ServiceContext {
             agent.role.as_deref(),
             agent.role_profile.as_deref(),
         );
+        let wrapped_task = if self
+            .agent_registry
+            .with_provider(&agent.provider, |provider| provider.is_tool_less())
+            .unwrap_or(false)
+        {
+            wrapped_task.map(|task| self.spawn_task_message(&tab_id, &task).unwrap_or(task))
+        } else {
+            wrapped_task
+        };
+        let relay_nonce = {
+            self.mux
+                .read()
+                .get_tab(&tab_id)
+                .and_then(|tab| tab.session_binding_nonce.clone())
+        };
+        if let Some(nonce) = relay_nonce {
+            self.arm_spawn_reply_relay(&tab_id, &nonce);
+        }
         // later (after the cron registry links tab→run).
         if let Some(ref worker_id) = agent.worker_id {
             let mem_cfg = crate::config::memory_config();
@@ -990,15 +1016,24 @@ impl ServiceContext {
         let role_for_thread = agent.role.clone();
         let role_profile_for_thread = agent.role_profile.clone();
         let cron_run = agent.launch_purpose == super::unattended_launch::LaunchPurpose::CronRun;
-        // PtyInput providers (codex/opencode) don't embed the task in the launch command — it must be typed into the TUI after boot. InlineFlag (claude) bakes it in, so PtyInput delivery is skipped there.
-        let task_delivery = self
+        let pty_input_task = self
             .agent_registry
-            .with_provider(&provider, |p| p.task_delivery())
-            .unwrap_or(crate::agent::provider::TaskDelivery::PtyInput);
-        let pty_input_task = match task_delivery {
-            crate::agent::provider::TaskDelivery::PtyInput => wrapped_task.clone(),
-            crate::agent::provider::TaskDelivery::InlineFlag => None,
-        };
+            .with_provider(&provider, |p| {
+                super::spawn_hidden_launch::first_turn(
+                    matches!(
+                        super::launch_delivery::mode_for_descriptor(&p.system_prompt_delivery()),
+                        super::launch_delivery::LaunchDeliveryMode::SystemPrompt
+                    ),
+                    matches!(
+                        p.task_delivery(),
+                        crate::agent::provider::TaskDelivery::InlineFlag
+                    ),
+                    wrapped_task.as_deref(),
+                    p.starter_prompt_text(crate::agent::provider::StarterPrompt::AssignedTask)
+                        .as_deref(),
+                )
+            })
+            .flatten();
         super::spawn_hidden_launch::start(
             svc_outer,
             super::spawn_hidden_launch::HiddenLaunch {
@@ -1007,6 +1042,12 @@ impl ServiceContext {
                 provider,
                 launch_session_id,
                 task: task_for_thread,
+                selection: super::codex_rpc::launch::Selection {
+                    model: launch_model.clone(),
+                    effort: agent.reasoning_effort.clone(),
+                    resume: agent.resume_session_id.clone(),
+                    extra_args: false,
+                },
                 model_args,
                 role: role_for_thread,
                 role_profile: role_profile_for_thread,
@@ -1039,6 +1080,7 @@ impl ServiceContext {
         let pty_claim = self.pty_ownership.acquire(tab_id);
         // Hidden agents now launch as ordinary interactive claude (no -p/stream-json), so use the same 120x40 PTY a visible agent gets.
         let candidate = self.pty.lock().spawn(None, cwd, 120, 40, env_vars)?.0;
+        self.screen_state.lock().resize(&candidate, 120, 40);
         let selection = self.link_pty_with_claim(&pty_claim, tab_id, candidate, true);
         if !selection.linked {
             return Err(format!("Tab {tab_id} closed before PTY link"));

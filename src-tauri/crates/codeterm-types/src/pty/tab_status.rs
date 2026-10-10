@@ -42,15 +42,17 @@ pub fn reconcile_status(
     if has_pending_prompt {
         return TabStatus::Waiting;
     }
-    if raw == TabStatus::Working
-        && deterministic_agent_state
+    if deterministic_agent_state
         && matches!(
             boot_stage,
             Some(BootStage::AgentReady | BootStage::PtyReattached)
         )
-        && agent_state == Some(TimelineState::Idle)
     {
-        return TabStatus::Idle;
+        match (raw, agent_state) {
+            (TabStatus::Idle, Some(TimelineState::Working)) => return TabStatus::Working,
+            (TabStatus::Working, Some(TimelineState::Idle)) => return TabStatus::Idle,
+            _ => {}
+        }
     }
     raw
 }
@@ -79,6 +81,20 @@ mod tests {
         assert_eq!(
             reconcile_status(
                 TabStatus::Working,
+                Some(BootStage::AgentReady),
+                Some(TimelineState::Working),
+                true,
+                false,
+            ),
+            TabStatus::Working
+        );
+    }
+
+    #[test]
+    fn provider_working_state_promotes_a_quiescent_sidebar_status() {
+        assert_eq!(
+            reconcile_status(
+                TabStatus::Idle,
                 Some(BootStage::AgentReady),
                 Some(TimelineState::Working),
                 true,
@@ -134,6 +150,16 @@ mod tests {
                 false,
             ),
             TabStatus::Working
+        );
+        assert_eq!(
+            reconcile_status(
+                TabStatus::Idle,
+                Some(BootStage::AgentReady),
+                Some(TimelineState::Working),
+                false,
+                false,
+            ),
+            TabStatus::Idle
         );
     }
 

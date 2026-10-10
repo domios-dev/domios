@@ -48,10 +48,12 @@ fn heartbeat_gate_owner_signals_use_structural_provenance() {
     message.from_tab = None;
     message.inbound_kind = None;
     for kind in ["system", "reminder", "report", "tab"] {
-        message.content = codeterm_types::message_markers::Marker::new("inbound")
-            .attr("kind", kind)
-            .payload("opaque daemon input")
-            .build();
+        message.content = codeterm_types::domios::DomiosFrame {
+            opening_tag: codeterm_types::domios::build_opening_tag(&[("from", kind)]),
+            body: "opaque daemon input".into(),
+            suffix: String::new(),
+        }
+        .to_message();
         assert!(!snapshot::is_owner_turn(&message));
     }
 }

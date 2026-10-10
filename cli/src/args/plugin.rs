@@ -38,19 +38,24 @@ pub enum PluginAction {
         #[command(subcommand)]
         command: PluginChannelAction,
     },
-    /// Show a plugin's agent-facing config: its self-documenting config.yaml
-    /// (secret values redacted), settings schema, and installed/configured/
-    /// reload state. The agent's discover handle (§1.7).
+    /// Show a plugin's agent-facing config and guidance: its config.yaml, settings
+    /// schema, secret field presence, configHelp, agent verbs, agent guide, and
+    /// installed/configured/reload state.
     Get { id: String },
-    /// Configure a plugin by editing its self-documenting config.yaml (comments
-    /// preserved, validated against the settings schema). Non-secret fields are
-    /// written to the YAML; secret fields are reported for routing to the secret
-    /// store (never written plaintext). Reload is live.
+    /// Configure plugin settings. Non-secret fields use the comment-preserving
+    /// config.yaml; secret values are read from stdin and stored in the plugin bucket.
     Config {
         id: String,
         /// Set a field: --set key=value (repeatable).
         #[arg(long = "set", value_name = "KEY=VALUE")]
         set: Vec<String>,
+        /// Set a declared secret field from stdin.
+        #[arg(
+            long = "secret",
+            value_name = "FIELD",
+            conflicts_with_all = ["set", "values_json", "grant", "revoke"]
+        )]
+        secret: Option<String>,
         /// Set multiple fields from a JSON object (named --values-json so it does
         /// not collide with the global --json output flag).
         #[arg(long = "values-json", value_name = "JSON")]

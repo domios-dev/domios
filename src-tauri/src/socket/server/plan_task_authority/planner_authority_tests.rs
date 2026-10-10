@@ -197,6 +197,24 @@ fn planner_is_still_refused_for_status_assignment_and_execution_fields() {
     }
 }
 
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn planner_can_explicitly_block_with_a_reason_and_trigger() {
+    let harness = planner_fixture();
+    let task_id = dispatched_task(&harness, TaskStatus::InProgress);
+    let params = planner_update(
+        &harness,
+        &task_id,
+        json!({
+            "status": "blocked",
+            "status_label": "dependency unavailable; owner must choose a recovery trigger"
+        }),
+    );
+
+    verify_owner_epoch_for_task_mutation("plan.task.update", &params, &harness.service)
+        .expect("a Planner may make an explicit labeled block decision");
+}
+
 /// Assignment, dispatch and the rest of execution are separate verbs, and the
 /// Planner's structure grant must not leak onto any of them even with a body
 /// that carries no forbidden field.

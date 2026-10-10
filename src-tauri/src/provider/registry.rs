@@ -45,6 +45,38 @@ impl ProviderRegistry {
         out
     }
 
+    pub(crate) fn cli_status(
+        &self,
+        id: &str,
+        platform: &str,
+    ) -> Result<codeterm_plugin::provider_cli::ProviderCliStatus, String> {
+        match self.transport_of(id) {
+            Some(ProviderTransport::ChatBackend) => Ok(codeterm_plugin::provider_cli::no_cli()),
+            Some(ProviderTransport::Pty) => {
+                let (binary, installer, updater, compatibility) = self
+                    .agents
+                    .with_provider(id, |p| {
+                        (
+                            p.cli_binary().unwrap_or(p.binary_name()).to_owned(),
+                            p.install_command(platform),
+                            p.update_command(platform),
+                            p.cli_compatibility(),
+                        )
+                    })
+                    .ok_or_else(|| format!("Unknown provider: {id}"))?;
+                Ok(
+                    codeterm_plugin::provider_cli::observe_cli_with_compatibility(
+                        binary,
+                        installer,
+                        updater,
+                        compatibility.as_ref(),
+                    ),
+                )
+            }
+            None => Err(format!("Unknown provider: {id}")),
+        }
+    }
+
     /// Transport routing for a spawn target. `None` ⇒ id is neither a known
     /// agent nor a registered chat backend.
     pub fn transport_of(&self, id: &str) -> Option<ProviderTransport> {

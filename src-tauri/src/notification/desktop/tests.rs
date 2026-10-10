@@ -270,27 +270,28 @@ mod no_inference {
         "update/failure_report.rs",
     ];
 
-    /// Every file permitted to open an explicit notification record. Three are
-    /// transports for the `codeterm notify` verb; the other two are the daemon
-    /// speaking for itself. NONE observes agent output, which is the line this
-    /// gate actually holds — a record must come from a declared fact, never from
-    /// reading what an agent printed.
-    ///
-    /// `service/integration_silence.rs` qualifies on that rule: it reads the
-    /// stored consent flag and the provider's own install report, latches the
-    /// condition so ten launches announce once, and reads no clock and no output.
-    // Daemon notices the owner asked for: consent, model fallback, restart-required, update skipped.
-    const EXPLICIT_CREATORS: [&str; 18] = [
+    /// Reviewed production callers; new paths need an explicit notice source.
+    const EXPLICIT_CREATORS: [&str; 28] = [
         "api/mesh_routes/introduction.rs",
         "api/mesh_routes/pairing.rs",
         "api/notification_routes.rs",
         "commands/hooks.rs",
         "notification/mod.rs",
+        "service/agent_restart/model_switch/staging.rs",
+        "service/codex_rpc/recovery.rs",
+        "service/launch_artifacts.rs",
+        "service/provider_cli_actions.rs",
+        "service/provider_signals.rs",
+        "service/structured_prompt/subscriber.rs",
+        "service/worker_loss/pending.rs",
         "service/directory_trust.rs",
+        "service/hierarchy/plan_reminder_nudge.rs",
         "service/integration_silence.rs",
+        "service/model_defaults/mod.rs",
         "service/notification.rs",
         "service/orchestrator/launch/cwd_guard.rs",
         "service/output/manual_update.rs",
+        "service/prompt_chain.rs",
         "sentinel/routes.rs",
         "service/provider_update.rs",
         "service/session_model.rs",
@@ -331,7 +332,11 @@ mod no_inference {
                 .file_name()
                 .and_then(|name| name.to_str())
                 .is_some_and(|name| name == "tests.rs" || name.ends_with("_tests.rs"));
-            if is_test_file || path.components().any(|part| part.as_os_str() == "tests") {
+            let is_test_module = path.components().any(|part| {
+                let part = part.as_os_str().to_string_lossy();
+                part == "tests" || part.ends_with("_tests")
+            });
+            if is_test_file || is_test_module {
                 continue;
             }
             let Ok(source) = fs::read_to_string(&path) else {

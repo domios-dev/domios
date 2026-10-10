@@ -106,6 +106,10 @@ fn lane_remove(params: &Option<Value>, svc: &ServiceState) -> Result<Value, Json
     let request = LaneRemovalRequest {
         worktree_path: get_string_param(params, "worktree_path")?,
         branch: optional_string(p, "branch"),
+        force: p
+            .and_then(|value| value.get("force"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
         canonical_cwd: optional_string(p, "project_path"),
     };
     let outcome = svc

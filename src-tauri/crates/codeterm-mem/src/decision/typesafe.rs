@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 use std::fmt;
-use std::sync::OnceLock;
 use std::sync::RwLock;
 use std::time::Instant;
 
@@ -15,11 +14,11 @@ use super::token_store::TokenStore;
 
 const DEFAULT_ENDPOINT: &str = "https://api.typesafe.ai/v1/systemone";
 const DEFAULT_MODEL: &str = "jev-latest";
-static CLIENT: OnceLock<Result<reqwest::blocking::Client, DecisionError>> = OnceLock::new();
 
 pub struct TypeSafeAdapter {
     token_store: TokenStore,
     endpoint: String,
+    client: Result<reqwest::blocking::Client, DecisionError>,
     model: RwLock<String>,
 }
 
@@ -38,6 +37,11 @@ impl TypeSafeAdapter {
         Self {
             token_store,
             endpoint: endpoint.unwrap_or_else(|| DEFAULT_ENDPOINT.to_owned()),
+            client: reqwest::blocking::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .retry(reqwest::retry::never())
+                .build()
+                .map_err(|_| DecisionError::Unavailable("http_client_unavailable".into())),
             model: RwLock::new(
                 model
                     .filter(|id| id.starts_with("jev-"))
@@ -232,6 +236,9 @@ fn probabilities(answer: &Value) -> Result<BTreeMap<String, f64>, DecisionError>
 }
 
 impl DecisionModel for TypeSafeAdapter {
+    fn supports_calibrated_choice_confidence(&self) -> bool {
+        true
+    }
     fn supports_question_batch(&self) -> bool {
         true
     }
@@ -358,16 +365,7 @@ impl TypeSafeAdapter {
         if remaining.is_zero() {
             return Err(DecisionError::Deadline);
         }
-        let client = CLIENT
-            .get_or_init(|| {
-                reqwest::blocking::Client::builder()
-                    .redirect(reqwest::redirect::Policy::none())
-                    .retry(reqwest::retry::never())
-                    .build()
-                    .map_err(|_| DecisionError::Unavailable("http_client_unavailable".into()))
-            })
-            .as_ref()
-            .map_err(Clone::clone)?;
+        let client = self.client.as_ref().map_err(Clone::clone)?;
         let model = self
             .model
             .read()

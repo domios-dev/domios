@@ -1,4 +1,4 @@
-.builder-notes { padding-top: 42px; }
+.builder-notes { padding-top: var(--section-space); }
 .notes-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .notes-heading h2 { color: var(--ct-muted-fg); font: 10px var(--ct-font-mono); letter-spacing: 1.5px; text-transform: uppercase; }
 .notes-tools { display: flex; align-items: center; gap: 16px; color: var(--ct-muted-fg); }
@@ -16,6 +16,7 @@
 .note-author { display: flex; align-items: center; gap: 9px; }
 .note-avatar { display: grid; place-items: center; flex: 0 0 29px; height: 29px; border: 1px solid var(--ct-border); border-radius: 50%; color: var(--ct-fg); background: var(--ct-bg); font: 10px var(--ct-font-mono); }
 .note-byline { display: flex; align-items: baseline; gap: 7px; font-size: 12px; white-space: nowrap; }
+.note-byline:hover > span { text-decoration: underline; text-underline-offset: 3px; }
 .note-byline > span:first-child { color: var(--ct-heading); font-weight: 600; }
 .note-byline > span:last-child, .note-author time { color: var(--ct-muted-fg); font-size: 11px; }
 .note-author time { margin-left: auto; white-space: nowrap; }
@@ -32,7 +33,7 @@
 .builder-notes:has(.notes-viewport:is([data-static], [data-browsing])) .notes-scroll-hint, [data-motion="paused"] .notes-scroll-hint { display: inline; }
 .notes-viewport[data-static] .builder-note, [data-motion="paused"] .builder-note { transition: none; transform: none; }
 @media (max-width: 650px) {
-  .builder-notes { padding-top: 30px; }
+  .builder-notes { padding-top: var(--section-space); }
   .notes-heading h2 { font-size: 9px; letter-spacing: 1.1px; }
   .notes-tools { gap: 9px; }
   .notes-scroll-hint { font-size: 10px; }

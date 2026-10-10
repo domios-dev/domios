@@ -14,10 +14,11 @@ pub fn grants_path(bundle_dir: &Path) -> PathBuf {
     bundle_dir.join("grants.yaml")
 }
 
-const TOGGLEABLE: [&str; 5] = [
+const TOGGLEABLE: [&str; 6] = [
     "manage_workspaces",
     "spawn_agents",
     "agent_commands",
+    "surfaces",
     "secrets",
     "analytics",
 ];
@@ -75,11 +76,17 @@ pub fn apply_persisted(perms: &mut PermissionsConfig, bundle_dir: &Path) {
     if let Some(v) = g.permissions.get("agent_commands") {
         perms.agent_commands = *v;
     }
+    if let Some(v) = g.permissions.get("surfaces") {
+        perms.surfaces = *v;
+    }
     if let Some(v) = g.permissions.get("secrets") {
         perms.secrets = *v;
     }
     if let Some(v) = g.permissions.get("analytics") {
         perms.analytics = *v;
+    }
+    if let Some(v) = g.permissions.get("graph_events") {
+        perms.graph_events = *v;
     }
     for host in g.network_allow {
         if !perms.network.allow.contains(&host) {

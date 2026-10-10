@@ -3,6 +3,13 @@ use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::types::RestorableLaunchParameters;
 use crate::service::SpawnAgentParams;
 
+pub(crate) fn restored_resume_session_id(
+    resume_sessions_enabled: bool,
+    session_id: Option<&str>,
+) -> Option<&str> {
+    session_id.filter(|_| resume_sessions_enabled)
+}
+
 pub(crate) struct RestorableLaunchCapture<'a> {
     pub provider_id: &'a str,
     pub requested_model: Option<String>,
@@ -32,6 +39,11 @@ pub(crate) fn capture_tab_launch_parameters(
         })
         .flatten();
     let launch = RestorableLaunchParameters {
+        failed_provider: None,
+        structured_runtime_mode: None,
+        context_files: None,
+        context_skills: None,
+        worker_restart: None,
         captured: true,
         requested_model: capture.requested_model,
         model: capture.model,
@@ -86,6 +98,7 @@ pub(crate) fn restored_launch_task(
 }
 
 pub(crate) fn restore_permission_bypass_authorization(
+    app: &tauri::AppHandle,
     registry: &AgentRegistry,
     tab_id: &str,
     provider_id: &str,
@@ -94,8 +107,11 @@ pub(crate) fn restore_permission_bypass_authorization(
     if launch.captured && !launch.permission_bypass_requested {
         return Ok(None);
     }
-    let authorization =
-        crate::service::permission_policy::configured_permission_bypass(registry, provider_id)?;
+    let authorization = crate::service::permission_policy::configured_permission_bypass_for(
+        app,
+        registry,
+        provider_id,
+    )?;
     if launch.captured && launch.permission_bypass_requested && authorization.is_none() {
         log::warn!(
             "[restore] Tab {tab_id} permission bypass denied by current policy; resuming without it"
@@ -132,6 +148,7 @@ pub(crate) fn persist_restored_launch_identity(
     tab.auto_approve = params.permission_bypass_requested(provider_id);
     tab.restorable_launch = launch.clone();
     tab.restorable_launch.captured = true;
+    tab.restorable_launch.failed_provider = None;
 }
 
 pub(crate) struct RestoredFreshLaunchInput {
@@ -146,6 +163,14 @@ pub(crate) fn restored_fresh_launch_input(
     mut launch_parameters: crate::multiplexer::types::RestorableLaunchParameters,
 ) -> RestoredFreshLaunchInput {
     let legacy_snapshot = !launch_parameters.captured;
+    if launch_parameters.captured {
+        params.skip_permissions = Some(
+            launch_parameters.permission_bypass_requested
+                && params.permission_bypass_authorization.is_some(),
+        );
+    }
+    params.context_files = launch_parameters.context_files.clone();
+    params.context_skills = launch_parameters.context_skills.clone();
     params.task = None;
     params.starter_prompt = crate::agent::provider::StarterPrompt::NoStarter;
     params.agent_name = launch_parameters.agent_name.clone();
@@ -286,5 +311,37 @@ mod tests {
                 .as_deref(),
             Some(identity.as_str())
         );
+    }
+    #[test]
+    fn restored_launch_preserves_context_and_skills_without_replaying_task() {
+        let registry = crate::agent::registry::AgentRegistry::new();
+        registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+            "resume-fixture",
+        )));
+        let files = crate::plan::TaskFiles {
+            edit: vec!["/opaque/new.rs".into()],
+            read: vec!["/opaque/context.md".into()],
+        };
+        let input = super::restored_fresh_launch_input(
+            &registry,
+            crate::service::SpawnAgentParams {
+                agent: Some("resume-fixture".into()),
+                cwd: Some("/opaque/worker".into()),
+                ..Default::default()
+            },
+            crate::multiplexer::types::RestorableLaunchParameters {
+                captured: true,
+                context_files: Some(files.clone()),
+                context_skills: Some("opaque skills".into()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(input.params.context_files, Some(files));
+        assert_eq!(
+            input.params.context_skills.as_deref(),
+            Some("opaque skills")
+        );
+        assert_eq!(input.params.cwd.as_deref(), Some("/opaque/worker"));
+        assert!(input.params.task.is_none());
     }
 }

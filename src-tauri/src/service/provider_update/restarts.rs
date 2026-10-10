@@ -26,6 +26,18 @@ pub(super) fn readiness(service: &ServiceContext, tab_id: &str) -> TabReadiness 
         })
     });
     let snapshot = service.snapshot_with_reconciled_status();
+    if let Some(sidecar) = crate::service::codex_rpc::diagnostics::for_tab(tab_id) {
+        let idle = crate::service::codex_rpc::diagnostics::restart_when_idle(
+            sidecar.active_turn,
+            sidecar.selection_verified,
+            active_attempt,
+        );
+        return TabReadiness {
+            idle,
+            active_turn: sidecar.active_turn || !sidecar.selection_verified,
+            active_attempt,
+        };
+    }
     let status = snapshot.tabs.get(tab_id).map(|tab| {
         crate::multiplexer::state::effective_tab_status(
             tab,
@@ -37,6 +49,7 @@ pub(super) fn readiness(service: &ServiceContext, tab_id: &str) -> TabReadiness 
         active_turn: status.is_none_or(|status| status.has_active_turn()),
         active_attempt,
     }
+    .with_background_work(!crate::service::background_work::running(service, tab_id).is_empty())
 }
 
 pub(super) fn schedule_async(service: &ServiceContext, tab: Option<String>) {
@@ -122,8 +135,23 @@ fn restart_tab(service: &ServiceContext, key: &str, tab: &str, provider: &str) {
         .into())
     };
     if matches!(&outcome, Err(super::super::agent_restart::RestartAttemptError::Request(super::super::agent_restart::AgentRestartError::BadRequest(reason))) if reason == super::IDLE_REFUSAL)
+        || matches!(
+            &outcome,
+            Err(super::super::agent_restart::RestartAttemptError::Request(
+                super::super::agent_restart::AgentRestartError::BackgroundWork { .. }
+            ))
+        )
     {
         let _ = storage::transact(|state| state.defer_restart(key, tab));
+        if matches!(
+            &outcome,
+            Err(super::super::agent_restart::RestartAttemptError::Request(
+                super::super::agent_restart::AgentRestartError::BackgroundWork { .. }
+            ))
+        ) && crate::service::background_work::running(service, tab).is_empty()
+        {
+            schedule_async(service, Some(tab.into()));
+        }
         return;
     }
     let (restart, label) = match outcome {

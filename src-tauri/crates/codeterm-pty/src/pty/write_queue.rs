@@ -85,7 +85,7 @@ impl WriteQueue {
     pub fn new(mut writer: Box<dyn Write + Send>) -> Self {
         let (sender, receiver) = mpsc::channel::<WriteRequest>();
 
-        std::thread::spawn(move || {
+        codeterm_util::named_thread::spawn("pty-write", move || {
             while let Ok(req) = receiver.recv() {
                 let result = match req.permit {
                     Some(permit) => match permit.gate.lock() {
@@ -141,10 +141,28 @@ impl WriteQueue {
         self.send_frames_and_wait(vec![data], timeout)
     }
 
+    pub fn send_and_wait_with_enqueued(
+        &self,
+        data: Vec<u8>,
+        timeout: Duration,
+        on_enqueued: impl FnOnce(),
+    ) -> Result<(), String> {
+        self.send_frames_and_wait_with_enqueued(vec![data], timeout, on_enqueued)
+    }
+
     pub fn send_frames_and_wait(
         &self,
         frames: Vec<Vec<u8>>,
         timeout: Duration,
+    ) -> Result<(), String> {
+        self.send_frames_and_wait_with_enqueued(frames, timeout, || {})
+    }
+
+    pub fn send_frames_and_wait_with_enqueued(
+        &self,
+        frames: Vec<Vec<u8>>,
+        timeout: Duration,
+        on_enqueued: impl FnOnce(),
     ) -> Result<(), String> {
         let (completed, receiver) = mpsc::sync_channel(0);
         {
@@ -159,6 +177,7 @@ impl WriteQueue {
                 })
                 .map_err(|_| "PTY write channel closed".to_string())?;
         }
+        on_enqueued();
         receiver
             .recv_timeout(timeout)
             .map_err(|_| WRITE_ACK_TIMEOUT.to_string())?
@@ -173,11 +192,31 @@ impl WriteQueue {
         self.send_frames_and_wait_guarded(vec![data], permit, timeout)
     }
 
+    pub fn send_and_wait_guarded_with_enqueued(
+        &self,
+        data: Vec<u8>,
+        permit: GuardedInputPermit,
+        timeout: Duration,
+        on_enqueued: impl FnOnce(),
+    ) -> Result<(), String> {
+        self.send_frames_and_wait_guarded_with_enqueued(vec![data], permit, timeout, on_enqueued)
+    }
+
     pub fn send_frames_and_wait_guarded(
         &self,
         frames: Vec<Vec<u8>>,
         permit: GuardedInputPermit,
         timeout: Duration,
+    ) -> Result<(), String> {
+        self.send_frames_and_wait_guarded_with_enqueued(frames, permit, timeout, || {})
+    }
+
+    pub fn send_frames_and_wait_guarded_with_enqueued(
+        &self,
+        frames: Vec<Vec<u8>>,
+        permit: GuardedInputPermit,
+        timeout: Duration,
+        on_enqueued: impl FnOnce(),
     ) -> Result<(), String> {
         let (completed, receiver) = mpsc::sync_channel(0);
         {
@@ -192,6 +231,7 @@ impl WriteQueue {
                 })
                 .map_err(|_| "PTY write channel closed".to_string())?;
         }
+        on_enqueued();
         receiver
             .recv_timeout(timeout)
             .map_err(|_| WRITE_ACK_TIMEOUT.to_string())?
@@ -328,6 +368,45 @@ mod tests {
             .send_and_wait(b"-after".to_vec(), Duration::from_secs(1))
             .unwrap();
         assert_eq!(&*data.lock().unwrap(), b"blockerqueued-after");
+    }
+
+    #[test]
+    fn enqueue_notification_precedes_the_writer_acknowledgement() {
+        let data = Arc::new(Mutex::new(Vec::new()));
+        let (entered_tx, entered_rx) = mpsc::sync_channel(1);
+        let (release_tx, release_rx) = mpsc::sync_channel(1);
+        let queue = Arc::new(WriteQueue::new(Box::new(FirstWriteBarrier {
+            data,
+            first_entered: entered_tx,
+            release_first: release_rx,
+            first: true,
+        })));
+        queue.send(b"blocker".to_vec()).unwrap();
+        entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let writer_queue = queue.clone();
+        let (queued_tx, queued_rx) = mpsc::sync_channel(1);
+        let (finished_tx, finished_rx) = mpsc::sync_channel(1);
+        let writer = std::thread::spawn(move || {
+            let result = writer_queue.send_and_wait_with_enqueued(
+                b"payload".to_vec(),
+                Duration::from_secs(2),
+                || queued_tx.send(()).unwrap(),
+            );
+            finished_tx.send(result).unwrap();
+        });
+
+        queued_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            finished_rx.try_recv(),
+            Err(mpsc::TryRecvError::Empty)
+        ));
+        release_tx.send(()).unwrap();
+        finished_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .unwrap();
+        writer.join().unwrap();
     }
 
     #[test]

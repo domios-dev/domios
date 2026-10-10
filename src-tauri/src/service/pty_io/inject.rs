@@ -38,6 +38,7 @@ impl ServiceContext {
     /// (see `build_spawn_dispatch` — bash 3.2 can't interpret paste markers).
     pub fn send_shell_spawn(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
         self.await_shell_ready(pty_id);
+        self.feed_input_parser(pty_id, cmd, true);
         self.write_spawn_dispatch(pty_id, cmd).map(|_| ())
     }
 
@@ -75,6 +76,25 @@ impl ServiceContext {
     pub fn send_shell_cmd(&self, tab_id: &str, cmd: &str) -> Result<(), String> {
         self.ensure_tab_pty_for_send(tab_id)?;
         let pty_id = self.await_pty_link_blocking(tab_id, std::time::Duration::from_secs(15))?;
+        let profile = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.shell_profile.clone());
+        if let Some(bytes) = profile
+            .as_ref()
+            .map(|profile| profile.utility_command(cmd))
+            .transpose()?
+            .flatten()
+        {
+            self.await_shell_ready(&pty_id);
+            self.feed_input_parser(&pty_id, cmd, true);
+            return self
+                .pty
+                .lock()
+                .write(&pty_id, &bytes)
+                .map_err(|error| error.to_string());
+        }
         self.send_shell_spawn(&pty_id, cmd)
     }
 

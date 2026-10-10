@@ -5,8 +5,6 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import {
   ChatSetupState,
-  chatSetupSubject,
-  chatSetupStageLabel,
   chatSetupView,
 } from "./ChatSetupState";
 import type { Tab } from "../../lib/types";
@@ -54,23 +52,6 @@ async function render(element: React.ReactElement): Promise<HTMLElement> {
 }
 
 async function main() {
-  await test("stage labels are launch-event labels", () => {
-    assert(chatSetupStageLabel("pty_starting", "Claude Code") === "Creating tab…", "pty_starting");
-    assert(chatSetupStageLabel("pty_spawned", "Claude Code") === "Spawn accepted…", "pty_spawned");
-    assert(chatSetupStageLabel("shell_ready", "Claude Code") === "Session attached…", "shell_ready");
-    assert(chatSetupStageLabel("preparing_role_instructions", "Claude Code") === "Preparing claude code instructions…", "preparing_role_instructions");
-    assert(chatSetupStageLabel("agent_launching", "Claude Code") === "Launching provider…", "agent_launching");
-    assert(chatSetupStageLabel("awaiting_owner_prompt", "Claude Code") === "Waiting for you", "awaiting_owner_prompt");
-    assert(chatSetupStageLabel("delivering_instructions", "Claude Code") === "Delivering instructions…", "delivering_instructions");
-  });
-
-  await test("role identity takes precedence over provider during launch", () => {
-    const orchestrator = { ...tab("agent_launching"), role: "Manager", role_profile: "orchestrator" } as Tab;
-    const planner = { ...tab("agent_launching"), role: "Manager", role_profile: "planner" } as Tab;
-    assert(chatSetupSubject(orchestrator, "Codex") === "Orchestrator", "orchestrator label");
-    assert(chatSetupSubject(planner, "Claude Code") === "Planner", "planner label");
-  });
-
   await test("view resolves ready to none and launching to starting", () => {
     assert(chatSetupView(tab("agent_ready")).kind === "none", "ready is none");
     assert(chatSetupView(tab("preparing_role_instructions")).kind === "starting", "preparing is starting");

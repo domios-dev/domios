@@ -60,8 +60,8 @@ function readThemeColors(): ThemeColors {
     muted: getCSSVar("--ct-muted", "#565f89"),
     mutedFg: getCSSVar("--ct-muted-fg", "#a9b1d6"),
     surface: getCSSVar("--ct-surface", "#24283b"),
-    cyan: getCSSVar("--ct-accent", "#7dcfff"),
-    magenta: getCSSVar("--ct-red", "#bb9af7"),
+    cyan: getCSSVar("--ct-cyan", "#7dcfff"),
+    magenta: getCSSVar("--ct-magenta", "#bb9af7"),
   };
 }
 

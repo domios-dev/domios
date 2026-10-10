@@ -1,0 +1,47 @@
+{
+  "title": "Domios soundtrack",
+  "author": "Grok (SpaceXAI)",
+  "sourcePage": "https://x.ai/legal/faq",
+  "license": "Grok service output terms",
+  "licenseUrl": "https://x.ai/legal/terms-of-service",
+  "rightsStatus": "cleared",
+  "reviewOnly": false,
+  "publishable": true,
+  "sha256": "fc6a5a97f77f5e2e152b720dbefd77aa930cd0d4e195ed4e2ec683d5cbe9be57",
+  "originalMediaSha256": "7771263342d907589bb121a70781ab7360e545ee3f1feb0158ec15129ffdf996",
+  "extractedAudioSha256": "389ef2c7fa857bfa3556122ffa754d48a2e94a3a16b808df1220533617e61612",
+  "arrangement": {
+    "path": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\continuous-film-1\\audio\\continuous-proof.json",
+    "sha256": "e63c354f239a87a8eec3b1c8daae6c9774fabd31ffc19c1a95822a4dd51c82d6"
+  },
+  "credit": "Music created with Grok (SpaceXAI) from retained source audio, arranged and mixed for Domios.",
+  "publicationDecision": {
+    "path": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\publication-decision.md",
+    "sha256": "776eabe2429575810775b1d8fab796a6e027eba55e52301acb2ee0976396d4d8"
+  },
+  "previousArrangement": {
+    "path": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\grok-full-preview-2\\arrangement.json",
+    "sha256": "f629730a57fdb40bdf9c6c9e67d91cdd8e063ec40b1d7d0d9cf429daf394bcad"
+  },
+  "modificationDisclosure": "A new continuous 45-second arrangement made only from sample-indexed cuts, overlapping joins, an authored gain envelope, and phrase-aware ducking. No source generation, pitch shift, or time stretch.",
+  "source": {
+    "path": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\grok-script-sample\\grok-sound-sample.m4a",
+    "sha256": "389ef2c7fa857bfa3556122ffa754d48a2e94a3a16b808df1220533617e61612"
+  },
+  "oldArrangement": {
+    "path": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\grok-full-preview-2\\arrangement.json",
+    "sha256": "f629730a57fdb40bdf9c6c9e67d91cdd8e063ec40b1d7d0d9cf429daf394bcad"
+  },
+  "continuousProof": {
+    "path": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\continuous-film-1\\audio\\continuous-proof.json",
+    "sha256": "e63c354f239a87a8eec3b1c8daae6c9774fabd31ffc19c1a95822a4dd51c82d6"
+  },
+  "editMap": {
+    "path": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\continuous-film-1\\edit-map.json",
+    "sha256": "a6ebc9e5a2641d6abeae5a8be03b226077f0c2be8c1ec4138cb58d0b2bdd7fed"
+  },
+  "fixedMastering": {
+    "gainDb": -0.040000000000000036,
+    "linearGain": 0.995405417351527
+  }
+}

@@ -46,14 +46,14 @@ function orderOf(html: string, needles: string[]): number[] {
 describe("tab row accessibility surface", () => {
   it("names the row from the title it was given", () => {
     for (const title of ["Nightly build", "release cut 1.10.0", "shader bake"]) {
-      expect(rowName(render({ title }))).toBe(title);
+      expect(rowName(render({ title }))).toBe(`shell, ${title}`);
     }
   });
 
   it("keeps the row name out of the position, so a re-sort cannot rename it", () => {
     const first = rowName(render({ title: "shader bake" }, { index: 0 }));
     const later = rowName(render({ title: "shader bake" }, { index: 7 }));
-    expect(first).toBe("shader bake");
+    expect(first).toBe("shell, shader bake");
     expect(later).toBe(first);
   });
 
@@ -61,20 +61,20 @@ describe("tab row accessibility surface", () => {
     const idle = rowName(render({ title: "shader bake" }));
     const busy = rowName(render({ title: "shader bake", description: "compiling shaders" }));
     const later = rowName(render({ title: "shader bake", description: "linking" }));
-    expect(idle).toBe("shader bake");
+    expect(idle).toBe("shell, shader bake");
     expect(busy).toBe(idle);
     expect(later).toBe(idle);
   });
 
   it("names the activation control and the row from the same title", () => {
     const html = render({ title: "release cut" });
-    expect(rowName(html)).toBe("release cut");
-    expect(html).toContain('aria-label="Open tab release cut"');
+    expect(rowName(html)).toBe("shell, release cut");
+    expect(html).toContain('aria-label="Open tab shell, release cut"');
   });
 
   it("names the Telegram indicator from the tab it belongs to", () => {
     const html = render({ title: "release cut", connected_services: ["telegram"] });
-    expect(html).toContain('aria-label="release cut is connected to Telegram"');
+    expect(html).toContain('aria-label="shell, release cut is connected to Telegram"');
     expect(render({ title: "release cut" })).not.toContain("connected to Telegram");
   });
 
@@ -87,9 +87,9 @@ describe("tab row accessibility surface", () => {
     expect(html).toContain('role="img"');
   });
 
-  it("puts the collapse chevron, the row activation and the row menu in visual order", () => {
+  it("puts the agent collapse chevron, row activation and row menu in visual order", () => {
     const html = render(
-      { title: "release cut" },
+      { title: "release cut", agent_type: "claude" },
       { groupCollapsible: true, collapsed: false, onToggleCollapse: () => undefined },
     );
     const [chevron, activation, menu] = orderOf(html, [
@@ -100,8 +100,8 @@ describe("tab row accessibility surface", () => {
     expect(chevron >= 0 && activation > chevron && menu > activation).toBe(true);
   });
 
-  it("keeps the activation control ahead of the row menu without a chevron", () => {
-    const html = render({ title: "release cut" });
+  it("keeps the agent activation control ahead of the row menu without a chevron", () => {
+    const html = render({ title: "release cut", agent_type: "claude" });
     const [activation, menu] = orderOf(html, ["sidebar-tab-activation", 'aria-label="Tab actions"']);
     expect(activation >= 0 && menu > activation).toBe(true);
   });

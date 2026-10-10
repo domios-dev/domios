@@ -40,9 +40,12 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
         parts.push(ShellSyntax::quote(sid));
     }
 
-    if let Some(ref extra) = params.args {
-        parts.extend(extra.iter().map(|arg| ShellSyntax::quote_arg(arg)));
-    }
+    let Some(extra) = super::context::launch_args(params.args.as_deref().unwrap_or_default())
+    else {
+        log::error!("[claude-launch] cannot compose launch settings");
+        return String::new();
+    };
+    parts.extend(extra.iter().map(|arg| ShellSyntax::quote_arg(arg)));
 
     // Keep large worker prompts out of shell parsing and argv on every platform.
     if let Some(ref task) = params.task {
@@ -53,7 +56,12 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
             let prompt = params
                 .starter_prompt
                 .system_prefix()
-                .map(|prefix| format!(" {prefix}{prompt}"))
+                .map(|prefix| {
+                    format!(
+                        "{prefix}{prompt}{}",
+                        codeterm_types::domios::DOMIOS_CLOSE_TAG
+                    )
+                })
                 .unwrap_or_else(|| prompt.to_string());
             parts.push("--".to_string());
             parts.push(ShellSyntax::quote(&prompt));
@@ -63,7 +71,7 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
     parts.join(" ")
 }
 
-pub(super) fn build_resume_command(session_id: &str, skip_permissions: bool) -> Option<String> {
+fn resume_base(session_id: &str, skip_permissions: bool) -> String {
     let mut parts = vec![
         ShellSyntax::UNSET_CLAUDECODE.to_string(),
         "claude".to_string(),
@@ -73,7 +81,14 @@ pub(super) fn build_resume_command(session_id: &str, skip_permissions: bool) -> 
     }
     parts.push("--resume".to_string());
     parts.push(ShellSyntax::quote(session_id));
-    Some(parts.join(" "))
+    parts.join(" ")
+}
+
+pub(super) fn build_resume_command(session_id: &str, skip_permissions: bool) -> Option<String> {
+    Some(crate::provider::append_launch_args(
+        resume_base(session_id, skip_permissions),
+        &super::context::launch_args(&[])?,
+    ))
 }
 
 /// `--resume` starts the stored session without the launch-time
@@ -82,8 +97,9 @@ pub(super) fn build_resume_command(session_id: &str, skip_permissions: bool) -> 
 pub(super) fn build_resume_command_with_context(
     params: &crate::provider::AgentResumeParams,
 ) -> Option<String> {
-    let base = build_resume_command(&params.session_id, params.skip_permissions)?;
-    let mut command = crate::provider::append_launch_args(base, &params.args);
+    let base = resume_base(&params.session_id, params.skip_permissions);
+    let mut command =
+        crate::provider::append_launch_args(base, &super::context::launch_args(&params.args)?);
     if let Some(prompt) = params
         .system_prompt
         .as_deref()
@@ -106,6 +122,8 @@ mod tests {
     #[test]
     fn test_build_launch_no_task() {
         let params = AgentLaunchParams {
+            context_files: None,
+            tool_less_instructions_path: None,
             agent_name: None,
             task: None,
             args: None,
@@ -120,18 +138,20 @@ mod tests {
         if cfg!(target_os = "windows") {
             assert!(cmd.starts_with("Remove-Item Env:CLAUDECODE"));
             assert!(cmd.contains("[System.Text.Encoding]::UTF8"));
-            assert!(cmd.ends_with(" claude --dangerously-skip-permissions"));
+            assert!(cmd.contains(" claude --dangerously-skip-permissions"));
         } else {
-            assert_eq!(
-                cmd,
-                "unset CLAUDECODE && claude --dangerously-skip-permissions"
-            );
+            assert!(cmd.starts_with("unset CLAUDECODE && claude --dangerously-skip-permissions"));
         }
+        assert!(cmd.contains(".ct-settings.json"));
+        assert!(!cmd.contains("showThinkingSummaries"));
+        assert_eq!(cmd.matches("--settings").count(), 1);
     }
 
     #[test]
     fn test_build_launch_with_task() {
         let params = AgentLaunchParams {
+            context_files: None,
+            tool_less_instructions_path: None,
             agent_name: None,
             task: Some("line one\n<location>/repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод".to_string()),
             args: None,
@@ -155,7 +175,8 @@ mod tests {
         assert!(!cmd.contains("$(cat "));
         assert!(!cmd.contains("<location>") && !cmd.contains("whoami") && !cmd.contains("юникод"));
         assert!(cmd.contains(ASSIGNED_TASK_START_PROMPT));
-        assert!(cmd.contains("-=-codeterm:system context=assigned-task-=-"));
+        assert!(cmd.contains("<domios from=\"system\" context=\"assigned-task\">"));
+        assert!(cmd.contains(codeterm_types::domios::DOMIOS_CLOSE_TAG));
     }
 
     #[test]
@@ -193,7 +214,8 @@ mod tests {
             starter_prompt: crate::provider::StarterPrompt::TeamBootstrap,
             ..Default::default()
         });
-        assert!(command.contains("-=-codeterm:system context=team-bootstrap-=-"));
+        assert!(command.contains("<domios from=\"system\" context=\"team-bootstrap\">"));
+        assert!(command.contains(codeterm_types::domios::DOMIOS_CLOSE_TAG));
         assert!(command.contains(crate::prompts::TEAM_BOOTSTRAP_STARTER.trim()));
     }
 
@@ -212,6 +234,8 @@ mod tests {
     #[test]
     fn test_build_launch_with_agent_name() {
         let params = AgentLaunchParams {
+            context_files: None,
+            tool_less_instructions_path: None,
             agent_name: Some("architect".to_string()),
             task: None,
             args: None,
@@ -231,6 +255,8 @@ mod tests {
     fn test_build_launch_visible_task_positional_after_flags_and_separator() {
         let model_id = codeterm_types::agent::models::resolve_model_id("haiku");
         let params = AgentLaunchParams {
+            context_files: None,
+            tool_less_instructions_path: None,
             agent_name: None,
             task: Some("hello".to_string()),
             args: Some(vec!["--model".into(), model_id.into()]),
@@ -258,6 +284,8 @@ mod tests {
     #[test]
     fn test_build_launch_command_with_session_id_injection() {
         let params = AgentLaunchParams {
+            context_files: None,
+            tool_less_instructions_path: None,
             agent_name: None,
             task: None,
             args: None,
@@ -285,6 +313,8 @@ mod tests {
     fn test_session_id_injected_even_with_task() {
         // Interactive launch always honors --session-id (the old -p path that ignored it is gone).
         let params = AgentLaunchParams {
+            context_files: None,
+            tool_less_instructions_path: None,
             agent_name: None,
             task: Some("hello".to_string()),
             args: None,

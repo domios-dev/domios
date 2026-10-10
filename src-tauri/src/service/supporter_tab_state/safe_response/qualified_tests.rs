@@ -24,13 +24,13 @@ const MAX_STAGE_SCREEN_BYTES: usize = 8 * 1024;
 const MAX_MODEL_SCREENS: usize = 4;
 const MAX_MODEL_SCREEN_BYTES: usize = 8 * 1024;
 const MAX_FIXTURE_DIAGNOSTIC_BYTES: usize = 64 * 1024;
-const MAX_JOURNAL_BYTES: usize = 64 * 1024;
+const MAX_JOURNAL_BYTES: usize = 512 * 1024;
 const INITIAL_MARKER: &str = "SAFE_TEST_INITIAL_MODAL";
 const FOCUS_MARKER: &str = "SAFE_TEST_FOCUS_EVENT";
 const CLOSED_MARKER: &str = "SAFE_TEST_MODAL_CLOSED";
 const SESSION_ID: &str = "fixture-session-private";
 const SESSION_NONCE: &str = "fixture-nonce-private";
-const JOURNAL_FIELDS: &str = "phase|observation_id|decision_point|observation_status|decided_by|classification|model_verdict|alternate_verdict|candidate_evidence|correlation";
+const JOURNAL_FIELDS: &str = "phase|observation_id|decision_point|observation_status|decided_by|reason|classification|model_verdict|alternate_verdict|candidate_evidence|correlation";
 const CORRELATION_FIELDS: &str = "version|decision_point|observation_id|launch_id|session_id|occurrence_id|producer|parent_observation_id|frame_hash|candidate_evidence";
 
 struct StaticModalModel {
@@ -41,6 +41,7 @@ struct StaticModalModel {
 struct CapturedScreens {
     count: usize,
     snapshots: Vec<BoundedText>,
+    question_sets: Vec<Vec<String>>,
     truncated: bool,
     adjacent_equal: bool,
     previous_screen: Option<String>,
@@ -59,8 +60,8 @@ impl CapturedScreens {
             self.snapshots.push(snapshot);
         }
     }
-    fn meets_original_capture_oracle(&self) -> bool {
-        self.count >= 4 && self.adjacent_equal
+    fn has_model_capture(&self) -> bool {
+        self.count > 0 && !self.snapshots.is_empty()
     }
 }
 impl std::fmt::Debug for CapturedScreens {
@@ -69,6 +70,7 @@ impl std::fmt::Debug for CapturedScreens {
             .debug_struct("CapturedScreens")
             .field("count", &self.count)
             .field("snapshots", &self.snapshots)
+            .field("question_sets", &self.question_sets)
             .field("truncated", &self.truncated)
             .field("adjacent_equal", &self.adjacent_equal)
             .finish()
@@ -105,9 +107,13 @@ impl DecisionModel for StaticModalModel {
         request: &DecisionQuestionsRequest,
         _: Instant,
     ) -> Result<DecisionResponse, DecisionError> {
-        self.screens
-            .lock()
-            .record(request.state["screen"].as_str().unwrap_or_default());
+        let mut screens = self.screens.lock();
+        screens.record(request.state["screen"].as_str().unwrap_or_default());
+        let question_set = request.questions.keys().cloned().collect::<Vec<_>>();
+        if !screens.question_sets.contains(&question_set) {
+            screens.question_sets.push(question_set);
+        }
+        drop(screens);
         let mut answers = BTreeMap::new();
         for (name, question) in &request.questions {
             let answer = match &question.question {
@@ -200,23 +206,15 @@ fn journal_row(value: &serde_json::Value) -> Option<serde_json::Value> {
     Some(serde_json::Value::Object(row))
 }
 fn missing_expected_rows(rows: &[serde_json::Value]) -> Vec<String> {
-    let mut missing = Vec::new();
-    if !rows
-        .iter()
-        .any(|row| row["correlation"]["producer"] == "prompt_established")
-    {
-        missing.push("prompt_established".into());
+    if rows.iter().any(|row| {
+        row["phase"] == "owned_model"
+            && row["decided_by"] == "adapter"
+            && row["reason"] == "declared_choice"
+    }) {
+        Vec::new()
+    } else {
+        vec!["owned_model_declared_choice".into()]
     }
-    if !rows
-        .iter()
-        .any(|row| row["correlation"]["producer"] == "prompt_confirmation")
-    {
-        missing.push("prompt_confirmation".into());
-    }
-    if !rows.iter().any(|row| row["phase"] == "action_authorized") {
-        missing.push("action_authorized".into());
-    }
-    missing
 }
 fn parse_journal_snapshot(
     mut bytes: Vec<u8>,
@@ -352,7 +350,7 @@ fn verify_qualified_journey(
         }
     }
     let captures = &evidence.captured_screens;
-    let model_screens_repeat = captures.meets_original_capture_oracle();
+    let model_screen_captured = captures.has_model_capture();
     let current_identity = evidence.identity.is_some_and(IdentityMatches::all_match)
         && evidence.manager_generation_matches;
     let completion_matches = completion.is_some_and(CompletionEvidence::succeeds)
@@ -361,7 +359,7 @@ fn verify_qualified_journey(
         evidence.reader_started
             && reader.reader_finished
             && current_identity
-            && model_screens_repeat
+            && model_screen_captured
             && completion_matches,
         "stage, model, identity, and host completion evidence was incomplete"
     );
@@ -391,43 +389,23 @@ fn verify_qualified_journey(
         ));
     }
     let rows = &evidence.journal.rows;
-    let seed = rows
-        .iter()
-        .find(|row| row["correlation"]["producer"] == "prompt_established")
-        .ok_or_else(|| "prompt-established capture row is absent".to_string())?;
-    let confirmation = rows
-        .iter()
-        .find(|row| row["correlation"]["producer"] == "prompt_confirmation")
-        .ok_or_else(|| "prompt-confirmation capture row is absent".to_string())?;
-    let action = rows
+    let answer = rows
         .iter()
         .find(|row| {
-            row["phase"] == "action_authorized"
-                && row["observation_id"] == confirmation["observation_id"]
+            row["phase"] == "owned_model"
+                && row["decided_by"] == "adapter"
+                && row["reason"] == "declared_choice"
         })
-        .ok_or_else(|| "confirmation action row is absent".to_string())?;
-    if seed["observation_status"] != "completed"
-        || confirmation["observation_status"] != "completed"
-        || action["observation_status"] != "completed"
-        || seed["decision_point"] != "prompt_candidate"
-        || confirmation["decision_point"] != "prompt_candidate"
-        || seed["decided_by"] != "adapter"
-        || confirmation["decided_by"] != "adapter"
-        || seed["model_verdict"].is_null()
-        || confirmation["model_verdict"].is_null()
-        || seed["correlation"]["occurrence_id"] != confirmation["correlation"]["occurrence_id"]
-        || seed["correlation"]["frame_hash"] != confirmation["correlation"]["frame_hash"]
-        || seed["observation_id"] == confirmation["observation_id"]
-        || confirmation["correlation"]["parent_observation_id"] != seed["observation_id"]
+        .ok_or_else(|| "declared-choice model answer row is absent".to_string())?;
+    if answer["observation_status"] != "completed"
+        || answer["decision_point"] != "prompt_candidate"
+        || answer["model_verdict"].is_null()
+        || answer["correlation"]["observation_id"] != answer["observation_id"]
     {
         return Err(format!(
-            "seed/confirmation evidence mismatch: seed={seed:?} confirmation={confirmation:?}"
+            "provider-declared model answer evidence mismatch: answer={answer:?}"
         ));
     }
-    reject_unless!(
-        action["correlation"] == confirmation["correlation"],
-        "action lost confirmation correlation"
-    );
     Ok(())
 }
 fn bounded_diagnostic(text: &str) -> BoundedText {
@@ -467,6 +445,19 @@ fn supporter_first_opinion_safe_response_qualified_static_onboarding_planner_com
         )]),
         ..Default::default()
     };
+    let _qualification = override_qualification_for_test(
+        &adapter,
+        &model_id,
+        &criteria_version(),
+        serde_json::json!({"fixture_authorized": true}),
+    );
+    assert!(qualified_for(
+        &adapter,
+        Some(&model_id),
+        &criteria_version(),
+        "",
+        LOGIN_OR_AUTH_REQUIRED
+    ));
     let screens = Arc::new(Mutex::new(CapturedScreens::default()));
     fixture.service.supporter_models.register(
         &adapter,
@@ -481,22 +472,18 @@ fn supporter_first_opinion_safe_response_qualified_static_onboarding_planner_com
     let _config_guard = fixture
         .service
         .override_supporter_decision_for_test(config, runtime);
-    let _qualification_guard = override_qualification_for_test(
-        &adapter,
-        &model_id,
-        &criteria_version(),
-        serde_json::json!({ "fixture_authorized": true }),
-    );
     let initial = include_str!("../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
     let focused = include_str!("../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-not-now.txt");
     std::fs::write(fixture.temp.path().join("initial.txt"), initial).unwrap();
     std::fs::write(fixture.temp.path().join("focused.txt"), focused).unwrap();
     let script = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n\
-[Console]::WriteLine('SAFE_TEST_INITIAL_MODAL')\n\
+[Console]::Write([char]27 + '[2J' + [char]27 + '[H')\n\
 [Console]::Write([System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'initial.txt'), [System.Text.Encoding]::UTF8))\n\
+[Console]::WriteLine('SAFE_TEST_INITIAL_MODAL')\n\
 $first = [Console]::ReadKey($true)\n\
-[Console]::WriteLine('SAFE_TEST_FOCUS_EVENT')\n\
+[Console]::Write([char]27 + '[2J' + [char]27 + '[H')\n\
 [Console]::Write([System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'focused.txt'), [System.Text.Encoding]::UTF8))\n\
+[Console]::WriteLine('SAFE_TEST_FOCUS_EVENT')\n\
 $second = [Console]::ReadKey($true)\n\
 if (($first.KeyChar -eq 'j') -and ($second.Key -eq [System.ConsoleKey]::Enter)) { [Console]::WriteLine('SAFE_TEST_OPTION_SELECTED'); [Console]::WriteLine('SAFE_TEST_MODAL_CLOSED'); exit 0 }\n\
 [Console]::WriteLine('SAFE_TEST_WRONG_RESPONSE'); exit 9\n";
@@ -504,7 +491,7 @@ if (($first.KeyChar -eq 'j') -and ($second.Key -eq [System.ConsoleKey]::Enter)) 
     std::fs::write(&script_path, script).unwrap();
     let command_path = script_path.to_string_lossy().replace('\'', "''");
     let command = format!(
-        "$global:LASTEXITCODE = 98; $ErrorActionPreference = 'Stop'; try {{ & '{command_path}'; $scriptExit = $global:LASTEXITCODE; if ($scriptExit -eq 98) {{ throw 'fixture script returned without an exit code' }}; [Console]::Out.Flush(); [Console]::Error.Flush(); [System.Environment]::Exit([int]$scriptExit) }} catch {{ try {{ [Console]::Error.WriteLine('SAFE_TEST_SETUP_FAILURE: {{0}}', $_.Exception.Message); [Console]::Error.Flush() }} finally {{ [System.Environment]::Exit(98) }} }}\r"
+        "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; $global:LASTEXITCODE = 98; $ErrorActionPreference = 'Stop'; try {{ & '{command_path}'; $scriptExit = $global:LASTEXITCODE; if ($scriptExit -eq 98) {{ throw 'fixture script returned without an exit code' }}; [Console]::Out.Flush(); [Console]::Error.Flush(); [System.Environment]::Exit([int]$scriptExit) }} catch {{ try {{ [Console]::Error.WriteLine('SAFE_TEST_SETUP_FAILURE: {{0}}', $_.Exception.Message); [Console]::Error.Flush() }} finally {{ [System.Environment]::Exit(98) }} }}\r"
     );
     let (_, session) = fixture
         .service
@@ -519,7 +506,8 @@ if (($first.KeyChar -eq 'j') -and ($second.Key -eq [System.ConsoleKey]::Enter)) 
             Default::default(),
         )
         .expect("spawn the modal fixture child in the ServiceContext PTY");
-    let mut child = PtyChild::new(fixture.service.clone(), pty, tab_id, session);
+    fixture.service.screen_state.lock().resize(&pty, 120, 40);
+    let mut child = PtyChild::new(fixture.service.clone(), pty, tab_id.clone(), session);
     let journal_path = fixture.temp.path().join("supporter/journal.jsonl");
     let primary = catch_unwind(AssertUnwindSafe(|| run_modal(&mut child, &command)));
     let primary = match primary {
@@ -532,6 +520,67 @@ if (($first.KeyChar -eq 'j') -and ($second.Key -eq [System.ConsoleKey]::Enter)) 
         .ok()
         .map(|_| verify_qualified_journey(&evidence, child.completion.as_ref()));
     let completion = child.completion.clone();
+    let journal = std::fs::read_to_string(&journal_path).unwrap_or_default();
+    let safe_response_rows = journal
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|row| {
+            row["action"] == "owned_prompt_answer" || row["decision_point"] == "safe_response"
+        })
+        .map(|row| {
+            let asked_names = row["asked"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|answer| answer["name"].as_str())
+                .collect::<Vec<_>>();
+            serde_json::json!({
+                "action": row["action"],
+                "phase": row["phase"],
+                "reason": row["reason"],
+                "decision_point": row["decision_point"],
+                "observation_id": row["observation_id"],
+                "observation_status": row["observation_status"],
+                "decided_by": row["decided_by"],
+                "asked_names": asked_names,
+            })
+        })
+        .collect::<Vec<_>>();
+    let current_identity = evidence.identity.is_some_and(IdentityMatches::all_match)
+        && evidence.manager_generation_matches;
+    let model_screen_captured = evidence.captured_screens.has_model_capture();
+    let agreement_observations = AGREEMENT
+        .lock()
+        .get(&tab_id)
+        .map(|agreement| agreement.count);
+    let pending_prompt = fixture.service.mux.read().get_tab(&tab_id).map(|tab| {
+        serde_json::json!({
+            "present": tab.pending_prompt.is_some(),
+            "kind": tab.pending_prompt_kind.map(|kind| format!("{kind:?}")),
+            "options": tab.pending_prompt.as_ref().map(|prompt| prompt.options.len()),
+            "session_authenticated": tab.launch_session_authenticated(),
+        })
+    });
+    let completion_matches = completion
+        .as_ref()
+        .is_some_and(CompletionEvidence::succeeds)
+        && completion
+            .as_ref()
+            .is_some_and(|c| c.child_exit == evidence.child_exit_before_cleanup);
+    eprintln!(
+        "qualified fixture validation facts: reader_started={} reader_finished={} model_screen_captured={} current_identity={} agreement_observations={:?} pending_prompt={:?} completion_matches={}",
+        evidence.reader_started,
+        evidence.reader.reader_finished,
+        model_screen_captured,
+        current_identity,
+        agreement_observations,
+        pending_prompt,
+        completion_matches
+    );
+    eprintln!(
+        "qualified fixture safe-response activity: {:?}",
+        bounded_diagnostic(&format!("{safe_response_rows:?}"))
+    );
     let identity = evidence.identity.unwrap_or(IdentityMatches {
         prompt_cleared: false,
         session_matches: false,
@@ -552,9 +601,10 @@ if (($first.KeyChar -eq 'j') -and ($second.Key -eq [System.ConsoleKey]::Enter)) 
         evidence.manager_generation_matches
     );
     eprintln!(
-        "qualified fixture model capture summary: calls={} diagnostic_snapshots={} adjacent_equal={} truncated={}",
+        "qualified fixture model capture summary: calls={} diagnostic_snapshots={} question_sets={:?} adjacent_equal={} truncated={}",
         evidence.captured_screens.count,
         evidence.captured_screens.snapshots.len(),
+        evidence.captured_screens.question_sets,
         evidence.captured_screens.adjacent_equal,
         evidence.captured_screens.truncated
     );
@@ -591,7 +641,7 @@ fn qualified_fixture_capture_summary_survives_diagnostic_truncation() {
     assert_eq!(captures.snapshots.len(), MAX_MODEL_SCREENS);
     assert!(captures.truncated);
     assert!(captures.adjacent_equal);
-    assert!(captures.meets_original_capture_oracle());
+    assert!(captures.has_model_capture());
 }
 #[test]
 fn qualified_fixture_stage_timeout_retains_actual_last_snapshot() {

@@ -1,21 +1,19 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { useCanvasViewport, viewportShowsBounds, type ViewportBox, type ViewportTransform } from "../Canvas/useCanvasViewport";
-import { layoutAutomationOrientations, planAutomationView, type AutomationOrientation, type CanvasSize } from "./layout";
-import type { AutomationGraph } from "./types";
+import { frameBlueprint, type BlueprintLayout, type CanvasSize } from "./blueprintLayout";
 
-/** Camera owned by the scenario surface so a list toggle or data refresh never resets the user's view. */
+/** Camera and selection owned by the opener, so closing and reopening a Blueprint returns to the same view. */
 export interface AutomationCamera {
   transform: ViewportTransform | null;
   userMoved: boolean;
-  orientation: AutomationOrientation | null;
-  wrap: number | null;
   overview: boolean;
   focus: string | null;
   size: CanvasSize | null;
+  selected: string | null;
 }
 
 export function createAutomationCamera(): AutomationCamera {
-  return { transform: null, userMoved: false, orientation: null, wrap: null, overview: false, focus: null, size: null };
+  return { transform: null, userMoved: false, overview: false, focus: null, size: null, selected: null };
 }
 
 const PAN_STEP = 64;
@@ -25,22 +23,15 @@ function same(a: ViewportTransform, b: ViewportTransform): boolean {
   return a.x === b.x && a.y === b.y && a.scale === b.scale;
 }
 
-interface Arrangement { orientation: AutomationOrientation; wrap: number }
-
-/** `focus` is the selected participant that a readable Fit frames; without it Fit frames the root. */
-export function useAutomationViewport(graph: AutomationGraph, camera: AutomationCamera, focus: string | null) {
+/** `focus` is the selected node a readable Fit frames; without it Fit frames the first stage. */
+export function useAutomationViewport(layout: BlueprintLayout, camera: AutomationCamera, focus: string | null, panelOpen = false, onPaint?: (transform: ViewportTransform) => void) {
   const [size, setSize] = useState<CanvasSize | null>(null);
-  const [arrangement, setArrangement] = useState<Arrangement>({ orientation: camera.orientation ?? "horizontal", wrap: camera.wrap ?? Number.POSITIVE_INFINITY });
-  const layouts = useMemo(() => layoutAutomationOrientations(graph, arrangement.wrap), [graph, arrangement.wrap]);
-  const { orientation } = arrangement;
-  const viewport = useCanvasViewport({ width: size?.width ?? 0, height: size?.height ?? 0, ignoreSelector: "button", wheelBehavior: "zoom" });
+  const viewport = useCanvasViewport({ width: size?.width ?? 0, height: size?.height ?? 0, ignoreSelector: "button", wheelBehavior: "zoom", minScale: 0.2, onPaint });
   const { containerRef, setTransform, transformRef } = viewport;
   const fitted = useRef<ViewportTransform | null>(null);
   const moved = useRef(camera.userMoved);
   const overview = useRef(camera.overview);
   const framedFocus = useRef(camera.focus);
-  const current = useRef(arrangement);
-  current.current = arrangement;
   const framedSize = useRef(camera.size);
   const touch = useRef<{ id: number; x: number; y: number; base: ViewportTransform } | null>(null);
   const userMoved = useCallback(() => moved.current || (fitted.current !== null && !same(transformRef.current, fitted.current)), [transformRef]);
@@ -53,8 +44,6 @@ export function useAutomationViewport(graph: AutomationGraph, camera: Automation
     return () => {
       camera.transform = transformRef.current;
       camera.userMoved = userMoved();
-      camera.orientation = current.current.orientation;
-      camera.wrap = current.current.wrap;
       camera.overview = overview.current;
       camera.focus = framedFocus.current;
       camera.size = framedSize.current;
@@ -75,20 +64,23 @@ export function useAutomationViewport(graph: AutomationGraph, camera: Automation
     return () => observer.disconnect();
   }, [containerRef]);
 
-  // Arrangement follows the measured canvas only while the camera is untouched, so a moved view keeps its geometry.
   const settle = useCallback((whole: boolean, target: string | null) => {
     if (!size) return;
-    const plan = planAutomationView(graph, size, whole, target);
-    if (!plan.transform) return;
-    setArrangement((previous) => previous.orientation === plan.orientation && previous.wrap === plan.wrap ? previous : { orientation: plan.orientation, wrap: plan.wrap });
-    setTransform(plan.transform);
-    fitted.current = plan.transform;
+    const transform = frameBlueprint(layout, size, whole, target);
+    if (!transform) return;
+    setTransform(transform);
+    fitted.current = transform;
     moved.current = false;
     overview.current = whole;
     framedFocus.current = target;
-  }, [graph, size, setTransform]);
+  }, [layout, size, setTransform]);
   const fit = useCallback(() => settle(false, focus), [settle, focus]);
   const showOverview = useCallback(() => settle(true, null), [settle]);
+  const panelWasOpen = useRef(false);
+  useLayoutEffect(() => {
+    if (panelOpen && !panelWasOpen.current && size && !userMoved()) settle(false, focus);
+    panelWasOpen.current = panelOpen && size !== null;
+  }, [panelOpen, size, settle, userMoved, focus]);
 
   // A moved camera keeps its scale and the world point at the viewport center when the canvas resizes.
   const follow = useRef(() => {});
@@ -99,12 +91,11 @@ export function useAutomationViewport(graph: AutomationGraph, camera: Automation
     if (!userMoved()) return settle(overview.current, framedFocus.current);
     const t = transformRef.current;
     const next = previous ? { ...t, x: t.x + (size.width - previous.width) / 2, y: t.y + (size.height - previous.height) / 2 } : t;
-    if (!viewportShowsBounds(next, layouts[current.current.orientation].bounds, size)) return settle(overview.current, framedFocus.current);
+    if (!viewportShowsBounds(next, layout.bounds, size)) return settle(overview.current, framedFocus.current);
     if (!same(next, t)) setTransform(next);
     moved.current = true;
   };
-  const { horizontal, vertical } = layouts;
-  useLayoutEffect(() => follow.current(), [size?.width, size?.height, horizontal.bounds.width, horizontal.bounds.height, vertical.bounds.width, vertical.bounds.height]);
+  useLayoutEffect(() => follow.current(), [size?.width, size?.height, layout.bounds.width, layout.bounds.height]);
 
   const panBy = useCallback((dx: number, dy: number) => {
     const transform = transformRef.current;
@@ -117,8 +108,7 @@ export function useAutomationViewport(graph: AutomationGraph, camera: Automation
     const t = transformRef.current;
     const left = box.x * t.scale + t.x;
     const top = box.y * t.scale + t.y;
-    const inside = left >= 0 && top >= 0 && left + box.width * t.scale <= size.width && top + box.height * t.scale <= size.height;
-    if (inside) return;
+    if (left >= 0 && top >= 0 && left + box.width * t.scale <= size.width && top + box.height * t.scale <= size.height) return;
     setTransform({ ...t, x: size.width / 2 - (box.x + box.width / 2) * t.scale, y: size.height / 2 - (box.y + box.height / 2) * t.scale });
     moved.current = true;
   }, [setTransform, size, transformRef]);
@@ -153,5 +143,5 @@ export function useAutomationViewport(graph: AutomationGraph, camera: Automation
     onPointerCancel: () => { touch.current = null; },
   };
 
-  return { ...viewport, layout: layouts[orientation], measured: size !== null, fit, showOverview, zoom, reveal, onKeyDown, touchHandlers };
+  return { ...viewport, measured: size !== null, fit, showOverview, zoom, reveal, onKeyDown, touchHandlers };
 }

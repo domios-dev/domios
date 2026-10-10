@@ -1,5 +1,5 @@
 use super::{MultiplexerState, TeamResolution};
-use crate::multiplexer::types::AgentRole;
+use crate::multiplexer::types::{AgentRole, Tab};
 use codeterm_types::agent::role_kind;
 use codeterm_types::team::Team;
 
@@ -287,6 +287,9 @@ impl MultiplexerState {
     pub(super) fn orphan_children(&mut self, tab_id: &str) {
         let child_ids: Vec<String> = self.get_children_ids(tab_id);
         for cid in &child_ids {
+            if self.tabs.get(cid).is_some_and(Tab::closes_with_owner) {
+                continue;
+            }
             self.orphan_children(cid);
             if let Some(child) = self.tabs.get_mut(cid) {
                 child.role = None;

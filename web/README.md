@@ -11,6 +11,16 @@ npm run preview
 
 Build output is `dist/`. The Vercel project is `domios-web`, with `web` as its root directory and Vite as its framework preset. No app build, runtime service, or environment variables are required.
 
+## Publication
+
+The Vercel project is connected to `rollacode/codeterm` through its GitHub integration. The production branch is `master`, which is this repository's default branch. Merging website changes into `master` triggers a production build and publication to `domios.dev`. `vercel.json` disables Git deployments for all other branches, including slash-named release and lane branches. The project runs `npm ci` and `npm run build` from `web/`, with `dist/` as its output directory. No separate GitHub Actions deployment workflow is needed.
+
+The project's Ignored Build Step also skips non-production builds for branches that do not yet contain this configuration: `if [ "$VERCEL_ENV" = "production" ]; then exit 1; else exit 0; fi`. Exit 1 continues production; exit 0 cancels a preview before dependency installation. Such old branches can still create canceled deployment records. Manual production deployment remains available.
+
+The selected trailer's recordings, narration, music, stems and portable rebuild instructions are preserved in [media-src/projects/domios-memory-2026-10-03](media-src/projects/domios-memory-2026-10-03/README.md). These source files are outside `public/` and the built site.
+
+For a manual publication, redeploy the reviewed Git reference through the Vercel project with the production target. The former CLI upload from a flat `web/` directory predates the Git connection: do not reuse that upload layout with the project's `web` root setting. A CLI source upload must preserve the repository's `web/` directory, or use a correctly generated prebuilt deployment.
+
 ## Media
 
 The media lane owns `public/media/`. Merge its commit with ancestry preserved before deploying. The site reads `/media/manifest.json` and `/media/captions.json`. Manifest shape:
@@ -40,9 +50,9 @@ Colors are ported from the application's GitHub Dark/Light palettes and `themeTo
 
 ## Build troubleshooting
 
-If Vercel refuses more than 15,000 uploaded files, verify that `.vercelignore` is present in `web/`. The website keeps local recordings and review evidence under `.local/`; Git exclusions alone do not define the Vercel upload. The deployment allowlist includes only application source, public assets, API handlers, and build configuration. Keep private evidence and environment files excluded instead of archiving the entire working directory to bypass the limit.
+If Git deployments fail at `npm ci` with a missing lockfile after logging removed ignored files, inspect `.vercelignore`. The former flat-directory `/*` allowlist excluded `web/package-lock.json` when applied to the repository checkout. The current rules exclude private/generated directories at any depth and preserve build inputs in both path layouts. Verify that the selected Git revision contains `web/package-lock.json`; do not regenerate a valid lockfile to repair an exclusion error.
 
-Use directory exceptions without trailing slashes (`!src`, `!api`, `!public`). Vercel CLI 58.4.4 tests directory paths without a trailing slash before descending; `!src/` therefore left the directory excluded by `/*`, uploading only five root files and causing TS18003. Verify the selected file tree includes every tracked application input before deploying.
+For manual CLI uploads, stage only tracked files from `web/api`, `web/src`, `web/public`, plus `web/index.html`, `web/package.json`, `web/package-lock.json`, `web/tsconfig.json`, `web/vite.config.mjs`, and `web/vercel.json`. Preserve the `web/` prefix and project link in the staging root. Never upload the whole working tree: `.local`, `media-src`, environment files and installed dependencies are not deployment inputs. Verify the staged paths before deploying; a 15,000-file refusal means the selection is wrong, not that the entire tree should be archived.
 
 The production build embeds the small landing-page stylesheet in HTML through `vite.config.mjs`, removing a render-blocking request on mobile. Development retains Vite's CSS hot reload. If styles disappear after changing the build pipeline, inspect the emitted HTML for its `<style>` tag and verify the stylesheet asset lookup against Vite's output bundle; do not replace it with delayed style loading.
 
@@ -53,3 +63,5 @@ In Windows PowerShell, use `npm.cmd run preview -- --port 4173 --strictPort` whe
 If a DOM controller fails with TS18047 inside nested function declarations, an outer null check may not retain its narrowing in those functions. Bind fresh constants after checking the queried elements, so callbacks capture non-null types without assertions. Re-run the website build before browser verification.
 
 If download fixtures reuse an earlier successful release during a fresh failure case on macOS, resolve the temporary directory with `realpath` before clearing Node's module cache. `/var` and `/private/var` can name the same directory; a literal prefix comparison otherwise misses cached modules. Clear only that fixture directory's entries and rerun `node scripts/test-download.mjs`.
+
+If local preview becomes unresponsive while browser QA creates evidence, keep dependency discovery limited to index.html and exclude .local, media-src, dist, and .vercel from the development watcher. These private/generated trees can grow far beyond the application source and contain browser profiles and reports. Restart only the Team-bound website preview, then verify HTTP and actual image/video readiness; a failed DOM deadline alone does not establish a player defect.

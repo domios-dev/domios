@@ -108,13 +108,27 @@ function deferred<T>(): Deferred<T> {
 
 /** `mux_get_state` responses stay pending until explicitly resolved; calls
  * are counted synchronously at invocation, before any settling. */
-async function mountProvider(options: { refuseInitialMux?: boolean; refuseInitialOrdinary?: boolean } = {}) {
+async function mountProvider(options: {
+  refuseInitialMux?: boolean;
+  refuseInitialOrdinary?: boolean;
+  storageUnavailableInitialMux?: boolean;
+  pairedPeerCount?: number;
+} = {}) {
   (globalThis as unknown as { localStorage: FakeStorage }).localStorage.clear();
   (globalThis as unknown as { sessionStorage: FakeStorage }).sessionStorage.clear();
 
   const { act, createRoot, React, window } = await setupHappyDom();
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
-  const { MultiplexerProvider } = await import("./index");
+  const { MultiplexerProvider, STORAGE_UNAVAILABLE_MESSAGE, useMuxState } = await import("./index");
+
+  function StorageStatusProbe() {
+    const state = useMuxState();
+    return React.createElement(
+      "div",
+      { "data-testid": "storage-unavailable-probe" },
+      state.storageUnavailable ? STORAGE_UNAVAILABLE_MESSAGE : "",
+    );
+  }
 
   let muxGetStateCalls = 0;
   let ordinaryTabsCalls = 0;
@@ -123,11 +137,18 @@ async function mountProvider(options: { refuseInitialMux?: boolean; refuseInitia
   const pendingMuxGetState: Array<Deferred<unknown>> = [];
   const eventListeners = new Map<string, Set<(event: { payload: unknown }) => void>>();
   __setInvokeForTest(async <T,>(cmd: string): Promise<T> => {
+    if (cmd === "mesh_list_peers" && options.pairedPeerCount !== undefined) {
+      return { paired: Array.from({ length: options.pairedPeerCount }, () => ({ instance_id: "peer" })) } as T;
+    }
     if (cmd === "mux_get_state") {
       muxGetStateCalls++;
       if (options.refuseInitialMux && !refusedInitialMux) {
         refusedInitialMux = true;
         return Promise.reject(new Error("state snapshot unavailable while tab state is initializing or changing"));
+      }
+      if (options.storageUnavailableInitialMux && !refusedInitialMux) {
+        refusedInitialMux = true;
+        return Promise.reject(new Error(STORAGE_UNAVAILABLE_MESSAGE));
       }
       const d = deferred<unknown>();
       pendingMuxGetState.push(d);
@@ -167,7 +188,7 @@ async function mountProvider(options: { refuseInitialMux?: boolean; refuseInitia
   window.document.body.appendChild(host);
   const root = createRoot(host as unknown as Element);
   await act(async () => {
-    root.render(React.createElement(MultiplexerProvider, null, null));
+    root.render(React.createElement(MultiplexerProvider, null, React.createElement(StorageStatusProbe)));
   });
 
   const settleMuxGetState = async () => {
@@ -189,6 +210,7 @@ async function mountProvider(options: { refuseInitialMux?: boolean; refuseInitia
   return {
     act,
     window,
+    host,
     get muxGetStateCalls() {
       return muxGetStateCalls;
     },
@@ -209,6 +231,20 @@ async function mountProvider(options: { refuseInitialMux?: boolean; refuseInitia
     },
   };
 }
+
+test("Storage unavailable snapshot exposes its preservation status to the UI", async () => {
+  const harness = await mountProvider({ storageUnavailableInitialMux: true });
+  const { STORAGE_UNAVAILABLE_MESSAGE } = await import("./index");
+  await waitUntil(
+    () => harness.host.querySelector("[data-testid='storage-unavailable-probe']")?.textContent === STORAGE_UNAVAILABLE_MESSAGE,
+    harness.act,
+  );
+  assert(
+    harness.host.querySelector("[data-testid='storage-unavailable-probe']")?.textContent === STORAGE_UNAVAILABLE_MESSAGE,
+    "the unavailable read must produce explicit preserved-data status",
+  );
+  await harness.unmount();
+});
 
 test("healthy stream: no renewal interval, no growth from non-resync events", async () => {
   const harness = await mountProvider();
@@ -263,6 +299,30 @@ test("ordinary tab refusal waits for mesh-state-changed", async () => {
     await Promise.resolve();
   });
   assert((harness.ordinaryTabsCalls as number) === 2, "ordinary tabs must not poll after a refusal");
+  await harness.unmount();
+});
+
+test("local-only mux pushes skip the ordinary tab list", async () => {
+  const harness = await mountProvider({ pairedPeerCount: 0 });
+  Object.defineProperty(globalThis, "requestAnimationFrame", { configurable: true, value: () => 1 });
+  const baseline = harness.ordinaryTabsCalls;
+  for (let generation = 2; generation <= 26; generation++) {
+    await harness.act(async () => {
+      harness.emit("mux-state-changed", { ...sampleState("ws-renewal"), generation });
+    });
+  }
+  const calls = harness.ordinaryTabsCalls - baseline;
+  console.log(`METRIC local-only mux pushes=25 ordinary_tabs_list=${calls}`);
+  assert(calls === 0, `local-only pushes must not fetch the ordinary tab list, got ${calls}`);
+  await harness.unmount();
+});
+
+test("mux pushes retain remote discovery for paired peers", async () => {
+  const harness = await mountProvider({ pairedPeerCount: 1 });
+  const baseline = harness.ordinaryTabsCalls;
+  await harness.act(async () => { harness.emit("mux-state-changed"); });
+  await waitUntil(() => harness.ordinaryTabsCalls === baseline + 1, harness.act);
+  await harness.settleMuxGetState();
   await harness.unmount();
 });
 

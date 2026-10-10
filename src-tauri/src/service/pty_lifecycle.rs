@@ -13,6 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::task::JoinHandle;
 
+use super::pty_output_pipeline::{prepare_batches, OutputBatch};
 use super::ServiceState;
 use crate::multiplexer::types::TabCloseReason;
 
@@ -147,26 +148,34 @@ async fn backend_read_loop(
     let feed_svc = svc.clone();
     let feed_pty_id = pty_id.clone();
     let feed_task = tokio::task::spawn_blocking(move || {
+        let _role = codeterm_util::named_thread::Scope::enter(&format!("pty-feed:{feed_pty_id}"));
         process_pty_feed(feed_rx, feed_svc, feed_pty_id, generation, rd_trace)
     });
     loop {
         // Blocking read in a dedicated thread — same pattern as read_pty.
         let read_started = std::time::Instant::now();
+        let read_role = format!("pty-read:{pty_id}");
+        let trace_pty_id = pty_id.clone();
         let result = tokio::task::spawn_blocking(move || {
+            let _role = codeterm_util::named_thread::Scope::enter(&read_role);
             let mut buf = vec![0u8; 8192];
             let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
             if n == 0 {
                 return Err("EOF".to_string());
             }
+            let receipt = super::pty_frame_timing::Receipt::read_completed(&trace_pty_id, n);
             buf.truncate(n);
 
-            Ok((buf, reader))
+            Ok((buf, reader, receipt))
         })
         .await;
         let read_block_us = read_started.elapsed().as_micros();
 
         match result {
-            Ok(Ok((data, reader_back))) => {
+            Ok(Ok((data, reader_back, receipt))) => {
+                if let Some(receipt) = &receipt {
+                    receipt.phase("read_resumed", data.len());
+                }
                 reader = reader_back;
 
                 if !first_byte_logged {
@@ -197,7 +206,14 @@ async fn backend_read_loop(
                 }
                 let _ = frontend_tx.try_send(data.clone());
                 let data_len = data.len();
-                if feed_tx.send(data).await.is_err() {
+                if let Some(receipt) = &receipt {
+                    receipt.phase("enqueue_started", data_len);
+                }
+                let packet = OutputBatch {
+                    data,
+                    receipts: receipt.into_iter().collect(),
+                };
+                if feed_tx.send(packet).await.is_err() {
                     log::error!(
                         "[backend-reader] output processor closed for {}",
                         &pty_id[..pty_id.len().min(8)]
@@ -231,12 +247,15 @@ async fn backend_read_loop(
     }
 
     drop(feed_tx);
-    if let Err(error) = feed_task.await {
-        log::error!(
-            "[backend-reader] output processor failed for {}: {}",
-            &pty_id[..pty_id.len().min(8)],
-            error
-        );
+    match feed_task.await {
+        Ok(status_task) => {
+            if let Err(error) = status_task.await {
+                log::error!("[backend-reader] status processor failed for {pty_id}: {error}");
+            }
+        }
+        Err(error) => {
+            log::error!("[backend-reader] screen processor failed for {pty_id}: {error}");
+        }
     }
     handle_pty_death(&svc, &pty_id, generation);
     log::info!(
@@ -246,34 +265,62 @@ async fn backend_read_loop(
 }
 
 fn process_pty_feed(
-    mut rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
+    rx: tokio::sync::mpsc::Receiver<OutputBatch>,
+    svc: ServiceState,
+    pty_id: String,
+    generation: u64,
+    rd_trace: bool,
+) -> JoinHandle<()> {
+    const STATUS_QUEUE_CAPACITY: usize = 32;
+    let (status_tx, status_rx) = tokio::sync::mpsc::channel(STATUS_QUEUE_CAPACITY);
+    let status_svc = svc.clone();
+    let status_pty_id = pty_id.clone();
+    let status_task = tokio::spawn(process_pty_status(
+        status_rx,
+        status_svc,
+        status_pty_id,
+        generation,
+        rd_trace,
+    ));
+    prepare_batches(rx, status_tx, 256 * 1024, |data| {
+        svc.prepare_pty_output(&pty_id, Some(generation), data)
+    });
+    status_task
+}
+
+async fn process_pty_status(
+    mut rx: tokio::sync::mpsc::Receiver<OutputBatch>,
     svc: ServiceState,
     pty_id: String,
     generation: u64,
     rd_trace: bool,
 ) {
-    const FEED_BATCH_CAP: usize = 256 * 1024;
-    while let Some(mut data) = rx.blocking_recv() {
-        drain_feed_batch(&mut rx, &mut data, FEED_BATCH_CAP);
-        let started = std::time::Instant::now();
-        let (prev, now) = svc.feed_pty_output_for_generation(&pty_id, generation, &data);
-        if rd_trace && data.len() > 16 {
-            log::info!(
-                "[feed-batch] pty={} n={} elapsed={}us",
-                &pty_id[..pty_id.len().min(8)],
-                data.len(),
-                started.elapsed().as_micros(),
-            );
-        }
-        svc.emit_tab_status_if_changed(&pty_id, prev, now);
-    }
-}
-
-fn drain_feed_batch(rx: &mut tokio::sync::mpsc::Receiver<Vec<u8>>, data: &mut Vec<u8>, cap: usize) {
-    while data.len() < cap {
-        match rx.try_recv() {
-            Ok(next) => data.extend_from_slice(&next),
-            Err(_) => break,
+    while let Some(data) = rx.recv().await {
+        let svc = svc.clone();
+        let pty_id = pty_id.clone();
+        if let Err(error) = tokio::task::spawn_blocking(move || {
+            let _role = codeterm_util::named_thread::Scope::enter(&format!("pty-status:{pty_id}"));
+            let started = std::time::Instant::now();
+            for receipt in &data.receipts {
+                receipt.phase("observer_started", data.data.len());
+            }
+            let (prev, now) = svc.finish_pty_output(&pty_id, Some(generation), &data.data);
+            for receipt in &data.receipts {
+                receipt.phase("feed_completed", data.data.len());
+            }
+            if rd_trace && data.data.len() > 16 {
+                log::info!(
+                    "[feed-batch] pty={pty_id} n={} elapsed={}us",
+                    data.data.len(),
+                    started.elapsed().as_micros()
+                );
+            }
+            svc.emit_tab_status_if_changed(&pty_id, prev, now);
+        })
+        .await
+        {
+            log::error!("[backend-reader] status batch failed: {error}");
+            break;
         }
     }
 }
@@ -352,6 +399,7 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
 enum PtyDeathOutcome {
     StaleEof,
     PreservedForShutdown,
+    PreservedForRecovery,
     NoOwningTab,
     NotRoleBearing,
     Pruned,
@@ -401,11 +449,33 @@ fn handle_pty_death_with_cause(
         return PtyDeathOutcome::NoOwningTab;
     };
     let ga_snapshot = svc.mux.read().get_tab(pid).cloned();
+    if ga_snapshot
+        .as_ref()
+        .is_some_and(|tab| tab.worker_id.is_some())
+    {
+        svc.run_watcher.fail_now(
+            svc,
+            pty_id,
+            "memory worker PTY process exited without reporting".into(),
+        );
+    }
     svc.run_watcher
         .fail_cron_on_process_exit(svc, pty_id, "cron PTY process exited".into());
+    let has_agent_identity = ga_snapshot
+        .as_ref()
+        .is_some_and(|tab| tab.agent_type.is_some() || tab.agent_session_id.is_some());
+    if has_agent_identity {
+        log::info!(
+            "[backend-reader] preserving Tab agent identity after PTY death without an exit marker: {}",
+            pid
+        );
+        svc.settle_restore_report();
+        let prev = svc.reconciled_tab_status_for_id(pid, raw_prev);
+        svc.emit_tab_status_if_changed(pty_id, prev, crate::agent::status::TabStatus::Dead);
+        return PtyDeathOutcome::PreservedForRecovery;
+    }
     {
         svc.observe_captured_tab_exit(pid, captured_exit);
-        svc.clear_tab_agent_identity_after_confirmed_exit(pid, "pty process died");
         if let Some(tab) = ga_snapshot.as_ref() {
             svc.general_agent_watchdog_event(tab, super::general_agent::WatchdogEvent::PtyDeath);
         }
@@ -414,43 +484,9 @@ fn handle_pty_death_with_cause(
         let prev = svc.reconciled_tab_status_for_id(pid, raw_prev);
         svc.emit_tab_status_if_changed(pty_id, prev, crate::agent::status::TabStatus::Dead);
 
-        // Cron fallback: if agent died without calling cron complete, mark as failed.
         use tauri::Manager;
         if let Some(cron_state) = svc.app_handle.try_state::<crate::CronState>() {
-            let mut fresh_transition = false;
-            let owner = {
-                // Hold the cron lock ACROSS owner-lookup and the read/write below.
-                let mut store = cron_state.lock();
-                let owner = store.get_tab_owner(pid).cloned();
-                if let Some((ref job_id, ref run_id)) = owner {
-                    if store.read_log(job_id, run_id).is_none() {
-                        let text = svc.output_buf.lock().get_text(pty_id).unwrap_or_default();
-                        let clean = crate::pty::ansi::clean_terminal_output(&text);
-                        let _ = store.save_log(job_id, run_id, &clean);
-                        fresh_transition = store
-                            .update_run_status(
-                                job_id,
-                                run_id,
-                                crate::cron::store::CronRunStatus::Failed,
-                            )
-                            .unwrap_or(false);
-                    }
-                    store.unregister_tab(pid);
-                }
-                owner
-            };
-            // Notify after the store guard drops — it re-locks internally.
-            if let Some((job_id, run_id)) = owner {
-                if fresh_transition {
-                    crate::cron::notify::notify_on_consecutive_failure(svc, &cron_state, &job_id);
-                }
-                log::info!(
-                    "[backend-reader] cron Tab exited: job={}, run={}",
-                    job_id,
-                    run_id
-                );
-                crate::api::events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
-            }
+            crate::cron::pty_death_fallback::fail_run_on_pty_death(svc, &cron_state, pid, pty_id);
         }
 
         let watchdog = {
@@ -656,21 +692,6 @@ mod tests {
 
     fn bind_generation(screen_state: &crate::ScreenStateHandle, pty_id: &str, generation: u64) {
         assert!(screen_state.lock().bind_pty_generation(pty_id, generation));
-    }
-
-    #[test]
-    fn resize_burst_is_drained_as_one_available_feed_batch() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(300);
-        for _ in 0..269 {
-            tx.try_send(vec![b'x'; 112]).unwrap();
-        }
-        drop(tx);
-
-        let mut data = rx.blocking_recv().unwrap();
-        super::drain_feed_batch(&mut rx, &mut data, 256 * 1024);
-
-        assert_eq!(data.len(), 269 * 112);
-        assert!(rx.blocking_recv().is_none());
     }
 
     #[test]
@@ -921,6 +942,46 @@ mod tests {
     )]
     fn restart_shutdown_pty_death_does_not_prune_role_tabs() {
         assert_shutdown_death_preserves_role_tabs(ShutdownReason::Restart);
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn abrupt_pty_death_preserves_live_provider_sessions_for_restore() {
+        for provider in ["claude", "codex", "opencode", "grok"] {
+            let (fixture, tab_id, generation) = role_pty_fixture(AgentRole::Worker);
+            let session_id = format!("{provider}-session");
+            let nonce = format!("{provider}-nonce");
+            {
+                let mut mux = fixture.service.mux.write();
+                let tab = mux.get_tab_mut(&tab_id).expect("worker tab");
+                tab.agent_type = Some(provider.into());
+                tab.agent_session_id = Some(session_id.clone());
+                tab.session_binding_nonce = Some(nonce.clone());
+                tab.reported_session_binding_nonce = Some(nonce);
+            }
+
+            let outcome =
+                super::handle_pty_death_with_cause(&fixture.service, ROLE_PTY, generation, None);
+
+            assert_eq!(
+                outcome,
+                super::PtyDeathOutcome::PreservedForRecovery,
+                "{provider}"
+            );
+            let snapshot = fixture.service.mux.read().to_session_snapshot();
+            let restored =
+                crate::multiplexer::state::MultiplexerState::from_session_snapshot(&snapshot);
+            let restored_tab = restored.get_tab(&tab_id).expect("restored worker tab");
+            assert_eq!(restored_tab.agent_type.as_deref(), Some(provider));
+            assert_eq!(
+                restored_tab.agent_session_id.as_deref(),
+                Some(session_id.as_str())
+            );
+            assert_eq!(restored_tab.role, Some(AgentRole::Worker));
+        }
     }
 
     #[test]

@@ -12,8 +12,12 @@ that supplies an isolated lane.
 **A mutating dispatch with no recorded lane provisions one.** With no lane on
 the task, the resolved worktree is the caller's `--cwd`; when that is canonical
 the dispatcher branches an isolated lane from it, records the lane on the task,
-and spawns the Worker there. Record a lane yourself only when its placement must
-be specific:
+and spawns the Worker there. An explicit `--cwd` must be an existing directory
+(the CLI resolves a relative one against the caller's directory) and is never
+bypassed: a missing path is refused before any tab exists, and a directory that
+is not a usable checkout is refused instead of falling back to the workspace or
+canonical checkout. Record a lane yourself only when its placement must be
+specific:
 
 ```bash
 git worktree add -b lane/<plan>-<task>-<slug> ../<repo>-worktrees/<slug> <base>
@@ -60,7 +64,7 @@ so competitors never share a checkout or fall back to canonical. Partial
 provisioning/spawn failures remove lanes created by that call. Read-only
 competition is unchanged.
 
-<!-- revision: 17 -->
+<!-- revision: 19 -->
 
 This is the portable contract for orchestrated branch work in any project. It is
 about lifecycle and evidence, not Domios's own repository layout.
@@ -76,17 +80,20 @@ about lifecycle and evidence, not Domios's own repository layout.
 2. Record the Tab, branch, worktree, workspace, model, and target branch on the
    task when the worker starts. `in_progress` without a live owner is stale
    state, not work.
-3. Isolated Workers are source-only. They inspect, edit, review, and commit
-   owned source, but never build, run project tests, start dev services, or
-   execute validation gates. They author coverage and report exact deferred QA
-   commands. After real merge, the Orchestrator runs all executable verification
-   in canonical; delegation requires a Worker assigned there plus exact permission.
-4. Reports must include branch, SHA, worktree, tests run, and gates requested.
+3. Workers inspect, edit, review, and commit owned source in their lane and may
+   run isolated checks that do not rebuild the whole project (a type check, one
+   test file, a linter, a small standalone package's tests), through the build
+   queue when the project has one. A whole-project build is a full rebuild left
+   to canonical; lanes start no dev servers, full suites, packaging, or
+   self-install. After review and a real merge, the Orchestrator reruns the
+   merged wave's focused selectors once in canonical.
+4. Reports must include branch, SHA, worktree, each check's category with exact
+   commands, counts and raw exits, and the deferred selectors.
    A report without enough provenance is not ready for review.
 5. QA is serialized per physical machine and parallel across machines. The
-   Orchestrator works from the repository's canonical integration checkout:
-   Workers own isolated source lanes, while merges, executable review, focused
-   and broad QA, dev verification, and release gates run only in canonical.
+   Orchestrator works from the repository's canonical integration checkout,
+   where merges, wave QA, dev verification, and release gates run warm instead
+   of rebuilding in every lane.
 6. Integrate accepted work with a real merge commit from the lane into the
    integration target. Never cherry-pick, squash, replay, or patch-copy lane
    commits. Rebase the lane onto the target when necessary, re-run its bounded

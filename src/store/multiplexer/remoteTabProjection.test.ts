@@ -1,17 +1,21 @@
-import { describe, expect, finish, it } from "../../test/standaloneTest";
+import assert from "node:assert/strict";
+import { test } from "node:test";
 import type { Tab } from "../../lib/types";
-import { remoteTabsFromOrdinaryProjection } from "./remoteTabProjection";
+import { shouldRefreshRemoteTabs } from "./remoteTabProjection";
 
-const tab = (id: string, remote = false): Tab => ({
-  id, title: id, pty_id: id, tab_type: "Terminal", cwd: null,
-  ...(remote ? { remote_peer_id: "peer", remote_tab_id: "shared-tab", remote_channels: { control: "available", output: "available", chat: "available" } as const } : {}),
+const local: Tab = { id: "local", pty_id: null, tab_type: "Terminal", title: "Local", cwd: null };
+const remote: Tab = { ...local, id: "remote", remote_peer_id: "peer" };
+
+test("confirmed local-only inventory needs no ordinary tab projection", () => {
+  assert.equal(shouldRefreshRemoteTabs(false, { local }, {}), false);
 });
 
-finish();
+test("paired peers and unknown inventory retain remote discovery", () => {
+  assert.equal(shouldRefreshRemoteTabs(true, { local }), true);
+  assert.equal(shouldRefreshRemoteTabs(null, { local }), true);
+});
 
-describe("authoritative ordinary tab projection", () => {
-  it("preserves native order and only selects native-projected remotes", () => {
-    const tabs = [tab("local"), tab("mesh:peer/shared-tab", true)];
-    expect(Object.keys(remoteTabsFromOrdinaryProjection(tabs))).toEqual(["mesh:peer/shared-tab"]);
-  });
+test("remote tabs and saved attachments refresh after peers disappear", () => {
+  assert.equal(shouldRefreshRemoteTabs(false, { remote }), true);
+  assert.equal(shouldRefreshRemoteTabs(false, { local }, { remote }), true);
 });

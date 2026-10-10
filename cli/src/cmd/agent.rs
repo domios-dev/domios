@@ -6,6 +6,10 @@ use crate::cmd::print::handle_result;
 use crate::{build_local_api, read_api_config, resolve_tab, AgentAction};
 use std::io::Read;
 
+#[path = "agent_cli.rs"]
+mod agent_cli;
+#[path = "agent_compatibility.rs"]
+mod agent_compatibility;
 #[path = "agent_model_switch.rs"]
 mod agent_model_switch;
 #[path = "agent_models.rs"]
@@ -20,6 +24,19 @@ fn provider_requires_live_model_discovery(provider: &serde_json::Value) -> bool 
         .and_then(|catalogue| catalogue.get("liveDiscoveryRequired"))
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false)
+}
+
+fn catalogue_version(provider: &serde_json::Value) -> u64 {
+    provider
+        .get("catalogue_version")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or_default()
+}
+
+/// A live-required listing warns when its forced probe could not refresh; an
+/// optional catalogue's reader-gated skip is not a gap and stays silent.
+fn live_discovery_warning_needed(discovery_required: bool, refreshed: bool) -> bool {
+    discovery_required && !refreshed
 }
 
 fn absolute_spawn_base(
@@ -283,6 +300,12 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
     };
     match action {
+        AgentAction::Turns { tab, last, after } => {
+            let mut params = serde_json::json!({"tab_id":tab,"last":last,"after_offset":after});
+            CallerContext::from_env().apply_trusted_session(&mut params);
+            handle_result(json, client.call("agent.turns", Some(params)));
+        }
+        AgentAction::Cli { action } => agent_cli::run(client, json, action),
         AgentAction::Providers => match local_http
             .get(format!("{}/api/agents/providers", base))
             .send()
@@ -313,7 +336,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     return;
                 }
                 for p in arr {
-                    let kind = p.get("kind").and_then(|v| v.as_str()).unwrap_or("agent");
+                    let kind = p.get("transport").and_then(|v| v.as_str()).unwrap_or("pty");
                     let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("?");
                     let name = p.get("display_name").and_then(|v| v.as_str()).unwrap_or(id);
                     let default_model = p
@@ -334,6 +357,16 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         models_count,
                         provider_availability_marker(p)
                     );
+                    if let Some(line) = agent_compatibility::status_line(p) {
+                        println!("  {line}");
+                    }
+                    if let Some(status) = p.get("cli_status") {
+                        if status.get("installed").and_then(|v| v.as_bool()) != Some(true) {
+                            for line in crate::cmd::plugin::cli_status::status_lines(id, status) {
+                                println!("  {line}");
+                            }
+                        }
+                    }
                 }
             }
             Err(e) => {
@@ -366,27 +399,33 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         std::process::exit(1);
                     };
                     let discovery_required = provider_requires_live_model_discovery(target);
-                    if discovery_required {
-                        let response = match local_http
-                            .post(format!("{}/api/agents/providers/refresh", base))
-                            .json(&serde_json::json!({"provider_id": provider.as_str()}))
-                            .send()
-                        {
-                            Ok(response) => response,
-                            Err(error) => crate::cmd::print::fail(1, error.to_string()),
-                        };
-                        let status = response.status();
-                        let refresh: serde_json::Value = response.json().unwrap_or_default();
-                        if !status.is_success() {
-                            crate::cmd::print::fail_http(1, status.as_u16(), &refresh.to_string());
-                        }
-                        if !refresh
-                            .get("refreshed")
-                            .and_then(serde_json::Value::as_bool)
-                            .unwrap_or(false)
-                        {
-                            eprintln!("WARNING: live model discovery did not refresh the {provider} catalogue; showing its last available snapshot.");
-                        }
+                    let observed_version = catalogue_version(target);
+                    // Explicit CLI listing asks core to refresh the provider catalogue.
+                    let response = match local_http
+                        .post(format!("{}/api/agents/providers/refresh", base))
+                        .json(&serde_json::json!({"provider_id": provider.as_str()}))
+                        .send()
+                    {
+                        Ok(response) => response,
+                        Err(error) => crate::cmd::print::fail(1, error.to_string()),
+                    };
+                    let status = response.status();
+                    let refresh: serde_json::Value = response.json().unwrap_or_default();
+                    if !status.is_success() {
+                        crate::cmd::print::fail_http(1, status.as_u16(), &refresh.to_string());
+                    }
+                    let refreshed = refresh
+                        .get("refreshed")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false);
+                    let current_version = refresh
+                        .get("version")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(observed_version);
+                    if live_discovery_warning_needed(discovery_required, refreshed) {
+                        eprintln!("WARNING: live model discovery did not refresh the {provider} catalogue; showing its last available snapshot.");
+                    }
+                    if discovery_required || refreshed || current_version != observed_version {
                         let response = match local_http
                             .get(format!("{}/api/agents/providers", base))
                             .send()
@@ -851,11 +890,20 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
         AgentAction::Restart {
             tab,
+            provider,
+            handoff_history,
+            fresh,
             force,
             grace_secs,
         } => {
             let tab_id = resolve_tab(client, tab);
-            let body = serde_json::json!({"force": force, "grace_secs": grace_secs});
+            let body = crate::cmd::agent_restart::RestartRequest {
+                force,
+                grace_secs,
+                provider: provider.as_deref(),
+                handoff_history,
+                fresh,
+            };
             match local_http
                 .post(format!("{}/api/tabs/{}/agent/restart", base, tab_id))
                 .json(&body)
@@ -893,11 +941,34 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
         }
-        AgentAction::Model { name, tab } => {
+        AgentAction::Fork { tab } => {
+            let tab_id = resolve_tab(client, tab);
+            let response = local_http
+                .post(format!("{}/api/tabs/{}/agent/fork", base, tab_id))
+                .send()
+                .unwrap_or_else(|error| crate::cmd::print::fail(1, error.to_string()));
+            let status = response.status();
+            let text = response.text().unwrap_or_default();
+            if !status.is_success() {
+                crate::cmd::print::fail_http(1, status.as_u16(), &text);
+            }
+            let result: serde_json::Value = serde_json::from_str(&text)
+                .unwrap_or_else(|error| crate::cmd::print::fail(1, error.to_string()));
+            if json {
+                crate::cmd::print::print_json(&result);
+            } else {
+                println!(
+                    "Fork opened in tab {} (session binding pending: {})",
+                    result["tab_id"].as_str().unwrap_or_default(),
+                    result["binding_pending"]
+                );
+            }
+        }
+        AgentAction::Model { name, tab, force } => {
             let tab_id = resolve_tab(client, tab);
             let result = local_http
                 .post(format!("{}/api/tabs/{}/agent/model", base, tab_id))
-                .json(&serde_json::json!({ "model": name }))
+                .json(&serde_json::json!({ "model": name, "force":force }))
                 .send()
                 .map_err(|error| crate::cmd::print::CliError::new(error.to_string()))
                 .and_then(|resp| {

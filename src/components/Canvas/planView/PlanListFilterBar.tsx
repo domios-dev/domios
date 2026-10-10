@@ -20,11 +20,7 @@ export function PlanListFilterBar({
   return (
     <div
       data-testid="plan-list-filter"
-      className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-1.5"
-      style={{
-        borderColor: "color-mix(in srgb, var(--ct-border) 55%, transparent)",
-        background: "color-mix(in srgb, var(--ct-bg-elev, var(--ct-bg)) 96%, transparent)",
-      }}
+      className="flex shrink-0 flex-wrap items-center gap-2 px-3 py-1.5"
     >
       <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Status filter">
         {PLAN_LIST_STATUS_FILTERS.map(({ key, label }) => {

@@ -39,7 +39,7 @@ fn opencode_sqlite_scans_skip_oversized_rows_on_a_large_store() {
     std::fs::create_dir_all(&db_dir).unwrap();
     build_large_opencode_db(&db_dir.join("opencode.db"));
     let _env = EnvGuard::new(&[("XDG_DATA_HOME", dir.path().to_str().unwrap())]);
-    let j = load_js("opencode");
+    let j = super::sqlite_fixture::load_sqlite_fixture_js("opencode");
 
     let mut usage = j.model_group_usage();
     usage.sort_by(|a, b| a.group.cmp(&b.group));

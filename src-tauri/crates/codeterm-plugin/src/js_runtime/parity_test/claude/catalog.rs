@@ -23,7 +23,8 @@ fn claude_manifest_catalog_is_identical_for_native_and_js_without_credentials() 
     if require_plugins().is_none() {
         return;
     }
-    let (manifest_models, manifest_default) = manifest_expectation();
+    let (raw_models, manifest_default) = manifest_expectation();
+    let manifest_models = capability_models(raw_models.clone());
 
     // Registration-level parity: both runtimes seed from the ONE bundled
     // manifest, so a drifted mirrored vector fails against the file itself.
@@ -55,7 +56,7 @@ fn claude_manifest_catalog_is_identical_for_native_and_js_without_credentials() 
     let (native, js) = pair();
     let js_seed: Vec<ModelInfo> = js.manifest().models.iter().map(ModelInfo::from).collect();
     assert_eq!(
-        js_seed, manifest_models,
+        js_seed, raw_models,
         "JS seed must be the bundled manifest, not a duplicated literal vector"
     );
     assert_eq!(js.manifest().default_model, manifest_default);
@@ -94,6 +95,83 @@ fn claude_manifest_catalog_is_identical_for_native_and_js_without_credentials() 
 }
 
 const LIVE_FIXTURE_ID: &str = "claude-catalog-live-parity-fixture";
+
+fn capability_models(models: Vec<ModelInfo>) -> Vec<ModelInfo> {
+    let data: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            workspace_plugins_root().join("provider-claude/model-capabilities.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    models
+        .into_iter()
+        .map(|mut model| {
+            if let Some(key) = data["models"][&model.id].as_str() {
+                let profile = &data["profiles"][key];
+                model.reasoning_efforts = Some(
+                    ["low", "medium", "high", "xhigh", "max"]
+                        .into_iter()
+                        .filter(|id| profile["efforts"][*id].is_string())
+                        .map(|id| crate::provider::ReasoningEffortInfo {
+                            id: id.into(),
+                            display_name: id.into(),
+                            description: None,
+                        })
+                        .collect(),
+                );
+                model.default_reasoning_effort =
+                    profile["defaultEffort"].as_str().map(str::to_owned);
+            }
+            model
+        })
+        .collect()
+}
+
+#[test]
+fn parity_claude_model_capabilities_effort_and_compact_window() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    for model in [
+        None,
+        Some("haiku"),
+        Some("sonnet"),
+        Some("opus[1m]"),
+        Some("claude-opus-4-7"),
+        Some("unknown"),
+    ] {
+        for effort in ["", "low", "high", "xhigh", "max"] {
+            assert_eq!(
+                native.reasoning_effort_launch_args_for_model(model, effort),
+                js.reasoning_effort_launch_args_for_model(model, effort)
+            );
+        }
+    }
+    for model in ["sonnet", "opus[1m]", "fable[1m]", "unknown"] {
+        for enabled in [false, true] {
+            let mut params = crate::provider::AgentResumeParams {
+                session_id: "fixture".into(),
+                skip_permissions: false,
+                system_prompt: None,
+                args: vec!["--model".into(), model.into()],
+                ..Default::default()
+            };
+            if enabled {
+                params.args.push("--codeterm-model-capabilities".into());
+            }
+            assert_eq!(
+                super::context::settings_command(|| native
+                    .build_resume_command_with_context(&params)
+                    .unwrap()),
+                super::context::settings_command(|| js
+                    .build_resume_command_with_context(&params)
+                    .unwrap())
+            );
+        }
+    }
+}
 
 /// Removes the fixture's cache artifact even when the test panics.
 struct FixtureCacheCleanup;

@@ -4,9 +4,9 @@
 use crate::prompts::{
     orchestrator_first_message, orchestrator_suffix, planner_suffix, worker_suffix,
     AGENT_CODETERM_PRIMER, AGENT_PAD_RULE, BRIDGE_MEM, CODETERM_RULE, PLANNING_COMPACTION_CONTRACT,
-    QA_PIPELINE_DISCIPLINE, RICH_RENDERING_GUIDANCE, TASK_SEQUENCING_CONTRACT,
-    TEAM_CREATION_CONTRACT, TESTING_DISCIPLINE, TEST_AUTHOR_GUIDANCE, WORKER_CODETERM_CONTEXT,
-    WORKER_SUFFIX,
+    PLAN_TASK_FLAGS, PLUGIN_DISCOVERY_RULE, QA_PIPELINE_DISCIPLINE, RICH_RENDERING_GUIDANCE,
+    TASK_SEQUENCING_CONTRACT, TEAM_CREATION_CONTRACT, TESTING_DISCIPLINE, TEST_AUTHOR_GUIDANCE,
+    WORKER_CODETERM_CONTEXT, WORKER_SUFFIX,
 };
 use crate::service::plan::worker_charter::render_worker_charter;
 use crate::service::plan::worker_identity::{
@@ -30,20 +30,23 @@ const CHARTER_TASK_TOKEN: &str = "task_opaque_6f3b2";
 /// the surface 25 bytes over the previous 17_900. Raised to the new measurement
 /// rather than trimming another author's contract blind; the next addition pays
 /// the same cost of re-measuring deliberately.
-const ORCHESTRATOR_CONTRACT_MAX_BYTES: usize = 17_950;
-const PLANNER_CONTRACT_MAX_BYTES: usize = 17_750;
+// Re-measured at 21_687 for the owner-approved Planner lifecycle, owner-feedback and revert-and-bounce rules.
+const ORCHESTRATOR_CONTRACT_MAX_BYTES: usize = 21_700;
+// Planner re-measured at 21_207 for its owner-approved lifecycle and owner-evidence rules.
+const PLANNER_CONTRACT_MAX_BYTES: usize = 21_220;
 // Worker suffix and launch overhead re-measured at 4_667 and 8_105 for the
 // provider-native subagent rule (9d4ae23d1).
-const WORKER_SUFFIX_MAX_BYTES: usize = 4_700;
+const WORKER_SUFFIX_MAX_BYTES: usize = 5_000;
 // Primer and worker launch re-measured for the owner-requested Sentinel command line
-// (bench case 9 needs the concrete flags) and the `@ct-guide` rendering sentence.
+// (bench case 9 needs the concrete flags) and the `@ds-guide` rendering sentence.
 const PRIMER_MAX_BYTES: usize = 2_600;
 const PROVIDER_RULES_MAX_BYTES: usize = 9_700;
 const WORKER_CHARTER_MAX_BYTES: usize = 1_450;
-const ORCHESTRATOR_LAUNCH_MAX_BYTES: usize = 21_200;
-// Planner launch re-measured with the primer Sentinel command line.
-const PLANNER_LAUNCH_MAX_BYTES: usize = 21_250;
-const WORKER_LAUNCH_OVERHEAD_MAX_BYTES: usize = 8_600;
+// Re-measured at 25_575 for the owner-approved process rules, chat block guidance and the WSL utility line.
+const ORCHESTRATOR_LAUNCH_MAX_BYTES: usize = 25_600;
+// Re-measured at 25_126 alongside the planner contract and shared chat block guidance.
+const PLANNER_LAUNCH_MAX_BYTES: usize = 25_150;
+const WORKER_LAUNCH_OVERHEAD_MAX_BYTES: usize = 9_000;
 
 fn lf_len(text: &str) -> usize {
     text.replace("\r\n", "\n").len()
@@ -204,6 +207,7 @@ fn prompt_diet_role_launches_receive_each_fragment_once() {
     let (_, brief) = worker_brief();
     let shared = [
         AGENT_CODETERM_PRIMER,
+        PLUGIN_DISCOVERY_RULE,
         AGENT_PAD_RULE,
         RICH_RENDERING_GUIDANCE,
     ];
@@ -212,11 +216,13 @@ fn prompt_diet_role_launches_receive_each_fragment_once() {
         TASK_SEQUENCING_CONTRACT,
         PLANNING_COMPACTION_CONTRACT,
         TEAM_CREATION_CONTRACT,
+        PLAN_TASK_FLAGS,
     ];
     let planner_fragments = [
         PLANNING_COMPACTION_CONTRACT,
         TEAM_CREATION_CONTRACT,
         TEST_AUTHOR_GUIDANCE,
+        PLAN_TASK_FLAGS,
     ];
     let worker_fragments = [
         WORKER_CODETERM_CONTEXT,
@@ -283,5 +289,43 @@ fn prompt_diet_worker_charter_carries_identity_before_discipline() {
             .find(fragment.trim())
             .expect("discipline delivered");
         assert!(identity < position);
+    }
+}
+
+#[test]
+fn memory_management_fragment_reaches_only_target_launches() {
+    let fragment = crate::prompts::MEM_MANAGEMENT.trim();
+    assert!(!fragment.is_empty());
+    for (role, kind, expected) in [
+        (Some("Orchestrator"), None, 1),
+        (Some("Manager"), Some("planner"), 1),
+        (None, None, 1),
+        (Some("Worker"), None, 0),
+        (Some("Manager"), Some("cartographer"), 0),
+    ] {
+        for assignment in [None, Some("OPAQUE_MEMORY_ASSIGNMENT")] {
+            let rendered = role_onboarding_task(assignment, role, kind).expect("launch prompt");
+            assert_eq!(
+                rendered.matches(fragment).count(),
+                if kind == Some("planner") && assignment.is_none() {
+                    0
+                } else {
+                    expected
+                },
+                "{role:?}/{kind:?}"
+            );
+            assert!(slot_residue(&rendered).is_empty());
+            if let Some(token) = assignment {
+                assert_eq!(rendered.matches(token).count(), 1);
+            }
+        }
+    }
+    for rendered in [
+        worker_suffix(),
+        crate::prompts::cartographer_suffix(),
+        crate::prompts::CRON_COMPLETE_SUFFIX.to_string(),
+        crate::prompts::TOOL_LESS.to_string(),
+    ] {
+        assert_eq!(rendered.matches(fragment).count(), 0);
     }
 }

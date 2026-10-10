@@ -14,6 +14,51 @@ pub(super) fn dispatch(
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     match method {
+        "agent.turns" => {
+            let target = get_string_param(params, "tab_id")?;
+            let params = params.as_ref().ok_or(JsonRpcError {
+                code: -32602,
+                message: "params required".into(),
+                data: None,
+            })?;
+            let last = params
+                .get("last")
+                .map(|v| v.as_u64().ok_or("last must be an integer"))
+                .transpose()
+                .map_err(|message| JsonRpcError {
+                    code: -32602,
+                    message: message.into(),
+                    data: None,
+                })?
+                .unwrap_or(10);
+            let after = params
+                .get("after_offset")
+                .map(|v| {
+                    v.as_u64()
+                        .ok_or("after_offset must be a nonnegative integer")
+                })
+                .transpose()
+                .map_err(|message| JsonRpcError {
+                    code: -32602,
+                    message: message.into(),
+                    data: None,
+                })?
+                .unwrap_or(0);
+            let caller = params.get("caller_tab_id").and_then(Value::as_str);
+            let nonce = params.get("session_binding_nonce").and_then(Value::as_str);
+            let result = svc
+                .read_tool_less_session_turns(&target, last, after, caller, nonce)
+                .map_err(|message| JsonRpcError {
+                    code: -32003,
+                    message,
+                    data: None,
+                })?;
+            serde_json::to_value(result).map_err(|e| JsonRpcError {
+                code: -32603,
+                message: e.to_string(),
+                data: None,
+            })
+        }
         "agent.diagnostic" => {
             let tab_id = get_string_param(params, "tab_id")?;
             let kind = get_string_param(params, "kind")?;

@@ -2,8 +2,6 @@ use codeterm_types::agent::chat_types::{
     ChatAttachment, ChatMsg, ChatTimelineMarker, InteractiveElement, RichMessage,
 };
 
-const THINKING_PREVIEW: usize = 200;
-
 /// Short, human-readable summary of a tool input (file path, command, …),
 /// mirroring the desktop parser's `summarizeInput`.
 fn summarize_tool_input(input: Option<&serde_json::Value>) -> String {
@@ -449,16 +447,10 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
                 if raw.trim().is_empty() {
                     continue;
                 }
-                let truncated: String = raw.chars().take(THINKING_PREVIEW).collect();
-                let content = if raw.chars().count() > THINKING_PREVIEW {
-                    format!("{truncated}...")
-                } else {
-                    truncated
-                };
                 ChatMsg {
                     id,
                     kind: "thinking".into(),
-                    content,
+                    content: raw.to_string(),
                     collapsed: true,
                     ..Default::default()
                 }

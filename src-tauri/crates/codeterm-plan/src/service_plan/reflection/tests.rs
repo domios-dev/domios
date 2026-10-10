@@ -262,19 +262,16 @@ fn cadence_disabled_when_every_is_zero() {
 }
 
 #[test]
-fn render_emits_block_with_counts_and_routing_primitives() {
+fn render_substitutes_the_supplied_window_values() {
     let (_d, store, pid, ids) = store_with_group();
     close_group(&store, &pid, &ids, 100);
     let plan = store.get(&pid).unwrap();
 
     let mut out = String::new();
     render_reflection(&plan, DEFAULT_REFLECT_EVERY_GATES, &mut out);
-    assert!(out.contains(crate::service_plan::prompts_plan::REFLECTION_HEARTBEAT_TITLE));
     assert!(out.contains("tasks closed: 2"));
     assert!(out.contains("gate leaks: 1"));
-    assert!(out.contains("codeterm orchestrator learn"));
-    assert!(out.contains("codeterm plan skill new"));
-    assert!(out.contains("Planner"));
+    assert!(!out.contains("{trigger}") && !out.contains("{closed}"));
 }
 
 #[test]

@@ -86,7 +86,7 @@ export const enHelpContent: HelpLocaleContent = {
             "Orchestrator — owns the plan, delegates planning work, dispatches workers in parallel worktree lanes, gates their results, and integrates branches.",
             "Planner — subordinate specialist that drafts goal, spec, plan, tasks, and decision options when asked; never runs implementation.",
             "Worker — does ONE task in its own git worktree, reports back, exits. Never spawns other agents.",
-            "General Agent — the always-on machine brain: answers you anywhere, watches integrations, and can become an Orchestrator when you ask.",
+            "General Agent — the always-on machine brain: answers you anywhere, watches your messengers and plugins, and can become an Orchestrator when you ask.",
           ],
         },
         {
@@ -137,6 +137,31 @@ export const enHelpContent: HelpLocaleContent = {
       ],
     },
     {
+      id: "blueprints",
+      title: "Blueprints",
+      subtitle: "Let agents watch for a change and act on it",
+      blocks: [
+        {
+          type: "paragraph",
+          text: "When you keep running the same commands to see whether something changed, a Blueprint can do it for you. It watches a tab, a scheduled run or a command's output and acts only when the result changes, so nobody has to poll.",
+        },
+        {
+          type: "list",
+          items: [
+            "Each Blueprint reads as what is watched and what happens next.",
+            "It acts within its agent's authority and asks you when an outcome is new to it.",
+            "Open a Blueprint from the chat card or the workspace automation view to see its history.",
+          ],
+        },
+        {
+          type: "ask",
+          label: "Ask the General Agent: turn my repeated commands into a Blueprint",
+          question:
+            "A user is reading the Domios guide (blueprints section) and pressed 'Ask the agent'. Ask which repeated check or command sequence they want automated, then propose one Blueprint as what is watched and what happens next, validate it with codeterm blueprint recipe and --dry-run, and create it only after they agree.",
+        },
+      ],
+    },
+    {
       id: "memory",
       title: "Memory",
       subtitle: "Facts, skills, and recall across sessions",
@@ -168,17 +193,17 @@ export const enHelpContent: HelpLocaleContent = {
     },
     {
       id: "supporter-agent",
-      title: "Supporter Agent",
+      title: "Spinal Cord",
       subtitle: "Useful memories, watched tabs and bounded recovery",
       blocks: [
         {
           type: "paragraph",
-          text: "The Supporter Agent helps Domios put useful memories first, notice stuck tabs and recover the General Agent within limits. Once an adapter is connected, it works automatically. There are no feature switches. Without a connected adapter, memory search and tabs work as before.",
+          text: "The Spinal Cord helps Domios put useful memories first, notice stuck tabs and recover the General Agent within limits. Once an adapter is connected, it works automatically. There are no feature switches. Without a connected adapter, memory search and tabs work as before.",
         },
         { type: "heading", text: "What it does for you" },
         {
           type: "paragraph",
-          text: "Better memory answers. When an agent searches memory, the Supporter puts the most useful results first. If nothing fits well, it raises a flag, so the agent knows not to lean on a weak match.",
+          text: "Better memory answers. When an agent searches memory, the Spinal Cord puts the most useful results first. If nothing fits well, it raises a flag, so the agent knows not to lean on a weak match.",
         },
         { type: "figure", figureId: "supporter-recall" },
         {
@@ -192,24 +217,24 @@ export const enHelpContent: HelpLocaleContent = {
         },
         {
           type: "paragraph",
-          text: "Quiet team heartbeats. On existing scheduler ticks, Domios checks reports, task changes and each Worker's own session, ACK, provider process, turns, lane commits and classified prompt. A connected Supporter makes one shared-budget decision. Healthy, unchanged work stays quiet without model calls; coarse health hashes ignore changing turn counters and timestamps. Repeated soft decisions share the existing nudge interval. Undelivered reports, failed gates, owner messages and answers, worker incidents and mode changes always wake the Orchestrator with a next step. Uncertain answers wake too. Without a model or when its budget is exhausted, changed plan evidence or unhealthy workers wake deterministically. After two hours of silence a short status confirms the scheduler is active. Review hold notes excuse deliberate review inactivity until the state or verdict changes. Relevant learnings are capped at three; fallback uses recent learnings. Settings shows wakes and suppressions in the activity feed. This is automatic, with no feature switch.",
+          text: "Quiet team heartbeats. On existing scheduler ticks, Domios checks reports, task changes and each Worker's own session, ACK, provider process, turns, lane commits and classified prompt. A connected Spinal Cord makes one shared-budget decision. Healthy, unchanged work stays quiet without model calls; coarse health hashes ignore changing turn counters and timestamps. Repeated soft decisions share the existing nudge interval. Undelivered reports, failed gates, owner messages and answers, worker incidents and mode changes always wake the Orchestrator with a next step. Uncertain answers wake too. Without a model or when its budget is exhausted, changed plan evidence or unhealthy workers wake deterministically. After two hours of silence a short status confirms the scheduler is active. Review hold notes excuse deliberate review inactivity until the state or verdict changes. Relevant learnings are capped at three; fallback uses recent learnings. Settings shows wakes and suppressions in the activity feed. This is automatic, with no feature switch.",
         },
         { type: "heading", text: "Budget and fallback" },
         {
           type: "paragraph",
-          text: "Model requests have no cap by default. An optional positive supporter.calls_per_hour value sets a shared rolling hourly cap; 0 also means no cap. A search can use more than one request. Jev usage is charged to your TypeSafe account; local models use your machine. Settings > Agents shows recent activity, requests per hour and day, today's and this month's estimated Jev spend, and an optional balance you enter after a top-up. Domios alerts you once when the estimated balance drops below $1, and once if Jev reports the account is out of credit. When an explicit request cap is reached, memory returns its normal results and tab observations pause until capacity is available.",
+          text: "Model requests have no cap by default. An optional positive supporter.calls_per_hour value sets a shared rolling hourly cap; 0 also means no cap. A search can use more than one request. Jev usage is charged to your TypeSafe account; local models use your machine. Settings > Agents shows requests per hour and day and today's and this month's estimated Jev spend. Domios alerts once if Jev reports the account is out of credit. When an explicit request cap is reached, memory returns its normal results and tab observations pause until capacity is available.",
         },
         { type: "heading", text: "Connect an adapter" },
         {
           type: "list",
           ordered: true,
           items: [
-            "Open Connect another adapter in Settings > Agents > Supporter Agent and choose an adapter and model. Saved connections keep their own models and tokens when you switch.",
+            "Open Connect another adapter in Settings > Agents > Spinal Cord and choose an adapter and model. Saved connections keep their own models and tokens when you switch.",
             "Supply an API token if required, leave it empty if optional, or use no token field for a token-free adapter. Press Connect & make active.",
             "Check its status and activity there, or run codeterm supporter status. A connected adapter starts working automatically.",
           ],
         },
-        { type: "settings-link", label: "Open Supporter Agent settings", target: "supporter-agent" },
+        { type: "settings-link", label: "Open Spinal Cord settings", target: "supporter-agent" },
         {
           type: "tip",
           text: "If an adapter is unavailable, a required token is missing or a request times out, Domios keeps normal memory search and skips the model observation. The status and activity tell you why.",
@@ -230,7 +255,7 @@ export const enHelpContent: HelpLocaleContent = {
           blocks: [
             {
               type: "paragraph",
-              text: "A saved connection means configured, not proven reachable. Only the active adapter runs Supporter requests. Removing the active connection stops the Supporter without selecting another. A stale status keeps the last rows and disables changes until refresh.",
+              text: "A saved connection means configured, not proven reachable. Only the active adapter runs Spinal Cord requests. Removing the active connection stops the Spinal Cord without selecting another. A stale status keeps the last rows and disables changes until refresh.",
             },
             {
               type: "paragraph",
@@ -294,7 +319,7 @@ export const enHelpContent: HelpLocaleContent = {
           blocks: [
             {
               type: "paragraph",
-              text: "The Supporter Agent is designed for deterministic decision models such as TypeSafe Jev. Asked a pick-one (choice) or yes/no (noul) question, Jev returns a calibrated probability for each answer, and the same question always gets the same answer.",
+              text: "The Spinal Cord is designed for deterministic decision models such as TypeSafe Jev. Asked a pick-one (choice) or yes/no (noul) question, Jev returns a calibrated probability for each answer, and the same question always gets the same answer.",
             },
             {
               type: "list",
@@ -321,9 +346,9 @@ export const enHelpContent: HelpLocaleContent = {
         },
         {
           type: "ask",
-          label: "Ask the General Agent: should I set up the Supporter Agent?",
+          label: "Ask the General Agent: should I set up the Spinal Cord?",
           question:
-            "A user is reading the Domios guide (Supporter Agent section) and pressed 'Ask the agent'. Check codeterm supporter status for the selected adapter, connection, token requirement, activity and shared budget. Explain how to connect it, what text it receives, Jev versus LM Studio, fallback and the two-restart recovery bound. Inspect graph, docs and session sources only if relevant. Keep it short and practical.",
+            "A user is reading the Domios guide (Spinal Cord section) and pressed 'Ask the agent'. Check codeterm supporter status for the selected adapter, connection, token requirement, activity and shared budget. Explain how to connect it, what text it receives, Jev versus LM Studio, fallback and the two-restart recovery bound. Inspect graph, docs and session sources only if relevant. Keep it short and practical.",
         },
       ],
     },
@@ -354,27 +379,88 @@ export const enHelpContent: HelpLocaleContent = {
       ],
     },
     {
-      id: "integrations",
-      title: "Integrations",
-      subtitle: "Bridges to the outside world",
+      id: "messengers",
+      title: "Messengers",
+      subtitle: "Reach your agents from Telegram",
       blocks: [
         {
           type: "paragraph",
-          text: "Bridges connect outside channels to your agents. The Telegram bridge is the flagship: message your General Agent from your phone, get answers, voice messages are transcribed before delivery, and agents can push notifications back when something needs you.",
+          text: "Messengers connect a chat app to your General Agent. Telegram is built in: write to your bot from anywhere, voice messages arrive transcribed, and agents message you back when something needs you. Set it up in Settings > General > Messengers.",
         },
         {
           type: "list",
           items: [
-            "Inbound messages carry a return address — the agent answers in the channel you wrote from, not in the tab.",
-            "Allowed-user lists gate who can talk to your machine; tokens live in the secret store, not in configs.",
-            "Discord and other bridges follow the same pattern when enabled; text hooks let you intercept and route messages programmatically.",
+            "Replies go back to the chat you wrote from, not to a tab.",
+            "Only the Telegram user IDs you allow reach your machine.",
+            "The bot token is saved to your secret store, never to a config file.",
+            "To let agents act from your own Telegram or Teams account instead of a bot, see the messenger plugins section.",
+          ],
+        },
+        { type: "settings-link", label: "Open Messengers settings", target: "telegram-bridge" },
+        {
+          type: "ask",
+          label: "Ask the General Agent: which messengers are connected?",
+          question:
+            "A user is reading the Domios guide (messengers section) and pressed 'Ask the agent'. Check whether the Telegram bot bridge is connected on this machine, as which bot, and which user IDs are allowed. Show it with @ds-connect telegram. If it is not connected, say what the next step is in one sentence.",
+        },
+      ],
+    },
+    {
+      id: "phone",
+      title: "Answer your agents from your phone",
+      subtitle: "Message your General Agent through a Telegram bot",
+      blocks: [
+        {
+          type: "paragraph",
+          text: "Connect a Telegram bot and your General Agent answers you wherever you are. Write from your phone, send voice notes that arrive transcribed, and get a message when an agent needs you.",
+        },
+        {
+          type: "list",
+          ordered: true,
+          items: [
+            "Create a bot with @BotFather in Telegram and copy the token it gives you.",
+            "Paste the token below and press Connect. It is saved to your secret store.",
+            "Add your Telegram user ID to the allowed users in Settings > General > Messengers.",
+            "Send your bot a message.",
+          ],
+        },
+        {
+          type: "tip",
+          text: "Only allowed user IDs reach your machine. Leave the list empty only on a bot nobody else knows about.",
+        },
+        {
+          type: "ask",
+          label: "Ask the General Agent: help me connect my phone",
+          question:
+            "A user is reading the Domios guide (phone section) and pressed 'Ask the agent'. Check whether the Telegram bot bridge is connected, whether a token is stored and which user IDs are allowed. Walk them through the next missing step only, one step at a time, and show @ds-connect telegram while it is not connected.",
+        },
+        { type: "connect", bridgeId: "telegram" },
+      ],
+    },
+    {
+      id: "messenger-plugins",
+      title: "Let agents use your Telegram and Teams",
+      subtitle: "Plugins that act from your own messenger accounts",
+      blocks: [
+        {
+          type: "paragraph",
+          text: "The bot bridge talks as a bot. These plugins sign in as you, so agents can find a chat by name, read recent history, search messages and send text or files from your own account.",
+        },
+        { type: "plugin", pluginId: "telegram-client" },
+        { type: "plugin", pluginId: "teams-client" },
+        {
+          type: "list",
+          items: [
+            "Install runs only when you press it, the same as in Plugins.",
+            "After installing, open the plugin to sign in. Your session stays on this machine.",
+            "Agents send from your account only when you ask them to.",
           ],
         },
         {
           type: "ask",
-          label: "Ask the General Agent: what integrations are live here?",
+          label: "Ask the General Agent: what can you do with my messengers?",
           question:
-            "A user is reading the Domios guide (integrations section) and pressed 'Ask the agent'. Check which integrations/bridges are configured and enabled on this machine and summarize their status. If none are set up, recommend which one to start with and where the setup lives in Settings.",
+            "A user is reading the Domios guide (messenger plugins section) and pressed 'Ask the agent'. Check whether telegram-client and teams-client are installed and signed in on this machine. Show each with @ds-plugin and give two concrete things you could do for them with the ones that are ready.",
         },
       ],
     },

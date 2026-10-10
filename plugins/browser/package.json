@@ -1,0 +1,10 @@
+{
+  "name": "@codeterm/plugin-browser",
+  "version": "1.12.4",
+  "private": true,
+  "type": "module",
+  "description": "CodeTerm core Browser plugin: teaches agents the browser verbs of the core browser surface runtime.",
+  "devDependencies": {
+    "@codeterm/plugin-sdk": "workspace:*"
+  }
+}

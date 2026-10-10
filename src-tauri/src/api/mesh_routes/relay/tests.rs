@@ -258,7 +258,12 @@ fn peer_relay_resolves_online_record_deterministically_over_duplicate_names() {
     mesh.paired_peers.clear();
     mesh.paired_peers.insert(
         "a4db6f3d-dead".into(),
-        paired_peer_fixture("a4db6f3d-dead", "BLACKSTAR", false, 0),
+        paired_peer_fixture(
+            "a4db6f3d-dead",
+            "BLACKSTAR",
+            false,
+            crate::mesh::types::RELAY_PROTOCOL_VERSION - 1,
+        ),
     );
     mesh.paired_peers.insert(
         "2556b3f9-live".into(),
@@ -278,12 +283,12 @@ fn peer_relay_resolves_online_record_deterministically_over_duplicate_names() {
     // Case-insensitive name resolution still lands on the live record.
     assert!(resolve_relay_peer(&mesh, "blackstar").is_ok());
     // Id lookup returns the EXACT record for that id, bypassing the name
-    // ambiguity — but not the protocol gate: the dead id is still protocol 0.
+    // ambiguity — but not the protocol gate: the dead id is still protocol 1.
     let (_, _, live_id_name, _) =
         resolve_relay_peer(&mesh, "2556b3f9-live").expect("the live id resolves");
     assert_eq!(live_id_name, "BLACKSTAR");
     match resolve_relay_peer(&mesh, "a4db6f3d-dead") {
-        Ok(_) => panic!("the dead id's own record is protocol 0 — must still refuse"),
+        Ok(_) => panic!("the dead id's own record is protocol 1 — must still refuse"),
         Err((status, _)) => assert_eq!(status, StatusCode::UPGRADE_REQUIRED),
     }
 }
@@ -683,8 +688,10 @@ fn relay_send_tags_originating_peer() {
     let mut body = serde_json::json!({"text": "hi", "source_tab": "e8a0ac20"});
     tag_relay_send_source(&mut body, "POST", "/api/tabs/general/send", "BLACKSTAR");
     assert_eq!(body["source_peer"], serde_json::json!("BLACKSTAR"));
-    // Text is NOT pre-wrapped — the send handler owns prefixing.
+    // Old and current receivers frame at their own send handler.
     assert_eq!(body["text"], serde_json::json!("hi"));
+    assert!(!body["text"].as_str().unwrap().contains("<domios"));
+    assert!(!body["text"].as_str().unwrap().contains("-=-codeterm:"));
     assert_eq!(body["source_tab"], serde_json::json!("e8a0ac20"));
 }
 
@@ -974,21 +981,7 @@ fn locally_generated_relay_refusals_carry_a_code_not_a_bare_status() {
     }
 }
 
-/// The sender hop's own transport failure — connection refused before any
-/// bytes left, or a timeout after the peer accepted the connection — must
-/// thread through the same `relay_failure()` vocabulary the receiving hop
-/// uses, with distinguishable, retry-decidable codes. Exercises the exact
-/// composition `mesh_relay_to_peer` performs on a `send_relay` error, driven
-/// against real sockets so the reqwest classification itself is under test,
-/// not a fabricated error.
-///
-/// The timeout half genuinely waits out `send_relay`'s real ~120s
-/// `RELAY_TIMEOUT` (transport.rs) rather than a shorter stand-in: an earlier
-/// version of this test held the peer connection open for only 10s and then
-/// dropped it, which produced a connection *reset*, not a timeout — a
-/// different `reqwest::Error` kind that happened to reach the same
-/// conclusion by accident (`is_connect()` false) without ever exercising the
-/// bound production actually uses. This test is intentionally slow.
+/// Connection refusal and a post-connect close must keep distinct retry semantics.
 #[tokio::test]
 async fn sender_transport_failure_reports_the_same_vocabulary_as_the_receiver() {
     let probe_cmd = crate::mesh::types::RelayCommand {
@@ -1012,27 +1005,54 @@ async fn sender_transport_failure_reports_the_same_vocabulary_as_the_receiver() 
         refused_err.to_string(),
     );
 
-    // Accepts the connection then holds it open FOREVER — only
-    // `send_relay`'s own governing timeout can end the wait.
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind ephemeral port");
     let addr = listener.local_addr().expect("local addr");
-    tokio::spawn(async move {
-        if let Ok((_socket, _)) = listener.accept().await {
-            // Never drop `_socket`: closing it would race a connection reset
-            // against the real timeout this test exists to prove.
-            std::future::pending::<()>().await;
+    let peer = tokio::spawn(async move {
+        use tokio::io::AsyncReadExt;
+
+        let (mut socket, _) = listener.accept().await.expect("relay connection");
+        let mut request = Vec::new();
+        let mut chunk = [0; 1024];
+        loop {
+            let count = socket.read(&mut chunk).await.expect("read relay request");
+            assert_ne!(count, 0, "relay closed before sending its request");
+            request.extend_from_slice(&chunk[..count]);
+            let Some(header_end) = request.windows(4).position(|part| part == b"\r\n\r\n") else {
+                continue;
+            };
+            let header_end = header_end + 4;
+            let headers = String::from_utf8_lossy(&request[..header_end]);
+            let content_length = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().ok())
+                        .flatten()
+                })
+                .expect("relay request content length");
+            if request.len() >= header_end + content_length {
+                return request;
+            }
         }
     });
-    let stalled_client = crate::mesh::transport::PeerClient::new_unauthenticated(
+    let closing_client = crate::mesh::transport::PeerClient::new_unauthenticated(
         &addr.ip().to_string(),
         addr.port(),
     );
-    let stalled_err = stalled_client
-        .send_relay(&probe_cmd)
+    let loopback_deadline = std::time::Duration::from_secs(5);
+    let stalled_err =
+        tokio::time::timeout(loopback_deadline, closing_client.send_relay(&probe_cmd))
+            .await
+            .expect("loopback close must fail promptly")
+            .expect_err("the peer closes after receiving the request");
+    let request = tokio::time::timeout(loopback_deadline, peer)
         .await
-        .expect_err("the peer never answers, so send_relay's own RELAY_TIMEOUT must fire");
+        .expect("peer must receive the complete relay request")
+        .expect("peer task");
+    assert!(request.starts_with(b"POST /api/mesh/relay HTTP/1.1\r\n"));
     let submit_unconfirmed = relay_failure(
         stalled_err.http_status(),
         stalled_err.code(),

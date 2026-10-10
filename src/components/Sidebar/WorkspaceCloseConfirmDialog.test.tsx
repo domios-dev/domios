@@ -11,6 +11,7 @@ const team: TeamCloseResource = {
   name: "API Team",
   members: [{ tabId: "worker-1", title: "API Worker", role: "Worker", roleProfile: null }],
   crons: ["Daily check"],
+  blueprints: ["Daily deploy"],
   lanes: ["API plan: Add route"],
 };
 
@@ -25,6 +26,7 @@ describe("workspace close confirmation", () => {
           <WorkspaceCloseConfirmDialog
             workspaceName="Project"
             agentTitles={[]}
+            blueprints={["Tab owned pipeline"]}
             teams={[team]}
             onConfirm={() => {}}
             onCancel={() => {}}
@@ -34,6 +36,8 @@ describe("workspace close confirmation", () => {
       expect(host.textContent).toContain("Team members (1)");
       expect(host.textContent).toContain("API Worker (Worker)");
       expect(host.textContent).toContain("Daily check");
+      expect(host.textContent).toContain("Daily deploy");
+      expect(host.textContent).toContain("Tab owned pipeline");
       expect(host.textContent).toContain("API plan: Add route");
     } finally {
       await act(async () => root.unmount());

@@ -157,7 +157,13 @@ function menuLayerStyle(anchor: DOMRect): CSSProperties {
   const roomAbove = anchor.top - MENU_GAP_PX - MENU_EDGE_PX;
   const roomBelow = window.innerHeight - anchor.bottom - MENU_GAP_PX - MENU_EDGE_PX;
   return roomAbove >= MENU_MAX_HEIGHT_PX || roomAbove >= roomBelow
-    ? { left, maxWidth, bottom: window.innerHeight - anchor.top + MENU_GAP_PX, maxHeight: Math.min(MENU_MAX_HEIGHT_PX, roomAbove) }
+    ? {
+      left,
+      maxWidth,
+      bottom: window.innerHeight - anchor.top + MENU_GAP_PX,
+      maxHeight: Math.min(MENU_MAX_HEIGHT_PX, roomAbove),
+      ...({ "--ct-menu-origin": "bottom left", "--ct-menu-shift": "6px" } as CSSProperties),
+    }
     : { left, maxWidth, top: anchor.bottom + MENU_GAP_PX, maxHeight: Math.min(MENU_MAX_HEIGHT_PX, roomBelow) };
 }
 
@@ -251,7 +257,7 @@ function PreviousPlansMenu({
             role="menu"
             aria-label="Previous plans"
             data-testid="mc-board-previous-plans-menu"
-            className="mc-board-layer mc-board-plan-menu"
+            className="mc-board-layer ct-menu mc-board-plan-menu"
             style={menuLayerStyle(anchor)}
             onKeyDown={onMenuKeyDown}
           >
@@ -265,7 +271,7 @@ function PreviousPlansMenu({
                 role="menuitem"
                 data-testid="mc-board-previous-plan"
                 data-plan-id={previous.id}
-                className="mc-board-plan-menuitem"
+                className="ct-menu-row mc-board-plan-menuitem"
                 onClick={() => choose(previous.id)}
               >
                 <span className="mc-board-plan-menuitem-title">{previous.title}</span>

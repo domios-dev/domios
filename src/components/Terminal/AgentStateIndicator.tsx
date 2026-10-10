@@ -1,32 +1,12 @@
+import type { ReactNode } from "react";
 import { Square, Terminal, X } from "lucide-react";
 import { ActivityDots } from "../shared/ActivityDots";
 import type { Tab } from "../../lib/types";
 
-export type AgentStateKind = "working" | "idle" | "quiet" | "question";
+import type { TabActivity } from "../../lib/tabActivity";
+export type { AgentState } from "../../lib/tabActivity";
 
-export type AgentQuestionSubtype =
-  | "model_choice"
-  | "model_picker"
-  | "permission"
-  | "auth"
-  | "rate_limit"
-  | "update"
-  | "error"
-  | "unknown";
-
-export interface AgentState {
-  state: AgentStateKind;
-  subtype?: AgentQuestionSubtype;
-  status_line?: string | null;
-  phase?: string | null;
-}
-
-type WorkPhase = "thinking" | "streaming" | "work";
 const STATUS_MESSAGE_MAX_CHARS = 80;
-
-function workPhaseOf(phase: string | null | undefined): WorkPhase {
-  return phase === "thinking" || phase === "streaming" ? phase : "work";
-}
 
 function compactStatusMessage(text: string): string {
   const chars = Array.from(text);
@@ -34,28 +14,8 @@ function compactStatusMessage(text: string): string {
   return `${chars.slice(0, STATUS_MESSAGE_MAX_CHARS - 1).join("").trimEnd()}…`;
 }
 
-function questionStatus(subtype: AgentQuestionSubtype | undefined): string {
-  switch (subtype) {
-    case "model_choice":
-    case "model_picker":
-      return "Choose a model";
-    case "permission":
-      return "Permission needed";
-    case "auth":
-      return "Sign in to continue";
-    case "rate_limit":
-      return "Rate limited";
-    case "update":
-      return "Update available";
-    case "error":
-      return "Needs attention";
-    default:
-      return "Waiting for input";
-  }
-}
-
 export function AgentStateIndicator({
-  state,
+  activity,
   providerName,
   model,
   reasoningEffort,
@@ -64,8 +24,9 @@ export function AgentStateIndicator({
   onCancel,
   onOpenTerminal,
   onRebind,
+  renderIdentity,
 }: {
-  state: AgentState;
+  activity: TabActivity;
   providerName?: string | null;
   model?: string | null;
   reasoningEffort?: Tab["reasoning_effort_identity"] | null;
@@ -74,42 +35,68 @@ export function AgentStateIndicator({
   onCancel?: () => void;
   onOpenTerminal?: () => void;
   onRebind?: () => void;
+  renderIdentity?: (label: string) => ReactNode;
 }) {
-  const isWorking = state.state === "working";
-  const isQuiet = state.state === "quiet";
-  const isQuestion = state.state === "question";
-  const phase = workPhaseOf(state.phase);
-  const status = state.status_line?.trim()
-    || (isWorking ? "Working" : isQuiet ? "Session quiet — rebind to continue" : isQuestion ? questionStatus(state.subtype) : "");
+  const isWorking = activity.canStop;
+  const isQuiet = activity.quiet;
+  const isQuestion = activity.kind === "waiting-on-user";
+  const phase = activity.phase;
+  const status = activity.label;
   const actualEffort = reasoningEffort?.actual_source === "session-owned"
     ? reasoningEffort.actual?.trim()
     : null;
-  const text = [providerName?.trim(), model?.trim(), actualEffort, status].filter(Boolean).join(" · ");
+  const identity = [providerName?.trim(), model?.trim(), actualEffort].filter(Boolean).join(" · ");
+  const text = [identity, status].filter(Boolean).join(" · ");
+  const dots = (
+    <ActivityDots
+      size="small"
+      tone={isWorking ? (phase === "thinking" ? "thinking" : "accent") : "muted"}
+      rhythm={phase}
+      active={activity.active}
+    />
+  );
 
   return (
     <div
       className={`ct-agent-row ct-agent-row--chat flex items-center gap-2 ${className ?? ""}`}
       data-testid="agent-state"
-      data-agent-state={state.state}
-      data-agent-subtype={state.subtype ?? undefined}
+      data-agent-state={activity.state}
+      data-tab-activity={activity.kind}
+      data-agent-subtype={activity.subtype ?? undefined}
       data-agent-phase={phase}
       role="status"
       aria-live="polite"
       aria-label={text ? `Agent ${text}` : "Agent idle"}
     >
-      <ActivityDots
-        size="small"
-        tone={isWorking ? (phase === "thinking" ? "thinking" : "accent") : "muted"}
-        rhythm={phase}
-        active={isWorking}
-      />
-      <span
-        className="ct-agent-msg min-w-0 flex-1 truncate text-sm font-medium tracking-tight"
-        style={{ fontFamily: "var(--ct-font-mono)" }}
-        title={text || undefined}
-      >
-        {compactStatusMessage(text)}
-      </span>
+      {renderIdentity && identity ? (
+        <>
+          <span
+            className="ct-agent-msg ct-agent-identity flex min-w-0 shrink text-sm font-medium tracking-tight"
+            style={{ fontFamily: "var(--ct-font-mono)" }}
+          >
+            {renderIdentity(identity)}
+          </span>
+          {dots}
+          <span
+            className="ct-agent-msg min-w-0 flex-1 truncate text-sm font-medium tracking-tight"
+            style={{ fontFamily: "var(--ct-font-mono)" }}
+            title={status || undefined}
+          >
+            {status ? compactStatusMessage(status) : ""}
+          </span>
+        </>
+      ) : (
+        <>
+          {dots}
+          <span
+            className="ct-agent-msg min-w-0 flex-1 truncate text-sm font-medium tracking-tight"
+            style={{ fontFamily: "var(--ct-font-mono)" }}
+            title={text || undefined}
+          >
+            {compactStatusMessage(text)}
+          </span>
+        </>
+      )}
       {onStop && (!isQuiet && !isQuestion) && (
         <button
           type="button"
@@ -118,15 +105,15 @@ export function AgentStateIndicator({
           disabled={!isWorking}
           aria-hidden={!isWorking || undefined}
           tabIndex={isWorking ? undefined : -1}
-          className={`ct-agent-stop shrink-0 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium${isWorking ? "" : " invisible"}`}
+          className={`ct-agent-stop shrink-0 inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-medium${isWorking ? "" : " invisible"}`}
           aria-label="Stop the agent"
           title={isWorking ? "Stop the agent" : undefined}
         >
           <Square size={9} strokeWidth={0} fill="currentColor" aria-hidden />
-          Stop
+          <span className="ct-agent-stop__label">Stop</span>
         </button>
       )}
-      {isQuiet && onRebind && (
+      {onRebind && !isQuestion && (
         <button
           type="button"
           data-testid="agent-rebind"

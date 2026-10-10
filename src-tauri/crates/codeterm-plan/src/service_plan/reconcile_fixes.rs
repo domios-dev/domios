@@ -62,6 +62,7 @@ impl PlanStore {
                             "set_stale_review_label",
                         ));
                     }
+                    DriftKind::ReportTargetWriteMissing => {}
                     DriftKind::StalePendingUnstaffed => {
                         task.status_label = Some(STALE_UNSTAFFED_LABEL.into());
                         task.updated_at = now_ms;

@@ -21,8 +21,8 @@ export function ActivityFeed({ api, teamId, embedded = false }: { api: ApiConfig
       {!data && !failed && <p role="status" className={UI_TEXT.detailMuted}>Loading activity…</p>}
       {data && entries.length === 0 && <p className={UI_TEXT.detailMuted}>No recorded decisions.</p>}
       <ol
-        aria-label={teamId ? "Team Supporter decisions" : "Machine Supporter decisions"}
-        className="max-h-80 overflow-y-auto divide-y divide-[var(--ct-border)]"
+        aria-label={teamId ? "Team Spinal Cord decisions" : "Machine Spinal Cord decisions"}
+        className="max-h-80 overflow-y-auto"
       >
         {entries.map((entry, index) => {
           const text = activityText(entry);
@@ -38,7 +38,7 @@ export function ActivityFeed({ api, teamId, embedded = false }: { api: ApiConfig
               data-fallback={entry.fallback === true}
             >
               <details className="group">
-                <summary className="flex cursor-pointer list-none items-center gap-2 rounded px-1 py-1 hover:bg-[var(--ct-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]">
+                <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-[color-mix(in_srgb,var(--ct-fg)_5%,transparent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]">
                   <time
                     dateTime={validTime ? date.toISOString() : undefined}
                     title={validTime ? date.toLocaleString() : undefined}

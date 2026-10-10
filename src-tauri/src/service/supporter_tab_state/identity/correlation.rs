@@ -29,6 +29,7 @@ pub(crate) enum Producer {
     ParkedEdge,
     PromptEstablished,
     PromptConfirmation,
+    SentinelRequest,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,6 +75,7 @@ impl Correlation {
                 | Producer::ParkedEdge
                 | Producer::PromptEstablished
                 | Producer::PromptConfirmation
+                | Producer::SentinelRequest
         )
     }
 
@@ -130,6 +132,7 @@ impl Correlation {
 pub(crate) struct RecordIdentity<'a> {
     pub(crate) observation_id: u64,
     correlation: Option<&'a Correlation>,
+    fallback_decision_point: Option<&'a str>,
     model_verdict: Option<ModelVerdict>,
 }
 
@@ -151,6 +154,7 @@ impl<'a> RecordIdentity<'a> {
         Self {
             observation_id,
             correlation,
+            fallback_decision_point: None,
             model_verdict: None,
         }
     }
@@ -166,11 +170,31 @@ impl<'a> RecordIdentity<'a> {
                 .as_ref()
                 .map(|envelope| &envelope.correlation),
         )
+        .with_fallback_decision_point(
+            metadata.context["observation_event"]
+                .as_str()
+                .unwrap_or_default(),
+        )
+    }
+
+    pub(crate) fn with_fallback_decision_point(mut self, decision_point: &'a str) -> Self {
+        self.fallback_decision_point = Some(decision_point);
+        self
     }
 
     pub(crate) fn with_model_verdict(mut self, verdict: Option<ModelVerdict>) -> Self {
         self.model_verdict = verdict;
         self
+    }
+
+    pub(crate) fn decision_point(&self) -> Option<&str> {
+        self.correlation
+            .filter(|correlation| correlation.observation_id == self.observation_id)
+            .map(Correlation::decision_point)
+            .or_else(|| {
+                self.fallback_decision_point
+                    .filter(|point| supported_decision_point(point))
+            })
     }
 
     pub(super) fn decorate(
@@ -202,6 +226,11 @@ impl<'a> RecordIdentity<'a> {
         if let Some(correlation) = captured {
             event["decision_point"] = json!(correlation.decision_point);
             event["correlation"] = json!(correlation);
+        } else if let Some(decision_point) = self
+            .fallback_decision_point
+            .filter(|point| supported_decision_point(point))
+        {
+            event["decision_point"] = json!(decision_point);
         }
         let verdict = self
             .model_verdict
@@ -274,23 +303,26 @@ fn hash(value: &str, length: usize) -> bool {
     value.len() == length && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
+fn supported_decision_point(point: &str) -> bool {
+    matches!(
+        point,
+        "launch_ready"
+            | "startup_deadline"
+            | "startup_escalation"
+            | "prompt_candidate"
+            | "worker_idle_without_report"
+            | "busy_without_output"
+            | "tab_exit"
+            | "user_delivery_readiness"
+    )
+}
+
 pub(crate) fn project(value: &Value) -> Option<Value> {
     let correlation: Correlation = serde_json::from_value(value["correlation"].clone()).ok()?;
-    let points = [
-        ObservationTrigger::SpawnReady,
-        ObservationTrigger::SpawnDeadline,
-        ObservationTrigger::StartupEscalation,
-        ObservationTrigger::PromptCandidate,
-        ObservationTrigger::WorkerIdle,
-        ObservationTrigger::BusyNoOutput,
-        ObservationTrigger::TabExit,
-    ];
     if correlation.version != 2
         || Some(correlation.observation_id) != value["observation_id"].as_u64()
         || Some(correlation.decision_point.as_str()) != value["decision_point"].as_str()
-        || !points
-            .iter()
-            .any(|point| point.label() == correlation.decision_point)
+        || !supported_decision_point(&correlation.decision_point)
         || match correlation.producer {
             Producer::PromptEstablished | Producer::PromptConfirmation => {
                 correlation.decision_point != "prompt_candidate"
@@ -301,6 +333,12 @@ pub(crate) fn project(value: &Value) -> Option<Value> {
             Producer::OutputCandidate | Producer::ParkedEdge => {
                 correlation.decision_point != "prompt_candidate"
                     || correlation.parent_observation_id.is_some()
+            }
+            Producer::SentinelRequest => {
+                correlation.decision_point != "prompt_candidate"
+                    || correlation
+                        .parent_observation_id
+                        .is_some_and(|parent| parent == 0 || parent == correlation.observation_id)
             }
             Producer::LifecycleEvent => correlation.parent_observation_id.is_some(),
         }
@@ -319,9 +357,14 @@ pub(crate) fn project(value: &Value) -> Option<Value> {
 
 pub(crate) fn project_diagnostics(value: &Value, entry: &mut Value) {
     let correlation = project(value);
+    let decision_point = value["decision_point"]
+        .as_str()
+        .filter(|point| supported_decision_point(point));
     if let Some(correlation) = correlation.as_ref() {
         entry["decision_point"] = correlation["decision_point"].clone();
         entry["correlation"] = correlation.clone();
+    } else if let Some(decision_point) = decision_point {
+        entry["decision_point"] = json!(decision_point);
     }
     if let Some(status) = value["observation_status"]
         .as_str()
@@ -333,15 +376,12 @@ pub(crate) fn project_diagnostics(value: &Value, entry: &mut Value) {
             status
         });
     }
-    if correlation.is_some() {
+    if correlation.is_some() || decision_point.is_some() {
+        // Action phases need a valid correlation; classification phases may stand alone.
+        let action_allowed = correlation.is_some();
         if let Some(phase) = value["phase"].as_str().filter(|phase| {
-            [
-                "classification_completed",
-                "classification_rejected",
-                "action_authorized",
-                "action_stale",
-            ]
-            .contains(phase)
+            ["classification_completed", "classification_rejected"].contains(phase)
+                || (action_allowed && ["action_authorized", "action_stale"].contains(phase))
         }) {
             entry["phase"] = json!(phase);
         }

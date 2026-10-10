@@ -149,6 +149,8 @@ pub(super) fn launch_params_to_json(p: &AgentLaunchParams) -> Value {
         "sessionId": p.session_id,
         "structuredPromptServer": p.structured_prompt_server,
         "launchMarker": p.launch_marker,
+        "toolLessInstructionsPath": p.tool_less_instructions_path,
+        "contextFiles": p.context_files,
         "instanceId": p.instance_id,
     })
 }

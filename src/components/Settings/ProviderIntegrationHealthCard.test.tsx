@@ -8,10 +8,8 @@ import {
   uninstallProviderIntegration,
 } from "../../lib/bridge";
 import type { ProviderDescriptor } from "../../lib/types";
-import {
-  ProviderIntegrationHealthCard,
-  providersWithIntegrationHealth,
-} from "./ProviderIntegrationHealthCard";
+import { ProviderIntegrationHealthCard } from "./ProviderIntegrationHealthCard";
+import { providerPageSections } from "./providerPageSections";
 
 function assert(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
@@ -70,12 +68,8 @@ async function testCapabilitySelectsIntegrationProviders() {
     display_name: id,
     has_hooks: hasHooks,
   } as ProviderDescriptor);
-  const selected = providersWithIntegrationHealth([
-    provider("provider-with-hooks", true),
-    provider("provider-without-hooks", false),
-  ]);
-  assert(selected.length === 1, "only providers declaring the hook capability get a health surface");
-  assert(selected[0]?.id === "provider-with-hooks", "selection follows capability instead of provider identity");
+  assert(providerPageSections(provider("provider-with-hooks", true)).integration, "the hook capability places the integration section");
+  assert(!providerPageSections(provider("provider-without-hooks", false)).integration, "no hook capability, no integration section");
 }
 
 async function testStaleHookIsActionable() {

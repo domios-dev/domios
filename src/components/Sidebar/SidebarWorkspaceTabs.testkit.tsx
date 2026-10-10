@@ -132,6 +132,7 @@ export async function renderSidebar({
   host: HTMLDivElement;
   root: Root;
   rerender: (nextPlans: Plan[], nextPlanIndex?: PlanIndexEntry[]) => Promise<void>;
+  rerenderTabs: (nextTabs: Record<string, Tab>) => Promise<void>;
 }> {
   const workspace: Workspace = {
     id: "workspace",
@@ -145,7 +146,7 @@ export async function renderSidebar({
   const root = createRoot(host);
   const rerender = async (nextPlans: Plan[], nextPlanIndex = planIndex) => act(async () => {
     root.render(
-      <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
+      <SidebarDnd handlers={{ reorderTabs: () => {}, reorderDisplay: () => {}, reorderWorkspaces: () => {} }}>
         <SidebarWorkspaceTabs
           workspace={workspace}
           activeTabId={workspace.active_tab_id}
@@ -179,6 +180,10 @@ export async function renderSidebar({
     );
   });
   await rerender(plans, planIndex);
-  return { host, root, rerender };
+  const rerenderTabs = async (nextTabs: Record<string, Tab>) => {
+    tabs = nextTabs;
+    await rerender(plans, planIndex);
+  };
+  return { host, root, rerender, rerenderTabs };
 }
 

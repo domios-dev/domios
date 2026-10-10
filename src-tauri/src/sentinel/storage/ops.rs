@@ -3,7 +3,9 @@
 
 use super::{codec, finishing, Failure, Staged};
 use crate::sentinel::handlers::{ResultRecord, Transition};
-use crate::sentinel::store::{Lease, ScheduleChange, Sentinel, Store, MAX_ACTIVE};
+use crate::sentinel::run_binding::RunBindOutcome;
+use crate::sentinel::source::RunBinding;
+use crate::sentinel::store::{Lease, ScheduleChange, Sentinel, StopNotice, Store, MAX_ACTIVE};
 use crate::storage::{Fence, MutationOutcome, ScheduleUpdate};
 
 fn refused<T: Send + 'static>(error: String) -> Staged<T> {
@@ -15,6 +17,64 @@ fn applied(outcome: MutationOutcome) -> bool {
 }
 
 impl Store {
+    pub(in crate::sentinel) fn sqlite_set_run_binding(
+        &mut self,
+        id: &str,
+        expected_generation: u64,
+        cron_id: &str,
+        expected_run: Option<RunBinding>,
+        run: Option<RunBinding>,
+        next_run: u64,
+        last_reason: Option<String>,
+    ) -> Staged<RunBindOutcome> {
+        let stored = match codec::id(id) {
+            Ok(stored) => stored,
+            Err(error) => return refused(error),
+        };
+        let to_record = |run: RunBinding| crate::storage::RunRecord {
+            run_id: run.run_id,
+            tab_id: run.tab_id,
+            bound_at: run.bound_at,
+        };
+        let replaced = run.as_ref().and(expected_run.clone());
+        let expected_run = expected_run.map(to_record);
+        let run = run.map(to_record);
+        let binding = run.is_some();
+        let (cron_id, sentinel_id) = (cron_id.to_string(), id.to_string());
+        let committed_id = sentinel_id.clone();
+        self.submit(
+            move |repo| {
+                repo.set_run_binding(
+                    stored,
+                    expected_generation,
+                    cron_id,
+                    expected_run,
+                    run,
+                    next_run,
+                    last_reason,
+                )
+            },
+            finishing(move |store, outcome| {
+                let commit = outcome.map_err(Failure::message)?;
+                let applied = commit.outcome == crate::storage::MutationOutcome::Applied;
+                if applied {
+                    if let Some(cancelled) = store.active.get(&committed_id) {
+                        cancelled.cancel();
+                    }
+                    if binding {
+                        store.wake_pending.insert(committed_id.clone());
+                    } else {
+                        store.wake_pending.remove(&committed_id);
+                    }
+                }
+                Ok(RunBindOutcome {
+                    changed: applied,
+                    replaced: applied.then_some(replaced).flatten(),
+                })
+            }),
+        )
+    }
+
     pub(in crate::sentinel) fn sqlite_insert(
         &mut self,
         job: Sentinel,
@@ -31,19 +91,73 @@ impl Store {
                 match commit.outcome {
                     MutationOutcome::Applied => Ok(job),
                     MutationOutcome::Fenced(Fence::Duplicate) => {
-                        Err("duplicate sentinel ID".into())
+                        Err("duplicate blueprint ID".into())
                     }
                     MutationOutcome::Fenced(Fence::Capacity) => {
-                        Err("sentinel capacity reached".into())
+                        Err("blueprint capacity reached".into())
                     }
-                    other => Err(format!("sentinel creation refused: {other:?}")),
+                    other => Err(format!("blueprint creation refused: {other:?}")),
+                }
+            }),
+        )
+    }
+
+    pub(in crate::sentinel) fn sqlite_update_definition(
+        &mut self,
+        expect_version: u64,
+        author_tab_id: &str,
+        authored_at: u64,
+        cause_transition_id: Option<String>,
+        job: Sentinel,
+    ) -> Staged<Sentinel> {
+        let id = match codec::id(&job.id) {
+            Ok(id) => id,
+            Err(error) => return refused(error),
+        };
+        let update = match codec::update_definition(
+            &job,
+            author_tab_id.into(),
+            cause_transition_id,
+            authored_at,
+        ) {
+            Ok(update) => update,
+            Err(error) => return refused(error),
+        };
+        let public_id = job.id.clone();
+        self.submit(
+            move |repo| repo.update_definition(id, expect_version, update),
+            finishing(move |_, outcome| {
+                let commit = outcome.map_err(Failure::message)?;
+                match commit.outcome {
+                    MutationOutcome::Applied => {
+                        commit.sentinels.first().map(codec::decode).ok_or_else(|| {
+                            "blueprint update returned no committed state".to_string()
+                        })
+                    }
+                    MutationOutcome::Fenced(Fence::Version) => {
+                        let current_version = commit
+                            .sentinels
+                            .first()
+                            .map(|sentinel| sentinel.record.definition.version)
+                            .unwrap_or(expect_version);
+                        Err(crate::sentinel::amend::version_conflict(current_version))
+                    }
+                    MutationOutcome::Fenced(Fence::Missing) => {
+                        Err(format!("blueprint not found: {public_id}"))
+                    }
+                    other => Err(format!("blueprint update refused: {other:?}")),
                 }
             }),
         )
     }
 
     /// The lease is already cancelled; a failed commit keeps the stop intent in memory.
-    pub(in crate::sentinel) fn sqlite_stop(&mut self, id: &str, reason: &str) -> Staged<Sentinel> {
+    pub(in crate::sentinel) fn sqlite_stop(
+        &mut self,
+        id: &str,
+        reason: &str,
+        notice: Option<StopNotice>,
+    ) -> Staged<Sentinel> {
         let stored = match codec::id(id) {
             Ok(stored) => stored,
             Err(error) => return refused(error),
@@ -53,17 +167,22 @@ impl Store {
         self.submit(
             move |repo| repo.stop(stored, stop_reason),
             finishing(move |store, outcome| match outcome {
-                Ok(commit) => match commit.outcome {
-                    MutationOutcome::Applied => commit
-                        .sentinels
-                        .first()
-                        .map(codec::decode)
-                        .ok_or_else(|| "sentinel stop returned no committed state".to_string()),
-                    MutationOutcome::Fenced(Fence::Missing) => {
-                        Err(format!("sentinel not found: {id}"))
+                Ok(commit) => {
+                    match commit.outcome {
+                        MutationOutcome::Applied => {
+                            if let Some(notice) = notice {
+                                store.pending_stop_notices.push(notice);
+                            }
+                            commit.sentinels.first().map(codec::decode).ok_or_else(|| {
+                                "blueprint stop returned no committed state".to_string()
+                            })
+                        }
+                        MutationOutcome::Fenced(Fence::Missing) => {
+                            Err(format!("blueprint not found: {id}"))
+                        }
+                        other => Err(format!("blueprint stop refused: {other:?}")),
                     }
-                    other => Err(format!("sentinel stop refused: {other:?}")),
-                },
+                }
                 Err(Failure::Failed(message)) => {
                     store.apply_stop(&id, &reason);
                     Err(message)
@@ -81,12 +200,50 @@ impl Store {
             finishing(move |store, outcome| match outcome {
                 Ok(_) => Ok(()),
                 Err(Failure::Failed(message)) => {
+                    let removed: std::collections::BTreeSet<_> = store
+                        .jobs
+                        .iter()
+                        .filter(|job| job.team_id.as_deref() == Some(team.as_str()))
+                        .map(|job| job.id.clone())
+                        .collect();
                     store
                         .jobs
                         .retain(|job| job.team_id.as_deref() != Some(team.as_str()));
+                    store.wake_pending.retain(|id| !removed.contains(id));
                     Err(message)
                 }
                 Err(Failure::Refused(message)) => Err(message),
+            }),
+        )
+    }
+
+    pub(in crate::sentinel) fn sqlite_delete_scenario(
+        &mut self,
+        id: &str,
+        workspace: &str,
+        team: Option<&str>,
+    ) -> Staged<()> {
+        let (stored, id, workspace, team) = match codec::id(id) {
+            Ok(stored) => (
+                stored,
+                id.to_string(),
+                workspace.to_string(),
+                team.map(str::to_string),
+            ),
+            Err(error) => return refused(error),
+        };
+        self.submit(
+            move |repo| repo.delete_scenario(stored, workspace, team),
+            finishing(move |_store, outcome| match outcome {
+                Ok(commit) if commit.outcome == MutationOutcome::Applied => Ok(()),
+                Ok(commit) if commit.outcome == MutationOutcome::Fenced(Fence::Missing) => {
+                    Err(format!("Sentinel scenario not found: {id}"))
+                }
+                Ok(commit) => Err(format!(
+                    "Sentinel scenario delete refused: {:?}",
+                    commit.outcome
+                )),
+                Err(Failure::Failed(message) | Failure::Refused(message)) => Err(message),
             }),
         )
     }
@@ -96,6 +253,8 @@ impl Store {
         &mut self,
         leases: Vec<Lease>,
         changes: Vec<ScheduleChange>,
+        consumed_wakes: Vec<String>,
+        stop_notices: Vec<StopNotice>,
     ) -> Staged<Vec<Lease>> {
         if changes.is_empty() {
             return Staged::ready(Ok(leases));
@@ -115,14 +274,26 @@ impl Store {
             };
             match update {
                 Ok(update) => updates.push(update),
-                Err(error) => return revoke(self, leases, error),
+                Err(error) => {
+                    self.wake_pending.extend(consumed_wakes);
+                    return revoke(self, leases, error);
+                }
             }
         }
         self.submit(
             move |repo| repo.schedule(updates),
             finishing(move |store, outcome| match outcome {
-                Ok(_) => Ok(leases),
+                Ok(commit) => {
+                    if commit.outcome == MutationOutcome::Applied {
+                        store.pending_stop_notices.extend(stop_notices);
+                    }
+                    for id in consumed_wakes {
+                        store.wake_pending.remove(&id);
+                    }
+                    Ok(leases)
+                }
                 Err(failure) => {
+                    store.wake_pending.extend(consumed_wakes);
                     for lease in &leases {
                         lease.cancelled.cancel();
                         store.active.remove(&lease.job.id);
@@ -234,6 +405,7 @@ impl Store {
         source: &Sentinel,
         transition: &str,
         target: &str,
+        input_due_at: Option<u64>,
     ) -> Staged<bool> {
         let (stored, activated) = match (codec::id(&source.id), codec::id(target)) {
             (Ok(stored), Ok(activated)) => (stored, activated),
@@ -241,25 +413,25 @@ impl Store {
         };
         let fence = codec::fence(source, transition);
         self.submit(
-            move |repo| repo.activate_target(stored, fence, activated, MAX_ACTIVE),
+            move |repo| repo.activate_target(stored, fence, activated, MAX_ACTIVE, input_due_at),
             finishing(|_, outcome| {
                 let commit = outcome.map_err(Failure::message)?;
                 match commit.outcome {
                     MutationOutcome::Applied => Ok(true),
                     MutationOutcome::Unchanged => Ok(false),
                     MutationOutcome::Fenced(Fence::Capacity) => {
-                        Err("sentinel active capacity reached".into())
+                        Err("blueprint active capacity reached".into())
                     }
                     MutationOutcome::Fenced(Fence::NotClaimed) => Err(
-                        "sentinel activation requires its declared durable handler claim".into(),
+                        "blueprint activation requires its declared durable handler claim".into(),
                     ),
                     MutationOutcome::Fenced(Fence::Missing) => {
-                        Err("sentinel target not found".into())
+                        Err("blueprint target not found".into())
                     }
                     MutationOutcome::Fenced(Fence::Scope) => {
-                        Err("sentinel target requires the same creator, Team and workspace".into())
+                        Err("blueprint target requires the same creator, Team and workspace".into())
                     }
-                    MutationOutcome::Fenced(_) => Err("sentinel activation source fenced".into()),
+                    MutationOutcome::Fenced(_) => Err("blueprint activation source fenced".into()),
                 }
             }),
         )

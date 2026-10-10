@@ -1,5 +1,7 @@
 /** Native-only IPC commands — honest web degradation via webCapability(). */
 export const WEB_UNSUPPORTED: Record<string, string> = {
+  automation_node_files: "Node file inspection is available only in the desktop app",
+  reveal_file: "Revealing a file in the OS file manager is available only in the desktop app",
   bridge_thread_state:
     "Telegram thread menu state is a desktop Tauri command; a REST route would let a bearer token bypass caller-tab authority",
   bridge_thread_open:
@@ -12,14 +14,12 @@ export const WEB_UNSUPPORTED: Record<string, string> = {
     "Native xterm reads seeded backend history on remount; web output stream replays the backend buffer",
   materialize_dropped_files:
     "Native Tauri webview file-drop paths must be materialized on the host",
+  attachment_path_kinds:
+    "Folder detection stats native drop paths; browser uploads are always files",
   read_clipboard_files:
     "OS clipboard file paths; web uses navigator.clipboard.read()",
   read_clipboard_text:
     "OS clipboard text reader; web uses navigator.clipboard.readText()",
-  read_html_preview_file:
-    "Local file-backed HTML previews are available only in the desktop app",
-  read_local_preview_file:
-    "Local page, image, and document previews are available only in the desktop app",
   notify_permission_state:
     "OS toast permission belongs to the machine running the app; the browser mirror has no such grant to read",
   establish_notify_permission:
@@ -30,8 +30,6 @@ export const WEB_UNSUPPORTED: Record<string, string> = {
     "Desktop startup readiness generation has no browser equivalent",
   get_rest_api_status:
     "REST listener recovery is owned by the desktop supervisor",
-  refresh_provider_models:
-    "The model probe execs the provider CLI on the daemon host; the web mirror cannot spawn a host subprocess and receives the refreshed catalog through models-updated and the binary watcher instead",
   provider_model_usage:
     "Per-group model usage is read from a provider-owned store on the daemon host; the web mirror renders the picker without it",
   restart_rest_api:

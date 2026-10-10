@@ -14,6 +14,9 @@ use crate::js_runtime::{JsDecisionModel, PluginVm};
 struct NativeDecisionModel(TokenMode);
 
 impl DecisionModel for NativeDecisionModel {
+    fn supports_calibrated_choice_confidence(&self) -> bool {
+        true
+    }
     fn id(&self) -> &str {
         "native-fixture"
     }
@@ -99,8 +102,72 @@ fn shared_fixtures() -> Vec<DecisionRequest> {
 }
 
 #[test]
+fn parity_decision_model_opencode_run_shared_fixtures() {
+    let bundle = include_str!("../../../../../../plugins/provider-opencode/plugin.js");
+    let setup = r#"
+        host.exec = function() { return JSON.stringify({code: 0, stdout: 'fixture/model'}); };
+        host.exec.async = function(opts, then) {
+            var request = JSON.parse(opts.stdin);
+            var config = JSON.parse(opts.env.OPENCODE_CONFIG_CONTENT);
+            if (config.agent['domios-decision'].permission['*'] !== 'deny') throw new Error('unsafe fixture');
+            var answer = request.question.type === 'noul' ? {type:'noul',p:0.8}
+                : request.question.type === 'choice' ? {type:'choice',choice:'yes',probabilities:{no:0.2,yes:0.8},confidence:0.8}
+                : {type:'score',score:2,probabilities:{'0':0.1,'1':0.2,'2':0.7},confidence:0.7};
+            return then({code:0,stdout:JSON.stringify({type:'text',part:{text:JSON.stringify(answer)}})+'\n'+JSON.stringify({type:'step_finish',part:{reason:'stop'}})});
+        };
+        host.fs.readFile = function() { return null; };
+    "#;
+    let vm = Arc::new(PluginVm::from_source("run-fixture", format!("{setup}\n{bundle}")).unwrap());
+    let javascript = JsDecisionModel::new(vm, "run-fixture", TokenMode::None);
+    assert!(javascript.select_model("fixture/model"));
+    assert!(!javascript.supports_question_batch());
+    assert!(!javascript.supports_calibrated_choice_confidence());
+    let native = NativeDecisionModel(TokenMode::None);
+    for request in shared_fixtures() {
+        let deadline = Instant::now() + std::time::Duration::from_secs(2);
+        assert_eq!(
+            javascript.decide(&request, deadline),
+            native.decide(&request, deadline)
+        );
+    }
+}
+
+#[test]
+fn parity_decision_model_typed_failures() {
+    for (code, expected) in [
+        (
+            "unavailable",
+            DecisionError::Unavailable("plugin_unavailable".into()),
+        ),
+        ("timeout", DecisionError::Deadline),
+        (
+            "transport",
+            DecisionError::Transport("plugin_decide_failed".into()),
+        ),
+        (
+            "invalid_response",
+            DecisionError::Parse("invalid_answer".into()),
+        ),
+    ] {
+        let source =
+            format!("module.exports.default = {{ decide() {{ return {{error:'{code}'}}; }} }};");
+        let model = JsDecisionModel::new(
+            Arc::new(PluginVm::from_source("error-fixture", source).unwrap()),
+            "error-fixture",
+            TokenMode::None,
+        );
+        let request = shared_fixtures().remove(0);
+        assert_eq!(
+            model.decide(&request, Instant::now() + std::time::Duration::from_secs(2)),
+            Err(expected)
+        );
+    }
+}
+
+#[test]
 fn parity_decision_model_matches_shared_fixtures() {
     let source = r#"module.exports.default = {
+        supportsCalibratedChoiceConfidence() { return true; },
         modelId() { return "fixture-model"; },
         selectModel(id) { return id === "fixture-model"; },
         metadata() { return {}; },
@@ -130,6 +197,10 @@ fn parity_decision_model_matches_shared_fixtures() {
         let javascript =
             JsDecisionModel::new(vm.clone(), "js-fixture", caps.decision_model.token_mode);
         assert_eq!(native.token_mode(), expected);
+        assert_eq!(
+            native.supports_calibrated_choice_confidence(),
+            javascript.supports_calibrated_choice_confidence()
+        );
         assert_eq!(native.token_mode(), javascript.token_mode());
         assert_eq!(native.primitives(), javascript.primitives());
         assert_eq!(native.models(), javascript.models());
@@ -153,6 +224,22 @@ fn parity_decision_model_matches_shared_fixtures() {
             );
         }
     }
+}
+
+#[test]
+fn js_decision_model_defaults_calibrated_choice_capability_to_false() {
+    let model = JsDecisionModel::new(
+        Arc::new(
+            PluginVm::from_source(
+                "decision-default-capability",
+                "module.exports.default = {};".into(),
+            )
+            .unwrap(),
+        ),
+        "decision-default-capability",
+        TokenMode::None,
+    );
+    assert!(!model.supports_calibrated_choice_confidence());
 }
 
 #[test]

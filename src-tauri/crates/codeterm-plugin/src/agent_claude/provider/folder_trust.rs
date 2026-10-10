@@ -10,7 +10,7 @@ const FRAME: &[char] = &[
 /// `None` when no trust dialog is shown; `Hold` for a trust dialog whose shape
 /// does not prove which key advances it toward trusting the folder.
 pub(super) fn response(screen: &str) -> Option<DirectoryTrustPromptResponse> {
-    let rows: Vec<&str> = screen.split('\n').map(content).collect();
+    let rows = live_dialog_rows(screen)?;
     if let Some(header) = find_trust_header(&rows) {
         if rows[header.end + 1..]
             .iter()
@@ -57,6 +57,28 @@ pub(super) fn response(screen: &str) -> Option<DirectoryTrustPromptResponse> {
     None
 }
 
+fn live_dialog_rows(screen: &str) -> Option<Vec<&str>> {
+    let raw_rows: Vec<&str> = screen.split('\n').collect();
+    let rows: Vec<&str> = raw_rows.iter().map(|row| content(row)).collect();
+    let anchor = rows.iter().rposition(|row| is_footer(row)).or_else(|| {
+        rows.iter()
+            .rposition(|row| is_trust_option(option_row(row).label))
+    })?;
+    if raw_rows[anchor + 1..].iter().any(|row| {
+        let row = row.trim();
+        row.starts_with('❯')
+            || row.starts_with('>')
+            || (row.chars().count() >= 3 && row.chars().all(|c| matches!(c, '─' | '━')))
+    }) {
+        return None;
+    }
+    let start = rows[..anchor]
+        .iter()
+        .rposition(|row| is_footer(row))
+        .map_or(0, |index| index + 1);
+    Some(rows[start..].to_vec())
+}
+
 struct OptionRow<'a> {
     focused: bool,
     label: &'a str,
@@ -99,7 +121,7 @@ fn answer(options: &[OptionRow<'_>], has_path: bool) -> Option<DirectoryTrustPro
 }
 
 pub(super) fn parse_prompt(screen: &str) -> Option<(String, Vec<(String, String)>)> {
-    let rows: Vec<&str> = screen.split('\n').map(content).collect();
+    let rows = live_dialog_rows(screen)?;
     let prompt = current_prompt(&rows)?;
     Some((
         prompt.question,
@@ -113,7 +135,7 @@ pub(super) fn parse_prompt(screen: &str) -> Option<(String, Vec<(String, String)
 }
 
 pub(super) fn current_option_index(screen: &str) -> Option<usize> {
-    let rows: Vec<&str> = screen.split('\n').map(content).collect();
+    let rows = live_dialog_rows(screen)?;
     current_prompt(&rows).map(|prompt| prompt.focused)
 }
 
@@ -136,8 +158,12 @@ fn current_prompt<'a>(rows: &[&'a str]) -> Option<TrustPrompt<'a>> {
     if options.iter().filter(|option| option.focused).count() != 1 {
         return None;
     }
+    if !has_folder_trust_affirmative(&options)
+        || !options.iter().any(|option| leads_with(option.label, "no"))
+    {
+        return None;
+    }
     let focused = options.iter().position(|option| option.focused)?;
-    trust_choice_indices(&options)?;
     Some(TrustPrompt {
         question: header.question,
         options,
@@ -146,10 +172,16 @@ fn current_prompt<'a>(rows: &[&'a str]) -> Option<TrustPrompt<'a>> {
 }
 
 fn find_trust_header(rows: &[&str]) -> Option<TrustHeader> {
-    (0..rows.len()).find_map(|start| trust_header(rows, start))
+    (0..rows.len())
+        .rev()
+        .find_map(|start| trust_header(rows, start))
 }
 
 fn trust_header(rows: &[&str], start: usize) -> Option<TrustHeader> {
+    // A Windows drive path ("D:\repo") carries a colon but is never a dialog title.
+    if is_path_row(rows[start]) {
+        return None;
+    }
     let (title, first_question) = rows[start].split_once(':')?;
     if title.trim().is_empty() {
         return None;
@@ -196,7 +228,7 @@ fn is_footer(row: &str) -> bool {
 }
 
 fn choice_rows<'a>(rows: &[&'a str], header_end: usize) -> Option<TrustChoices<'a>> {
-    let footer = (header_end + 1..rows.len()).find(|&index| is_footer(rows[index]))?;
+    let footer = (header_end + 1..rows.len()).rfind(|&index| is_footer(rows[index]))?;
     let start =
         (header_end + 1..footer).find(|&index| is_trust_option(option_row(rows[index]).label))?;
     let mut options = Vec::new();
@@ -341,6 +373,25 @@ mod tests {
     }
 
     #[test]
+    fn transcript_quote_has_no_live_trust_prompt_or_focus() {
+        let screen =
+            std::fs::read_to_string(fixtures().join("claude-transcript-quotes-trust-dialog.txt"))
+                .expect("quoted trust fixture");
+        assert_eq!(response(&screen), None);
+        assert_eq!(parse_prompt(&screen), None);
+        assert_eq!(current_option_index(&screen), None);
+    }
+
+    #[test]
+    fn live_trust_dialog_accepts_trailing_blank_rows() {
+        let screen = std::fs::read_to_string(fixtures().join("claude-2.1.296-trailing-blanks.txt"))
+            .expect("live trust fixture with blank tail");
+        assert_eq!(response(&screen), expected("move-down"));
+        assert!(parse_prompt(&screen).is_some());
+        assert_eq!(current_option_index(&screen), Some(0));
+    }
+
+    #[test]
     fn enter_is_only_sent_while_the_affirmative_row_is_focused() {
         let screen = std::fs::read_to_string(fixtures().join("quick-safety-no-first.txt"))
             .expect("unfocused trust fixture");
@@ -398,5 +449,14 @@ mod tests {
         assert_eq!(response(&screen), Some(DirectoryTrustPromptResponse::Hold));
         assert_eq!(parse_prompt(&screen), None);
         assert_eq!(current_option_index(&screen), None);
+    }
+
+    #[test]
+    fn continue_without_permissions_is_visible_but_not_auto_advanced() {
+        let screen =
+            std::fs::read_to_string(fixtures().join("trust-continue-without-permissions.txt"))
+                .expect("continue without permissions fixture");
+        assert!(parse_prompt(&screen).is_some());
+        assert_eq!(response(&screen), Some(DirectoryTrustPromptResponse::Hold));
     }
 }

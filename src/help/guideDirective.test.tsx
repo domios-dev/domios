@@ -68,9 +68,9 @@ testWindow.HTMLElement.prototype.scrollIntoView = function () {
   }
 
   test("guide_parser_accepts_only_a_standalone_directive", () => {
-    assert(parseGuideDirective("@ct-guide supporter-agent") === "supporter-agent", "section id lost");
-    assert(parseGuideDirective("\t@ct-guide memory \r") === "memory", "CR line or indentation lost");
-    for (const source of ["prefix @ct-guide memory", "@ct-guide memory suffix", "@ct-guide\nmemory", "@ct-guide memory\nsecond-line", "@ct-guide", "`@ct-guide memory`", "> @ct-guide memory"]) {
+    assert(parseGuideDirective("@ds-guide supporter-agent") === "supporter-agent", "section id lost");
+    assert(parseGuideDirective("\t@ds-guide memory \r") === "memory", "CR line or indentation lost");
+    for (const source of ["prefix @ds-guide memory", "@ds-guide memory suffix", "@ds-guide\nmemory", "@ds-guide memory\nsecond-line", "@ds-guide", "`@ds-guide memory`", "> @ds-guide memory"]) {
       assert(parseGuideDirective(source) === null, `accepted non-standalone directive: ${source}`);
     }
   });
@@ -104,12 +104,12 @@ testWindow.HTMLElement.prototype.scrollIntoView = function () {
   }
 
   test("guide_control_opens_settings_section_and_focuses_heading", async () => {
-    await withHarness("@ct-guide supporter-agent", async (host) => {
-      const control = host.querySelector('[data-testid="chat-ct-guide"] button') as HTMLButtonElement;
+    await withHarness("@ds-guide supporter-agent", async (host) => {
+      const control = host.querySelector('[data-testid="chat-ds-guide"] [data-block-action="open"]') as HTMLButtonElement;
       assert(control && control.type === "button" && !control.disabled, "Guide control inaccessible");
       assert((control.getAttribute("aria-label") ?? control.textContent)?.trim(), "Guide control has no accessible name");
       const metadata = GUIDE_SECTIONS.find((section) => section.id === "supporter-agent");
-      assert(metadata && control.textContent?.includes(metadata.title), "section title did not reach control");
+      assert(metadata && control.getAttribute("aria-label")?.includes(metadata.title), "section title did not reach control");
       await act(async () => control.click());
       assertDestination(host, "supporter-agent");
 
@@ -117,37 +117,37 @@ testWindow.HTMLElement.prototype.scrollIntoView = function () {
       await act(async () => memoryNav.click());
       const selector = host.querySelector('[data-testid="help-section-select"]') as HTMLSelectElement;
       assert(selector.value === "memory", "Guide navigation did not change section");
-      const liveControl = host.querySelector('[data-testid="chat-ct-guide"] button') as HTMLButtonElement;
+      const liveControl = host.querySelector('[data-testid="chat-ds-guide"] [data-block-action="open"]') as HTMLButtonElement;
       await act(async () => liveControl.click());
       assertDestination(host, "supporter-agent");
     });
   });
 
   test("unknown_guide_id_shows_notice_and_opens_first_section", async () => {
-    await withHarness("@ct-guide unknown-section-3c2", async (host) => {
+    await withHarness("@ds-guide unknown-section-3c2", async (host) => {
       assert(host.querySelector('[data-testid="chat-guide-notice"]'), "unknown id notice missing");
-      const control = host.querySelector('[data-testid="chat-ct-guide"] button') as HTMLButtonElement;
+      const control = host.querySelector('[data-testid="chat-ds-guide"] [data-block-action="open"]') as HTMLButtonElement;
       await act(async () => control.click());
       assertDestination(host, GUIDE_SECTIONS[0].id);
     });
   });
 
   test("guide_directive_is_generic_across_sections", async () => {
-    await withHarness("@ct-guide memory", async (host) => {
-      const control = host.querySelector('[data-testid="chat-ct-guide"] button') as HTMLButtonElement;
+    await withHarness("@ds-guide memory", async (host) => {
+      const control = host.querySelector('[data-testid="chat-ds-guide"] [data-block-action="open"]') as HTMLButtonElement;
       await act(async () => control.click());
       assertDestination(host, "memory");
     });
   });
 
   test("inline_code_fences_quotes_and_file_previews_do_not_open_guide", async () => {
-    for (const text of ["prefix @ct-guide memory", "```text\n@ct-guide memory\n```", "`@ct-guide memory`", "> @ct-guide memory"]) {
+    for (const text of ["prefix @ds-guide memory", "```text\n@ds-guide memory\n```", "`@ds-guide memory`", "> @ds-guide memory"]) {
       await withHarness(text, async (host) => {
-        assert(!host.querySelector('[data-testid="chat-ct-guide"]'), "non-standalone text became a Guide control");
+        assert(!host.querySelector('[data-testid="chat-ds-guide"]'), "non-standalone text became a Guide control");
       });
     }
-    await withHarness("@ct-guide memory", async (host) => {
-      assert(!host.querySelector('[data-testid="chat-ct-guide"]'), "file preview gained a Guide control");
+    await withHarness("@ds-guide memory", async (host) => {
+      assert(!host.querySelector('[data-testid="chat-ds-guide"]'), "file preview gained a Guide control");
     }, false);
   });
 

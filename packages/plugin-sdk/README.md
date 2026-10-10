@@ -1,13 +1,13 @@
 # @codeterm/plugin-sdk
 
-Type-only SDK for authoring [Domios](https://github.com/rollacode/codeterm)
+SDK for authoring [Domios](https://github.com/rollacode/codeterm)
 plugin **logic** in TypeScript.
 
 A Domios plugin's logic half runs in a confined QuickJS VM and talks to the
 host only through the injected `host.*` API. This package gives you the typed
 contracts for that surface — the `host` global, and the capability interfaces a
-plugin can implement — with zero runtime weight (it's purely types; your bundler
-erases the imports).
+plugin can implement. Type imports have zero runtime weight. The optional pure
+diff helpers are bundled only when imported as values.
 
 ```ts
 import type { PluginModule } from "@codeterm/plugin-sdk";
@@ -30,9 +30,48 @@ stay on the `host.*` surface. See the Domios plugin authoring guide for details.
 Exports: `Host`, `HostFs`, `HostShell`, `HostPath`, `DirEntry`, `ExecOpts`,
 `ExecResult`, `FetchOpts`, `FetchResult`, and the capability contracts
 (`PluginModule`, `StatusBubble`, `GlanceView`, `ViewNode`, `ViewCall`,
-`AgentProvider`, `SecretBackend`, `Transcriber`, `DecisionModelCapability`,
-`DecisionModelInfo`, `DecisionRequest`, `DecisionAnswer`, `DecisionPrimitives`,
-`DecisionQuestion`, …).
+`AgentProvider`, `SecretBackend`, `Transcriber`, `Converter`,
+`GraphNodesManifestCapability`, `EventSourceDeclaration`, `NodeSchema`,
+`DecisionModelCapability`, `DecisionModelInfo`, `DecisionRequest`,
+`DecisionAnswer`, `DecisionPrimitives`, `DecisionQuestion`, …).
+
+`recordedTextDiff(path, oldText, newText)` maps explicit old/new evidence into
+FileDiff records. Both strings are required. Ranges are relative to the recorded
+fragment and marked `truncated`; missing file context or creation evidence is
+never inferred. CR characters are preserved. `recordedPatchDiff(path, patch,
+kind)` retains unified hunk coordinates and rejects incomplete hunk counts.
+
+## Graph nodes and the converter capability
+
+Declare media conversions and event sources under `capabilities.graphNodes` and
+export `convert(request)` for the conversion edges:
+
+```json
+{
+  "capabilities": {
+    "graphNodes": {
+      "converters": [{ "from": "audio", "to": "text" }],
+      "eventSources": [{
+        "kind": "telegram.message",
+        "title": "Telegram: new message",
+        "params":  { "type": "object", "properties": { "chat_id": { "type": "string", "maxLength": 128 } }, "required": ["chat_id"] },
+        "payload": { "type": "object", "properties": { "text": { "type": "string", "maxLength": 16384 } }, "required": ["text"] }
+      }]
+    }
+  }
+}
+```
+
+`convert(request)` receives `{ inputPath, from, to, outputDir, language?,
+deadlineMs }` and returns `{ text }`, `{ path }` (a file inside `outputDir`),
+or `{ error }`. The host chains conversions across plugins from the declared
+edges alone, so a plan never depends on which plugin serves a step.
+
+`params`/`payload` use a closed schema subset: an object of scalar
+(`string` | `integer` | `number` | `boolean`) or one-level scalar-array
+properties with optional `description`, `enum`, `maxLength` (<= 65536) and
+`maxItems` (<= 256); at most 32 properties. `$ref`, combinators
+(`oneOf`/`anyOf`), `patternProperties` and nested objects are refused at parse.
 
 ## Decision model capability
 
@@ -53,6 +92,9 @@ set using at most one physical HTTP request. Merely exporting `decideQuestions` 
 declare batching. The host counts actual `host.fetch` transport attempts,
 including async and stream calls, and enforces the event's request deadline and
 one-request limit. A local decision with no HTTP call spends no request budget.
+
+Decision adapters that provide calibrated choice probabilities may export
+`supportsCalibratedChoiceConfidence() { return true; }`.
 
 Bare `true` means the token is optional and remains readable by older hosts.
 For a required or token-free adapter, use

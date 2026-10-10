@@ -38,10 +38,7 @@ export function NetworkTab({ data, triggerRefresh }: Props) {
   return (
     <div className="h-full overflow-y-auto">
       <div className="p-6">
-        <SettingsPage
-          title="Connect your machines"
-          subtitle="Discover, pair, and share workspaces across devices on your network or Tailscale."
-        >
+        <SettingsPage title="Connect your machines">
           <SettingsCard
             icon={<Radio size={16} />}
             title="Broadcast presence"
@@ -72,7 +69,7 @@ export function NetworkTab({ data, triggerRefresh }: Props) {
                 </button>
               }
             >
-              <ul className="divide-y divide-[var(--ct-border)] rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)]">
+              <ul className="ct-rows -mx-2">
                 {data.peers.map((peer) => (
                   <li
                     key={peer.instance_id}
@@ -80,7 +77,7 @@ export function NetworkTab({ data, triggerRefresh }: Props) {
                     data-peer-id={peer.instance_id}
                     data-online={String(!!peer.online)}
                     data-pending={String(!!peer.pending)}
-                    className="p-3"
+                    className="ct-row p-3"
                   >
                     <SettingsRow>
                       <div className="flex items-center gap-2 min-w-0">

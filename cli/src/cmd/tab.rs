@@ -95,6 +95,11 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             handle_tab_inspect(client, json, tabs, tab, lifecycle);
         }
         TabAction::New {
+            shell,
+            list_shells,
+            purpose,
+            description,
+            icon,
             workspace,
             cwd,
             title,
@@ -105,6 +110,25 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             chat_backend,
             config,
         } => {
+            if list_shells {
+                match client.call("tab.shells", None) {
+                    Ok(profiles) => {
+                        if json {
+                            crate::cmd::print::print_json(&profiles);
+                        } else if let Some(profiles) = profiles.as_array() {
+                            for profile in profiles {
+                                println!(
+                                    "{}\t{}",
+                                    profile["id"].as_str().unwrap_or_default(),
+                                    profile["name"].as_str().unwrap_or_default()
+                                );
+                            }
+                        }
+                    }
+                    Err(error) => crate::cmd::print::fail(1, error.to_string()),
+                }
+                return;
+            }
             let (base, _) = read_api_config();
             let api = match build_local_api() {
                 Ok(c) => c,
@@ -112,7 +136,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     crate::cmd::print::fail(1, format!("failed to connect to local API: {}", e));
                 }
             };
-            let mut body = serde_json::json!({});
+            let mut body = serde_json::json!({ "purpose": purpose, "description": description, "icon": icon, "shell": shell });
             if let Some(w) = workspace {
                 body["workspace_id"] = serde_json::Value::String(w);
             }
@@ -159,6 +183,9 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     }
                 }
             }
+            if let Some(command) = cmd {
+                body["cmd"] = serde_json::Value::String(command);
+            }
             let create_result = api
                 .post(format!("{}/api/tabs", base))
                 .json(&body)
@@ -174,36 +201,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     }
                 });
 
-            let final_result = match (create_result, cmd) {
-                (Ok(resp), Some(cmd_text)) => {
-                    let tab_id = resp
-                        .get("tab_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    if tab_id.is_empty() {
-                        Ok(resp)
-                    } else {
-                        let exec_url = format!("{}/api/tabs/{}/exec", base, tab_id);
-                        let exec_body = serde_json::json!({"command": cmd_text});
-                        match api.post(&exec_url).json(&exec_body).send() {
-                            Ok(r) if r.status().is_success() => Ok(resp),
-                            Ok(r) => Err(format!(
-                                "tab created (id={}) but --cmd failed: HTTP {}: {}",
-                                tab_id,
-                                r.status().as_u16(),
-                                r.text().unwrap_or_default()
-                            )),
-                            Err(e) => Err(format!(
-                                "tab created (id={}) but --cmd failed: {}",
-                                tab_id, e
-                            )),
-                        }
-                    }
-                }
-                (other, _) => other,
-            };
-            team_utility::handle_create_result(json, team.as_deref(), final_result);
+            team_utility::handle_create_result(json, team.as_deref(), create_result);
         }
         TabAction::Current { last } => {
             // The env var is the tab this RUNS IN; focus is whatever the human
@@ -274,6 +272,46 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             crate::cmd::plan::maybe_inject_caller_tab(&mut params);
             let result = close_tab(client, params);
             handle_cli_result(json, result);
+        }
+        TabAction::ReleaseOwnership { tab } => {
+            if let Some(value) = tab.as_deref() {
+                match classify_remote_tab_id(value) {
+                    RemoteTabTarget::Remote(_, _) => exit_with_cli_error(
+                        json,
+                        &CliError::new("tab release-ownership can target local tabs only"),
+                    ),
+                    RemoteTabTarget::Invalid => {
+                        exit_with_cli_error(json, &CliError::new(INVALID_REMOTE_TAB_ID))
+                    }
+                    RemoteTabTarget::Local => {}
+                }
+            }
+            let tab_id = resolve_tab(client, tab);
+            let (api_url, _) = read_api_config();
+            let api = match build_local_api() {
+                Ok(client) => client,
+                Err(error) => {
+                    crate::cmd::print::fail(1, format!("ownership release failed: {error}"));
+                }
+            };
+            let result = api
+                .post(format!(
+                    "{api_url}/api/tabs/{}/release-ownership",
+                    urlencoding::encode(&tab_id)
+                ))
+                .json(&serde_json::json!({}))
+                .send()
+                .map_err(|error| error.to_string())
+                .and_then(|response| {
+                    let status = response.status();
+                    let body = response.text().unwrap_or_default();
+                    if status.is_success() {
+                        serde_json::from_str(&body).map_err(|error| error.to_string())
+                    } else {
+                        Err(format!("HTTP {}: {body}", status.as_u16()))
+                    }
+                });
+            handle_result(json, result);
         }
         TabAction::Restart { tab, cwd, cmd } => {
             handle_shell_restart(client, json, tab, cwd, cmd);
@@ -905,6 +943,7 @@ fn validate_user_tab_selectors(action: &TabAction) -> Result<(), String> {
             .chain(tab.as_deref())
             .find(|value| invalid(value)),
         TabAction::Restart { tab, .. }
+        | TabAction::ReleaseOwnership { tab }
         | TabAction::Rename { tab, .. }
         | TabAction::Describe { tab, .. }
         | TabAction::GetText { tab, .. }

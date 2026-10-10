@@ -34,18 +34,43 @@ pub(crate) use narrative::{ActivityContext, QuestionAnswer};
 #[derive(Default)]
 pub(crate) struct TokenSnapshot {
     pub(crate) usable: bool,
+    pub(crate) acl_invalid: bool,
 }
 
 impl TokenSnapshot {
     pub(crate) fn read(store: &TokenStore, adapter: &str) -> Self {
+        let status = store.status(adapter).ok();
+        let present = status.as_ref().is_some_and(|status| status.present);
+        let mode_ok = status.as_ref().and_then(|status| status.mode_ok);
+        let token_readable =
+            present && mode_ok != Some(false) && store.load(adapter).ok().flatten().is_some();
+        Self::from_status(present, mode_ok, token_readable)
+    }
+
+    pub(crate) fn from_status(present: bool, mode_ok: Option<bool>, token_readable: bool) -> Self {
         Self {
-            usable: store
-                .status(adapter)
-                .ok()
-                .is_some_and(|status| status.present && status.mode_ok != Some(false))
-                && store.load(adapter).ok().flatten().is_some(),
+            usable: present && mode_ok != Some(false) && token_readable,
+            acl_invalid: present && mode_ok == Some(false),
         }
     }
+}
+
+pub(crate) fn read_token_snapshot(
+    runtime: &SupporterRuntime,
+    store: &TokenStore,
+    adapter: &str,
+) -> TokenSnapshot {
+    let snapshot = TokenSnapshot::read(store, adapter);
+    report_token_acl_state(runtime, adapter, &snapshot);
+    snapshot
+}
+
+pub(crate) fn report_token_acl_state(
+    runtime: &SupporterRuntime,
+    adapter: &str,
+    snapshot: &TokenSnapshot,
+) {
+    runtime.token_acl_state_changed(adapter, snapshot.acl_invalid);
 }
 
 pub(crate) fn supporter_connected(
@@ -172,6 +197,9 @@ struct BudgetedModel {
 }
 
 impl DecisionModel for BudgetedModel {
+    fn supports_calibrated_choice_confidence(&self) -> bool {
+        self.model.supports_calibrated_choice_confidence()
+    }
     fn supports_question_batch(&self) -> bool {
         self.model.supports_question_batch()
     }
@@ -275,6 +303,7 @@ impl DecisionModel for BudgetedModel {
         request
             .validate_answers(&response.answers)
             .map_err(|_| DecisionError::Parse("invalid_response".into()))?;
+        self.runtime.mark_adapter_ready(self.model.id());
         let question_set_hash =
             criteria_hash(&serde_json::to_vec(&request.questions).unwrap_or_default());
         let criteria_version = self
@@ -286,6 +315,10 @@ impl DecisionModel for BudgetedModel {
             self.tab.as_deref(),
             &response,
             activity::DecisionEvidence {
+                decision_point: self
+                    .activity_context
+                    .as_ref()
+                    .map(ActivityContext::decision_point),
                 model_id,
                 criteria_version,
                 state_hash: &criteria_hash(&serde_json::to_vec(&request.state).unwrap_or_default()),

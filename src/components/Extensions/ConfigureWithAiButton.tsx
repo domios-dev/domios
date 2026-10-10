@@ -3,6 +3,7 @@ import { useState } from "react";
 import { configureWithAI } from "../../lib/pluginConfigure";
 import { invoke } from "../../lib/bridge";
 import type { DaemonApiConfig } from "../../lib/webApi";
+import { Button } from "../shared/Button";
 import type { CatalogEntry } from "./pluginCatalog";
 
 export function ConfigureWithAiButton({ entry }: { entry: CatalogEntry }) {
@@ -12,11 +13,13 @@ export function ConfigureWithAiButton({ entry }: { entry: CatalogEntry }) {
   if (!entry.installed || entry.pendingReload || !help) return null;
 
   return (
-    <div>
-      <button
-        type="button"
+    <div className="relative">
+      <Button
+        variant="primary"
+        size="sm"
         data-testid="extensions-configure-ai"
         data-plugin-id={entry.id}
+        aria-label={`Configure ${entry.displayName} with AI`}
         disabled={busy}
         onClick={() => {
           setBusy(true);
@@ -34,14 +37,13 @@ export function ConfigureWithAiButton({ entry }: { entry: CatalogEntry }) {
             }
           })();
         }}
-        className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11.5px] hover:bg-[var(--ct-bg-hover)]"
-        style={{ borderColor: "var(--ct-border-default)", color: "var(--ct-fg)" }}
-        title={`Configure ${entry.displayName} with an AI agent`}
+        className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap"
+        title={`Start an AI agent that walks you through setting up ${entry.displayName}`}
       >
-        <Sparkles size={13} style={{ color: "var(--ct-accent)" }} />
+        <Sparkles size={13} aria-hidden="true" />
         {busy ? "Starting…" : "Configure with AI"}
-      </button>
-      {error && <div role="alert" className="mt-1 text-[10px] text-[var(--ct-red)]">{error}</div>}
+      </Button>
+      {error && <div role="alert" className="mt-1 max-w-[260px] text-right text-[10.5px] text-[var(--ct-red)] [overflow-wrap:anywhere]">{error}</div>}
     </div>
   );
 }

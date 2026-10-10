@@ -67,7 +67,7 @@ test("chatBackend exec tool_call renders command card and attached result", asyn
     await waitForEffects();
     assert(!host.querySelector('[data-testid="message-raw-content"]'), "formatted exec card should hide the full invocation");
     assertIncludes(host, "Tests passed", "expanded exec card result");
-    const rawView = buttons(commandCard).find((button) => button.textContent === "Show raw command");
+    const rawView = buttons(commandCard).find((button) => button.textContent === "Raw command");
     assert(rawView, "expanded exec card should expose the raw command disclosure");
     await act(async () => rawView.dispatchEvent(new windowAny.MouseEvent("click", { bubbles: true })));
     assertIncludes(host, "cwd /repo/app", "raw exec card command");
@@ -243,7 +243,7 @@ test("failed tool card uses dashed neutral border and muted glyph", async () => 
     const card = host.querySelector('[data-testid="chat-tool-call"]') as HTMLElement | null;
     assert(card, "expected failed exec card");
     const style = card!.getAttribute("style") ?? "";
-    assert(style.includes("border-style: dashed"), "failed card should be dashed");
+    assert(card!.classList.contains("ct-card--error"), "failed card should be dashed");
     assert(!style.includes("ct-red"), "failed card border should not use red token");
     const failedGlyph = card!.querySelector('[data-testid="toolcard-status"][aria-label="error"] svg');
     assert(failedGlyph, "expected failed glyph");

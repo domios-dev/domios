@@ -1,3 +1,6 @@
+import { MuxStateStoreContext } from "../../store/multiplexer/context";
+import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
+import type { ExtendedState } from "../../store/multiplexer/tree";
 // Run: npx tsx src/components/Canvas/PlanButton.test.tsx
 
 import { act } from "react";
@@ -72,11 +75,16 @@ async function renderButton(tabId: string): Promise<{ host: HTMLDivElement; root
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
+  const state: ExtendedState = {
+    workspaces: [], tabs: {}, teams: [], active_workspace_id: null, focused_tab_id: null,
+    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 0, pendingCloses: [],
+  };
+  const store = createMuxStateStore(() => state);
   await act(async () => {
     root.render(
-      <PlansProvider api={API}>
+      <MuxStateStoreContext.Provider value={store}><PlansProvider api={API}>
         <PlanButton tabId={tabId} tabs={{}} />
-      </PlansProvider>,
+      </PlansProvider></MuxStateStoreContext.Provider>,
     );
   });
   await act(async () => {
@@ -117,8 +125,7 @@ test("PlanButton shows a muted activity cue for a changed plan without changing 
   assert(canvasFocusStore.anyPulsing([FIXTURE_PLAN.id]), "plan change marks the plan as updated");
   const button = host.querySelector('[data-testid="plan-button"]') as HTMLButtonElement;
   const dots = host.querySelector('[data-testid="plan-button-activity"].activity-dots');
-  assert(dots?.classList.contains("activity-dots--small"), "changed plan uses small dots");
-  assert(dots?.classList.contains("activity-dots--muted"), "changed plan uses the quiet tone");
+  assert(dots?.getAttribute("data-active") === "false", "an unread plan change does not make the idle tab work");
   assert(button.querySelector('[role="status"]')?.textContent === "Plan updated", "status text carries the update meaning");
   await act(async () => button.click());
   assert(!canvasFocusStore.anyPulsing([FIXTURE_PLAN.id]), "opening the plan still clears its changed state");

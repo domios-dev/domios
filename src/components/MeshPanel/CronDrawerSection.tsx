@@ -135,7 +135,7 @@ export function CronDrawerSection({ service, machineName, onUpdate, actionAdapte
   };
 
   return (
-    <div className="flex min-w-0 flex-col gap-3" data-testid="mesh-cron-actions" aria-busy={busy}>
+    <div className="ct-job-detail" data-testid="mesh-cron-actions" aria-busy={busy}>
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="mesh-resource-announcement">{announcement}</div>
       <CronScheduleCard
         service={service}

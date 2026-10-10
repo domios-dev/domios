@@ -320,10 +320,6 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
       selection: { adapter: outcome.status.adapter, model: outcome.status.model },
     };
   };
-  const setBalance = async (adapter: string, balance: number | null) => {
-    await write(adapter, "balance", "POST", { adapter, balance_usd: balance });
-  };
-
   const isBusy = busy || refreshing;
 
   return {
@@ -341,7 +337,6 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
     saveToken,
     clearToken,
     disconnect,
-    setBalance,
   };
 }
 

@@ -1,7 +1,7 @@
 use super::{
-    ai_helper_delivery, ai_helper_params, ai_helper_placement, AiHelperDelivery, AiHelperPlacement,
-    AiHelperRequest,
+    ai_helper_params, ai_helper_placement, ai_helper_provider, AiHelperPlacement, AiHelperRequest,
 };
+use crate::config::default_agent_provider;
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::general_agent::{ensure_general_workspace, general_dir, general_workspace_id};
 use crate::service::launch_delivery::select_visible_spawn_task;
@@ -45,25 +45,40 @@ fn ai_helper_spawn_without_general_workspace_is_an_explicit_error() {
 
 #[test]
 fn ai_helper_spawn_spec_is_a_roleless_visible_launch_in_general() {
-    let request =
-        AiHelperRequest::new("ai-helper-title-7c1".into(), "ai-helper-task-3e9".into()).unwrap();
+    let request = AiHelperRequest::new(
+        "ai-helper-title-7c1".into(),
+        "Configure plugin fixture".into(),
+        "ai-helper-task-3e9".into(),
+    )
+    .unwrap();
     let placement = AiHelperPlacement {
         workspace_id: "ws-general-fixture".into(),
         cwd: "general-cwd-fixture".into(),
     };
 
-    let spec =
-        SpawnTabSpec::from_agent_params(ai_helper_params(&request, &placement, "provider-fixture"));
+    let spec = SpawnTabSpec::from_agent_params(ai_helper_params(
+        &request,
+        &placement,
+        &ai_helper_provider(),
+    ));
 
     assert_eq!(spec.workspace_id.as_deref(), Some("ws-general-fixture"));
     assert_eq!(spec.cwd.as_deref(), Some("general-cwd-fixture"));
     assert_eq!(spec.title.as_deref(), Some("ai-helper-title-7c1"));
+    assert_eq!(
+        spec.description.as_deref(),
+        Some("Configure plugin fixture")
+    );
     assert_eq!(spec.parent_tab_id, None);
     assert_eq!(spec.visibility, TabVisibility::Visible);
     let TabCommand::Agent(agent) = spec.command else {
         panic!("helper spawn must launch an agent command");
     };
-    assert_eq!(agent.provider, "provider-fixture");
+    assert_eq!(agent.provider, default_agent_provider());
+    assert_eq!(
+        agent.model, None,
+        "spawn resolves the configured provider default model"
+    );
     assert_eq!(agent.task.as_deref(), Some("ai-helper-task-3e9"));
     assert_eq!(agent.role, None);
     assert_eq!(agent.spawned_by_tab_id, None);
@@ -93,28 +108,12 @@ fn ai_helper_spawn_always_starts_a_first_turn() {
 }
 
 #[test]
-fn ai_helper_spawn_never_reports_confirmed_for_an_inline_first_turn() {
-    assert_eq!(
-        ai_helper_delivery(true, true, "ai-helper-task-3e9"),
-        AiHelperDelivery::Launched
-    );
-    assert_eq!(
-        ai_helper_delivery(true, false, "ai-helper-task-3e9"),
-        AiHelperDelivery::Confirmed
-    );
-    assert_eq!(
-        ai_helper_delivery(false, false, "ai-helper-task-3e9"),
-        AiHelperDelivery::Confirmed
-    );
-    assert_ne!(
-        AiHelperDelivery::Launched.as_str(),
-        AiHelperDelivery::Confirmed.as_str()
-    );
-}
-
-#[test]
 fn ai_helper_spawn_request_rejects_blank_title_or_task() {
-    assert!(AiHelperRequest::new("  ".into(), "task".into()).is_err());
-    assert!(AiHelperRequest::new("title".into(), " \n".into()).is_err());
-    assert!(AiHelperRequest::new("title".into(), "task".into()).is_ok());
+    assert!(AiHelperRequest::new("  ".into(), "description".into(), "task".into()).is_err());
+    assert!(
+        AiHelperRequest::new("multi word".into(), "description".into(), "task".into()).is_err()
+    );
+    assert!(AiHelperRequest::new("title".into(), "\n".into(), "task".into()).is_err());
+    assert!(AiHelperRequest::new("title".into(), "description".into(), " \n".into()).is_err());
+    assert!(AiHelperRequest::new("title".into(), "description".into(), "task".into()).is_ok());
 }

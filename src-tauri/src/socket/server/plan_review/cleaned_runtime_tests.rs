@@ -299,10 +299,7 @@ fn bounce_params(
     })
 }
 
-fn dispatch_bounce(
-    fixture: &ServiceFixture,
-    params: Value,
-) -> Result<Value, super::JsonRpcError> {
+fn dispatch_bounce(fixture: &ServiceFixture, params: Value) -> Result<Value, super::JsonRpcError> {
     crate::socket::server::dispatch_service_rpc(
         "plan.review.bounce",
         Some(params),
@@ -358,18 +355,21 @@ fn plan_review_cleaned_runtime_two_generations_endpoint() {
     assert_eq!(before_task.lane.tab_id, None);
     assert_eq!(before_task.lane.worktree_path, None);
     assert_eq!(before_task.lane.branch, None);
-    assert!(before_runtime
-        .tabs
+    assert!(before_runtime.tabs.iter().all(|(tab_id, _)| !before_task
+        .execution_attempts
         .iter()
-        .all(|(tab_id, _)| !before_task
-            .execution_attempts
-            .iter()
-            .any(|attempt| &attempt.executor_tab_id == tab_id)));
+        .any(|attempt| &attempt.executor_tab_id == tab_id)));
     assert!(before_runtime.pty_tabs.is_empty());
     assert!(before_runtime.linked_pty_resources.is_empty());
     assert_eq!(before_plan.owner.tab_id.as_deref(), Some(owner.id.as_str()));
-    assert_eq!(before_plan.team_id.as_deref(), Some(runtime.owner_team_id.as_str()));
-    assert_eq!(owner.team_id.as_deref(), Some(runtime.owner_team_id.as_str()));
+    assert_eq!(
+        before_plan.team_id.as_deref(),
+        Some(runtime.owner_team_id.as_str())
+    );
+    assert_eq!(
+        owner.team_id.as_deref(),
+        Some(runtime.owner_team_id.as_str())
+    );
     assert_eq!(owner.role, Some(AgentRole::Manager));
     assert_eq!(owner.role_profile.as_deref(), Some("orchestrator"));
     assert_eq!(owner.agent_session_id.as_deref(), Some(OWNER_SESSION));
@@ -379,7 +379,10 @@ fn plan_review_cleaned_runtime_two_generations_endpoint() {
         Some(OWNER_NONCE)
     );
     assert_ne!(runtime.owner_team_id, runtime.other_team_id);
-    assert_eq!(other.team_id.as_deref(), Some(runtime.other_team_id.as_str()));
+    assert_eq!(
+        other.team_id.as_deref(),
+        Some(runtime.other_team_id.as_str())
+    );
     assert_eq!(other.role, Some(AgentRole::Manager));
     assert_eq!(other.role_profile.as_deref(), Some("orchestrator"));
     assert_eq!(other.agent_session_id.as_deref(), Some(OTHER_SESSION));
@@ -421,9 +424,7 @@ fn plan_review_cleaned_runtime_two_generations_endpoint() {
         ),
     )
     .expect("the current authenticated owner can bounce the terminal review");
-    assert!(result
-        .get("continuation")
-        .is_none_or(Value::is_null));
+    assert!(result.get("continuation").is_none_or(Value::is_null));
     let after_plan = store.get(&runtime.plan_id).unwrap();
     let after_task = store.show_task(&runtime.task_id).unwrap().task;
     assert_eq!(after_task.status, TaskStatus::Pending);
@@ -431,11 +432,23 @@ fn plan_review_cleaned_runtime_two_generations_endpoint() {
     assert_eq!(after_task.review_stage, ReviewStage::Review);
     assert_eq!(after_task.qa_state, None);
     assert_eq!(after_task.review_round, before_task.review_round + 1);
-    assert_eq!(after_task.review_evidence.len(), before_task.review_evidence.len() + 1);
-    assert_eq!(after_task.milestones.len(), before_task.milestones.len() + 1);
-    assert_eq!(after_task.acceptance_criteria, before_task.acceptance_criteria);
+    assert_eq!(
+        after_task.review_evidence.len(),
+        before_task.review_evidence.len() + 1
+    );
+    assert_eq!(
+        after_task.milestones.len(),
+        before_task.milestones.len() + 1
+    );
+    assert_eq!(
+        after_task.acceptance_criteria,
+        before_task.acceptance_criteria
+    );
     assert_eq!(after_task.test_plan, before_task.test_plan);
-    assert_eq!(after_task.execution_attempts.len(), before_task.execution_attempts.len());
+    assert_eq!(
+        after_task.execution_attempts.len(),
+        before_task.execution_attempts.len()
+    );
     assert_eq!(
         &after_task.execution_attempts[..1],
         &before_task.execution_attempts[..1]
@@ -445,9 +458,8 @@ fn plan_review_cleaned_runtime_two_generations_endpoint() {
     let mut expected_terminal = (*terminal_before).clone();
     expected_terminal.continuation.review_round = Some(after_task.review_round);
     expected_terminal.continuation.state = Some("executor_gone".into());
-    expected_terminal.continuation.milestone_id = Some(
-        after_task.milestones.last().unwrap().id.clone(),
-    );
+    expected_terminal.continuation.milestone_id =
+        Some(after_task.milestones.last().unwrap().id.clone());
     expected_terminal.continuation.delivered_at = None;
     expected_terminal
         .closure_reason
@@ -466,14 +478,14 @@ fn plan_review_cleaned_runtime_two_generations_endpoint() {
     assert_eq!(new_evidence.note, "resume review after cleaned generations");
     assert!(new_evidence.changed_executable_surfaces);
     assert!(!new_evidence.distinct_oracle);
-    assert_eq!(
-        new_milestone.id,
-        result["milestone_id"].as_str().unwrap()
-    );
+    assert_eq!(new_milestone.id, result["milestone_id"].as_str().unwrap());
     assert_eq!(new_milestone.kind, "review");
     assert_eq!(new_milestone.from, expected_actor);
     assert_eq!(new_milestone.ts, new_evidence.at);
-    assert_eq!(after_plan.review_policy.credit, before_plan.review_policy.credit + 1);
+    assert_eq!(
+        after_plan.review_policy.credit,
+        before_plan.review_policy.credit + 1
+    );
     assert_eq!(after_plan.updated_at, after_task.updated_at);
     assert_eq!(after_task.status_changed_at, new_evidence.at);
 

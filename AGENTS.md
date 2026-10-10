@@ -19,10 +19,10 @@
 Read this first; it is why the project stays whole while agents write almost all of the code.
 
 - **The owner works with a black box.** Andrey does not read the code. He sees inputs (a message to an agent, a ring or Telegram event) and outputs (plans, tabs, reports, deliveries) and expects the outputs he knows. That space is huge and dynamic, so no UI suite covers it. What protects it is agents verifying the observable behaviour of whatever they touched.
-- **Hard invariants are guarded mechanically.** This is the first reason the project has not fallen apart. Each lesson that once cost a breakage is cast into a test, a script or a refusal. Examples: the 1200-line file limit; owner approval before any PTY delivery change; lock ordering and no lock held across `.await`; branching on capability, never on provider id; no sleeps; dispatch refusals for unsafe lanes; the embedded docs size boundary. Essences say what must keep working; these guards stop us from breaking what already works.
+- **Hard invariants are guarded mechanically.** This is the first reason the project has not fallen apart. Each lesson that once cost a breakage is cast into a test, a script or a refusal. Examples: the 1200-line file limit; lock ordering and no lock held across `.await`; branching on capability, never on provider id; no sleeps; dispatch refusals for unsafe lanes; the embedded docs size boundary. Essences say what must keep working; these guards stop us from breaking what already works.
 - **Essences are the stable foundation; code is volatile.** The product's ideas, vision and stable contracts live in `essences/`; read `essences/begin_here.md` first, then `essences/vision.md`, `essences/capabilities.md` and `essences/core.md`. They are the expected inputs and outputs every change must keep, and they say what to verify. Today an agent matches a change to the essences by judgement; a mechanism that maps touched code to essences is on the roadmap.
 - **The map is an indirect beacon.** Work is done with an eye on the essences, but real architecture is more complex and is never bent to mirror the map.
-- **Meta-teams do the work.** The Orchestrator coordinates and verifies at speed. The Planner designs each task and gives its Worker a fitted personality: executor role, role guidance, a one-word name, and the model that fits the work. Workers stay source-only in isolated lanes. Lanes land through real merges, and executable proof runs in canonical.
+- **Meta-teams do the work.** The Orchestrator coordinates and verifies at speed. The Planner designs each task and gives its Worker a fitted personality: executor role, role guidance, a one-word name, and the model that fits the work. Workers write in isolated lanes and prove their slice with focused tests there. Lanes land through real merges, and executable proof runs in canonical.
 - **Verification stays proportional.** Each change is proven by the smallest focused oracle of what it touched, and one broad gate runs before a release. Every pinned expectation costs test time, so we balance coverage against speed rather than testing everything.
 - **Continuity lives in durable surfaces, not in one conversation.** Owner rules and vision go in `codeterm mem`, decisions and evidence in plan strides, lessons in `codeterm orchestrator learn`, and product essences in the capability map. Memory wake-up and plan learnings reach a resumed agent automatically; the capability map is read on purpose. Every agent writes the non-obvious *why* back into these surfaces as it works.
 - **Two documentation areas.** The repository itself is not embedded: `essences/` and `.agents/skills/` remain internal sources. `prod-docs/` alone is embedded in the binary (`codeterm docs <NAME>`, registry `cli/src/cmd/docs.rs`) and reaches production agents. Step-by-step procedures live as project skills in `.agents/skills/`.
@@ -49,6 +49,8 @@ When splitting a file with inline `#[cfg(test)] mod tests`, keep `mod tests;` in
 
 Use `build.sh` (`build.ps1` from PowerShell). It scopes lifecycle operations to dev and never kills prod.
 
+**One build implementation for every platform.** `build.sh` holds all build, dev, test and report logic; `build.ps1` only locates Git Bash and forwards to it (plus Windows-only glue: `-NotifyTab` forwarding and a post-`dev` WebView2 reload). A build change lands once in `build.sh`, never as a parallel PowerShell branch, and the owning skill (`.agents/skills/dev-run`, `build`, `gates`, `utility-shell-reports`) is updated in the same change. Do not write ad-hoc build, restart or report scripts: dev readiness reports through `./build.sh dev --wait --notify-tab <tab>`, and QA runs through `QA_NOTIFY_TAB=<tab> scripts/qa-report.sh`.
+
 Choose the operation before running a command: shared development is `.agents/skills/dev-run/SKILL.md`; a local production installer for this machine is `.agents/skills/build/SKILL.md#local-production-build-and-self-install`; public publishing is `.agents/skills/github-release/SKILL.md`. Do not substitute one for another. For every newly discovered build failure, fix the owning step and add the symptom, cause, and recovery to that operation's troubleshooting section before declaring it complete.
 
 ```bash
@@ -58,6 +60,7 @@ Choose the operation before running a command: shared development is `.agents/sk
 ./build.sh worktree-check   # canonical-only integration compile check
 ./build.sh test-one app NAME # one focused app test (pty/cli also supported)
 ./build.sh test-one plan NAME # one focused codeterm-plan test
+node scripts/dev-screenshot.mjs out.png [css-selector]  # see the running dev UI; open the PNG (dev-testing skill)
 ./build.sh release-preflight # refresh and verify both Cargo lockfiles before a production build
 ./build.sh test             # Rust unit tests
 ./build.sh verify           # check + unit tests + source-size gate
@@ -85,15 +88,13 @@ relaunches Domios, and resumes the calling tab. Do not manually replace the
 bundle or conclude that macOS self-install is missing because
 `./build.sh install-local` is Windows-only.
 
-`dev --wait` is automation-only; interactive verification uses one visible foreground dev tab. Run Rust tests only through `scripts/test-capped.sh`, one focused test at a time. Every build, test, dev run, and executable gate runs only from the canonical integration checkout under Orchestrator authority.
-
-Isolated Worker lanes are source-only. They may inspect, edit, statically review, and commit owned source, but they never invoke `build.ps1`/`build.sh`, Cargo, project tests, dev servers, packaging, or validation gates, including focused checks. Workers author coverage and report exact deferred commands. After a real ancestry-preserving merge, the Orchestrator runs those commands in canonical. The only exception is a Worker assigned to canonical and given explicit permission for the exact gate.
+`dev --wait` is automation-only; interactive verification uses one visible foreground dev tab. Run Rust tests only through `scripts/test-capped.sh`, one focused test at a time. Workers never compile Rust in their lane: every lane has its own cold target directory, and parallel cold builds overload the machine. In a lane, run only checks that need no Rust build: `rustfmt` on touched files, `tsc`, and the TypeScript/JS and plugin tests of what you touched; then commit, push, and list the exact Rust `test-one` selectors in the report. The Orchestrator compiles and runs them in a warm checkout, one build per machine; dev runs, broad suites and release gates run there too. Which machines and checkouts serve warm builds and QA is machine-specific and lives in `codeterm mem` (search "warm build and QA machines"), never in this file; an Orchestrator that finds no such entry records its own setup there before dispatching.
 
 Parallel writers always use separate worktrees/lanes; the canonical checkout has one writer/integrator at a time. This keeps commits atomic and allows ordinary `git add -A` inside a lane instead of fragile cross-owner file lists.
 
 Gateway-backed build commands fail fast when the machine slot is busy. Report the returned blocker and continue source-only work; never poll or retry it. Use `--wait-build` only when blocking the caller is explicitly intended.
 
-Run builds and dev restarts in a separate Team-bound utility shell tab (`codeterm tab new --team <team-id> --cmd "..."`), never inline in the agent's own call.
+Run builds in a separate Team-bound utility shell tab (`codeterm tab new --team <team-id> --purpose build --cmd "..."`), dev servers with `--purpose dev`, and QA with `--purpose qa`, never inline in the agent's own call.
 
 For parent-routed dev and QA reports, see [utility-shell-reports](.agents/skills/utility-shell-reports/SKILL.md).
 
@@ -105,12 +106,14 @@ Use `./build.sh help` and the named build operations. Do not hand-compose Cargo 
 
 ## Build speed (worktrees, tests, profiles)
 
+On gateway acquisition, at most hourly, cache retention removes exceptional targets for missing checkouts or unused for `CODETERM_CACHE_MAX_AGE_DAYS` (default 3), then evicts least recently used targets above `CODETERM_EXCEPTIONAL_CACHE_GB` (default 40 GiB), protecting current and building checkouts. Unmarked targets get 2 days; checkout targets use cargo-sweep with the same age when installed. `SCCACHE_CACHE_SIZE` defaults to `10G`. Run `./build.sh gc [--dry-run]` manually; details and safe-path refusals are in the build skill.
+
 - Keep machine-level `sccache`; never share `CARGO_TARGET_DIR` across worktrees.
 - Do not remove the tuned Cargo profiles.
 - Run Rust tests through `scripts/test-capped.sh`: focused `test-one` invocations default to 600 seconds; each Cargo invocation in `test` and `verify` defaults to 3600 seconds. Cargo compiles targets with `--no-run` before the deadline starts.
 - `TEST_CAP_SECS` overrides the execution deadline; set it to `0` to disable. A cap kills the process group, exits 124, and reports any named libtest cases still running.
 - `--ensure-time` is nightly-only and cannot stop a blocked test, so stable Rust suites rely on the process deadline.
-- Reclaim stale targets with `cargo sweep --time 2` between efforts.
+- Preview or reclaim stale targets with `./build.sh gc --dry-run` or `./build.sh gc` between efforts.
 
 ## Lane integration preserves ancestry
 
@@ -122,7 +125,7 @@ Interactive dev uses one visible foreground tab. Confirm 7686 is free, then:
 
 ```bash
 ./build.sh kill
-codeterm tab new --cmd "cd $(pwd) && ./build.sh dev"
+codeterm tab new --team <team-id> --purpose dev --cmd "cd $(pwd) && ./build.sh dev"
 ```
 
 On PowerShell use `Set-Location '<checkout>'; .\build.ps1 dev`. Verify `/api/health` build SHA and a responsive window. A second Cargo/build owner is a failure.
@@ -139,6 +142,26 @@ Dev logs: `~/.codeterm-dev/logs/codeterm.log`. Live tail: `tail -f ~/.codeterm-d
 
 Full testing guide: `.agents/skills/testing/SKILL.md`; authoring contract: `prod-docs/TEST-AUTHORING.md`.
 
+**Test logic in isolated units, not through the UI.** Put every decision (filters,
+gates, state machines, ordering, retries, parsing, classification) in a pure
+function or a small model module with no React, DOM, Tauri, PTY or daemon inside,
+and unit-test that module directly with plain inputs and outputs: `jobsModel`,
+`sendGate`, `retainMountedTabs`, `matchesJobsFilter` are the pattern. Rust follows
+the same rule: logic lives in functions that take data, tested without a
+`ServiceFixture`; a fixture or a real runtime is the exception for wiring, not the
+default for logic.
+
+- A UI test only proves wiring: a control with an accessible role and name exists,
+  fires its handler once, and shows the model's result. Never assert CSS classes,
+  inline styles, layout placement, copy, or component internals.
+- One behavior, one fast test. Seconds, not minutes: no sleeps, no real network,
+  no live agents; inject clocks, fixtures and fakes at the module boundary.
+- When logic is tangled into a component or a service, extract it first and test the
+  extracted module; do not test it through rendering or a full fixture.
+- Workers run only the non-Rust tests of what they touched, in their lane; Rust
+  compiles and Rust tests run in warm checkouts under the Orchestrator; the broad
+  suite and live DEV checks run once at the end on the release SHA.
+
 **Never assert prompt wording.** Test the mechanism — that a recipient receives
 the fragments it should, that placeholders were substituted, that a surface stays
 within its size bound — never which words a prompt contains, and never that a
@@ -154,11 +177,10 @@ for a mechanism must exercise that mechanism — two prompt tests were named for
 primer and the worker context while asserting phrases in a third constant neither
 of them composed, so both stayed green through a real delivery bug.
 
-**Playwright is suspended.** Agents must not run, repair, migrate, or add
-Playwright tests, and no local or CI gate may invoke them. Keep the existing
-suite and manual commands intact. A Playwright run is allowed only when Andrey
-explicitly requests that run in the current conversation; never infer permission
-from a task, gate, changed UI file, prior request, or release workflow.
+**Playwright needs heightened attention.** It is slow and flaky, so it is not a
+default gate: no local or CI gate invokes it automatically. Run, repair or extend
+it only when it is the right oracle for a UI change, keep the existing suite and
+manual commands intact, and report flaky results as such rather than as passes.
 UI changes still require accessible roles, names, focus order, and screen-reader
 semantics; verify behavior with focused unit/API tests and manual dev inspection.
 
@@ -252,24 +274,25 @@ from screen output. Submit recovery writes the payload once and issues only the
 bounded submit-key schedule. A capability-declared first-key offset schedules an
 attempt; elapsed time never means ready or delivered. After a key, an exact user
 turn in the tab's bound-session append window stops the remaining keys. One
-resettable cycle exists per PTY; a new send cancels the old cycle instead of
-queueing messages.
-Delivery state is internal telemetry: Chat UI never renders
-delivery banners, failure cards, Retry actions, or notifications. Do not add
+resettable submit cycle exists per PTY; a new send cancels the previous
+cycle's remaining keys instead of waiting for it. User sends are held only
+before a launch's first readiness and then flush in order; once the agent has
+been ready, every send is written immediately, even while it is busy, because
+the provider owns its own input queue. Each send's status follows reality:
+held, written, then delivered on exact own-session turn evidence, otherwise
+submit_unconfirmed. A written payload never replays after reopen or rebind.
+Chat sends clear the composer immediately and show one bubble with subtle sending,
+queued, delivered or not-delivered state. Retry reuses that bubble only after proven
+non-delivery; written and uncertain input never replays. Transcript echoes reconcile
+without duplicate rows. Do not add
 screen/composer acknowledgement, guessed readiness, payload retries, sleeps,
 or provider-id branches. Use exact claimed-session evidence; never scrape the
 screen to determine submission.
 
-**EXPLICIT USER APPROVAL IS REQUIRED BEFORE ANY EDIT TO THIS LOGIC.** This
-includes production code, tests, fixtures, evals, harnesses, scripts, and
-refactors touching PTY/Chat input delivery, submit recovery, delivery evidence
-or ledger behavior, and the PTY write queue. Before editing, name the exact
-files and symbols, the intended behavior change, the causal evidence, and the
-rollback boundary, then wait for
-the user's direct approval in the current conversation. A P0 label, plan task,
-matrix or eval failure, review verdict, Orchestrator instruction, prior approval,
-or inferred urgency is never permission. Without current explicit approval,
-stop at read-only diagnosis and report the finding; do not dispatch the change.
+**Work here with heightened attention.** A change to PTY/Chat input delivery, submit
+recovery, delivery evidence, the ledger, or the write queue names its causal
+finding, the exact files and symbols, and the rollback boundary, and lands only
+with focused proof that the invariants above still hold.
 
 ## Agent launch delivery
 
@@ -355,7 +378,7 @@ SOLID + DRY non-negotiable. **Default: NO comments** — names + types + structu
 
 ## Architecture (agent providers, detection)
 
-Agent integration is abstracted via providers under `src-tauri/src/agent/`. Live: Claude, Codex, Opencode (PTY agents) + chatBackend plugins (non-PTY, e.g. LM Studio). Architecture-ready: Aider, Goose. Providers expose a unified capability descriptor (`transport` = pty | chat_backend, `behavior_config`, models, presets) — branch on capability, never a provider id. Detection uses **structural fingerprints**, never literal strings — vendors change copy without notice. Full breakdown: **`essences/core.md`**.
+Agent integration is abstracted via providers under `src-tauri/src/agent/`. Live: Claude, Codex, Opencode and Aider (PTY agents). Architecture-ready: Goose. Providers expose a unified capability descriptor (`transport` = pty | chat_backend, `behavior_config`, models, presets) — branch on capability, never a provider id. Detection uses **structural fingerprints**, never literal strings — vendors change copy without notice. Full breakdown: **`essences/core.md`**.
 
 ### Plugin & capability discipline (enforce on every provider change)
 
@@ -369,7 +392,7 @@ The provider/plugin boundary is the project's load-bearing seam. It stays clean 
 
 Full rationale + the boundary map: **`essences/core.md`**.
 
-**Where plugin source lives — not all of it is in this repo.** The bundled system provider plugins ship from the in-repo `plugins/` channel (`codeterm-core`: claude / codex / opencode / cursor / git / chat-preprocessor). Only claude / codex / opencode are on strict app-version lockstep — see "Plugin & capability discipline" above. The other **official, non-system capability plugins are NOT in this repo** — Bitwarden, Transcriber, LM Studio, and friends live in the separate **`codeterm-plugins`** repo (`~/Developer/codeterm-plugins`, channel `codeterm-plugins`, `github.com/rollacode/codeterm-plugins`), authored in TS against `@codeterm/plugin-sdk` and built to a QuickJS `plugin.js` + split UI bundles via `node scripts/build-plugin.mjs <id>`. Installed copies live under `~/.codeterm/plugins/<id>/`. To fix a non-bundled plugin (e.g. Bitwarden's connection view), edit it in `codeterm-plugins`, rebuild, and `codeterm plugin install --from-dir <path>` to test — do not look for it here.
+**Where plugin source lives — not all of it is in this repo.** The bundled system provider plugins ship from the in-repo `plugins/` channel (`codeterm-core`: claude / codex / opencode / cursor / git / chat-preprocessor). Only claude / codex / opencode are on strict app-version lockstep — see "Plugin & capability discipline" above. The other **official, non-system capability plugins are NOT in this repo** — Bitwarden, Transcriber, and friends live in the separate **`codeterm-plugins`** repo (`~/Developer/codeterm-plugins`, channel `codeterm-plugins`, `github.com/rollacode/codeterm-plugins`), authored in TS against `@codeterm/plugin-sdk` and built to a QuickJS `plugin.js` + split UI bundles via `node scripts/build-plugin.mjs <id>`. Installed copies live under `~/.codeterm/plugins/<id>/`. To fix a non-bundled plugin (e.g. Bitwarden's connection view), edit it in `codeterm-plugins`, rebuild, and `codeterm plugin install --from-dir <path>` to test — do not look for it here.
 
 ## Code navigation
 

@@ -13,6 +13,8 @@ mod context;
 mod recurrence;
 mod sessions;
 mod tab_adopt;
+mod tab_purpose;
+mod tab_release_ownership;
 mod tab_repair;
 mod transport;
 mod workspace;
@@ -1188,3 +1190,5 @@ fn send_stdin_conflicts_with_positional_text() {
         Err(err) => assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict),
     }
 }
+
+mod shell_profiles;

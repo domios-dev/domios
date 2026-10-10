@@ -41,6 +41,11 @@ pub enum StorageError {
         schema_version: i32,
         supported: i32,
     },
+    /// An upgrade would discard stored rows; nothing was migrated.
+    MigrationRefused {
+        schema_version: i32,
+        reason: &'static str,
+    },
     Corrupt {
         detail: String,
     },
@@ -186,6 +191,10 @@ impl fmt::Display for StorageError {
                 f,
                 "incompatible database {application_id:#x} schema {schema_version}/{supported}"
             ),
+            E::MigrationRefused {
+                schema_version,
+                reason,
+            } => write!(f, "upgrade from schema {schema_version} refused: {reason}"),
             E::Corrupt { detail } => write!(f, "database is corrupt: {detail}"),
             E::Settings {
                 setting,

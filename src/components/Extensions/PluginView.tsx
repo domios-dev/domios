@@ -12,6 +12,7 @@ import { daemonHttpBase, daemonAuthToken, type DaemonApiConfig } from "../../lib
 import { invalidatePluginBubble } from "../../lib/pluginBubbleCache";
 import { KPI_CHANGE_NOTICE, KPI_RECORDED_EVENT } from "../../lib/kpiChanges";
 import { DEFAULT_THEME, themeToCSS } from "../../lib/themeCss";
+import { surfaceQuery, type PluginViewSurface } from "../../lib/surfaceTab";
 
 type ApiCfg = DaemonApiConfig;
 
@@ -34,6 +35,7 @@ export function PluginView({
   active = true,
   focusOnActive = false,
   kpiNotices = false,
+  surface,
 }: {
   pluginId: string;
   api: ApiCfg | undefined;
@@ -47,6 +49,8 @@ export function PluginView({
   focusOnActive?: boolean;
   /** Forward KPI ledger commits while shown; a hidden view catches up from its `__ctActive` notice. */
   kpiNotices?: boolean;
+  /** Set when the view renders a surface tab; the page reads it from its query string. */
+  surface?: PluginViewSurface;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const activeRef = useRef(active);
@@ -76,7 +80,7 @@ export function PluginView({
     };
   }, [pluginId]);
 
-  const src = `${daemonHttpBase(api)}/api/plugins/${encodeURIComponent(pluginId)}/ui/index.html?token=${encodeURIComponent(daemonAuthToken(api))}&r=${reloadNonce}`;
+  const src = `${daemonHttpBase(api)}/api/plugins/${encodeURIComponent(pluginId)}/ui/index.html?token=${encodeURIComponent(daemonAuthToken(api))}&r=${reloadNonce}${surfaceQuery(surface)}`;
 
   const onMessage = useCallback(
     async (e: MessageEvent) => {

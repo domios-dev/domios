@@ -231,6 +231,19 @@ fn bundled_items() -> Vec<NewMemItem> {
             source_path: None,
             pinned: false,
         },
+        NewMemItem {
+            kind: MemKind::Skill,
+            scope: MemScope::Global,
+            title: "Spinal Cord (Supporter Agent)".into(),
+            summary: Some("Spinal Cord explanation and connection playbook".into()),
+            area: Some("codeterm".into()),
+            tags: vec!["bundled".into(), "spinal-cord".into(), "supporter".into()],
+            body: "Read `codeterm docs SPINAL-CORD` for the authoritative explanation, connection, verification and disconnection procedure.".into(),
+            source: Some("bundled:v2".into()),
+            importance: 4.0,
+            source_path: None,
+            pinned: false,
+        },
     ]
 }
 

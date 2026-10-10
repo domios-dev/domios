@@ -4,7 +4,7 @@
 
 ## Zero-Coverage Surfaces
 
-- **Mobile workspace-canvas reachability** — not covered: no current spec exercises a plan-contextual canvas entry route at phone widths.
+**NONE**
 
 ## Surface Map
 
@@ -27,6 +27,7 @@
 - [tests/playwright/suites/03-agents/agents.spec.ts](../../tests/playwright/suites/03-agents/agents.spec.ts) - agents covers its Playwright acceptance contract.
 - [tests/playwright/suites/03-agents/composer-draft-isolation.spec.ts](../../tests/playwright/suites/03-agents/composer-draft-isolation.spec.ts) - Fresh tabs never inherit another tab's unsent composer draft.
 - [tests/playwright/suites/03-agents/cross-tab-chat.spec.ts](../../tests/playwright/suites/03-agents/cross-tab-chat.spec.ts) - cross tab chat covers its Playwright acceptance contract.
+- [tests/playwright/suites/03-agents/live-model-switch.spec.ts](../../tests/playwright/suites/03-agents/live-model-switch.spec.ts) - Status-line model and effort switching on real DEV provider tabs.
 - [tests/playwright/suites/03-agents/stub-replay.spec.ts](../../tests/playwright/suites/03-agents/stub-replay.spec.ts) - stub agent replayer drives the REAL spawn/detection/parse pipeline.
 - [tests/playwright/suites/03-agents/tab-model-switch.spec.ts](../../tests/playwright/suites/03-agents/tab-model-switch.spec.ts) - the sidebar row's kebab switches a running agent's model in session.
 
@@ -99,6 +100,7 @@
 - [tests/playwright/suites/16-chat-view/chat-picker-default.spec.ts](../../tests/playwright/suites/16-chat-view/chat-picker-default.spec.ts) - A tab's opening view follows chat capability until the user chooses otherwise.
 - [tests/playwright/suites/16-chat-view/chat-plan-links.spec.ts](../../tests/playwright/suites/16-chat-view/chat-plan-links.spec.ts) - Structured chat plan/task refs resolve through the global plan index and deep-link across workspaces.
 - [tests/playwright/suites/16-chat-view/chat-rendering.spec.ts](../../tests/playwright/suites/16-chat-view/chat-rendering.spec.ts) - Chat view renders empty, user, assistant, code, and image message shapes.
+- [tests/playwright/suites/16-chat-view/chat-send-matrix.live.spec.ts](../../tests/playwright/suites/16-chat-view/chat-send-matrix.live.spec.ts) - Send Chat UI payloads across live PTY providers under load and restore.
 - [tests/playwright/suites/16-chat-view/command-card-visibility.spec.ts](../../tests/playwright/suites/16-chat-view/command-card-visibility.spec.ts) - Quarantined browser coverage for revealing a complete command; focused component tests are deterministic pending a real transcript fixture.
 - [tests/playwright/suites/16-chat-view/composer-focus-steal.spec.ts](../../tests/playwright/suites/16-chat-view/composer-focus-steal.spec.ts) - composer focus steal covers its Playwright acceptance contract.
 - [tests/playwright/suites/16-chat-view/composer-output-performance.spec.ts](../../tests/playwright/suites/16-chat-view/composer-output-performance.spec.ts) - Composer latency under a 25-tab agent/output fixture.

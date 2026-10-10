@@ -35,9 +35,23 @@ fn make_params(name: &str, ws: &str, schedule: &str) -> CronCreateParams {
 }
 
 #[test]
+fn cron_create_rejects_missing_meaningful_names() {
+    let mut store = temp_store();
+    for name in ["ab", "cron_5d22889a8898"] {
+        let error = store
+            .create(make_params(name, "ws", "0 * * * *"))
+            .err()
+            .unwrap();
+        assert!(error.contains("Cron job name"));
+    }
+}
+
+#[test]
 fn set_run_session_persists_on_history_and_last_run() {
     let mut store = temp_store();
-    let job = store.create(make_params("T", "ws", "0 * * * *")).unwrap();
+    let job = store
+        .create(make_params("test-run-schedule", "ws", "0 * * * *"))
+        .unwrap();
     let run = CronRunInfo {
         run_id: "r1".into(),
         started_at: 1,
@@ -584,7 +598,9 @@ fn update_can_set_clear_tz_and_timeout() {
 #[test]
 fn update_rejects_invalid_tz() {
     let mut store = temp_store();
-    let job = store.create(make_params("X", "ws", "0 3 * * *")).unwrap();
+    let job = store
+        .create(make_params("nightly-maintenance", "ws", "0 3 * * *"))
+        .unwrap();
     let r = store.update(
         &job.id,
         CronUpdateParams {

@@ -18,7 +18,7 @@ on:
       evaluator_scope:
         description: Focused evaluator/task qualification or the existing full matrix
         type: choice
-        options: [full, jev-linux, jev-windows, jev-windows-inventory, rust-windows-task-local, sentinel-linux-task-local, sentinel-command-linux, storage-foundation-linux, windows-sccache-maintenance]
+        options: [full, jev-linux, jev-windows, jev-windows-inventory, rust-windows-task-local, sentinel-linux-task-local, sentinel-command-linux, storage-foundation-linux, storage-domains-linux, windows-sccache-maintenance]
         default: full
         required: true
       expected_source_sha:
@@ -270,6 +270,11 @@ jobs:
           $psDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           Write-Host "Prepended $psDir"
 
+      - name: Set up fixture Node interpreter
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22.22.0'
+
       - name: Prepare compile stubs
         shell: pwsh
         run: |
@@ -335,11 +340,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check Rust generated TypeScript types
+        run: pnpm types:check
+
       - name: TS strict typecheck (prod build gate)
         run: pnpm exec tsc --noEmit
 
       - name: TypeScript unused exports
         run: pnpm check:unused-exports
+
+      - name: Repository Knip report
+        run: pnpm knip:report
 
       # An effect that reaches the API must key on primitives; a mux-rebuilt object
       # re-runs it at broadcast rate. Five such sites shipped before this existed.
@@ -2415,6 +2426,971 @@ jobs:
         with:
           name: storage-foundation-linux-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/storage-foundation-linux-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: error
+
+  # Combined Cron, Sentinel and Storage qualification; source expectations are not execution proof.
+  storage-domains-linux:
+    name: Cron, Sentinel, and Storage fixed qualification (Linux)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'storage-domains-linux' }}
+    runs-on: [self-hosted, linux-build]
+    timeout-minutes: 75
+    env:
+      EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+      WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
+      EVENT_SOURCE_SHA: ${{ github.sha }}
+      DOMAIN_REVIEWED_SHA: bae48571f3ec780816aa05b0d47c2289755cc029
+      DOMAIN_ORIGIN_SHA: 3972c8bd13bbf666e4470a3fcf6a51c6d67f5447
+      FOUNDATION_ACCEPTED_SHA: dbc17edee5c1c9032c1498caa0f04b00eb3468ad
+      TEST_CAP_SECS: '600'
+      CARGO_TERM_COLOR: never
+      RUST_TEST_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Create fresh qualification receipt directory
+        id: task_boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt_dir="${RUNNER_TEMP}/storage-domains-linux-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          if [[ -e "$receipt_dir" ]]; then
+            echo 'receipt_directory_already_exists' >&2
+            exit 1
+          fi
+          mkdir -- "$receipt_dir"
+          printf '%s\n' '{"schema":"storage-domains-linux-v1","outcome":"unqualified","errors":["qualification_step_not_completed"]}' > "$receipt_dir/receipt.json"
+          printf '%s\n' 'fresh_receipt_directory=true' >> "$GITHUB_OUTPUT"
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Ensure Rust toolchain on PATH
+        shell: bash
+        run: |
+          if command -v rustc >/dev/null 2>&1; then rustc -vV; exit 0; fi
+          for dir in "$CARGO_HOME/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin; do
+            if [ -x "$dir/rustc" ]; then
+              echo "$dir" >> "$GITHUB_PATH"
+              "$dir/rustc" -vV
+              exit 0
+            fi
+          done
+          echo 'rustc not found; restore Rust on the runner' >&2
+          exit 1
+      - name: Run fixed Cron, Sentinel, and Storage cases
+        shell: bash
+        run: |
+          set +e
+          set -u -o pipefail
+          receipt_dir="${RUNNER_TEMP}/storage-domains-linux-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          if [[ ! -d "$receipt_dir" || ! -f "$receipt_dir/receipt.json" ]]; then
+            echo 'fresh_receipt_directory_missing' >&2
+            exit 1
+          fi
+          preflight_ready=true
+          source_before_clean=true
+          preflight_errors=()
+          refuse_preflight() {
+            preflight_ready=false
+            preflight_errors+=("$1")
+          }
+          for capture_file in preflight-errors.list stub-cleanup.list stub-unknown.list stub-cleanup.stderr; do
+            if ! : > "$receipt_dir/$capture_file"; then refuse_preflight "receipt_file_unavailable:$capture_file"; fi
+          done
+          checkout_sha="$(git rev-parse HEAD 2>/dev/null)"
+          checkout_status=$?
+          if (( checkout_status != 0 )); then refuse_preflight checkout_identity_unavailable; fi
+          if [[ ! "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then refuse_preflight expected_source_sha_invalid; fi
+          if [[ "$EXPECTED_SOURCE_SHA" != "$WORKFLOW_SOURCE_SHA" || "$EXPECTED_SOURCE_SHA" != "$EVENT_SOURCE_SHA" || "$EXPECTED_SOURCE_SHA" != "$checkout_sha" ]]; then
+            refuse_preflight source_identity_mismatch
+          fi
+          if [[ "${RUNNER_OS:-}" != Linux ]]; then refuse_preflight runner_platform_not_linux; fi
+          source_before="$(git status --porcelain --untracked-files=all 2>&1)"
+          source_before_status=$?
+          printf '%s\n' "$source_before" > "$receipt_dir/source-before.status"
+          if (( source_before_status != 0 )) || [[ -n "$source_before" ]]; then
+            source_before_clean=false
+            refuse_preflight dirty_checkout_before
+          fi
+          if [[ -e .env ]]; then refuse_preflight ambient_dotenv_refused; fi
+          if [[ -n "${CARGO_TARGET_DIR:-}" || -n "${CARGO_TEST_CMD:-}" || -n "${CARGO_TEST_BUILD_CMD:-}" ]]; then refuse_preflight ambient_test_override_refused; fi
+          while IFS= read -r name; do
+            case "$name" in
+              CODETERM_EMBED_CACHE_DIR) ;;
+              CODETERM_*)
+                if [[ -n "${!name}" ]]; then refuse_preflight ambient_codeterm_binding_refused; fi
+                ;;
+            esac
+          done < <(compgen -e | LC_ALL=C grep '^CODETERM_')
+          for tool in bash cargo cat cmp date find git grep id node rm rustc sed sha256sum uname; do
+            if ! command -v "$tool" >/dev/null 2>&1; then refuse_preflight "${tool}_missing"; fi
+          done
+          if [[ -z "${RUNNER_NAME:-}" || -z "${RUNNER_ARCH:-}" || -z "${GITHUB_RUN_ID:-}" || -z "${GITHUB_RUN_ATTEMPT:-}" ]]; then
+            refuse_preflight runner_or_run_identity_missing
+          fi
+          rustc_identity=''
+          cargo_identity=''
+          node_identity=''
+          if command -v rustc >/dev/null 2>&1; then
+            rustc_identity="$(rustc -vV 2>&1)"
+            if (( $? != 0 )); then refuse_preflight rustc_identity_failed; fi
+          fi
+          if command -v cargo >/dev/null 2>&1; then
+            cargo_identity="$(cargo --version 2>&1)"
+            if (( $? != 0 )); then refuse_preflight cargo_identity_failed; fi
+          fi
+          if command -v node >/dev/null 2>&1; then
+            node_identity="$(node --version 2>&1)"
+            if (( $? != 0 )); then refuse_preflight node_identity_failed; fi
+          fi
+          account_identity="$(id -un 2>/dev/null)"
+          kernel_identity="$(uname -srm 2>/dev/null)"
+          if [[ -z "$account_identity" || -z "$kernel_identity" || -z "$rustc_identity" || -z "$cargo_identity" || -z "$node_identity" || -z "$BASH_VERSION" ]]; then
+            refuse_preflight tool_or_runner_identity_missing
+          fi
+          time_probe_utc="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ 2>/dev/null)"
+          time_probe_ms="$(date +%s%3N 2>/dev/null)"
+          if [[ ! "$time_probe_utc" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$ || ! "$time_probe_ms" =~ ^[0-9]+$ ]]; then
+            refuse_preflight utc_clock_unavailable
+          fi
+          domain_roots=(
+            src-tauri/crates/codeterm-storage crates/codeterm-paths
+            src-tauri/src/storage.rs src-tauri/src/storage
+            src-tauri/src/cron/clock.rs src-tauri/src/cron/mod.rs src-tauri/src/cron/scheduler.rs src-tauri/src/cron/store
+            src-tauri/src/sentinel/command.rs src-tauri/src/sentinel/graph.rs src-tauri/src/sentinel/handlers.rs
+            src-tauri/src/sentinel/machine.rs src-tauri/src/sentinel/mod.rs src-tauri/src/sentinel/probe.rs
+            src-tauri/src/sentinel/probe src-tauri/src/sentinel/provenance.rs src-tauri/src/sentinel/store.rs
+            src-tauri/src/sentinel/storage.rs src-tauri/src/sentinel/storage
+            src-tauri/src/service/cron.rs src-tauri/src/service/sentinel.rs src-tauri/src/service/sentinel/graph.rs
+            src-tauri/src/agent/run_watcher.rs src-tauri/src/agent/run_watcher/cron_end.rs
+            src-tauri/src/agent/run_watcher/cron_end/tests.rs
+          )
+          domain_ancestor=false
+          domain_inventory_equal=false
+          origin_delta_equal=false
+          foundation_unchanged_equal=false
+          foundation_domain_delta_equal=false
+          if git cat-file -e "${DOMAIN_REVIEWED_SHA}^{commit}" 2>/dev/null && git cat-file -e "${DOMAIN_ORIGIN_SHA}^{commit}" 2>/dev/null && git cat-file -e "${FOUNDATION_ACCEPTED_SHA}^{commit}" 2>/dev/null; then
+            if git merge-base --is-ancestor "$DOMAIN_REVIEWED_SHA" HEAD 2>/dev/null && git merge-base --is-ancestor "$DOMAIN_ORIGIN_SHA" HEAD 2>/dev/null; then
+              domain_ancestor=true
+            else
+              refuse_preflight reviewed_domain_anchor_not_ancestor
+            fi
+            git ls-tree -r "$DOMAIN_REVIEWED_SHA" -- "${domain_roots[@]}" > "$receipt_dir/reviewed-domain.tree"
+            reviewed_domain_status=$?
+            git ls-tree -r HEAD -- "${domain_roots[@]}" > "$receipt_dir/source-domain.tree"
+            source_domain_status=$?
+            git diff --quiet --no-ext-diff "$DOMAIN_REVIEWED_SHA" HEAD -- "${domain_roots[@]}"
+            domain_diff_status=$?
+            if (( reviewed_domain_status == 0 && source_domain_status == 0 && domain_diff_status == 0 )) && [[ -s "$receipt_dir/reviewed-domain.tree" ]] && cmp -s "$receipt_dir/reviewed-domain.tree" "$receipt_dir/source-domain.tree"; then
+              domain_inventory_equal=true
+            else
+              refuse_preflight combined_domain_input_differs_from_reviewed
+            fi
+            git diff --name-status "$DOMAIN_ORIGIN_SHA" "$DOMAIN_REVIEWED_SHA" -- "${domain_roots[@]}" > "$receipt_dir/origin-to-reviewed-domain.diff"
+            origin_anchor_diff_status=$?
+            git diff --name-status "$DOMAIN_ORIGIN_SHA" HEAD -- "${domain_roots[@]}" > "$receipt_dir/origin-to-source-domain.diff"
+            origin_source_diff_status=$?
+            git ls-tree -r "$DOMAIN_ORIGIN_SHA" -- "${domain_roots[@]}" > "$receipt_dir/origin-domain.tree"
+            origin_domain_tree_status=$?
+            cat > "$receipt_dir/fitted-domain-delta.expected" <<'DELTA'
+          M	src-tauri/crates/codeterm-storage/src/assets.rs
+          M	src-tauri/src/sentinel/handlers.rs
+          M	src-tauri/src/sentinel/probe.rs
+          M	src-tauri/src/sentinel/probe/owner.rs
+          M	src-tauri/src/sentinel/probe/process.rs
+          M	src-tauri/src/sentinel/probe/unix.rs
+          DELTA
+            sed -i 's/^          //; s/\\t/\t/g' "$receipt_dir/fitted-domain-delta.expected"
+            if (( origin_anchor_diff_status == 0 && origin_source_diff_status == 0 && origin_domain_tree_status == 0 )) && cmp -s "$receipt_dir/fitted-domain-delta.expected" "$receipt_dir/origin-to-reviewed-domain.diff" && cmp -s "$receipt_dir/fitted-domain-delta.expected" "$receipt_dir/origin-to-source-domain.diff"; then
+              origin_delta_equal=true
+            else
+              refuse_preflight unexpected_domain_delta_since_3972
+            fi
+            foundation_roots=(
+              src-tauri/src/storage.rs src-tauri/src/storage crates/codeterm-paths
+              src-tauri/crates/codeterm-storage/Cargo.toml
+              src-tauri/crates/codeterm-storage/src/backup.rs src-tauri/crates/codeterm-storage/src/error.rs
+              src-tauri/crates/codeterm-storage/src/owner.rs src-tauri/crates/codeterm-storage/src/owner
+              src-tauri/crates/codeterm-storage/src/repositories/workspaces.rs
+            )
+            git ls-tree -r "$FOUNDATION_ACCEPTED_SHA" -- "${foundation_roots[@]}" > "$receipt_dir/accepted-foundation.tree"
+            accepted_foundation_status=$?
+            git ls-tree -r HEAD -- "${foundation_roots[@]}" > "$receipt_dir/source-foundation.tree"
+            source_foundation_status=$?
+            git diff --quiet --no-ext-diff "$FOUNDATION_ACCEPTED_SHA" HEAD -- "${foundation_roots[@]}"
+            foundation_diff_status=$?
+            if (( accepted_foundation_status == 0 && source_foundation_status == 0 && foundation_diff_status == 0 )) && [[ -s "$receipt_dir/accepted-foundation.tree" ]] && cmp -s "$receipt_dir/accepted-foundation.tree" "$receipt_dir/source-foundation.tree"; then
+              foundation_unchanged_equal=true
+            else
+              refuse_preflight unchanged_foundation_inputs_differ_from_accepted_bytes
+            fi
+            git diff --name-status "$FOUNDATION_ACCEPTED_SHA" "$DOMAIN_ORIGIN_SHA" -- src-tauri/crates/codeterm-storage > "$receipt_dir/foundation-domain-delta.tsv"
+            foundation_domain_delta_status=$?
+            cat > "$receipt_dir/foundation-domain-delta.expected" <<'DELTA'
+          M	src-tauri/crates/codeterm-storage/src/lib.rs
+          A	src-tauri/crates/codeterm-storage/src/repositories/cron/mod.rs
+          A	src-tauri/crates/codeterm-storage/src/repositories/cron/mutations.rs
+          A	src-tauri/crates/codeterm-storage/src/repositories/cron/queries.rs
+          A	src-tauri/crates/codeterm-storage/src/repositories/cron/records.rs
+          M	src-tauri/crates/codeterm-storage/src/repositories/mod.rs
+          A	src-tauri/crates/codeterm-storage/src/repositories/sentinel/definitions.rs
+          A	src-tauri/crates/codeterm-storage/src/repositories/sentinel/mod.rs
+          A	src-tauri/crates/codeterm-storage/src/repositories/sentinel/queries.rs
+          A	src-tauri/crates/codeterm-storage/src/repositories/sentinel/records.rs
+          A	src-tauri/crates/codeterm-storage/src/repositories/sentinel/runtime.rs
+          M	src-tauri/crates/codeterm-storage/src/schema.rs
+          A	src-tauri/crates/codeterm-storage/src/schema/cron.rs
+          A	src-tauri/crates/codeterm-storage/src/schema/sentinel.rs
+          DELTA
+            sed -i 's/^          //; s/\\t/\t/g' "$receipt_dir/foundation-domain-delta.expected"
+            if (( foundation_domain_delta_status == 0 )) && cmp -s "$receipt_dir/foundation-domain-delta.expected" "$receipt_dir/foundation-domain-delta.tsv"; then
+              foundation_domain_delta_equal=true
+            else
+              refuse_foundation_domain_delta_inventory_mismatch
+            fi
+            asset_path='src-tauri/crates/codeterm-storage/src/assets.rs'
+            : > "$receipt_dir/assets-hashes.tsv"
+            for revision in "$FOUNDATION_ACCEPTED_SHA" "$DOMAIN_ORIGIN_SHA" "$DOMAIN_REVIEWED_SHA"; do
+              asset_hash="$(git show "${revision}:${asset_path}" 2>/dev/null | sha256sum 2>/dev/null)"
+              if [[ $? != 0 || ! "$asset_hash" =~ ^([0-9a-f]{64})[[:space:]] ]]; then
+                refuse_preflight assets_anchor_hash_failed
+              else
+                printf '%s\t%s\n' "$revision" "${BASH_REMATCH[1]}" >> "$receipt_dir/assets-hashes.tsv"
+              fi
+            done
+            current_asset_hash="$(sha256sum -- "$asset_path" 2>/dev/null)"
+            if [[ $? != 0 || ! "$current_asset_hash" =~ ^([0-9a-f]{64})[[:space:]] ]]; then
+              refuse_preflight assets_source_hash_failed
+            else
+              printf '%s\t%s\n' checkout "${BASH_REMATCH[1]}" >> "$receipt_dir/assets-hashes.tsv"
+            fi
+          else
+            refuse_preflight reviewed_source_anchor_unavailable
+          fi
+          fixed_hash_paths=(
+            .github/workflows/tests.yml build.sh scripts/test-capped.sh
+            src-tauri/Cargo.toml src-tauri/Cargo.lock
+          )
+          git ls-tree -r --name-only "$DOMAIN_ORIGIN_SHA" -- "${domain_roots[@]}" > "$receipt_dir/domain-input-paths.list"
+          domain_paths_status=$?
+          if (( domain_paths_status != 0 )) || [[ ! -s "$receipt_dir/domain-input-paths.list" ]]; then
+            refuse_preflight combined_domain_path_inventory_unavailable
+          fi
+          : > "$receipt_dir/source-hashes.tsv"
+          input_paths=("${fixed_hash_paths[@]}")
+          while IFS= read -r path; do
+            [[ -n "$path" ]] && input_paths+=("$path")
+          done < "$receipt_dir/domain-input-paths.list"
+          for path in "${input_paths[@]}"; do
+            if [[ ! -f "$path" || -L "$path" ]]; then
+              refuse_preflight source_input_missing_or_not_regular
+              continue
+            fi
+            hash_line="$(sha256sum -- "$path" 2>&1)"
+            hash_status=$?
+            if (( hash_status != 0 )); then
+              refuse_preflight source_hash_failed
+              continue
+            fi
+            printf '%s\t%s\n' "${hash_line%% *}" "$path" >> "$receipt_dir/source-hashes.tsv"
+          done
+          stub_host="$(printf '%s\n' "$rustc_identity" | sed -n 's/^host: //p')"
+          known_stubs=('src-tauri/bundled-cli/codeterm')
+          if [[ "$stub_host" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+            known_stubs+=("src-tauri/bundled-embed/codeterm-embed-$stub_host")
+          else
+            refuse_preflight rust_host_unavailable
+          fi
+          list_stub_entries() {
+            local dir
+            for dir in src-tauri/bundled-cli src-tauri/bundled-embed; do
+              if [[ -L "$dir" || ( -e "$dir" && ! -d "$dir" ) ]]; then return 1; fi
+              if [[ -d "$dir" ]]; then find "$dir" -mindepth 1 -maxdepth 1 -print || return 1; fi
+            done
+          }
+          list_stub_entries > "$receipt_dir/stub-entries-before.list"
+          stub_snapshot_status=$?
+          if (( stub_snapshot_status != 0 )); then refuse_preflight stub_snapshot_failed; fi
+          if ! printf '%s\n' "${preflight_errors[@]}" > "$receipt_dir/preflight-errors.list"; then preflight_ready=false; fi
+          export QUAL_RECEIPT_DIR="$receipt_dir"
+          export QUAL_CHECKOUT_SHA="$checkout_sha"
+          export QUAL_SOURCE_BEFORE_CLEAN="$source_before_clean"
+          export QUAL_PREFLIGHT_READY="$preflight_ready"
+          export QUAL_DOMAIN_ANCESTOR="$domain_ancestor"
+          export QUAL_DOMAIN_INVENTORY_EQUAL="$domain_inventory_equal"
+          export QUAL_ORIGIN_DELTA_EQUAL="$origin_delta_equal"
+          export QUAL_FOUNDATION_UNCHANGED_EQUAL="$foundation_unchanged_equal"
+          export QUAL_FOUNDATION_DOMAIN_DELTA_EQUAL="$foundation_domain_delta_equal"
+          export QUAL_RUSTC_IDENTITY="$rustc_identity"
+          export QUAL_CARGO_IDENTITY="$cargo_identity"
+          export QUAL_NODE_IDENTITY="$node_identity"
+          export QUAL_BASH_IDENTITY="$BASH_VERSION"
+          export QUAL_ACCOUNT_IDENTITY="$account_identity"
+          export QUAL_KERNEL_IDENTITY="$kernel_identity"
+          export QUAL_KNOWN_STUBS="$(IFS=,; printf '%s' "${known_stubs[*]}")"
+          cat > "$receipt_dir/receipt.js" <<'NODE'
+          const crypto = require('node:crypto');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const readline = require('node:readline');
+
+          const schema = 'storage-domains-linux-v1';
+          const selectors = [
+            {
+              selector: 'storage_cron_',
+              command: 'TEST_CAP_SECS=600 RUST_TEST_THREADS=1 CARGO_TERM_COLOR=never ./build.sh test-one app storage_cron_',
+              log: 'storage-cron.log',
+              expected: [
+                ['cron::store::storage_tests::storage_cron_every_field_and_order_roundtrips', 'ok'],
+                ['cron::store::storage_tests::storage_cron_legacy_import_conserves_every_original_fact', 'ok'],
+                ['cron::store::storage_tests::storage_cron_legacy_decoder_refuses_without_touching_originals', 'ok'],
+                ['cron::store::storage_tests::storage_cron_updates_write_bounded_rows_independent_of_inventory', 'ok'],
+                ['cron::store::storage_tests::storage_cron_completion_accounting_is_once_only', 'ok'],
+                ['cron::store::storage_tests::storage_cron_oneshot_paused_and_protected_state_persists', 'ok'],
+                ['cron::store::storage_tests::storage_cron_deleted_job_history_is_a_retired_identity', 'ok'],
+                ['cron::store::storage_tests::storage_cron_unknown_identity_is_refused_and_historical_targets_stay_verbatim', 'ok'],
+                ['cron::store::storage_tests::storage_cron_commit_failure_conserves_cache_and_database_and_never_dispatches', 'ok'],
+                ['cron::store::storage_tests::storage_cron_legacy_and_storage_backends_never_cross', 'ok'],
+                ['cron::store::storage_tests::storage_cron_previous_schema_upgrades_in_place', 'ok'],
+                ['cron::store::storage_tests::storage_cron_scope_removal_drops_scope_jobs_and_their_history', 'ok'],
+                ['cron::store::storage_tests::storage_cron_logs_stay_files_named_by_plain_ids', 'ok'],
+                ['cron::store::storage_tests::consumers::storage_cron_consumer_protected_delete_keeps_logs', 'ignored'],
+                ['cron::store::storage_tests::consumers::storage_cron_consumer_cancel_marks_the_last_run_too', 'ignored'],
+                ['cron::store::storage_tests::concurrency::storage_cron_held_writer_leaves_cron_lock_and_committed_reads_available', 'ok'],
+                ['cron::store::storage_tests::concurrency::storage_cron_stale_run_update_rereads_and_reprepares', 'ok'],
+                ['cron::store::storage_tests::concurrency::storage_cron_publication_follows_commit', 'ok'],
+                ['cron::store::storage_tests::concurrency::storage_cron_shutdown_settles_admitted_work_and_refuses_late_work', 'ok'],
+                ['cron::store::storage_tests::concurrency::storage_cron_backpressure_refuses_without_claim', 'ok'],
+                ['cron::store::storage_tests::concurrency::storage_cron_unconfirmed_commit_fences_changes_until_reconciled', 'ok'],
+                ['cron::store::storage_tests::concurrency::storage_cron_scheduler_port_draft_commits_after_lock_release', 'ok'],
+                ['cron::store::storage_tests::concurrency::storage_cron_fence_raised_after_prepare_refuses_admission', 'ok'],
+                ['cron::store::storage_tests::concurrency::storage_cron_port_draft_is_retained_when_refused_and_never_replayed_when_uncertain', 'ok'],
+                ['cron::store::storage_tests::divergence::storage_cron_divergent_last_run_survives_import_and_reopen', 'ok'],
+                ['cron::store::storage_tests::divergence::storage_cron_divergent_last_run_evolves_like_the_legacy_file', 'ok'],
+                ['cron::store::storage_tests::divergence::storage_cron_divergence_is_never_manufactured_and_leaves_with_its_definition', 'ok'],
+                ['agent::run_watcher::cron_end::tests::storage_cron_consumer_run_end_commits_through_storage', 'ignored'],
+              ],
+            },
+            {
+              selector: 'storage_sentinel_',
+              command: 'TEST_CAP_SECS=600 RUST_TEST_THREADS=1 CARGO_TERM_COLOR=never ./build.sh test-one app storage_sentinel_',
+              log: 'storage-sentinel.log',
+              expected: [
+                ['sentinel::storage::tests::storage_sentinel_import_roundtrip_conserves_definition_runtime_and_results', 'ok'],
+                ['sentinel::storage::tests::storage_sentinel_reopen_never_replays_claims_or_rearms_stopped_work', 'ok'],
+                ['sentinel::storage::tests::storage_sentinel_definition_versions_are_independent_of_runtime_state', 'ok'],
+                ['sentinel::storage::tests::storage_sentinel_two_parents_activate_child_once_and_survive_reopen', 'ok'],
+                ['sentinel::storage::tests::storage_sentinel_partial_handler_results_survive_reopen_without_replay', 'ok'],
+                ['sentinel::storage::tests::storage_sentinel_crash_after_claim_never_reclassifies_or_replays', 'ok'],
+                ['sentinel::storage::tests::storage_sentinel_backends_stay_isolated_and_lock_held_calls_refuse', 'ok'],
+                ['sentinel::storage::tests::storage_sentinel_codec_refuses_lossy_definitions', 'ok'],
+                ['sentinel::storage::tests::coherence::storage_sentinel_graph_projects_one_committed_scope_with_configured_and_observed_edges', 'ok'],
+                ['sentinel::storage::tests::coherence::storage_sentinel_rows_written_stay_bounded_by_the_changed_stage', 'ok'],
+                ['sentinel::storage::tests::coherence::storage_sentinel_schema_upgrades_v1_in_place_with_exact_relationships', 'ok'],
+                ['sentinel::storage::tests::races::storage_sentinel_stop_staged_before_claim_fences_the_effect', 'ok'],
+                ['sentinel::storage::tests::races::storage_sentinel_team_removal_outlives_late_stop_and_fenced_claim', 'ok'],
+                ['sentinel::storage::tests::races::storage_sentinel_commit_failure_refuses_claim_and_closes_admission', 'ok'],
+                ['sentinel::storage::tests::races::storage_sentinel_unconfirmed_commit_stays_closed_until_reconciled', 'ok'],
+                ['sentinel::storage::tests::races::storage_sentinel_held_writer_serves_committed_scope_and_holds_events', 'ok'],
+                ['sentinel::storage::tests::races::storage_sentinel_shutdown_settles_accepted_work_and_refuses_new_admission', 'ok'],
+              ],
+            },
+            {
+              selector: 'storage_contract_',
+              command: 'TEST_CAP_SECS=600 RUST_TEST_THREADS=1 CARGO_TERM_COLOR=never ./build.sh test-one app storage_contract_',
+              log: 'storage-contract.log',
+              expected: [
+                ['storage::tests::storage_contract_config_bounds_are_explicit', 'ok'],
+                ['storage::tests::storage_contract_effective_pragmas_are_verified', 'ok'],
+                ['storage::tests::storage_contract_workspace_rows_are_incremental_and_ordered', 'ok'],
+                ['storage::tests::storage_contract_stale_revision_conserves_entire_prior_set', 'ok'],
+                ['storage::tests::storage_contract_foreign_key_failure_rolls_back_only_its_operation', 'ok'],
+                ['storage::tests::storage_contract_injected_commit_failure_conserves_state', 'ok'],
+                ['storage::tests::storage_contract_database_full_rolls_back_batch', 'ok'],
+                ['storage::tests::storage_contract_held_writer_serves_committed_reads_and_bounds_admission', 'ok'],
+                ['storage::tests::storage_contract_mailbox_byte_bound_refuses_without_discard', 'ok'],
+                ['storage::tests::storage_contract_owner_alias_and_instance_isolation', 'ok'],
+                ['storage::tests::storage_contract_malformed_and_incompatible_databases_are_refused', 'ok'],
+                ['storage::tests::storage_contract_backup_while_wal_active_restores_consistently', 'ok'],
+                ['storage::tests::storage_contract_shutdown_drains_accepted_and_releases_handles', 'ok'],
+                ['storage::tests::storage_contract_shutdown_admission_race_settles_every_submission', 'ok'],
+                ['storage::tests::storage_contract_owner_threads_refuse_reentrant_calls', 'ok'],
+                ['storage::tests::storage_contract_completion_resolves_on_async_runtime', 'ok'],
+                ['storage::tests::storage_contract_identifiers_are_confined', 'ok'],
+                ['storage::tests::storage_contract_linked_storage_directories_are_refused', 'ok'],
+                ['storage::tests::assets::storage_contract_asset_publication_and_rollback_orphans', 'ok'],
+                ['storage::tests::assets::storage_contract_asset_detach_cleanup_failure_is_retained', 'ok'],
+                ['storage::tests::assets::storage_contract_asset_read_survives_concurrent_detach', 'ok'],
+                ['storage::tests::assets::storage_contract_asset_publication_never_replaces_existing_blob', 'ok'],
+                ['storage::tests::assets::storage_contract_deep_root_publishes_restores_and_reopens', 'ok'],
+              ],
+            },
+          ];
+          const fixedHashPaths = ['.github/workflows/tests.yml', 'build.sh', 'scripts/test-capped.sh', 'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock'];
+          const domainReviewedSha = 'bae48571f3ec780816aa05b0d47c2289755cc029';
+          const domainOriginSha = '3972c8bd13bbf666e4470a3fcf6a51c6d67f5447';
+          const foundationAcceptedSha = 'dbc17edee5c1c9032c1498caa0f04b00eb3468ad';
+          const fittedDelta = [
+            'M\tsrc-tauri/crates/codeterm-storage/src/assets.rs',
+            'M\tsrc-tauri/src/sentinel/handlers.rs',
+            'M\tsrc-tauri/src/sentinel/probe.rs',
+            'M\tsrc-tauri/src/sentinel/probe/owner.rs',
+            'M\tsrc-tauri/src/sentinel/probe/process.rs',
+            'M\tsrc-tauri/src/sentinel/probe/unix.rs',
+          ].join('\n') + '\n';
+          const foundationDelta = [
+            'M\tsrc-tauri/crates/codeterm-storage/src/lib.rs',
+            'A\tsrc-tauri/crates/codeterm-storage/src/repositories/cron/mod.rs',
+            'A\tsrc-tauri/crates/codeterm-storage/src/repositories/cron/mutations.rs',
+            'A\tsrc-tauri/crates/codeterm-storage/src/repositories/cron/queries.rs',
+            'A\tsrc-tauri/crates/codeterm-storage/src/repositories/cron/records.rs',
+            'M\tsrc-tauri/crates/codeterm-storage/src/repositories/mod.rs',
+            'A\tsrc-tauri/crates/codeterm-storage/src/repositories/sentinel/definitions.rs',
+            'A\tsrc-tauri/crates/codeterm-storage/src/repositories/sentinel/mod.rs',
+            'A\tsrc-tauri/crates/codeterm-storage/src/repositories/sentinel/queries.rs',
+            'A\tsrc-tauri/crates/codeterm-storage/src/repositories/sentinel/records.rs',
+            'A\tsrc-tauri/crates/codeterm-storage/src/repositories/sentinel/runtime.rs',
+            'M\tsrc-tauri/crates/codeterm-storage/src/schema.rs',
+            'A\tsrc-tauri/crates/codeterm-storage/src/schema/cron.rs',
+            'A\tsrc-tauri/crates/codeterm-storage/src/schema/sentinel.rs',
+          ].join('\n') + '\n';
+          const dir = process.env.QUAL_RECEIPT_DIR;
+          const receiptPath = path.join(dir, 'receipt.json');
+          const sha40 = /^[0-9a-f]{40}$/;
+          const sha64 = /^[0-9a-f]{64}$/;
+          const summaryPattern = /^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out; finished in ([0-9.]+)s$/;
+          const resultPattern = /^test ([A-Za-z0-9_:]+) \.\.\. (ok|FAILED|ignored)(?:, (.*))?$/;
+          const runningPattern = /^running (\d+) tests?$/;
+          const compileStartLine = '[test-capped] compiling test targets before the execution cap.';
+          const compileFailedPattern = /^\[test-capped\] test target compilation failed with exit (\d+)\.$/;
+          const envNumber = name => process.env[name] === undefined || process.env[name] === '' ? null : Number(process.env[name]);
+          const bytes = name => { try { return fs.readFileSync(path.join(dir, name)); } catch (_) { return null; } };
+          const text = name => { const value = bytes(name); return value === null ? null : value.toString('utf8'); };
+          const lines = name => (text(name) || '').split('\n').filter(Boolean);
+          const treePaths = value => value.toString('utf8').split('\n').filter(Boolean).map(line => line.split('\t').slice(1).join('\t'));
+          const errors = new Set();
+          const record = code => { if (errors.size < 63) errors.add(code); else errors.add('error_overflow'); };
+
+          async function digestFile(file) {
+            const digest = crypto.createHash('sha256');
+            for await (const chunk of fs.createReadStream(file)) digest.update(chunk);
+            return digest.digest('hex');
+          }
+
+          async function parseLog(spec) {
+            const parsed = { actual: [], actualCount: 0, blocks: [], blockCount: 0, summaryLines: 0, malformedResultLines: 0, compileStarts: 0, compileFailedExit: null, slowLines: 0 };
+            let current = null;
+            const input = fs.createReadStream(path.join(dir, spec.log));
+            const reader = readline.createInterface({ input, crlfDelay: Infinity });
+            for await (const line of reader) {
+              if (line === compileStartLine) parsed.compileStarts += 1;
+              const compileFailed = compileFailedPattern.exec(line);
+              if (compileFailed) {
+                if (parsed.compileFailedExit !== null) record('duplicate_compile_failure_line');
+                parsed.compileFailedExit = Number(compileFailed[1]);
+              }
+              if (/^test [A-Za-z0-9_:]+ has been running for over \d+ seconds$/.test(line)) {
+                parsed.slowLines += 1;
+                record('libtest_running_warning');
+              }
+              const running = runningPattern.exec(line);
+              if (running) {
+                if (current !== null) record('overlapping_test_runner_blocks');
+                current = { running: Number(running[1]), actual: [], summary: null };
+                parsed.blockCount += 1;
+                if (parsed.blocks.length < 64) parsed.blocks.push(current);
+                else record('test_runner_metadata_overflow');
+                continue;
+              }
+              if (/^test result(?:\s|:)/.test(line)) {
+                parsed.summaryLines += 1;
+                const match = summaryPattern.exec(line);
+                if (!match) record('malformed_summary_line');
+                if (current === null) {
+                  record('summary_without_runner');
+                  continue;
+                }
+                if (!match) {
+                  current.summary = { malformed: true };
+                } else {
+                  current.summary = {
+                    status: match[1], passed: Number(match[2]), failed: Number(match[3]), ignored: Number(match[4]),
+                    measured: Number(match[5]), filtered_out: Number(match[6]), libtest_seconds: Number(match[7]),
+                  };
+                }
+                current = null;
+                continue;
+              }
+              if (/^test(?:\s|$)/.test(line)) {
+                const match = resultPattern.exec(line);
+                if (!match) {
+                  parsed.malformedResultLines += 1;
+                  record('malformed_test_result_line');
+                  continue;
+                }
+                const reason = match[3] || null;
+                if (reason !== null && reason.length > 256) record('ignore_reason_overflow');
+                const row = { full_name: match[1], status: match[2], ignore_reason: reason === null ? null : reason.slice(0, 256) };
+                parsed.actualCount += 1;
+                if (parsed.actual.length < 128) parsed.actual.push(row);
+                else record('actual_test_rows_overflow');
+                if (current === null) record('test_result_without_runner');
+                else if (current.actual.length < 128) current.actual.push(row);
+              }
+            }
+            if (current !== null) record('incomplete_test_runner_block');
+            return parsed;
+          }
+
+          async function validateInputs() {
+            const source = {
+              expected_sha: process.env.EXPECTED_SOURCE_SHA || '',
+              workflow_sha: process.env.WORKFLOW_SOURCE_SHA || '',
+              event_sha: process.env.EVENT_SOURCE_SHA || '',
+              checkout_sha: process.env.QUAL_CHECKOUT_SHA || '',
+              after_head_sha: process.env.QUAL_AFTER_HEAD_SHA || '',
+              clean_before: process.env.QUAL_SOURCE_BEFORE_CLEAN === 'true',
+              clean_after: process.env.QUAL_SOURCE_AFTER_CLEAN === 'true',
+            };
+            if (!sha40.test(source.expected_sha) || [source.workflow_sha, source.event_sha, source.checkout_sha].some(value => value !== source.expected_sha)) record('source_identity_mismatch');
+            if (process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch') record('event_not_workflow_dispatch');
+            if (!source.clean_before) record('source_not_clean_before');
+            if (bytes('source-before.status') === null) record('source_before_status_missing');
+            for (const name of ['preflight-errors.list', 'stub-cleanup.list', 'stub-unknown.list', 'stub-cleanup.stderr']) {
+              if (bytes(name) === null) record(`receipt_capture_missing:${name}`);
+            }
+            if (process.env.QUAL_PREFLIGHT_READY !== 'true') record('preflight_refused');
+            if (process.env.QUAL_DOMAIN_ANCESTOR !== 'true') record('reviewed_domain_anchor_not_ancestor');
+            const reviewedDomain = bytes('reviewed-domain.tree');
+            const sourceDomain = bytes('source-domain.tree');
+            const originDomain = bytes('origin-domain.tree');
+            if (process.env.QUAL_DOMAIN_INVENTORY_EQUAL !== 'true' || reviewedDomain === null || sourceDomain === null || !reviewedDomain.equals(sourceDomain)) record('combined_domain_input_tree_mismatch');
+            const originExpected = bytes('fitted-domain-delta.expected');
+            const originReviewed = bytes('origin-to-reviewed-domain.diff');
+            const originSource = bytes('origin-to-source-domain.diff');
+            if (process.env.QUAL_ORIGIN_DELTA_EQUAL !== 'true' || originExpected === null || originReviewed === null || originSource === null || !originExpected.equals(originReviewed) || !originExpected.equals(originSource)) record('unexpected_domain_delta_since_3972');
+            const acceptedFoundation = bytes('accepted-foundation.tree');
+            const sourceFoundation = bytes('source-foundation.tree');
+            if (process.env.QUAL_FOUNDATION_UNCHANGED_EQUAL !== 'true' || acceptedFoundation === null || sourceFoundation === null || !acceptedFoundation.equals(sourceFoundation)) record('unchanged_foundation_inputs_mismatch');
+            const foundationExpected = bytes('foundation-domain-delta.expected');
+            const foundationDelta = bytes('foundation-domain-delta.tsv');
+            if (process.env.QUAL_FOUNDATION_DOMAIN_DELTA_EQUAL !== 'true' || foundationExpected === null || foundationDelta === null || !foundationExpected.equals(foundationDelta)) record('foundation_domain_delta_inventory_mismatch');
+            const domainPathText = text('domain-input-paths.list');
+            if (domainPathText === null || reviewedDomain === null || originDomain === null) {
+              record('combined_domain_path_inventory_missing');
+            } else {
+              const domainPaths = domainPathText.split('\n').filter(Boolean);
+              const reviewedPaths = treePaths(reviewedDomain);
+              const originPaths = treePaths(originDomain);
+              if (domainPaths.length !== reviewedPaths.length || new Set(domainPaths).size !== domainPaths.length || domainPaths.slice().sort().join('\n') !== reviewedPaths.slice().sort().join('\n') || originPaths.length !== reviewedPaths.length || originPaths.slice().sort().join('\n') !== reviewedPaths.slice().sort().join('\n')) record('combined_domain_path_inventory_mismatch');
+              const hashText = text('source-hashes.tsv');
+              const hashRows = (hashText || '').split('\n').filter(Boolean).map(line => {
+                const split = line.indexOf('\t');
+                return split < 0 ? { sha256: '', path: '' } : { sha256: line.slice(0, split), path: line.slice(split + 1) };
+              });
+              const expectedPaths = [...fixedHashPaths, ...domainPaths];
+              const hashPaths = hashRows.map(row => row.path);
+              if (hashRows.length !== expectedPaths.length || new Set(hashPaths).size !== hashPaths.length || expectedPaths.some(name => !hashPaths.includes(name)) || hashRows.some(row => !sha64.test(row.sha256))) record('source_hash_inventory_invalid');
+              if (hashRows.length > 200) record('source_hash_inventory_overflow');
+              for (const row of hashRows.slice(0, 200)) {
+                if (!row.path || !fs.existsSync(row.path) || fs.lstatSync(row.path).isSymbolicLink() || !fs.statSync(row.path).isFile()) {
+                  record('source_hash_path_missing_or_not_regular');
+                  continue;
+                }
+                const actual = await digestFile(row.path).catch(() => null);
+                if (actual === null || actual !== row.sha256) record('source_hash_changed_during_qualification');
+              }
+            }
+            const assetRows = (text('assets-hashes.tsv') || '').split('\n').filter(Boolean).map(line => line.split('\t'));
+            if (assetRows.length !== 4 || assetRows.some(row => row.length !== 2 || !sha64.test(row[1]))) {
+              record('assets_hash_comparison_incomplete');
+            } else {
+              const assetMap = new Map(assetRows);
+              if (assetMap.get(foundationAcceptedSha) !== assetMap.get(domainOriginSha) || assetMap.get(domainOriginSha) === assetMap.get(domainReviewedSha) || assetMap.get('checkout') !== assetMap.get(domainReviewedSha)) record('assets_descendant_change_mismatch');
+            }
+            if (process.env.QUAL_SOURCE_AFTER_CLEAN === 'true') {
+              if (bytes('source-after.status') === null || bytes('source-after.diff') === null) record('source_after_status_missing');
+              if (!sha40.test(source.after_head_sha) || source.after_head_sha !== source.expected_sha) record('source_identity_changed_after_command');
+            }
+            const sourceHashes = (text('source-hashes.tsv') || '').split('\n').filter(Boolean).map(line => {
+              const split = line.indexOf('\t');
+              return split < 0 ? { sha256: '', path: '' } : { sha256: line.slice(0, split), path: line.slice(split + 1) };
+            });
+            return {
+              ...source,
+              domain_anchor: domainReviewedSha,
+              domain_origin: domainOriginSha,
+              domain_ancestor: process.env.QUAL_DOMAIN_ANCESTOR === 'true',
+              domain_input_tree_equal: process.env.QUAL_DOMAIN_INVENTORY_EQUAL === 'true',
+              fitted_delta_equal: process.env.QUAL_ORIGIN_DELTA_EQUAL === 'true',
+              accepted_foundation_sha: foundationAcceptedSha,
+              unchanged_foundation_inputs_equal: process.env.QUAL_FOUNDATION_UNCHANGED_EQUAL === 'true',
+              foundation_domain_delta_equal: process.env.QUAL_FOUNDATION_DOMAIN_DELTA_EQUAL === 'true',
+              domain_inputs: lines('domain-input-paths.list'),
+              hashes: sourceHashes.slice(0, 200),
+              origin_domain_tree_sha256: originDomain ? crypto.createHash('sha256').update(originDomain).digest('hex') : null,
+              domain_tree_sha256: reviewedDomain ? crypto.createHash('sha256').update(reviewedDomain).digest('hex') : null,
+              foundation_tree_sha256: acceptedFoundation ? crypto.createHash('sha256').update(acceptedFoundation).digest('hex') : null,
+              asset_hashes: assetRows.map(row => ({ revision: row[0], sha256: row[1] })),
+              origin_to_reviewed_delta: lines('origin-to-reviewed-domain.diff'),
+              foundation_domain_delta: lines('foundation-domain-delta.tsv'),
+            };
+          }
+
+          async function buildCommand(spec, index, previous) {
+            const logPath = path.join(dir, spec.log);
+            const row = {
+              selector: spec.selector,
+              command: spec.command,
+              phase: 'not_run',
+              status: 'not_run',
+              raw_exit: null,
+              started_utc: null,
+              finished_utc: null,
+              wall_ms: null,
+              stub_cleanup_status: null,
+              compile_started: false,
+              compile_failed_exit: null,
+              log: spec.log,
+              log_bytes: null,
+              log_sha256: null,
+              actual_count: 0,
+              actual_truncated: false,
+              errors: [],
+              expected: spec.expected.map(([full_name, status]) => ({ full_name, status })),
+              actual: [],
+              selected_summary: null,
+              filtered_targets: [],
+              filtered_target_count: 0,
+            };
+            if (index < 0) return row;
+            const localErrors = new Set();
+            const add = code => { if (localErrors.size < 63) localErrors.add(code); else localErrors.add('command_error_overflow'); };
+            const rawExit = envNumber('QUAL_COMMAND_RAW_EXIT');
+            const startMs = envNumber('QUAL_COMMAND_STARTED_MS');
+            const endMs = envNumber('QUAL_COMMAND_FINISHED_MS');
+            row.raw_exit = Number.isInteger(rawExit) ? rawExit : null;
+            row.started_utc = process.env.QUAL_COMMAND_STARTED_UTC || null;
+            row.finished_utc = process.env.QUAL_COMMAND_FINISHED_UTC || null;
+            row.wall_ms = Number.isInteger(startMs) && Number.isInteger(endMs) && endMs >= startMs ? endMs - startMs : null;
+            row.stub_cleanup_status = envNumber('QUAL_STUB_CLEANUP_STATUS');
+            if (row.raw_exit === null) add('raw_exit_missing');
+            if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(row.started_utc || '') || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(row.finished_utc || '') || row.wall_ms === null) add('command_timing_missing_or_invalid');
+            if (row.stub_cleanup_status !== 0) add('stub_cleanup_failed');
+            try {
+              const stat = fs.lstatSync(logPath);
+              if (!stat.isFile() || stat.isSymbolicLink()) add('raw_log_missing_or_not_regular');
+              else {
+                row.log_bytes = stat.size;
+                const parsed = await parseLog(spec);
+                row.actual = parsed.actual.slice(0, 128);
+                row.actual_count = parsed.actualCount;
+                row.actual_truncated = parsed.actualCount > row.actual.length;
+                row.compile_started = parsed.compileStarts === 1;
+                row.compile_failed_exit = parsed.compileFailedExit;
+                if (parsed.compileFailedExit !== null && parsed.blocks.length > 0) add('compile_failure_with_test_output');
+                if (parsed.compileStarts !== 1) add('compile_phase_marker_missing_or_ambiguous');
+                if (parsed.compileFailedExit !== null && parsed.compileFailedExit !== row.raw_exit) add('compile_failure_exit_mismatch');
+                const digestBefore = await digestFile(logPath).catch(() => null);
+                const statAfter = fs.statSync(logPath);
+                const digestAfter = await digestFile(logPath).catch(() => null);
+                row.log_sha256 = digestBefore;
+                if (digestBefore === null || digestAfter === null || digestBefore !== digestAfter || statAfter.size !== stat.size) add('raw_log_capture_incomplete_or_changed');
+                if (parsed.compileStarts > 1) add('duplicate_compile_start_line');
+                const nonempty = parsed.blocks.filter(block => block.running > 0);
+                const zero = parsed.blocks.filter(block => block.running === 0);
+                const expectedOk = spec.expected.filter(([, status]) => status === 'ok').length;
+                const expectedIgnored = spec.expected.filter(([, status]) => status === 'ignored').length;
+                for (const block of zero) {
+                  const summary = block.summary;
+                  const valid = block.actual.length === 0 && summary && !summary.malformed && summary.status === 'ok' && summary.passed === 0 && summary.failed === 0 && summary.ignored === 0 && summary.measured === 0;
+                  if (!valid) add('zero_filtered_target_malformed');
+                  if (row.filtered_targets.length < 32) row.filtered_targets.push({ running: block.running, summary: summary && !summary.malformed ? summary : null });
+                  else add('filtered_target_metadata_overflow');
+                }
+                row.filtered_target_count = zero.length;
+                const selected = nonempty.filter(block => block.running === spec.expected.length);
+                if (nonempty.length !== 1 || selected.length !== 1) add('selected_runner_inventory_ambiguous');
+                if (parsed.summaryLines - zero.length !== 1 || selected.length !== 1 || !selected[0].summary || selected[0].summary.malformed) add('selected_summary_count_mismatch');
+                const selectedBlock = selected.length === 1 ? selected[0] : null;
+                if (selectedBlock) {
+                  const summary = selectedBlock.summary;
+                  row.selected_summary = summary && !summary.malformed ? summary : null;
+                  if (selectedBlock.actual.length !== spec.expected.length) add('selected_result_count_mismatch');
+                  if (!summary || summary.malformed || summary.status !== 'ok' || summary.passed !== expectedOk || summary.failed !== 0 || summary.ignored !== expectedIgnored || summary.measured !== 0 || selectedBlock.running !== expectedOk + expectedIgnored || !Number.isFinite(summary.libtest_seconds) || summary.libtest_seconds < 0) add('selected_summary_counts_mismatch');
+                }
+                const expectedByName = new Map(spec.expected.map(([name, status]) => [name, status]));
+                const actualCounts = new Map();
+                for (const test of parsed.actual) {
+                  actualCounts.set(test.full_name, (actualCounts.get(test.full_name) || 0) + 1);
+                  const expectedStatus = expectedByName.get(test.full_name);
+                  if (expectedStatus === undefined) add('unknown_test_name');
+                  else if (test.status !== expectedStatus) add('test_status_mismatch');
+                  if (test.status === 'FAILED') add('test_failed');
+                  if (expectedStatus === 'ok' && test.ignore_reason !== null) add('unexpected_test_result_suffix');
+                  if (expectedStatus === 'ignored' && test.ignore_reason !== 'requires desktop runtime') add('unexpected_ignored_control_reason');
+                }
+                if ([...actualCounts.values()].some(count => count !== 1)) add('duplicate_test_name');
+                if (spec.expected.some(([name]) => actualCounts.get(name) !== 1)) add('missing_or_duplicate_expected_test');
+                if (parsed.actual.length !== spec.expected.length) add('actual_test_inventory_count_mismatch');
+              }
+            } catch (_) {
+              add('raw_log_parse_or_hash_failed');
+            }
+            if (row.raw_exit !== 0) add('raw_exit_not_zero');
+            row.phase = row.compile_failed_exit === null ? 'execution' : 'compile_failure';
+            row.errors = [...localErrors];
+            row.status = row.errors.length === 0 ? 'qualified' : 'refused';
+            return row;
+          }
+
+          function safeIdentity(value, code) {
+            if (!value) record(code);
+            if ((value || '').length > 4096) {
+              record('runner_identity_overflow');
+              return value.slice(0, 4096);
+            }
+            return value || null;
+          }
+
+          async function main() {
+            const mode = process.argv[2] || '';
+            let previous = null;
+            try { previous = JSON.parse(fs.readFileSync(receiptPath, 'utf8')); } catch (_) {}
+            const commandIndex = mode === 'preflight' ? -1 : Number(mode);
+            if (mode !== 'preflight' && (!Number.isInteger(commandIndex) || commandIndex < 0 || commandIndex > 2)) record('command_index_invalid');
+            const source = await validateInputs();
+            const priorCommands = Array.isArray(previous && previous.commands) ? previous.commands : [];
+            const commands = selectors.map((spec, index) => {
+              if (index === commandIndex) return null;
+              if (index < commandIndex && priorCommands[index]) return priorCommands[index];
+              return {
+                selector: spec.selector, command: spec.command, phase: 'not_run', status: 'not_run', raw_exit: null,
+                expected: spec.expected.map(([full_name, status]) => ({ full_name, status })), actual: [], errors: [],
+              };
+            });
+            let current = null;
+            if (mode !== 'preflight' && Number.isInteger(commandIndex) && commandIndex >= 0 && commandIndex < 3) {
+              current = await buildCommand(selectors[commandIndex], commandIndex, previous);
+              commands[commandIndex] = current;
+              for (const code of current.errors) record(code);
+              if (process.env.QUAL_SOURCE_AFTER_CLEAN !== 'true') record('source_not_clean_after_command');
+              if (current.status !== 'qualified') record('command_inventory_refused');
+            }
+            const preflightErrors = lines('preflight-errors.list');
+            for (const code of preflightErrors) record(code);
+            const runner = {
+              name: safeIdentity(process.env.RUNNER_NAME || '', 'runner_name_missing'),
+              os: safeIdentity(process.env.RUNNER_OS || '', 'runner_os_missing'),
+              arch: safeIdentity(process.env.RUNNER_ARCH || '', 'runner_arch_missing'),
+              account: safeIdentity(process.env.QUAL_ACCOUNT_IDENTITY || '', 'runner_account_missing'),
+              kernel: safeIdentity(process.env.QUAL_KERNEL_IDENTITY || '', 'runner_kernel_missing'),
+              rustc: safeIdentity(process.env.QUAL_RUSTC_IDENTITY || '', 'rustc_identity_missing'),
+              cargo: safeIdentity(process.env.QUAL_CARGO_IDENTITY || '', 'cargo_identity_missing'),
+              node: safeIdentity(process.env.QUAL_NODE_IDENTITY || '', 'node_identity_missing'),
+              bash: safeIdentity(process.env.QUAL_BASH_IDENTITY || '', 'bash_identity_missing'),
+            };
+            if (!process.env.GITHUB_RUN_ID || !process.env.GITHUB_RUN_ATTEMPT || !process.env.GITHUB_SERVER_URL || !process.env.GITHUB_REPOSITORY) record('run_identity_missing');
+            const executed = commands.filter(command => command && command.status === 'qualified').length;
+            const anyRefusal = errors.size > 0 || preflightErrors.length > 0 || commands.some(command => command && command.status === 'refused');
+            const allComplete = executed === selectors.length;
+            const outcome = !anyRefusal && allComplete ? 'qualified' : 'unqualified';
+            const receipt = {
+              schema,
+              outcome,
+              qualification_state: anyRefusal ? 'refused' : allComplete ? 'complete' : 'in_progress',
+              errors: [...errors],
+              run: {
+                id: process.env.GITHUB_RUN_ID || null,
+                attempt: process.env.GITHUB_RUN_ATTEMPT || null,
+                url: `${process.env.GITHUB_SERVER_URL || ''}/${process.env.GITHUB_REPOSITORY || ''}/actions/runs/${process.env.GITHUB_RUN_ID || ''}`,
+                event: process.env.GITHUB_EVENT_NAME || null,
+                ref: process.env.GITHUB_REF || null,
+                workflow_ref: process.env.GITHUB_WORKFLOW_REF || null,
+              },
+              source,
+              runner,
+              stubs: {
+                known_paths: (process.env.QUAL_KNOWN_STUBS || '').split(',').filter(Boolean),
+                removed_count: lines('stub-cleanup.list').length,
+                removed: lines('stub-cleanup.list').slice(0, 32),
+                removed_truncated: lines('stub-cleanup.list').length > 32,
+                unknown_count: lines('stub-unknown.list').length,
+                unknown: lines('stub-unknown.list').slice(0, 32),
+                unknown_truncated: lines('stub-unknown.list').length > 32,
+                cleanup_stderr_sha256: await digestFile(path.join(dir, 'stub-cleanup.stderr')).catch(() => null),
+              },
+              commands,
+            };
+            if (process.env.QUAL_AFTER_HEAD_SHA && !sha40.test(process.env.QUAL_AFTER_HEAD_SHA)) record('after_head_identity_invalid');
+            receipt.errors = [...errors];
+            if (receipt.errors.length > 64) {
+              receipt.errors = [...receipt.errors.slice(0, 63), 'error_overflow'];
+              receipt.outcome = 'unqualified';
+              receipt.qualification_state = 'refused';
+            }
+            let body = JSON.stringify(receipt, null, 2) + '\n';
+            if (Buffer.byteLength(body, 'utf8') > 65536) {
+              receipt.outcome = 'unqualified';
+              receipt.qualification_state = 'refused';
+              receipt.errors = [...new Set([...receipt.errors, 'receipt_overflow'])].slice(0, 64);
+              receipt.overflowed_fields = ['source.hashes', 'source.domain_inputs', 'source.delta_rows', 'runner.full_identity'];
+              body = JSON.stringify({
+                schema, outcome: 'unqualified', qualification_state: 'refused', errors: receipt.errors,
+                run: receipt.run, source: { expected_sha: source.expected_sha, workflow_sha: source.workflow_sha, event_sha: source.event_sha, checkout_sha: source.checkout_sha, after_head_sha: source.after_head_sha, domain_anchor: source.domain_anchor, accepted_foundation_sha: source.accepted_foundation_sha, clean_before: source.clean_before, clean_after: source.clean_after },
+                runner: { name: runner.name, os: runner.os, arch: runner.arch, account: runner.account, kernel: runner.kernel },
+                commands: commands.map(command => command && ({ selector: command.selector, command: command.command, phase: command.phase, status: command.status, raw_exit: command.raw_exit, expected: command.expected, actual: command.actual, selected_summary: command.selected_summary, errors: command.errors, log: command.log, log_sha256: command.log_sha256 })),
+                overflowed_fields: receipt.overflowed_fields,
+              }, null, 2) + '\n';
+            }
+            const temporaryPath = `${receiptPath}.tmp`;
+            fs.writeFileSync(temporaryPath, body, { flag: 'w' });
+            fs.renameSync(temporaryPath, receiptPath);
+            if (receipt.qualification_state === 'refused' || (current && current.status !== 'qualified')) process.exitCode = 1;
+          }
+
+          main().catch(async error => {
+            const mode = process.argv[2] || 'preflight';
+            const commandIndex = mode === 'preflight' ? -1 : Number(mode);
+            let previous = null;
+            try { previous = JSON.parse(fs.readFileSync(receiptPath, 'utf8')); } catch (_) {}
+            const previousCommands = Array.isArray(previous && previous.commands) ? previous.commands : [];
+            const fallback = {
+              schema, outcome: 'unqualified', qualification_state: 'refused', errors: ['receipt_generation_failed'],
+              error_code: error && error.code ? String(error.code).slice(0, 80) : 'unknown',
+              source: { expected_sha: process.env.EXPECTED_SOURCE_SHA || '', workflow_sha: process.env.WORKFLOW_SOURCE_SHA || '', event_sha: process.env.EVENT_SOURCE_SHA || '', checkout_sha: process.env.QUAL_CHECKOUT_SHA || '', after_head_sha: process.env.QUAL_AFTER_HEAD_SHA || '' },
+              commands: await Promise.all(selectors.map(async (spec, index) => {
+                if (index < commandIndex && previousCommands[index]) return previousCommands[index];
+                if (index === commandIndex) return {
+                  selector: spec.selector, command: spec.command, phase: 'execution', status: 'refused',
+                  raw_exit: envNumber('QUAL_COMMAND_RAW_EXIT'), started_utc: process.env.QUAL_COMMAND_STARTED_UTC || null,
+                  finished_utc: process.env.QUAL_COMMAND_FINISHED_UTC || null, wall_ms: null, log: spec.log,
+                  log_sha256: await digestFile(path.join(dir, spec.log)).catch(() => null), errors: ['receipt_generation_failed'],
+                  expected: spec.expected.map(([full_name, status]) => ({ full_name, status })), actual: [],
+                };
+                return { selector: spec.selector, command: spec.command, phase: 'not_run', status: 'not_run', raw_exit: null, expected: spec.expected.map(([full_name, status]) => ({ full_name, status })), actual: [], errors: [] };
+              })),
+            };
+            try { fs.writeFileSync(`${receiptPath}.tmp`, JSON.stringify(fallback) + '\n', { flag: 'w' }); fs.renameSync(`${receiptPath}.tmp`, receiptPath); } catch (_) { console.error('fallback_receipt_write_failed'); }
+            console.error('receipt_generation_failed');
+            process.exitCode = 1;
+          });
+          NODE
+          if (( $? != 0 )); then
+            refuse_preflight receipt_parser_source_write_failed
+            printf '%s\n' "${preflight_errors[@]}" > "$receipt_dir/preflight-errors.list"
+          fi
+          if [[ "$preflight_ready" != true ]]; then
+            QUAL_SOURCE_AFTER_CLEAN=false
+            export QUAL_SOURCE_AFTER_CLEAN
+            node "$receipt_dir/receipt.js" preflight
+            exit 1
+          fi
+          stub_cleanup_status=0
+          command_index=''
+          command_raw_exit=''
+          command_started_utc=''
+          command_finished_utc=''
+          command_started_ms=''
+          command_finished_ms=''
+          cleanup_build_stubs() {
+            local entry known
+            list_stub_entries > "$receipt_dir/stub-entries-after.list"
+            if (( $? != 0 )); then stub_cleanup_status=1; return; fi
+            while IFS= read -r entry; do
+              if grep -Fxq -- "$entry" "$receipt_dir/stub-entries-before.list"; then continue; fi
+              known=false
+              for stub in "${known_stubs[@]}"; do
+                if [[ "$entry" == "$stub" ]]; then known=true; fi
+              done
+              if [[ "$known" == true && -f "$entry" && ! -L "$entry" && ! -s "$entry" ]]; then
+                if rm -- "$entry" 2>> "$receipt_dir/stub-cleanup.stderr"; then
+                  if ! printf '%s\n' "$entry" >> "$receipt_dir/stub-cleanup.list"; then stub_cleanup_status=1; fi
+                else
+                  stub_cleanup_status=1
+                fi
+              else
+                if ! printf '%s\n' "$entry" >> "$receipt_dir/stub-unknown.list"; then stub_cleanup_status=1; fi
+                stub_cleanup_status=1
+              fi
+            done < "$receipt_dir/stub-entries-after.list"
+          }
+          finish_command() {
+            command_index="$1"
+            command_raw_exit="$2"
+            command_finished_utc="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ 2>/dev/null)"
+            command_finished_ms="$(date +%s%3N 2>/dev/null)"
+            cat "$receipt_dir/$3"
+            cat_status=$?
+            if (( cat_status != 0 )); then stub_cleanup_status=1; fi
+            cleanup_build_stubs
+            source_after="$(git status --porcelain --untracked-files=all 2>&1)"
+            source_after_status=$?
+            printf '%s\n' "$source_after" > "$receipt_dir/source-after.status"
+            git diff HEAD -- > "$receipt_dir/source-after.diff"
+            source_diff_status=$?
+            source_after_head="$(git rev-parse HEAD 2>/dev/null)"
+            source_after_head_status=$?
+            source_after_clean=true
+            if (( source_after_status != 0 || source_diff_status != 0 || source_after_head_status != 0 || stub_cleanup_status != 0 )) || [[ -n "$source_after" || "$source_after_head" != "$checkout_sha" || -s "$receipt_dir/stub-unknown.list" ]]; then
+              source_after_clean=false
+            fi
+            export QUAL_SOURCE_AFTER_CLEAN="$source_after_clean"
+            export QUAL_AFTER_HEAD_SHA="$source_after_head"
+            export QUAL_STUB_CLEANUP_STATUS="$stub_cleanup_status"
+            export QUAL_COMMAND_RAW_EXIT="$command_raw_exit"
+            export QUAL_COMMAND_STARTED_UTC="$command_started_utc"
+            export QUAL_COMMAND_FINISHED_UTC="$command_finished_utc"
+            export QUAL_COMMAND_STARTED_MS="$command_started_ms"
+            export QUAL_COMMAND_FINISHED_MS="$command_finished_ms"
+            export QUAL_COMMAND_INDEX="$command_index"
+            node "$receipt_dir/receipt.js" "$command_index"
+            node_status=$?
+            if [[ "$command_raw_exit" != 0 ]]; then exit "$command_raw_exit"; fi
+            if (( stub_cleanup_status != 0 )); then exit 1; fi
+            return "$node_status"
+          }
+          node "$receipt_dir/receipt.js" preflight
+          preflight_parser_status=$?
+          if (( preflight_parser_status != 0 )); then exit 1; fi
+          command_index=0
+          command_started_utc="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ 2>/dev/null)"
+          command_started_ms="$(date +%s%3N 2>/dev/null)"
+          TEST_CAP_SECS=600 RUST_TEST_THREADS=1 CARGO_TERM_COLOR=never ./build.sh test-one app storage_cron_ > "$receipt_dir/storage-cron.log" 2>&1
+          command_raw_exit=$?
+          finish_command 0 "$command_raw_exit" storage-cron.log
+          finish_status=$?
+          if (( finish_status != 0 )); then exit "$finish_status"; fi
+          command_index=1
+          stub_cleanup_status=0
+          command_started_utc="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ 2>/dev/null)"
+          command_started_ms="$(date +%s%3N 2>/dev/null)"
+          TEST_CAP_SECS=600 RUST_TEST_THREADS=1 CARGO_TERM_COLOR=never ./build.sh test-one app storage_sentinel_ > "$receipt_dir/storage-sentinel.log" 2>&1
+          command_raw_exit=$?
+          finish_command 1 "$command_raw_exit" storage-sentinel.log
+          finish_status=$?
+          if (( finish_status != 0 )); then exit "$finish_status"; fi
+          command_index=2
+          stub_cleanup_status=0
+          command_started_utc="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ 2>/dev/null)"
+          command_started_ms="$(date +%s%3N 2>/dev/null)"
+          TEST_CAP_SECS=600 RUST_TEST_THREADS=1 CARGO_TERM_COLOR=never ./build.sh test-one app storage_contract_ > "$receipt_dir/storage-contract.log" 2>&1
+          command_raw_exit=$?
+          finish_command 2 "$command_raw_exit" storage-contract.log
+          finish_status=$?
+          if (( finish_status != 0 )); then exit "$finish_status"; fi
+      - name: Retain complete Linux domain qualification evidence
+        if: ${{ always() && steps.task_boundary.outputs.fresh_receipt_directory == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: storage-domains-linux-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: ${{ runner.temp }}/storage-domains-linux-${{ github.run_id }}-${{ github.run_attempt }}/
           if-no-files-found: error
 
   windows-sccache-maintenance:

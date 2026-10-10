@@ -1,0 +1,30 @@
+⏺ Bash(cd /Users/dev/Developer/codeterm-worktrees/rc-mac && dc tab get-text --tab ee843d07 2>&1 | tail -12)
+  ⎿  dev@workstation trustlive-5730fcdb6c72 % /bin/bash /tmp/codeterm-spawn-d9e72f5f.sh
+     ────────────────────────────────────────────────────────────────────────────────────────────────────
+      Accessing workspace:
+      /Users/dev/.codeterm-dev-aiderqa/provisioned-workspaces/trustlive-5730fcdb6c72
+      Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source
+      project, or work from your team). If not, take a moment to review what's in this folder first.
+      Claude Code'll be able to read, edit, and execute files here.
+      Security guide
+      ❯ No, exit
+        Yes, I trust this folder
+      Enter to confirm · Esc to cancel
+
+⏺ The transaction sent the navigation key and logged "acceptance was not confirmed"; the screen still shows
+  focus on "No, exit". Looking at what happened.
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+
+ Accessing workspace:
+ /private/tmp/trustprobe.d1AhFE
+ Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source
+ project, or work from your team). If not, take a moment to review what's in this folder first.
+ Claude Code'll be able to read, edit, and execute files here.
+ Security guide
+ ❯ No, exit
+   Yes, I trust this folder
+ Enter to confirm · Esc to cancel

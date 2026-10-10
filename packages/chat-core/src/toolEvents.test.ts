@@ -35,6 +35,14 @@ function result(id: string, toolId: string, detail: string, patch: Partial<Norma
 }
 
 {
+  const running = call("streaming", "streaming", { toolKind:"command", toolInput:{status:"inProgress"}, toolResult:"partial output" });
+  const pending = materializeToolEvent(running);
+  assert(pending?.status === "pending" && pending.result === "partial output", "source execution stays pending while output streams");
+  assert(materializeToolEvent({...running,toolError:false})?.status === "success", "explicit completion settles streamed output");
+  assert(materializeToolEvent({...running,toolExitCode:2})?.status === "error", "nonzero exit overrides a pending source state");
+}
+
+{
   const items = reduceToolEvents([
     call("call", "same"),
     result("result", "same", "ok"),
@@ -300,6 +308,30 @@ console.log("ok - tool event lifecycle");
 
   const nextTurn = reduceToolEvents([exec, { id: "u-next", type: "user", content: "next", seq: 9, ...session }, echo("echo-4")]);
   assert(nextTurn.length === 3, "an echo never folds into a call from an earlier turn");
+}
+
+
+{
+  const command = (id: string, patch: Partial<NormalizedChatMessage> = {}) => call(id, id, {
+    toolKind: "command", toolFlowId: "turn", sourceSessionId: "session", toolInput: { command: `echo ${id}`, commandBatchId: "turn" },
+    toolError: false, toolExitCode: 0, toolResult: `output ${id}`, ...patch,
+  });
+  const messages = [command("a"), command("b"), command("c")];
+  const grouped = reduceToolEvents(messages);
+  assert(grouped.length === 1 && grouped[0].kind === "tool", "consecutive batch commands render once");
+  if (grouped[0].kind === "tool") {
+    assert(grouped[0].event.commandBatch?.map((member) => member.toolId).join() === "a,b,c", "batch preserves item order and identity");
+    assert(grouped[0].event.title === "echo a", "batch title uses its first command");
+    assert(grouped[0].event.result?.includes("output c"), "batch keeps member output");
+  }
+  const divided = reduceToolEvents([command("a"), {id:"text",type:"assistant",content:"next batch"}, command("b"),command("c")]);
+  assert(divided.length === 3 && divided[2].kind === "tool" && divided[2].event.commandBatch?.length === 2, "assistant text closes a command batch");
+  assert(reduceToolEvents([command("a"),command("b", {sourceSessionId:"other"})]).length === 2, "sessions never share command batches");
+  assert(reduceToolEvents([command("a"),command("b", {toolFlowId:"next",toolInput:{command:"echo b",commandBatchId:"next"}})]).length === 2, "turns never share command batches");
+  const running = reduceToolEvents([command("a"),command("b", {toolError:undefined,toolExitCode:undefined,toolResult:undefined,toolInput:{command:"echo b",commandBatchId:"turn",status:"inProgress"}})]);
+  assert(running[0].kind === "tool" && running[0].event.status === "pending" && running[0].event.result?.includes("output a"), "running batch retains completed outputs");
+  const failed = reduceToolEvents([command("a"),command("b", {toolError:true,toolExitCode:2})]);
+  assert(failed[0].kind === "tool" && failed[0].event.status === "error" && failed[0].event.exitCode === 2, "batch exposes failed member outcome");
 }
 
 console.log("ok - tool activity streams");

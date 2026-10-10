@@ -189,6 +189,17 @@ pub(super) fn install_handles(
         }
     });
 
+    let sb = sandbox.clone();
+    bind!("graphEventEmit", move |event: String| -> String {
+        if !sb.graph_events_allowed() {
+            return err("host.events.emit: graph_events permission required");
+        }
+        match sb.service() {
+            Some(svc) => svc.emit_graph_event_json(sb.plugin_id(), &event),
+            None => err("host service unavailable"),
+        }
+    });
+
     // Scoped to the calling plugin's own receiver; assigning a tab is host chrome, never a plugin call.
     let sb = sandbox.clone();
     bind!("receiverTargetGet", move || -> String {
@@ -206,7 +217,7 @@ pub(super) fn install_handles(
         }
     });
 
-    Ok(())
+    super::host_surface::install(host, sandbox)
 }
 
 #[cfg(test)]

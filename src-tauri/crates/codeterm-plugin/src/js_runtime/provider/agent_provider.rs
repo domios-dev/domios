@@ -9,48 +9,89 @@ use crate::provider::{
     self, AgentLaunchParams, AgentProvider, BusySubmitStrategy, LaunchArtifactSweepReport,
     LaunchArtifactSweepRequest, ModelGroup, ModelGroupUsage, ModelInfo, ProviderReadinessStrategy,
     ProviderTrust, ProviderUpdateAvailability, ReadinessStrategy, ReasoningEffortInfo,
-    SessionIdInjection, SessionMessage, SessionMetadata, SettingField, SystemPromptDelivery,
-    TaskDelivery, UsageSourceSpec, VerifySubmitStrategy,
+    ReplyRelayEvidence, SessionIdInjection, SessionMessage, SessionMetadata, SettingField,
+    SystemPromptDelivery, TaskDelivery, UsageSourceSpec, VerifySubmitStrategy,
 };
 use codeterm_types::pty::PendingPrompt;
 
-use super::super::{
-    call_json, manifest_settings_sections, IntegrationKind, PluginManifest, SerdeModelInfo,
-};
+use super::super::{call_json, manifest_settings_sections, IntegrationKind, SerdeModelInfo};
 use super::command_template::{launch_command_from_template, resume_command_from_template};
 use super::wire::{
     launch_params_to_json, SerdeSessionMetadata, VmUsageParser, SESSION_PARSE_CHUNK_BYTES,
 };
 use super::{launch_artifacts, prompt_parse, JsProvider};
 
-/// `usageSources` wire row: a path plus the session that scopes a shared log.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct WireUsageSource {
-    path: String,
-    #[serde(default)]
-    session_id: Option<String>,
-}
+mod chat_read;
+mod delivery;
+mod directory_trust;
+mod model_launch;
+mod session_detection;
+mod session_wire;
 
-impl JsProvider {
-    fn detect_session_model_wire(&self, method: &str, args: &[Value]) -> Option<String> {
-        self.try_call::<Option<String>>(method, args)
-            .flatten()
-            .map(|model| {
-                let resolved = crate::model_catalog::resolve_model(self.id(), Some(&model));
-                if resolved.fell_back {
-                    model
-                } else {
-                    resolved.id
-                }
-            })
-    }
-}
+use session_wire::WireUsageSource;
 
 #[async_trait::async_trait]
 impl AgentProvider for JsProvider {
+    fn auth_status_probe(&self) -> Option<provider::AuthStatusProbe> {
+        self.try_call("authStatusProbe", &[]).flatten()
+    }
+    fn tracks_background_work(&self) -> bool {
+        self.try_call("tracksBackgroundWork", &[]).unwrap_or(false)
+    }
+    fn capability_probe(&self) -> Option<provider::CapabilityProbe> {
+        self.manifest.spawn.capability_probe
+    }
+    fn fork_session_args(&self) -> Option<Vec<String>> {
+        self.manifest.spawn.fork_session_args.clone()
+    }
+    fn parse_background_work(
+        &self,
+        record: &Value,
+    ) -> Vec<codeterm_types::agent::background_work::BackgroundWorkObservation> {
+        self.try_call("parseBackgroundWork", &[record.clone()])
+            .unwrap_or_default()
+    }
+
+    fn reasoning_effort_launch_args_for_model(
+        &self,
+        model: Option<&str>,
+        effort: &str,
+    ) -> Vec<String> {
+        self.js_reasoning_effort_launch_args_for_model(model, effort)
+    }
+
+    fn parse_auth_status(&self, record: &Value) -> Option<provider::AuthStatus> {
+        self.try_call("parseAuthStatus", &[record.clone()])
+            .flatten()
+    }
+
+    fn parse_session_observations(&self, record: &Value) -> Option<provider::SessionObservations> {
+        self.try_call("parseSessionObservations", &[record.clone()])
+            .flatten()
+    }
+    fn parse_context_usage(
+        &self,
+        record: &serde_json::Value,
+    ) -> Option<codeterm_types::agent::context::TurnContext> {
+        self.try_call("parseContextUsage", &[record.clone()])
+            .flatten()
+    }
+    fn cli_compatibility(&self) -> Option<crate::provider_compat::CompatibilityManifest> {
+        self.manifest.cli_compatibility.clone()
+    }
+
     fn id(&self) -> &str {
         &self.manifest.id
+    }
+
+    fn model_provider_config(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::model_providers::ModelProviderConfig>> {
+        self.manifest.capabilities.model_provider_config.then(|| {
+            std::sync::Arc::new(super::super::model_providers::JsModelProviderConfig::new(
+                self.vm.clone(),
+            )) as std::sync::Arc<dyn crate::model_providers::ModelProviderConfig>
+        })
     }
 
     fn display_name(&self) -> &str {
@@ -151,6 +192,18 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.composer_cursor_position
     }
 
+    fn input_fallback_ms(&self) -> Option<u64> {
+        self.manifest.spawn.input_fallback_ms
+    }
+
+    fn onboarding_auto_answer(&self) -> provider::OnboardingAutoAnswer {
+        self.manifest.spawn.onboarding_auto_answer
+    }
+
+    fn restores_conversation_history_on_resume(&self) -> bool {
+        self.manifest.spawn.restores_conversation_history_on_resume
+    }
+
     fn session_starts_on_first_user_turn(&self) -> bool {
         self.manifest.spawn.session_starts_on_first_user_turn
             || self
@@ -169,6 +222,10 @@ impl AgentProvider for JsProvider {
 
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
         (&self.manifest.spawn.verify_submit).into()
+    }
+
+    fn supports_unbound_submit_recovery(&self) -> bool {
+        delivery::supports_unbound_submit_recovery(self)
     }
 
     fn turn_evidence_normalization(&self) -> crate::provider::TurnEvidenceNormalization {
@@ -212,6 +269,10 @@ impl AgentProvider for JsProvider {
             &[arg],
         )
         .flatten()
+    }
+
+    fn delivery_modal_visible(&self, snapshot: &crate::tab_state::TabStateSnapshot) -> bool {
+        delivery::delivery_modal_visible(self, snapshot)
     }
 
     fn is_output_noise(&self, text: &str) -> bool {
@@ -267,11 +328,9 @@ impl AgentProvider for JsProvider {
     }
 
     fn parse_prompt(&self, text: &str) -> Option<PendingPrompt> {
-        // Plugin returns `{question, options: [[id, label]]}` or null.
         if let Some(v) = self.try_call::<Option<Value>>("parsePrompt", &[json!(text)]) {
             return v.and_then(prompt_parse::parsed_prompt_from_js);
         }
-        // Fallback to universal detector if plugin doesn't implement.
         crate::detector::parse_permission_prompt(text)
             .map(|(question, options)| crate::prompt::build_prompt(question, options))
     }
@@ -298,7 +357,6 @@ impl AgentProvider for JsProvider {
                 .filter_map(|s| engine.decode(s.as_bytes()).ok())
                 .collect();
         }
-        // Default to the trait default (arrow-down + Enter).
         let mut steps = Vec::new();
         let arrow_down = b"\x1b[B".to_vec();
         for _ in 0..option_index {
@@ -312,28 +370,15 @@ impl AgentProvider for JsProvider {
         &self,
         screen: &str,
     ) -> Option<crate::provider::DirectoryTrustPromptResponse> {
-        let steps = self
-            .try_call::<Option<Vec<String>>>("directoryTrustPromptResponse", &[json!(screen)])??;
-        use base64::Engine;
-        let engine = base64::engine::general_purpose::STANDARD;
-        let decoded = steps
-            .iter()
-            .map(|step| engine.decode(step.as_bytes()).ok())
-            .collect::<Option<Vec<_>>>()
-            .unwrap_or_default();
-        Some(crate::provider::DirectoryTrustPromptResponse::from_wire_steps(decoded))
+        self.js_directory_trust_prompt_response(screen)
+    }
+
+    fn pre_trust_directory(&self, path: &str) -> Result<crate::provider::PreTrustOutcome, String> {
+        self.js_pre_trust_directory(path)
     }
 
     fn is_directory_trusted(&self, path: &str) -> Result<bool, String> {
-        const METHOD: &str = "isDirectoryTrusted";
-        if self.has_js(METHOD) {
-            return super::call_json_strict(&self.vm, METHOD, &[json!(path)]).map_err(|error| {
-                format!("[plugin {}] {METHOD} failed: {error}", self.manifest.id)
-            });
-        }
-        self.native()
-            .map(|native| native.is_directory_trusted(path))
-            .unwrap_or(Ok(false))
+        self.js_is_directory_trusted(path)
     }
 
     fn directory_trust_state(
@@ -341,18 +386,7 @@ impl AgentProvider for JsProvider {
         path: &str,
         skip_permissions: bool,
     ) -> Option<crate::provider::DirectoryTrustState> {
-        if !self.has_js("directoryTrustState") {
-            return self
-                .native()
-                .and_then(|native| native.directory_trust_state(path, skip_permissions));
-        }
-        Some(
-            self.try_call::<crate::provider::DirectoryTrustState>(
-                "directoryTrustState",
-                &[json!(path), json!(skip_permissions)],
-            )
-            .unwrap_or(crate::provider::DirectoryTrustState::Unknown),
-        )
+        self.js_directory_trust_state(path, skip_permissions)
     }
 
     fn launch_onboarding_response(
@@ -405,12 +439,25 @@ impl AgentProvider for JsProvider {
         })
     }
 
+    fn session_model_identity_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
+        self.owned_session_model_identity_path(cwd, session_id)
+    }
+
     fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
         // Hook-reported evidence wins over any reconstruction; absence falls through.
-        if let Some(stored) = crate::session_evidence::stored_transcript_path(session_id) {
-            return Some(stored);
+        let path = crate::session_evidence::stored_transcript_path(session_id)
+            .or_else(|| self.owned_session_file_path(cwd, session_id))?;
+        if self
+            .manifest
+            .commands
+            .model_switch_commands
+            .as_ref()
+            .is_some_and(|commands| commands.turn_completion.is_some())
+        {
+            self.permitted_session_path(path)
+        } else {
+            Some(path)
         }
-        self.owned_session_file_path(cwd, session_id)
     }
 
     fn additional_usage_sources(&self, session_file: &Path, session_id: &str) -> Vec<PathBuf> {
@@ -489,7 +536,7 @@ impl AgentProvider for JsProvider {
     fn detect_session_reasoning_effort(&self, cwd: &str, session_id: &str) -> Option<String> {
         self.try_call::<Option<String>>(
             "detectSessionReasoningEffort",
-            &[json!(cwd), json!(session_id)],
+            &[json!(self.session_cwd(cwd)), json!(session_id)],
         )
         .flatten()
     }
@@ -511,6 +558,31 @@ impl AgentProvider for JsProvider {
 
     fn session_id_injection(&self) -> SessionIdInjection {
         self.manifest.spawn.session_id_injection.into()
+    }
+
+    fn context_attach(&self) -> Option<crate::provider::ContextAttach> {
+        self.manifest.capabilities.context_attach
+    }
+
+    fn is_tool_less(&self) -> bool {
+        self.manifest.capabilities.tool_less
+    }
+
+    fn supports_reply_relay(&self) -> bool {
+        self.has_reply_relay
+    }
+
+    fn read_reply_relay_turn(
+        &self,
+        cwd: &str,
+        sid: &str,
+        after: u64,
+    ) -> Option<ReplyRelayEvidence> {
+        super::reply_relay::read(self, cwd, sid, after)
+    }
+
+    fn supports_launch_session_detection(&self) -> bool {
+        self.has_launch_session_detection
     }
 
     fn detect_launch_session(
@@ -538,44 +610,13 @@ impl AgentProvider for JsProvider {
         ) {
             return v;
         }
-        let cfg = self.manifest.sessions.as_ref()?;
         let dir = self.sessions_dir(cwd)?;
-        if !dir.exists() {
-            return None;
-        }
-        let recency_limit = max_age.unwrap_or_else(|| Duration::from_secs(300));
-        let now = std::time::SystemTime::now();
-        let dot_ext = format!(".{}", cfg.file_extension);
-        let mut candidates: Vec<(String, std::time::SystemTime)> = Vec::new();
-
-        let entries = std::fs::read_dir(&dir).ok()?;
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            let Some(stem) = name.strip_suffix(&dot_ext) else {
-                continue;
-            };
-            // Heuristic: session ids look uuid-ish (>=32 chars with a dash).
-            if stem.len() < 32 || !stem.contains('-') {
-                continue;
-            }
-            if exclude.iter().any(|e| e == stem) {
-                continue;
-            }
-            let Ok(meta) = entry.metadata() else { continue };
-            if let Ok(modified) = meta.modified() {
-                if let Ok(age) = now.duration_since(modified) {
-                    if age > recency_limit {
-                        continue;
-                    }
-                }
-            }
-            let sort_key = meta.created().or_else(|_| meta.modified()).ok()?;
-            candidates.push((stem.to_string(), sort_key));
-        }
-        match candidates.as_slice() {
-            [(id, _)] => Some(id.clone()),
-            _ => None,
-        }
+        session_detection::unique_recent_session(
+            &dir,
+            &self.manifest.sessions.as_ref()?.file_extension,
+            exclude,
+            max_age,
+        )
     }
 
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
@@ -667,26 +708,11 @@ impl AgentProvider for JsProvider {
     }
 
     fn session_jsonl_path(&self, cwd: &str, session_id: &str) -> Option<std::path::PathBuf> {
-        // Hook-reported evidence wins over any reconstruction; absence falls through.
-        if let Some(stored) = crate::session_evidence::stored_transcript_path(session_id) {
-            return Some(stored);
-        }
-        if !self.has_js("sessionJsonlPath") {
-            return self
-                .native()
-                .and_then(|n| n.session_jsonl_path(cwd, session_id));
-        }
-        let resolved = match self.manifest.sessions.as_ref().map(|s| s.cwd_encoding) {
-            Some(super::CwdEncoding::DashEncoded) => codeterm_paths::canonical_cwd(cwd),
-            _ => cwd.to_string(),
-        };
-        self.try_call::<Option<String>>(
-            "sessionJsonlPath",
-            &[serde_json::json!(resolved), serde_json::json!(session_id)],
-        )
-        .flatten()
-        .filter(|path| !path.is_empty())
-        .map(std::path::PathBuf::from)
+        self.js_session_jsonl_path(cwd, session_id)
+    }
+
+    fn structured_tool_file_diffs(&self, part: &serde_json::Value) -> Option<serde_json::Value> {
+        self.js_structured_tool_file_diffs(part)
     }
 
     fn uses_structured_chat(&self) -> bool {
@@ -704,18 +730,7 @@ impl AgentProvider for JsProvider {
         session_id: &str,
         cursor: Option<&str>,
     ) -> codeterm_types::agent::chat_types::StructuredChat {
-        if self.has_js("readStructuredChat") {
-            return self
-                .try_call(
-                    "readStructuredChat",
-                    &[json!(cwd), json!(session_id), json!(cursor)],
-                )
-                .unwrap_or_default();
-        }
-        match self.native() {
-            Some(n) => n.read_structured_chat(cwd, session_id, cursor),
-            None => codeterm_types::agent::chat_types::StructuredChat::default(),
-        }
+        self.js_read_structured_chat(cwd, session_id, cursor)
     }
 
     fn supports_chat_ui(&self) -> bool {
@@ -737,21 +752,7 @@ impl AgentProvider for JsProvider {
         &self,
         msg: &codeterm_types::agent::chat_types::RichMessage,
     ) -> Vec<codeterm_types::agent::chat_types::InteractiveElement> {
-        if self.manifest.spawn.interactive_events && self.has_js("parseInteractiveEvents") {
-            let arg = match serde_json::to_value(msg) {
-                Ok(v) => v,
-                Err(_) => return Vec::new(),
-            };
-            return self
-                .try_call::<Vec<codeterm_types::agent::chat_types::InteractiveElement>>(
-                    "parseInteractiveEvents",
-                    &[arg],
-                )
-                .unwrap_or_default();
-        }
-        self.native()
-            .map(|n| n.parse_interactive_events(msg))
-            .unwrap_or_default()
+        self.js_parse_interactive_events(msg)
     }
 
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
@@ -833,6 +834,10 @@ impl AgentProvider for JsProvider {
         }
     }
 
+    fn structured_control(&self) -> Option<crate::provider::StructuredControl> {
+        self.manifest.capabilities.structured_control.clone()
+    }
+
     fn supports_structured_prompts(&self) -> bool {
         self.manifest.spawn.supports_structured_prompts
             || self
@@ -864,14 +869,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn model_launch_args(&self, model: &str) -> Vec<String> {
-        if model.is_empty() {
-            return Vec::new();
-        }
-        let tmpl = &self.manifest.commands.model_launch_args_format;
-        if tmpl.is_empty() {
-            return vec!["--model".into(), model.into()];
-        }
-        tmpl.iter().map(|t| t.replace("{model}", model)).collect()
+        self.js_model_launch_args(model)
     }
 
     fn reasoning_efforts(&self) -> Vec<ReasoningEffortInfo> {
@@ -884,15 +882,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn reasoning_effort_launch_args(&self, effort: &str) -> Vec<String> {
-        if effort.is_empty() {
-            return Vec::new();
-        }
-        self.manifest
-            .commands
-            .reasoning_effort_launch_args_format
-            .iter()
-            .map(|t| t.replace("{effort}", effort))
-            .collect()
+        self.js_reasoning_effort_launch_args(effort)
     }
 
     fn compact_command(&self) -> Option<&str> {
@@ -907,8 +897,16 @@ impl AgentProvider for JsProvider {
         self.manifest.commands.exit.as_deref()
     }
 
+    fn supports_idle_restart_termination(&self) -> bool {
+        self.manifest.commands.idle_restart_termination
+    }
+
     fn stop_keystroke(&self) -> Option<&str> {
         self.manifest.commands.stop_key.as_deref()
+    }
+
+    fn uses_win32_control_keys(&self) -> bool {
+        self.manifest.commands.uses_win32_control_keys
     }
 
     fn stop_keys(&self) -> Option<Vec<String>> {
@@ -976,6 +974,10 @@ impl AgentProvider for JsProvider {
         self.manifest.commands.model_switch
     }
 
+    fn model_switch_commands(&self) -> Option<provider::ModelSwitchCommands> {
+        self.manifest.commands.model_switch_commands.clone()
+    }
+
     fn supports_lazy_skills(&self) -> bool {
         self.manifest.spawn.supports_lazy_skills
     }
@@ -1025,7 +1027,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn model_catalogue_capability(&self) -> provider::ModelCatalogueCapability {
-        self.manifest.model_catalogue
+        self.manifest.model_catalogue.clone()
     }
 
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
@@ -1055,12 +1057,20 @@ impl AgentProvider for JsProvider {
     }
 
     fn model_credential_files(&self) -> Vec<PathBuf> {
-        super::host_credentials::declared_files(&self.manifest.credentials)
+        self.manifest
+            .model_catalogue
+            .fingerprint_files(super::host_credentials::declared_files(
+                &self.manifest.credentials,
+            ))
     }
 
     fn settings_schema(&self) -> Vec<SettingField> {
         if !self.has_custom_settings_schema {
-            return manifest_settings_sections(&self.manifest);
+            let mut fields = manifest_settings_sections(&self.manifest);
+            if self.auth_status_probe().is_some() {
+                fields.push(provider::structured_signals_section());
+            }
+            return fields;
         }
         // Cached: describe() polls hit this; the plugin schema is a pure constant.
         self.schema_cache
@@ -1077,36 +1087,11 @@ impl AgentProvider for JsProvider {
     }
 
     fn install_bridge_rule(&self, payload: &str) -> Result<(), String> {
-        // manifest.rule.path when present — keeps the contract honest for plugins that declared the path but skipped the JS.
-        if let Some(r) = self.try_call_result("installBridgeRule", &[json!(payload)]) {
-            return r;
-        }
-        let Some(rule) = self.manifest.rule.as_ref() else {
-            return Ok(());
-        };
-        let path = PluginManifest::expand_home(&rule.path)
-            .ok_or_else(|| "rule.path: home dir not resolvable".to_string())?;
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("create {}: {e}", parent.display()))?;
-        }
-        std::fs::write(&path, payload).map_err(|e| format!("write {}: {e}", path.display()))
+        self.install_bridge_rule_from_manifest(payload)
     }
 
     fn uninstall_bridge_rule(&self) -> Result<(), String> {
-        if let Some(r) = self.try_call_result("uninstallBridgeRule", &[]) {
-            return r;
-        }
-        let Some(rule) = self.manifest.rule.as_ref() else {
-            return Ok(());
-        };
-        let Some(path) = PluginManifest::expand_home(&rule.path) else {
-            return Ok(());
-        };
-        if !path.exists() {
-            return Ok(());
-        }
-        std::fs::remove_file(&path).map_err(|e| format!("remove {}: {e}", path.display()))
+        self.uninstall_bridge_rule_from_manifest()
     }
 
     fn check_integration(&self) -> serde_json::Value {
@@ -1126,6 +1111,10 @@ impl AgentProvider for JsProvider {
             .integration
             .as_ref()
             .map_or(IntegrationKind::None, |integration| integration.kind)
+    }
+
+    fn permission_hook_capability(&self) -> Option<provider::PermissionHookCapability> {
+        self.try_call("permissionHookCapability", &[])
     }
 
     fn install_integration(

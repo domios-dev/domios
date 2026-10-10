@@ -7,6 +7,8 @@ import {
   resolveEffort,
   reasoningEffortsForModel,
   readPersistedNewSessionChoice,
+  resolvePersistedChoice,
+  reconcilePresetSelection,
   writePersistedNewSessionChoice,
 } from "./newSessionChoice";
 import type { ModelInfo, ProviderDescriptor } from "./types";
@@ -52,6 +54,15 @@ const PROVIDERS = [
 ];
 
 setupDom();
+
+test("live catalogue reconciliation preserves the current selection and resolves new model variants", () => {
+  const providerWithVariants = provider("provider-a", [
+    { id: "model-a", display_name: "A" },
+    { id: "model-b", display_name: "B", reasoning_efforts: [{ id: "high", display_name: "High" }], default_reasoning_effort: "high" },
+  ]);
+  const choice = resolvePersistedChoice([providerWithVariants], { mode: "single", providerId: "provider-a", modelId: "model-b" });
+  assert(choice.mode === "single" && choice.modelId === "model-b" && choice.effortId === "high", "current model survives and its variants appear");
+});
 
 test("default pair derives provider and model only from catalog order", () => {
   const choice = defaultNewSessionChoice(PROVIDERS);
@@ -211,6 +222,21 @@ test("no effort is selected when the provider declares none", () => {
   assert(choice.mode === "pair", "defaults to pair mode");
   if (choice.mode !== "pair") return;
   assert(choice.orchestratorEffortId === undefined, "no declared efforts ⇒ no selection");
+});
+
+test("a persisted preset stays bound to its original provider and model", () => {
+  const choice = { mode: "single" as const, providerId: "provider-a", modelId: "model-a", preset: "demo" };
+  const retained = resolvePersistedChoice(PROVIDERS, choice);
+  assert(retained.mode === "single" && retained.preset === "demo", "valid preset is retained");
+  const removed = resolvePersistedChoice([provider("provider-a", [{ id: "replacement", display_name: "Replacement" }])], choice);
+  assert(removed.mode === "single" && removed.preset === undefined, "changed model clears the preset");
+  const rebound = resolvePersistedChoice([provider("other", [{ id: "model-a", display_name: "Same model" }])], choice);
+  assert(rebound.mode === "single" && rebound.preset === undefined, "changed provider clears the preset");
+  assert(reconcilePresetSelection(choice, [{ provider: "provider-a", name: "demo", model: "model-a" }]) === choice, "matching preset is stable");
+  const absent = reconcilePresetSelection(choice, []);
+  assert(absent.mode === "single" && absent.preset === undefined, "removed preset clears the selection");
+  const changed = reconcilePresetSelection(choice, [{ provider: "provider-a", name: "demo", model: "model-b" }]);
+  assert(changed.mode === "single" && changed.preset === undefined, "updated preset model requires a new selection");
 });
 
 async function main() {

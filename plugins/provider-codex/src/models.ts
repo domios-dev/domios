@@ -1,4 +1,5 @@
 import type { ModelInfo } from "@codeterm/plugin-sdk";
+import { effectiveReadPath } from "../../provider-shared/readHome";
 
 declare const host: {
   envGet(name: string): string | null;
@@ -36,9 +37,8 @@ export function discoverCodexModels(): ModelInfo[] | null {
 
 function codexModelsCachePath(): string | null {
   const home = host.homeDir();
-  if (!home) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
-  return home + sep + ".codex" + sep + "models_cache.json";
+  return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" + sep + "models_cache.json" : null, "models_cache.json", sep);
 }
 
 function discoverCodexModelsFromCache(): ModelInfo[] | null {

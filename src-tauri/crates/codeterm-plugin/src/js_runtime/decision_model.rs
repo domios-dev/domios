@@ -26,7 +26,23 @@ impl JsDecisionModel {
     }
 }
 
+impl JsDecisionModel {
+    fn exec_env_scope(&self) -> Result<super::host_exec::HostExecEnvGuard, DecisionError> {
+        let env = self
+            .vm
+            .service()
+            .map(|host| host.model_provider_process_env(&self.id))
+            .transpose()
+            .map_err(|_| DecisionError::Unavailable("provider_credentials".into()))?
+            .unwrap_or_default();
+        Ok(super::host_exec::host_env_scope(env))
+    }
+}
+
 impl DecisionModel for JsDecisionModel {
+    fn supports_calibrated_choice_confidence(&self) -> bool {
+        call_json_or_default(&self.vm, &self.id, "supportsCalibratedChoiceConfidence")
+    }
     fn supports_question_batch(&self) -> bool {
         super::vm::has_method(&self.vm, "decideQuestions")
             && call_json_or_default::<bool>(&self.vm, &self.id, "supportsQuestionBatch")
@@ -48,6 +64,9 @@ impl DecisionModel for JsDecisionModel {
     }
 
     fn select_model(&self, id: &str) -> bool {
+        let Ok(_env) = self.exec_env_scope() else {
+            return false;
+        };
         if !self.models().iter().any(|model| model.id == id) {
             return false;
         }
@@ -67,6 +86,9 @@ impl DecisionModel for JsDecisionModel {
     }
 
     fn models(&self) -> Vec<DecisionModelInfo> {
+        let Ok(_env) = self.exec_env_scope() else {
+            return Vec::new();
+        };
         call_json_or_default(&self.vm, &self.id, "models")
     }
 
@@ -80,8 +102,16 @@ impl DecisionModel for JsDecisionModel {
         }
         let encoded = serde_json::to_value(request)
             .map_err(|_| DecisionError::Parse("invalid_request".into()))?;
-        let response: DecisionResponse = match call_json(&self.vm, "decideQuestions", &[encoded]) {
-            Ok(answers) => answers,
+        let _env = self.exec_env_scope()?;
+        let remaining = deadline
+            .saturating_duration_since(Instant::now())
+            .as_millis();
+        let response: DecisionResponse = match call_json::<serde_json::Value>(
+            &self.vm,
+            "decideQuestions",
+            &[encoded, json!(remaining)],
+        ) {
+            Ok(answers) => decode_result(answers)?,
             Err(VmError::MissingFunction(_)) => {
                 return decide_questions_sequentially(self, request, deadline)
             }
@@ -104,14 +134,33 @@ impl DecisionModel for JsDecisionModel {
         }
         let encoded = serde_json::to_value(request)
             .map_err(|_| DecisionError::Parse("invalid_request".into()))?;
-        let answer: DecisionAnswer =
-            call_json(&self.vm, "decide", &[json!(encoded)]).map_err(map_vm_error)?;
+        let _env = self.exec_env_scope()?;
+        let remaining = deadline
+            .saturating_duration_since(Instant::now())
+            .as_millis();
+        let answer: DecisionAnswer = decode_result(
+            call_json(&self.vm, "decide", &[encoded, json!(remaining)]).map_err(map_vm_error)?,
+        )?;
         if Instant::now() >= deadline {
             return Err(DecisionError::Deadline);
         }
         request.question.validate_answer(&answer)?;
         Ok(answer)
     }
+}
+
+fn decode_result<T: serde::de::DeserializeOwned>(
+    value: serde_json::Value,
+) -> Result<T, DecisionError> {
+    if let Some(error) = value.get("error").and_then(serde_json::Value::as_str) {
+        return Err(match error {
+            "unavailable" => DecisionError::Unavailable("plugin_unavailable".into()),
+            "timeout" => DecisionError::Deadline,
+            "transport" => DecisionError::Transport("plugin_decide_failed".into()),
+            _ => DecisionError::Parse("invalid_answer".into()),
+        });
+    }
+    serde_json::from_value(value).map_err(|_| DecisionError::Parse("invalid_answer".into()))
 }
 
 fn call_json_or_default<T>(vm: &PluginVm, model_id: &str, method: &str) -> T
@@ -141,6 +190,25 @@ mod tests {
     use codeterm_types::decision::DecisionQuestion;
     use std::collections::BTreeMap;
     use std::time::Duration;
+
+    #[test]
+    fn decision_exec_scope_restores_prior_env_without_cross_adapter_leak() {
+        let original = super::super::host_exec::current_host_env();
+        let prior = std::collections::HashMap::from([("OUTER_SCOPE".into(), "opaque".into())]);
+        let _outer = super::super::host_exec::host_env_scope(prior.clone());
+        let model = JsDecisionModel::new(
+            vm("module.exports.default = {};"),
+            "fixture",
+            TokenMode::None,
+        );
+        {
+            let _scope = model.exec_env_scope().unwrap();
+            assert!(super::super::host_exec::current_host_env().is_empty());
+        }
+        assert_eq!(super::super::host_exec::current_host_env(), prior);
+        drop(_outer);
+        assert_eq!(super::super::host_exec::current_host_env(), original);
+    }
 
     fn vm(source: &str) -> Arc<PluginVm> {
         Arc::new(PluginVm::from_source("decision-fixture", source.into()).expect("vm"))

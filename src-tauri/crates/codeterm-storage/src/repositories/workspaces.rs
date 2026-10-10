@@ -94,7 +94,7 @@ impl WorkspaceRecord {
         }
     }
 
-    fn validate(&self) -> Result<(), StorageError> {
+    pub(crate) fn validate(&self) -> Result<(), StorageError> {
         bounded("workspace name", &self.name, MAX_NAME_BYTES)?;
         for (field, value) in [
             ("workspace cwd", &self.cwd),
@@ -110,7 +110,7 @@ impl WorkspaceRecord {
         to_sql_u64("task key counter", self.task_key_next).map(|_| ())
     }
 
-    fn cost(&self) -> usize {
+    pub(crate) fn cost(&self) -> usize {
         let optional = |value: &Option<String>| value.as_ref().map_or(0, String::len);
         RECORD_OVERHEAD
             + self.id.0.len()

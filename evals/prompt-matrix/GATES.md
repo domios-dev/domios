@@ -258,3 +258,54 @@ python3 evals/prompt-matrix/native_assembly.py --instance promptmatrixtls --port
 ```
 
 Each expects exit0 only with schema2 request/resource/stream/retained-sidecar joins, immutable assembly inputs, exact one-version stdout, actual exit0/Unix sole reap or Windows captured-handle exit, clean EOF both streams, observer completion/join, owned handle closure and finalization before the original10s end. Any cancelled/overflow/error/late/unconfirmed fact refuses qualification. Receipt scope is direct_native_version_and_owned_handles and descendants=not_proven; it cannot prove updater process-tree confinement. These darwin/arm64 artifacts and commands provide no Linux/Windows proof. No installer, provider session, auth/model/daemon/live cell or updater opt-in is authorized.
+
+## Cron launch-prompt matrix — canonical only, not authorized yet
+
+This source defines 32 cells: provider × `owner-dir|new-dir|lane|home` × Jev `off|on`. The existing `trust-hidden` memory-worker cells remain in both arms in the original table. Cron provenance must bind the actual provider cwd to `provisioned_cwd`; only an authorized provider-declared trust answer may finish with `CronRunInfo.status=Success`. Missing provenance requires exactly one owner notice and zero action receipts. Every answer requires two distinct producer observation ids, its deciding arm, the real prompt transcript, the provider's emitted session marker, and an exact `CronRunInfo.session_id` match to the authenticated tab. Any non-trust prompt stays owner-pending with zero actions. The permission cell continues to require the same pending request and zero answers until its gate decides.
+
+No live cell is authorized by this source merge alone. First merge the unattended-prompt producer, record the owner's explicit A/B/C isolation rule and stride, bind `launch_prompt_matrix.owner_decision` and `provider_auth_policy`, and qualify the provider target/auth route. The current `promptmatrix:7794` fixture already contains a preserved failed native acquisition; do not run `--prepare`, replace it, or reuse its native sidecar. The harness intentionally returns PENDING while those contracts remain open. All bench CLI traffic must continue through `dc`; never touch PROD 7685 or shared DEV 7686.
+
+The existing duplicate-alert red must exit1 for the exactly-one-notice predicate. Each launch-prompt red must exit1 and print `REJECTED` naming its predicate.
+
+```bash
+python3 evals/prompt-matrix/oracle_tests.py --red-demo
+python3 evals/prompt-matrix/oracle_tests.py --red-launch-prompt-demo wrong-arm
+python3 evals/prompt-matrix/oracle_tests.py --red-launch-prompt-demo duplicate-observation
+python3 evals/prompt-matrix/oracle_tests.py --red-launch-prompt-demo missing-transcript
+python3 evals/prompt-matrix/oracle_tests.py --red-launch-prompt-demo non-trust-key
+python3 evals/prompt-matrix/oracle_tests.py --red-launch-prompt-demo unauthorized-off-answer
+```
+
+Then the complete pure validator suite must exit0 with305 controls (the prior294 plus eleven new launch-prompt/report controls):
+
+```bash
+python3 evals/prompt-matrix/oracle_tests.py
+```
+
+After source merge, owner choice, auth/native qualification and exact instance identity are confirmed, smoke the real named-instance CLI through the harness:
+
+```bash
+bash evals/prompt-matrix/run.sh --instance promptmatrix --port 7794 --smoke
+```
+
+Run the 24 cells for Claude, Codex and OpenCode once each. Stop the loop on any failure; do not retry a cell with a new run id.
+
+```bash
+set -euo pipefail
+for provider in claude codex opencode; do
+  for folder in owner-dir new-dir lane home; do
+    for jev in off on; do
+      bash evals/prompt-matrix/run.sh --instance promptmatrix --port 7794 --provider "$provider" --case launch-prompt --folder "$folder" --jev "$jev"
+    done
+  done
+done
+```
+
+Cursor remains NOT RUN until one real provider preflight proves it launches or records the exact unsupported response in `contracts.json::launch_prompt_matrix.providers.cursor`; an unsupported record must include its evidence path and reason. If it launches, run each of its eight folder/arm cells once with the same command shape. Do not infer support from a local archive.
+
+Finally render the report, require exit0 only when every retained and launch-prompt executable cell passes, then stop the named instance while preserving all transcripts:
+
+```bash
+python3 evals/prompt-matrix/report.py --root target-check/evals/prompt-matrix/promptmatrix
+bash evals/prompt-matrix/run.sh --instance promptmatrix --port 7794 --stop
+```

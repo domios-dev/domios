@@ -9,6 +9,8 @@ Use this skill when a dev launcher or QA run needs to report to an agent tab,
 especially when a named dev instance or a command pipeline can change where a
 bare `codeterm` call or exit status would go.
 
+Open build shells with `--purpose build` and foreground servers with `--purpose dev`. Purpose is retained when restarting the shell. The sidebar command state reports shell marks only; use the readiness and QA receipts below to establish the operation outcome.
+
 ## Commands
 
 For a health-proven dev startup that exits when ready:
@@ -48,7 +50,7 @@ From PowerShell, use:
 Create one Team-bound QA tab for repeated reports, then restart it for each run:
 
 ```bash
-codeterm tab new --team <team-id> --title QA
+codeterm tab new --team <team-id> --purpose qa --title QA
 codeterm tab restart --tab <qa-tab-id> --cmd "QA_NOTIFY_TAB=<agent-tab-id> scripts/qa-report.sh smoke 'true' 'false | tail -1'"
 ```
 
@@ -103,4 +105,4 @@ line. It uses one bounded deadline and cleans up its stream reader when ready,
 failed, or stopped. Use this event wait instead of adding sleep or polling
 loops.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

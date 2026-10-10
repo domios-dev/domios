@@ -1,6 +1,6 @@
 [package]
 name = "codeterm"
-version = "1.12.3"
+version = "1.14.0"
 edition = "2021"
 default-run = "codeterm"
 
@@ -58,6 +58,8 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 async-stream = "0.3"
 futures-core = "0.3"
 futures-util = "0.3"
+# Native async WebSocket framing shares Tokio's runtime; sidecars use loopback without TLS.
+tokio-tungstenite = "0.28"
 futures-executor = "0.3"
 png = "0.17"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
@@ -166,6 +168,10 @@ path = "src/bin/codeterm_embed.rs"
 [[bin]]
 name = "parser-eval"
 path = "src/bin/parser_eval.rs"
+
+[[bin]]
+name = "storage-verify"
+path = "src/bin/storage-verify.rs"
 
 # Build-speed profiles (round-16 build audit). dev: unpacked split-debuginfo
 # skips dSYM packing on macOS (faster links); line-tables keep usable

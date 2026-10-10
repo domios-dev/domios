@@ -45,7 +45,7 @@ const host = {
     calls.push(options);
     const conversation = options.conversation;
     assert.equal(options.bin, "codex");
-    assert.deepEqual(options.args, ["app-server"]);
+    assert.deepEqual(options.args, ["app-server", "-c", "features.plugins=false"]);
     assert.deepEqual(conversation[0].awaitResponseIds, [1]);
     assert.equal(JSON.parse(conversation[0].stdin).method, "initialize");
     assert.deepEqual(JSON.parse(conversation[0].stdin).params.capabilities, { experimentalApi: true });

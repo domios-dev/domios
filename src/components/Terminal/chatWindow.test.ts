@@ -6,6 +6,7 @@ import {
   chatWindowProjection,
   slideChatWindowOlder,
   timelineItemKey,
+  chatMessageAnchor,
 } from "./chatWindow";
 
 function assert(condition: unknown, label: string): asserts condition {
@@ -17,6 +18,16 @@ function items(count: number, offset = 0): TimelineItem[] {
     kind: "message" as const,
     message: { id: `m-${i + offset}`, type: "assistant" as const, content: `c${i + offset}` },
   }));
+}
+
+{
+  const list = items(500);
+  const first = list[0];
+  if (first.kind === "message") first.message.sourceMessageId = "source-old";
+  assert(chatMessageAnchor(list, "source-old") === "m-0", "source identity resolves to a render anchor");
+  const anchor = chatMessageAnchor(list, "m-100");
+  assert(chatWindowProjection(list, anchor).items.some((item) => timelineItemKey(item) === "m-100"), "loaded older turn is projected into the bounded window");
+  assert(chatMessageAnchor(list, "absent") === null, "missing turn never picks a substitute");
 }
 
 // --- follow mode tracks the tail and stays bounded ---

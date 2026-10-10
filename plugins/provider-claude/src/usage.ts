@@ -1,6 +1,8 @@
 // ── /usage screen parsing (port of the native usage_tui module) ─────────
 // `usageNormalize` + `usageParseBlock` back the provider's parseUsage method;
 
+import { effectiveReadPath } from "../../provider-shared/readHome";
+
 export function usageNormalize(raw: string): string {
   let out = "";
   for (let i = 0; i < raw.length; i++) {
@@ -26,9 +28,10 @@ interface UsageHost {
 const CLAUDE_USAGE_KIND = "codeterm_usage_v1";
 
 export function fetchClaudeUsage(host: UsageHost): string {
-  const credentialsPath = host.expandHome("~/.claude/.credentials.json");
+  const inheritedHome = host.envGet("CLAUDE_CONFIG_DIR");
+  const credentialsPath = effectiveReadPath(inheritedHome, host.expandHome("~/.claude/.credentials.json"), ".credentials.json", host.platform() === "windows" ? "\\" : "/");
   const fileCredentials = credentialsPath ? safeJson(host.fs.readFile(credentialsPath)) : null;
-  const credentials = readMacOsCredentials(host) ?? fileCredentials;
+  const credentials = (inheritedHome ? null : readMacOsCredentials(host)) ?? fileCredentials;
   const oauth = objectAt(credentials, "claudeAiOauth");
   const accessToken = stringAt(oauth, "accessToken");
   if (!accessToken) throw new Error("usage credentials unavailable");

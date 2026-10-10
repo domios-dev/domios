@@ -24,6 +24,26 @@ fn agent_usage_is_null_until_wired() {
     assert_eq!(agent_usage_json(), "null");
 }
 
+#[test]
+fn event_source_plugin_without_graph_events_grant_cannot_emit() {
+    let sandbox = Arc::new(
+        PluginSandbox::restricted(vec![], vec![])
+            .with_identity_and_perms("event-probe", &PermissionsConfig::default()),
+    );
+    let vm = PluginVm::from_source_sandboxed(
+        "event-probe",
+        "module.exports.default = { emit() { return host.events.emit({subscriptionId:'sub',token:'secret',eventId:'event',payload:{}}); } };".into(),
+        None,
+        sandbox,
+    )
+    .unwrap();
+    let result: Value = call_json(&vm, "emit", &[]).unwrap();
+    assert_eq!(
+        result["error"],
+        "host.events.emit: graph_events permission required"
+    );
+}
+
 /// Answers analytics with the query it received and a missing total, and receiver
 /// targets with the plugin id it was asked for; every other host surface is inert.
 struct AnalyticsHost;
@@ -100,6 +120,9 @@ impl PluginHostCtx for AnalyticsHost {
     }
     fn receiver_target_clear_json(&self, plugin_id: &str) -> String {
         json!({ "pluginId": plugin_id, "tabId": null, "live": false }).to_string()
+    }
+    fn surface_call_json(&self, plugin_id: &str, caller: &str, verb: &str, args: &str) -> String {
+        json!({ "result": format!("{plugin_id}|{caller}|{verb}|{args}") }).to_string()
     }
 }
 
@@ -191,4 +214,62 @@ fn analytics_host_query_needs_the_analytics_grant_and_keeps_nulls() {
     let system = PluginSandbox::unrestricted()
         .with_identity_and_perms("system-plugin", &PermissionsConfig::default());
     assert!(system.analytics_allowed());
+}
+
+const SURFACE_PROBE_PLUGIN: &str = r#"module.exports.default = {
+    onAgentCommand(ctx) { return JSON.parse(host.surface.call(ctx.verb, JSON.stringify(ctx.args))); },
+    outside() { return JSON.parse(host.surface.call("status", "[]")); },
+}"#;
+
+fn surface_probe(surfaces: bool) -> Arc<PluginVm> {
+    let sandbox = Arc::new(
+        PluginSandbox::restricted(vec![], vec![]).with_identity_and_perms(
+            "surface-probe",
+            &PermissionsConfig {
+                surfaces,
+                agent_commands: true,
+                ..Default::default()
+            },
+        ),
+    );
+    Arc::new(
+        PluginVm::from_source_sandboxed(
+            "surface-probe",
+            SURFACE_PROBE_PLUGIN.to_string(),
+            None,
+            sandbox,
+        )
+        .expect("surface probe vm"),
+    )
+}
+
+#[test]
+fn surface_call_acts_for_the_core_stamped_agent_caller() {
+    use crate::agent_commands::AgentCommandProvider;
+    let host: Arc<dyn PluginHostCtx> = Arc::new(AnalyticsHost);
+    let vm = surface_probe(true);
+    assert!(vm.set_service(Arc::downgrade(&host)));
+    let handler = crate::js_runtime::JsAgentCommandHandler::new(vm.clone(), "surface-probe", true);
+    let out = handler
+        .on_agent_command("tab-7", "click", &["@e3".into()])
+        .unwrap();
+    assert_eq!(out.result, r#"surface-probe|tab-7|click|["@e3"]"#);
+    let outside: Value = call_json(&vm, "outside", &[]).unwrap();
+    assert_eq!(
+        outside["error"],
+        crate::js_runtime::host_surface::NO_AGENT_CALLER
+    );
+}
+
+#[test]
+fn surface_call_needs_the_surfaces_grant() {
+    use crate::agent_commands::AgentCommandProvider;
+    let host: Arc<dyn PluginHostCtx> = Arc::new(AnalyticsHost);
+    let vm = surface_probe(false);
+    assert!(vm.set_service(Arc::downgrade(&host)));
+    let handler = crate::js_runtime::JsAgentCommandHandler::new(vm, "surface-probe", true);
+    let error = handler
+        .on_agent_command("tab-7", "status", &[])
+        .unwrap_err();
+    assert_eq!(error, crate::js_runtime::host_surface::SURFACE_DENIED);
 }

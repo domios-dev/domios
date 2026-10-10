@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::notification::{NotifyDestination, NotifyLevel};
 
 pub use super::dream_hygiene::DreamHygieneConfig;
+pub use super::model_defaults::ModelDefaultsConfig;
 pub use super::supporter::{
     MemoryRerankConfig, SupporterConfig, SupporterConnection, SupporterSources,
 };
@@ -15,6 +16,7 @@ pub struct AppConfig {
     pub theme: ThemeConfig,
     pub font: FontConfig,
     pub terminal: TerminalConfig,
+    pub utility_tabs: UtilityTabsConfig,
     pub diagnostics: DiagnosticsConfig,
     pub notifications: NotificationConfig,
     pub keybindings: KeybindingsConfig,
@@ -55,6 +57,8 @@ pub struct AppConfig {
     pub runaway: RunawayConfig,
     #[serde(default)]
     pub kpi: KpiConfig,
+    #[serde(default)]
+    pub model_defaults: ModelDefaultsConfig,
 }
 
 impl Default for AppConfig {
@@ -63,6 +67,7 @@ impl Default for AppConfig {
             theme: ThemeConfig::default(),
             font: FontConfig::default(),
             terminal: TerminalConfig::default(),
+            utility_tabs: UtilityTabsConfig::default(),
             diagnostics: DiagnosticsConfig::default(),
             notifications: NotificationConfig::default(),
             keybindings: KeybindingsConfig::default(),
@@ -82,6 +87,7 @@ impl Default for AppConfig {
             ui: UiConfig::default(),
             runaway: RunawayConfig::default(),
             kpi: KpiConfig::default(),
+            model_defaults: ModelDefaultsConfig::default(),
         }
     }
 }
@@ -153,6 +159,7 @@ pub struct ApiConfig {
     pub token: Option<String>,
     pub cors: bool,
     pub cors_allow_origins: Vec<String>,
+    pub preview_secret_paths: Vec<String>,
 }
 
 impl Default for ApiConfig {
@@ -171,6 +178,7 @@ impl Default for ApiConfig {
             token: None,
             cors: false,
             cors_allow_origins: Vec::new(),
+            preview_secret_paths: Vec::new(),
         }
     }
 }
@@ -250,6 +258,7 @@ impl Default for FontConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TerminalConfig {
+    pub default_shell: Option<String>,
     pub cursor_style: String,
     pub cursor_blink: bool,
     pub scrollback: u32,
@@ -260,11 +269,13 @@ pub struct TerminalConfig {
 #[serde(default)]
 pub struct DiagnosticsConfig {
     pub terminal_transport: bool,
+    pub protocol_recording: bool,
 }
 
 impl Default for TerminalConfig {
     fn default() -> Self {
         Self {
+            default_shell: None,
             cursor_style: "block".to_string(),
             cursor_blink: true,
             scrollback: 10000,
@@ -543,18 +554,23 @@ impl Default for SocketConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AgentConfig {
+    pub reply_relay_max_hops: u8,
     pub poll_interval_ms: u32,
     pub idle_timeout_s: u32,
     pub resume_sessions: bool,
+    /// One system continue for agent tabs that were mid-turn when Domios stopped.
+    pub continue_after_restart: bool,
     pub full_access: Option<bool>,
 }
 
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
+            reply_relay_max_hops: 8,
             poll_interval_ms: 500,
             idle_timeout_s: 2,
             resume_sessions: true,
+            continue_after_restart: true,
             full_access: None,
         }
     }
@@ -1170,5 +1186,6 @@ impl Default for RunawayConfig {
 }
 
 #[cfg(test)]
-#[path = "schema_tests.rs"]
 mod tests;
+
+pub use super::utility_tabs::{UtilityTabLimits, UtilityTabsConfig};

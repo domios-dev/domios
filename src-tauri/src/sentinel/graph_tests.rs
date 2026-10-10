@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use serde_json::{json, Value};
 
 use super::{
+    amend::Amendment,
     graph,
     machine::Route,
     store::{Owner, Sentinel, Store},
@@ -55,7 +56,7 @@ fn sentinel_graph_named_scenario_has_one_root_and_reachable_internal_stage() {
         &mut store,
         &owner,
         false,
-        json!({"done":[{"id":"branch","type":"sentinel","parameters":{"target":child.id}}]}),
+        json!({"done":[{"id":"branch","type":"blueprint","parameters":{"target":child.id}}]}),
     );
     let graph = snapshot(&store, &mux, &owner);
     assert_eq!(graph.scenarios.len(), 1);
@@ -72,28 +73,71 @@ fn sentinel_graph_named_scenario_has_one_root_and_reachable_internal_stage() {
         json!({"kind":"configured","route_id":"branch"})
     );
     let encoded = serde_json::to_string(&graph).unwrap();
-    assert!(!encoded.contains("secret-probe"));
     assert!(!encoded.contains("session_binding_nonce"));
     assert_eq!(
         graph
             .nodes
             .iter()
             .find(|n| n["identity"]["id"] == root.id)
-            .unwrap()["sentinel_definition"],
-        json!({"source":"stored_agent_definition","definition_id":root.id,"creator_tab_id":owner.creator_tab_id})
+            .unwrap()["blueprint_definition"],
+        json!({"source":"stored_agent_definition","definition_id":root.id,"creator_tab_id":owner.creator_tab_id,"definition_version":1,"lineage":[]})
     );
 }
 
 #[test]
-fn sentinel_graph_legacy_origin_and_orphan_paused_nodes_are_not_roots() {
+fn sentinel_update_snapshot_exposes_read_only_definition_version_and_lineage() {
     let (_dir, mut store, mux, owner) = setup();
-    let mut legacy=store.prepare(serde_json::from_value(json!({"probe":"p","question":"q","buckets":["done"],"every":"10s","matches":{"done":"done"}})).unwrap(),owner.clone(),false).unwrap();
+    let root = create(&mut store, &owner, false, json!({}));
+    let mut jobs = store.list().to_vec();
+    jobs[0].definition_version = 2;
+    jobs[0].amendments = vec![Amendment {
+        version: 2,
+        replaced_version: 1,
+        author_tab_id: "editor".into(),
+        cause_transition_id: Some("transition_1".into()),
+        at: 2000,
+        previous_definition: None,
+    }];
+
+    let graph = graph::project(
+        &owner.workspace_id,
+        None,
+        &jobs,
+        &mux,
+        &BTreeMap::new(),
+        Value::Null,
+        1000,
+        &Default::default(),
+    )
+    .unwrap();
+
+    let definition = graph
+        .nodes
+        .iter()
+        .find(|node| node["identity"]["id"] == root.id)
+        .unwrap()["blueprint_definition"]
+        .clone();
+    assert_eq!(definition["definition_version"], 2);
+    assert_eq!(definition["lineage"][0]["replaced_version"], 1);
+    assert_eq!(definition["lineage"][0]["author_tab_id"], "editor");
+    assert_eq!(
+        definition["lineage"][0]["cause_transition_id"],
+        "transition_1"
+    );
+}
+
+#[test]
+fn sentinel_graph_shell_root_is_visible_and_orphan_paused_nodes_are_not_roots() {
+    let (_dir, mut store, mux, owner) = setup();
+    let mut legacy=store.prepare(serde_json::from_value(json!({"name":"legacy-origin-watch","probe":"p","question":"q","buckets":["done"],"every":"10s","matches":{"done":"done"}})).unwrap(),owner.clone(),false).unwrap();
     legacy.agent_authored = false;
-    store.insert(legacy).unwrap();
+    let root = store.insert(legacy).unwrap();
+    assert!(root.is_scenario_root());
     create(&mut store, &owner, true, json!({}));
     let graph = snapshot(&store, &mux, &owner);
-    assert!(graph.scenarios.is_empty());
-    assert!(graph.nodes.is_empty());
+    assert_eq!(graph.scenarios.len(), 1);
+    assert_eq!(graph.scenarios[0].id, root.id);
+    assert_eq!(graph.nodes.len(), 1);
     assert!(graph.edges.is_empty());
 }
 
@@ -105,13 +149,13 @@ fn sentinel_graph_shared_targets_keep_two_entries_and_one_execution_identity() {
         &mut store,
         &owner,
         false,
-        json!({"done":[{"id":"branch","type":"sentinel","parameters":{"target":child.id}}]}),
+        json!({"done":[{"id":"branch","type":"blueprint","parameters":{"target":child.id}}]}),
     );
     let second = create(
         &mut store,
         &owner,
         false,
-        json!({"done":[{"id":"branch","type":"sentinel","parameters":{"target":child.id}}]}),
+        json!({"done":[{"id":"branch","type":"blueprint","parameters":{"target":child.id}}]}),
     );
     let graph = snapshot(&store, &mux, &owner);
     assert_eq!(graph.scenarios.len(), 2);
@@ -177,8 +221,34 @@ fn sentinel_graph_missing_exact_target_has_no_foreign_metadata() {
             .iter()
             .find(|n| n["identity"]["id"] == owner.creator_tab_id)
             .unwrap()["availability"],
-        "missing"
+        "available"
     );
+    jobs[0].routes.get_mut("done").unwrap()[0].target = Some(graph::Identity {
+        kind: "worker".into(),
+        id: owner.creator_tab_id.clone(),
+        workspace_id: owner.workspace_id.clone(),
+        team_id: None,
+        owner_tab_id: Some("foreign-owner".into()),
+    });
+    let graph = graph::project(
+        &owner.workspace_id,
+        None,
+        &jobs,
+        &mux,
+        &BTreeMap::new(),
+        Value::Null,
+        store.clock.now_ms(),
+        &store.live_leases(),
+    )
+    .unwrap();
+    let missing = graph
+        .nodes
+        .iter()
+        .find(|node| node["identity"]["id"] == owner.creator_tab_id)
+        .unwrap();
+    assert_eq!(missing["availability"], "missing");
+    assert_eq!(missing["name"], "Missing worker");
+    assert_eq!(missing["executor"], Value::Null);
 }
 
 #[test]
@@ -242,7 +312,7 @@ fn sentinel_graph_explicit_null_team_adapter_refuses_ambiguous_scope() {
 fn sentinel_graph_actual_cron_history_joins_exact_hidden_worker_and_missing_tab() {
     let (dir, mut store, mut mux, owner) = setup();
     let mut crons = crate::cron::store::CronStore::new_with_path(dir.path().join("crons.json"));
-    let cron=crons.create(serde_json::from_value(json!({"name":"Supplied cron","workspace_id":owner.workspace_id,"schedule":"0 * * * *","task":"RAW_PRIVATE_TASK","creator_tab_id":owner.creator_tab_id})).unwrap()).unwrap();
+    let cron=crons.create(serde_json::from_value(json!({"name":"nightly-run-watch","workspace_id":owner.workspace_id,"schedule":"0 * * * *","task":"RAW_PRIVATE_TASK","creator_tab_id":owner.creator_tab_id})).unwrap()).unwrap();
     let worker = mux.create_tab(&owner.workspace_id).unwrap();
     let tab = mux.get_tab_mut(&worker).unwrap();
     tab.hidden = true;
@@ -408,7 +478,7 @@ fn sentinel_graph_unavailable_store_refuses_projection_and_host_stop_without_rep
         assert!(
             graph::scoped_inventory(&store, &mux, &owner.workspace_id, None)
                 .unwrap_err()
-                .starts_with("sentinel_store_")
+                .starts_with("blueprint_store_")
         );
         assert!(crate::service::sentinel::graph::host_stop(
             &mut store,
@@ -427,7 +497,10 @@ fn sentinel_graph_connected_send_resolution_uses_actual_mux_scope_and_agent() {
     let (_dir, mut store, mut mux, owner) = setup();
     let root = create(&mut store, &owner, false, json!({}));
     let target = mux.create_tab(&owner.workspace_id).unwrap();
-    assert!(super::routes::resolve_send(&mux, &root, &target).is_err());
+    assert_eq!(
+        super::routes::resolve_send(&mux, &root, &target).unwrap(),
+        Route::Send(target.clone())
+    );
     mux.get_tab_mut(&target).unwrap().agent_type = Some("supplied-agent".into());
     assert_eq!(
         super::routes::resolve_send(&mux, &root, &target).unwrap(),
@@ -452,7 +525,7 @@ fn sentinel_graph_cycles_terminate_and_disconnected_participants_stay_excluded()
         &mut store,
         &owner,
         false,
-        json!({"done":[{"id":"branch","type":"sentinel","parameters":{"target":child.id}}]}),
+        json!({"done":[{"id":"branch","type":"blueprint","parameters":{"target":child.id}}]}),
     );
     let orphan = create(&mut store, &owner, true, json!({}));
     let mut jobs = store.list().to_vec();
@@ -539,7 +612,7 @@ fn sentinel_graph_sharing_an_independent_scenario_does_not_absorb_its_root() {
         &mut store,
         &owner,
         false,
-        json!({"done":[{"id":"share","type":"sentinel","parameters":{"target":independent.id}}]}),
+        json!({"done":[{"id":"share","type":"blueprint","parameters":{"target":independent.id}}]}),
     );
     let graph = snapshot(&store, &mux, &owner);
     assert_eq!(graph.scenarios.len(), 2);
@@ -597,7 +670,7 @@ fn sentinel_graph_connected_worker_status_projects_actual_tracker_without_defaul
 #[test]
 fn sentinel_graph_host_stop_fences_until_terminal_batch_while_actual_lease_is_live() {
     let (_dir, mut store, mux, owner) = setup();
-    let mut job=store.prepare(serde_json::from_value(json!({"probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h","until":"done"})).unwrap(),owner.clone(),false).unwrap();
+    let mut job=store.prepare(serde_json::from_value(json!({"name":"host-stop-watch","probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h","until":"done"})).unwrap(),owner.clone(),false).unwrap();
     job.agent_authored = true;
     store.insert(job.clone()).unwrap();
     let lease = store.due().unwrap().remove(0);
@@ -676,4 +749,26 @@ fn sentinel_graph_terminal_lease_release_invalidates_with_committed_scope_revisi
         snapshot(&store, &mux, &owner).nodes[0]["stop"]["allowed"],
         false
     );
+}
+
+#[test]
+fn blueprint_snapshot_keeps_fallback_separate_from_execution() {
+    let (_dir, mut store, mux, owner) = setup();
+    create(&mut store, &owner, false, json!({}));
+    let fallback = json!({"adapter_id":"configured-adapter","model":"configured-model"});
+    let graph = graph::project(
+        &owner.workspace_id,
+        None,
+        store.list(),
+        &mux,
+        &BTreeMap::new(),
+        fallback.clone(),
+        1000,
+        &Default::default(),
+    )
+    .unwrap();
+    assert_eq!(graph.configured_fallback, fallback);
+    assert!(graph.nodes[0]["executor"].is_null());
+    assert_eq!(graph.nodes[0]["detail"]["version"], 1);
+    assert_eq!(graph.nodes[0]["detail"]["decisions"]["adapter_used"], false);
 }

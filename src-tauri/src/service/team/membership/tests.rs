@@ -138,6 +138,18 @@ fn adopt_agent_attaches_a_running_roleless_tab() {
 }
 
 #[test]
+fn adopt_agent_moves_a_running_plain_shell_into_utility_shells() {
+    let (mut mux, team_id, orchestrator, workspace_id) = anchored_team();
+    let shell = mux.create_tab(&workspace_id).unwrap();
+    mux.link_pty(&shell, "running-server".into());
+    adopt_agent_into_team(&mut mux, &team_id, &shell, &orchestrator).unwrap();
+    let tab = mux.get_tab(&shell).unwrap();
+    assert_eq!(tab.team_id.as_deref(), Some(team_id.as_str()));
+    assert_eq!(tab.pty_id.as_deref(), Some("running-server"));
+    assert!(tab.is_utility_shell());
+}
+
+#[test]
 fn adopt_agent_refuses_a_non_member_caller() {
     let (mut mux, team_id, _orchestrator, workspace_id) = anchored_team();
     let outsider = mux.create_tab(&workspace_id).unwrap();
@@ -246,4 +258,45 @@ fn general_agent_team_guard_keeps_ordinary_attachment_unchanged() {
     assert_eq!(tab.team_id.as_deref(), Some(team_id.as_str()));
     assert_eq!(tab.parent_tab_id.as_deref(), Some(orchestrator.as_str()));
     assert_eq!(tab.depth, 2);
+}
+
+#[test]
+fn applying_an_attachment_under_an_owner_nests_below_that_member() {
+    let (mut mux, team_id, orchestrator, workspace_id) = anchored_team();
+    mux.get_tab_mut(&orchestrator).unwrap().depth = 1;
+    let surface = mux.create_tab(&workspace_id).unwrap();
+    let attachment =
+        authorize_team_attachment(&mux, &team_id, &orchestrator, &workspace_id).unwrap();
+    apply_team_attachment_under(
+        &mut mux,
+        &attachment,
+        &surface,
+        AttachmentParent::Owner(&orchestrator),
+    )
+    .unwrap();
+    let tab = mux.get_tab(&surface).unwrap();
+    assert_eq!(tab.team_id.as_deref(), Some(team_id.as_str()));
+    assert_eq!(tab.parent_tab_id.as_deref(), Some(orchestrator.as_str()));
+    assert_eq!(
+        tab.spawned_by_tab_id.as_deref(),
+        Some(orchestrator.as_str())
+    );
+    assert_eq!(tab.depth, 2);
+}
+
+#[test]
+fn applying_an_attachment_under_an_owner_outside_the_team_is_refused() {
+    let (mut mux, team_id, orchestrator, workspace_id) = anchored_team();
+    let outsider = mux.create_tab(&workspace_id).unwrap();
+    let surface = mux.create_tab(&workspace_id).unwrap();
+    let attachment =
+        authorize_team_attachment(&mux, &team_id, &orchestrator, &workspace_id).unwrap();
+    assert!(apply_team_attachment_under(
+        &mut mux,
+        &attachment,
+        &surface,
+        AttachmentParent::Owner(&outsider),
+    )
+    .is_err());
+    assert!(mux.get_tab(&surface).unwrap().team_id.is_none());
 }

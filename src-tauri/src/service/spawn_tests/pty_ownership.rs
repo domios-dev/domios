@@ -27,6 +27,8 @@ struct OwnershipRace {
     tab_id: String,
     steps: Receiver<Step>,
     step_tx: Sender<Step>,
+    // PTY readers block until cleanup closes their sessions.
+    frontend_runtimes: Arc<Mutex<Vec<tokio::runtime::Runtime>>>,
     gates: Gates,
     releases: HashMap<bool, Sender<()>>,
     actors: Vec<JoinHandle<()>>,
@@ -34,6 +36,8 @@ struct OwnershipRace {
     candidates: BTreeSet<String>,
     frontend: Option<Result<String, String>>,
     hidden: Option<Result<String, String>>,
+    // Serializes with tests that repoint CODETERM_INSTANCE, which moves every data_dir() lookup.
+    _env: codeterm_util::test_env::EnvGuard,
 }
 
 struct Outcome {
@@ -48,9 +52,31 @@ fn actor_result(run: impl FnOnce() -> Result<String, String>) -> Result<String, 
     catch_unwind(AssertUnwindSafe(run)).unwrap_or_else(|_| Err("ownership actor panicked".into()))
 }
 
+fn isolated_tab_state() -> (MultiplexerState, String) {
+    // Other test fixtures share the process-wide activation registry. A UUID-prefixed id
+    // keeps this fixture outside the 32-bit id space used by MultiplexerState::new.
+    let (mux, _) = MultiplexerState::new();
+    let mut snapshot = mux.to_session_snapshot();
+    let tab_id = format!("pty-ownership-{}", uuid::Uuid::new_v4());
+    let workspace = snapshot.workspaces.first_mut().expect("default workspace");
+    workspace.active_tab_id = Some(tab_id.clone());
+    let tab = workspace.tabs.first_mut().expect("default tab");
+    tab.id = tab_id.clone();
+    let crate::session::store::SplitNodeSnapshot::Leaf {
+        tab_id: leaf_tab_id,
+        ..
+    } = &mut tab.split_tree
+    else {
+        panic!("default tab is a leaf");
+    };
+    *leaf_tab_id = tab_id.clone();
+    (MultiplexerState::from_session_snapshot(&snapshot), tab_id)
+}
+
 impl OwnershipRace {
     fn new() -> Self {
-        let (mut mux, tab_id) = MultiplexerState::new();
+        let env = codeterm_util::test_env::EnvGuard::lock();
+        let (mut mux, tab_id) = isolated_tab_state();
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.hidden = true;
         tab.show_in_tabbar = false;
@@ -83,6 +109,7 @@ impl OwnershipRace {
             tab_id,
             steps,
             step_tx,
+            frontend_runtimes: Arc::default(),
             gates,
             releases: HashMap::new(),
             actors: Vec::new(),
@@ -90,6 +117,7 @@ impl OwnershipRace {
             candidates: BTreeSet::new(),
             frontend: None,
             hidden: None,
+            _env: env,
         }
     }
 
@@ -117,13 +145,14 @@ impl OwnershipRace {
         self.frontend = None;
         let service = Arc::new(self.fixture.service.clone());
         let tab_id = self.tab_id.clone();
+        let frontend_runtimes = self.frontend_runtimes.clone();
         self.spawn_actor(move |done| {
             let attached = actor_result(|| {
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
                     .map_err(|error| format!("frontend runtime: {error}"))?;
-                runtime.block_on(crate::commands::spawn_pty_core(
+                let attached = runtime.block_on(crate::commands::spawn_pty_core(
                     &service,
                     None,
                     None,
@@ -131,7 +160,9 @@ impl OwnershipRace {
                     24,
                     None,
                     Some(tab_id),
-                ))
+                ));
+                frontend_runtimes.lock().push(runtime);
+                attached
             });
             let _ = done.send(Step::Frontend(attached));
         });
@@ -296,6 +327,10 @@ impl Drop for OwnershipRace {
             }
         }
         self.release_owned_ptys();
+        let frontend_runtimes = std::mem::take(&mut *self.frontend_runtimes.lock());
+        for runtime in frontend_runtimes {
+            runtime.shutdown_background();
+        }
     }
 }
 
@@ -452,12 +487,25 @@ fn cron_pty_ownership_dead_launch_claim_yields_to_frontend_shell() {
     let mut race = OwnershipRace::new();
     race.start_hidden();
     let exited = race.await_hidden().expect("hidden launch links its PTY");
-    race.fixture
+    let reaper = race
+        .fixture
         .service
         .pty
         .lock()
-        .kill(&exited)
-        .expect("provider PTY exits");
+        .begin_kill(&exited)
+        .expect("provider PTY termination starts");
+    reaper
+        .wait_bounded(EVENT_DEADLINE)
+        .expect("provider PTY exits before frontend attaches");
+    assert!(!race.is_live(&exited));
+    assert_eq!(
+        race.fixture
+            .service
+            .pty_ownership
+            .launch_claim(&race.tab_id)
+            .as_deref(),
+        Some(exited.as_str())
+    );
 
     let shell = race.remount().expect("frontend attaches a fresh shell");
     let outcome = race.settle_and_cleanup();

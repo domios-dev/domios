@@ -364,7 +364,7 @@ where
                 plugin_id,
                 session_id,
             } => Some((plugin_id, session_id)),
-            TabBacking::Pty => None,
+            TabBacking::Pty | TabBacking::Surface(_) => None,
         })
         .collect();
     let mut transaction = mux.begin_team_close_transaction();
@@ -545,15 +545,6 @@ fn cleanup_lane(lane: &TeamCloseLane) -> Result<(), String> {
             return Err(format!("refusing to delete non-lane branch {branch}"));
         }
     }
-    let removed_worktree = lane
-        .worktree_path
-        .as_deref()
-        .filter(|path| Path::new(path).exists())
-        .map(str::to_string);
-    if let Some(path) = &removed_worktree {
-        run_git(&lane.project_path, &["worktree", "remove", path])
-            .map_err(|error| format!("worktree {path} could not be removed: {error}"))?;
-    }
     if let Some(branch) = lane.branch.as_deref() {
         if branch_exists(lane, branch)? {
             let destination = lane.destination.as_deref().ok_or_else(|| {
@@ -570,18 +561,23 @@ fn cleanup_lane(lane: &TeamCloseLane) -> Result<(), String> {
                     git_output_error("merge-base --is-ancestor", &lane.project_path, &ancestry)
                 });
             }
-            if let Err(error) = run_git(&lane.project_path, &["branch", "-d", branch]) {
-                if let Some(path) = removed_worktree {
-                    if let Err(restore) =
-                        run_git(&lane.project_path, &["worktree", "add", &path, branch])
-                    {
-                        return Err(format!(
-                            "branch {branch} could not be deleted: {error}; worktree {path} could not be restored: {restore}"
-                        ));
-                    }
-                }
-                return Err(format!("branch {branch} could not be deleted: {error}"));
-            }
+        }
+    }
+    if let Some(path) = lane.worktree_path.as_deref() {
+        crate::service::lane_removal::remove_lane(
+            &crate::service::lane_removal::LaneRemovalRequest {
+                worktree_path: path.to_string(),
+                branch: None,
+                canonical_cwd: Some(lane.project_path.clone()),
+                force: false,
+            },
+            &[],
+        )?;
+    }
+    if let Some(branch) = lane.branch.as_deref() {
+        if branch_exists(lane, branch)? {
+            run_git(&lane.project_path, &["branch", "-d", branch])
+                .map_err(|error| format!("branch {branch} could not be deleted: {error}"))?;
         }
     }
     Ok(())
@@ -617,12 +613,16 @@ fn non_empty(value: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
-fn git_output(cwd: &str, args: &[&str]) -> Result<Output, String> {
+fn git_command(cwd: &str, args: &[&str]) -> Command {
     let mut command = Command::new("git");
     process_util::no_window_std(&mut command);
+    command.current_dir(cwd).args(args);
     command
-        .current_dir(cwd)
-        .args(args)
+}
+
+fn git_output(cwd: &str, args: &[&str]) -> Result<Output, String> {
+    git_command(cwd, args)
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .output()
         .map_err(|error| format!("git could not run in '{cwd}': {error}"))
 }
@@ -636,7 +636,9 @@ fn git_output_error(operation: &str, cwd: &str, output: &Output) -> String {
 }
 
 fn run_git(cwd: &str, args: &[&str]) -> Result<(), String> {
-    let output = git_output(cwd, args)?;
+    let output = git_command(cwd, args)
+        .output()
+        .map_err(|error| format!("git could not run in '{cwd}': {error}"))?;
     if output.status.success() {
         return Ok(());
     }

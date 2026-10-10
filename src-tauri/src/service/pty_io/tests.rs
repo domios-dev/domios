@@ -397,8 +397,9 @@ fn agent_prompt_sanitizer_preserves_literal_reply_text() {
 }
 
 #[test]
-fn agent_prompt_sanitizer_preserves_codeterm_prefix_text() {
-    let message = "-=-codeterm:tab label=worker tab=abc123 model=codex-=-run tests";
+fn agent_prompt_sanitizer_preserves_domios_route_frame_text() {
+    let message =
+        "<domios from=\"tab\" label=\"worker\" tab=\"abc123\" model=\"codex\">run tests</domios>";
     assert_eq!(send::sanitize_agent_prompt_input(message), message);
 }
 

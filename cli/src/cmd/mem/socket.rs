@@ -31,6 +31,20 @@ pub(super) fn socket_request(
     action: &MemAction,
 ) -> Option<(&'static str, Option<serde_json::Value>)> {
     match action {
+        MemAction::Area {
+            action:
+                crate::args::mem::MemAreaAction::Merge {
+                    from,
+                    into,
+                    dry_run,
+                },
+        } => Some((
+            "mem.area_merge",
+            Some(
+                serde_json::json!({ "from": from, "into": into, "dry_run": dry_run,
+                "worker_id": std::env::var("CODETERM_WORKER_ID").ok() }),
+            ),
+        )),
         MemAction::Stats => Some(("mem.stats", None)),
         MemAction::Search {
             query,

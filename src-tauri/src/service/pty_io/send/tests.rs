@@ -1,9 +1,10 @@
 use super::readiness::composer_input_ready;
 use super::{
-    authenticated_pty_target, await_shell_prompt, await_shell_prompt_armed, delivery_is_unknown,
-    is_pre_ready_launch_stage, optimistic_agent_pty_target, provider_frame_ready,
-    provider_or_generic_tui, public_agent_input_readiness, require_submission_result,
-    submit_authenticated_pty_input, wait_for_observed_readiness,
+    authenticated_pty_target, authenticated_pty_target_pinned, await_shell_prompt,
+    await_shell_prompt_armed, delivery_is_unknown, is_pre_ready_launch_stage,
+    optimistic_agent_pty_target, provider_frame_ready, provider_or_generic_tui,
+    public_agent_input_readiness, require_submission_result, submit_authenticated_pty_input,
+    wait_for_observed_readiness,
 };
 use crate::multiplexer::state::MultiplexerState;
 
@@ -32,6 +33,108 @@ fn post_write_uncertainty_is_not_a_user_facing_delivery_failure() {
     assert!(!delivery_is_unknown(
         "pty_unavailable: recipient PTY missing"
     ));
+}
+
+#[test]
+fn refused_agent_report_waits_for_state_change_and_writes_once() {
+    let temp = tempfile::tempdir().unwrap();
+    let store =
+        crate::service::pending_delivery_payloads::agent_deliveries::AgentDeliveryStore::open(
+            temp.path(),
+        );
+    let tab_id = "orchestrator-tab";
+    let report = "never-written report body";
+    let generation = store.state_generation(tab_id);
+    let id = store
+        .enqueue(tab_id, report, Some("report:report-1".into()))
+        .unwrap();
+    let next_id = store.enqueue(tab_id, "next agent message", None).unwrap();
+
+    assert!(store.block_after_refusal(tab_id, generation));
+    assert!(!store.start_worker(tab_id));
+    let record = store.pending_head(tab_id).unwrap().unwrap();
+    assert_eq!(store.payload(tab_id, &record).unwrap(), report);
+
+    store.state_changed(tab_id);
+    assert!(store.start_worker(tab_id));
+    let mut writes = Vec::new();
+    for expected_id in [&id, &next_id] {
+        let record = store.pending_head(tab_id).unwrap().unwrap();
+        assert_eq!(&record.id, expected_id);
+        assert!(store.claim(tab_id, expected_id).unwrap());
+        writes.push(record.id.clone());
+        assert!(store.complete_written(tab_id, expected_id).unwrap());
+    }
+    store.finish_worker(tab_id);
+
+    assert_eq!(writes, [id, next_id]);
+    assert!(store.pending_head(tab_id).unwrap().is_none());
+}
+
+#[test]
+fn claimed_agent_report_is_not_replayed_after_reopen() {
+    let temp = tempfile::tempdir().unwrap();
+    let tab_id = "orchestrator-tab";
+    let store =
+        crate::service::pending_delivery_payloads::agent_deliveries::AgentDeliveryStore::open(
+            temp.path(),
+        );
+    let id = store.enqueue(tab_id, "report body", None).unwrap();
+    assert!(store.claim(tab_id, &id).unwrap());
+
+    let reopened =
+        crate::service::pending_delivery_payloads::agent_deliveries::AgentDeliveryStore::open(
+            temp.path(),
+        );
+    assert!(reopened.pending_head(tab_id).unwrap().is_none());
+    let receipts = reopened.pending_receipts(tab_id).unwrap();
+    assert_eq!(receipts.len(), 1);
+    assert_eq!(receipts[0].id, id);
+    assert_eq!(receipts[0].status, None);
+}
+
+#[test]
+fn never_written_agent_report_survives_reopen() {
+    let temp = tempfile::tempdir().unwrap();
+    let tab_id = "orchestrator-tab";
+    let store =
+        crate::service::pending_delivery_payloads::agent_deliveries::AgentDeliveryStore::open(
+            temp.path(),
+        );
+    let id = store
+        .enqueue(
+            tab_id,
+            "never-written report",
+            Some("report:report-1".into()),
+        )
+        .unwrap();
+
+    let reopened =
+        crate::service::pending_delivery_payloads::agent_deliveries::AgentDeliveryStore::open(
+            temp.path(),
+        );
+    let record = reopened.pending_head(tab_id).unwrap().unwrap();
+    assert_eq!(record.id, id);
+    assert_eq!(
+        reopened.payload(tab_id, &record).unwrap(),
+        "never-written report"
+    );
+    assert!(reopened.claim(tab_id, &record.id).unwrap());
+    assert!(reopened.complete_written(tab_id, &record.id).unwrap());
+}
+
+#[test]
+fn routed_suffix_has_a_closing_tag_for_plain_and_capable_targets() {
+    use codeterm_types::domios::{DOMIOS_CLOSE_TAG, DOMIOS_TYPED_INSTRUCTION};
+
+    let plain = super::compose_routed_suffix(" [reply]", false);
+    assert_eq!(plain, format!(" [reply]{DOMIOS_CLOSE_TAG}"));
+
+    let capable = super::compose_routed_suffix(" [reply]", true);
+    assert_eq!(
+        capable,
+        format!(" [reply] {DOMIOS_TYPED_INSTRUCTION}{DOMIOS_CLOSE_TAG}")
+    );
 }
 
 #[test]
@@ -193,6 +296,87 @@ fn optimistic_send_accepts_a_live_agent_without_a_reported_nonce() {
         ("pty-agent".into(), "codex".into()),
     );
     assert!(authenticated_pty_target(tab, "session", "launch-nonce").is_err());
+}
+
+#[test]
+fn authenticated_resume_refuses_a_rotated_pty_or_binding_nonce() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.backing = crate::multiplexer::types::TabBacking::Pty;
+    tab.pty_id = Some("pty-old".into());
+    tab.agent_type = Some("opaque-provider".into());
+    tab.agent_session_id = Some("session".into());
+    tab.session_binding_nonce = Some("nonce-old".into());
+    tab.reported_session_binding_nonce = Some("nonce-old".into());
+
+    assert!(authenticated_pty_target_pinned(tab, "pty-old", "session", "nonce-old").is_ok());
+    assert!(authenticated_pty_target_pinned(tab, "pty-new", "session", "nonce-old").is_err());
+    tab.pty_id = Some("pty-old".into());
+    tab.session_binding_nonce = Some("nonce-new".into());
+    tab.reported_session_binding_nonce = Some("nonce-new".into());
+    assert!(authenticated_pty_target_pinned(tab, "pty-old", "session", "nonce-old").is_err());
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the ServiceFixture requires an interactive desktop runtime"
+)]
+fn pinned_resume_send_writes_no_payload_when_the_pty_changed() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.backing = crate::multiplexer::types::TabBacking::Pty;
+    tab.pty_id = Some("pty-current".into());
+    tab.agent_type = Some("opaque-provider".into());
+    tab.agent_session_id = Some("session-a".into());
+    tab.session_binding_nonce = Some("nonce-a".into());
+    tab.reported_session_binding_nonce = Some("nonce-a".into());
+    tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let payload = "opaque resume payload";
+    let mut written = Vec::new();
+
+    let result = fixture
+        .service
+        .send_to_authenticated_agent_session_pinned_with(
+            &tab_id,
+            "pty-previous",
+            "session-a",
+            "nonce-a",
+            payload,
+            |_, text| {
+                written.extend_from_slice(text.as_bytes());
+                Ok(())
+            },
+        );
+
+    assert!(result.is_err());
+    assert!(written.is_empty());
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the ServiceFixture requires an interactive desktop runtime"
+)]
+fn shell_spawn_command_locks_the_detected_agent_type() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.backing = crate::multiplexer::types::TabBacking::Pty;
+    mux.link_pty(&tab_id, "pty-cli-launch".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("claude"),
+    ));
+
+    fixture
+        .service
+        .feed_input_parser("pty-cli-launch", "claude --resume session", true);
+
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&tab_id).unwrap();
+    assert_eq!(tab.agent_type.as_deref(), Some("claude"));
+    assert!(tab.agent_type_locked);
 }
 
 #[test]

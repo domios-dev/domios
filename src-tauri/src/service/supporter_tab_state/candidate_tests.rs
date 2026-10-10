@@ -14,6 +14,28 @@ fn answer(label: &str, confidence: f64, visible: f64, area: &str) -> DecisionRes
 }
 
 #[test]
+fn supporter_first_opinion_cold_call_budget_does_not_extend_receipt_authorization() {
+    let captured_at = Instant::now();
+    let call_started_at = captured_at + std::time::Duration::from_secs(4);
+    let receipt_deadline = candidates::receipt_authorization_deadline(captured_at, 3_000);
+    let directory = tempfile::tempdir().unwrap();
+    let runtime =
+        crate::service::supporter::SupporterRuntime::new(directory.path().join("supporter"));
+    let call_deadline = runtime.decision_deadline("fixture", 3_000, call_started_at);
+
+    assert_eq!(
+        receipt_deadline,
+        captured_at + std::time::Duration::from_secs(3)
+    );
+    assert_eq!(
+        call_deadline,
+        call_started_at + std::time::Duration::from_secs(5)
+    );
+    assert!(receipt_deadline < call_started_at);
+    assert!(receipt_deadline < call_deadline);
+}
+
+#[test]
 fn supporter_first_opinion_scrape_model_decides_without_heuristic_veto() {
     for (label, visible, area, live) in [
         (TRUST_OR_PERMISSION_PROMPT, 0.95, "active_modal", true),
@@ -44,7 +66,7 @@ fn supporter_first_opinion_scrape_fallback_on_timeout_budget_other_low_confidenc
         (Err(DecisionError::Budget), identity::DecisionSource::Budget),
         (
             Err(DecisionError::Unsupported),
-            identity::DecisionSource::Error,
+            identity::DecisionSource::error(&DecisionError::Unsupported),
         ),
         (
             Ok(answer(OTHER, 0.99, 0.99, "active_modal")),
@@ -81,7 +103,7 @@ fn supporter_first_opinion_scrape_fallback_on_timeout_budget_other_low_confidenc
     malformed.answers.remove("input_area");
     assert_eq!(
         candidates::select(Ok(malformed)).1,
-        identity::DecisionSource::Error
+        identity::DecisionSource::error(&DecisionError::Parse("invalid_candidate".into()))
     );
 }
 
@@ -190,6 +212,13 @@ fn prompt() -> PendingPrompt {
     }
 }
 
+fn update_prompt() -> PendingPrompt {
+    let mut update = prompt();
+    update.options[0].label = "Update".into();
+    update.options[1].label = "Skip".into();
+    update
+}
+
 #[test]
 fn supporter_first_opinion_scrape_a004b77d4_transcript_and_composer_copy_negatives() {
     let live = "Fixture selection\n❯ 1. Opaque alpha\n2. Opaque beta\nEnter to confirm\n";
@@ -296,18 +325,19 @@ fn supporter_first_opinion_scrape_service_persists_only_evidenced_prompt() {
 fn supporter_first_opinion_safe_response_provider_choice_in_same_redacted_batch() {
     let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
     mux.link_pty(&id, "safe-choice-batch-pty".into());
-    mux.get_tab_mut(&id).unwrap().agent_type = Some("fixture-provider".into());
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("fixture-provider".into());
+    tab.role = Some(codeterm_types::agent::AgentRole::Worker);
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    let mut update = prompt();
-    update.options[0].label = "Update".into();
-    update.options[1].label = "Skip".into();
+    let mut update = update_prompt();
     update.options[1].value = "opaque-skip-value".into();
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("fixture-provider")
             .with_parsed_prompt(update)
             .with_classified_prompt_auto_response(
                 codeterm_plugin::provider::ClassifiedPromptOptionRole::Skip,
-            ),
+            )
+            .with_live_prompt_response(1, vec![b"opaque-step".to_vec()]),
     ));
     let (mut host, calls, seen) = StubHost::new(
         "Fixture selection\n❯ 1. Update\n2. Skip\nEnter to confirm\n",
@@ -351,7 +381,7 @@ fn supporter_first_opinion_safe_response_provider_choice_in_same_redacted_batch(
         .unwrap()
         .pending_prompt
         .is_none());
-    let (mut redacted, _, seen) = StubHost::new(
+    let (mut redacted, redacted_calls, seen) = StubHost::new(
         "Fixture selection\n❯ 1. Update\n2. Skip\nEnter to confirm\ntoken=private-value",
         StubModel::answering(Ok(choice(OTHER, 0.99))),
     );
@@ -361,10 +391,49 @@ fn supporter_first_opinion_safe_response_provider_choice_in_same_redacted_batch(
         .join()
         .unwrap();
     let request = seen.lock().clone().unwrap();
+    assert_eq!(redacted_calls.load(Ordering::SeqCst), 1);
     assert!(!request.questions.contains_key("safe_choice"));
     assert!(!serde_json::to_string(&request)
         .unwrap()
         .contains("private-value"));
+    assert!(candidates::spawn(&redacted, &config, &id, None, |_, _, _| {}).is_none());
+    assert_eq!(redacted_calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn supporter_first_opinion_is_admitted_once_per_launch_after_periodic_observation() {
+    let (mut host, calls, _) = StubHost::new(
+        "opaque screen",
+        StubModel::answering(Ok(choice(OTHER, 0.99))),
+    );
+    let id = tab();
+    let config = enabled();
+    run(&host, &id, ObservationTrigger::WorkerIdle).unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    candidates::spawn(&host, &config, &id, None, |_, _, _| {})
+        .unwrap()
+        .join()
+        .unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert!(candidates::spawn(&host, &config, &id, None, |_, _, _| {}).is_none());
+    assert!(candidates::spawn_with_origin(
+        &host,
+        &config,
+        &id,
+        None,
+        ObservationTrigger::ParkedEdge,
+        None,
+        None,
+        |_, _, _| {},
+    )
+    .is_none());
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    host.session_key = Some("next-launch".into());
+    candidates::spawn(&host, &config, &id, None, |_, _, _| {})
+        .unwrap()
+        .join()
+        .unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
 }
 
 struct CandidateModel {
@@ -382,20 +451,24 @@ fn supporter_first_opinion_safe_response_bound_receipt_cancels_user_nonce_and_di
         let tab = mux.get_tab_mut(&id).unwrap();
         tab.agent_type = Some("fixture-provider".into());
         tab.session_binding_nonce = Some("nonce-a".into());
-        tab.pending_prompt = Some(prompt());
+        tab.pending_prompt = Some(update_prompt());
         tab.pending_prompt_kind = Some(PromptKind::ManualUpdate);
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
         fixture.service.agent_registry.register_provider(Box::new(
             crate::agent::test_provider::MockProvider::new("fixture-provider")
-                .with_parsed_prompt(prompt()),
+                .with_parsed_prompt(update_prompt())
+                .with_classified_prompt_auto_response(
+                    codeterm_plugin::provider::ClassifiedPromptOptionRole::Skip,
+                )
+                .with_live_prompt_response(1, vec![b"opaque-step".to_vec()]),
         ));
         fixture
             .service
             .prompt_detector
             .lock()
-            .hook_detected_scraped(&id, prompt());
+            .hook_detected_scraped(&id, update_prompt());
         let (mut host, _, _) = StubHost::new(
-            "Fixture selection\n❯ 1. Opaque alpha\n2. Opaque beta\nEnter to confirm\n",
+            "Fixture selection\n❯ 1. Update\n2. Skip\nEnter to confirm\n",
             StubModel::answering(Ok(choice(OTHER, 0.99))),
         );
         host.metadata_service = Some(fixture.service.clone());
@@ -412,26 +485,26 @@ fn supporter_first_opinion_safe_response_bound_receipt_cancels_user_nonce_and_di
         );
         let selected = Arc::new(Mutex::new(None));
         let save = selected.clone();
-        candidates::spawn(
-            &host,
-            &SupporterConfig {
-                adapter: Some("fixture".into()),
-                ..Default::default()
-            },
-            &id,
-            None,
-            move |verdict, source, valid| {
-                assert!(valid());
-                assert_eq!(source, identity::DecisionSource::Adapter);
-                *save.lock() = verdict;
-            },
-        )
+        let config = SupporterConfig {
+            adapter: Some("fixture".into()),
+            ..Default::default()
+        };
+        candidates::spawn(&host, &config, &id, None, move |verdict, source, valid| {
+            assert!(valid());
+            assert_eq!(source, identity::DecisionSource::Adapter);
+            *save.lock() = verdict;
+        })
         .unwrap()
         .join()
         .unwrap();
         let verdict = selected.lock().clone().unwrap();
         let receipt = verdict.receipt.unwrap();
-        let ledgers = receipt.metadata.envelope.as_ref().unwrap().ledgers.clone();
+        let envelope = receipt.metadata.envelope.as_ref().unwrap();
+        let ledgers = envelope.ledgers.clone();
+        assert_eq!(
+            receipt.deadline,
+            candidates::receipt_authorization_deadline(envelope.captured_at, config.deadline_ms)
+        );
         assert!(receipt.current(&host, &id, &ledgers));
         let mut expired = receipt.clone();
         expired.deadline = Instant::now();

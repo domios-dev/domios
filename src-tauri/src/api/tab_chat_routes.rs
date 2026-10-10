@@ -40,6 +40,7 @@ pub(crate) fn chat_read_target(
         .ok_or((StatusCode::NOT_FOUND, "Tab not found"))?;
     match &tab.backing {
         TabBacking::ChatBackend { .. } => Ok(ChatReadTarget::OwnedSession),
+        TabBacking::Surface(_) => Ok(ChatReadTarget::Unbound),
         TabBacking::Pty => {
             if tab.agent_type.is_some() && tab.agent_session_id.is_some() {
                 Ok(ChatReadTarget::OwnedSession)
@@ -59,8 +60,14 @@ pub async fn snapshot(
     check_auth(&state, &headers)?;
     let tab_id = resolve_tab(&state, &raw_tab_id)?;
     if chat_read_target(&state.svc.mux, &tab_id)? == ChatReadTarget::Unbound {
+        let since = query.since;
+        let (messages, count) = tokio::task::spawn_blocking(move || {
+            crate::service::tab_chat::restore_notice::snapshot(&tab_id, Vec::new(), since)
+        })
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "chat snapshot cancelled"))?;
         return Ok(Json(
-            serde_json::json!({ "messages": [], "count": 0, "pending": true }),
+            serde_json::json!({ "messages": messages, "count": count, "pending": true }),
         ));
     }
 
@@ -77,6 +84,7 @@ pub async fn snapshot(
                     tab.agent_type.clone().unwrap_or_default(),
                     tab.agent_session_id.clone().unwrap_or_default(),
                 ),
+                TabBacking::Surface(surface) => (surface.plugin_id.clone(), "-".to_string()),
             })
             .unwrap_or_else(|| ("-".to_string(), "-".to_string()))
     };

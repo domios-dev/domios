@@ -315,15 +315,12 @@ mod tests {
 
     #[test]
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-    fn exit_transition_resolves_the_prompt_through_lifecycle_clear() {
+    fn exit_transition_resolves_the_prompt_through_explicit_clear() {
         let (fixture, tab_id, previous_id) = pending_prompt_fixture();
 
         assert!(fixture
             .service
-            .clear_tab_agent_identity_for_lifecycle_exit_with_cause(
-                &tab_id,
-                "test lifecycle exit",
-            ));
+            .clear_tab_agent_identity_explicitly(&tab_id, "test lifecycle exit",));
 
         assert_resolved_and_new_prompt_notifies(&fixture, &tab_id, &previous_id);
     }

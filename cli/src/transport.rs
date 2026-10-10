@@ -7,6 +7,8 @@ use crate::{Commands, MemAction, TeamAction};
 
 const TEAM_LOCAL_ONLY: &str = "team management is local-only — run it on the target machine";
 const TASK_LOCAL_ONLY: &str = "task management is local-only — run it on the target machine";
+const SURFACE_LOCAL_ONLY: &str =
+    "surface tabs are owned by a local tab — run it on the target machine";
 
 /// Where a command is handled before the socket dispatch match sees it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,7 +86,11 @@ const fn pre_socket_unsupported(reason: &'static str) -> Transport {
 
 pub(crate) fn transport_for(command: &Commands) -> Transport {
     match command {
+        Commands::Trace { .. } => pre_socket_unsupported("trace files are local-only; run on the owning instance"),
         Commands::Identify => socket_rest(),
+        Commands::ModelProvider { .. } => socket_unsupported(
+            "model provider secrets and configuration are local-only; run on the target machine",
+        ),
         Commands::Capabilities => {
             socket_unsupported("capabilities is socket-only; run it on the target machine")
         }
@@ -98,7 +104,7 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
                 "plugin management is local-only — run it on the target machine",
             ),
         },
-        Commands::Sentinel { .. } => socket_unsupported("sentinels are creator-local; run on the owning machine"),
+        Commands::Blueprint { .. } => socket_unsupported("blueprints are creator-local; run on the owning machine"),
         Commands::Supporter { .. } => Transport {
             local: Local::PreMesh,
             mesh_relay: MeshRelay::Fallthrough,
@@ -128,6 +134,8 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         Commands::Keepawake { .. } => socket_rest(),
         Commands::Integration { .. } => socket_rest(),
         Commands::Theme { .. } => socket_rest(),
+        Commands::Surface { .. } => socket_unsupported(SURFACE_LOCAL_ONLY),
+        Commands::Agent { action: crate::AgentAction::Turns { .. } } => socket_unsupported("agent turns reads this daemon's authenticated session; run on the target machine"),
         Commands::Agent { .. } => socket_rest(),
         Commands::Cron { .. } => socket_rest(),
         Commands::Service { .. } => socket_rest(),

@@ -22,7 +22,7 @@ Task text is capped at 256 KiB per task (all fields together), every other plan 
 
 A tab bound as a plan's Planner (`role = Manager`, `role_profile = planner`, same Team as the plan) holds **durable** authority over task *structure* for the plan's whole life — name, body, sections, acceptance criteria, test plan, QA plan, correctness, tags, dependencies and routing. That authority does not lapse when a task is dispatched: it applies to a `pending` task and an `in_progress` one alike. Fresh pair Planners are bound to their first Plan from live Team membership. Each write still requires that Planner tab's current session and binding nonce; when startup binding is pending, the write waits for that event instead of requiring `plan rebind`.
 
-It stops at execution. A Planner is refused for `status`, `status_label`, `lane`, `tab`/`assign_tab`/`assigned_tab_id`, `peer`, attempt fields, `competition`, `review_stage` and `qa_state`, and it may not assign, dispatch or approve. One field list bounds the Planner on every write path.
+It stops at execution, except that the Plan owner or Planner may deliberately block a task by passing `status=blocked` with a fresh nonblank `status_label` containing its reason and owner trigger. A Planner is refused for other `status` or `status_label` changes, `lane`, `tab`/`assign_tab`/`assigned_tab_id`, `peer`, attempt fields, `competition`, `review_stage` and `qa_state`, and it may not assign, dispatch or approve. A Worker's `agent report --status blocked` is a proposal: it persists the evidence and leaves task state unchanged. One field list bounds Planner authority on every write path.
 
 Refusals carry a stable `data.type`: `caller_is_not_task_owner_or_plan_owner` when the caller holds no authority over the task at all, and a `-32003` `plan_role_authorization_required` when the binding is live but the role is not.
 
@@ -227,13 +227,14 @@ already-recorded integration is idempotent.
 
 The Plan Orchestrator can create child tasks beneath an in-progress task with
 `codeterm plan task split <plan> <task> --child <name>` or a JSON child file.
-Children inherit the parent's sections, executor role, model routing, and
-quality fields unless overridden. They retain the same plan approval and may
-be dispatched while the parent remains in progress; each dispatch provisions
-the child's own lane. Task detail and plan state expose child statuses, and the
+Children inherit the parent's sections, tags (including its `work:<value>`),
+executor role, model routing, and quality fields unless overridden; a child tag
+replaces the inherited tag of the same facet key. They retain the same plan
+approval and may be dispatched while the parent remains in progress; each
+dispatch provisions the child's own lane. Task detail and plan state expose child statuses, and the
 parent presents as `blocked_on_subtasks` while any child is open. Marking the
 parent done or cancelled is refused until all children are done or cancelled.
 Worker briefs carry the parent task id; a Worker may propose children in its
 report but cannot dispatch or spawn them.
 
-<!-- revision: 25 -->
+<!-- revision: 27 -->

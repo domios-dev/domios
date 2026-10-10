@@ -80,6 +80,25 @@ const T0 = 1_700_000_000_000;
   eq(pendingIds, [], "combined user turn leaves no covered bubble pending");
 }
 
+{
+  const sends = [
+    echo("opt-1", "opaque-first", T0),
+    echo("opt-2", "opaque-second", T0 + 100),
+    echo("opt-3", "opaque-third", T0 + 200),
+  ];
+  const { claims, matchedIds, pendingIds } = matchedOptimisticEchoes(
+    sends,
+    [user("merged", "opaque-firstopaque-secondopaque-third", T0 + 500)],
+  );
+  eq(matchedIds, ["opt-1", "opt-2", "opt-3"], "glued merged turn clears all ordered sends");
+  eq(pendingIds, [], "glued merged turn leaves no duplicate optimistic bubble");
+  eq(
+    claims,
+    sends.map((send) => ({ echoId: send.id, parsedIndex: 0 })),
+    "all merged sends share the one committed transcript row",
+  );
+}
+
 //     match inside a longer token and repeated short sends need repeated tokens.
 {
   const { matchedIds, pendingIds } = matchedOptimisticEchoes(
@@ -401,6 +420,53 @@ const T0 = 1_700_000_000_000;
     ]).map((m) => m.id),
     ["a"],
     "identical adjacent user messages with no timestamps collapse",
+  );
+}
+
+{
+  const PATH = String.raw`C:\Users\dev\AppData\Local\Temp\codeterm-chat\e8a97274-pasted-image-1791277476989.png`;
+  const imageRow = (id: string, content: string, tsMs: number, path = PATH): NormalizedChatMessage => ({
+    ...user(id, content, tsMs),
+    attachments: [{ id: `${id}-img-0`, mimeType: "image/png", path }],
+  });
+
+  eq(
+    matchedOptimisticEchoes([echo("opt-img", PATH, T0)], [imageRow("codex-img", "[1 image]", T0 + 400)]).matchedIds,
+    ["opt-img"],
+    "a path-only image echo matches its transcript row carrying that path as an attachment",
+  );
+
+  eq(
+    matchedOptimisticEchoes(
+      [echo("opt-img", `what is wrong here ${PATH}`, T0)],
+      [imageRow("codex-img", "what is wrong here", T0 + 400)],
+    ).matchedIds,
+    ["opt-img"],
+    "a captioned image echo matches its transcript row",
+  );
+
+  eq(
+    matchedOptimisticEchoes(
+      [echo("opt-img", PATH, T0)],
+      [imageRow("other-img", "[1 image]", T0 + 400, String.raw`C:\tmp\another-image.png`)],
+    ).pendingIds,
+    ["opt-img"],
+    "an image echo stays pending against a row carrying a different image",
+  );
+
+  eq(
+    matchedOptimisticEchoes(
+      [echo("opt-img", `caption one ${PATH}`, T0)],
+      [imageRow("codex-img", "caption two", T0 + 400)],
+    ).pendingIds,
+    ["opt-img"],
+    "an image echo stays pending when the caption differs",
+  );
+
+  eq(
+    matchedOptimisticEchoes([echo("opt-img", PATH, T0)], [imageRow("old-img", "[1 image]", T0 - 60_000)]).pendingIds,
+    ["opt-img"],
+    "an image echo never claims an older row with the same image",
   );
 }
 

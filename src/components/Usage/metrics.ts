@@ -33,3 +33,9 @@ export function visibleUsageMetrics(
 export function usageMetricsAriaLabel(metrics: VisibleUsageMetric[]): string {
   return `usage ${metrics.map((metric) => `${metric.key} ${Math.round(metric.pct)}%`).join(" ")}`.trim();
 }
+
+export function unreportedBillingLabel(snapshot: Pick<UsageSnapshot, "billing_mode" | "limits_reported" | "session_pct" | "weekly_pct" | "spend_cents">): string | null {
+  return snapshot.billing_mode === "subscription" && !snapshot.limits_reported
+    && snapshot.session_pct == null && snapshot.weekly_pct == null && snapshot.spend_cents == null
+    ? "subscription · limits not reported" : null;
+}

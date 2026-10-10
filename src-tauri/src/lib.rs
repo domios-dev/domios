@@ -10,6 +10,7 @@ pub mod chatbackend;
 pub mod chatpipeline;
 pub mod chatpreprocessor;
 mod clipboard_files;
+mod command_registration;
 mod commands;
 mod commands_mesh;
 mod config;
@@ -18,7 +19,9 @@ pub mod cron;
 pub mod delayed_send;
 pub mod dispatch;
 mod fdlimit;
+mod flow_trace;
 pub mod glance;
+mod instance_lifetime;
 mod keepawake;
 mod liveness;
 pub mod lock_hold;
@@ -73,7 +76,6 @@ use notification::NotifState;
 use pty::manager::{OutputBuffer, PtyManager};
 use pty::screen_state::ScreenState;
 use service::{ServiceContext, ServiceState};
-use session::SessionState;
 
 pub type PtyState = Arc<lock_hold::TimedMutex<PtyManager>>;
 pub type OutputBufferState = Arc<lock_hold::TimedMutex<OutputBuffer>>;
@@ -104,6 +106,13 @@ pub fn run() {
     startup::setup_logging();
 
     log::info!("CodeTerm starting...");
+    let _instance_lifetime = match instance_lifetime::acquire() {
+        Ok(lifetime) => lifetime,
+        Err(error) => {
+            log::error!("[startup] could not acquire instance lifetime lock: {error}");
+            return;
+        }
+    };
     let startup_recovery = crash::record_startup();
     if let Some(record) = &startup_recovery.last_crash {
         log::warn!(
@@ -161,7 +170,8 @@ pub fn run() {
         }));
     }
 
-    builder
+    let builder = builder
+        .manage(states.storage.clone())
         .manage(states.config.clone())
         .manage(states.pty.clone())
         .manage(states.mux.clone())
@@ -176,227 +186,8 @@ pub fn run() {
         .manage(states.mesh.clone())
         .manage(states.keepawake.clone())
         .manage(states.resize_owner.clone())
-        .manage(states.rest_api.clone())
-        .invoke_handler(tauri::generate_handler![
-            commands::get_windows_build_number,
-            commands::get_default_cwd,
-            commands::spawn_pty,
-            commands::read_pty,
-            commands::write_pty,
-            commands::write_pty_string,
-            commands::interrupt_agent,
-            commands::write_pty_launch_command,
-            commands::get_tab_output,
-            commands::get_tab_history_raw,
-            commands::get_tab_text,
-            commands::session_binding_state,
-            commands::shell_command_snapshot,
-            commands::list_agent_providers,
-            commands::get_remote_workers,
-            commands::wait_shell_ready,
-            commands::read_session_jsonl,
-            commands::resize_pty,
-            commands::claim_resize_owner,
-            commands::kill_pty,
-            commands::suggest_install_pwsh,
-            commands::get_shell_diagnostics,
-            commands::frontend_ready,
-            commands::frontend_readiness_generation,
-            commands::restart_app,
-            commands::restart_rest_api,
-            commands::get_rest_api_status,
-            commands::rest_api_port_released,
-            commands::restart_general_agent,
-            commands::restart_general_agent_tab,
-            commands::restart_agent_tab,
-            commands::switch_agent_model,
-            commands::complete_general_agent_first_run,
-            commands::get_network_info,
-            commands::get_serve_status,
-            commands::enable_web_access,
-            commands::disable_web_access,
-            commands::generate_api_token,
-            commands::report_webgl_status,
-            commands::list_plan_index,
-            commands::list_plans_full,
-            commands::get_plan_full,
-            commands::save_clipboard_image,
-            commands::save_clipboard_file,
-            commands::materialize_dropped_files,
-            clipboard_files::read_clipboard_files,
-            clipboard_files::read_clipboard_text,
-            commands::save_temp_file,
-            commands::read_html_preview_file,
-            commands::read_local_preview_file,
-            commands::read_workspace_essence_maps,
-            commands::read_workspace_essence_source,
-            commands::copy_image_to_clipboard,
-            commands::check_for_update,
-            commands::install_app_update,
-            commands::get_update_status,
-            commands::open_folder,
-            commands::open_url,
-            commands::test_notification,
-            commands::notify_permission_state,
-            commands::establish_notify_permission,
-            commands::get_autostart_enabled,
-            commands::set_autostart_enabled,
-            commands::mux_commands::mux_get_state,
-            commands::mux_commands::mux_create_workspace,
-            commands::mux_commands::mux_set_active_workspace,
-            commands::mux_commands::mux_close_workspace,
-            commands::mux_commands::mux_rename_workspace,
-            commands::mux_commands::mux_rename_team,
-            commands::mux_commands::mux_close_team,
-            commands::mux_commands::mux_add_team_member,
-            commands::mux_commands::mux_move_tab,
-            commands::mux_commands::mux_reorder_tab,
-            commands::mux_commands::mux_reorder_child,
-            commands::mux_commands::mux_reorder_workspace,
-            commands::mux_commands::mux_create_tab,
-            commands::mux_commands::mux_close_tab,
-            commands::mux_commands::mux_set_active_tab,
-            commands::mux_commands::mux_set_active_tab_and_workspace,
-            commands::mux_commands::mux_rename_tab,
-            commands::mux_commands::mux_close_tab,
-            commands::mux_commands::mux_reopen_closed_tab,
-            commands::mux_commands::mux_reopen_closed_group,
-            commands::mux_commands::mux_restore_orphaned_tab,
-            commands::mux_commands::mux_set_focused_tab,
-            commands::mux_commands::mux_link_pty,
-            commands::mux_commands::mux_rename_tab,
-            commands::mux_commands::mux_update_tab_cwd,
-            commands::mux_commands::mux_set_tab_agent_type,
-            commands::mux_commands::mux_unlock_tab_agent_type,
-            commands::mux_commands::mux_set_chat_view,
-            commands::mux_commands::mux_set_permission_auto_confirm,
-            commands::bridge_threads::bridge_thread_state,
-            commands::bridge_threads::bridge_thread_open,
-            commands::bridge_threads::bridge_thread_close,
-            commands::mux_commands::detect_claude_session_id,
-            commands::mux_commands::detect_tab_session_id,
-            commands::mux_commands::mux_set_claude_session_id,
-            commands::chat_start,
-            commands::session_transcript,
-            commands::chat_stop,
-            commands::chat_backfill,
-            commands::chat_send_text,
-            commands::chat_send_status,
-            commands::open_chat_backend_tab,
-            commands::chatbackend_session_info,
-            commands::chatbackend_switch_model,
-            commands::transcribe_voice_attachment,
-            commands::delayed_send_list,
-            commands::delayed_send_create,
-            commands::delayed_send_update,
-            commands::delayed_send_delete,
-            commands::delayed_send_send_now,
-            commands::check_cli_installed,
-            commands::refresh_provider_models,
-            commands::provider_model_usage,
-            commands::install_provider_in_tab,
-            commands::plugin_manager_snapshot,
-            commands::plugin_manager_action,
-            commands::plugin_glance,
-            commands::plugin_bubble,
-            commands::repo_watch_subscribe,
-            commands::repo_watch_unsubscribe,
-            commands::plugin_view_call,
-            commands::plugin_tab_menu,
-            commands::plugin_tab_menu_action,
-            commands::mux_commands::build_agent_launch_command,
-            commands::mux_commands::mux_spawn_tab,
-            commands::mux_commands::mux_create_orchestration_pair,
-            commands::mux_commands::mux_set_tab_role,
-            commands::mux_commands::mux_clear_tab_role,
-            commands::mux_commands::mux_make_orchestrator,
-            commands::mux_commands::mux_make_planner,
-            commands::mux_commands::mux_set_can_spawn,
-            commands::mux_commands::mux_respond_prompt,
-            commands::mux_commands::mux_batch,
-            notification::notify,
-            notification::push_channel_roster,
-            notification::list_notifications,
-            notification::mark_notification_read,
-            notification::answer_notification,
-            notification::clear_notifications,
-            config::get_config,
-            config::update_config,
-            config::get_theme,
-            config::list_themes,
-            config::get_config_path,
-            config::save_custom_theme,
-            config::delete_custom_theme,
-            config::get_themes_dir,
-            commands::list_dir_completions,
-            commands::check_provider_integration,
-            commands::install_provider_integration,
-            commands::uninstall_provider_integration,
-            commands::restore_provider_integration,
-            commands::check_provider_rule,
-            commands::install_provider_rule,
-            session::save_session,
-            session::save_session_named,
-            session::list_saved_sessions,
-            session::load_session,
-            commands::automation_graph_snapshot,
-            commands::automation_graph_stop_sentinel,
-            commands::cron_list,
-            commands::cron_get,
-            commands::cron_create,
-            commands::cron_update,
-            commands::cron_delete,
-            commands::cron_toggle,
-            commands::cron_trigger,
-            commands::cron_cancel,
-            commands::cron_history,
-            commands::cron_read_log,
-            commands::services_list,
-            commands::services_create,
-            commands::services_get,
-            commands::services_update,
-            commands::services_delete,
-            commands::services_regenerate_token,
-            commands::activity_list,
-            commands::services_smart_add_inspect,
-            commands_mesh::mesh_get_status,
-            commands_mesh::mesh_list_peers,
-            commands_mesh::mesh_refresh_discovery,
-            commands_mesh::mesh_connect,
-            commands_mesh::mesh_cancel_pairing,
-            commands_mesh::mesh_approve_pairing,
-            commands_mesh::mesh_reject_pairing,
-            commands_mesh::mesh_disconnect,
-            commands_mesh::mesh_exit,
-            commands_mesh::mesh_add_manual,
-            commands_mesh::mesh_start_discovery,
-            commands_mesh::mesh_set_enabled,
-            commands_mesh::mesh_start_broadcast,
-            commands_mesh::mesh_stop_broadcast,
-            commands_mesh::mesh_scan_peers,
-            commands_mesh::mesh_set_access,
-            commands_mesh::mesh_peer_services_list,
-            commands_mesh::mesh_inventory_list,
-            commands_mesh::ordinary_tabs_list,
-            commands_mesh::mesh_peer_tabs_list,
-            commands_mesh::mesh_remote_tab_action,
-            commands_mesh::mesh_transfer_attachment,
-            commands_mesh::mesh_peer_service_delete,
-            commands_mesh::mesh_peer_cron_action,
-            commands_mesh::mesh_peer_cron_update,
-            commands_mesh::mesh_peer_cron_delete,
-            commands_mesh::mesh_peer_cron_get,
-            commands_mesh::mesh_peer_cron_history,
-            keepawake::keepawake_start,
-            keepawake::keepawake_stop,
-            keepawake::keepawake_status,
-            commands::usage_latest,
-            commands::usage_history,
-            commands::usage_daily_rollup,
-            commands::usage_projection,
-            commands::usage_refresh,
-            crash::get_recovery_state,
-        ])
+        .manage(states.rest_api.clone());
+    command_registration::register_commands(builder)
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
                 startup::setup_window_styling(&window);
@@ -443,6 +234,10 @@ pub fn run() {
             // Capability registries — populated as JS plugins load, then handed to ServiceContext.
             let secret_registry = Arc::new(crate::secrets::SecretRegistry::new());
             let transcribe_registry = Arc::new(crate::transcribe::TranscribeRegistry::new());
+            let converter_registry = Arc::new(codeterm_plugin::converter::ConverterRegistry::new());
+            let graph_node_registry = Arc::new(codeterm_plugin::graph_nodes::GraphNodeRegistry::default());
+            let event_source_registry = Arc::new(codeterm_plugin::event_source::EventSourceRegistry::default());
+            let graph_event_subscriptions = codeterm_plugin::graph_events::SubscriptionTable::new();
             let decision_model_registry = crate::api::mem_routes::decision::default_registry();
             let glance_registry: crate::glance::GlanceRegistryHandle =
                 Arc::new(crate::glance::GlanceRegistry::new());
@@ -464,6 +259,8 @@ pub fn run() {
                 Arc::new(codeterm_plugin::WebhookRegistry::new());
             let tab_menu_registry: codeterm_plugin::tab_menu::TabMenuRegistryHandle =
                 Arc::new(codeterm_plugin::tab_menu::TabMenuRegistry::new());
+            let surface_registry: codeterm_plugin::surfaces::SurfaceRegistryHandle =
+                Arc::new(codeterm_plugin::surfaces::SurfaceRegistry::new());
             // One bundle of registry handles, shared by the startup loop and the hot-reload watcher (same register_plugin path, no drift).
             let cap_registries = plugin::js_runtime::CapabilityRegistries {
                 decision_model: decision_model_registry.clone(),
@@ -471,6 +268,9 @@ pub fn run() {
                     crate::secrets::js_backend::AppSecretBackendRegistrar::new(secret_registry.clone())
                 )),
                 transcribe: transcribe_registry.clone(),
+                converter: converter_registry.clone(),
+                graph_nodes: graph_node_registry.clone(),
+                event_source: event_source_registry.clone(),
                 glance: glance_registry.clone(),
                 bubble: bubble_registry.clone(),
                 view: view_registry.clone(),
@@ -479,6 +279,7 @@ pub fn run() {
                 agent_command: agent_command_registry.clone(),
                 webhook_receiver: webhook_registry.clone(),
                 tab_menu: tab_menu_registry.clone(),
+                surfaces: surface_registry.clone(),
             };
             // VMs collected as they load, so the `ServiceContext` can be late-bound into each sandbox once it's built below.
             let mut plugin_vms: Vec<Arc<plugin::js_runtime::PluginVm>> = Vec::new();
@@ -486,12 +287,15 @@ pub fn run() {
             plugin_manager.set_registrar(agent_registry.clone());
             plugin_manager.set_event_sink(states.event_broadcaster.clone());
 
+            startup::model_catalogue::forward_changes(&app_handle);
+
             // Bridge ContributionsChanged → frontend event + mem bridge rule refresh.
             {
                 use tauri::Emitter;
                 let mut sub = states.event_broadcaster.subscribe();
                 let bridge_handle = app_handle.clone();
                 let bridge_registry = agent_registry.clone();
+                let bridge_chatbackend_registry = chatbackend_registry.clone();
                 tauri::async_runtime::spawn(async move {
                     while let Ok(ev) = sub.recv().await {
                         if let crate::api::events::SystemEvent::ContributionsChanged { kind } =
@@ -506,6 +310,15 @@ pub fn run() {
                                     &bridge_registry,
                                 );
                                 crate::commands::mirror_skills_to_providers();
+                                for provider in bridge_registry.all_provider_arcs() {
+                                    crate::agent::model_binary_watch::install(provider);
+                                }
+                                for provider in bridge_chatbackend_registry.active() {
+                                    crate::agent::model_binary_watch::install_chatbackend(
+                                        provider,
+                                        bridge_chatbackend_registry.clone(),
+                                    );
+                                }
                             }
                         }
                     }
@@ -625,7 +438,8 @@ pub fn run() {
                     );
 
                     // Same register_plugin seam as the hot-reload watcher; a capability-only plugin is NOT registered as an agent.
-                    cap_registries.register_plugin(p.manifest(), p.vm());
+                    let core = plugin::js_runtime::loader::is_core_plugin(p.manifest(), trust);
+                    cap_registries.register_plugin_with_core(p.manifest(), p.vm(), core);
                     if !caps.agent_provider {
                         plugin::audit::append_daemon_reloaded(&id, &version);
                         continue;
@@ -674,32 +488,7 @@ pub fn run() {
 
             agent::model_catalog::refresh_example_files();
 
-            // background refresh per provider off the async runtime (never gates startup; emits `models-updated`).
-            {
-                let providers = agent_registry.all_provider_arcs();
-                for p in &providers {
-                    agent::model_catalog::prime_from_cache(p.id());
-                }
-                let app_for_models = app_handle.clone();
-                tauri::async_runtime::spawn(async move {
-                    for provider in providers {
-                        let id = provider.id().to_string();
-                        if agent::model_catalog::refresh_models(provider.clone(), false)
-                            .await
-                            .is_some()
-                        {
-                            crate::api::events::emit_everywhere(
-                                &app_for_models,
-                                "models-updated",
-                                serde_json::json!({ "provider": id }),
-                            );
-                        }
-                        // Watched only after the first probe, because the path
-                        // to watch is the one the resolver actually resolved.
-                        agent::model_binary_watch::install(provider, app_for_models.clone());
-                    }
-                });
-            }
+            startup::model_catalogue::refresh_providers(&agent_registry);
 
             let prompt_detector = Arc::new(Mutex::new(agent::prompt::PromptDetector::new()));
             let (bridge_outbound_tx, bridge_outbound_rx) = bridge::manager::create_outbound_channel();
@@ -747,9 +536,6 @@ pub fn run() {
             crate::service::plan::search_index::init_search_port(Arc::new(
                 crate::service::plan::search_port_impl::MemSearchPort,
             ));
-            crate::service::plan::heartbeat::init_reflect_every(
-                crate::config::load_config().orchestration.reflect.every_gates,
-            );
             let plan_store = Arc::new(crate::service::plan::PlanStore::new());
             let plan_turn_counter =
                 Arc::new(crate::service::plan::reminders::TurnCounter::new());
@@ -828,12 +614,17 @@ pub fn run() {
                 shell_caps: Arc::new(parking_lot::Mutex::new(Default::default())),
                 report_store: states.report_store.clone(),
                 kpi,
+                protocol_recorder: Arc::new(crate::service::protocol_recorder::ProtocolRecorder::new(
+                    crate::paths::data_dir().join("logs/protocol"),
+                    crate::paths::is_dev_instance(),
+                )),
                 plan_store,
                 plan_turn_counter,
                 pending_delivery_payloads,
                 chat_send_ledger: Arc::new(
                     crate::service::chat_send_transaction::ChatSendLedger::default(),
                 ),
+                reply_relays: Arc::new(Default::default()),
                 deferred_session_bindings: Arc::new(Default::default()),
                 agent_registry,
                 mem,
@@ -864,6 +655,10 @@ pub fn run() {
                 secret_registry: secret_registry.clone(),
                 secrets,
                 transcribe_registry: transcribe_registry.clone(),
+                converter_registry: converter_registry.clone(),
+                graph_node_registry: graph_node_registry.clone(),
+                event_source_registry: event_source_registry.clone(),
+                graph_event_subscriptions: graph_event_subscriptions.clone(),
                 supporter_models: decision_model_registry,
                 glance_registry: glance_registry.clone(),
                 bubble_registry: bubble_registry.clone(),
@@ -876,6 +671,9 @@ pub fn run() {
                 agent_command_registry: agent_command_registry.clone(),
                 webhook_registry: webhook_registry.clone(),
                 tab_menu_registry: tab_menu_registry.clone(),
+                surface_registry,
+                surface_runtimes: crate::service::surface::builtin_runtimes(),
+                surface_activity: Default::default(),
                 receiver_targets: Arc::new(crate::service::receiver_target::ReceiverTargetStore::open(
                     crate::service::receiver_target::ReceiverTargetStore::default_path(),
                 )),
@@ -940,9 +738,22 @@ pub fn run() {
                     vm.set_service(Arc::downgrade(&host));
                 }
                 plugin::js_runtime::set_watcher_service(Arc::downgrade(&host));
+                crate::service::plugin_prompt::refresh(&service_state.agent_command_registry);
+                crate::service::plugin_skills::spawn_sync(service_state.mem.clone(), service_state.agent_command_registry.clone());
+                for provider in chatbackend_registry.active() {
+                    crate::agent::model_binary_watch::install_chatbackend(
+                        provider,
+                        chatbackend_registry.clone(),
+                    );
+                }
                 let _ = chatbackend_registry.start_discovery();
             }
             app.manage(service_state.clone());
+            startup::model_catalogue::reconcile_defaults(&service_state);
+            let lane_watch_service = service_state.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                lane_watch_service.restore_lane_watches();
+            });
             crate::delayed_send::start_scheduler(service_state.clone());
             crate::service::start_plan_reminder_scheduler(service_state.clone());
             drop(startup_step);
@@ -999,7 +810,7 @@ pub fn run() {
             // Resume unfinished extraction only when auto-extract is on; `mem extract-pending` stays the manual path.
             if crate::config::memory_config().auto_extract {
                 let svc_for_extract = service_state.clone();
-                let queued = crate::mem::auto_extract::run_extract_pending(
+                let queued = crate::mem_host::resume_extract_pending(
                     svc_for_extract,
                     usize::MAX,
                 );
@@ -1035,6 +846,7 @@ pub fn run() {
             startup::install_bundled_cli(app);
             drop(startup::restore_complete(&service_state));
             startup::start_servers(app, &states, &service_state);
+            service_state.schedule_restored_agent_delivery_reconciliation();
             commands::ensure_integrations_for_all(
                 &service_state.agent_registry,
                 &states.config,
@@ -1135,30 +947,7 @@ pub fn run() {
             // PTY read loops are started by spawn_pty command (initiated by frontend)
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() != "main" { return; }
-
-                let app = window.app_handle();
-                if let (Some(mux), Some(session)) = (
-                    app.try_state::<MuxState>(),
-                    app.try_state::<SessionState>(),
-                ) {
-                    let snapshot = mux.write().to_session_snapshot();
-                    let saved = session.lock().save(&snapshot);
-                    if let Err(e) = saved {
-                        log::error!("Failed to save session: {}", e);
-                    } else {
-                        session::scrollback_sync::sync_scrollback_sidecars(&app);
-                        log::info!("Session saved (close-to-tray)");
-                    }
-                }
-
-                api.prevent_close();
-                let _ = window.hide();
-                log::info!("Window hidden to tray");
-            }
-        })
+        .on_window_event(startup::handle_window_event)
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, _event| {

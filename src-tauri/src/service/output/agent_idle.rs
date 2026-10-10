@@ -43,7 +43,9 @@ impl ServiceContext {
             self.resolve_prompt_notifications(tab_id, &identity);
         }
         crate::service::provider_update::tab_became_idle(self, tab_id);
+        self.apply_staged_model_switch_on_idle(tab_id);
         if changed {
+            self.record_turn_resume_edge(tab_id);
             self.observe_worker_idle_without_report(tab_id);
             self.nudge_stalled_teams_for_idle_orchestrator(tab_id);
             crate::service::folder_trust_carryover::tab_became_idle(self.clone(), tab_id);

@@ -47,7 +47,7 @@ const KIND_TITLES: Record<string, string> = {
   "re-rank": "Memory re-rank",
   "tab-state": "Tab state",
   recovery: "Recovery",
-  sentinel: "Sentinel",
+  sentinel: "Blueprint",
   heartbeat: "Team heartbeat",
 };
 

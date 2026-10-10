@@ -13,18 +13,28 @@
 //! - `notification` — create notification with OS toast
 
 pub mod activity;
+pub(crate) mod agent_delivery_outbox;
+pub(crate) mod agent_fork;
 pub mod agent_pad;
 pub mod agent_restart;
 mod agent_transition;
 pub(crate) mod ai_helper_spawn;
 mod analytics_host;
+pub(crate) mod background_work;
+pub(crate) mod background_work_watch;
+mod blueprint_pipeline;
+mod blueprint_portable;
 pub(crate) mod boot_owner_prompt;
 pub mod boot_stage;
 pub(crate) mod boot_wait;
 pub(crate) mod bridge_threads;
+pub mod browser;
+pub(crate) mod capability_probe;
 pub(crate) mod cartographer;
 pub(crate) mod chat_send_evidence;
 pub(crate) mod chat_send_transaction;
+mod close_history;
+pub(crate) mod codex_rpc;
 mod command_port_impl;
 pub mod cron;
 pub mod delivery_error;
@@ -33,25 +43,35 @@ pub mod health;
 pub(crate) mod hierarchy;
 pub mod inject_verify;
 pub mod input_parser;
+pub(crate) mod instance_env;
 pub(crate) mod integration_silence;
 mod kpi_hooks;
 pub(crate) mod lane_removal;
+pub(crate) mod lane_stats;
 pub(crate) mod launch_artifacts;
 pub(crate) mod launch_delivery;
 pub(crate) mod launch_diagnostics;
 pub(crate) mod launch_input_gate;
 pub(crate) mod launch_readiness;
 pub(crate) mod launch_session_detection;
+pub(crate) mod local_preview;
 pub mod message_gateway;
 pub mod messenger;
+pub(crate) mod model_defaults;
+pub mod model_providers;
 pub mod notification;
 mod notification_desktop;
 pub(crate) mod notification_push;
 mod orchestration_pair;
-mod orchestrator;
-mod parked_user_delivery;
+pub(crate) mod orchestrator;
+pub(crate) mod parked_user_delivery;
 pub(crate) mod process_tree;
 mod prompt_resolution;
+pub(crate) mod protocol_recorder;
+pub(crate) mod provider_cli;
+pub(crate) mod provider_cli_actions;
+pub(crate) mod provider_signals;
+mod provider_signals_probe;
 pub(crate) mod provider_update;
 pub(crate) mod public_send_readiness;
 pub(crate) mod sentinel;
@@ -59,10 +79,11 @@ pub(crate) mod startup_turn;
 pub(crate) mod task_files;
 #[cfg(test)]
 pub(crate) use orchestrator::role_onboarding_task;
+pub(crate) use orchestrator::tab_relink_signal::await_relink;
 pub(crate) use orchestrator::{
-    build_agent_command_for_service, launch_agent_in_background, mark_tab_agent_launch_started,
-    provider_launch_task,
+    build_agent_command_for_service, mark_tab_agent_launch_started, provider_launch_task,
 };
+mod directory_pre_trust;
 pub(crate) mod directory_trust;
 mod folder_trust_carryover;
 pub mod orchestrator_digests;
@@ -79,8 +100,15 @@ mod plan_authority;
 pub(crate) mod plan_batch_authority;
 mod plan_pause;
 mod plan_reconcile;
+mod prompt_chain;
+mod provider_handoff;
+mod pty_frame_timing;
+mod pty_output_pipeline;
 pub(crate) use plan_reconcile::tab_has_live_agent;
+pub mod managed_tabs;
 pub mod plugin_host;
+pub mod plugin_prompt;
+pub mod plugin_skills;
 pub(crate) mod provider_identity;
 pub(crate) mod pty_activation;
 pub mod pty_io;
@@ -91,6 +119,7 @@ mod reasoning_effort;
 pub(crate) mod receiver_target;
 pub mod remote_tabs;
 pub mod remote_workers;
+pub mod reply_relay;
 pub(crate) mod restore_exited_member;
 mod restored_binding;
 mod role_identity;
@@ -123,17 +152,22 @@ pub(crate) mod spawn_title;
 pub(crate) mod startup_lease;
 pub(crate) mod startup_nudge;
 mod status_reconciliation;
+pub(crate) mod stop_execution;
 pub(crate) mod tab_stop;
+pub(crate) mod turn_resume;
+mod utility_tabs;
 #[cfg(test)]
 pub(crate) use status_reconciliation::try_snapshot_with_reconciled_status;
 pub(crate) use status_reconciliation::SNAPSHOT_BUSY_ERROR;
 pub(crate) mod restored_launch;
 pub mod store;
 pub(crate) mod stream_preview;
+pub(crate) mod structured_endpoint;
 pub mod structured_prompt;
 pub(crate) mod supporter;
 pub(crate) mod supporter_notify;
 pub(crate) mod supporter_tab_state;
+pub(crate) mod surface;
 pub mod sync_watcher;
 pub(crate) mod tab;
 pub(crate) mod tab_adopt;
@@ -163,6 +197,8 @@ pub(crate) use task_lane_guard::{
 #[cfg(test)]
 pub(crate) use task_lane_guard::refuse_unsafe_task_bound_mutating_lane;
 #[cfg(test)]
+mod persistence_roundtrip_tests;
+#[cfg(test)]
 pub(crate) mod test_fixture;
 #[cfg(test)]
 mod tests;
@@ -170,6 +206,8 @@ pub mod tokens;
 pub mod transport;
 pub mod watcher;
 pub mod web_access;
+#[cfg(windows)]
+pub(crate) mod windows_job;
 pub(crate) mod worker_ack;
 mod worker_identity;
 pub(crate) mod worker_interruption;
@@ -272,6 +310,7 @@ pub struct ServiceContext {
     pub report_store: ReportStoreState,
     /// Orchestration-economics event writer. Disabled (and file-less) unless `kpi.enabled`.
     pub kpi: crate::agent::kpi::KpiRecorder,
+    pub(crate) protocol_recorder: Arc<protocol_recorder::ProtocolRecorder>,
     pub agent_registry: Arc<AgentRegistry>,
     pub mem: Arc<crate::mem::MemManager>,
     pub mem_supervisor: Arc<crate::mem::supervisor::Supervisor>,
@@ -314,6 +353,10 @@ pub struct ServiceContext {
     /// Registry of transcribers (built-in HTTP engine + any Transcriber plugin).
     /// Voice notes resolve the active transcriber here by id.
     pub transcribe_registry: Arc<crate::transcribe::TranscribeRegistry>,
+    pub converter_registry: Arc<codeterm_plugin::converter::ConverterRegistry>,
+    pub graph_node_registry: Arc<codeterm_plugin::graph_nodes::GraphNodeRegistry>,
+    pub event_source_registry: Arc<codeterm_plugin::event_source::EventSourceRegistry>,
+    pub graph_event_subscriptions: codeterm_plugin::graph_events::SubscriptionTable,
     /// Decision adapters for the stage-2 recall re-rank, resolved by configured id.
     pub supporter_models: Arc<crate::api::mem_routes::decision::SupporterRegistry>,
     /// Registry of glance-view providers (plugins with `glanceView`). Plugin
@@ -350,6 +393,10 @@ pub struct ServiceContext {
     pub webhook_registry: codeterm_plugin::WebhookRegistryHandle,
     /// Manifest-declared tab menu items, keyed by plugin id.
     pub tab_menu_registry: codeterm_plugin::tab_menu::TabMenuRegistryHandle,
+    /// Surface declarations of enabled view plugins, keyed by plugin id.
+    pub surface_registry: codeterm_plugin::surfaces::SurfaceRegistryHandle,
+    pub(crate) surface_runtimes: Arc<surface::SurfaceRuntimeRegistry>,
+    pub(crate) surface_activity: Arc<surface::SurfaceActivityGate>,
     /// Sole owner of the webhook-receiver → tab bindings.
     pub receiver_targets: Arc<receiver_target::ReceiverTargetStore>,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
@@ -392,6 +439,7 @@ pub struct ServiceContext {
     pub(crate) pending_delivery_payloads:
         Arc<pending_delivery_payloads::PendingDeliveryPayloadStore>,
     pub(crate) chat_send_ledger: Arc<chat_send_transaction::ChatSendLedger>,
+    pub(crate) reply_relays: Arc<reply_relay::ReplyRelayRegistry>,
     pub(crate) deferred_session_bindings:
         Arc<session_binding_deferral::DeferredSessionBindingRegistry>,
     pub(crate) worker_identity_allocator:
@@ -672,6 +720,7 @@ impl ServiceContext {
         self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
         #[cfg(debug_assertions)]
         if self.mux_emit_stats.frozen.load(Ordering::Acquire) {
+            self.schedule_session_persist_debounced();
             self.mux_emit_stats
                 .suppressed
                 .fetch_add(1, Ordering::Relaxed);
@@ -703,6 +752,15 @@ impl ServiceContext {
                     &pending,
                     std::time::Duration::from_millis(50),
                 );
+                if let Err(error) =
+                    crate::service::session_persist::submit_session_snapshot_with_intent(
+                        &handle,
+                        &mux,
+                        crate::session::store::SaveIntent::PreserveDesk,
+                    )
+                {
+                    log::warn!("[session-persist] coalesced desk submission failed: {error}");
+                }
                 stats.pending_since_ms.store(0, Ordering::Relaxed);
                 if !stats.frozen.load(Ordering::Acquire) {
                     stats.fires.fetch_add(1, Ordering::Relaxed);
@@ -722,6 +780,7 @@ impl ServiceContext {
     pub(crate) fn emit_mux_state_changed_empty(&self) {
         self.output_stream_mux_changed();
         self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
+        self.schedule_session_persist_debounced();
         #[cfg(debug_assertions)]
         if self.mux_emit_stats.frozen.load(Ordering::Acquire) {
             self.mux_emit_stats
@@ -987,3 +1046,6 @@ pub(crate) fn resolve_refs(
         other => other.clone(),
     }
 }
+
+pub(crate) mod context_bundle;
+pub(crate) mod tool_less_instructions;

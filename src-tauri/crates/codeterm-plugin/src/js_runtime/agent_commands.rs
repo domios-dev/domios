@@ -9,12 +9,14 @@ use serde_json::json;
 
 use super::vm::{call_json, PluginVm};
 use crate::agent_commands::AgentCommandProvider;
+use crate::agent_verbs::AgentVerbCatalog;
 
 pub struct JsAgentCommandHandler {
     vm: Arc<PluginVm>,
     id: String,
     /// The `agent_commands` grant, stamped from the manifest at registration.
     granted: bool,
+    catalog: Option<AgentVerbCatalog>,
 }
 
 impl JsAgentCommandHandler {
@@ -23,6 +25,37 @@ impl JsAgentCommandHandler {
             vm,
             id: id.into(),
             granted,
+            catalog: None,
+        }
+    }
+
+    pub fn with_catalog(mut self, catalog: AgentVerbCatalog) -> Self {
+        self.catalog = Some(catalog);
+        self
+    }
+}
+
+pub fn catalog_from_manifest(manifest: &super::PluginManifest, core: bool) -> AgentVerbCatalog {
+    AgentVerbCatalog::compose(
+        &manifest.id,
+        &manifest.display_name,
+        manifest.description.as_deref(),
+        &manifest.agent_verbs,
+        manifest.config_help.as_deref(),
+        &manifest.agent_keywords,
+    )
+    .with_guide(agent_guide_from_manifest(manifest))
+    .with_prompt_line(core, manifest.agent_prompt_line.clone())
+}
+
+fn agent_guide_from_manifest(manifest: &super::PluginManifest) -> Option<String> {
+    let relative = manifest.agent_guide.as_deref()?;
+    let bundle_dir = manifest.source_path.as_deref()?.parent()?;
+    match codeterm_util::plugin_agent_guide::load_agent_guide(bundle_dir, relative) {
+        Ok(guide) => Some(guide.text),
+        Err(error) => {
+            log::warn!("[plugin] {}: {error}", manifest.id);
+            None
         }
     }
 }
@@ -33,6 +66,8 @@ struct AgentCommandOut {
     result: Option<String>,
     #[serde(default)]
     error: Option<String>,
+    #[serde(default, rename = "catalogueChanged")]
+    catalogue_changed: bool,
 }
 
 impl AgentCommandProvider for JsAgentCommandHandler {
@@ -44,19 +79,27 @@ impl AgentCommandProvider for JsAgentCommandHandler {
         self.granted
     }
 
+    fn catalog(&self) -> Option<AgentVerbCatalog> {
+        self.catalog.clone()
+    }
+
     fn on_agent_command(
         &self,
         session_id: &str,
         verb: &str,
         args: &[String],
-    ) -> Result<String, String> {
+    ) -> Result<crate::agent_commands::AgentCommandResult, String> {
         let ctx = json!({ "sessionId": session_id, "verb": verb, "args": args });
+        let _caller = super::host_surface::AgentCallerScope::enter(session_id);
         match call_json::<AgentCommandOut>(&self.vm, "onAgentCommand", &[ctx]) {
             Ok(out) => {
                 if let Some(e) = out.error {
                     Err(e)
                 } else {
-                    Ok(out.result.unwrap_or_default())
+                    Ok(crate::agent_commands::AgentCommandResult {
+                        result: out.result.unwrap_or_default(),
+                        catalogue_changed: out.catalogue_changed,
+                    })
                 }
             }
             Err(e) => Err(format!("plugin onAgentCommand failed: {e:?}")),
@@ -85,7 +128,23 @@ mod tests {
         let out = h
             .on_agent_command("s1", "say", &["hello".into(), "world".into()])
             .unwrap();
-        assert_eq!(out, "s1/say/hello+world");
+        assert_eq!(out.result, "s1/say/hello+world");
+        assert!(!out.catalogue_changed);
+    }
+
+    #[test]
+    fn catalogue_changed_flag_is_returned_from_agent_command() {
+        let vm = vm_with(
+            r#"module.exports.default = {
+                onAgentCommand() { return { result: "updated", catalogueChanged: true }; }
+            }"#,
+        );
+        let h = JsAgentCommandHandler::new(vm, "provider-plugin", true);
+
+        let out = h.on_agent_command("s1", "refresh", &[]).unwrap();
+
+        assert_eq!(out.result, "updated");
+        assert!(out.catalogue_changed);
     }
 
     #[test]

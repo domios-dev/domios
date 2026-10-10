@@ -282,7 +282,7 @@ fn supporter_first_opinion_passive_candidate_evidence_does_not_invent_an_alterna
         json!({"status":"unavailable"})
     );
     for source in [
-        DecisionSource::Error,
+        DecisionSource::unavailable(),
         DecisionSource::Budget,
         DecisionSource::Timeout,
         DecisionSource::NoAdapter,
@@ -332,4 +332,27 @@ fn supporter_first_opinion_passive_raw_identity_and_context_secrets_never_serial
     assert_eq!(no_capture["decided_by"], "fallback(no_adapter)");
     assert_eq!(no_capture["observation_status"], "unavailable");
     assert!(no_capture.get("correlation").is_none());
+}
+
+#[test]
+fn supporter_first_opinion_unavailable_capture_keeps_its_decision_point_without_correlation() {
+    let event = identity::journal(
+        "fixture-tab",
+        RecordIdentity::from(42).with_fallback_decision_point("launch_ready"),
+        DecisionSource::unavailable(),
+        "other",
+        None,
+        "fixture-title",
+    );
+    assert_eq!(event["decision_point"], "launch_ready");
+    assert_eq!(event["observation_status"], "unavailable");
+    assert_eq!(event["phase"], "classification_rejected");
+    assert!(event.get("correlation").is_none());
+
+    let mut diagnostics = json!({});
+    project_diagnostics(&event, &mut diagnostics);
+    assert_eq!(diagnostics["decision_point"], "launch_ready");
+    assert_eq!(diagnostics["observation_status"], "unavailable");
+    assert_eq!(diagnostics["phase"], "classification_rejected");
+    assert!(diagnostics.get("correlation").is_none());
 }

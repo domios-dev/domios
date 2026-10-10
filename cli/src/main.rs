@@ -26,35 +26,28 @@ pub fn resolve_tab(client: &mut SocketClient, id: Option<String>) -> String {
 
 /// Determine the CodeTerm data directory.
 /// Dev instances use `~/.codeterm-dev[-<slug>]/`, prod uses `~/.codeterm/`.
-/// Detection priority:
-///   1. CODETERM_SOCKET_PATH containing "codeterm-dev" (set by dev PTYs)
-///   2. CODETERM_API_PORT == 7686 (dev's port — useful when calling CLI from
-///      outside a dev tab, e.g. tests)
-///   3. Default: prod
-///
-/// When a dev context is detected and CODETERM_INSTANCE is set, the slug is
-/// appended (`~/.codeterm-dev-<slug>`) so per-worktree instances stay isolated.
+/// A named dev socket also selects its matching data directory when
+/// CODETERM_INSTANCE is absent, keeping local commands on the socket's instance.
 pub fn data_dir_name() -> String {
     let is_dev = std::env::var("CODETERM_SOCKET_PATH")
         .map(|sp| sp.contains("codeterm-dev"))
         .unwrap_or(false)
-        || std::env::var("CODETERM_API_PORT").as_deref() == Ok("7686")
-        || std::env::var("CODETERM_INSTANCE")
-            .map(|s| !s.trim().is_empty())
-            .unwrap_or(false);
+        || std::env::var("CODETERM_API_PORT")
+            .map(|port| !port.trim().is_empty() && port.trim() != "7685")
+            .unwrap_or(false)
+        || resolved_instance().value.is_some();
     if is_dev {
         return format!(".codeterm-dev{}", instance_suffix());
     }
     ".codeterm".to_string()
 }
 
-/// Suffix for a named dev instance selected via CODETERM_INSTANCE.
+/// Suffix for the resolved named dev instance.
 /// Sanitized to `[a-z0-9-]+`; empty when unset.
 fn instance_suffix() -> String {
-    match std::env::var("CODETERM_INSTANCE") {
-        Ok(s) if !s.trim().is_empty() => {
-            let slug: String = s
-                .trim()
+    match resolved_instance().value {
+        Some(instance) => {
+            let slug: String = instance
                 .to_lowercase()
                 .chars()
                 .map(|c| {
@@ -118,6 +111,7 @@ pub use args::service::ServiceAction;
 pub use args::sessions::SessionsAction;
 pub use args::spec::SpecAction;
 pub use args::supporter::{SupporterAction, SupporterMode, SupporterTokenAction};
+pub use args::surface::SurfaceAction;
 pub use args::system::SystemAction;
 pub use args::task::{CanvasAction, TaskAction};
 pub use args::team::TeamAction;
@@ -168,7 +162,18 @@ fn main_impl() {
         }
     }
 
+    if let Commands::Blueprint {
+        action: args::blueprint::BlueprintAction::Recipe { name },
+    } = &cli.command
+    {
+        cmd::blueprint::handle_recipe(cli.json, name.as_deref());
+        return;
+    }
+
     if let Some(mesh_target) = cli.mesh.clone() {
+        if matches!(&cli.command, Commands::ModelProvider { .. }) {
+            cmd::print::fail(1, "model provider secrets and configuration are local-only");
+        }
         if matches!(&cli.command, Commands::Supporter { .. }) {
             cmd::print::fail(
                 7,
@@ -235,6 +240,7 @@ fn main_impl() {
     };
 
     let result = match cli.command {
+        Commands::Trace { .. } => unreachable!(),
         Commands::Identify => cmd::identify::handle(&mut client, cli.json, resolved_socket),
 
         Commands::Capabilities => {
@@ -443,6 +449,11 @@ fn main_impl() {
             return;
         }
 
+        Commands::ModelProvider { action } => {
+            cmd::model_provider::handle(&mut client, cli.json, action);
+            return;
+        }
+
         Commands::Agent { action } => {
             cmd::agent::handle_agent(&mut client, cli.json, action);
             return;
@@ -488,8 +499,13 @@ fn main_impl() {
             return;
         }
 
-        Commands::Sentinel { action } => {
-            cmd::sentinel::handle_sentinel(&mut client, cli.json, action);
+        Commands::Surface { action } => {
+            cmd::surface::handle_surface(cli.json, action);
+            return;
+        }
+
+        Commands::Blueprint { action } => {
+            cmd::blueprint::handle_blueprint(&mut client, cli.json, action);
             return;
         }
 
@@ -990,7 +1006,7 @@ mod plan_cli_error_tests {
     }
 
     #[test]
-    fn normalizes_agent_spawn_marker_label_without_treating_it_as_a_flag() {
+    fn parses_domios_route_text_as_an_agent_spawn_title() {
         let args = normalize_agent_spawn_label_args(
             [
                 "codeterm",
@@ -998,8 +1014,8 @@ mod plan_cli_error_tests {
                 "spawn",
                 "claude",
                 "--title",
-                "-=-codeterm:tab",
-                "label=main-=-",
+                "<domios",
+                "from=tab>",
                 "--task",
                 "echo",
             ]
@@ -1007,15 +1023,15 @@ mod plan_cli_error_tests {
             .map(String::from)
             .collect(),
         );
-        assert!(args.contains(&"--title=-=-codeterm:tab label=main-=-".to_string()));
-        let cli = Cli::try_parse_from(args).expect("normalized marker title parses");
+        assert!(args.contains(&"--title=<domios from=tab>".to_string()));
+        let cli = Cli::try_parse_from(args).expect("normalized route title parses");
         match cli.command {
             Commands::Agent {
                 action: AgentAction::Spawn { title, task, .. },
             } => {
                 assert_eq!(
                     title.map(|parts| parts.join(" ")).as_deref(),
-                    Some("-=-codeterm:tab label=main-=-")
+                    Some("<domios from=tab>")
                 );
                 assert_eq!(task.as_deref(), Some("echo"));
             }

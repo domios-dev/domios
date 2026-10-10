@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import type { ReturnToRoute } from "../../lib/returnTo";
 import type { Team, Workspace } from "../../lib/types";
 import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
 import {
@@ -15,7 +16,7 @@ import { findPlanOwnerWorkspace, openWorkspacePlanCanvas } from "./workspacePlan
 /** "side" previews over the current surface without navigating; "full" lands in the team view. */
 export type PlanTargetPresentation = "side" | "full";
 
-export interface PlanTarget {
+export interface PlanTarget extends ReturnToRoute {
   planId: string;
   taskId?: string;
   /** The plan's team when the caller already holds the plan; the index supplies it otherwise. */
@@ -59,6 +60,7 @@ export function openPlanTarget(target: PlanTarget, ctx: PlanTargetContext): bool
       taskId: target.taskId,
       teamId: owner.teamId ?? null,
       canonicalProjectPath: target.canonicalProjectPath,
+      returnTo: target.returnTo,
     });
     return true;
   }
@@ -67,6 +69,7 @@ export function openPlanTarget(target: PlanTarget, ctx: PlanTargetContext): bool
   openWorkspacePlanCanvas({
     teamId: owner.teamId,
     planId: target.planId,
+    returnTo: target.returnTo,
     jump: target.taskId ? { view: "task", taskId: target.taskId } : { view: "plan" },
   });
   return true;

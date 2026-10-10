@@ -1,7 +1,11 @@
+import { modelProviderExports } from "./modelProviders";
+import { modelSwitch } from "./modelSwitch";
+import { decisionModel } from "./decisionModel";
+import { variantLaunch } from "./modelVariants";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
 // OpenCode (sst/opencode) provider plugin (runtime logic, capability: agentProvider).
 // ProviderPlugin contract is the separate src/index.ts artifact the app imports.
-import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
+import type { FileDiff, LaunchParams, ModelInfo, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
 import {
   lastPromptShape,
   parsePermissionPrompt,
@@ -25,6 +29,7 @@ import {
   opencodeBindingPluginSource,
   opencodeSessionRecord,
   partToChatMsg,
+  toolFileDiffs,
   scanMessagesForModel,
   scanMessagesForQualifiedModel,
   scanSessionDirectory,
@@ -67,27 +72,32 @@ function starterPrompt(params: LaunchParams): string | undefined {
   return ASSIGNED_TASK_START_PROMPT;
 }
 
-function withPadPermissionConfig(command: string, instructions?: string[], cleanup?: string): string {
+function withPadPermissionConfig(command: string, instructions?: string[], cleanup?: string, launchConfig: Record<string, unknown> = {}, resumeSession?: string): string {
   const platform = host.platform();
   const config = {
+    ...launchConfig,
     permission: { external_directory: { "*": "ask" } },
     ...(instructions ? { instructions } : {}),
   };
   if (platform === "windows") {
     const encoded = host.shell.quoteFor(JSON.stringify(config), platform);
-    return `$ct_config = ${encoded} | ConvertFrom-Json; $ct_pad_native = ([string]$env:CODETERM_PAD_DIR).TrimEnd([char[]]@([char]92, [char]47)); $ct_pad = $ct_pad_native -replace '\\\\', '/'; if ($ct_pad_native) { $ct_config.permission.external_directory | Add-Member -NotePropertyName ($ct_pad_native + '\\*') -NotePropertyValue 'allow' -Force; $ct_config.permission.external_directory | Add-Member -NotePropertyName ($ct_pad + '/*') -NotePropertyValue 'allow' -Force }; $env:OPENCODE_CONFIG_CONTENT = $ct_config | ConvertTo-Json -Depth 10 -Compress; try { ${command} } finally { Remove-Item Env:OPENCODE_CONFIG_CONTENT -ErrorAction SilentlyContinue; ${cleanup || ""} }`;
+    return `$ct_config = ${encoded} | ConvertFrom-Json; $ct_pad_native = ([string]$env:CODETERM_PAD_DIR).TrimEnd([char[]]@([char]92, [char]47)); $ct_pad = $ct_pad_native -replace '\\\\', '/'; if ($ct_pad_native) { $ct_config.permission.external_directory | Add-Member -NotePropertyName ($ct_pad_native + '\\*') -NotePropertyValue 'allow' -Force; $ct_config.permission.external_directory | Add-Member -NotePropertyName ($ct_pad + '/*') -NotePropertyValue 'allow' -Force }; $env:OPENCODE_CONFIG_CONTENT = $ct_config | ConvertTo-Json -Depth 10 -Compress; $env:CODETERM_RESUME_SESSION_ID = ${host.shell.quoteFor(resumeSession || "", platform)}; try { ${command} } finally { Remove-Item Env:OPENCODE_CONFIG_CONTENT, Env:CODETERM_RESUME_SESSION_ID -ErrorAction SilentlyContinue; ${cleanup || ""} }`;
   }
   const permissionJson = JSON.stringify({ permission: config.permission });
   const prefix = permissionJson.slice(0, -3);
-  const suffix = `}}${instructions ? `,"instructions":${JSON.stringify(instructions)}` : ""}}`;
+  const extra = JSON.stringify({ ...launchConfig, ...(instructions ? { instructions } : {}) });
+  const suffix = `}}${extra === "{}" ? "" : `,${extra.slice(1, -1)}`}}`;
   const q = (value: string) => host.shell.quoteFor(value, platform);
   const finish = cleanup
-    ? `; ct_status=$?; unset OPENCODE_CONFIG_CONTENT; ${cleanup}; exit $ct_status`
-    : `; unset OPENCODE_CONFIG_CONTENT`;
-  return `ct_pad_dir=$(printf '%s' "${"${CODETERM_PAD_DIR:-}"}" | tr '\\\\' '/' | sed 's/"/\\\\\\"/g'); OPENCODE_CONFIG_CONTENT=${q(prefix)}; if [ -n "$ct_pad_dir" ]; then OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT,\\\"$ct_pad_dir/*\\\":\\\"allow\\\""; fi; OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT"$(printf '%s' ${q(suffix)}); export OPENCODE_CONFIG_CONTENT; ${command}${finish}`;
+    ? `; ct_status=$?; unset OPENCODE_CONFIG_CONTENT CODETERM_RESUME_SESSION_ID; ${cleanup}; exit $ct_status`
+    : `; unset OPENCODE_CONFIG_CONTENT CODETERM_RESUME_SESSION_ID`;
+  return `ct_pad_dir=$(printf '%s' "${"${CODETERM_PAD_DIR:-}"}" | tr '\\\\' '/' | sed 's/"/\\\\\\"/g'); OPENCODE_CONFIG_CONTENT=${q(prefix)}; if [ -n "$ct_pad_dir" ]; then OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT,\\\"$ct_pad_dir/*\\\":\\\"allow\\\""; fi; OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT"$(printf '%s' ${q(suffix)}); export OPENCODE_CONFIG_CONTENT; CODETERM_RESUME_SESSION_ID=${q(resumeSession || "")}; export CODETERM_RESUME_SESSION_ID; ${command}${finish}`;
 }
 
 const plugin: PluginModule = {
+  ...modelSwitch,
+  ...decisionModel,
+  ...modelProviderExports,
   starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake"): string | undefined {
     return prompt === "team_bootstrap" ? undefined : starterPrompt({ starterPrompt: prompt });
   },
@@ -213,6 +223,7 @@ const plugin: PluginModule = {
 
   buildLaunchCommand(params: LaunchParams): string {
     const p = params || {};
+    const launch = variantLaunch(p.args ?? []);
     const parts: string[] = [];
     let taskPath: string | null = null;
     if (p.task) {
@@ -220,7 +231,7 @@ const plugin: PluginModule = {
       if (!taskPath) throw new Error("failed to write OpenCode task instructions");
     }
     parts.push("opencode");
-    if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
+    if (p.skipPermissions) parts.push("--auto");
     // reply over HTTP instead of scraping the PTY picker.
     const sps = p.structuredPromptServer;
     if (sps && sps.port) {
@@ -231,19 +242,19 @@ const plugin: PluginModule = {
     if (p.sessionId) {
       parts.push("--session", host.shell.quoteFor(String(p.sessionId), host.platform()));
     }
-    if (p.args && p.args.length > 0) {
+    if (launch.args.length > 0) {
       // Quote each arg — caller-supplied via the spawn API; prevents shell injection.
-      for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
+      for (const arg of launch.args) parts.push(host.shell.quoteFor(arg, host.platform()));
     }
     const prompt = starterPrompt(p);
     if (p.task && prompt) {
       parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
     }
-    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : undefined);
+    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : undefined, undefined, launch.config, p.sessionId);
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
-    return withPadPermissionConfig(resumeLaunch(sessionId, skipPermissions).parts.join(" "));
+    return withPadPermissionConfig(resumeLaunch(sessionId, skipPermissions).parts.join(" "), undefined, undefined, {}, sessionId);
   },
 
   // A resumed session re-reads `instructions`, so the composed prompt is
@@ -253,7 +264,8 @@ const plugin: PluginModule = {
     const platform = host.platform();
     const launch = resumeLaunch(p.sessionId, p.skipPermissions);
     const parts = launch.parts;
-    const args = p.args ? resumeLaunchArgs(p.args, p.sessionId) : [];
+    const variant = variantLaunch(p.args ? resumeLaunchArgs(p.args, p.sessionId) : []);
+    const args = variant.args;
     for (let i = 0; i < args.length; i++) {
       const arg = String(args[i]);
       if (arg === "-m" || arg === "--model") {
@@ -264,16 +276,16 @@ const plugin: PluginModule = {
       }
     }
     const systemPrompt = p.systemPrompt;
-    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "));
+    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "), undefined, undefined, variant.config, p.sessionId);
     const taskPath = host.fs.writeTempFile(systemPrompt, ".ct-task.md");
-    if (!taskPath) return withPadPermissionConfig(parts.join(" "));
+    if (!taskPath) return withPadPermissionConfig(parts.join(" "), undefined, undefined, variant.config, p.sessionId);
     const project = launch.directory
       ? host.shell.quoteFor(launch.directory, platform)
       : null;
     const prologue = project
       ? platform === "windows" ? `Set-Location -LiteralPath ${project} -ErrorAction Stop;` : `cd -- ${project} &&`
       : "";
-    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath]);
+    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath], undefined, variant.config, p.sessionId);
   },
 
   // absent from opencode's env, or event field structure changed in a new release).
@@ -495,6 +507,11 @@ const plugin: PluginModule = {
       [sessionId, ASSISTANT_MESSAGE_MAX_BYTES]);
   },
 
+  structuredToolFileDiffs(part: unknown): FileDiff[] | null {
+    if (!part || typeof part !== "object" || (part as OpencodePart).state?.status !== "completed") return null;
+    return toolFileDiffs(part as OpencodePart);
+  },
+
   usesStructuredChat(): boolean { return true; },
 
   readStructuredChat(_cwd: string, sessionId: string, cursor?: string | null): unknown {
@@ -544,6 +561,9 @@ function resumeLaunchArgs(args: string[], sessionId: string): string[] {
     ? scanMessagesForQualifiedModel(db, sessionId)
     : null;
   if (!model) return args.map(String);
+  const modelIndex = args.findIndex((arg) => arg === "-m" || arg === "--model");
+  const requested = modelIndex >= 0 ? args[modelIndex + 1] : args.find((arg) => arg.startsWith("-m=") || arg.startsWith("--model="))?.split("=").slice(1).join("=");
+  if (requested?.includes("/") || (requested && requested !== model.split("/").slice(1).join("/"))) return args.map(String);
   const retained: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = String(args[i]);
@@ -565,7 +585,7 @@ function resumeLaunch(sessionId: string, skipPermissions?: boolean): { parts: st
   const parts = ["opencode"];
   if (directory) parts.push(host.shell.quoteFor(directory, platform));
   parts.push("--session", host.shell.quoteFor(sessionId, platform));
-  if (skipPermissions) parts.push("--dangerously-skip-permissions");
+  if (skipPermissions) parts.push("--auto");
   return { parts, directory };
 }
 

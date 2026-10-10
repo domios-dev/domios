@@ -3,7 +3,9 @@ import { toolCommand, type ToolEvent } from "@codeterm/chat-core";
 import { recognize, type CodetermInvocation } from "../codeterm/recognize";
 import { describeAction, isHelp, isSend, navigationTarget, parseSend, type ActionDescriptor, type NavigationTarget, type PeerNameResolver, type TabNameResolver } from "../codeterm/templates";
 import { CompactMessageContent } from "../codeterm/CompactMessageContent";
-import { ToolCardActionButton, ToolCardFrame } from "./ToolCardFrame";
+import { usePluginNameResolver } from "../codeterm/PluginNames";
+import type { PluginNameResolver } from "../codeterm/pluginAction";
+import { ToolCardActionButton, ToolCardChips, ToolCardFrame } from "./ToolCardFrame";
 import type { OpenPlan, ResolvedChatPlanRef } from "../codeterm/LinkedText";
 import { ToolOutputContent } from "../ToolOutputContent";
 import { TabListCard } from "./TabListCard";
@@ -107,13 +109,13 @@ export function actionVisual(invocation: CodetermInvocation): ToolKindVisual {
   return { glyph: Terminal, color: "var(--ct-accent)", label: "codeterm" };
 }
 
-function codetermAction(event: ToolEvent, invocation: CodetermInvocation | undefined, navigation: CodetermNavigationProps) {
+function codetermAction(event: ToolEvent, invocation: CodetermInvocation | undefined, navigation: CodetermNavigationProps, resolvePlugin?: PluginNameResolver) {
   const { resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, onOpenSpec, onOpenMemory, onOpenSource } = navigation;
   const command = toolCommand(event);
   const inv = invocation ?? recognize(command.command, command.argv);
   const sent = inv && isSend(inv) ? parseSend(inv, event.result, resolveTabName, resolvePeerName) : undefined;
   const target = inv ? navigationTarget(inv, event.result) : null;
-  const descriptor: ActionDescriptor = inv ? describeAction(inv, event.result, resolveTabName, resolvePeerName) : { lead: "codeterm", chips: [] };
+  const descriptor: ActionDescriptor = inv ? describeAction(inv, event.result, resolveTabName, resolvePeerName, resolvePlugin) : { lead: "codeterm", chips: [] };
   const canNavigate = target != null && (
     target.kind === "tab" ? Boolean(onFocusTab) :
     target.kind === "plan" || target.kind === "task" || target.kind === "section" || target.kind === "goal"
@@ -157,25 +159,21 @@ function ActionBody({ event, action, navigation, inlineTabAction }: { event: Too
       ) : descriptor.detail ? (
         <div className="break-words text-xs" style={{ color: "var(--ct-muted-fg)" }}>{descriptor.detail}</div>
       ) : null}
-      {descriptor.bullets && <ul className="list-disc pl-4 text-xs" style={{ color: "var(--ct-muted-fg)" }}>{descriptor.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}
+      {descriptor.bullets && <ul className="list-disc space-y-0.5 pl-4 text-xs marker:text-[var(--ct-muted-fg)]" style={{ color: "var(--ct-muted-fg)" }}>{descriptor.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}
       {showResult && <div data-testid={tabListJson ? "tab-list-json" : "toolcard-result"}><ToolOutputContent text={event.result!} maxHeight="12rem" /></div>}
       {inlineTabAction && canNavigate && target?.kind === "tab" && <ToolCardActionButton label="Show Tab" onClick={() => onFocusTab!(target.id)} testId="codeterm-focus-tab" />}
       {canNavigate && target && target.kind !== "tab" && (
-        <button
-          type="button"
-          data-testid="codeterm-show-plan"
-          title={`Show ${targetLabel(target)}`}
+        <ToolCardActionButton
+          primary
+          testId="codeterm-show-plan"
+          label={`Show ${targetLabel(target)}`}
           onClick={() => {
             if (target.kind === "spec") onOpenSpec!(target.id);
             else if (target.kind === "memory") onOpenMemory!(target.id);
             else if (target.kind === "source") onOpenSource!(target.id);
             else onOpenPlan!(target.planId!, target.kind === "plan" || target.kind === "goal" ? undefined : target.id, target.kind === "goal" ? "plan" : target.kind);
           }}
-          className="w-fit rounded-md border px-2.5 py-1 font-mono text-[11.5px]"
-          style={{ borderColor: "color-mix(in srgb, var(--ct-accent) 32%, transparent)", color: "var(--ct-accent)", background: "color-mix(in srgb, var(--ct-accent) 12%, transparent)" }}
-        >
-          {`Show ${targetLabel(target)}`}
-        </button>
+        />
       )}
     </>
   );
@@ -183,7 +181,7 @@ function ActionBody({ event, action, navigation, inlineTabAction }: { event: Too
 
 /** The card template's body alone, for a segment shown inline under its tree line; `fallback` when the template has nothing. */
 export function CodetermActionDetail({ event, invocation, fallback, ...navigation }: CodetermNavigationProps & { event: ToolEvent; invocation?: CodetermInvocation; fallback: ReactNode }) {
-  const action = codetermAction(event, invocation, navigation);
+  const action = codetermAction(event, invocation, navigation, usePluginNameResolver());
   if (!action.hasBody) return <>{fallback}</>;
   return (
     <div data-testid="codeterm-action-detail" className="grid min-w-0 gap-1">
@@ -193,7 +191,7 @@ export function CodetermActionDetail({ event, invocation, fallback, ...navigatio
 }
 
 export function CodetermActionCard({ event, invocation, expanded, onToggle, ...navigation }: Props) {
-  const action = codetermAction(event, invocation, navigation);
+  const action = codetermAction(event, invocation, navigation, usePluginNameResolver());
   const { inv, descriptor, target, canNavigate, sendSucceeded, sendPending } = action;
   const collapsedChips = descriptor.chips.filter((chip) => !/\b(?:pl|task|sec|sp|spec|mem|src)_[a-z0-9][a-z0-9_-]*/i.test(chip));
   const displayEvent: ToolEvent = {
@@ -213,7 +211,7 @@ export function CodetermActionCard({ event, invocation, expanded, onToggle, ...n
       variant="codeterm"
       disclosureLabel="full command"
       visualOverride={inv ? actionVisual(inv) : undefined}
-      metric={collapsedChips.length ? <span className="flex flex-wrap gap-1">{collapsedChips.map((chip) => <span key={chip} className="rounded border px-1.5 py-0.5 text-[10px]" style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}>{chip}</span>)}</span> : undefined}
+      metric={collapsedChips.length ? <ToolCardChips chips={collapsedChips} wrap /> : undefined}
       action={canNavigate && target?.kind === "tab" ? <ToolCardActionButton label="Show Tab" onClick={() => navigation.onFocusTab!(target.id)} testId="codeterm-focus-tab" /> : undefined}
     >
       <ActionBody event={event} action={action} navigation={navigation} inlineTabAction={false} />

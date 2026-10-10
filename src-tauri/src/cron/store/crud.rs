@@ -1,10 +1,12 @@
 //! CronStore operations. Each `prepare_*` derives one authorized change from the cache
 //! without touching it; the backend commits that change before the cache sees it.
 
+use std::collections::HashSet;
+
 use super::{
     cap_jitter_max_ms_at, compute_backoff, compute_next_run_jittered_at, default_max_history,
-    parse_oneshot_schedule_at, validate_tz, CronCreateParams, CronJob, CronRunInfo, CronRunStatus,
-    CronStore, CronUpdateParams, MAX_CONSECUTIVE_FAILURES,
+    is_stale_fire, parse_oneshot_schedule_at, validate_tz, CronCreateParams, CronJob, CronRunInfo,
+    CronRunStatus, CronStore, CronUpdateParams, MAX_CONSECUTIVE_FAILURES,
 };
 
 /// Complete post-state values of one authorized cron change.
@@ -175,18 +177,30 @@ impl CronStore {
         self.file.jobs.iter().filter(|j| j.enabled).collect()
     }
 
-    /// Test arrangement only: edits the cache without any persistence.
-    #[cfg(test)]
-    pub fn get_mut(&mut self, id: &str) -> Option<&mut CronJob> {
-        self.file.jobs.iter_mut().find(|j| j.id == id)
-    }
-
     pub fn get_history(&self, job_id: &str) -> Vec<&CronRunInfo> {
         self.file
             .history
             .get(job_id)
             .map(|h| h.iter().collect())
             .unwrap_or_default()
+    }
+
+    pub(crate) fn active_runs(&self) -> Vec<(String, CronRunInfo)> {
+        let mut runs = Vec::new();
+        let mut seen = HashSet::new();
+        for job in &self.file.jobs {
+            for run in self.file.history.get(&job.id).into_iter().flatten() {
+                if is_active_run(run) && seen.insert(run.run_id.clone()) {
+                    runs.push((job.id.clone(), run.clone()));
+                }
+            }
+            if let Some(run) = job.last_run.as_ref().filter(|run| is_active_run(run)) {
+                if seen.insert(run.run_id.clone()) {
+                    runs.push((job.id.clone(), run.clone()));
+                }
+            }
+        }
+        runs
     }
 
     /// Locate a run by id across all jobs' history, without knowing its job_id
@@ -282,6 +296,7 @@ impl CronStore {
     }
 
     /// Legacy JSON path for callers holding the cron lock: apply, then save the file.
+    #[cfg(test)]
     pub(super) fn legacy<T>(&mut self, prepared: Result<Prepared<T>, String>) -> Result<T, String> {
         self.backend.require_legacy()?;
         let prepared = prepared?;
@@ -294,7 +309,16 @@ impl CronStore {
         Ok(prepared.value)
     }
 
+    #[cfg(not(test))]
+    pub(super) fn legacy<T>(
+        &mut self,
+        _prepared: Result<Prepared<T>, String>,
+    ) -> Result<T, String> {
+        Err("legacy cron backend is test-only".to_string())
+    }
+
     pub(super) fn build_job(&self, params: CronCreateParams) -> Result<CronJob, String> {
+        codeterm_types::automation_name::validate_cron_name(&params.name)?;
         let oneshot = params.oneshot.unwrap_or(false);
         let jitter = params.jitter_max_ms;
         let tz = params
@@ -376,6 +400,7 @@ impl CronStore {
         let enabled_requested = patch.enabled == Some(true);
 
         if let Some(name) = patch.name {
+            codeterm_types::automation_name::validate_cron_name(&name)?;
             job.name = name;
         }
         if let Some(desc) = patch.description {
@@ -541,6 +566,29 @@ impl CronStore {
         Ok(Prepared::new(CronChange::Patch(job.clone()), job))
     }
 
+    /// Moves a recurring job whose slot went stale to its next future slot without firing.
+    pub(crate) fn prepare_skip_stale_fire(&self, job_id: &str) -> Result<Prepared<bool>, String> {
+        let now_ms = self.now_ms();
+        let Some(job) = self.get(job_id) else {
+            return Ok(Prepared::unchanged(false));
+        };
+        let stale = job.enabled
+            && job
+                .next_run
+                .is_some_and(|next| is_stale_fire(next, now_ms, job.oneshot));
+        if !stale {
+            return Ok(Prepared::unchanged(false));
+        }
+        let mut job = job.clone();
+        job.next_run = compute_next_run_jittered_at(
+            &job.schedule,
+            job.jitter_max_ms,
+            job.tz.as_deref(),
+            now_ms,
+        )?;
+        Ok(Prepared::new(CronChange::Patch(job), true))
+    }
+
     /// Schedule advancement is fire-time-only; completion never re-derives next_run.
     pub(crate) fn prepare_record_run(
         &self,
@@ -579,10 +627,24 @@ impl CronStore {
         status: CronRunStatus,
         session: Option<RunSession<'_>>,
     ) -> Result<Prepared<RunFinished>, String> {
+        self.prepare_finish_run_with_summary(job_id, run_id, status, session, None)
+    }
+
+    pub(crate) fn prepare_finish_run_with_summary(
+        &self,
+        job_id: &str,
+        run_id: &str,
+        status: CronRunStatus,
+        session: Option<RunSession<'_>>,
+        summary: Option<&str>,
+    ) -> Result<Prepared<RunFinished>, String> {
         let now = self.now_ms();
         let mut edit = self.edit_run(job_id, run_id);
         if let Some(session) = session {
             edit.each(|run| set_session(run, session));
+        }
+        if let Some(summary) = summary {
+            edit.each(|run| run.summary = Some(summary.to_string()));
         }
         let mut prior: Option<CronRunStatus> = None;
         let mut started_at: Option<u64> = None;
@@ -788,6 +850,13 @@ impl CronStore {
         let prepared = self.prepare_set_run_report(job_id, run_id, summary, &delivery);
         self.legacy(Ok(prepared))
     }
+}
+
+fn is_active_run(run: &CronRunInfo) -> bool {
+    matches!(
+        run.status,
+        CronRunStatus::Running | CronRunStatus::AwaitingOwnerPrompt
+    )
 }
 
 fn set_session(run: &mut CronRunInfo, session: RunSession<'_>) {

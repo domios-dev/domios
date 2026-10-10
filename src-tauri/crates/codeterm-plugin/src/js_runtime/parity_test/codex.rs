@@ -89,6 +89,9 @@ fn codex_sandbox_writable_roots_native_js_parity() {
     assert_eq!(launch.matches("--add-dir").count(), 4);
     let resume = provider
         .build_resume_command_with_context(&crate::provider::AgentResumeParams {
+            cwd: None,
+            context_files: None,
+            tool_less_instructions_path: None,
             session_id: CODEX_UUID.to_string(),
             args,
             instance_id: Some("parity-instance".to_string()),
@@ -302,6 +305,9 @@ fn resume_with_context_restores_profile_and_launch_parameters() {
     }
     let j = codex();
     let params = crate::provider::AgentResumeParams {
+        cwd: None,
+        context_files: None,
+        tool_less_instructions_path: None,
         session_id: CODEX_UUID.into(),
         skip_permissions: true,
         agent_name: Some("restored-agent".into()),
@@ -346,6 +352,9 @@ fn resume_with_context_keeps_the_conservative_default() {
     }
     let provider = codex();
     let params = crate::provider::AgentResumeParams {
+        cwd: None,
+        context_files: None,
+        tool_less_instructions_path: None,
         session_id: CODEX_UUID.into(),
         skip_permissions: false,
         instance_id: Some("instance-parity".into()),
@@ -365,7 +374,17 @@ fn resume_with_context_keeps_the_conservative_default() {
     assert!(!command.contains("parity-sentinel-91c3"));
     assert!(command.contains("--no-daemon"));
     assert!(command.contains("gpt-6-sol"));
-    assert!(command.contains("model_reasoning_effort=\"high\""));
+    let reasoning_arg = if cfg!(windows) {
+        r#"model_reasoning_effort=\"high\""#
+    } else {
+        r#"model_reasoning_effort="high""#
+    };
+    assert!(
+        command.contains(reasoning_arg),
+        "reasoning effort arg is preserved: {command}"
+    );
+    assert!(!command.contains("--dangerously-bypass-approvals-and-sandbox"));
+    assert!(!command.contains("--dangerously-bypass-hook-trust"));
     if cfg!(windows) {
         assert!(command.contains("--profile $ctProfileName"));
     } else {
@@ -374,7 +393,7 @@ fn resume_with_context_keeps_the_conservative_default() {
         assert_eq!(
             resume_command,
             format!(
-                "codex -c check_for_update_on_startup=false resume '{CODEX_UUID}' --no-daemon '-m' 'gpt-6-sol' '-c' 'model_reasoning_effort=\"high\"'"
+                "codex -c check_for_update_on_startup=false -c project_doc_max_bytes=65536 resume '{CODEX_UUID}' --no-daemon '-m' 'gpt-6-sol' '-c' 'model_reasoning_effort=\"high\"'"
             )
         );
     }
@@ -466,6 +485,50 @@ fn codex_update_dialog_is_never_a_trust_dialog_native_js_parity() {
         provider.permission_prompt_response("Bash", &prompt, &screen),
         None
     );
+}
+
+#[test]
+fn codex_model_picker_fixture_parses_and_classifies_as_a_manual_prompt() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let screen = std::fs::read_to_string(
+        workspace_plugins_root().join("provider-codex/tests/fixtures/model-picker.txt"),
+    )
+    .expect("Codex model picker fixture");
+    let provider = codex();
+    let prompt = provider.parse_prompt(&screen).expect("model picker parses");
+    let core = crate::detector::parse_interactive_picker(&screen)
+        .expect("shared native picker parser recognizes the same screen");
+    assert_eq!(prompt.question, core.question);
+    assert_eq!(
+        prompt
+            .options
+            .iter()
+            .map(|option| (option.label.as_str(), option.value.as_str()))
+            .collect::<Vec<_>>(),
+        core.options
+            .iter()
+            .map(|(label, value)| (label.as_str(), value.as_str()))
+            .collect::<Vec<_>>()
+    );
+    let classification = provider
+        .classify_tab_state(&crate::tab_state::TabStateSnapshot {
+            tab_id: "model-picker".into(),
+            agent_type: "codex".into(),
+            session_id: None,
+            cwd: None,
+            screen_text: screen,
+        })
+        .expect("active model picker classifies");
+    assert_eq!(
+        classification.state,
+        crate::tab_state::TabState::ClarifyingQuestion
+    );
+    assert!(classification
+        .action
+        .as_ref()
+        .is_some_and(|action| action.keys.is_none()));
 }
 
 #[test]
@@ -654,6 +717,43 @@ fn parse_session_delta_maps_response_items() {
 
     let m3 = &delta.messages[3];
     assert_eq!(m3.blocks[0].kind, "tool_result");
+}
+
+#[test]
+fn parse_session_delta_preserves_a_12k_user_turn() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let expected = format!("paste-start:{}:paste-end", "x".repeat(12 * 1024));
+    let jsonl = format!(
+        "{}\n",
+        serde_json::json!({
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "user",
+                "content": [{ "type": "input_text", "text": expected.clone() }]
+            }
+        })
+    );
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(tmp.path(), &jsonl).unwrap();
+
+    let delta = codex().parse_session_delta(tmp.path(), 0);
+    assert_eq!(delta.new_offset, jsonl.len() as u64);
+    let user = delta
+        .messages
+        .iter()
+        .find(|message| message.role == "user")
+        .expect("long Codex user record is parsed");
+    assert_eq!(user.blocks.len(), 1);
+    assert_eq!(
+        user.blocks[0]
+            .data
+            .get("text")
+            .and_then(|text| text.as_str()),
+        Some(expected.as_str())
+    );
 }
 
 #[test]
@@ -862,6 +962,51 @@ fn codex_session_reasoning_effort_reads_exact_rollout() {
             .as_deref(),
         None,
         "a neighboring thread never supplies this session's actual effort"
+    );
+}
+
+#[test]
+fn parity_directory_trust_codex_declared_option_is_the_first_option() {
+    if require_plugins().is_none() {
+        return;
+    }
+    use crate::provider::DirectoryTrustPromptResponse;
+    let provider = codex();
+    let dir = workspace_plugins_root()
+        .join("provider-codex")
+        .join("tests")
+        .join("fixtures")
+        .join("directory-trust");
+    let cases: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("cases.json")).expect("cases.json"))
+            .expect("cases.json parses");
+    let mut declared = 0;
+    for case in cases.as_array().expect("case list") {
+        let file = case["file"].as_str().expect("file");
+        let screen = std::fs::read_to_string(dir.join(file)).expect("fixture");
+        let Some(prompt) = provider.parse_directory_trust_prompt(&screen) else {
+            continue;
+        };
+        let Some(DirectoryTrustPromptResponse::Answer { step }) =
+            provider.directory_trust_prompt_response(&screen)
+        else {
+            continue;
+        };
+        let advanced = (0..prompt.options.len())
+            .filter(|index| {
+                provider
+                    .live_prompt_response(*index, &screen)
+                    .and_then(|steps| steps.into_iter().next())
+                    .as_deref()
+                    == Some(step.as_slice())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(advanced, vec![0], "{file}");
+        declared += 1;
+    }
+    assert!(
+        declared >= 1,
+        "a captured Codex trust frame declares an option"
     );
 }
 

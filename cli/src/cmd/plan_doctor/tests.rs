@@ -151,7 +151,7 @@ fn detects_missing_parent_and_section() {
 }
 
 #[test]
-fn warns_when_completed_group_has_no_regression_and_silent_after_record() {
+fn reports_optional_regression_record_and_silences_after_record() {
     let base = json!({
         "id": "pl_1",
         "title": "Plan",
@@ -164,7 +164,7 @@ fn warns_when_completed_group_has_no_regression_and_silent_after_record() {
     });
     let findings = inspect_plan(Path::new("pl_1.json"), &base, "structure");
     assert!(findings.iter().any(|f| f.kind == "group_missing_regression"
-        && f.severity == "warning"
+        && f.severity == "info"
         && f.detail.contains("phase-1")));
 
     // A regression stride recorded after the last close silences the warning.
@@ -190,7 +190,7 @@ fn warns_when_completed_group_has_no_regression_and_silent_after_record() {
 }
 
 #[test]
-fn warns_when_completed_group_has_no_retrospective_and_rearms_on_reclose() {
+fn reports_optional_retrospective_record_without_affecting_dispatch() {
     let mut plan = json!({
         "id": "pl_1", "title": "Plan", "status": "active", "sections": [],
         "tasks": [
@@ -202,7 +202,11 @@ fn warns_when_completed_group_has_no_retrospective_and_rearms_on_reclose() {
     let flagged = |plan: &Value| {
         inspect_plan(Path::new("pl_1.json"), plan, "structure")
             .iter()
-            .any(|f| f.kind == "group_missing_retrospective" && f.detail.contains("phase-1"))
+            .any(|f| {
+                f.kind == "group_missing_retrospective"
+                    && f.severity == "info"
+                    && f.detail.contains("phase-1")
+            })
     };
     assert!(flagged(&plan));
 

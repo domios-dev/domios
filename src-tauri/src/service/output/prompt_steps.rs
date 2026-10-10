@@ -31,20 +31,13 @@ fn dispatch_prompt_steps<F>(
     F: FnOnce() -> bool + Send + 'static,
 {
     #[cfg(test)]
-    {
-        *PROMPT_STEP_DISPATCHES
-            .lock()
-            .entry(pty_id.clone())
-            .or_default() += 1;
-    }
+    record_prompt_step_dispatch_for_test(&pty_id);
     std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(500));
         if !still_bound() {
             return;
         }
         for step in steps {
             let _ = pty.lock().write(&pty_id, &step);
-            std::thread::sleep(std::time::Duration::from_millis(100));
         }
     });
 }
@@ -56,4 +49,12 @@ pub(in crate::service) fn prompt_step_dispatch_count_for_test(pty_id: &str) -> u
         .get(pty_id)
         .copied()
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+pub(in crate::service) fn record_prompt_step_dispatch_for_test(pty_id: &str) {
+    *PROMPT_STEP_DISPATCHES
+        .lock()
+        .entry(pty_id.to_string())
+        .or_default() += 1;
 }

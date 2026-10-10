@@ -199,7 +199,7 @@ describe("file diff cards", () => {
     await expandAll(host);
     expect(all(host, "toolcard-edit-file")).toHaveLength(0);
     const card = all(host, "file-diff-card")[0];
-    const rawToggle = [...card.querySelectorAll("button")].find((button) => button.textContent?.includes("Show raw command"));
+    const rawToggle = [...card.querySelectorAll("button")].find((button) => button.textContent?.includes("Raw command"));
     await act(async () => rawToggle?.click());
     expect(card.querySelector('[data-testid="message-raw-content"]')?.textContent).toBe(JSON.stringify(editEvent.message.toolInput, null, 2));
   });

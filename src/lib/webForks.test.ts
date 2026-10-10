@@ -27,12 +27,15 @@ interface ForkSite {
 }
 
 const INVENTORY: ForkSite[] = [
+  { file: "src/lib/configureLocalPreviews.ts", anchor: 'configureLocalArtifactOpener(IS_WEB ? null : (path) => invoke("reveal_file", { path }));', ordinal: 1, cls: "capability-gate", note: "OS file reveal is unavailable in the browser mirror" },
+  { file: "src/components/Terminal/tabPanel/ChangeDetail.tsx", anchor: '<IconAction label="Open file" icon={ExternalLink} disabled={IS_WEB || !target || deleted} title={IS_WEB ? "Opening files in the OS is available only in the desktop app" : undefined} onClick={() => perform("open_folder")} />', ordinal: 1, cls: "capability-gate", note: "browser mirror cannot open a file in the host OS" },
+  { file: "src/components/Terminal/tabPanel/ChangeDetail.tsx", anchor: '<IconAction label="Show in Explorer/Finder" icon={FolderOpen} disabled={IS_WEB || !target || deleted} title={IS_WEB ? "Opening files in the OS is available only in the desktop app" : undefined} onClick={() => perform("reveal_file")} />', ordinal: 1, cls: "capability-gate", note: "browser mirror cannot reveal a file in the host OS" },
   { file: "src/App.tsx", anchor: "if (!IS_WEB) {", ordinal: 1, cls: "capability-gate", note: "frontend-ready generation handshake belongs to the native shell" },
-  { file: "src/components/Terminal/NewSessionPicker.tsx", anchor: "if (IS_WEB) {", ordinal: 1, cls: "platform-adaptation", note: "new-workspace: native folder dialog on desktop vs name-input fallback on web" },
   { file: "src/components/Terminal/sessionBindingApi.ts", anchor: "if (IS_WEB) {", ordinal: 1, cls: "transport-shim", note: "session rebind uses the web bridge mapping vs authenticated native daemon fetch" },
   { file: "src/components/Sidebar/Sidebar.tsx", anchor: "if (IS_WEB) {", ordinal: 1, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog" },
   { file: "src/components/Sidebar/Sidebar.tsx", anchor: "if (IS_WEB) {", ordinal: 2, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog (new workspace)" },
-  { file: "src/components/StaleBuildBanner.tsx", anchor: "const apiBase = IS_WEB", ordinal: 1, cls: "transport-shim", note: "build-check API base: window.location.origin vs local dev daemon" },
+  { file: "src/lib/messengers/telegramBridgeStore.ts", anchor: "if (IS_WEB) return {};", ordinal: 1, cls: "transport-shim", note: "Telegram bridge API base: the browser mirror talks to its own daemon; only the desktop reads the configured API address" },
+  { file: "src/components/StaleBuildBanner.tsx", anchor: "if (IS_WEB) return window.location.origin;", ordinal: 1, cls: "transport-shim", note: "build-check API base: window origin vs this window's local daemon" },
   { file: "src/components/FrontendCrashBoundary.tsx", anchor: "const appWindow = \"__TAURI_INTERNALS__\" in window ? getCurrentWindow() : null;", ordinal: 1, cls: "platform-adaptation", note: "native crash fallback can reload the Tauri window directly" },
   { file: "src/components/Terminal/composerFiles.ts", anchor: "if (!IS_WEB) {", ordinal: 1, cls: "platform-adaptation", note: "browser DOM drag/drop vs native Tauri webview drag/drop" },
   { file: "src/components/Terminal/terminalOwnership.ts", anchor: "const isWeb = args.isWeb ?? IS_WEB;", ordinal: 1, cls: "capability-gate", note: "background-tab PTY suspension only applies where tabs can background (web)" },

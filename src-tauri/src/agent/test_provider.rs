@@ -19,6 +19,7 @@ pub struct MockProvider {
     id: String,
     launch_binary: Option<String>,
     supports_chat_ui: bool,
+    tool_less: bool,
     reasoning_efforts: Vec<ReasoningEffortInfo>,
     models: Vec<ModelInfo>,
     model_catalogue: codeterm_plugin::provider::ModelCatalogueCapability,
@@ -37,6 +38,7 @@ pub struct MockProvider {
     tab_state_classification: Option<codeterm_plugin::tab_state::TabStateClassification>,
     parsed_prompt: Option<codeterm_types::pty::PendingPrompt>,
     parsed_directory_trust_prompt: Option<codeterm_types::pty::PendingPrompt>,
+    live_prompt_responses: std::collections::HashMap<usize, Vec<Vec<u8>>>,
     sessions: std::collections::HashSet<String>,
     session_file: Option<PathBuf>,
     session_models: std::collections::HashMap<String, String>,
@@ -53,6 +55,7 @@ pub struct MockProvider {
     launch_artifact_sweep_log: Option<Arc<Mutex<Vec<LaunchArtifactSweepRequest>>>>,
     launch_artifact_release_log: Option<Arc<Mutex<Vec<(String, String)>>>>,
     resume_context_log: Option<Arc<Mutex<Vec<AgentResumeParams>>>>,
+    structured_prompt_launch_log: Option<Arc<Mutex<Vec<AgentLaunchParams>>>>,
     paste_limit_bytes: Option<usize>,
     additional_writable_dir_flag: Option<String>,
     sandboxed_linux_launch: Option<codeterm_plugin::provider::SandboxedLinuxLaunchCapability>,
@@ -61,11 +64,17 @@ pub struct MockProvider {
 }
 
 impl MockProvider {
+    pub fn with_tool_less(mut self, tool_less: bool) -> Self {
+        self.tool_less = tool_less;
+        self
+    }
+
     pub fn new(id: &str) -> Self {
         Self {
             id: id.to_string(),
             launch_binary: None,
             supports_chat_ui: false,
+            tool_less: false,
             reasoning_efforts: Vec::new(),
             models: Vec::new(),
             model_catalogue: codeterm_plugin::provider::ModelCatalogueCapability::default(),
@@ -81,6 +90,7 @@ impl MockProvider {
             tab_state_classification: None,
             parsed_prompt: None,
             parsed_directory_trust_prompt: None,
+            live_prompt_responses: Default::default(),
             sessions: Default::default(),
             session_file: None,
             session_models: Default::default(),
@@ -97,6 +107,7 @@ impl MockProvider {
             launch_artifact_sweep_log: None,
             launch_artifact_release_log: None,
             resume_context_log: None,
+            structured_prompt_launch_log: None,
             paste_limit_bytes: None,
             additional_writable_dir_flag: None,
             sandboxed_linux_launch: None,
@@ -107,6 +118,14 @@ impl MockProvider {
 
     pub fn with_model_switch(mut self, mode: codeterm_plugin::provider::ModelSwitchMode) -> Self {
         self.model_switch = mode;
+        self
+    }
+
+    pub fn with_structured_prompt_launch_log(
+        mut self,
+        log: Arc<Mutex<Vec<AgentLaunchParams>>>,
+    ) -> Self {
+        self.structured_prompt_launch_log = Some(log);
         self
     }
 
@@ -339,6 +358,11 @@ impl MockProvider {
         self
     }
 
+    pub fn with_live_prompt_response(mut self, option_index: usize, steps: Vec<Vec<u8>>) -> Self {
+        self.live_prompt_responses.insert(option_index, steps);
+        self
+    }
+
     pub fn with_classified_prompt_auto_response(
         mut self,
         role: codeterm_plugin::provider::ClassifiedPromptOptionRole,
@@ -358,6 +382,7 @@ impl MockProvider {
     pub fn with_empty_launch_command(id: &str) -> Self {
         Self {
             empty_launch_command: true,
+            launch_binary: Some(if cfg!(windows) { "cmd.exe" } else { "sh" }.into()),
             ..Self::new(id)
         }
     }
@@ -365,6 +390,7 @@ impl MockProvider {
     pub fn with_empty_launch_command_when_task_present(id: &str) -> Self {
         Self {
             empty_launch_command_when_task_present: true,
+            launch_binary: Some(if cfg!(windows) { "cmd.exe" } else { "sh" }.into()),
             system_prompt_delivery: SystemPromptDelivery::SessionConfig,
             task_delivery: TaskDelivery::InlineFlag,
             ..Self::new(id)
@@ -395,6 +421,10 @@ impl MockProvider {
 }
 
 impl AgentProvider for MockProvider {
+    fn is_tool_less(&self) -> bool {
+        self.tool_less
+    }
+
     fn model_switch(&self) -> codeterm_plugin::provider::ModelSwitchMode {
         self.model_switch
     }
@@ -429,6 +459,9 @@ impl AgentProvider for MockProvider {
         self.launch_binary.as_deref().unwrap_or(&self.id)
     }
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
+        if let Some(log) = &self.structured_prompt_launch_log {
+            log.lock().push(params.clone());
+        }
         if self.empty_launch_command
             || (self.empty_launch_command_when_task_present && params.task.is_some())
         {
@@ -446,6 +479,9 @@ impl AgentProvider for MockProvider {
             cmd.push_str(marker);
         }
         cmd
+    }
+    fn needs_structured_prompt_server(&self) -> bool {
+        self.structured_prompt_launch_log.is_some()
     }
     fn release_tab_launch_artifacts(
         &self,
@@ -487,7 +523,7 @@ impl AgentProvider for MockProvider {
         self.models.clone()
     }
     fn model_catalogue_capability(&self) -> codeterm_plugin::provider::ModelCatalogueCapability {
-        self.model_catalogue
+        self.model_catalogue.clone()
     }
     fn reasoning_effort_launch_args(&self, effort: &str) -> Vec<String> {
         if effort.is_empty() {
@@ -650,6 +686,9 @@ impl AgentProvider for MockProvider {
     }
     fn parse_prompt(&self, _screen: &str) -> Option<codeterm_types::pty::PendingPrompt> {
         self.parsed_prompt.clone()
+    }
+    fn live_prompt_response(&self, option_index: usize, _screen: &str) -> Option<Vec<Vec<u8>>> {
+        self.live_prompt_responses.get(&option_index).cloned()
     }
     fn parse_directory_trust_prompt(
         &self,

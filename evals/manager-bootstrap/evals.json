@@ -20,7 +20,7 @@
       "expected_output": "Creates both resources inside the current Team instead of as standalone workspace resources.",
       "expectations": [
         "Uses codeterm tab new --team team_atlas for the utility terminal",
-        "Uses codeterm cron create --team team_atlas for the one-shot job",
+        "Uses codeterm cron create with a short meaningful name and --team team_atlas for the one-shot job",
         "Does NOT create either resource as a standalone tab or cron"
       ]
     }

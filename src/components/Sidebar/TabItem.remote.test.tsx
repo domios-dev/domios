@@ -34,7 +34,7 @@ describe("remote tab metadata", () => {
       .toEqual({ role: null, peer: "@ROG" });
   });
 
-  it("renders peer and managed-by as two distinct visual rows", () => {
+  it("renders peer identity as a row and the mesh dot in the end slot", () => {
     const html = renderToStaticMarkup(
       <TabItem
         tab={remote("Manager", "planner")}
@@ -50,7 +50,27 @@ describe("remote tab metadata", () => {
     expect(html).toContain('data-testid="remote-tab-identity"');
     expect(html).toContain("PLANNER");
     expect(html).toContain("@ROG");
-    expect(html).toContain('data-testid="remote-managed-by"');
     expect(html).toContain("managed by Hubble");
+    const endSlot = html.slice(html.indexOf("sidebar-tab-end"));
+    expect(endSlot).toContain('data-testid="remote-managed-by"');
+  });
+
+  it("removes managed-by after ownership is released", () => {
+    const released = { ...remote("Worker"), ownership: undefined };
+    expect(managedByLabel(released)).toBeNull();
+    const html = renderToStaticMarkup(
+      <TabItem
+        tab={released}
+        index={0}
+        isActive
+        onClick={() => undefined}
+        onClose={() => undefined}
+        canClose
+        workspaceId="workspace"
+        hasAgent
+      />,
+    );
+    expect(html).not.toContain('data-testid="remote-managed-by"');
+    expect(html).not.toContain("managed by Hubble");
   });
 });

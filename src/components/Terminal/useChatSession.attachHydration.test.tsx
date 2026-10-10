@@ -76,6 +76,7 @@ class FakeChatServer {
   handler: ChatHandler | null = null;
   listens = 0;
   unlistens = 0;
+  statusListeners = 0;
 
   queueStart(factory: StartFactory): void {
     this.startFactories.push(factory);
@@ -85,7 +86,12 @@ class FakeChatServer {
     __setInvokeForTest: (fn: unknown) => void;
     __setListenForTest: (fn: unknown) => void;
   }): void {
-    bridge.__setListenForTest(async (_event: string, handler: ChatHandler) => {
+    bridge.__setListenForTest(async (event: string, handler: ChatHandler) => {
+      if (event === "chat-send-status") {
+        this.statusListeners += 1;
+        return () => { this.statusListeners -= 1; };
+      }
+      assert(event === "tab-chat-msg-tab", `unexpected event ${event}`);
       this.listens += 1;
       this.handler = handler;
       return () => {
@@ -95,6 +101,7 @@ class FakeChatServer {
       };
     });
     bridge.__setInvokeForTest(async (command: string, args: Record<string, unknown>) => {
+      if (command === "chat_send_status") return [];
       if (command === "chat_start") {
         const subscriptionId = String(args.subscriptionId ?? "");
         this.starts.push(subscriptionId);
@@ -221,12 +228,14 @@ async function mount(server: FakeChatServer): Promise<Mounted> {
 
 async function main(): Promise<void> {
   setupHookDom();
+  await mountThenBind();
   const server = new FakeChatServer();
   const app = await mount(server);
   const { fireResync } = await import("../../lib/resync");
 
   assert(server.starts.length === 0, "hidden Chat must not request a snapshot");
   assert(server.listens === 0, "hidden Chat must not own a listener");
+  assert(server.statusListeners === 1, "hidden Chat retains delivery-status observation");
 
   server.queueStart(() => ({
     text: "",
@@ -374,6 +383,61 @@ async function main(): Promise<void> {
   console.log(
     `PASS attach hydration: snapshots=${server.starts.length} stops=${server.stops.length} listeners=${server.listens}/${server.unlistens}`,
   );
+}
+
+async function mountThenBind(): Promise<void> {
+  const server = new FakeChatServer();
+  const app = await mount(server);
+  try {
+    server.queueStart(() => ({
+      text: "",
+      start_offset: 0,
+      offset: 0,
+      pending: true,
+      source_session_id: null,
+      session_binding_nonce: "nonce-live",
+      subscription_id: null,
+    }));
+    await app.render(null, "nonce-live", true);
+    assert(app.attachmentState() === "awaiting_session", "fresh Chat must await binding");
+    const listensBeforeBinding = server.listens;
+    const snapshot = deferred<StartResult>();
+    server.queueStart(async (subscriptionId) => ({
+      ...await snapshot.promise,
+      subscription_id: subscriptionId,
+    }));
+    await app.render("sid-live", "nonce-live", true);
+    assert(server.starts.length === 2, "binding must re-subscribe mounted Chat");
+    server.offset = 0;
+    await act(async () => {
+      server.emit([message("first-answer")], "sid-live", "nonce-live");
+      snapshot.resolve({
+        text: "",
+        start_offset: 0,
+        offset: 1,
+        pending: false,
+        messages: [message("first-answer")],
+        source_session_id: "sid-live",
+        session_binding_nonce: "nonce-live",
+      });
+    });
+    await flush();
+    assert(app.messageIds().join(",") === "first-answer", "first answer must render exactly once");
+    await act(async () => server.emit([message("later-answer")], "sid-live", "nonce-live"));
+    assert(
+      app.messageIds().join(",") === "first-answer,later-answer",
+      "mounted Chat must stream later answers after binding",
+    );
+    assert(server.listens === listensBeforeBinding, "binding must retain the mounted listener");
+    assert(server.subscribers.size === 1, "binding must own one live subscription");
+  } finally {
+    await act(async () => app.root.unmount());
+    await flush();
+    app.host.remove();
+  }
+  const remaining: number = server.subscribers.size;
+  assert(remaining === 0 && server.handler === null, "fresh Chat leaked its subscription");
+  assert(server.statusListeners === 0, "fresh Chat leaked its delivery-status listener");
 }
 
 main().catch((error) => {

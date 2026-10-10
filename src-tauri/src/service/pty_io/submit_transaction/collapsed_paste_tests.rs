@@ -28,6 +28,9 @@ struct ScreenBackedComposer {
     exact_session_turn: Cell<bool>,
     stored_exact_turn: RefCell<Option<(String, TurnEvidenceNormalization)>>,
     turn_after_wait: Cell<bool>,
+    exact_evidence_available: Cell<bool>,
+    turn_after_submit_key: usize,
+    submit_key_writes: Cell<usize>,
     writes: RefCell<Vec<String>>,
 }
 
@@ -48,6 +51,9 @@ impl ScreenBackedComposer {
             exact_session_turn: Cell::new(false),
             stored_exact_turn: RefCell::new(None),
             turn_after_wait: Cell::new(false),
+            exact_evidence_available: Cell::new(true),
+            turn_after_submit_key: if starts_turn { 1 } else { usize::MAX },
+            submit_key_writes: Cell::new(0),
             writes: RefCell::new(Vec::new()),
         }
     }
@@ -107,7 +113,7 @@ impl SubmitTransport for ScreenBackedComposer {
     }
 
     fn has_exact_user_turn_evidence(&self) -> bool {
-        true
+        self.exact_evidence_available.get()
     }
 
     fn exact_user_turn_present(&self, text: &str) -> bool {
@@ -142,10 +148,14 @@ impl SubmitTransport for ScreenBackedComposer {
     }
 
     fn write_submit_key(&self, key: &[u8], _deadline: Instant) -> Result<(), InjectionError> {
+        let submit_key_writes = self.submit_key_writes.get() + 1;
+        self.submit_key_writes.set(submit_key_writes);
         *self.frame.borrow_mut() = self.after_enter;
         self.generation.set(self.generation.get() + 1);
-        self.turn.set(self.starts_turn);
-        self.exact_session_turn.set(self.starts_turn);
+        let turn_started = self.starts_turn && submit_key_writes >= self.turn_after_submit_key;
+        self.turn.set(turn_started);
+        self.exact_session_turn
+            .set(turn_started && self.exact_evidence_available.get());
         let name = if key == b"\t" { "tab" } else { "enter" };
         self.writes.borrow_mut().push(name.to_string());
         Ok(())
@@ -215,7 +225,8 @@ fn claude_wrapped_multiline_turn_with_tabs_stops_the_key_schedule() {
             unwrap_pasted_content_wrapper: true,
             collapse_horizontal_whitespace: true,
             drop_supplementary_characters: false,
-        },
+            drop_line_breaks: false,
+},
     );
     let payload = "name\tvalue\n\talpha\tbeta\nlast";
     let result = run(&io, payload, true, tui(), opts())
@@ -283,6 +294,58 @@ fn codex_bounded_schedule_reaches_the_observed_slow_ingestion_window() {
         final_key_offset >= Duration::from_millis(5900),
         "the seventh key attempt is scheduled after the observed 5.9s ingestion case"
     );
+}
+
+#[test]
+fn lazy_first_turn_with_long_paste_uses_bounded_enter_recovery_without_a_session_anchor() {
+    let strategy = VerifySubmitStrategy::TuiInputDrained {
+        initial_key_delay: Duration::from_millis(300),
+        retry_offsets: [200, 500, 1200, 2200, 4000, 5800].map(Duration::from_millis),
+    };
+    let long_numbered_request = (1..=45)
+        .map(|index| {
+            format!("{index}. Inspect the component and preserve this numbered request marker.")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(long_numbered_request.len() > 3_000);
+    assert!(long_numbered_request.len() < 4_096);
+    let mut io = ScreenBackedComposer::new(
+        EMPTY_BORDERED_COMPOSER,
+        CODEX_COLLAPSED_PASTE_FRAME,
+        EMPTY_BORDERED_COMPOSER,
+        true,
+    );
+    io.exact_evidence_available
+        .set(super::exact_session_turn_source_available(true, false));
+    io.turn_after_submit_key = 2;
+
+    let result = run_with_submit_key(
+        &io,
+        &long_numbered_request,
+        true,
+        b"\r",
+        strategy,
+        opts(),
+        |_| Ok(()),
+    )
+    .expect("the first key can be swallowed while a long paste is previewed");
+
+    assert!(result.submit_observed);
+    assert_eq!(io.pastes(), 1, "a long payload is never replayed");
+    assert_eq!(
+        io.enters(),
+        2,
+        "the second bounded key submits the first turn"
+    );
+    assert_eq!(result.submit_key_writes, 2);
+}
+
+#[test]
+fn lazy_launch_without_a_bound_session_has_no_exact_turn_source_yet() {
+    assert!(!super::exact_session_turn_source_available(true, false));
+    assert!(super::exact_session_turn_source_available(true, true));
+    assert!(!super::exact_session_turn_source_available(false, true));
 }
 
 #[test]

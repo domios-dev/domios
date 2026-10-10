@@ -21,6 +21,7 @@ pub struct OrphanedRestoreInfo {
 pub(crate) async fn mux_get_state_from_service(
     svc: ServiceState,
 ) -> Result<MultiplexerSnapshot, String> {
+    svc.ensure_storage_available()?;
     let reader = svc.clone();
     let snapshot =
         refuse_busy_snapshot_off_runtime(move || reader.try_snapshot_with_reconciled_status())
@@ -92,7 +93,7 @@ pub fn mux_rename_workspace(
 
 #[cfg(test)]
 mod snapshot_refusal_tests {
-    use super::refuse_busy_snapshot_off_runtime;
+    use super::{mux_get_state_from_service, refuse_busy_snapshot_off_runtime};
     use crate::agent::registry::AgentRegistry;
     use crate::agent::status::TabStatusTracker;
     use crate::lock_hold::{TimedMutex, TimedRwLock};
@@ -139,6 +140,63 @@ mod snapshot_refusal_tests {
         );
         worker.join().unwrap();
     }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn storage_cutover_unavailable_desk_reads_return_an_explicit_error() {
+        use crate::multiplexer::state::MultiplexerState;
+        use crate::service::test_fixture::ServiceFixture;
+        use crate::startup::{StorageAuthority, STORAGE_UNAVAILABLE_MESSAGE};
+        use tauri::Manager;
+
+        let fixture = ServiceFixture::new(MultiplexerState::empty());
+        assert!(fixture._app.manage(StorageAuthority::Unavailable {
+            storage: None,
+            reason: "test storage failure".into(),
+        }));
+        let service = std::sync::Arc::new(fixture.service.clone());
+        assert_eq!(
+            service.list_workspaces().unwrap_err(),
+            STORAGE_UNAVAILABLE_MESSAGE,
+        );
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        assert_eq!(
+            runtime
+                .block_on(mux_get_state_from_service(service.clone()))
+                .unwrap_err(),
+            STORAGE_UNAVAILABLE_MESSAGE,
+        );
+        assert_eq!(
+            crate::dispatch::dispatch(&crate::dispatch::Command::WorkspaceList, service.as_ref(),)
+                .unwrap_err(),
+            STORAGE_UNAVAILABLE_MESSAGE,
+        );
+        assert_eq!(
+            crate::dispatch::dispatch(&crate::dispatch::Command::TabList, service.as_ref(),)
+                .unwrap_err(),
+            STORAGE_UNAVAILABLE_MESSAGE,
+        );
+        let port: std::sync::Arc<dyn crate::dispatch::CommandPort> = service;
+        let tab_error = runtime
+            .block_on(crate::dispatch::dispatch_tab_summary_blocking(
+                crate::dispatch::Command::TabSummary {
+                    workspace_id: None,
+                    caller_tab_id: None,
+                    focused_workspace: false,
+                    agents_only: false,
+                },
+                port,
+            ))
+            .unwrap_err();
+        assert_eq!(tab_error, STORAGE_UNAVAILABLE_MESSAGE);
+    }
 }
 
 #[cfg(test)]
@@ -157,7 +215,7 @@ pub fn mux_rename_team_core(
 }
 
 pub(crate) fn mux_rename_team_service_core(
-    svc: &ServiceState,
+    svc: &crate::service::ServiceContext,
     team_id: String,
     name: String,
     caller_tab_id: Option<String>,
@@ -427,6 +485,16 @@ pub fn mux_reorder_child(
     svc.reorder_child(&parent_tab_id, &ordered_tab_ids)
 }
 
+/// Rewrite a workspace's sidebar display order across every tab level.
+#[tauri::command]
+pub fn mux_reorder_display(
+    svc: State<'_, ServiceState>,
+    workspace_id: String,
+    ordered_tab_ids: Vec<String>,
+) -> Result<(), String> {
+    svc.reorder_display(&workspace_id, &ordered_tab_ids)
+}
+
 /// Reorder workspaces.
 #[tauri::command]
 pub fn mux_reorder_workspace(
@@ -438,21 +506,44 @@ pub fn mux_reorder_workspace(
 
 /// Create a new tab in a workspace.
 #[tauri::command]
-pub fn mux_create_tab(
+pub async fn mux_create_tab(
     svc: State<'_, ServiceState>,
     workspace_id: String,
     eager: Option<bool>,
+    shell: Option<String>,
+    cwd: Option<String>,
+    purpose: Option<crate::multiplexer::types::ShellPurpose>,
+    description: Option<String>,
+    icon: Option<String>,
+    team_id: Option<String>,
+    creator_tab_id: Option<String>,
+    cmd: Option<String>,
 ) -> Result<TabInfo, String> {
-    let tab_id = svc.create_tab(&workspace_id)?;
-    crate::service::supporter_notify::record_ui_origin(&tab_id);
-    if eager.unwrap_or(false) {
-        svc.ensure_tab_pty_for_send(&tab_id)?;
-    }
-    let title = svc.mux.read().display_label_for_tab(&tab_id);
-    Ok(TabInfo {
-        id: tab_id.clone(),
-        title,
+    let svc = svc.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let handle = svc.spawn_tab(crate::service::spawn::SpawnTabSpec {
+            shell,
+            cwd,
+            workspace_id: Some(workspace_id),
+            eager: eager.unwrap_or(false),
+            purpose: purpose.unwrap_or_default(),
+            description,
+            icon,
+            team_id,
+            creator_tab_id,
+            cmd,
+            ..Default::default()
+        })?;
+        crate::service::supporter_notify::record_ui_origin(&handle.tab_id);
+        svc.set_active_tab(&handle.workspace_id, &handle.tab_id)?;
+        let title = svc.mux.read().display_label_for_tab(&handle.tab_id);
+        Ok(TabInfo {
+            id: handle.tab_id,
+            title,
+        })
     })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// Switch the active tab in a workspace.
@@ -495,15 +586,30 @@ pub fn mux_reopen_closed_tab(
 
 /// Reopen a whole closed group by id.
 #[tauri::command]
-pub fn mux_reopen_closed_group(
+pub async fn mux_reopen_closed_group(
     svc: State<'_, ServiceState>,
     group_id: String,
 ) -> Result<OrphanedRestoreInfo, String> {
-    let (workspace_id, tab_id) = svc.reopen_closed_group(&group_id)?;
+    let service = svc.inner().clone();
+    let (workspace_id, tab_id) =
+        tokio::task::spawn_blocking(move || service.reopen_closed_group(&group_id))
+            .await
+            .map_err(|error| error.to_string())??;
     Ok(OrphanedRestoreInfo {
         workspace_id,
         tab_id,
     })
+}
+
+#[tauri::command]
+pub async fn mux_rerun_restored_shell(
+    svc: State<'_, ServiceState>,
+    tab_id: String,
+) -> Result<(), String> {
+    let service = svc.inner().clone();
+    tokio::task::spawn_blocking(move || service.rerun_restored_shell(&tab_id))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 /// Reopen a tab from the orphaned ring.
@@ -652,6 +758,15 @@ pub fn mux_set_claude_session_id(
     tab_id: String,
     session_id: Option<String>,
 ) -> Result<(), String> {
+    if session_id.is_some()
+        && svc
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .is_some_and(|tab| tab.fork_source_session_id.is_some())
+    {
+        return Err("fork sessions bind only through authenticated launch evidence".into());
+    }
     svc.set_agent_session_id(&tab_id, session_id);
     Ok(())
 }
@@ -682,6 +797,8 @@ pub fn build_agent_launch_command(
     let launch_task =
         crate::service::provider_launch_task(&svc.agent_registry, &agent_id, None, None, None);
     let params = crate::agent::provider::AgentLaunchParams {
+        context_files: None,
+        tool_less_instructions_path: None,
         agent_name: None,
         task: launch_task,
         starter_prompt: crate::service::starter_prompt_for_role(None),
@@ -698,7 +815,10 @@ pub fn build_agent_launch_command(
     };
     svc.agent_registry
         .with_provider(&agent_id, |p| {
-            crate::agent::stub_launch::apply(&agent_id, p.build_launch_command(&params))
+            crate::agent::stub_launch::apply(
+                &agent_id,
+                crate::service::tool_less_instructions::build(p, &params),
+            )
         })
         .ok_or_else(|| format!("Unknown agent provider: {}", agent_id))
 }
@@ -802,4 +922,19 @@ pub async fn mux_batch(
     commands: Vec<BatchOp>,
 ) -> Result<Vec<serde_json::Value>, String> {
     Ok(svc.batch(commands).await)
+}
+
+#[tauri::command]
+pub async fn shell_profiles(
+    svc: State<'_, ServiceState>,
+    refresh: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    crate::dispatch::dispatch_blocking(
+        crate::dispatch::Command::ShellProfiles {
+            refresh: refresh.unwrap_or(false),
+        },
+        svc.inner().clone(),
+    )
+    .await
+    .map(|result| result.into_json())
 }

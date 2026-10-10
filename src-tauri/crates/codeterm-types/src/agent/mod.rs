@@ -1,6 +1,9 @@
+pub mod background_work;
 pub mod chat_types;
+pub mod context;
 pub mod keys;
 pub mod models;
+pub mod provider_signals;
 pub mod roles;
 pub mod session_model;
 pub use roles::{
@@ -11,3 +14,5 @@ pub use session_model::SessionModelTranscriptBoundary;
 pub mod role_identity;
 pub mod role_kind;
 pub use role_kind::{RoleKindCapability, RoleKindDescriptor, RoleKindOrigin};
+
+pub mod capability_probe;

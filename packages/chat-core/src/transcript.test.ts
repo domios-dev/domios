@@ -199,6 +199,65 @@ const send = (id: string, content: string, sentAtMs: number, extra: Partial<Chat
   );
 }
 
+{
+  const bodies = ["opaque-first", "opaque-second", "opaque-third"];
+  const sentAt = 1_700_000_000_000;
+  const sends = bodies.map((content, index) =>
+    send(`opt-${index + 1}`, content, sentAt + index * 100),
+  );
+  const mergedContent = bodies.join("");
+  const liveState = reduceTranscript(
+    createTranscriptState(),
+    batch("snapshot", 0, 200, [
+      {
+        id: "merged-row",
+        type: "user",
+        content: mergedContent,
+        timestamp: String(sentAt + 500),
+        correlationId: sends[0]?.correlationId,
+      },
+    ]),
+  ).state;
+  const live = projectTranscript(liveState, sends);
+
+  eq(live.pending.length, 0, "one glued provider row settles all three optimistic sends");
+  eq(
+    live.rows.filter((row) => row.type === "user").map((row) => [row.id, row.sourceMessageId]),
+    [["0:0", "merged-row"]],
+    "live Chat projection renders one user group without duplicate bubbles",
+  );
+  eq(
+    [...live.echoes.keys()],
+    sends.map((item) => item.id),
+    "all three optimistic identities map to the one live committed row",
+  );
+  const persisted = sends.map((item) => ({ ...item, echo: live.echoes.get(item.id) }));
+  const reloadedState = reduceTranscript(
+    createTranscriptState(),
+    batch("snapshot", 0, 200, [
+      {
+        id: "merged-row",
+        type: "user",
+        content: mergedContent,
+        timestamp: String(sentAt + 500),
+        correlationId: sends[0]?.correlationId,
+      },
+    ]),
+  ).state;
+  const reloaded = projectTranscript(reloadedState, persisted);
+  eq(reloaded.pending.length, 0, "persisted echo identities settle after transcript reload");
+  eq(
+    reloaded.rows.filter((row) => row.type === "user").map((row) => [row.id, row.sourceMessageId]),
+    [["0:0", "merged-row"]],
+    "reloaded Chat projection keeps the same single merged user group",
+  );
+  eq(
+    [...reloaded.echoes.keys()],
+    sends.map((item) => item.id),
+    "all three persisted optimistic identities map to the one reloaded row",
+  );
+}
+
 // ── 3b. The host send key is never replaced by the echo's later provider timestamp.
 {
   const attached = reduceTranscript(

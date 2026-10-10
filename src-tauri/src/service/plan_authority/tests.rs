@@ -646,6 +646,29 @@ fn planner_task_writes_accept_routing_fields() {
     .is_ok());
 }
 
+#[test]
+fn planner_can_only_block_with_an_explicit_label() {
+    let author = PlanningAuthor::Planner {
+        tab_id: "planner".into(),
+    };
+    assert!(ensure_planner_task_fields_are_structural(
+        &author,
+        &serde_json::json!({ "status": "blocked", "status_label": "dependency; owner trigger" })
+    )
+    .is_ok());
+    for body in [
+        serde_json::json!({ "status": "blocked" }),
+        serde_json::json!({ "status": "blocked", "status_label": " " }),
+        serde_json::json!({
+            "status": "blocked",
+            "status_label": "dependency; owner trigger",
+            "assigned_tab_id": "worker",
+        }),
+    ] {
+        assert!(ensure_planner_task_fields_are_structural(&author, &body).is_err());
+    }
+}
+
 /// The refusal list is Planner-scoped only. The Plan Orchestrator classifies
 /// as `User`, so its authority over every field is unchanged.
 #[test]

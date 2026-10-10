@@ -16,7 +16,7 @@
  * webLinkWithToken() when building a one-tap link or QR.
  */
 
-import { spawnAiHelper, type AiHelperSpawned } from "./aiHelperSpawn";
+import { spawnAiHelper, withAiHelperContext, type AiHelperSpawned } from "./aiHelperSpawn";
 import type { DaemonApiConfig } from "./webApi";
 
 export interface WebAccessNetworkInfo {
@@ -203,7 +203,7 @@ export function startWebAccessSetupHelper(
   apiPort: number,
   api: DaemonApiConfig,
 ): Promise<AiHelperSpawned> {
-  return spawnAiHelper({ title: "Set up Web Access", task: serveSetupTask(status, apiPort) }, api);
+  return spawnAiHelper({ title: "WebAccess", description: "Set up Web Access", task: withAiHelperContext(serveSetupTask(status, apiPort)) }, api);
 }
 
 /** Sibling Domios API port (prod 7685 ↔ dev 7686). Mirrors the backend. */

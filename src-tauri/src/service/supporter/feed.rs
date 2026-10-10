@@ -5,7 +5,7 @@ pub(super) const MAX_ENTRIES: usize = 100;
 pub(super) fn entry(value: &Value) -> Option<Value> {
     let kind = match value["kind"].as_str()? {
         "rerank" => "rerank",
-        "sentinel" => "sentinel",
+        "blueprint" | "sentinel" => "blueprint",
         "heartbeat" => "heartbeat",
         "tab_state" if value["action"] == "recovery" => "recovery",
         "tab_state" => "tab_state",
@@ -120,6 +120,25 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
         "fallback": matches!(reason, "budget" | "credit_exhausted" | "deadline" | "unavailable" | "no_adapter"
             | "budget_exhausted" | "model_deadline" | "model_failed" | "adapter_disconnected" | "invalid_answer"),
     });
+    entry["decision_point"] = json!(allowed(
+        &value["decision_point"],
+        &[
+            "memory_rerank",
+            "blueprint",
+            "heartbeat",
+            "tab_state",
+            "launch_ready",
+            "startup_deadline",
+            "startup_escalation",
+            "prompt_candidate",
+            "worker_idle_without_report",
+            "busy_without_output",
+            "tab_exit",
+            "user_delivery_readiness",
+            "safe_response",
+        ],
+        kind,
+    ));
     if value["observation_id"].as_u64().is_some() {
         entry["decided_by"] = json!(allowed(
             &value["decided_by"],
@@ -141,6 +160,21 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
             .is_some_and(|source| source.starts_with("fallback("))
         {
             entry["fallback"] = json!(true);
+        }
+        if entry["decided_by"] == "fallback(error)" {
+            if let Some(category) = value["error_category"].as_str().filter(|category| {
+                [
+                    "transport",
+                    "http",
+                    "unavailable",
+                    "unsupported",
+                    "parse",
+                    "invalid_observation",
+                ]
+                .contains(category)
+            }) {
+                entry["error_category"] = json!(category);
+            }
         }
         crate::service::supporter_tab_state::project_observation_diagnostics(value, &mut entry);
     }

@@ -30,6 +30,7 @@ pub fn deliver_orchestrator_notice_exact(
         context,
         text,
         HeartbeatSelection::default(),
+        None,
     )
 }
 
@@ -41,6 +42,7 @@ pub(crate) fn deliver_gated_heartbeat_exact(
     learning_ids: Option<&[String]>,
     plain: bool,
     mode_transition: bool,
+    observer: Option<crate::service::messenger::DeliveryWriteObserver>,
 ) -> Result<crate::service::messenger::Delivery, String> {
     deliver_notice_with_learning_selection(
         svc,
@@ -53,6 +55,7 @@ pub(crate) fn deliver_gated_heartbeat_exact(
             plain,
             mode_transition,
         },
+        observer,
     )
 }
 
@@ -63,6 +66,7 @@ fn deliver_notice_with_learning_selection(
     context: &str,
     text: &str,
     selection: HeartbeatSelection<'_>,
+    observer: Option<crate::service::messenger::DeliveryWriteObserver>,
 ) -> Result<crate::service::messenger::Delivery, String> {
     let plan = svc.plan_store.get(plan_id).ok_or("plan not found")?;
     if crate::service::plan::pause_operation::plan_notices_suppressed(&plan)
@@ -88,14 +92,20 @@ fn deliver_notice_with_learning_selection(
                     selection.learning_ids,
                 )
             };
-        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder(context);
+        let mut envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder(context);
+        envelope.delivery_observer = Some(observer.unwrap_or_else(|| {
+            crate::service::messenger::DeliveryWriteObserver::PlanRole {
+                plan_id: plan_id.to_string(),
+                role: "orchestrator".into(),
+            }
+        }));
         let result = svc.gateway_deliver(
             target,
             envelope,
             &injected,
             crate::service::message_gateway::DeliveryClass::SystemNotice,
         );
-        if result.is_ok() {
+        if result.as_ref().is_ok_and(|delivery| delivery.is_written()) {
             let heartbeat_bytes = injected.len().saturating_sub(text.len());
             if heartbeat_bytes > 0 {
                 svc.record_kpi_event(
@@ -109,13 +119,13 @@ fn deliver_notice_with_learning_selection(
     })
 }
 
-pub(crate) fn deliver_exact_role_target<T>(
+pub(crate) fn deliver_exact_role_target(
     role: &str,
     plan_id: &str,
     intended_target: &str,
     requested_target: &str,
-    deliver: impl FnOnce(&str) -> Result<T, String>,
-) -> Result<T, String> {
+    deliver: impl FnOnce(&str) -> Result<crate::service::messenger::Delivery, String>,
+) -> Result<crate::service::messenger::Delivery, String> {
     if intended_target != requested_target {
         log::warn!(
             "[plan-role-delivery] plan={} role={} intended_target={} actual_target=none outcome=refused requested_target={}",
@@ -130,8 +140,16 @@ pub(crate) fn deliver_exact_role_target<T>(
     }
     let result = deliver(intended_target);
     match &result {
+        Ok(crate::service::messenger::Delivery::Pending { delivery_id }) => log::warn!(
+            "[plan-role-delivery] plan={} role={} intended_target={} actual_target={} outcome=pending delivery_id={}",
+            plan_id,
+            role,
+            intended_target,
+            intended_target,
+            delivery_id
+        ),
         Ok(_) => log::info!(
-            "[plan-role-delivery] plan={} role={} intended_target={} actual_target={} outcome=delivered",
+            "[plan-role-delivery] plan={} role={} intended_target={} actual_target={} outcome=written",
             plan_id,
             role,
             intended_target,
@@ -339,7 +357,7 @@ mod tests {
             "owner-tab",
             |target| {
                 attempts.borrow_mut().push(target.to_string());
-                Err::<(), _>("owner undeliverable".to_string())
+                Err("owner undeliverable".to_string())
             },
         );
 
@@ -357,7 +375,7 @@ mod tests {
             "planner-tab",
             |target| {
                 attempts.borrow_mut().push(target.to_string());
-                Ok(())
+                Ok(crate::service::messenger::Delivery::Pty { text: "ok".into() })
             },
         );
 

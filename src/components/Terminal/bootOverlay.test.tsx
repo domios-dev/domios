@@ -1,107 +1,51 @@
 // Run: npx tsx src/components/Terminal/bootOverlay.test.tsx
 
-import React, { act } from "react";
-import { createRoot } from "react-dom/client";
-import { Window } from "happy-dom";
-import { TabBootOverlay, tabBootOverlayView } from "./bootOverlay";
+import { tabBootOverlayView } from "./bootOverlay";
 import type { Tab } from "../../lib/types";
 
-let failures = 0;
-async function test(name: string, fn: () => void | Promise<void>) {
-  try {
-    await fn();
-    console.log(`  ✓ ${name}`);
-  } catch (e) {
-    failures++;
-    console.error(`  ✗ ${name}: ${e instanceof Error ? e.message : String(e)}`);
-  }
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(message);
 }
 
-function assert(cond: unknown, msg: string): asserts cond {
-  if (!cond) throw new Error(msg);
-}
-
-function tab(stage: Tab["boot_stage"], reason?: string | null, canRetry = true): Tab {
+function tab(
+  stage: Tab["boot_stage"],
+  reason: string | null = null,
+  agentType: string | null = null,
+  protectedTab = false,
+): Tab {
   return {
-    id: "p-1",
+    id: "fixture-tab",
     pty_id: null,
-    title: "General",
-    protected: canRetry,
+    title: "fixture",
+    protected: protectedTab,
+    agent_type: agentType,
     boot_stage: stage,
-    boot_failure_reason: reason ?? null,
+    boot_failure_reason: reason,
   } as unknown as Tab;
 }
 
-async function render(element: React.ReactElement): Promise<HTMLElement> {
-  const host = document.createElement("div");
-  document.body.appendChild(host);
-  const root = createRoot(host);
-  await act(async () => {
-    root.render(element);
-  });
-  return host;
-}
+assert(tabBootOverlayView(tab("pty_starting")).kind === "starting", "launch stage shows progress");
+assert(tabBootOverlayView(tab("awaiting_owner_prompt")).kind === "starting", "owner prompt shows progress");
+assert(tabBootOverlayView(tab("agent_ready")).kind === "none", "ready state has no overlay");
 
-async function main() {
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  const window = new Window({ url: "http://localhost/" });
-  Object.defineProperty(globalThis, "window", { value: window, configurable: true });
-  Object.defineProperty(globalThis, "document", { value: window.document, configurable: true });
-  Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
-  Object.defineProperty(globalThis, "SVGElement", { value: window.SVGElement, configurable: true });
-  Object.defineProperty(globalThis, "Element", { value: window.Element, configurable: true });
-  Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
+const unresolved = tabBootOverlayView(
+  tab("spawn_failed", "opaque-reason-17"),
+);
+assert(unresolved.kind === "failed", "unresolved restore shows failure view");
+assert(unresolved.reason === "opaque-reason-17", "failure reason passes through unchanged");
+assert(unresolved.canStartFreshAgent, "providerless restore offers fresh provider selection");
+assert(unresolved.canKeepShell, "failure view offers shell continuation");
+assert(!unresolved.canRetry, "providerless restore does not guess a retry provider");
 
-  await test("view maps launch stages to Starting", () => {
-    assert(tabBootOverlayView(tab("pty_starting")).kind === "starting", "pty_starting starts");
-    assert(tabBootOverlayView(tab("agent_launching")).kind === "starting", "agent_launching starts");
-    const waiting = tabBootOverlayView(tab("awaiting_owner_prompt"));
-    assert(waiting.kind === "starting" && waiting.label === "Waiting for you", "owner prompt is visible");
-  });
+const retryable = tabBootOverlayView(
+  tab("spawn_failed", "opaque-reason-18", "fixture-provider", true),
+);
+assert(retryable.kind === "failed" && retryable.canRetry, "identified protected agent may retry");
+assert(!retryable.canStartFreshAgent, "identified provider is not replaced implicitly");
 
-  await test("view maps ready to no overlay", () => {
-    assert(tabBootOverlayView(tab("agent_ready")).kind === "none", "ready dismisses overlay");
-  });
+assert(
+  tabBootOverlayView(tab("spawn_failed", "opaque-reason-17"), true).kind === "none",
+  "keep-shell choice restores the terminal view",
+);
 
-  await test("failure renders details and keyboard-accessible Retry", async () => {
-    let clicked = false;
-    const host = await render(
-      <TabBootOverlay
-        view={tabBootOverlayView(tab("spawn_failed", "provider missing"))}
-        shellReady={false}
-        overlayVisible={false}
-        onRetry={() => {
-          clicked = true;
-        }}
-      />,
-    );
-    assert(host.textContent?.includes("Launch failed"), "failure title visible");
-    assert(host.textContent?.includes("provider missing"), "failure details visible");
-    const button = host.querySelector("button");
-    assert(button !== null, "retry button rendered");
-    assert(button.getAttribute("type") === "button", "retry is not submit");
-    assert(
-      button.getAttribute("aria-label") === "Retry agent launch",
-      "retry has accessible name",
-    );
-    button.click();
-    assert(clicked, "retry click propagated");
-  });
-
-  await test("non-protected failure has no retry button", async () => {
-    const host = await render(
-      <TabBootOverlay
-        view={tabBootOverlayView(tab("spawn_failed", "no binary", false))}
-        shellReady={false}
-        overlayVisible={false}
-        onRetry={() => {}}
-      />,
-    );
-    assert(host.querySelector("button") === null, "retry hidden for unprotected Tab");
-  });
-
-  console.log(`bootOverlay tests: ${failures === 0 ? "all passed" : `${failures} failed`}`);
-  if (failures > 0) throw new Error(`${failures} test(s) failed`);
-}
-
-void main();
+console.log("✓ bootOverlay: boot state maps to view and available actions");

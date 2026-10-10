@@ -109,6 +109,10 @@ pub(crate) fn binding_disproves_latched_failure(tab: &Tab) -> bool {
     tab.boot_stage == Some(BootStage::SpawnFailed) && tab.launch_session_authenticated()
 }
 
+pub(crate) fn session_allows_user_readiness(tab: &Tab) -> bool {
+    tab.agent_session_id.is_none() || tab.launch_session_authenticated()
+}
+
 /// A provider started inside the tab's own shell, outside any owned launch,
 /// proved itself with this PTY's nonce. No launch pipeline will ever seal it.
 pub(crate) fn binding_observes_in_tab_launch(tab: &Tab) -> bool {
@@ -260,6 +264,42 @@ impl ServiceContext {
     /// snapshot) and fan the transition out on the event bridge. Fire-and-forget
     /// — never blocks the launch thread.
     pub(crate) fn emit_boot_stage(&self, tab_id: &str, stage: BootStage, reason: Option<&str>) {
+        if stage == BootStage::AgentReady {
+            let pending_binding = {
+                let mux = self.mux.read();
+                mux.get_tab(tab_id)
+                    .filter(|tab| !session_allows_user_readiness(tab))
+                    .and_then(|tab| {
+                        Some(crate::service::launch_readiness::LaunchAttempt {
+                            tab_id: tab_id.to_string(),
+                            pty_id: tab.pty_id.clone()?,
+                            binding_nonce: tab.session_binding_nonce.clone()?,
+                        })
+                    })
+            };
+            if let Some(attempt) = pending_binding {
+                self.record_provisional_launch(
+                    &attempt,
+                    BootStage::LaunchBindingUnconfirmed,
+                    "current launch session binding has not been authenticated",
+                );
+                let binding = {
+                    let mux = self.mux.read();
+                    mux.get_tab(tab_id)
+                        .filter(|tab| tab.launch_session_authenticated())
+                        .and_then(|tab| {
+                            Some(crate::service::ProviderSessionBinding {
+                                pty_id: tab.pty_id.clone()?,
+                                binding_nonce: tab.reported_session_binding_nonce.clone()?,
+                            })
+                        })
+                };
+                if let Some(binding) = binding {
+                    self.retire_provisional_launch(tab_id, &binding);
+                }
+                return;
+            }
+        }
         if stage.is_provisional() {
             log::warn!(
                 "[boot-stage] Tab {tab_id} {} ignored without launch-attempt evidence",
@@ -331,6 +371,9 @@ impl ServiceContext {
             self.resume_exited_member_on_shell_ready(tab_id);
         }
         if stage == BootStage::AgentReady {
+            if let Ok(authority) = self.user_send_authority(tab_id) {
+                self.latch_user_authority_ready(&authority);
+            }
             // Sealing transition: this is the only place an operation becomes
             // restorable, and only if provider + session already committed.
             self.record_lifecycle(
@@ -343,6 +386,7 @@ impl ServiceContext {
             self.retire_superseded_process_conditions(tab_id);
         }
         if stage == BootStage::SpawnFailed {
+            self.wake_agent_deliveries_on_state_change(tab_id);
             self.record_lifecycle_end(
                 tab_id,
                 crate::session::lifecycle::LifecycleTransition::RolledBack {
@@ -501,9 +545,8 @@ impl ServiceContext {
     /// void. `AgentReady` is the only precise point at which input is known to
     /// be accepted, so it is the only place the parked text is delivered.
     fn schedule_parked_user_send(&self, tab_id: &str) {
-        let svc = self.clone();
-        let tab_id = tab_id.to_string();
-        std::thread::spawn(move || svc.deliver_parked_user_send(&tab_id));
+        self.deliver_parked_user_send(tab_id);
+        self.wake_agent_deliveries_on_state_change(tab_id);
     }
 
     /// Proven health for the recovery record: every exact role binding has a

@@ -5,6 +5,17 @@
 use crate::activity::PluginActivity;
 use crate::provider::AgentProvider;
 
+#[derive(Debug)]
+pub struct ModelProviderEnvUnavailable;
+
+impl std::fmt::Display for ModelProviderEnvUnavailable {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("model provider credentials unavailable")
+    }
+}
+
+impl std::error::Error for ModelProviderEnvUnavailable {}
+
 /// Combined host context: everything a plugin VM needs from the app side.
 /// Implemented by `ServiceContext` (and test stubs). The VM holds a
 /// `Weak<dyn PluginHostCtx>` so teardown doesn't pin the context alive.
@@ -41,7 +52,11 @@ pub trait PluginHostCtx: Send + Sync {
 
     // ── Events ──────────────────────────────────────────────────────────
     fn contributions_changed(&self, kind: &str);
+    fn event_sources_changed(&self) {}
     fn emit_graph_worker_spawned_json(&self, info_json: &str);
+    fn emit_graph_event_json(&self, _plugin_id: &str, _event_json: &str) -> String {
+        r#"{"error":"graph_events_unavailable"}"#.to_string()
+    }
 
     // ── Socket / API ────────────────────────────────────────────────────
     fn socket_display_path(&self) -> String;
@@ -53,10 +68,30 @@ pub trait PluginHostCtx: Send + Sync {
         None
     }
 
+    /// Host-only owned provider keys for decision subprocesses; never exposed to JS.
+    fn model_provider_process_env(
+        &self,
+        _plugin_id: &str,
+    ) -> Result<std::collections::HashMap<String, String>, ModelProviderEnvUnavailable> {
+        Ok(std::collections::HashMap::new())
+    }
+
     // ── Secrets ─────────────────────────────────────────────────────────
     fn secret_get(&self, plugin_id: &str, name: &str) -> Option<String>;
     fn secret_set(&self, plugin_id: &str, name: &str, value: &str) -> bool;
     fn secret_delete(&self, plugin_id: &str, name: &str) -> bool;
+
+    // ── Surfaces ────────────────────────────────────────────────────────
+    /// Runs one verb on `caller`'s own stream surface of `plugin_id`; `{ result }` or `{ error }`.
+    fn surface_call_json(
+        &self,
+        _plugin_id: &str,
+        _caller: &str,
+        _verb: &str,
+        _args_json: &str,
+    ) -> String {
+        r#"{"error":"surfaces_unavailable"}"#.to_string()
+    }
 
     // ── Receiver target ─────────────────────────────────────────────────
     /// The host-owned tab bound to this plugin's own webhook receiver.
@@ -81,6 +116,9 @@ pub trait PluginProviderRegistrar: Send + Sync {
     /// A provider plugin finished installing or upgrading and is registered.
     /// The host decides what that warrants; this crate owns no consent record.
     fn provider_reloaded(&self, _id: &str) {}
+    /// A plugin's settings changed and are already live in its VM; the host refreshes
+    /// what it derived from them (model catalog, capability probes) without a reload.
+    fn provider_settings_changed(&self, _id: &str) {}
 }
 
 /// Event sink for `PluginManager` — fires `ContributionsChanged` when the

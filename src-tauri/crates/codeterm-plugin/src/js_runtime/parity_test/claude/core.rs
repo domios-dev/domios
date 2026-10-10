@@ -22,6 +22,8 @@ fn detect_from_title_parity() {
         ("claude", true),
         ("✳ Claude Code", true),
         ("⠐ General coding session", true),
+        ("◑ General coding session", true),
+        ("◔ Not a spinner", false),
         ("Aider", false),
         ("PS C:\\>", false),
     ];
@@ -57,7 +59,12 @@ fn screen_has_tui_parity() {
         return;
     }
     let (n, j) = pair();
-    for s in ["? for shortcuts here", "ctrl+l help", "esc to interrupt"] {
+    for s in [
+        "? for shortcuts here",
+        "ctrl+l help",
+        "esc to interrupt",
+        "⏵⏵ auto mode on (shift+tab to cycle) · Bypass permissions mode was disabled by settings",
+    ] {
         assert!(n.screen_has_tui(s), "native: {s}");
         assert!(j.screen_has_tui(s), "js: {s}");
     }
@@ -231,8 +238,12 @@ fn resume_command_matches_native_provider() {
     }
     let (n, j) = pair();
     assert_eq!(
-        n.build_resume_command("abc-def-123-456", true),
-        j.build_resume_command("abc-def-123-456", true)
+        super::context::settings_command(|| n
+            .build_resume_command("abc-def-123-456", true)
+            .unwrap()),
+        super::context::settings_command(|| j
+            .build_resume_command("abc-def-123-456", true)
+            .unwrap())
     );
 }
 
@@ -247,6 +258,9 @@ fn resume_with_context_reapplies_the_prompt_on_both_paths() {
     let (n, j) = pair();
     let prompt = "## Composed identity\nparity-sentinel-91c3";
     let params = crate::provider::AgentResumeParams {
+        cwd: None,
+        context_files: None,
+        tool_less_instructions_path: None,
         session_id: "abc-def-123-456".into(),
         skip_permissions: true,
         agent_name: None,
@@ -308,7 +322,7 @@ fn integration_install_creates_all_four_hooks_with_markers() {
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.path().join("settings.json")).unwrap())
             .unwrap();
-    for key in ["Notification", "Stop", "SessionStart"] {
+    for key in ["PermissionRequest", "Notification", "Stop", "SessionStart"] {
         let arr = json["hooks"][key].as_array().expect(key);
         assert!(
             arr.iter().any(|e| {
@@ -339,6 +353,25 @@ fn integration_install_creates_all_four_hooks_with_markers() {
     let native = crate::agent_claude::provider::integration::check_integration_at(
         &dir.path().join("settings.json"),
     );
+    let native_settings = dir.path().join("native-settings.json");
+    crate::agent_claude::provider::integration::install_integration_at(
+        &native_settings,
+        &integration_options(),
+    )
+    .expect("native install ok");
+    let native_json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&native_settings).unwrap()).unwrap();
+    for key in ["PermissionRequest", "Notification", "Stop", "SessionStart"] {
+        let native_command = native_json
+            .pointer(&format!("/hooks/{key}/0/hooks/0/command"))
+            .and_then(serde_json::Value::as_str)
+            .expect("native command");
+        let js_command = json
+            .pointer(&format!("/hooks/{key}/0/hooks/0/command"))
+            .and_then(serde_json::Value::as_str)
+            .expect("JS command");
+        assert_eq!(native_command, js_command, "{key} hook command parity");
+    }
     assert_eq!(post["settings_exists"], true);
     assert_eq!(post["hooks_installed"], true);
     assert_eq!(post["integration_owned"], true);
@@ -351,6 +384,35 @@ fn integration_install_creates_all_four_hooks_with_markers() {
     assert_eq!(post["stop_hook"], true);
     assert!(post.get("precompact_hook").is_none());
     assert_eq!(post["session_start_hook"], true);
+}
+
+#[test]
+fn bash_guard_hook_commands_are_stale_on_both_runtimes() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let settings = dir.path().join("settings.json");
+    let stale_command = r#"if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start" -H 'Content-Type: application/json' -H "Authorization: Bearer $CODETERM_API_TOKEN" -H "X-CodeTerm-Hook: codeterm-hook-v3" -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" --data-binary @- || true; fi"#;
+    let mut value = serde_json::json!({"hooks": {}});
+    for event in ["PermissionRequest", "Notification", "Stop", "SessionStart"] {
+        value["hooks"][event] = serde_json::json!([{
+            "matcher": "",
+            "hooks": [{
+                "type": "command",
+                "command": stale_command,
+                "_source": "codeterm-hook-v3"
+            }]
+        }]);
+    }
+    std::fs::write(&settings, serde_json::to_vec(&value).unwrap()).unwrap();
+
+    let js = claude_in_temp(&dir.path().join("rule.md"), &settings).check_integration();
+    let native = crate::agent_claude::provider::integration::check_integration_at(&settings);
+    assert_eq!(js["hook_contract_current"], false);
+    assert_eq!(native["hook_contract_current"], false);
+    assert_eq!(js["hooks_installed"], false);
+    assert_eq!(native["hooks_installed"], false);
 }
 
 #[test]
@@ -654,10 +716,9 @@ fn launch_command_no_task_matches_native_shape() {
         skip_permissions: true,
         ..Default::default()
     };
-    let nat = n.build_launch_command(&params);
-    let js = j.build_launch_command(&params);
-    // Same env preamble + same trailing claude invocation. The JS form uses cross-platform host primitives so it should match native byte-for-byte for the no-task case.
-    assert_eq!(nat, js, "native vs js launch mismatch");
+    let nat = super::context::settings_command(|| n.build_launch_command(&params));
+    let js = super::context::settings_command(|| j.build_launch_command(&params));
+    assert_eq!(nat, js, "native vs js launch and settings mismatch");
 }
 
 #[test]
@@ -881,4 +942,10 @@ fn retired_precompact_export_cleanup_native_js_parity() {
     for event in ["PermissionRequest", "Notification", "Stop", "SessionStart"] {
         assert_eq!(installed["hooks"][event].as_array().unwrap().len(), 1);
     }
+    let native_stop = &native["hooks"]["Stop"][0]["hooks"][0]["command"];
+    let js_stop = &installed["hooks"]["Stop"][0]["hooks"][0]["command"];
+    assert_eq!(native_stop, js_stop);
+    let command = js_stop.as_str().unwrap();
+    assert!(command.contains("--data-binary \"@-\""));
+    assert!(command.contains("CODETERM_SESSION_BINDING_NONCE"));
 }

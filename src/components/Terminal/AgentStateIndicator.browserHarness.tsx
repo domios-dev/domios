@@ -1,3 +1,4 @@
+import { tabActivity } from "../../lib/tabActivity";
 import { createRoot, type Root } from "react-dom/client";
 import { AgentStateIndicator, type AgentState } from "./AgentStateIndicator";
 import { isCodeTermFrontendTestMode } from "./chatTestBridge";
@@ -14,7 +15,7 @@ export function mountQuietAgentStateHarness(host: HTMLElement): Root {
   const root = createRoot(host);
   root.render(
     <AgentStateIndicator
-      state={{ state: "quiet" as AgentState["state"] }}
+      activity={tabActivity({ agent_state: { state: "quiet" as AgentState["state"] } })}
       providerName="Codex"
       model="gpt-5.6-sol"
     />,

@@ -133,7 +133,7 @@ fn render_override(value: &Value) -> String {
         .unwrap_or_default();
     let reason = record.get("reason").and_then(|v| v.as_str()).unwrap_or("");
     let mut out = format!("Recorded override for regression gate(s): {gates}\nReason: {reason}\n");
-    let remaining = value
+    let unwaived = value
         .get("blocking_gates")
         .and_then(|v| v.as_array())
         .map(|arr| {
@@ -143,10 +143,10 @@ fn render_override(value: &Value) -> String {
                 .join(", ")
         })
         .unwrap_or_default();
-    if remaining.is_empty() {
-        out.push_str("Frontier dispatch unblocked.\n");
+    if unwaived.is_empty() {
+        out.push_str("Dispatch remains available; group records are advisory.\n");
     } else {
-        out.push_str(&format!("Still blocking: {remaining}\n"));
+        out.push_str(&format!("Other unwaived QA records: {unwaived}\n"));
     }
     out
 }
@@ -286,7 +286,7 @@ mod tests {
     }
 
     #[test]
-    fn override_render_names_gates_reason_and_unblock() {
+    fn override_render_names_gates_reason_and_advisory_dispatch() {
         let value = json!({
             "override": {"gates": ["phase-1", "phase-2"], "reason": "warm QA down; owner sign-off"},
             "blocking_gates": []
@@ -294,17 +294,17 @@ mod tests {
         let out = render_override(&value);
         assert!(out.contains("phase-1, phase-2"));
         assert!(out.contains("warm QA down; owner sign-off"));
-        assert!(out.contains("Frontier dispatch unblocked."));
+        assert!(out.contains("Dispatch remains available; group records are advisory."));
     }
 
     #[test]
-    fn override_render_reports_remaining_blockers() {
+    fn override_render_reports_other_unwaived_records() {
         let value = json!({
             "override": {"gates": ["phase-1"], "reason": "partial waiver"},
             "blocking_gates": [{"key": "phase-2", "label": "Phase 2"}]
         });
         let out = render_override(&value);
-        assert!(out.contains("Still blocking: phase-2"));
+        assert!(out.contains("Other unwaived QA records: phase-2"));
     }
 
     #[test]
