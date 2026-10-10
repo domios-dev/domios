@@ -49,7 +49,7 @@ pub fn refresh_example_files() {
     }
 }
 
-pub(crate) fn render_example(
+pub(super) fn render_example(
     provider_id: &str,
     defaults: &RegisteredDefaults,
     effort_defaults: &RegisteredEfforts,
