@@ -63,7 +63,7 @@ impl BrowserProcess {
         command
             .args(args)
             .stdin(stdin)
-            .stdout(Stdio::null())
+            .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
         #[cfg(unix)]
@@ -84,8 +84,9 @@ impl BrowserProcess {
         let job = contain(&child)?;
         let pid = child.id().ok_or("browser process has no pid")?;
         let stderr = child.stderr.take().ok_or("browser stderr is not piped")?;
-        let (ready_tx, ready_rx) = oneshot::channel();
-        tokio::spawn(drain_stderr(stderr, ready_tx));
+        let stdout = child.stdout.take().ok_or("browser stdout is not piped")?;
+        let (ready_tx, mut ready_rx) = oneshot::channel();
+        tokio::spawn(drain_output(stderr, stdout, ready_tx));
         let (exit_tx, exit_rx) = watch::channel(None);
         let (kill_tx, kill_rx) = watch::channel(false);
         tokio::spawn(supervise(child, pid, kill_rx, exit_tx));
@@ -101,10 +102,13 @@ impl BrowserProcess {
         let mut exit = process.exit.clone();
         let readiness = tokio::time::timeout(deadline, async {
             tokio::select! {
-                ready = ready_rx => ready.unwrap_or_else(|_| Err("browser stderr reader stopped".into())),
+                ready = &mut ready_rx => ready.unwrap_or_else(|_| Err("browser stderr reader stopped".into())),
                 exited = exit.wait_for(Option::is_some) => {
                     let code = exited.ok().and_then(|exit| *exit).and_then(|exit| exit.code);
-                    Err(format!("browser exited before DevTools was ready (code {code:?})"))
+                    match ready_rx.await {
+                        Ok(Err(detail)) => Err(format!("browser exited before DevTools was ready (code {code:?}): {detail}")),
+                        _ => Err(format!("browser exited before DevTools was ready (code {code:?})")),
+                    }
                 }
             }
         })
@@ -190,35 +194,47 @@ fn contain(
     Ok(job)
 }
 
-async fn drain_stderr(
+async fn drain_output(
     mut stderr: tokio::process::ChildStderr,
+    mut stdout: tokio::process::ChildStdout,
     ready: oneshot::Sender<Result<String, String>>,
 ) {
-    let mut listener = DevToolsListener::default();
+    let mut stderr_listener = DevToolsListener::default();
+    let mut stdout_listener = DevToolsListener::default();
     let mut ready = Some(ready);
-    let mut buffer = vec![0u8; 8192];
-    loop {
-        let read = match stderr.read(&mut buffer).await {
-            Ok(0) | Err(_) => break,
-            Ok(read) => read,
+    let mut stderr_buffer = vec![0u8; 8192];
+    let mut stdout_buffer = vec![0u8; 8192];
+    let mut stderr_open = true;
+    let mut stdout_open = true;
+    while stderr_open || stdout_open {
+        let (is_stderr, read) = tokio::select! {
+            read = stderr.read(&mut stderr_buffer), if stderr_open => (true, read),
+            read = stdout.read(&mut stdout_buffer), if stdout_open => (false, read),
         };
-        if ready.is_none() {
-            continue;
-        }
-        if let Some(endpoint) = listener.push(&buffer[..read]) {
+        let (listener, buffer, open) = if is_stderr {
+            (&mut stderr_listener, &stderr_buffer, &mut stderr_open)
+        } else {
+            (&mut stdout_listener, &stdout_buffer, &mut stdout_open)
+        };
+        let endpoint = match read {
+            Ok(0) | Err(_) => {
+                *open = false;
+                listener.finish()
+            }
+            Ok(read) => listener.push(&buffer[..read]),
+        };
+        if let Some(endpoint) = endpoint {
             if let Some(ready) = ready.take() {
                 let _ = ready.send(Ok(endpoint));
             }
         }
     }
     if let Some(ready) = ready.take() {
-        let result = listener.finish().ok_or_else(|| {
-            format!(
-                "browser closed stderr before DevTools was ready: {}",
-                listener.tail()
-            )
-        });
-        let _ = ready.send(result);
+        let _ = ready.send(Err(format!(
+            "browser closed output before DevTools was ready: {} | {}",
+            stderr_listener.tail(),
+            stdout_listener.tail()
+        )));
     }
 }
 
@@ -316,6 +332,25 @@ mod tests {
             .await
             .unwrap_err();
         assert!(error.contains("before DevTools was ready"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn browser_process_foreign_profile_handoff_on_stdout_keeps_diagnostic() {
+        let (binary, args) = fake_browser("Opening in existing browser session.", false);
+        let args: Vec<String> = args
+            .into_iter()
+            .map(|arg| {
+                arg.replace("[Console]::Error", "[Console]")
+                    .replace(" >&2", "")
+            })
+            .collect();
+        let error = BrowserProcess::spawn(Path::new(binary), &args, READY_DEADLINE)
+            .await
+            .unwrap_err();
+        let dir = Path::new("/profiles/foreign");
+        let error = super::super::profile::foreign_profile_error(dir, &error);
+        assert!(error.contains(&dir.display().to_string()), "{error}");
+        assert!(error.contains("CodeTerm does not own"), "{error}");
     }
 
     #[tokio::test]
