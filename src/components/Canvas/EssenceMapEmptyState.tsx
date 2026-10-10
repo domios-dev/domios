@@ -13,9 +13,10 @@ export interface EssenceMapEmptyStateProps {
   orchestrator: MapOrchestrator | null;
   onAskOrchestrator?: (orchestrator: MapOrchestrator) => Promise<void>;
   onRetry?: () => void;
+  onCreateMap?: () => void;
 }
 
-export function EssenceMapEmptyState({ projects, orchestrator, onAskOrchestrator, onRetry }: EssenceMapEmptyStateProps) {
+export function EssenceMapEmptyState({ projects, orchestrator, onAskOrchestrator, onRetry, onCreateMap }: EssenceMapEmptyStateProps) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
@@ -48,7 +49,8 @@ export function EssenceMapEmptyState({ projects, orchestrator, onAskOrchestrator
         {orchestrator ? `Ask the Orchestrator (${orchestrator.title}) to build the project map. It knows how.` : "Start an Orchestrator in this workspace, then ask it to build the project map. It knows how."}
       </p>
       <div className="flex flex-wrap items-center justify-center gap-2">
-        {canAsk && <button type="button" data-testid="essence-map-ask-orchestrator" className={`${UI_BUTTON.primary} inline-flex items-center gap-1.5`} disabled={sending} onClick={() => void ask()}>
+        {onCreateMap && <button type="button" className={UI_BUTTON.primary} onClick={onCreateMap}>Create map</button>}
+        {canAsk && <button type="button" data-testid="essence-map-ask-orchestrator" className={`${UI_BUTTON.ghost} inline-flex items-center gap-1.5`} disabled={sending} onClick={() => void ask()}>
           <SendIcon size={13} />{sending ? "Sending…" : "Ask the Orchestrator to build the project map"}
         </button>}
         {onRetry && <button type="button" className={`${UI_BUTTON.ghost} inline-flex items-center gap-1.5`} onClick={onRetry}><RefreshCw size={12} aria-hidden="true" />Check again</button>}

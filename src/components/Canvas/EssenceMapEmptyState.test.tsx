@@ -9,6 +9,13 @@ vi.mock("../../lib/bridge", () => ({ invoke: invokeMock }));
 import { EssenceMapCanvasInner } from "./EssenceMapCanvas";
 import { askOrchestratorToBuildMap, findWorkspaceOrchestrator, type MapOrchestrator } from "./essenceMapOrchestrator";
 import type { EssenceMapFile } from "./essenceMapModel";
+import { CARTOGRAPHER_TEST_PROVIDER } from "./cartographerMapFixtures.testdata";
+import { getByRole } from "../../test/semanticRoles";
+import type { CartographerMapDraft } from "./cartographerMapModel";
+
+vi.mock("../Terminal/voice/useVoiceRecorder", () => ({
+  useVoiceRecorder: () => ({ recording: false, preview: null, livePeaks: [] }),
+}));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -103,6 +110,40 @@ describe("Map empty state", () => {
     expect(askButton(host)).toBeNull();
     expect(document.getElementById(section.getAttribute("aria-describedby") ?? "")?.textContent?.trim()).toBeTruthy();
   });
+});
+
+describe("Cartographer map entry actions", () => {
+  const readyMap: EssenceMapFile = {
+    ...missingMap,
+    status: "ready",
+    content: JSON.stringify({
+      kind: "node", id: "vector:fixture", type: "vector", label: "Fixture", vector: null,
+      source: { path: "essences/capabilities.md", anchor: "vector:fixture", sha256: "a".repeat(64) },
+    }),
+  };
+  for (const [name, mode, map] of [
+    ["Create map", "create", missingMap], ["Refresh map", "refresh", readyMap],
+  ] as const) {
+    it(`${name} opens the shared dialog and Cancel closes it`, async () => {
+      const onStart = vi.fn(async (_draft: CartographerMapDraft) => {});
+      const host = await mount(<EssenceMapCanvasInner workspace={workspace} mapFiles={[map]} providers={[CARTOGRAPHER_TEST_PROVIDER]} onStartCartographer={onStart} />);
+      await act(async () => getByRole(host, "button", name).click());
+      expect(getByRole(document.body, "dialog", name)).toBeTruthy();
+      await act(async () => getByRole(document.body, "button", "Cancel").click());
+      expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+      expect(onStart).not.toHaveBeenCalled();
+    });
+
+    it(`${name} passes its mode to the shared Start action once`, async () => {
+      const onStart = vi.fn(async (_draft: CartographerMapDraft) => {});
+      const host = await mount(<EssenceMapCanvasInner workspace={workspace} mapFiles={[map]} providers={[CARTOGRAPHER_TEST_PROVIDER]} onStartCartographer={onStart} />);
+      await act(async () => getByRole(host, "button", name).click());
+      await act(async () => getByRole(document.body, "button", "Start").click());
+      expect(onStart).toHaveBeenCalledTimes(1);
+      expect(onStart.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ mode }));
+      expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+    });
+  }
 });
 
 describe("findWorkspaceOrchestrator", () => {

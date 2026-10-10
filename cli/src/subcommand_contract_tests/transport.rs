@@ -616,6 +616,8 @@ fn team_pair_exception_is_declared() {
             "team_1",
             "--provider",
             "provider-neutral",
+            "--brief-file",
+            "brief.json",
         ],
     ] {
         let command = parse(&argv);
