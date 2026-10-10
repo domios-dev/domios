@@ -682,10 +682,10 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             MeshAction::Status => ("GET".into(), "/api/mesh/status".into(), None),
             MeshAction::Peers => ("GET".into(), "/api/mesh/peers".into(), None),
             MeshAction::Discover => ("POST".into(), "/api/mesh/discover".into(), None),
-            MeshAction::Connect { instance_id } => (
+            MeshAction::Connect { instance_id, addr } => (
                 "POST".into(),
                 "/api/mesh/connect".into(),
-                Some(serde_json::json!({"instance_id": instance_id}).to_string()),
+                Some(crate::cmd::mesh::connect_body(instance_id, addr.as_ref()).to_string()),
             ),
             MeshAction::Approve { request_id } => (
                 "POST".into(),

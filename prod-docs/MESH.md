@@ -14,6 +14,14 @@ Discovery (mDNS/UDP/Tailscale) finds peers on the network. Paired peers are show
 
 Broadcast requires a live, health-proven remote listener. A loopback-only or unready instance refuses with `mesh_listener_not_remotely_ready` before enabling broadcast; it never advertises LAN access merely because that interface exists. Discovery records carry the development flag and only addresses served by the ready listener set. Named dev instances can opt into an additional authenticated tailnet listener while retaining loopback; see `codeterm docs CONFIG`. An empty discovery snapshot is not proof that asynchronous resolution has ended.
 
+When discovery cannot cross API ports, connect directly:
+
+```bash
+codeterm mesh connect <instance-id-or-name> --addr <ip:port>
+```
+
+The address must be a literal IP and port (IPv6 uses `[ip]:port`). Both instances need ready remote listeners. The caller reads the peer's signed identity at that exact socket, checks a fresh address-bound challenge and the requested identity (full ID, hexadecimal ID prefix of at least six characters, or exact advertised name), and records a manual discovery sighting. A mismatch fails before registration or pairing. Redirects and HTTP proxies are disabled on this path. The response proves possession of the advertised key; it does not establish trust. The ordinary pairing request remains pending until the receiving owner runs `codeterm mesh approve <request-id>`. Manual sightings preserve revocations and blocks. Same-port UDP discovery is unchanged; the peer must support the direct identity endpoint.
+
 ## Local REST availability
 
 The local REST supervisor, not the mesh liveness detector, owns listener recovery. Listener/server exit produces a failed lifecycle event and exactly one newer generation; that replacement is advertised healthy only after socket ownership and a successful real `/api/health` response. Bind ownership failure and a still-bound listener with all four REST workers blocked have distinct diagnostics, so worker starvation does not cause listener-generation churn.

@@ -48,10 +48,13 @@ pub enum MeshAction {
         /// Target peer name or instance ID
         target: String,
     },
-    /// Initiate pairing with a discovered peer
+    /// Initiate owner-approved pairing with a discovered peer or explicit address
     Connect {
-        /// Instance ID or name of the discovered peer
+        /// Instance ID or advertised name; --addr also accepts a hexadecimal ID prefix
         instance_id: String,
+        /// Read the peer identity directly at this IP:port before pairing
+        #[arg(long)]
+        addr: Option<std::net::SocketAddr>,
     },
     /// Accept an incoming pairing request
     Approve {
