@@ -8,12 +8,17 @@ restart target. No application source or global configuration is changed.
 ```bash
 bash evals/restart-endurance/run.sh \
   --out target-check/evals/endure-trial-1 \
+  --model opencode=deepseek/deepseek-flash \
   --notice-hook /absolute/path/to/restart-notice.sh
 ```
 
 Windows: invoke the same command through Git Bash from PowerShell. Node.js,
 Python 3, Git Bash/bash, and the active DEV CLI are required. `ENDURE_BASH` is
 resolved to the actual invoking Bash executable on Windows.
+
+Repeat `--model provider=model` to pin fixture models from the provider's
+catalogue. Both fresh and used fixtures receive the same override; omitted
+providers keep their configured default. The manifest records the overrides.
 
 ## Preconditions and coordination
 

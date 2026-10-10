@@ -279,6 +279,8 @@ async function checkHealth() {
 
 async function setup() {
   result.health = await checkHealth();
+  const modelOverrides = JSON.parse(process.env.ENDURE_MODEL_OVERRIDES ?? "{}");
+  result.model_overrides = modelOverrides;
   const providers = await dcJson("agent", "providers");
   result.provider_descriptors = providers;
   const inventory = await dcJson("plugin", "list");
@@ -314,13 +316,14 @@ async function setup() {
         continue;
       }
       result.coverage.push({ provider, cohort, status: "launch requested" });
-      const fixture = { provider, cohort, first_turn_policy: policies.get(provider) ?? firstTurnPolicy(null) };
+      const fixture = { provider, cohort, requested_model: modelOverrides[provider], first_turn_policy: policies.get(provider) ?? firstTurnPolicy(null) };
       result.fixtures.push(fixture);
       save();
       try {
         const spawned = await dcJson("agent", "spawn", provider, "--workspace", workspace.id,
           "--cwd", workspace.cwd, "--title", `${provider}${cohort === "fresh" ? "F" : "U"}`,
-          "--description", `Restart endurance ${cohort} fixture`, "--non-user-facing");
+          "--description", `Restart endurance ${cohort} fixture`, "--non-user-facing",
+          ...(fixture.requested_model ? ["--model", fixture.requested_model] : []));
         fixture.id = spawned.tab_id;
         if (!fixture.id) throw new Error(`Spawn did not return tab_id: ${JSON.stringify(spawned)}`);
       } catch (error) { fixture.spawn_error = error.message; }
