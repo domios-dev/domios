@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use super::journal::{ActionRecord, Journal, VerdictKind};
 use super::spend::{SpendAlert, SpendBook};
 
-type TeamResolver = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+type TabFieldResolver = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 type JournalSink = Arc<dyn Fn(Value) + Send + Sync>;
 
 const HOUR: i64 = 3_600_000;
@@ -41,7 +41,8 @@ pub(crate) struct SupporterRuntime {
     activity: Mutex<Activity>,
     journal: Mutex<Journal>,
     spend: SpendBook,
-    team_resolver: OnceLock<TeamResolver>,
+    team_resolver: OnceLock<TabFieldResolver>,
+    tab_title_resolver: OnceLock<TabFieldResolver>,
     journal_sink: OnceLock<JournalSink>,
     alert_sink: OnceLock<Arc<dyn Fn(SpendAlert) + Send + Sync>>,
     connection_epoch: AtomicU64,
@@ -67,6 +68,7 @@ impl SupporterRuntime {
             spend,
             alert_sink: OnceLock::new(),
             team_resolver: OnceLock::new(),
+            tab_title_resolver: OnceLock::new(),
             journal_sink: OnceLock::new(),
             connection_epoch: AtomicU64::new(0),
         }
@@ -76,9 +78,13 @@ impl SupporterRuntime {
         let _ = self.alert_sink.set(sink);
     }
 
-    pub(crate) fn attach_visibility(&self, resolver: TeamResolver, sink: JournalSink) {
+    pub(crate) fn attach_visibility(&self, resolver: TabFieldResolver, sink: JournalSink) {
         let _ = self.team_resolver.set(resolver);
         let _ = self.journal_sink.set(sink);
+    }
+
+    pub(crate) fn attach_tab_titles(&self, resolver: TabFieldResolver) {
+        let _ = self.tab_title_resolver.set(resolver);
     }
 
     fn team_id(&self, tab: Option<&str>) -> Option<String> {
@@ -299,6 +305,14 @@ impl SupporterRuntime {
     fn append(&self, mut value: Value) -> std::io::Result<()> {
         if value.get("team_id").is_none() {
             value["team_id"] = json!(self.team_id(value["tab"].as_str()));
+        }
+        if let Some(title) = value["tab"].as_str().and_then(|tab| {
+            self.tab_title_resolver.get().and_then(|resolve| resolve(tab))
+        }) {
+            value["tab_title"] = json!(super::narrative::scrub(
+                &title,
+                super::narrative::MAX_NAME_CHARS,
+            ));
         }
         let result = {
             let journal = self.journal.lock();
