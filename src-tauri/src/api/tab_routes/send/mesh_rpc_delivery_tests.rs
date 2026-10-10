@@ -59,7 +59,7 @@ async fn resolution_failure_returns_typed_zero_write_refusal() {
         )
     })
     .await;
-    let rejection = result.err().expect("resolution must fail");
+    let rejection = result.expect_err("resolution must fail");
     assert_eq!(rejection.status, StatusCode::CONFLICT);
     assert_eq!(rejection.body["error"]["code"], "tab_busy_refused");
     assert_eq!(rejection.body["error"]["bytes_written"], false);
@@ -75,7 +75,7 @@ async fn delivery_worker_panic_is_typed_uncertainty_without_replay() {
         panic!("delivery lost its response after handoff");
     })
     .await;
-    let rejection = result.err().expect("panic must be classified");
+    let rejection = result.expect_err("panic must be classified");
     assert_eq!(rejection.status, StatusCode::BAD_GATEWAY);
     assert_eq!(rejection.body["error"]["code"], "submit_unconfirmed");
     assert_eq!(rejection.body["error"]["bytes_written"], true);
