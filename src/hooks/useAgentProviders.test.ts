@@ -92,9 +92,12 @@ test("refresh preserves catalog identity while failures clear entries", () => {
   assert(visibleAgentProviders(stale, false, null) === stale, "settled catalog preserves identity");
 });
 
-test("malformed catalog responses expose an honest empty catalog", () => {
-  assert(agentProvidersFromResponse({}).length === 0, "object response is not a provider catalog");
-  assert(agentProvidersFromResponse(null).length === 0, "null response is not a provider catalog");
+test("malformed catalog responses fail visibly instead of hiding descriptors", () => {
+  for (const malformed of [{}, null, { ok: true, data: [] }]) {
+    let refused = false;
+    try { agentProvidersFromResponse(malformed); } catch { refused = true; }
+    assert(refused, "invalid catalog must report an error");
+  }
   const catalog = [provider("catalog-provider")];
   assert(agentProvidersFromResponse(catalog) === catalog, "array response preserves catalog identity");
 });

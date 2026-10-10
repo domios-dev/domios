@@ -47,6 +47,14 @@ export function useContributions<T>(
     let active = true;
     let unlisten: UnlistenFn | undefined;
 
+    const reset = () => {
+      generation.current++;
+      setItems([]);
+      setError(null);
+      setLoading(true);
+    };
+    window.addEventListener("codeterm-peer-switch-reset", reset);
+    window.addEventListener("codeterm-peer-switch-rebind", load);
     load();
 
     listen<ContributionsChangedPayload>("contributions-changed", (event) => {
@@ -69,6 +77,8 @@ export function useContributions<T>(
     return () => {
       active = false;
       generation.current++;
+      window.removeEventListener("codeterm-peer-switch-reset", reset);
+      window.removeEventListener("codeterm-peer-switch-rebind", load);
       if (unlisten) unlisten();
     };
   }, [kind, load]);
