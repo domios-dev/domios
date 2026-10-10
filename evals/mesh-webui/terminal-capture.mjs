@@ -1,4 +1,5 @@
 import { mkdir, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 
 export function readTerminalState({ tabId, maxLines = 10000 }) {
@@ -43,12 +44,11 @@ export function readTerminalState({ tabId, maxLines = 10000 }) {
 }
 
 export async function armTerminalEvents(page, tabId) {
-  return page.evaluate(tabId => {
+  return page.evaluate(({ tabId, id }) => {
     const root = [...document.querySelectorAll('[data-testid="terminal-tab"]')]
       .find(el => el.dataset.tabId === tabId && el.getClientRects().length);
     const term = root?.querySelector('[data-testid="terminal-xterm-host"]')?.__codetermTerminal;
     if (!term) throw new Error('Cannot arm missing DEV xterm');
-    const id = crypto.randomUUID();
     const probes = window.__b3TerminalProbes ??= new Map();
     const probe = { tabId, events: [], handles: [], waiters: new Set(), revision: 0 };
     const append = (type, detail) => {
@@ -64,7 +64,7 @@ export async function armTerminalEvents(page, tabId) {
     probe.handles.push(term.buffer.onBufferChange(b => append('buffer', b.type)));
     probes.set(id, probe);
     return id;
-  }, tabId);
+  }, { tabId, id: randomUUID() });
 }
 
 export async function waitTerminalEvent(page, id, { type, after = 0, deadlineMs = 30000 }) {

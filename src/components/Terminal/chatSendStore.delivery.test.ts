@@ -58,3 +58,19 @@ test("a lost ledger failure cannot leave a stale Retry after reconnect", () => {
   assert.equal(beginChatSendRetry(tabId, "bubble"), undefined);
   assert.equal(readChatSends(tabId).length, 1);
 });
+
+test("Retry mints a fresh correlation id on an insecure origin without crypto.randomUUID", () => {
+  const tabId = "retry-insecure";
+  const original = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  Object.defineProperty(globalThis, "crypto", { configurable: true, value: { getRandomValues: (b: Uint8Array) => b.fill(7) } });
+  try {
+    addChatSend(tabId, { id: "bubble", correlationId: "original-token", content: "opaque", sentAtMs: 1700000000000 });
+    observeDeliveryStatus({ tab_id: tabId, send_id: "first", state: "failed", ledger_id: "ledger",
+      sequence: 1, retained_from: 1, error: null, correlationId: "original-token" });
+    const retry = beginChatSendRetry(tabId, "bubble");
+    assert(retry);
+    assert.match(retry.correlationId ?? "", /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  } finally {
+    if (original) Object.defineProperty(globalThis, "crypto", original);
+  }
+});

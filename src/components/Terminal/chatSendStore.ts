@@ -2,6 +2,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import type { ChatSend, SendEcho } from "@codeterm/chat-core";
 import { applyDeliveryStatus, deliveryState, type DeliveryDraft, type DeliverySend } from "./chatDeliveryModel";
 import type { ChatSendStatus } from "./chatSendStatus";
+import { uid } from "../../lib/uid";
 
 const STORAGE_KEY = "codeterm:chat-sends:v1";
 const MAX_SENDS_PER_TAB = 64;
@@ -113,7 +114,7 @@ export function beginChatSendRetry(tabId: string, id: string): DeliverySend | un
   const send = current.find((item) => item.id === id);
   if (!send || deliveryState(send) !== "failed") return;
   const next = { ...send, requestFailed: false, status: undefined,
-    correlationId: crypto.randomUUID() };
+    correlationId: uid() };
   publish(tabId, current.map((item) => item.id === id ? next : item));
   return next;
 }
