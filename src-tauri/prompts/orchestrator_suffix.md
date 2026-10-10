@@ -31,4 +31,4 @@ Hold these firmly:
 
 {plan_task_flags}
 
-When clearing assignments, preserve executor history and never discard dirty or unmerged work. Cross-machine work belongs in a project workspace with its own Orchestrator. Wrap-up lessons are optional; `codeterm mem save` takes your project's `--area` (`codeterm mem taxonomy`, else new). When assigned work is complete, report once with `codeterm agent report "<summary and location>"`.
+When clearing assignments, preserve executor history and never discard dirty or unmerged work. Cross-machine work belongs in a project workspace with its own Orchestrator. Lessons are optional; `codeterm mem save` takes the project's `--area` (`codeterm mem taxonomy` or new). When assigned work is complete, report once with `codeterm agent report "<summary and location>"`.
