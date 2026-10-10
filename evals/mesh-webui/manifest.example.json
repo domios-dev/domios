@@ -3,7 +3,7 @@
   "mac": {
     "origin": "http://100.96.252.97:7697",
     "peerId": "REPLACE_EXACT_PEER_ID",
-    "tokenFile": "REPLACE_PROTECTED_GATEWAY_TOKEN_FILE",
+    "tokenSecret": "REPLACE_MAC_SECRET_STORE_ENTRY_NAME",
     "tabs": [
       {
         "provider": "claude",
@@ -71,7 +71,7 @@
   "windows": {
     "origin": "http://100.84.159.37:7686",
     "peerId": "REPLACE_EXACT_PEER_ID",
-    "tokenFile": "REPLACE_PROTECTED_GATEWAY_TOKEN_FILE",
+    "tokenSecret": "REPLACE_MAC_SECRET_STORE_ENTRY_NAME",
     "tabs": [
       {
         "provider": "claude",

@@ -2,6 +2,7 @@ import {createRequire} from 'node:module';
 import {readFile, mkdir, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {validateManifest,validateOutput} from './model.mjs';
+import {gatewayToken} from './secrets.mjs';
 import * as rawTerminal from './terminal-capture.mjs';
 const rc = '/Users/kandrey/Developer/codeterm-worktrees/rc-mac';
 const require = createRequire(path.join(rc, 'package.json'));
@@ -127,7 +128,7 @@ export async function createHarness(manifest, outDir) {
   return {browser, async openGateway(machineKey) {
     const machine = manifest[machineKey];
     if (!machine || !['mac','windows'].includes(machineKey)) throw new Error('Unknown gateway');
-    const token = (await readFile(machine.tokenFile,'utf8')).trim();
+    const token = await gatewayToken(machine);
     if (!token) throw new Error('Missing gateway token');
     const context = await browser.newContext({viewport:{width:1440,height:1000}});
     contexts.push(context);

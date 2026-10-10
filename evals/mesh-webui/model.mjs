@@ -16,7 +16,9 @@ export function validateManifest(m) {
   assert.ok(m.mac.peerId !== m.windows.peerId);
   for(const machine of [m.mac,m.windows]) assert.match(machine.peerId,/^[a-fA-F0-9-]{6,}$/);
   for (const machine of [m.mac, m.windows]) {
-    assert.ok(machine.tokenFile);
+    assert.equal(typeof machine.tokenSecret, 'string');
+    assert.ok(machine.tokenSecret.trim());
+    assert.equal(machine.tokenFile, undefined, 'Gateway credentials must come from the secret store');
     assert.equal(machine.tabs.length, 4);
     assert.deepEqual([...new Set(machine.tabs.map(t => t.provider))].sort(), [...providers].sort());
     for (const tab of machine.tabs) {
