@@ -393,6 +393,8 @@ export interface Host {
   readFileTail(path: string, maxBytes: number): string | null;
   writeFile(path: string, contents: string): boolean;
   writeFileAtomic(path: string, contents: string): boolean;
+  canonicalPath(path: string): string | null;
+  jsonBooleanRecord(path: string, keysJson: string, grant: boolean): string;
   lockFile(path: string): string | null;
   unlockFile(id: string): boolean;
   removeFile(path: string): boolean;

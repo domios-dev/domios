@@ -90,6 +90,15 @@ fn build_agent_command_inner(
     registry: &AgentRegistry,
     launch_marker: Option<&str>,
 ) -> String {
+    if let Some((service, tab_id)) = notice_context {
+        crate::service::directory_pre_trust::for_tab(
+            service,
+            registry,
+            agent_cmd,
+            tab_id,
+            params.cwd.as_deref(),
+        );
+    }
     let resolved_model = params
         .model
         .as_deref()
