@@ -26,6 +26,7 @@ curl -X POST "http://host:7685/api/tabs/$TAB/exec" \
   -d '{"command": "echo hello", "timeout_ms": 5000}'
 # Response: {"output": "hello\r\n...", "offset": 1600, "exit_code": 0, "completion": "command_finished"}
 # Timeout is a failure: "completion": "timeout", "timeout": true
+# Output larger than the tab's retained buffer adds "output_truncated": true (its beginning is missing)
 ```
 
 ### SSE Output Stream
@@ -236,4 +237,4 @@ launch without a registered session remains the distinct
 `plan_binding_session_unregistered` error on both transports. Pending status
 never authorizes the mutation.
 
-<!-- revision: 50 -->
+<!-- revision: 51 -->
