@@ -544,6 +544,7 @@ impl Messenger {
                     ),
             )
         };
+        log::debug!("[messenger] target={resolved_target} branch=pty agent={pty_agent_target} source_peer={:?}", envelope.peer);
         let entry = pty_submit_entry(envelope.kind);
         if envelope.kind == MessageKind::Message {
             super::provider_signals::warn_dispatch(svc, &envelope.from_tab, &resolved_target);

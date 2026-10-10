@@ -1,6 +1,7 @@
 import { describe, expect, finish, it } from "../test/standaloneTest";
 import {
   createRemoteChannelRecovery,
+  streamResponseFailureReason,
   createSilenceDeadline,
   parkStalledConnection,
   type SilenceDeadlineScheduler,
@@ -65,6 +66,19 @@ describe("remote channel recovery", () => {
     // No transition ever left 'available' here, so neither the live nor the stale
     // callbacks emitted anything — stale generations never touch availability.
     expect(emitted).toEqual([]);
+  });
+
+  it("maps HTTP 400 refusal to unavailable and waits for an explicit recovery signal", () => {
+    const { recovery, emitted } = build();
+    const generation = recovery.beginConnection();
+    expect(recovery.handleStreamEnd(generation, streamResponseFailureReason(400))).toBe("wait");
+    expect(recovery.availability()).toBe("unavailable");
+    expect(recovery.isAwaitingSignal()).toBe(true);
+    expect(emitted).toEqual([{ channel: "output", availability: "unavailable" }]);
+    expect(recovery.signal()).toBe("reconnect");
+    expect(recovery.noteProgress(recovery.beginConnection(), 1)).toBe(true);
+    expect(recovery.availability()).toBe("available");
+    expect(streamResponseFailureReason(502)).toBe("error");
   });
 
   it("zero-progress clean EOF does not busy-reconnect", () => {

@@ -12,6 +12,7 @@ case "${1:-all}" in
       plugins/git/tests/plugin.test.ts
       plugins/provider-claude/tests/availability.test.ts
       plugins/provider-claude/tests/context.test.ts
+      plugins/provider-claude/tests/access-errors.test.ts
       plugins/provider-claude/tests/signals.test.ts
       plugins/provider-claude/tests/background-work.test.ts
       plugins/provider-claude/tests/model-capabilities.test.ts
@@ -27,6 +28,7 @@ case "${1:-all}" in
       plugins/provider-claude/tests/launch-session.test.ts
       plugins/provider-claude/tests/account-home.test.ts
       plugins/provider-claude/tests/pre-trust.test.ts
+      plugins/provider-codex/tests/access-errors.test.ts
       plugins/provider-codex/tests/plugin.test.ts
       plugins/provider-codex/tests/resume-compatibility.test.ts
       plugins/provider-codex/tests/models.test.ts
@@ -79,6 +81,7 @@ case "${1:-all}" in
   provider-claude)
     tests=(
       plugins/provider-claude/tests/context.test.ts
+      plugins/provider-claude/tests/access-errors.test.ts
       plugins/provider-claude/tests/signals.test.ts
       plugins/provider-claude/tests/background-work.test.ts
       plugins/provider-claude/tests/model-capabilities.test.ts
@@ -99,6 +102,7 @@ case "${1:-all}" in
     ;;
   provider-codex)
     tests=(
+      plugins/provider-codex/tests/access-errors.test.ts
       plugins/provider-codex/tests/plugin.test.ts
       plugins/provider-codex/tests/resume-compatibility.test.ts
       plugins/provider-codex/tests/models.test.ts

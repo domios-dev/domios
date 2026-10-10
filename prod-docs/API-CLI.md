@@ -83,6 +83,11 @@ Domios automatically detects Claude Code and other agents:
 
 Skills for Claude Code are in `skills/` directory. Install via Settings → Agents & Skills.
 
+`codeterm agent models <provider> --json` returns that provider's model rows,
+including over `--mesh <peer>`; an unknown provider returns a typed `not_found`
+error. `codeterm agent providers` lists provider summaries and returns the full
+descriptor array with `--json` in both local and mesh mode.
+
 Choose a model with `codeterm agent models <provider>`, which first refreshes a catalogue that requires live discovery and, when no new snapshot publishes, warns and lists the registered one. Pass the id with `codeterm agent spawn [provider] --model <id>`. Without a provider, a uniquely advertised bare id selects its provider; otherwise spawn uses the configured default provider. Authoritative catalogues refuse unknown ids before creating a tab and list the valid ids in the error. Free-form providers validate ids against a published live model list and pass the id through unchanged when none exists. Provider-qualified ids select their provider; an unqualified id advertised by one provider routes to it. If several advertise it, `plan task dispatch` requires `--agent` and `agent spawn` requires the positional provider. Ambiguous ids and aliases advertised by another provider are refused instead of falling through or crossing providers.
 
 Task attempt inspection keeps `requested_model`, `provider_resolved_model`, and `session_model` separate. The resolved field stays null until launch resolution identifies the model; the session field stays null until detection reads that attempt's bound session. A different detected model is stored in `model_identity_mismatch` and raises one dispatcher notice.
@@ -129,4 +134,4 @@ A launch's role text comes from its role preset; task personality, `role_guidanc
 
 Overlay files add leaf kinds only. Declaring capability, claiming an anchoring or Team-authority base, overriding a builtin kind, or asking to own a contract without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 33 -->
+<!-- revision: 34 -->

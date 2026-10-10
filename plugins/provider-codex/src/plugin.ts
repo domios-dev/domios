@@ -1,3 +1,4 @@
+import {parseSessionObservations} from "./signals";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
 import type {
   LaunchParams,
@@ -416,6 +417,8 @@ const plugin: PluginModule = {
   },
 
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts.
+  parseSessionObservations,
+
   parseSessionDelta(chunk: string, context?: SessionDeltaContext): unknown {
     const out: unknown[] = [];
     const commandPairing = commandPairingState(context);

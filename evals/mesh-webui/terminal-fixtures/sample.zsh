@@ -5,7 +5,7 @@ esc=$'\e'
 case $mode in
   output)
     for n in {1..180}; do
-      printf 'B3:%03d | λ 界 é | %s\n' $n ${(l:120::=:)}
+      printf 'B3:%03d | λ 界 é | %s\n' $n ${(l:120::=:)${:-}}
     done
     printf '%s[31mRED%s[0m %s[32mGREEN%s[0m %s[7mINVERSE%s[0m\n' "$esc" "$esc" "$esc" "$esc" "$esc" "$esc"
     printf 'B3:%s\n' COMPLETE
