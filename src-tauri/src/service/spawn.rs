@@ -6,6 +6,7 @@ use super::orchestrator::launch_agent_in_background_with_env;
 use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 
+#[cfg(test)]
 pub(crate) use crate::service::startup_turn::visible_spawn_starter_prompt;
 #[path = "spawn_warnings.rs"]
 mod spawn_warnings;
