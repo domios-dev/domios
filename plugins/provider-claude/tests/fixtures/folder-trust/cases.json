@@ -1,4 +1,9 @@
 [
+  { "file": "trust-followed-by-composer-pointer.txt", "expect": "none" },
+  { "file": "trust-followed-by-horizontal-rule.txt", "expect": "none" },
+  { "file": "quoted-trust-then-live-trust.txt", "expect": "move-down" },
+  { "file": "claude-transcript-quotes-trust-dialog.txt", "expect": "none" },
+  { "file": "claude-2.1.296-trailing-blanks.txt", "expect": "move-down" },
   { "file": "claude-2.1.296-auto-mode.txt", "expect": "move-down" },
   { "file": "trust-local-preapproved-no-first.txt", "expect": "move-down" },
   { "file": "quick-safety-no-first.txt", "expect": "move-down" },
