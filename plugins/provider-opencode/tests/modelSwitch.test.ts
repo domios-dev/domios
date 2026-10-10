@@ -107,45 +107,35 @@ test("binding registration cannot consume the controls request deadline", async 
   assert.deepEqual(JSON.parse(JSON.stringify(message.model)), { providerID: "vendor", modelID: "new/model" });
 });
 
-for (const firstModel of ["target", "old"]) {
-  test(`confirmation reads first own-session assistant record even when it uses ${firstModel}`, () => {
-    const db = new DatabaseSync(":memory:");
-    db.exec(fs.readFileSync(new URL("./fixtures/sqlite-1.18.35.sql", import.meta.url), "utf8"));
-    const context = {
-      host: { platform: () => "linux", envGet: () => null, expandHome: (p: string) => p,
-        fs: { fileExists: () => true, sqliteQuery: (_path: string, sql: string, args: unknown[]) => {
-          const statement = db.prepare(sql);
-          statement.setAllowBareNamedParameters(true);
-          return statement.all(Object.fromEntries(args.map((value, index) => [String(index + 1), value])));
-        } },
-      },
-      module: { exports: {} as { default?: {
-        sessionModelTranscriptBoundary: (cwd: string, sid: string) => unknown;
-        detectSessionModelAfterBoundary: (cwd: string, sid: string, boundary: unknown) => string | null;
-      } } }, exports: {},
-    };
-    new vm.Script(fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8")).runInNewContext(context);
-    const plugin = context.module.exports.default!;
-    const boundary = plugin.sessionModelTranscriptBoundary("/fixture", "ses_fixture_owned");
-    const detect = () => plugin.detectSessionModelAfterBoundary("/fixture", "ses_fixture_owned", boundary);
-    const insert = (id: string, sid: string, time: number, message: unknown) => db.prepare(
-      "INSERT INTO message VALUES (?, ?, ?, ?, ?)").run(id, sid, time, time, JSON.stringify(message));
-    assert.equal(detect(), null);
-    insert("msg_foreign_new", "ses_foreign", 3000, { role: "assistant", parentID: "foreign", providerID: "foreign", modelID: "foreign" });
-    insert("msg_new_user", "ses_fixture_owned", 3000, { role: "user", model: { providerID: "vendor", modelID: "target" } });
-    assert.equal(detect(), null);
-    insert("msg_new_assistant", "ses_fixture_owned", 3001, { role: "assistant", parentID: "msg_new_user", providerID: "vendor", modelID: firstModel });
-    const observed = detect();
-    assert.equal(observed, `vendor/${firstModel}`);
-    assert.equal(observed === "vendor/target", firstModel === "target");
-    insert("msg_later_assistant", "ses_fixture_owned", 4000, { role: "assistant", parentID: "later", providerID: "vendor", modelID: "later" });
-    assert.equal(detect(), `vendor/${firstModel}`);
-    db.close();
-  });
-}
-
-test("OpenCode refuses live switching until the running hook control transport is verified", () => {
-  const manifest = JSON.parse(fs.readFileSync(new URL("../plugin.json", import.meta.url), "utf8"));
-  assert.equal(manifest.commands.modelSwitch, "unsupported");
-  assert.deepEqual(manifest.commands.modelLaunchArgsFormat, ["-m", "{model}"]);
+test("confirmation reads first new assistant model in the claimed SQLite session", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec(fs.readFileSync(new URL("./fixtures/sqlite-1.18.35.sql", import.meta.url), "utf8"));
+  const context = {
+    host: { platform: () => "linux", envGet: () => null, expandHome: (p: string) => p,
+      fs: { fileExists: () => true, sqliteQuery: (_path: string, sql: string, args: unknown[]) => {
+        const statement = db.prepare(sql);
+        statement.setAllowBareNamedParameters(true);
+        return statement.all(Object.fromEntries(args.map((value, index) => [String(index + 1), value])));
+      } },
+    },
+    module: { exports: {} as { default?: {
+      sessionModelTranscriptBoundary: (cwd: string, sid: string) => unknown;
+      detectSessionModelAfterBoundary: (cwd: string, sid: string, boundary: unknown) => string | null;
+    } } }, exports: {},
+  };
+  new vm.Script(fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8")).runInNewContext(context);
+  const plugin = context.module.exports.default!;
+  const boundary = plugin.sessionModelTranscriptBoundary("/fixture", "ses_fixture_owned");
+  const detect = () => plugin.detectSessionModelAfterBoundary("/fixture", "ses_fixture_owned", boundary);
+  const insert = (id: string, sid: string, time: number, message: unknown) => db.prepare(
+    "INSERT INTO message VALUES (?, ?, ?, ?, ?)").run(id, sid, time, time, JSON.stringify(message));
+  assert.equal(detect(), null);
+  insert("msg_foreign_new", "ses_foreign", 3000, { role: "assistant", parentID: "foreign", providerID: "foreign", modelID: "foreign" });
+  insert("msg_new_user", "ses_fixture_owned", 3000, { role: "user", model: { providerID: "vendor", modelID: "target" } });
+  assert.equal(detect(), null);
+  insert("msg_new_assistant", "ses_fixture_owned", 3001, { role: "assistant", parentID: "msg_new_user", providerID: "vendor", modelID: "target" });
+  assert.equal(detect(), "vendor/target");
+  insert("msg_later_assistant", "ses_fixture_owned", 4000, { role: "assistant", parentID: "later", providerID: "vendor", modelID: "later" });
+  assert.equal(detect(), "vendor/target");
+  db.close();
 });

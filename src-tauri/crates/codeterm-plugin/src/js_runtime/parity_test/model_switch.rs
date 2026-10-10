@@ -4,16 +4,16 @@ use super::*;
 mod session_model_identity;
 
 #[test]
-fn opencode_model_switch_refuses_without_a_verified_runtime_control_transport() {
+fn opencode_model_switch_uses_the_declared_next_turn_transport() {
     let Some(_) = require_plugins() else {
         return;
     };
-    let native = crate::provider::ModelSwitchMode::Unsupported;
+    let native = crate::provider::ModelSwitchMode::NextTurn;
     let js = load_js("opencode").model_switch();
 
     assert_eq!(
         serde_json::to_value(native).unwrap(),
-        serde_json::json!("unsupported")
+        serde_json::json!("next_turn")
     );
     assert_eq!(js, native);
     assert_eq!(
