@@ -31,7 +31,7 @@ try {
     const current = await page.evaluate(() => localStorage.getItem(`codeterm-web-relay-peer:${location.origin}`));
     if ((current || null) !== intendedPeer) await switchPeer(page, intendedPeer);
     await selectTab(page, item.tabId, { mode: 'terminal' });
-    const base = await capture(page, item.id + '-provenance');
+    const base = await capture(page, item.id + '-provenance', { tabId: item.tabId });
     const probeId = await terminalObserver.armTerminalEvents(page, item.tabId);
     try {
       await terminalObserver.captureTerminal(page, {

@@ -207,6 +207,33 @@ lsof -nP -iTCP:7685 -sTCP:LISTEN -t
 If the failure is caused by the dev-run procedure itself, fix the procedure as
 well as the immediate environment before declaring recovery complete.
 
+### DEV browser terminal diagnostics (all platforms)
+
+- **2026-10-10: `Cannot arm missing DEV xterm` or `DEV xterm instance unavailable`
+  in a DEV web terminal capture** — the browser serves the watched `dist/`
+  bundle through `CODETERM_WEB_DIST`. A default `vite build --watch` uses
+  production `NODE_ENV`, so `import.meta.env.DEV` is false and
+  `host.__codetermTerminal` is absent even when the titlebar says DEV.
+  `CODETERM_FRONTEND_DEV=1` controls the label, not Vite's diagnostics.
+  `build.sh start_web_watch` scopes `NODE_ENV=development` and
+  `--mode development` to both platform watcher commands. Release `pnpm build`
+  keeps its default production environment and mode.
+- **Recovery** — after canonical integration, restart only the affected DEV
+  through its existing scoped launcher (`./build.sh kill`, then `./build.sh dev`;
+  Windows uses `build.ps1`). Preserve any named-instance/port settings. Confirm
+  the watcher finished a new bundle in `/tmp/codeterm-web-watch<SUFFIX>.log`,
+  reload that DEV browser, select the exact fixture in Terminal mode, and verify
+  its xterm host has `__codetermTerminal`. The desktop alone is not proof of the
+  browser bundle. Isolated Workers defer this lifecycle and live check to the
+  Orchestrator.
+- **Wrong `selectedTabId` in capture metadata** — hidden tab roots remain
+  mounted and can have client rectangles. Pass the fixture's exact DOM
+  `data-tab-id`, including any mesh prefix, to the shared capture helper.
+  It requires one matching root with visible CSS and positive geometry;
+  a missing or hidden fixture fails instead of falling back to General Agent.
+  Select that fixture on the intended peer before retrying in a fresh evidence
+  directory; retain the failed run.
+
 ### macOS
 
 - **`build.sh dev` hangs during link, then SIGKILL** — usually not enough RAM (linker eats a lot). Close other heavy apps, retry. If it repeats, `./build.sh clean && ./build.sh dev`.
@@ -249,4 +276,4 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
