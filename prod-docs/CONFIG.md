@@ -237,5 +237,4 @@ Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `cod
 
 Utility limits apply to each Team and purpose (`build`, `dev`, `qa`, `deploy`, `logs`, `db`, `shell`). At the limit, creation restarts the oldest confirmed idle tab with the new command and description; busy or unknown tabs are refused. Use `codeterm tab new --description "Runs focused tests" --purpose qa --icon bug`; icon names are Lucide kebab-case names.
 Structured provider access refusals are always observed from the tab's bound session, independently of optional structured-signal settings. Incident levels and recovery: `codeterm docs NOTIFICATIONS`.
-
 <!-- revision: 102 -->
