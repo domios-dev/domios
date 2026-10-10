@@ -91,8 +91,9 @@ export function reflexOutcome(entry: SupporterActivity): ReflexRow {
   const reason = lookup(reasons, entry.reason);
   const subject = entry.tab_title?.replace(/\s+/g, " ").trim() || undefined;
   let result = action ?? kind ?? outcome(CircleHelp, "Recorded a decision");
-  if (entry.kind === "tab_state" && label && ["notify_only", "spawn_ok"].includes(entry.action)) {
-    result = { ...label, phrase: `${subject ?? "Tab"} ${label.phrase}` };
+  if (entry.kind === "tab_state" && label && ["notify_only", "spawn_ok", "decision", "notify", "strong_action"].includes(entry.action)) {
+    const note = ["notify", "strong_action"].includes(entry.action) && action ? ` · ${action.phrase.toLowerCase()}` : "";
+    result = { ...label, tone: note && action ? action.tone : label.tone, phrase: `${subject ?? "Tab"} ${label.phrase}${note}` };
   } else if (entry.kind === "rerank") {
     result = label && ["ranked", "relevance_scored"].includes(entry.label) ? label : kinds.rerank;
   } else if (entry.action === "recovery") {
