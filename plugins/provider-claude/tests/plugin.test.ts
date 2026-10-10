@@ -220,6 +220,15 @@ console.log("\n--- detect delegation ---\n");
 assert(plugin.detect({ bytes: "", title: "claude" }), "plugin.detect delegates to detect.ts");
 
 const hostPlugin = loadHostPlugin();
+for (const screen of [fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures/tab-state/completed-numbered-answer-dev67.txt"), "utf8"), "❯ 1. opaque-a\n  2. opaque-b\nEsc to cancel\n─────\n❯\n─────"]) {
+  eq(hostPlugin.parsePrompt(screen), null, "completed numbered transcript with ready input has no current prompt");
+  assert(!hostPlugin.detectEvents(screen).includes("permission_request"), "completed numbered transcript does not emit a permission event");
+}
+for (const selector of ["❯", ">"] ) {
+  const screen = `opaque-question?\n${selector} 1. opaque-a\n  2. opaque-b\nEsc to cancel`;
+  assert(Boolean(hostPlugin.parsePrompt(screen)), "current selected option block remains a prompt");
+  assert(hostPlugin.detectEvents(screen).includes("permission_request"), "current selected option block emits its permission event");
+}
 const permissionHook = hostPlugin.permissionHookCapability();
 eq(permissionHook.protocol, "claude-permission-request", "permission hook declares its protocol");
 eq(permissionHook.options.map((option: { value: string }) => option.value), ["allow", "deny"],
