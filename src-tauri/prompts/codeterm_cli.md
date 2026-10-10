@@ -77,6 +77,8 @@ Flat peer model: paired = trusted. Most tab/agent/workspace commands accept `--m
 
 The Domios memory protocol is in your provider rules. Commands: `codeterm mem --help`; depth: `codeterm docs MEMORY`. Past conversations are not mem: `codeterm sessions search`.
 
+Use `codeterm mem taxonomy` for area counts and `codeterm mem area merge <from> --into <to> --dry-run` to preview a reversible area move; omit `--dry-run` to apply. Undo per item with `codeterm mem restore <id> --version <history-row>`.
+
 ## Platform notes
 
 Paths: use forward slashes; the CLI normalizes them on every OS.
