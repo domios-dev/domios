@@ -25,3 +25,6 @@ pub mod shell_profiles {
 pub mod write_queue {
     pub use codeterm_pty::pty::write_queue::*;
 }
+
+#[cfg(test)]
+mod ansi_tests;
