@@ -15,6 +15,7 @@ check(() => assert.deepEqual(parseSessionObservations({isApiErrorMessage:true,er
 check(() => assert.equal(parseSessionObservations({error:"authentication_error"}), null));
 check(() => assert.equal(parseSessionObservations({isApiErrorMessage:true,error:{type:"authentication_error"}})?.api_error, "authentication"));
 check(() => assert.equal(parseSessionObservations({permissionMode:"plan"})?.permission_mode, "plan"));
+check(() => assert.equal(parseSessionObservations({permissionMode:"auto"})?.permission_mode, "auto"));
 check(() => assert.equal(parseSessionObservations({permissionMode:"opaque"}), null));
 check(() => assert.equal(parseSessionObservations({type:"assistant",message:{}})?.clears_api_error, true));
 const sandbox = {module:{exports:{} as {default?: typeof import("../src/plugin").default}},exports:{},host:{}};

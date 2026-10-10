@@ -834,100 +834,103 @@ impl ServiceContext {
         let correlation = envelope.correlation.clone();
         let observation_id = envelope.observation_id;
         let requested_by = requested_by.map(str::to_owned);
-        super::super::output::write_bound_prompt_steps(
-            self.pty.clone(),
-            pty,
-            vec![step],
-            move || {
-                let own_ledger_current = match target.kind {
-                    Kind::Update => ledgers.update == owned_revision,
-                    Kind::Onboarding | Kind::DirectoryTrust => ledgers.trust == owned_revision,
-                    Kind::Permission => ledgers.permission == owned_revision,
-                };
-                let current = own_ledger_current
-                    && unchanged == receipt.metadata.envelope.as_ref().unwrap().ledgers
-                    && receipt.current(&service, &tab, &ledgers)
-                    && requested_kind.map_or_else(
-                        || {
-                            service.model_safe_response_target(&tab, &screen).as_ref()
-                                == Some(&target)
-                        },
-                        |kind| {
-                            service
-                                .sentinel_safe_response_target(&tab, &screen, kind)
-                                .as_ref()
-                                == Some(&target)
-                        },
-                    );
-                let current = current
-                    && service.begin_automatic_prompt_answer(
-                        &tab,
-                        target.kind.context(),
-                        service.prompt_chain_fingerprint(target.kind.prompt_kind(), &target.prompt),
-                        None,
-                    );
-                match target.kind {
-                    Kind::Onboarding => {
-                        super::super::directory_trust::finish_model_onboarding_step(
-                            &tab,
-                            &episode,
-                            &target.frame_key,
-                            current,
-                        )
-                    }
-                    Kind::DirectoryTrust => super::super::directory_trust::finish_model_trust_step(
-                        &tab,
-                        &trust_occurrence,
-                        current,
-                    ),
-                    Kind::Permission => {}
-                    Kind::Update if !current => {
-                        super::super::output::release_model_update_step(&tab, &occurrence)
-                    }
-                    Kind::Update => {}
-                }
-                let mut event = identity::journal(
-                    &tab,
-                    identity::correlation::RecordIdentity::captured(observation_id, &correlation),
-                    identity::DecisionSource::Adapter,
-                    &label,
-                    Some(minimum),
-                    &receipt.metadata.title,
-                );
-                event["action"] = serde_json::json!("recovery");
-                event["phase"] = serde_json::json!(if current {
-                    "action_authorized"
-                } else {
-                    "action_stale"
-                });
-                event["reason"] = serde_json::json!(if current {
-                    "provider_safe_step_authorized"
-                } else {
-                    "provider_safe_step_stale"
-                });
-                if let Some(requested_by) = requested_by.as_deref() {
-                    event["requested_by"] = serde_json::json!(requested_by);
-                }
-                let context = supporter::ActivityContext::TabState {
-                    title: receipt.metadata.title.clone(),
-                    declared_safe_choice: Some(target.choice.clone()),
-                    decision_point: "safe_response".into(),
-                };
-                let answers = BTreeMap::from([(
-                    "safe_choice".into(),
-                    DecisionAnswer::Choice {
-                        choice: target.choice.clone(),
-                        confidence: Some(minimum),
-                        probabilities: BTreeMap::new(),
+        let trust_answer = (target.kind == Kind::DirectoryTrust).then(|| trust_occurrence.clone());
+        let bound_pty = pty.clone();
+        let agent = snapshot.agent_type.clone();
+        let authorize = move || {
+            let own_ledger_current = match target.kind {
+                Kind::Update => ledgers.update == owned_revision,
+                Kind::Onboarding | Kind::DirectoryTrust => ledgers.trust == owned_revision,
+                Kind::Permission => ledgers.permission == owned_revision,
+            };
+            let current = own_ledger_current
+                && unchanged == receipt.metadata.envelope.as_ref().unwrap().ledgers
+                && receipt.current(&service, &tab, &ledgers)
+                && requested_kind.map_or_else(
+                    || service.model_safe_response_target(&tab, &screen).as_ref() == Some(&target),
+                    |kind| {
+                        service
+                            .sentinel_safe_response_target(&tab, &screen, kind)
+                            .as_ref()
+                            == Some(&target)
                     },
-                )]);
-                event["asked"] = privacy::value(
-                    &serde_json::to_value(context.answers(&answers)).unwrap_or_default(),
                 );
-                let _ = service.supporter_runtime().decision(event);
-                current
-            },
-        );
+            let current = current
+                && service.begin_automatic_prompt_answer(
+                    &tab,
+                    target.kind.context(),
+                    service.prompt_chain_fingerprint(target.kind.prompt_kind(), &target.prompt),
+                    None,
+                );
+            match target.kind {
+                Kind::Onboarding => super::super::directory_trust::finish_model_onboarding_step(
+                    &tab,
+                    &episode,
+                    &target.frame_key,
+                    current,
+                ),
+                Kind::DirectoryTrust => super::super::directory_trust::finish_model_trust_step(
+                    &tab,
+                    &trust_occurrence,
+                    current,
+                ),
+                Kind::Permission => {}
+                Kind::Update if !current => {
+                    super::super::output::release_model_update_step(&tab, &occurrence)
+                }
+                Kind::Update => {}
+            }
+            let mut event = identity::journal(
+                &tab,
+                identity::correlation::RecordIdentity::captured(observation_id, &correlation),
+                identity::DecisionSource::Adapter,
+                &label,
+                Some(minimum),
+                &receipt.metadata.title,
+            );
+            event["action"] = serde_json::json!("recovery");
+            event["phase"] = serde_json::json!(if current {
+                "action_authorized"
+            } else {
+                "action_stale"
+            });
+            event["reason"] = serde_json::json!(if current {
+                "provider_safe_step_authorized"
+            } else {
+                "provider_safe_step_stale"
+            });
+            if let Some(requested_by) = requested_by.as_deref() {
+                event["requested_by"] = serde_json::json!(requested_by);
+            }
+            let context = supporter::ActivityContext::TabState {
+                title: receipt.metadata.title.clone(),
+                declared_safe_choice: Some(target.choice.clone()),
+                decision_point: "safe_response".into(),
+            };
+            let answers = BTreeMap::from([(
+                "safe_choice".into(),
+                DecisionAnswer::Choice {
+                    choice: target.choice.clone(),
+                    confidence: Some(minimum),
+                    probabilities: BTreeMap::new(),
+                },
+            )]);
+            event["asked"] = privacy::value(
+                &serde_json::to_value(context.answers(&answers)).unwrap_or_default(),
+            );
+            let _ = service.supporter_runtime().decision(event);
+            current
+        };
+        if let Some(occurrence) = trust_answer {
+            self.queue_directory_trust_answer(tab_id, &bound_pty, &agent, &occurrence, authorize);
+        } else {
+            super::super::output::write_bound_prompt_steps(
+                self.pty.clone(),
+                pty,
+                vec![step],
+                authorize,
+            );
+        }
         Progress::StepQueued
     }
 }

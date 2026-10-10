@@ -1,10 +1,11 @@
+mod answer;
 mod live_peer;
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::LazyLock;
 
-use codeterm_plugin::provider::{AgentProvider, DirectoryTrustPromptResponse};
+use codeterm_plugin::provider::DirectoryTrustPromptResponse;
 
 use super::ServiceContext;
 use crate::multiplexer::types::{PendingPrompt, Tab};
@@ -220,6 +221,7 @@ struct TabTrust {
     trust_launch_nonce: Option<String>,
     trust_occurrence: Option<u64>,
     trust_claimed: bool,
+    trust_failed: bool,
     trust_prompt_resolved: bool,
     last_note: Option<(&'static str, u64)>,
     notes: usize,
@@ -248,6 +250,7 @@ impl TrustLedger {
             tab.trust_launch_nonce = Some(nonce.to_string());
             tab.trust_occurrence = None;
             tab.trust_claimed = false;
+            tab.trust_failed = false;
             tab.trust_prompt_resolved = false;
         }
         match occurrence {
@@ -255,6 +258,7 @@ impl TrustLedger {
                 if tab.trust_occurrence != Some(occurrence) {
                     tab.trust_occurrence = Some(occurrence);
                     tab.trust_claimed = false;
+                    tab.trust_failed = false;
                 }
                 tab.trust_prompt_resolved = false;
             }
@@ -263,6 +267,7 @@ impl TrustLedger {
                     tab.trust_prompt_resolved = true;
                 }
                 tab.trust_claimed = false;
+                tab.trust_failed = false;
             }
             None => tab.trust_prompt_resolved = false,
         }
@@ -273,8 +278,9 @@ impl TrustLedger {
         if tab.trust_occurrence != Some(occurrence) {
             tab.trust_occurrence = Some(occurrence);
             tab.trust_claimed = false;
+            tab.trust_failed = false;
         }
-        if tab.trust_claimed {
+        if tab.trust_claimed || tab.trust_failed {
             return false;
         }
         tab.trust_claimed = true;
@@ -287,6 +293,15 @@ impl TrustLedger {
         };
         if release && tab.trust_occurrence == Some(occurrence) {
             tab.trust_claimed = false;
+        }
+    }
+
+    fn finish_trust_answer(&mut self, tab_id: &str, occurrence: u64, accepted: bool) {
+        self.release_trust_claim(tab_id, occurrence, !accepted);
+        if let Some(tab) = self.tabs.get_mut(tab_id) {
+            if tab.trust_occurrence == Some(occurrence) {
+                tab.trust_failed = !accepted;
+            }
         }
     }
 
@@ -350,27 +365,6 @@ pub(crate) fn directory_trust_occurrence(prompt: &PendingPrompt) -> String {
         .collect::<Vec<_>>();
     let identity = serde_json::to_string(&(prompt.question.trim(), options)).unwrap_or_default();
     format!("directory-trust:{}", frame_id(&identity))
-}
-
-pub(crate) fn full_directory_trust_key(
-    provider: &dyn AgentProvider,
-    prompt: &PendingPrompt,
-    screen: &str,
-    first_key: &[u8],
-) -> Option<Vec<u8>> {
-    let mut matches = prompt.options.iter().enumerate().filter_map(|(index, _)| {
-        let keys = provider
-            .live_prompt_response(index, screen)
-            .unwrap_or_else(|| provider.build_prompt_response(index, screen));
-        keys.first()
-            .is_some_and(|key| key.as_slice() == first_key)
-            .then_some(keys)
-    });
-    let mut keys = matches.next()?;
-    if matches.next().is_some() || keys.is_empty() || keys.iter().any(Vec::is_empty) {
-        return None;
-    }
-    Some(keys.drain(..).flatten().collect())
 }
 
 pub(crate) fn trust_prompt_resolved_for_launch(tab_id: &str, nonce: &str) -> bool {
@@ -565,10 +559,7 @@ impl ServiceContext {
                 }
                 let response = match provider.directory_trust_prompt_response(screen) {
                     Some(DirectoryTrustPromptResponse::Answer { step }) => {
-                        full_directory_trust_key(provider, &prompt, screen, &step)
-                            .map_or(DirectoryTrustPromptResponse::Hold, |step| {
-                                DirectoryTrustPromptResponse::Answer { step }
-                            })
+                        DirectoryTrustPromptResponse::Answer { step }
                     }
                     Some(DirectoryTrustPromptResponse::Hold) | None => {
                         DirectoryTrustPromptResponse::Hold
@@ -884,27 +875,28 @@ impl ServiceContext {
             })
             .is_err()
         {
+            self.queue_directory_trust_answer(tab_id, pty_id, agent_type, occurrence, || false);
             return;
         }
         super::supporter_notify::verbose(self, tab_id, "Folder trust response authorized", "The existing trust responder authorized this directory and its provider-declared trust option.");
-        self.prompt_detector.lock().mark_responded(tab_id);
-        let svc = self.clone();
+        let service = self.clone();
         let tab = tab_id.to_string();
-        let expected = step.clone();
         let bound_pty = pty_id.to_string();
         let agent = agent_type.to_string();
         let occurrence = occurrence.to_string();
-        super::output::write_bound_prompt_steps(
-            self.pty.clone(),
-            pty_id.to_string(),
-            vec![step.clone()],
+        let expected_occurrence = occurrence.clone();
+        self.queue_directory_trust_answer(
+            tab_id,
+            pty_id,
+            agent_type,
+            &expected_occurrence,
             move || {
-                svc.directory_trust_key_still_owed(&tab, &bound_pty, &agent, &occurrence, &expected)
-                    && svc.begin_automatic_prompt_answer(
+                service.directory_trust_key_still_owed(&tab, &bound_pty, &agent, &occurrence, &step)
+                    && service.begin_automatic_prompt_answer(
                         &tab,
                         "directory_trust",
-                        format!("directory-trust:{expected:?}"),
-                        Some(format!("{expected:?}")),
+                        occurrence.clone(),
+                        None,
                     )
             },
         );
@@ -1103,7 +1095,7 @@ impl ServiceContext {
             .then(|| tab.cwd.clone())
             .flatten()
         });
-        let (owed, dialog_still_answerable) = cwd.map_or((false, false), |cwd| {
+        let owed = cwd.is_some_and(|cwd| {
             let screen = self
                 .screen_state
                 .lock()
@@ -1122,30 +1114,12 @@ impl ServiceContext {
                     .get(&(agent_type.to_string(), cwd.clone()))
                     == Some(&true);
             match self.provider_directory_trust_prompt(agent_type, &screen) {
-                Some((occurrence, DirectoryTrustPromptResponse::Answer { step })) => (
-                    eligible && occurrence == expected_occurrence && step == expected,
-                    true,
-                ),
-                Some((_, DirectoryTrustPromptResponse::Hold)) => (false, false),
-                None => (false, false),
+                Some((occurrence, DirectoryTrustPromptResponse::Answer { step })) => {
+                    eligible && occurrence == expected_occurrence && step == expected
+                }
+                _ => false,
             }
         });
-        if !owed {
-            LEDGER
-                .lock()
-                .release_trust_claim(tab_id, frame_id(expected_occurrence), true);
-            log::info!(
-                "[directory-trust] Withheld key for Tab {}: the dialog changed before the write",
-                tab_id
-            );
-            if dialog_still_answerable {
-                let service = self.clone();
-                let tab = tab_id.to_string();
-                std::thread::spawn(move || {
-                    service.respond_to_directory_trust(&tab, None);
-                });
-            }
-        }
         owed
     }
 

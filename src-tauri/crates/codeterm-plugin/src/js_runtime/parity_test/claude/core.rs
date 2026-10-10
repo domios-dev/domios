@@ -59,7 +59,12 @@ fn screen_has_tui_parity() {
         return;
     }
     let (n, j) = pair();
-    for s in ["? for shortcuts here", "ctrl+l help", "esc to interrupt"] {
+    for s in [
+        "? for shortcuts here",
+        "ctrl+l help",
+        "esc to interrupt",
+        "⏵⏵ auto mode on (shift+tab to cycle) · Bypass permissions mode was disabled by settings",
+    ] {
         assert!(n.screen_has_tui(s), "native: {s}");
         assert!(j.screen_has_tui(s), "js: {s}");
     }
