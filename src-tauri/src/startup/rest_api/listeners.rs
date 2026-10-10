@@ -1,4 +1,5 @@
 use super::*;
+use axum::serve::ListenerExt;
 use std::future::Future;
 
 type Observer = Arc<dyn Fn(Vec<SocketAddr>) + Send + Sync>;
@@ -111,9 +112,9 @@ pub(crate) fn additional_bind(
 }
 
 pub(super) async fn bind_remote(
-    primary: tokio::net::TcpListener,
+    primary: std::net::TcpListener,
     remote: Option<SocketAddr>,
-) -> std::io::Result<(tokio::net::TcpListener, Option<tokio::net::TcpListener>)> {
+) -> std::io::Result<(std::net::TcpListener, Option<std::net::TcpListener>)> {
     let remote = match remote {
         Some(address) => {
             let assigned = tokio::task::spawn_blocking(move || {
@@ -140,7 +141,7 @@ pub(super) async fn bind_remote(
 
 pub(super) async fn serve<P>(
     primary: P,
-    remote: Option<tokio::net::TcpListener>,
+    remote: Option<std::net::TcpListener>,
     router: axum::Router,
     publication: ListenerPublication,
 ) -> std::io::Result<()>
@@ -153,15 +154,36 @@ where
     };
     let address = remote.local_addr()?;
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let remote = axum::serve(
-        remote,
+    let remote = serve_listener(remote, router, shutdown_rx);
+    serve_pair(primary, remote, address, publication, Some(shutdown_tx)).await
+}
+
+pub(super) async fn serve_listener(
+    listener: std::net::TcpListener,
+    router: axum::Router,
+    shutdown: oneshot::Receiver<()>,
+) -> std::io::Result<()> {
+    let address = listener.local_addr()?;
+    // Socket ownership can cross runtimes; readiness registration must belong to the serving reactor.
+    let listener = tokio::net::TcpListener::from_std(listener)?;
+    let mut first_accept = true;
+    let listener = listener.tap_io(move |stream| {
+        if first_accept {
+            first_accept = false;
+            log::debug!(
+                "[api] listener {address} accepted its first connection from {:?}",
+                stream.peer_addr()
+            );
+        }
+    });
+    axum::serve(
+        listener,
         router.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(async {
-        let _ = shutdown_rx.await;
+        let _ = shutdown.await;
     })
-    .into_future();
-    serve_pair(primary, remote, address, publication, Some(shutdown_tx)).await
+    .await
 }
 
 async fn serve_pair<P, R>(
