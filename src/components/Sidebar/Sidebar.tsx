@@ -49,7 +49,7 @@ import { NewSessionPicker } from "../Terminal/NewSessionPicker";
 import { OPEN_NEW_SESSION_EVENT, type OpenNewSessionDetail } from "../../lib/newSessionChoice";
 import { isFirstRunGeneralTab } from "../AgentPicker";
 import { RemoteTabPicker } from "./RemoteTabPicker";
-import { declaredAttentionByTab } from "./declaredAttention";
+import { tabAttentionByTab } from "./tabAttention";
 import { teamCloseResourcesForId, teamCloseResourcesForWorkspace, type TeamCloseResource } from "./teamCloseResources";
 import { readWorkspaceBlueprints } from "../Automation/blueprintOwner";
 import { runningBlueprintNamesForOwner } from "../Automation/blueprintOwnerModel";
@@ -144,9 +144,9 @@ export function Sidebar({
     addNotification,
   } = useMultiplexer();
   const state = useMuxSelector(selectSidebarState, sidebarStateEqual);
-  const declaredAttention = useMemo(
-    () => declaredAttentionByTab(state.notifications),
-    [state.notifications],
+  const attention = useMemo(
+    () => tabAttentionByTab(state.tabs, state.tabStatuses, state.notifications),
+    [state.tabs, state.tabStatuses, state.notifications],
   );
   const isWorkspaceMode = mainView === "workspace";
   const [folderPicker, setFolderPicker] = useState<{
@@ -767,6 +767,7 @@ export function Sidebar({
               {isCompact && (
                 <SidebarCompactRail
                   groups={compactGroups}
+                  attentionByTab={attention}
                   tabStatuses={state.tabStatuses}
                   onActivate={(workspaceId, tabId) => {
                     setActiveTab(workspaceId, tabId);
@@ -805,7 +806,7 @@ export function Sidebar({
                       sortedTabs={generalTabs}
                       tabs={state.tabs}
                       tabStatuses={state.tabStatuses}
-                      declaredAttentionByTab={declaredAttention}
+                      tabAttentionByTab={attention}
                       teams={state.teams}
                       planIndex={planIndex}
                       plans={fullPlans.plans}
@@ -905,7 +906,7 @@ export function Sidebar({
                             sortedTabs={sortedTabs}
                             tabs={state.tabs}
                             tabStatuses={state.tabStatuses}
-                            declaredAttentionByTab={declaredAttention}
+                            tabAttentionByTab={attention}
                             teams={state.teams}
                             planIndex={planIndex}
                             plans={fullPlans.plans}

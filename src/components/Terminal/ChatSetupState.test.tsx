@@ -76,9 +76,9 @@ async function main() {
       <ChatSetupState tab={p} view={chatSetupView(p)} providerName="Claude Code" providerIconSvg="<svg><path /></svg>" providerIconColor="#d97757" />,
     );
     assert(host.querySelector('[data-testid="chat-setup-state"]'), "setup card rendered");
-    assert(host.querySelector('[data-testid="chat-launch-glyph"]')?.getAttribute("aria-label") === "Claude Code", "glyph is named by descriptor display name");
-    assert(host.querySelector('[data-testid="chat-launch-ring"]'), "thin conic ring rendered");
-    assert(host.querySelectorAll('[data-testid="chat-launch-ticks"] i').length === 8, "static reduced-motion tick marks are present");
+    const mark = host.querySelector('[role="status"]');
+    assert(mark && mark.getAttribute("aria-label"), "starting mark has a role and accessible name");
+    assert(!host.querySelector('[data-activity-state]'), "startup has no work indicator");
   });
 
   await test("failed launch remains a neutral provider loader", async () => {
@@ -87,19 +87,18 @@ async function main() {
       <ChatSetupState tab={p} view={chatSetupView(p)} providerName="Claude Code" />,
     );
     assert(host.querySelector('[data-testid="chat-setup-state"]'), "neutral setup loader remains rendered");
-    assert(host.querySelector('[data-testid="chat-launch-ring"]'), "progress ring remains rendered");
+    assert(host.querySelector('[role="status"][aria-label]'), "neutral loading mark remains rendered");
     assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "no failure card is rendered");
     assert(!host.textContent?.includes("could not"), "no failure copy is rendered");
     assert(!host.textContent?.includes("SYSTEM REMINDER"), "raw failure detail is hidden");
   });
 
-  await test("missing provider art uses a contained diamond fallback", async () => {
+  await test("missing provider art uses the shared loading mark", async () => {
     const host = await render(
-      <ChatSetupState tab={tab("agent_launching")} view={chatSetupView(tab("agent_launching"))} providerName="Codex" providerIconHint="</>" />,
+      <ChatSetupState tab={tab("agent_launching")} view={chatSetupView(tab("agent_launching"))} providerName="provider-token" />,
     );
-    const glyph = host.querySelector(".chat-launch-glyph .agent-icon");
-    assert(glyph?.textContent === "◆", "fallback is a single diamond");
-    assert(glyph?.classList.contains("text-[18px]"), "fallback stays inside the launch ring");
+    assert(host.querySelector('[role="status"][aria-label]'), "loading fallback is accessible");
+    assert(!host.querySelector('[data-activity-state]'), "fallback does not imply agent work");
   });
 
   await test("ready removes the setup overlay in the transcript commit", async () => {

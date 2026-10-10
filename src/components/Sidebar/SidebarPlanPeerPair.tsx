@@ -7,7 +7,7 @@ import { resolvePlanPeerPair } from "../shared/PairAffordance";
 import { SortableRow, TAB_PREFIX, type SortableGroupData } from "./sortable";
 import { TabItem, type AttachmentToggle, type TabStartedBy } from "./TabItem";
 import { isWorkspaceTabActive } from "./sidebarSelection";
-import type { DeclaredAttentionLevel } from "./declaredAttention";
+import type { TabAttention } from "./tabAttention";
 
 export interface PlannerPeerTabContext {
   plannerTab: Tab | null;
@@ -44,7 +44,7 @@ export interface SidebarTabItemRowProps {
   isActiveVisual: boolean;
   workspaceCanvasActive: boolean;
   tabStatuses: Record<string, TabStatus>;
-  declaredAttentionByTab?: Readonly<Record<string, DeclaredAttentionLevel>>;
+  tabAttentionByTab?: Readonly<Record<string, TabAttention>>;
   orchestrators: Tab[];
   touchMode: boolean;
   uiFontScale?: number;
@@ -76,7 +76,7 @@ function SidebarTabItemRow({
   isActiveVisual,
   workspaceCanvasActive,
   tabStatuses,
-  declaredAttentionByTab = {},
+  tabAttentionByTab = {},
   orchestrators,
   touchMode,
   uiFontScale,
@@ -110,7 +110,7 @@ function SidebarTabItemRow({
       workspaceId={workspaceId}
       hasAgent={Boolean(tab.agent_type)}
       status={tabStatuses[tab.id] ?? null}
-      declaredAttention={declaredAttentionByTab[tab.id] ?? null}
+      attention={tabAttentionByTab[tab.id] ?? null}
       onRename={(title) => onRenameTab(tab.id, title)}
       orchestrators={orchestrators}
       isAppearing={isAppearing}

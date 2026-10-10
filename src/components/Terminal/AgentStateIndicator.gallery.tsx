@@ -59,7 +59,7 @@ export function AgentStateGallery() {
           >
             {row.label}
           </span>
-          <AgentStateIndicator activity={tabActivity({ agent_state: row.state })} />
+          <AgentStateIndicator activity={tabActivity({ agent_session_id: "gallery-session", agent_state: row.state })} />
         </div>
       ))}
     </div>
