@@ -13,6 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::task::JoinHandle;
 
+use super::pty_output_pipeline::{prepare_batches, OutputBatch};
 use super::ServiceState;
 use crate::multiplexer::types::TabCloseReason;
 
@@ -246,12 +247,15 @@ async fn backend_read_loop(
     }
 
     drop(feed_tx);
-    if let Err(error) = feed_task.await {
-        log::error!(
-            "[backend-reader] output processor failed for {}: {}",
-            &pty_id[..pty_id.len().min(8)],
-            error
-        );
+    match feed_task.await {
+        Ok(status_task) => {
+            if let Err(error) = status_task.await {
+                log::error!("[backend-reader] status processor failed for {pty_id}: {error}");
+            }
+        }
+        Err(error) => {
+            log::error!("[backend-reader] screen processor failed for {pty_id}: {error}");
+        }
     }
     handle_pty_death(&svc, &pty_id, generation);
     log::info!(
@@ -260,53 +264,63 @@ async fn backend_read_loop(
     );
 }
 
-struct OutputBatch {
-    data: Vec<u8>,
-    receipts: Vec<super::pty_frame_timing::Receipt>,
+fn process_pty_feed(
+    rx: tokio::sync::mpsc::Receiver<OutputBatch>,
+    svc: ServiceState,
+    pty_id: String,
+    generation: u64,
+    rd_trace: bool,
+) -> JoinHandle<()> {
+    const STATUS_QUEUE_CAPACITY: usize = 32;
+    let (status_tx, status_rx) = tokio::sync::mpsc::channel(STATUS_QUEUE_CAPACITY);
+    let status_svc = svc.clone();
+    let status_pty_id = pty_id.clone();
+    let status_task = tokio::spawn(process_pty_status(
+        status_rx,
+        status_svc,
+        status_pty_id,
+        generation,
+        rd_trace,
+    ));
+    prepare_batches(rx, status_tx, 256 * 1024, |data| {
+        svc.prepare_pty_output(&pty_id, Some(generation), data)
+    });
+    status_task
 }
 
-fn process_pty_feed(
+async fn process_pty_status(
     mut rx: tokio::sync::mpsc::Receiver<OutputBatch>,
     svc: ServiceState,
     pty_id: String,
     generation: u64,
     rd_trace: bool,
 ) {
-    const FEED_BATCH_CAP: usize = 256 * 1024;
-    while let Some(mut data) = rx.blocking_recv() {
-        drain_feed_batch(&mut rx, &mut data, FEED_BATCH_CAP);
-        let started = std::time::Instant::now();
-        for receipt in &data.receipts {
-            receipt.phase("feed_started", data.data.len());
-        }
-        let (prev, now) = svc.feed_pty_output_for_generation(&pty_id, generation, &data.data);
-        for receipt in &data.receipts {
-            receipt.phase("feed_completed", data.data.len());
-        }
-        if rd_trace && data.data.len() > 16 {
-            log::info!(
-                "[feed-batch] pty={} n={} elapsed={}us",
-                &pty_id[..pty_id.len().min(8)],
-                data.data.len(),
-                started.elapsed().as_micros(),
-            );
-        }
-        svc.emit_tab_status_if_changed(&pty_id, prev, now);
-    }
-}
-
-fn drain_feed_batch(
-    rx: &mut tokio::sync::mpsc::Receiver<OutputBatch>,
-    data: &mut OutputBatch,
-    cap: usize,
-) {
-    while data.data.len() < cap {
-        match rx.try_recv() {
-            Ok(next) => {
-                data.data.extend_from_slice(&next.data);
-                data.receipts.extend(next.receipts);
+    while let Some(data) = rx.recv().await {
+        let svc = svc.clone();
+        let pty_id = pty_id.clone();
+        if let Err(error) = tokio::task::spawn_blocking(move || {
+            let _role = codeterm_util::named_thread::Scope::enter(&format!("pty-status:{pty_id}"));
+            let started = std::time::Instant::now();
+            for receipt in &data.receipts {
+                receipt.phase("observer_started", data.data.len());
             }
-            Err(_) => break,
+            let (prev, now) = svc.finish_pty_output(&pty_id, Some(generation), &data.data);
+            for receipt in &data.receipts {
+                receipt.phase("feed_completed", data.data.len());
+            }
+            if rd_trace && data.data.len() > 16 {
+                log::info!(
+                    "[feed-batch] pty={pty_id} n={} elapsed={}us",
+                    data.data.len(),
+                    started.elapsed().as_micros()
+                );
+            }
+            svc.emit_tab_status_if_changed(&pty_id, prev, now);
+        })
+        .await
+        {
+            log::error!("[backend-reader] status batch failed: {error}");
+            break;
         }
     }
 }
@@ -678,50 +692,6 @@ mod tests {
 
     fn bind_generation(screen_state: &crate::ScreenStateHandle, pty_id: &str, generation: u64) {
         assert!(screen_state.lock().bind_pty_generation(pty_id, generation));
-    }
-
-    #[test]
-    fn traced_feed_batch_preserves_bytes_and_read_receipts() {
-        let _scope = super::super::pty_frame_timing::Scope::begin("batch-test-pty", "tab");
-        let (tx, mut rx) = tokio::sync::mpsc::channel(3);
-        for data in [b"first".to_vec(), b"second".to_vec(), b"third".to_vec()] {
-            let receipt = super::super::pty_frame_timing::Receipt::read_completed(
-                "batch-test-pty",
-                data.len(),
-            )
-            .unwrap();
-            assert!(tx
-                .try_send(super::OutputBatch {
-                    data,
-                    receipts: vec![receipt]
-                })
-                .is_ok());
-        }
-        let mut batch = rx.blocking_recv().unwrap();
-        super::drain_feed_batch(&mut rx, &mut batch, 6);
-        assert_eq!(batch.data, b"firstsecond");
-        assert_eq!(batch.receipts.len(), 2);
-        assert_eq!(rx.try_recv().unwrap().data, b"third");
-    }
-
-    #[test]
-    fn resize_burst_is_drained_as_one_available_feed_batch() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(300);
-        for _ in 0..269 {
-            tx.try_send(super::OutputBatch {
-                data: vec![b'x'; 112],
-                receipts: Vec::new(),
-            })
-            .ok()
-            .unwrap();
-        }
-        drop(tx);
-
-        let mut data = rx.blocking_recv().unwrap();
-        super::drain_feed_batch(&mut rx, &mut data, 256 * 1024);
-
-        assert_eq!(data.data.len(), 269 * 112);
-        assert!(rx.blocking_recv().is_none());
     }
 
     #[test]
