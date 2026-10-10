@@ -10,6 +10,8 @@ Workers execute bounded tasks and never spawn. Only two hierarchy levels exist. 
 
 A Team may attach one optional Cartographer Manager for stable product contracts and the generated map. The Cartographer is a non-anchoring singleton with no Team-management, plan or spawn authority, and is removed with its Team. [Operator and agent access](permissions.md) are separate from these role responsibilities.
 
+The owner can start the Cartographer from the workspace Map view with Create map or Refresh map, choosing focus sources, provider and model, and an optional typed or dictated project description. The request prefers a workspace Team with live agents, then its most recent Team, and creates a Team with an Orchestrator when neither exists. A retained Team without a staffing manager receives an Orchestrator. An attached Cartographer receives the brief instead of a second attachment. Asking the Orchestrator remains available.
+
 ## Dispatch, reports and review
 
 Dispatch assigns the task and delivers its brief to the Worker. Local reassignment requires verified live binding and a fresh acknowledgement. Dispatch and respawn explicitly reopen blocked tasks while recording the previous reason; respawn preserves prior review evidence. A reopened task reuses its retained lane. For tool-less Workers, the host attaches declared editable/read-only task files and the attempt's exact skill snapshots through provider capabilities, and delivers the complete brief as one user turn. Unsupported or unreadable context refuses dispatch. The Orchestrator can inspect bounded completed turns from the Worker's authenticated session without reading provider-specific files.
