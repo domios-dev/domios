@@ -408,16 +408,25 @@ fn supporter_feed_tab_title_is_persisted_for_the_decision_subject() {
         assert_eq!(tab, "fixture-tab");
         lookup.lock().clone()
     }));
-    runtime.decision(json!({
-        "time": 1, "kind": "tab_state", "tab": "fixture-tab", "label": "ready_idle",
-        "action": "spawn_ok", "reason": "launch_ready",
-    })).unwrap();
+    runtime
+        .decision(json!({
+            "time": 1, "kind": "tab_state", "tab": "fixture-tab", "label": "ready_idle",
+            "action": "spawn_ok", "reason": "launch_ready",
+        }))
+        .unwrap();
     *title.lock() = None;
     assert_eq!(lines(&dir)[0]["tab_title"], "fixture-subject");
-    assert_eq!(runtime.feed(10, None).unwrap()[0]["tab_title"], "fixture-subject");
-    runtime.decision(json!({
-        "time": 2, "kind": "tab_state", "tab": "fixture-tab", "label": "other",
-        "action": "notify_only", "reason": "model_answer",
-    })).unwrap();
-    assert!(runtime.feed(10, None).unwrap()[0].get("tab_title").is_none());
+    assert_eq!(
+        runtime.feed(10, None).unwrap()[0]["tab_title"],
+        "fixture-subject"
+    );
+    runtime
+        .decision(json!({
+            "time": 2, "kind": "tab_state", "tab": "fixture-tab", "label": "other",
+            "action": "notify_only", "reason": "model_answer",
+        }))
+        .unwrap();
+    assert!(runtime.feed(10, None).unwrap()[0]
+        .get("tab_title")
+        .is_none());
 }

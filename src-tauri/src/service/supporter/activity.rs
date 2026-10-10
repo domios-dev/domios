@@ -307,7 +307,9 @@ impl SupporterRuntime {
             value["team_id"] = json!(self.team_id(value["tab"].as_str()));
         }
         if let Some(title) = value["tab"].as_str().and_then(|tab| {
-            self.tab_title_resolver.get().and_then(|resolve| resolve(tab))
+            self.tab_title_resolver
+                .get()
+                .and_then(|resolve| resolve(tab))
         }) {
             value["tab_title"] = json!(super::narrative::scrub(
                 &title,
