@@ -3,6 +3,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 use super::*;
+
 use crate::agent::test_provider::MockProvider;
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::test_fixture::ServiceFixture;
@@ -12,6 +13,37 @@ const NONCE: &str = "nonce-7f3a";
 const PRIOR_MODEL: &str = "prior-model-a1";
 const NEXT_MODEL: &str = "next-model-b2";
 const EFFORT: &str = "effort-c3";
+
+#[test]
+fn first_post_boundary_model_confirms_match_and_rejects_old_model() {
+    let registry = crate::agent::registry::AgentRegistry::new();
+    assert_eq!(
+        model_switch_confirmation(&registry, "fixture", "vendor/target", None),
+        Ok(ModelSwitchConfirmation::Pending)
+    );
+    for actual in ["vendor/target", "vendor/old"] {
+        let result = model_switch_confirmation(
+            &registry,
+            "fixture",
+            "vendor/target",
+            Some(ModelSwitchObservation {
+                model: actual.into(),
+                evidence: ModelSwitchEvidence::FirstPostRelaunchTurn,
+            }),
+        );
+        if actual == "vendor/target" {
+            assert_eq!(
+                result,
+                Ok(ModelSwitchConfirmation::Observed {
+                    model: actual.into(),
+                    evidence: ModelSwitchEvidence::FirstPostRelaunchTurn,
+                })
+            );
+        } else {
+            assert_eq!(result, Err(actual.into()));
+        }
+    }
+}
 
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]

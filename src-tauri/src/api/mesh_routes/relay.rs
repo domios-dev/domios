@@ -1,4 +1,5 @@
 use crate::api::routes::{check_auth, AppState};
+use crate::api::stream_census::{track, StreamGuard, StreamKind};
 use axum::{
     body::Body,
     extract::{Path as AxumPath, Query, State as AxumState},
@@ -982,9 +983,13 @@ pub async fn mesh_relay_stream(
             q.tab.clone().unwrap_or_else(|| "*".into()),
             stream_tab_id,
             q.since.as_deref(),
+            StreamGuard::relayed(StreamKind::Output, q.peer.clone()),
         )
     } else {
-        Body::from_stream(resp.bytes_stream())
+        Body::from_stream(track(
+            resp.bytes_stream(),
+            StreamGuard::relayed(StreamKind::Events, q.peer.clone()),
+        ))
     };
     let mut out = Response::new(body);
     out.headers_mut().insert(header::CONTENT_TYPE, content_type);

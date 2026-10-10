@@ -16,4 +16,16 @@ Contracts the web mirror depends on under load: the full-state snapshot bound an
 
 Concurrent publication can omit an event without an `overflow` frame (`rollacode/codeterm#428` family); reconnecting with `since` recovers retained events.
 
-<!-- revision: 4 -->
+### Live stream census
+
+Authenticated `GET /api/debug/events/stats` includes `streams` alongside the mux emit counters. The census is always enabled, independently of `diagnostics.terminal_transport`.
+
+```json
+{"streams":{"live":1,"opened":3,"closed":2,"entries":[{"kind":"events","scope":"local","live":1,"opened":3,"closed":2}]}}
+```
+
+`entries` groups streams by `kind` (`events`, `output`, `tab_output`, `surface`) and `scope`. A `peer_relayed` entry also has `peer_instance_id`, the remote instance whose stream this daemon relays. Local entries include zero counts; peer entries remain after close so their totals remain available. A relayed connection is counted on the serving daemon as local and on the proxy daemon as peer relayed; sample both daemons separately.
+
+`live` counts open response streams, including bodies that have not yet been polled. Completion, client disconnect, cancellation and panic unwind release the count. `opened` and `closed` are monotonic within the daemon process and reset on restart. A snapshot reads atomic counters independently; concurrent opens/closes can briefly make `opened - closed` differ from `live`. After stream owners finish, `live` returns to the baseline and opened/closed deltas balance. Finite JSON and asset responses are outside the SSE census.
+
+<!-- revision: 5 -->

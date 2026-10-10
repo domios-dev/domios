@@ -152,6 +152,7 @@ fn surface_evidence_falls_back_to_the_data_dir_without_an_owner_pad() {
 fn surface_state_serializes_the_stream_state_shape() {
     let state = SurfaceState {
         owner: "Jev".into(),
+        target_id: "target-1".into(),
         needs_human: "none".into(),
         profiles: vec!["work".into()],
         ..Default::default()
@@ -168,6 +169,11 @@ fn surface_state_serializes_the_stream_state_shape() {
     ] {
         assert!(value.get(key).is_some(), "missing {key}");
     }
+    assert_eq!(value["targetId"], "target-1");
+    assert!(serde_json::to_value(SurfaceState::default())
+        .unwrap()
+        .get("targetId")
+        .is_none());
     assert_eq!(
         serde_json::to_value(SurfaceNotice::error("x")).unwrap(),
         json!({ "text": "x", "tone": "error" })

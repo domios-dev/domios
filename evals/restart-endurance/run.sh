@@ -13,6 +13,7 @@ if [ "${1:-}" = --dry-run ]; then
   node "$ROOT/evals/restart-endurance/dry-run.mjs" "$@"
   exit
 fi
+node "$ROOT/evals/restart-endurance/target.mjs" "${CODETERM_INSTANCE:-}" "${CODETERM_API_PORT:-}"
 unset CODETERM_CLI_PATH
 source "$ROOT/evals/_lib/lib.sh"
 ENDURE_BASH="${BASH:-bash}"
@@ -43,13 +44,8 @@ export ENDURE_MODEL_OVERRIDES
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 NOTICE_HOOK="$(cd "$(dirname "$NOTICE_HOOK")" && pwd)/$(basename "$NOTICE_HOOK")"
-dev_assert_restart_target 1
-if [ -n "$EVAL_LIB_RESOLVED_INSTANCE" ]; then
-  [ "$EVAL_LIB_RESOLVED_INSTANCE" = aiderqa ] && [ "$EVAL_LIB_DEV_API_PORT" = 7697 ] || {
-    echo 'This named-instance trial is restricted to aiderqa on 7697.' >&2
-    exit 2
-  }
-fi
+node "$ROOT/evals/restart-endurance/target.mjs" "$EVAL_LIB_RESOLVED_INSTANCE" "$EVAL_LIB_DEV_API_PORT"
+dev_assert_restart_target 0
 cd "$ROOT"
 if [ -f "$OUT/complete" ]; then
   cat "$OUT/results.md"
@@ -62,12 +58,17 @@ fi
 mkdir "$OUT/run.lock" || { echo 'Output directory already has an active run lock.' >&2; exit 2; }
 trap 'rmdir "$OUT/run.lock" 2>/dev/null || true' EXIT
 if [ "$CONTINUE_SETUP" -eq 1 ]; then
-  node - "$OUT/results.json" <<'JS'
-const fs = require('node:fs');
-const result = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-if (!result.setup_complete || result.rounds.some((round) => round.round > 0) || result.fatal) {
-  throw new Error('Only an explicitly completed setup with no restart round can continue.');
-}
+  node --input-type=module - "$OUT" <<'JS'
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { resumeSetup } from "./evals/restart-endurance/resume.mjs";
+const out = process.argv[2];
+const path = join(out, "results.json");
+const original = readFileSync(path, "utf8");
+const now = new Date().toISOString();
+const result = resumeSetup(JSON.parse(original), [1, 2, 3].some((n) => existsSync(join(out, `restart-${n}.log`))), now);
+writeFileSync(join(out, `results-before-resume-${now.replaceAll(":", "-")}.json`), original);
+writeFileSync(path, `${JSON.stringify(result, null, 2)}\n`);
 JS
 else
   dev_run node "$ROOT/evals/restart-endurance/observe.mjs" setup "$OUT"
@@ -76,23 +77,10 @@ for ROUND in 1 2 3; do
   echo "NOTICE: Endure DEV $EVAL_LIB_DEV_API_PORT restart $ROUND/3 begins now."
   node "$ROOT/evals/restart-endurance/notice.mjs" "$NOTICE_HOOK" "$ROUND" > "$OUT/notice-$ROUND.log" 2>&1
   dev_run node "$ROOT/evals/restart-endurance/observe.mjs" before "$OUT" "$ROUND"
-  restarted=0
-  if dev_run bash "$ROOT/build.sh" dev-prebuilt --wait --wait-build > "$OUT/restart-$ROUND.log" 2>&1; then
-    restarted=1
-  elif grep -q "refusing before stopping dev" "$OUT/restart-$ROUND.log"; then
-    # Frontend commits made after the DEV build invalidate prebuilt provenance; an incremental dev build restarts honestly.
-    echo "Prebuilt provenance is stale; restarting with an incremental dev build." >> "$OUT/restart-$ROUND.log"
-    dev_run bash "$ROOT/build.sh" dev --wait --wait-build >> "$OUT/restart-$ROUND.log" 2>&1 && restarted=1
-  fi
-  if [ "$restarted" -ne 1 ]; then
-    if dev_run node "$ROOT/evals/restart-endurance/observe.mjs" health "$OUT" "$ROUND" >> "$OUT/restart-$ROUND.log" 2>&1; then
-      restarted=1
-    fi
-  fi
-  if [ "$restarted" -ne 1 ]; then
+  if ! dev_run node "$ROOT/evals/restart-endurance/launch.mjs" "$OUT" "$ROUND" > "$OUT/restart-$ROUND.log" 2>&1; then
     dev_run node "$ROOT/evals/restart-endurance/observe.mjs" abort "$OUT" "$ROUND" || true
-    echo "Restart failed; see $OUT/restart-$ROUND.log." >&2
-    exit 2
+    echo "restart_not_observed; see $OUT/restart-$ROUND.log and restart-$ROUND.json." >&2
+    exit 1
   fi
   dev_run node "$ROOT/evals/restart-endurance/observe.mjs" round "$OUT" "$ROUND"
 done

@@ -97,6 +97,11 @@ pub fn find_orphans(
         .collect();
     rows.iter()
         .filter(|row| row.pid != own_pid && row.pid > 1)
+        .filter(|row| {
+            row.command_line
+                .split_whitespace()
+                .any(|arg| arg.trim_matches('"') == super::launch::OWNERSHIP_FLAG)
+        })
         .filter_map(|row| {
             let profile_dir =
                 profile_dir_in_command_line(&row.command_line, root, case_insensitive)?;
@@ -346,12 +351,12 @@ mod tests {
     fn browser_sweep_find_orphans_skips_own_pid_and_kept_profiles() {
         let root = Path::new("/d/browsers");
         let rows = vec![
-            row(10, 1, "chrome --user-data-dir=/d/browsers/sessions/live"),
-            row(11, 1, "chrome --user-data-dir=/d/browsers/sessions/dead"),
+            row(10, 1, "chrome --codeterm-owned-browser --user-data-dir=/d/browsers/sessions/live"),
+            row(11, 1, "chrome --codeterm-owned-browser --user-data-dir=/d/browsers/sessions/dead"),
             row(
                 13,
                 11,
-                "chrome --type=renderer --user-data-dir=/d/browsers/sessions/dead",
+                "chrome --codeterm-owned-browser --type=renderer --user-data-dir=/d/browsers/sessions/dead",
             ),
             row(42, 1, "codeterm --user-data-dir=/d/browsers/sessions/dead"),
             row(12, 1, "bash -c true"),
@@ -364,6 +369,17 @@ mod tests {
         );
         assert_eq!(orphans[0].profile_dir, root.join("sessions").join("dead"));
         assert_eq!(orphan_roots(&orphans), vec![11]);
+    }
+
+    #[test]
+    fn browser_sweep_keeps_foreign_profile_processes() {
+        let root = Path::new("/d/browsers");
+        let rows = vec![row(
+            90,
+            1,
+            "chrome --user-data-dir=/d/browsers/profiles/work",
+        )];
+        assert!(find_orphans(&rows, root, 42, &HashSet::new(), false).is_empty());
     }
 
     #[test]
