@@ -485,6 +485,14 @@ impl ServiceContext {
         }
 
         let current_status = self.agent_tracker.lock().get_status(pty_id);
+        if prev_status != TabStatus::Working && current_status == TabStatus::Working {
+            if let Some(tab_id) = tab_id
+                .as_deref()
+                .filter(|tab| !self.model_command_owns_prompt(tab))
+            {
+                self.staged_model_turn_started(tab_id);
+            }
+        }
         if agent_type.is_some() {
             self.run_watcher
                 .observe_output_status(pty_id, current_status);

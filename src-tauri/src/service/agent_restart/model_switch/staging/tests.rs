@@ -384,3 +384,38 @@ fn completion_after_capture_is_retained_but_a_new_start_invalidates_capture() {
     assert!(rx.try_recv().is_err());
     assert!(!queue.completed(&request));
 }
+
+#[test]
+fn old_stop_cannot_release_a_switch_when_working_or_declared_turn_is_active() {
+    let (mut request, _) = fixture();
+    let mut queue = PendingSwitches::default();
+    queue.signal_completed(&request.tab_id, &request.session_id, &request.nonce);
+    queue.latch_completed(
+        &request.tab_id,
+        &request.nonce,
+        0,
+        completion_anchor(&request.session_id),
+    );
+    for (working, active, foreign, permitted) in [
+        (true, false, false, false),
+        (false, true, false, false),
+        (true, true, false, false),
+        (false, false, true, false),
+        (false, false, false, true),
+    ] {
+        let reuse = completion_reuse_allowed(working, active, !foreign);
+        assert_eq!(reuse, permitted);
+        request.completion_generation =
+            queue.boundary_generation(&request.tab_id, &request.session_id, &request.nonce, reuse);
+        let (tx, rx) = channel();
+        queue.replace_at_idle(request.clone(), tx, false);
+        assert_eq!(rx.try_recv().is_ok(), permitted);
+        assert_eq!(queue.completed(&request), permitted);
+        queue.cancel(&request.tab_id);
+    }
+    queue.signal_started(&request.tab_id);
+    assert_eq!(
+        queue.boundary_generation(&request.tab_id, &request.session_id, &request.nonce, true),
+        1
+    );
+}
