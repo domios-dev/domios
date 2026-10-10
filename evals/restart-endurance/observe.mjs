@@ -357,9 +357,10 @@ async function setup() {
         await events.open();
         record = await waitReady(events, fixture.id, signal, fixture.first_turn_policy);
         snapshot = await transcript(fixture.id, signal);
-        if (snapshot.messages.some((message) => ["user", "assistant"].includes(kind(message)))) reason = "Fresh fixture has conversation turns before any eval probe";
-        fixture.empty_session_id = record.agent_session_id;
-        fixture.last_session = null;
+        const hasTurns = snapshot.messages.some((message) => ["user", "assistant"].includes(kind(message)));
+        if (hasTurns) reason = "Fresh fixture has conversation turns before any eval probe";
+        fixture.empty_session_id = hasTurns ? null : record.agent_session_id;
+        fixture.last_session = hasTurns ? record.agent_session_id : null;
       } catch (error) { reason = error.message; }
       finally { events.close(); }
       entry.rows.push({ ...fixture, before_probe: record, transcript: snapshot, pass: !reason, reason: reason ?? "No user or assistant turn before restart" });
