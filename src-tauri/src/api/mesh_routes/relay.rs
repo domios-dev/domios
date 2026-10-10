@@ -749,6 +749,11 @@ async fn perform_relay_unredacted(
     tag_relay_spawn_source(&mut body, &cmd.method, &cmd.path, sender_id, &sender_name);
     tag_relay_notification_source(&mut body, &cmd.method, &cmd.path, &sender_name);
 
+    log::debug!(
+        "[mesh/relay] branch=loopback method={} path={} source={sender_name}",
+        cmd.method,
+        cmd.path
+    );
     let local_url = format!("http://127.0.0.1:{}{}", state.api_port, cmd.path);
     let signed_token = state.mesh.lock().sign_request().map_err(|e| {
         (

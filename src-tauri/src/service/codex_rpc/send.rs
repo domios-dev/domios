@@ -152,6 +152,7 @@ pub fn try_send(
     let attachment_ready = super::lifecycle::startup_attachment_ready(tab);
     let binding_verified = binding.is_some();
     let gate = SendGate::classify(capability, state, available, binding_verified);
+    log::debug!("[rpc/send] tab={tab} provider={provider:?} capability={capability:?} gate={gate:?} runtime_entered={}", tokio::runtime::Handle::try_current().is_ok());
     let (sidecar, thread, nonce) = match (gate, sidecar, thread, binding) {
         (SendGate::Pty, _, _, _) => return None,
         (SendGate::Hold(reason), _, _, _) => {
@@ -215,6 +216,7 @@ pub fn try_send(
         super::model::turn_overrides(tab),
     );
     let active = super::control::active_turn(tab);
+    log::debug!("[rpc/send] tab={tab} branch=block_on origin={origin:?}");
     let result = tauri::async_runtime::block_on(submit(
         origin,
         active.as_deref(),
