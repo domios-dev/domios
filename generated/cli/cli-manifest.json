@@ -3641,6 +3641,52 @@
           "subcommands": []
         },
         {
+          "name": "area",
+          "about": "Merge an area reversibly; use taxonomy to list areas and counts",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "merge",
+              "about": "Move every item to another area, preserving scope and audit history",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "dry-run",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "DRY_RUN",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "from",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "FROM",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "into",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "INTO",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
           "name": "calibration",
           "about": "Memory calibration: review or trigger the dreamer's importance/archive sweep",
           "aliases": [],
@@ -5301,7 +5347,7 @@
         },
         {
           "name": "restore",
-          "about": "Restore from the audit history. An archived or merged item gets its prior kind back and its merge link invalidated (plus the --version body when given); otherwise reverts the body before the most recent change",
+          "about": "Undo an area merge, or restore from audit history. An archived item gets its prior kind back and its merge link invalidated (plus the --version body when given); otherwise reverts the body before the most recent change",
           "aliases": [],
           "args": [
             {
@@ -5331,7 +5377,7 @@
               "value_name": "VERSION",
               "possible_values": [],
               "default": null,
-              "help": "History row id (from `mem history <id>`) to restore the body of. Omit to undo the latest body change",
+              "help": "History row id from `mem history <id>`: undo its area merge or restore its body. Omit to undo the latest area merge, archive, or body change",
               "aliases": []
             }
           ],

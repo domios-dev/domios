@@ -776,6 +776,18 @@ Archive an item without deleting it; undo with `mem restore`
 - `<id>`
 - `--reason`
 
+#### `codeterm mem area`
+
+Merge an area reversibly; use taxonomy to list areas and counts
+
+#### `codeterm mem area merge`
+
+Move every item to another area, preserving scope and audit history
+
+- `--dry-run`
+- `<from>`
+- `--into`
+
 #### `codeterm mem calibration`
 
 Memory calibration: review or trigger the dreamer's importance/archive sweep
@@ -1150,11 +1162,11 @@ Re-embed mem_items and/or graph entities into mem_vectors. Use this after swappi
 
 #### `codeterm mem restore`
 
-Restore from the audit history. An archived or merged item gets its prior kind back and its merge link invalidated (plus the --version body when given); otherwise reverts the body before the most recent change
+Undo an area merge, or restore from audit history. An archived item gets its prior kind back and its merge link invalidated (plus the --version body when given); otherwise reverts the body before the most recent change
 
 - `--changed-by` — Actor label for audit trail (defaults to "user")
 - `<id>` — Mem item id
-- `--version` — History row id (from `mem history <id>`) to restore the body of. Omit to undo the latest body change
+- `--version` — History row id from `mem history <id>`: undo its area merge or restore its body. Omit to undo the latest area merge, archive, or body change
 
 #### `codeterm mem run-worker`
 
