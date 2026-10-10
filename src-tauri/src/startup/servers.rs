@@ -391,17 +391,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
             }
             std::env::set_var("CODETERM_API_PORT", port.to_string());
             let control = states.rest_api.clone();
-            codeterm_util::named_thread::spawn("rest-api", move || {
-                let rt = tokio::runtime::Builder::new_multi_thread()
-                    .thread_name("rest-api-worker")
-                    .worker_threads(4)
-                    .enable_all()
-                    .build()
-                    .expect("Failed to create Tokio runtime for REST API");
-                rt.block_on(async move {
-                    super::rest_api::start(control, bind_addr.to_string(), router).await;
-                });
-            });
+            super::rest_api::spawn(control, bind_addr.to_string(), router);
         }
     }
 

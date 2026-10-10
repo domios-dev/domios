@@ -119,7 +119,7 @@ fn mesh_reachability_configured_is_not_live_and_remote_loss_preserves_local() {
 /// rather than the behaviour it names.
 #[tokio::test]
 async fn mesh_reachability_failed_secondary_bind_refuses_without_keeping_the_primary() {
-    let primary = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let primary = bind_listener("127.0.0.1:0").await.unwrap();
     let occupied = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let result = bind_remote(primary, Some(occupied.local_addr().unwrap())).await;
     assert!(
@@ -130,7 +130,7 @@ async fn mesh_reachability_failed_secondary_bind_refuses_without_keeping_the_pri
 
 #[tokio::test]
 async fn mesh_reachability_both_bound_before_publication() {
-    let primary = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let primary = bind_listener("127.0.0.1:0").await.unwrap();
     let publication = ListenerPublication::default();
     let (primary, remote) = bind_remote(primary, Some("127.0.0.1:0".parse().unwrap()))
         .await
@@ -193,24 +193,74 @@ async fn mesh_reachability_startup_remote_exit_fails_closed() {
 
 #[tokio::test]
 async fn mesh_tailnet_two_listeners_are_health_proven_and_published() {
-    let primary = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let primary = bind_listener("127.0.0.1:0").await.unwrap();
     let (primary, remote) = bind_remote(primary, Some("127.0.0.1:0".parse().unwrap()))
         .await
         .unwrap();
+    prove_and_publish_listener_pair(primary, remote).await;
+}
+
+#[tokio::test]
+async fn mesh_tailnet_listener_registered_on_parked_reactor_cannot_accept() {
+    let (binding_runtime, listener) = tokio::task::spawn_blocking(|| {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let listener = runtime.block_on(async {
+            let primary = bind_listener("127.0.0.1:0").await.unwrap();
+            let (_, remote) = bind_remote(primary, Some("127.0.0.1:0".parse().unwrap()))
+                .await
+                .unwrap();
+            tokio::net::TcpListener::from_std(remote.unwrap()).unwrap()
+        });
+        (runtime, listener)
+    })
+    .await
+    .unwrap();
+    let client = tokio::net::TcpStream::connect(listener.local_addr().unwrap())
+        .await
+        .unwrap();
+    let accepted = tokio::time::timeout(Duration::from_millis(250), listener.accept()).await;
+    assert!(
+        accepted.is_err(),
+        "a parked reactor must not drive acceptance"
+    );
+    drop(client);
+    drop(listener);
+    binding_runtime.shutdown_background();
+}
+
+#[tokio::test]
+async fn mesh_tailnet_production_bind_transfers_from_parked_reactor_to_serving_runtime() {
+    let primary = bind_listener("127.0.0.1:0").await.unwrap();
+    let (binding_runtime, primary, remote) = tokio::task::spawn_blocking(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (primary, remote) = runtime
+            .block_on(bind_remote(primary, Some("127.0.0.1:0".parse().unwrap())))
+            .unwrap();
+        (runtime, primary, remote)
+    })
+    .await
+    .unwrap();
+    prove_and_publish_listener_pair(primary, remote).await;
+    tokio::task::spawn_blocking(move || drop(binding_runtime))
+        .await
+        .unwrap();
+}
+
+async fn prove_and_publish_listener_pair(
+    primary: std::net::TcpListener,
+    remote: Option<std::net::TcpListener>,
+) {
     let primary_address = primary.local_addr().unwrap();
     let remote_address = remote.as_ref().unwrap().local_addr().unwrap();
     let router = axum::Router::new().route("/api/health", axum::routing::get(|| async { "ok" }));
     let (stop_tx, stop_rx) = oneshot::channel();
-    let primary = axum::serve(
-        primary,
-        router
-            .clone()
-            .into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(async {
-        let _ = stop_rx.await;
-    })
-    .into_future();
+    let primary = serve_listener(primary, router.clone(), stop_rx);
     let control = RestApiControl::new();
     let generation = control.begin_generation();
     control.listener_bound(generation, primary_address);
