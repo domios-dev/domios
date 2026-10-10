@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { waitOutputReadiness, installOutputParseProbe } from './output-readiness.mjs';
 
 const streamPaths = new Set(['/api/mesh/relay-stream', '/api/output/stream']);
 
@@ -21,6 +22,12 @@ export function diagnosticRecord(event, payload, timestamp, secrets = []) {
     if (event === 'response') record.status = payload.status;
     return record;
   }
+  if (event.startsWith('network-')) {
+    const url = new URL(payload.url);
+    if (!streamPaths.has(url.pathname)) return null;
+    return { event, timestamp, ...payload, url: clean(url.href) };
+  }
+  if (event === 'write-parsed') return { event, timestamp, ...payload };
   if (event === 'console') return { event, timestamp, level: payload.level, text: clean(payload.text),
     location: { url: clean(payload.location?.url), lineNumber: payload.location?.lineNumber,
       columnNumber: payload.location?.columnNumber } };
@@ -39,8 +46,12 @@ export function pendingStreamRequests(records) {
   return [...pending.values()];
 }
 
-export function armBrowserDiagnostics(page, directory, { secrets = [], now = () => new Date().toISOString() } = {}) {
+export async function armBrowserDiagnostics(page, directory, { secrets = [], outputTabId, now = () => new Date().toISOString() } = {}) {
   const records = [];
+  const subscribers = new Set();
+  let readinessProof;
+  let session;
+  const networkListeners = [];
   const requestIds = new WeakMap();
   const listeners = [];
   let sequence = 0;
@@ -50,7 +61,7 @@ export function armBrowserDiagnostics(page, directory, { secrets = [], now = () 
   };
   const record = (event, payload) => {
     const mapped = diagnosticRecord(event, payload, now(), secrets);
-    if (mapped) records.push(mapped);
+    if (mapped) { records.push(mapped); for (const notify of [...subscribers]) notify(); }
   };
   const listen = (event, fn) => { page.on(event, fn); listeners.push([event, fn]); };
   listen('request', request => record('request', identity(request)));
@@ -59,11 +70,44 @@ export function armBrowserDiagnostics(page, directory, { secrets = [], now = () 
   listen('response', response => record('response', { ...identity(response.request()), status: response.status() }));
   listen('console', message => record('console', { level: message.type(), text: message.text(), location: message.location() }));
   listen('pageerror', error => record('pageerror', { name: error.name, message: error.message, stack: error.stack }));
-  return { async finish(reason = 'case-complete') {
+  if (outputTabId) {
+    await page.exposeFunction('__b3OutputParsed', payload => record('write-parsed', payload));
+    await page.addInitScript(installOutputParseProbe, { tabId: outputTabId });
+    session = await page.context().newCDPSession(page);
+    const networkUrls = new Map();
+    const networkListen = (event, fn) => { session.on(event, fn); networkListeners.push([event, fn]); };
+    networkListen('Network.requestWillBeSent', event => {
+      networkUrls.set(event.requestId, event.request.url);
+      record('network-request', { networkRequestId: event.requestId, url: event.request.url, method: event.request.method });
+    });
+    networkListen('Network.responseReceived', event => record('network-response', {
+      networkRequestId: event.requestId, url: event.response.url, status: event.response.status }));
+    networkListen('Network.dataReceived', event => {
+      const url = networkUrls.get(event.requestId);
+      if (url) record('network-bytes', { networkRequestId: event.requestId, url,
+        dataLength: event.dataLength, encodedDataLength: event.encodedDataLength });
+    });
+    await session.send('Network.enable');
+  }
+  return { async waitForOutput(target, homeProof) {
+    const started = now();
+    try {
+      const state = await waitOutputReadiness({ records: () => records,
+        subscribe: notify => { subscribers.add(notify); return () => subscribers.delete(notify); },
+        target, homeProof, signal: AbortSignal.timeout(30000) });
+      readinessProof = { started, at: now(), status: 'READY', ...state };
+      return readinessProof;
+    } catch (error) {
+      readinessProof = { started, at: now(), status: 'FAIL no output within 30 s', ...error.outputState };
+      throw error;
+    }
+  }, async finish(reason = 'case-complete') {
     for (const [event, fn] of listeners) page.off(event, fn);
+    for (const [event, fn] of networkListeners) session.off(event, fn);
     const pending = pendingStreamRequests(records);
     records.push({ event: 'capture-boundary', timestamp: now(), reason, pendingRequestIds: pending.map(item => item.requestId) });
     await mkdir(directory, { recursive: true });
+    if (readinessProof) await writeFile(path.join(directory, 'output-readiness.json'), JSON.stringify(readinessProof, null, 2), { flag: 'wx' });
     await writeFile(path.join(directory, 'browser-events.jsonl'), records.map(item => JSON.stringify(item)).join('\n') + '\n', { flag: 'wx' });
     await writeFile(path.join(directory, 'browser-requests.json'), JSON.stringify({
       boundary: 'before context teardown', reason,

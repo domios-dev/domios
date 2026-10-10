@@ -63,7 +63,7 @@ test('case recorder observes initiation before response and detaches before tear
   const directory = await mkdtemp(path.join(os.tmpdir(), 'browser-diagnostics-'));
   try {
     const page = new EventEmitter();
-    const recorder = armBrowserDiagnostics(page, directory, { now: () => timestamp });
+    const recorder = await armBrowserDiagnostics(page, directory, { now: () => timestamp });
     const req = { url: () => request.url, method: () => 'GET' };
     page.emit('request', req);
     page.emit('response', { request: () => req, status: () => 200 });
@@ -77,4 +77,15 @@ test('case recorder observes initiation before response and detaches before tear
     assert.equal(rows.at(-1).event, 'capture-boundary');
     assert.deepEqual(rows.at(-1).pendingRequestIds, [1]);
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+
+test('wire byte records preserve counters and redact credentials without exporting body bytes', () => {
+  const row = diagnosticRecord('network-bytes', { networkRequestId: 'wire',
+    url: 'http://fixture/api/output/stream?token=opaque', dataLength: 17, encodedDataLength: 19 }, timestamp);
+  assert.equal(row.networkRequestId, 'wire');
+  assert.equal(row.dataLength, 17);
+  assert.equal(row.encodedDataLength, 19);
+  assert.ok(!row.url.includes('opaque'));
+  assert.equal(row.body, undefined);
 });
