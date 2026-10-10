@@ -2,6 +2,7 @@ import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { matrix, markdown, applyVerdict } from './matrix.mjs';
 import { jsonLines, proveRecord } from './records.mjs';
+import { summarizeRecords, proveMediumChat } from './provider-records.mjs';
 import { evidencePath, requireEvidence, appendVerdict } from './evidence.mjs';
 const [mode, rootArg, input] = process.argv.slice(2);
 if (!['prepare', 'record', 'render'].includes(mode) || !rootArg) throw new Error('Usage: driver.mjs prepare|record|render RUN_DIR [VERDICT_JSON]');
@@ -22,7 +23,11 @@ if (mode === 'record') {
     const proof = verdict.providerProof;
     if (!verdict.evidence.includes(proof.sourcePath)) throw new Error('Raw provider record must be attached');
     const raw = await readFile(evidencePath(root, proof.sourcePath), 'utf8');
-    verdict.providerProof = proveRecord(jsonLines(raw), proof);
+    if (verdict.status === 'PASS' && verdict.check === 3) {
+      if (proof.provider !== verdict.provider) throw new Error('Provider proof does not match row');
+      const summary = summarizeRecords(jsonLines(raw), proof, proof.schema);
+      verdict.providerProof = { ...proof, ...proveMediumChat(summary, proof.expectedModels) };
+    } else verdict.providerProof = proveRecord(jsonLines(raw), proof);
   }
   applyVerdict(rows, verdict);
   await appendVerdict(root, verdict);
