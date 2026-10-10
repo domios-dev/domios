@@ -124,6 +124,10 @@ loopback health and tailnet health, the build identity, and
 `dc config get api_listener.ready_addresses` before `dc mesh broadcast`.
 Removing the opt-in uses JSON `null` and another scoped restart.
 
+To join two DEV consoles on different machines over the mesh (pairing,
+managed-by tabs, web UI peer picker, leak and sync checks), follow
+`evals/mesh-two-dev/RUNBOOK.md`.
+
 A failed secondary bind starts neither listener; no wildcard or LAN fallback
 is allowed. A later secondary listener exit keeps local HTTP serving but clears
 remote readiness and stops broadcast. Recovery is an explicit scoped restart,
