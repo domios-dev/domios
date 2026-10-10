@@ -58,7 +58,7 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
             provider,
             model,
             brief_file,
-        } => crate::cmd::agent::resolve_spawn_task(None, brief_file, None, &mut std::io::stdin())
+        } => resolve_cartographer_brief(brief_file, &mut std::io::stdin())
             .map_err(SocketCallError::Transport)
             .and_then(|brief| {
                 client.call_detailed(
@@ -250,6 +250,18 @@ fn cartographer_params(
         params["caller_tab_id"] = json!(caller_tab_id);
     }
     params
+}
+
+fn resolve_cartographer_brief<R: std::io::Read>(
+    brief_file: Option<String>,
+    stdin: &mut R,
+) -> Result<Option<String>, String> {
+    let Some(path) = brief_file else {
+        return Ok(None);
+    };
+    let base = std::env::current_dir()
+        .map_err(|error| format!("failed to resolve caller cwd for --brief-file: {error}"))?;
+    crate::cmd::agent::read_handoff_file(&path, "--brief-file", &base, stdin).map(Some)
 }
 
 fn cartographer_attachment_summary(value: &Value) -> Option<String> {
@@ -515,6 +527,23 @@ mod tests {
                 "brief": "opaque-owner-brief\n`$()`",
             })
         );
+    }
+
+    #[test]
+    fn cartographer_brief_stdin_is_opaque_and_optional() {
+        let token = "opaque-owner-brief\n`$()`\n</brief>";
+        assert_eq!(
+            resolve_cartographer_brief(Some("-".into()), &mut std::io::Cursor::new(token))
+                .unwrap()
+                .as_deref(),
+            Some(token)
+        );
+        let mut untouched = std::io::Cursor::new(token);
+        assert_eq!(
+            resolve_cartographer_brief(None, &mut untouched).unwrap(),
+            None
+        );
+        assert_eq!(untouched.position(), 0);
     }
 
     #[test]

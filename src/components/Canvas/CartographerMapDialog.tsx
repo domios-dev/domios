@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { parseVoiceMessage } from "@codeterm/chat-ui";
 import type { ProviderDescriptor } from "../../lib/types";
 import { isProviderSelectable } from "../../lib/providerAvailability";
 import { FormDialog } from "../shared/FormDialog";
@@ -13,6 +14,7 @@ import {
   CARTOGRAPHER_FOCUS_SOURCES,
   defaultCartographerMapDraft,
   defaultCartographerProvider,
+  reconcileCartographerMapDraft,
   toggleCartographerFocusSource,
   type CartographerMapDraft,
   type CartographerMapMode,
@@ -37,18 +39,19 @@ function useCartographerMapForm({ mode, providers, onStart, onCancel }: Cartogra
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
-    setDraft((current) => {
-      if (providers.some((provider) => provider.id === current.providerId && isProviderSelectable(provider))) return current;
-      const choice = defaultCartographerProvider(providers);
-      return { ...current, providerId: choice.providerId, modelId: choice.modelId };
-    });
+    setDraft((current) => reconcileCartographerMapDraft(current, providers));
   }, [providers]);
   const transcribe = async (paths: string[]) => {
     if (inFlight.current || paths.length === 0) return;
     setTranscribing(true);
     setError(null);
     try {
-      const text = (await Promise.all(paths.map((path) => composerAttachmentHandoff.transcribeLocal(path)))).join("\n");
+      const text = (await Promise.all(paths.map(async (path) => {
+        const line = await composerAttachmentHandoff.transcribeLocal(path);
+        const transcript = parseVoiceMessage(line)?.transcript;
+        if (!transcript) throw new Error("Voice transcription is unavailable. Check your transcriber connection and record again.");
+        return transcript;
+      }))).join("\n");
       if (mounted.current) setDraft((current) => ({ ...current, ownerDescription: current.ownerDescription ? `${current.ownerDescription}\n${text}` : text }));
     } catch (reason) {
       if (mounted.current) setError(reason instanceof Error ? reason.message : String(reason));
@@ -56,13 +59,13 @@ function useCartographerMapForm({ mode, providers, onStart, onCancel }: Cartogra
       if (mounted.current) setTranscribing(false);
     }
   };
-  const submit = async () => {
-    if (inFlight.current || transcribing || !draft.providerId) return;
+  const run = async (action: () => Promise<void>) => {
+    if (inFlight.current || transcribing) return;
     inFlight.current = true;
     setSubmitting(true);
     setError(null);
     try {
-      await onStart(draft);
+      await action();
       onCancel();
     } catch (reason) {
       if (mounted.current) setError(reason instanceof Error ? reason.message : String(reason));
@@ -71,7 +74,8 @@ function useCartographerMapForm({ mode, providers, onStart, onCancel }: Cartogra
       if (mounted.current) setSubmitting(false);
     }
   };
-  return { draft, setDraft, submitting, transcribing, error, setError, transcribe, submit };
+  const submit = () => { if (draft.providerId) return run(() => onStart(draft)); };
+  return { draft, setDraft, submitting, transcribing, error, setError, transcribe, submit, run };
 }
 
 export function CartographerMapDialog(props: CartographerMapDialogProps) {
@@ -119,13 +123,16 @@ export function CartographerMapDialog(props: CartographerMapDialogProps) {
     </fieldset>
     <p className="text-xs text-[var(--ct-muted-fg)]">You can also ask the Orchestrator at any time.</p>
     {props.onAskOrchestrator && <button type="button" className={UI_BUTTON.ghost} disabled={busy}
-      onClick={() => { void props.onAskOrchestrator?.().then(props.onCancel, (reason: unknown) => form.setError(reason instanceof Error ? reason.message : String(reason))); }}>Ask the Orchestrator</button>}
+      onClick={() => { if (props.onAskOrchestrator) void form.run(props.onAskOrchestrator); }}>Ask the Orchestrator</button>}
     <label htmlFor={inputId} className="text-xs font-medium">What is this project about? (optional)</label>
     <div className="flex items-end gap-2">
       <ComposerInputShell voiceUi={voiceUi}>
         <ComposerTextInput id={inputId} aria-label="Project description" value={form.draft.ownerDescription} rows={3}
           placeholder="Describe the project, or record a voice note" disabled={form.submitting || form.transcribing}
-          onChange={(event) => form.setDraft((current) => ({ ...current, ownerDescription: event.target.value }))} />
+          onChange={(event) => {
+            const ownerDescription = event.target.value;
+            form.setDraft((current) => ({ ...current, ownerDescription }));
+          }} />
       </ComposerInputShell>
       {!voiceUi.isPreview && <ComposerActionButton voiceUi={voiceUi} sendDisabled={busy} onSend={() => {}} />}
     </div>
