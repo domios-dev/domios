@@ -278,6 +278,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/shells", get(tab_routes::list_shell_profiles))
         .route("/api/tabs/inspect", get(tab_routes::inspect_tabs))
         .route(
+            "/api/tabs/{id}/turn-controls",
+            get(tab_routes::turn_controls),
+        )
+        .route(
             "/api/plans",
             get(plan_routes::list).post(plan_routes::create),
         )

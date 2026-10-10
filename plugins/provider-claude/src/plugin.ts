@@ -270,11 +270,7 @@ const plugin: PluginModule = {
   detectEvents(text: string): string[] {
     const t = String(text || "");
     const events: string[] = [];
-    if (parseClaudeWizardPrompt(t)) events.push("permission_request");
-    const numLines = (t.match(/^\s*\d+\.\s+/gm) || []).length;
-    const hasEscFooter = t.indexOf("Esc to cancel") !== -1 || t.indexOf("Tab to amend") !== -1;
-    const hasSelector = t.indexOf("❯") !== -1;
-    if (numLines >= 2 && (hasEscFooter || hasSelector)) {
+    if (parseClaudeWizardPrompt(t) || parseClaudeNumberedPrompt(t)) {
       events.push("permission_request");
     }
     // TaskComplete: "<CapitalizedVerb> for <digits><s|m|h>"

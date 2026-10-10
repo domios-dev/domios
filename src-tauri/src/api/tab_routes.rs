@@ -11,6 +11,8 @@ use send::wait_for_pty_link as await_pty_link;
 mod exec;
 mod send;
 mod stop;
+mod turn_controls;
+pub use turn_controls::turn_controls;
 #[cfg(test)]
 mod utility_tests;
 

@@ -21,6 +21,7 @@ mod launch_onboarding;
 #[path = "output/manual_update.rs"]
 mod manual_update;
 mod model_candidates;
+mod permission_event;
 mod structured;
 pub(crate) use manual_update::observation_revision as manual_update_observation_revision;
 #[path = "output/prompt_steps.rs"]
@@ -468,7 +469,12 @@ impl ServiceContext {
                         let events = self.agent_registry.detect_events(at, clean);
                         for event in &events {
                             if matches!(event, AgentEvent::PermissionRequest) {
-                                self.agent_tracker.lock().set_waiting(pty_id);
+                                if permission_event::has_current_prompt(
+                                    prompt_signal,
+                                    command_owned,
+                                ) {
+                                    self.agent_tracker.lock().set_waiting(pty_id);
+                                }
                             } else {
                                 self.handle_agent_event(pty_id, pid, at, event, prev_status);
                             }
