@@ -76,7 +76,7 @@ is bounded at 30 seconds by the runner and must not ask an interactive question.
    send-response fields distinguish a probe
    that never reached send from a sent turn awaiting binding or an answer.
 4. Announces and performs three provenance-checked DEV restarts. After each,
-   focuses Endure to materialize inactive-workspace PTYs, waits for every
+   focuses each fixture in its workspace to materialize lazy PTYs, waits for every
    fixture's launch readiness, then probes fixtures serially with the round
    marker. Readiness failures are retained without another wait or a send.
    Waits use an SSE subscription established before sending, a single
