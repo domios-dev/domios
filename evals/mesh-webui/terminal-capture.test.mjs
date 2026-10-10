@@ -4,7 +4,7 @@ import { runInNewContext } from 'node:vm';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { armTerminalEvents, captureTerminal, readTerminalState, waitTerminalEvent, releaseTerminalEvents } from './terminal-capture.mjs';
+import { armTerminalEvents, captureTerminal, readTerminalState, waitTerminalEvent, releaseTerminalEvents, semanticCaptureEligible, captureEventRates } from './terminal-capture.mjs';
 
 function fixture({ visible = true, count = 1, bufferType = 'normal' } = {}) {
   const cell = {
@@ -199,4 +199,56 @@ test('probe release cancels a pending event wait and disposes observers', async 
   assert.equal(probe.waiters.size, 0);
   assert.equal(window.__b3TerminalProbes.has('probe'), false);
   assert.equal(disposed, 1);
+});
+
+function zeroDiffStrictEvidence(tabId = 'fixture') {
+  const state = { tabId, truncated: false, viewportY: 0, rows: 1,
+    lines: [{ y: 0, text: 'fixed' }] };
+  return { failure: 'FAIL unstable surface: three capture attempts exhausted', after: structuredClone(state),
+    attempts: [1, 2, 3].map(number => ({ number, before: structuredClone(state),
+      candidate: structuredClone(state), after: structuredClone(state), unchanged: false })) };
+}
+
+test('semantic mode permits fake no-op revisions while recording their delta', async () => {
+  await withCaptureDirectory(async directory => {
+    const page = capturePage([0, 1, 2, 3]);
+    await captureTerminal(page, { tabId: 'fixture', probeId: 'probe', directory, provenance: {},
+      stabilityMode: 'semantic', strictExhaustionEvidence: zeroDiffStrictEvidence() });
+    const saved = JSON.parse(await readFile(join(directory, 'state.json'), 'utf8'));
+    assert.equal(saved.stabilityMode, 'semantic');
+    assert.equal(saved.unchanged, true);
+    assert.equal(saved.revisionDelta, 3);
+    assert.equal(page.shots, 1);
+    assert.equal(page.waits.length, 0);
+  });
+});
+
+test('semantic mode still rejects changed cells around the screenshot', async () => {
+  await withCaptureDirectory(async directory => {
+    const page = capturePage([0, 1, 2, 3], { failWait: true, texts: ['fixed', 'fixed', 'changed'] });
+    await assert.rejects(captureTerminal(page, { tabId: 'fixture', probeId: 'probe', directory,
+      provenance: {}, stabilityMode: 'semantic', strictExhaustionEvidence: zeroDiffStrictEvidence() }),
+    /unstable surface/);
+    assert.equal(page.shots, 1);
+  });
+});
+
+test('semantic eligibility requires all three zero-diff attempts from the same tab', () => {
+  const evidence = zeroDiffStrictEvidence();
+  assert.equal(semanticCaptureEligible(evidence, 'fixture'), true);
+  assert.equal(semanticCaptureEligible(evidence, 'other'), false);
+  const changed = structuredClone(evidence);
+  changed.attempts[1].after.lines[0].text = 'changed';
+  assert.equal(semanticCaptureEligible(changed, 'fixture'), false);
+  const short = structuredClone(evidence);
+  short.attempts.pop();
+  assert.equal(semanticCaptureEligible(short, 'fixture'), false);
+});
+
+test('event evidence records measured render and write rates', () => {
+  const rates = captureEventRates([{ type: 'render', at: 1000 },
+    { type: 'write-parsed', at: 1500 }, { type: 'render', at: 2000 }]);
+  assert.equal(rates.spanSeconds, 1);
+  assert.equal(rates.perSecond.render, 2);
+  assert.equal(rates.perSecond['write-parsed'], 1);
 });
