@@ -33,16 +33,19 @@ fn validate_controls(
 
 fn selection(
     staged: Option<&crate::multiplexer::types::PendingModelSelection>,
+    pending: Option<(&str, Option<&str>)>,
     model: Option<&str>,
     effort: Option<&str>,
 ) -> (Option<String>, Option<String>) {
     (
         staged
             .map(|selection| selection.model.as_str())
+            .or(pending.map(|(model, _)| model))
             .or(model)
             .map(str::to_owned),
         staged
             .and_then(|selection| selection.effort.as_deref())
+            .or(pending.and_then(|(_, effort)| effort))
             .or(effort)
             .map(str::to_owned),
     )
@@ -68,6 +71,14 @@ pub async fn turn_controls(
             .ok_or((StatusCode::NOT_FOUND, "Tab was not found"))?;
         let (model, effort) = selection(
             tab.pending_model_selection.as_ref(),
+            tab.pending_model_switch_observation
+                .as_ref()
+                .map(|pending| {
+                    (
+                        pending.launched_model.as_str(),
+                        tab.reasoning_effort_identity.requested.as_deref(),
+                    )
+                }),
             tab.agent_provider_resolved_model.as_deref(),
             tab.reasoning_effort_identity.resolved.as_deref(),
         );
@@ -105,12 +116,25 @@ mod tests {
             effort: Some("high".into()),
         };
         assert_eq!(
-            selection(Some(&staged), Some("old/model"), Some("low")),
+            selection(Some(&staged), None, Some("old/model"), Some("low")),
             (Some("target/model".into()), Some("high".into()))
         );
         assert_eq!(
-            selection(None, Some("old/model"), Some("low")),
+            selection(None, None, Some("old/model"), Some("low")),
             (Some("old/model".into()), Some("low".into()))
+        );
+    }
+
+    #[test]
+    fn unapplied_next_turn_target_wins_over_an_old_model_fallback_record() {
+        assert_eq!(
+            selection(
+                None,
+                Some(("target/model", Some("high"))),
+                Some("old/model"),
+                Some("low")
+            ),
+            (Some("target/model".into()), Some("high".into()))
         );
     }
 
