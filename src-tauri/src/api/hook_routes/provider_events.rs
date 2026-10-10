@@ -19,10 +19,11 @@ pub(crate) async fn hook_provider_event(
     Path(raw_tab_id): Path<String>,
     headers: HeaderMap,
     Json(body): Json<ProviderEventBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let started = std::time::Instant::now();
     let tab_id = resolve_hook_tab(&state, &raw_tab_id, "provider_event")?;
     if let Some(response) = super::hook_authority::telemetry_response(&tab_id, "provider_event") {
-        return Ok(response);
+        return Ok(axum::response::IntoResponse::into_response(response));
     }
     let provider = header_str(&headers, "x-codeterm-agent-provider").ok_or((
         StatusCode::UNAUTHORIZED,
@@ -98,13 +99,19 @@ pub(crate) async fn hook_provider_event(
             "provider active tab has no PTY status".to_string(),
         ));
     }
-    if turn_started || turn_complete || turn_error {
-        state.svc.reconcile_chat_send_hook(&tab_id).await;
-    }
-    Ok(Json(serde_json::json!({
+    let response = Json(serde_json::json!({
         "ok": true,
         "turn_error": turn_error,
         "turn_complete": turn_complete,
         "turn_started": turn_started,
-    })))
+    }));
+    log::info!(
+        "[hook/timing] tab={tab_id} route=provider_event phase=response_ready elapsed_ms={}",
+        started.elapsed().as_millis()
+    );
+    Ok(if turn_started || turn_complete || turn_error {
+        super::reconciliation::after_response(response, state.svc, tab_id, "provider_event")
+    } else {
+        axum::response::IntoResponse::into_response(response)
+    })
 }

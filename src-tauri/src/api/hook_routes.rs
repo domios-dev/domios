@@ -18,6 +18,7 @@ mod hook_authority;
 pub(crate) mod permission_decision;
 use hook_authority::{stop_report_verdict, StopReportVerdict};
 mod provider_events;
+mod reconciliation;
 mod recording;
 mod run_session;
 mod session_ack;
@@ -422,10 +423,10 @@ pub async fn hook_session_start(
     Path(raw_tab_id): Path<String>,
     headers: HeaderMap,
     OptionalJson(body): OptionalJson<serde_json::Value>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<axum::response::Response, (StatusCode, String)> {
     let tab_id = resolve_hook_tab(&state, &raw_tab_id, "session_start")?;
     if let Some(response) = hook_authority::telemetry_response(&tab_id, "session_start") {
-        return Ok(response);
+        return Ok(axum::response::IntoResponse::into_response(response));
     }
     let body = body.unwrap_or(serde_json::Value::Null);
     record_hook_post(&state, &tab_id, "session_start", Some(&body));
@@ -467,9 +468,9 @@ pub async fn hook_session_start(
             source
         );
         state.svc.emit_session_binding_state(&tab_id);
-        return Ok(Json(
+        return Ok(axum::response::IntoResponse::into_response(Json(
             serde_json::json!({"ok": false, "reason": "no session_id in body"}),
-        ));
+        )));
     };
 
     let (existing, cwd, current_session_id, live_owner) = state
@@ -541,8 +542,7 @@ pub async fn hook_session_start(
                     false
                 };
             if can_short_circuit_session_start(&claim, fallback_pending, fallback_retry_available) {
-                state.svc.reconcile_chat_send_hook(&tab_id).await;
-                return Ok(unchanged_acknowledged_hook_report(
+                let response = unchanged_acknowledged_hook_report(
                     &state.svc,
                     &tab_id,
                     &provider_id,
@@ -550,6 +550,12 @@ pub async fn hook_session_start(
                     &source,
                     &claim,
                     report_nonce.as_deref(),
+                );
+                return Ok(reconciliation::after_response(
+                    response,
+                    state.svc,
+                    tab_id,
+                    "session_start_duplicate",
                 ));
             }
             claim
@@ -605,13 +611,15 @@ pub async fn hook_session_start(
                 return Err((StatusCode::CONFLICT, reason));
             }
             state.svc.emit_session_binding_state(&tab_id);
-            return Ok(Json(serde_json::json!({
-                "ok": true,
-                "changed": false,
-                "deferred": true,
-                "session_id": sid,
-                "current_session_id": premise.previous_session_id,
-            })));
+            return Ok(axum::response::IntoResponse::into_response(Json(
+                serde_json::json!({
+                    "ok": true,
+                    "changed": false,
+                    "deferred": true,
+                    "session_id": sid,
+                    "current_session_id": premise.previous_session_id,
+                }),
+            )));
         }
         Err((status, message, None)) => {
             let current_session_id = state
@@ -649,7 +657,7 @@ pub async fn hook_session_start(
             retry.commit();
         }
     }
-    result
+    result.map(axum::response::IntoResponse::into_response)
 }
 
 pub(crate) fn defer_session_binding(

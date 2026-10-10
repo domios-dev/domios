@@ -78,3 +78,15 @@ fn declared_dialog_blocks_empty_composer_and_inverse_caret_can_prove_readiness()
         assert!(!readiness.matches(&format!("{}\n{}", screen, dialog), &input));
     }
 }
+
+#[test]
+fn accepted_stop_failure_frame_has_ready_empty_input_despite_working_projection() {
+    let (readiness, _, mut input) = declared();
+    let screen = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../plugins/provider-claude/tests/fixtures/model-switch/accepted-stop-ready-frame.txt"
+    ));
+    input.cursor_row = screen.lines().position(|row| row.trim() == "❯").unwrap() as u16;
+    input.rows = screen.lines().count() as u16;
+    assert!(input_ready(Some(&readiness), Some((screen, &input)), false));
+}

@@ -7,10 +7,11 @@ pub async fn hook_stop(
     Path(raw_tab_id): Path<String>,
     headers: HeaderMap,
     OptionalJson(body): OptionalJson<serde_json::Value>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let started = std::time::Instant::now();
     let tab_id = resolve_hook_tab(&state, &raw_tab_id, "stop")?;
     if let Some(response) = hook_authority::telemetry_response(&tab_id, "stop") {
-        return Ok(response);
+        return Ok(axum::response::IntoResponse::into_response(response));
     }
     log::debug!("[hook_stop] fired for Tab {}", tab_id);
     let body = body.unwrap_or(serde_json::Value::Null);
@@ -93,7 +94,15 @@ pub async fn hook_stop(
                 .staged_model_turn_completed(&tab_id, &session_id, nonce);
         }
     }
-    state.svc.reconcile_chat_send_hook(&tab_id).await;
-
-    Ok(Json(serde_json::json!({"ok": true})))
+    let response = super::reconciliation::after_response(
+        Json(serde_json::json!({"ok": true})),
+        state.svc,
+        tab_id.clone(),
+        "stop",
+    );
+    log::info!(
+        "[hook/timing] tab={tab_id} route=stop phase=response_ready elapsed_ms={}",
+        started.elapsed().as_millis()
+    );
+    Ok(response)
 }

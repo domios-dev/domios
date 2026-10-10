@@ -14,6 +14,12 @@ pub(in crate::service::agent_restart) struct StagedSwitch {
     warned: bool,
 }
 
+struct LatchedCompletion {
+    generation: u64,
+    nonce: String,
+    anchor: crate::service::chat_send_transaction::SendEvidenceAnchor,
+}
+
 #[derive(Default)]
 pub(in crate::service::agent_restart) struct PendingSwitches(
     std::collections::HashMap<String, StagedSwitch>,
@@ -22,6 +28,8 @@ pub(in crate::service::agent_restart) struct PendingSwitches(
         std::sync::Weak<crate::pty::screen_state::ScreenChangeSignal>,
     >,
     std::collections::HashMap<String, (String, String, u64)>,
+    std::collections::HashMap<String, LatchedCompletion>,
+    std::collections::HashMap<String, u64>,
 );
 
 impl PendingSwitches {
@@ -43,6 +51,8 @@ impl PendingSwitches {
     }
 
     fn signal_started(&mut self, tab_id: &str) {
+        self.3.remove(tab_id);
+        *self.4.entry(tab_id.into()).or_default() += 1;
         if let Some(staged) = self.0.get(tab_id) {
             let generation = self.completion_generation(
                 tab_id,
@@ -63,7 +73,59 @@ impl PendingSwitches {
             .insert(tab.into(), (session.into(), nonce.into(), generation));
         self.signal_idle(tab);
     }
-    fn replace(&mut self, request: SwitchRequest, idle: Sender<()>) {
+    fn boundary_generation(
+        &self,
+        tab: &str,
+        session: &str,
+        nonce: &str,
+        no_foreign_turn: bool,
+    ) -> u64 {
+        let generation = self.completion_generation(tab, session, nonce);
+        if no_foreign_turn
+            && self.3.get(tab).is_some_and(|completed| {
+                completed.generation == generation
+                    && completed.nonce == nonce
+                    && completed.anchor.session_id == session
+            })
+        {
+            generation.saturating_sub(1)
+        } else {
+            generation
+        }
+    }
+
+    fn start_epoch(&self, tab: &str) -> u64 {
+        self.4.get(tab).copied().unwrap_or_default()
+    }
+
+    fn latch_completed(
+        &mut self,
+        tab: &str,
+        nonce: &str,
+        epoch: u64,
+        anchor: crate::service::chat_send_transaction::SendEvidenceAnchor,
+    ) {
+        if self.start_epoch(tab) != epoch {
+            return;
+        }
+        let generation = self.completion_generation(tab, &anchor.session_id, nonce);
+        self.3.insert(
+            tab.into(),
+            LatchedCompletion {
+                generation,
+                nonce: nonce.into(),
+                anchor,
+            },
+        );
+    }
+
+    fn replace(&mut self, mut request: SwitchRequest, idle: Sender<()>) {
+        let generation =
+            self.completion_generation(&request.tab_id, &request.session_id, &request.nonce);
+        if self.start_epoch(&request.tab_id) != request.completion_epoch {
+            request.completion_generation = generation;
+            request.completion_epoch = self.start_epoch(&request.tab_id);
+        }
         self.signal_idle(&request.tab_id);
         if let Some(previous) = self.0.insert(
             request.tab_id.clone(),
@@ -81,7 +143,12 @@ impl PendingSwitches {
     fn replace_at_idle(&mut self, request: SwitchRequest, idle: Sender<()>, already_idle: bool) {
         let tab_id = request.tab_id.clone();
         self.replace(request, idle);
-        if already_idle {
+        if already_idle
+            || self
+                .0
+                .get(&tab_id)
+                .is_some_and(|staged| self.completed(&staged.request))
+        {
             self.signal_idle(&tab_id);
         }
     }
@@ -170,6 +237,7 @@ pub(super) struct CompletionBoundary {
     session_id: String,
     nonce: String,
     generation: u64,
+    epoch: u64,
     records: Option<completion_records::RecordBoundary>,
 }
 
@@ -189,6 +257,7 @@ pub(super) struct SwitchRequest {
     mechanism: ModelSwitchMode,
     deadline: Instant,
     completion_generation: u64,
+    completion_epoch: u64,
 }
 
 impl SwitchRequest {
@@ -251,7 +320,7 @@ impl ServiceContext {
             .signal_started(tab_id);
     }
     pub(super) fn staged_completion_boundary(&self, tab_id: &str) -> Option<CompletionBoundary> {
-        let (session_id, nonce, generation, provider, cwd) = {
+        let (session_id, nonce, mut generation, epoch, provider, cwd, completed_anchor) = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id)?;
             let session_id = tab.agent_session_id.clone()?;
@@ -259,19 +328,58 @@ impl ServiceContext {
             if tab.reported_session_binding_nonce.as_ref() != Some(&nonce) {
                 return None;
             }
-            let generation = self
-                .restart_tracker
-                .lock()
+            let tracker = self.restart_tracker.lock();
+            let generation =
+                tracker
+                    .staged_models
+                    .completion_generation(tab_id, &session_id, &nonce);
+            let completed_anchor = tracker
                 .staged_models
-                .completion_generation(tab_id, &session_id, &nonce);
+                .3
+                .get(tab_id)
+                .filter(|completed| {
+                    completed.generation == generation
+                        && completed.nonce == nonce
+                        && completed.anchor.session_id == session_id
+                })
+                .map(|completed| completed.anchor.clone());
             (
                 session_id,
                 nonce,
                 generation,
+                tracker.staged_models.start_epoch(tab_id),
                 tab.agent_type.clone()?,
                 tab.cwd.clone(),
+                completed_anchor,
             )
         };
+        if let Some(anchor) = completed_anchor {
+            let transcript = self
+                .agent_registry
+                .with_provider(&provider, |provider| {
+                    provider
+                        .model_switch_commands()
+                        .map(|commands| commands.transcript)
+                })
+                .flatten();
+            let no_foreign_turn = transcript.is_some_and(|transcript| {
+                crate::service::chat_send_evidence::window_has_foreign_user_turn(
+                    &self.agent_registry,
+                    &anchor,
+                    &transcript,
+                ) == Ok(false)
+            });
+            generation = self
+                .restart_tracker
+                .lock()
+                .staged_models
+                .boundary_generation(tab_id, &session_id, &nonce, no_foreign_turn);
+            if no_foreign_turn {
+                log::info!(
+                    "[agent-model/completion] tab={tab_id} phase=accepted_completion_latched"
+                );
+            }
+        }
         let declared = self
             .agent_registry
             .with_provider(&provider, |provider| {
@@ -305,23 +413,49 @@ impl ServiceContext {
             session_id,
             nonce,
             generation,
+            epoch,
             records,
         })
     }
 
     pub(crate) fn staged_model_turn_completed(&self, tab_id: &str, session_id: &str, nonce: &str) {
-        let mux = self.mux.read();
-        let accepted = mux.get_tab(tab_id).is_some_and(|tab| {
+        let accepted = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
             tab.agent_session_id.as_deref() == Some(session_id)
                 && tab.session_binding_nonce.as_deref() == Some(nonce)
                 && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
         });
         log::info!("[agent-model/completion] tab={tab_id} phase=staged_model_turn_completed accepted={accepted} at_ms={}", crate::service::pty_frame_timing::unix_ms());
         if accepted {
-            self.restart_tracker
+            let epoch = self
+                .restart_tracker
                 .lock()
                 .staged_models
-                .signal_completed(tab_id, session_id, nonce);
+                .start_epoch(tab_id);
+            let reading = Instant::now();
+            let anchor = completion_anchor(self, tab_id, session_id);
+            log::info!(
+                "[agent-model/completion] tab={tab_id} phase=completion_anchor_read elapsed_ms={}",
+                reading.elapsed().as_millis()
+            );
+            let mux = self.mux.read();
+            if mux.get_tab(tab_id).is_some_and(|tab| {
+                tab.agent_session_id.as_deref() == Some(session_id)
+                    && tab.session_binding_nonce.as_deref() == Some(nonce)
+                    && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
+            }) {
+                let mut tracker = self.restart_tracker.lock();
+                if tracker.staged_models.start_epoch(tab_id) != epoch {
+                    return;
+                }
+                tracker
+                    .staged_models
+                    .signal_completed(tab_id, session_id, nonce);
+                if let Some(anchor) = anchor.filter(|anchor| anchor.session_id == session_id) {
+                    tracker
+                        .staged_models
+                        .latch_completed(tab_id, nonce, epoch, anchor);
+                }
+            }
         }
     }
     pub(crate) fn cancel_staged_model_switch(&self, tab_id: &str) {
@@ -396,6 +530,7 @@ impl ServiceContext {
                 mechanism: params.mechanism,
                 deadline: Instant::now() + STAGING_DEADLINE,
                 completion_generation: params.completion_boundary.generation,
+                completion_epoch: params.completion_boundary.epoch,
             };
             tab.pending_model_selection = Some(PendingModelSelection {
                 model: model.into(),
@@ -661,6 +796,38 @@ fn finish_staged_selection(
     if confirmed && own_selection && own_binding && !pending.0.contains_key(&request.tab_id) {
         tab.pending_model_selection = None;
     }
+}
+
+fn completion_anchor(
+    svc: &ServiceContext,
+    tab_id: &str,
+    session_id: &str,
+) -> Option<crate::service::chat_send_transaction::SendEvidenceAnchor> {
+    let (provider_id, cwd) = {
+        let mux = svc.mux.read();
+        let tab = mux.get_tab(tab_id)?;
+        if tab.agent_session_id.as_deref() != Some(session_id) {
+            return None;
+        }
+        (tab.agent_type.clone()?, tab.cwd.clone()?)
+    };
+    let (path, turn_normalization) =
+        svc.agent_registry.with_provider(&provider_id, |provider| {
+            (
+                provider.session_jsonl_path(&cwd, session_id),
+                provider.turn_evidence_normalization(),
+            )
+        })?;
+    let offset = std::fs::metadata(path?).ok()?.len();
+    Some(crate::service::chat_send_transaction::SendEvidenceAnchor {
+        provider_id,
+        cwd,
+        session_id: session_id.into(),
+        turn_normalization,
+        window: crate::service::chat_send_transaction::EvidenceWindow::Jsonl {
+            transcript_offset: offset,
+        },
+    })
 }
 
 fn staged_tab_idle(svc: &ServiceContext, tab_id: &str, deadline: Instant) -> bool {
