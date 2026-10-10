@@ -132,6 +132,26 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
             if params.get("threadId").and_then(Value::as_str) != Some(&current) {
                 continue;
             }
+            if let Some(observation) = super::auth::session_observation(method, params) {
+                let nonce = svc
+                    .mux
+                    .read()
+                    .get_tab(&tab)
+                    .and_then(|tab| tab.session_binding_nonce.clone());
+                if let Some(nonce) = nonce {
+                    crate::service::provider_signals::apply(
+                        &svc,
+                        &tab,
+                        &current,
+                        &nonce,
+                        &[crate::agent::chat_types::RichMessage {
+                            provider_session_id: Some(current.clone()),
+                            provider_observations: Some(observation),
+                            ..Default::default()
+                        }],
+                    );
+                }
+            }
             if method == "thread/status/changed" {
                 if let Some(event) = super::status::declared_event(&params["status"]) {
                     super::status::observe(&svc, &tab, &current, &sidecar, event);

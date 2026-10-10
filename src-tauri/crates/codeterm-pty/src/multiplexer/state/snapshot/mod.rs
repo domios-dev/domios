@@ -131,10 +131,12 @@ impl MultiplexerState {
                 .get_mut(tab_id)
                 .filter(|tab| tab.agent_type.is_some())
             {
-                tab.agent_state = Some(super::status_view::agent_state_for_status(
-                    tab.agent_state.as_ref(),
-                    *status,
-                ));
+                tab.agent_state = tab.provider_signals.access_state().or_else(|| {
+                    Some(super::status_view::agent_state_for_status(
+                        tab.agent_state.as_ref(),
+                        *status,
+                    ))
+                });
             }
         }
         snap

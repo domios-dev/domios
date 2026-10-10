@@ -3,6 +3,9 @@ use crate::agent::tab_state::{Surface, TabState, TabStateAction, TabStateClassif
 use codeterm_types::agent::provider_signals::{ApiErrorKind, PermissionMode, ProviderSignals};
 use tauri::Manager;
 
+mod incident;
+use incident::{incident, incident_transition, IncidentTransition};
+
 fn enabled(svc: &ServiceContext, provider: &str) -> bool {
     svc.app_handle
         .try_state::<crate::config::ConfigState>()
@@ -37,14 +40,25 @@ pub(crate) fn classify(
     signals: &ProviderSignals,
     fallback: Option<TabStateClassification>,
 ) -> Option<TabStateClassification> {
-    let state = match signals.api_error {
-        Some(ApiErrorKind::Authentication) => Some(TabState::WaitingOnAuth),
-        Some(ApiErrorKind::RateLimit) => Some(TabState::RateLimited),
-        Some(ApiErrorKind::Other) => Some(TabState::Unknown),
-        None if signals.auth.as_ref().is_some_and(|auth| !auth.logged_in) => {
-            Some(TabState::WaitingOnAuth)
+    let state = if signals.access_lost() {
+        log::debug!("[provider-access] state=access_lost");
+        Some(TabState::WaitingOnAuth)
+    } else {
+        match signals.api_error {
+            Some(ApiErrorKind::Authentication) => None,
+            Some(ApiErrorKind::RateLimit) => {
+                log::debug!("[provider-access] state=rate_limited");
+                Some(TabState::RateLimited)
+            }
+            Some(ApiErrorKind::Other) => {
+                log::debug!("[provider-access] state=unknown");
+                Some(TabState::Unknown)
+            }
+            None if signals.auth.as_ref().is_some_and(|auth| !auth.logged_in) => {
+                Some(TabState::WaitingOnAuth)
+            }
+            None => None,
         }
-        None => None,
     };
     if let Some(state) = state {
         return Some(TabStateClassification {
@@ -54,7 +68,7 @@ pub(crate) fn classify(
             action: Some(TabStateAction {
                 surface: Some(Surface {
                     kind: "provider_health".into(),
-                    payload: serde_json::json!({"auth":signals.auth,"api_error":signals.api_error}),
+                    payload: serde_json::json!({"auth":signals.auth,"api_error":signals.api_error,"access_lost":signals.access_lost()}),
                 }),
                 ..Default::default()
             }),
@@ -77,13 +91,10 @@ pub(crate) fn apply(
         .read()
         .get_tab(tab_id)
         .and_then(|tab| tab.agent_type.clone());
-    if !provider
+    let structured = provider
         .as_deref()
-        .is_some_and(|provider| enabled(svc, provider))
-    {
-        return;
-    }
-    let (changed, changed_error, refresh_needed) = {
+        .is_some_and(|provider| enabled(svc, provider));
+    let (changed, changed_error, refresh_needed, transition) = {
         let mut mux = svc.mux.write();
         let Some(tab) = mux.get_tab_mut(tab_id) else {
             return;
@@ -92,21 +103,12 @@ pub(crate) fn apply(
             || tab.session_binding_nonce.as_deref() != Some(nonce)
             || tab.agent_type != provider
         {
+            log::debug!("[provider-access] rejected stale session tab={tab_id}");
             return;
         }
         let previous = tab.provider_signals.clone();
-        for record in records {
-            if record
-                .provider_session_id
-                .as_deref()
-                .is_some_and(|id| id != session)
-            {
-                continue;
-            }
-            if let Some(observation) = &record.provider_observations {
-                tab.provider_signals.observe(observation);
-            }
-        }
+
+        observe_records(&mut tab.provider_signals, session, records, structured);
         let refresh_needed = previous.auth.as_ref().is_some_and(|auth| !auth.logged_in)
             && records.iter().any(|record| {
                 if record
@@ -127,8 +129,12 @@ pub(crate) fn apply(
                 .then_some(tab.provider_signals.api_error)
                 .flatten(),
             refresh_needed,
+            incident_transition(previous.access_lost(), tab.provider_signals.access_lost()),
         )
     };
+    if transition != IncidentTransition::Unchanged {
+        incident(svc, tab_id, session, nonce, transition);
+    }
     if changed {
         svc.emit_state_changed();
     }
@@ -136,9 +142,36 @@ pub(crate) fn apply(
         refresh_auth(svc, tab_id);
     }
     if let Some(error) = changed_error {
-        warn(svc, tab_id, format!("Provider API error: {error:?}"));
+        if error != ApiErrorKind::Authentication {
+            warn(svc, tab_id, format!("Provider API error: {error:?}"));
+        }
         if error == ApiErrorKind::Authentication {
             refresh_auth(svc, tab_id);
+        }
+    }
+}
+
+fn observe_records(
+    signals: &mut ProviderSignals,
+    session: &str,
+    records: &[crate::agent::chat_types::RichMessage],
+    structured: bool,
+) {
+    for record in records {
+        if record
+            .provider_session_id
+            .as_deref()
+            .is_some_and(|id| id != session)
+        {
+            log::debug!("[provider-access] ignored foreign record");
+            continue;
+        }
+        if let Some(observation) = &record.provider_observations {
+            let mut observation = observation.clone();
+            if !structured {
+                observation.permission_mode = None;
+            }
+            signals.observe(&observation);
         }
     }
 }

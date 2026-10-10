@@ -245,15 +245,66 @@ function statuslineLaunchArgs(args) {
   return [...composed.slice(0, -1), path];
 }
 
+// plugins/provider-shared/accessError.ts
+function object(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function classifyAccessError(error, record2) {
+  const detail = object(error);
+  const info = object(detail?.codexErrorInfo);
+  const fields = [
+    typeof error === "string" ? error : null,
+    detail?.type,
+    detail?.code,
+    detail?.status,
+    detail?.statusCode,
+    detail?.status_code,
+    detail?.httpStatusCode,
+    detail?.codexErrorInfo,
+    ...Object.keys(info ?? {}),
+    ...Object.values(info ?? {}).map((value) => object(value)?.httpStatusCode),
+    record2.status,
+    record2.statusCode,
+    record2.status_code,
+    record2.apiErrorStatus,
+    record2.apiErrorCode
+  ];
+  if (fields.some((value) => typeof value === "string" && (value.startsWith("oauth_") || value.startsWith("authentication_")))) return "authentication";
+  if (fields.some((value) => value === 401 || value === 403 || typeof value === "string" && [
+    "401",
+    "403",
+    "authentication_error",
+    "auth",
+    "unauthorized",
+    "permission_error",
+    "permission_denied",
+    "forbidden",
+    "subscription_disabled",
+    "organization_disabled",
+    "oauth_refresh_failed",
+    "token_expired",
+    "token_revoked",
+    "refresh_token_reused",
+    "refresh_token_expired",
+    "refresh_token_invalidated",
+    "logged_out",
+    "signed_out",
+    "unauthenticated",
+    "authError"
+  ].includes(value))) return "authentication";
+  if (fields.some((value) => value === 429 || value === "429" || value === "rate_limit" || value === "rate_limit_error" || value === "usageLimitExceeded")) return "rate_limit";
+  return "other";
+}
+
 // plugins/provider-claude/src/signals.ts
 function authStatusProbe() {
   return { args: ["auth", "status"], timeoutMs: 3e3 };
 }
-function object(value) {
+function object2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 function parseAuthStatus(value) {
-  const record2 = object(value);
+  const record2 = object2(value);
   if (!record2 || typeof record2.loggedIn !== "boolean") return null;
   const result = { loggedIn: record2.loggedIn };
   for (const key of ["authMethod", "subscriptionType", "configDirectory"]) {
@@ -264,33 +315,32 @@ function parseAuthStatus(value) {
   return result;
 }
 function parseSessionObservations(value) {
-  const record2 = object(value);
+  const record2 = object2(value);
   if (!record2) return null;
   const modes = ["default", "acceptEdits", "bypassPermissions", "plan", "dontAsk", "auto"];
   const permission_mode = typeof record2.permissionMode === "string" && modes.includes(record2.permissionMode) ? record2.permissionMode : null;
   const isError = record2.isApiErrorMessage === true;
-  const error = typeof record2.error === "string" ? record2.error : object(record2.error)?.type;
-  const api_error = !isError ? null : error === "rate_limit" || error === "rate_limit_error" ? "rate_limit" : error === "authentication_error" || error === "auth" ? "authentication" : "other";
-  const clears_api_error = record2.type === "assistant" && !isError && !!object(record2.message);
+  const api_error = isError ? classifyAccessError(record2.error, record2) : null;
+  const clears_api_error = record2.type === "assistant" && !isError && !!object2(record2.message);
   return isError || permission_mode || clears_api_error ? { api_error, permission_mode, clears_api_error } : null;
 }
 
 // plugins/provider-claude/src/backgroundWork.ts
-function object2(value) {
+function object3(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 function parseBackgroundWork(value) {
-  const row = object2(value);
+  const row = object3(value);
   if (!row) return [];
-  const result = object2(row.toolUseResult);
+  const result = object3(row.toolUseResult);
   const events = [];
   for (const [key, state] of [["backgroundTaskId", "running"], ["agentId", result?.status === "async_launched" || result?.status === "running" ? "running" : result?.status]]) {
     const id = result?.[key];
     if (typeof id === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(id) && ["running", "completed", "failed", "killed"].includes(String(state))) events.push({ id, state });
   }
-  const content = object2(row.message)?.content;
-  const prompt = object2(row.attachment)?.prompt;
-  const texts = typeof content === "string" ? [content] : Array.isArray(content) ? content.map((block) => object2(block)?.text).filter((text2) => typeof text2 === "string") : [];
+  const content = object3(row.message)?.content;
+  const prompt = object3(row.attachment)?.prompt;
+  const texts = typeof content === "string" ? [content] : Array.isArray(content) ? content.map((block) => object3(block)?.text).filter((text2) => typeof text2 === "string") : [];
   if (typeof prompt === "string") texts.push(prompt);
   for (const text2 of texts) {
     const notifications = text2.match(/<task-notification>[\s\S]*?<\/task-notification>/g) || [];

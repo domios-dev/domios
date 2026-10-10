@@ -33,14 +33,8 @@ pub(super) fn session(record: &Value) -> Option<SessionObservations> {
         .cloned()
         .and_then(|value| serde_json::from_value::<PermissionMode>(value).ok());
     let is_error = record.get("isApiErrorMessage").and_then(Value::as_bool) == Some(true);
-    let error = record
-        .get("error")
-        .and_then(|error| error.as_str().or_else(|| error.get("type")?.as_str()));
-    let api_error = is_error.then_some(match error {
-        Some("rate_limit" | "rate_limit_error") => ApiErrorKind::RateLimit,
-        Some("authentication_error" | "auth") => ApiErrorKind::Authentication,
-        _ => ApiErrorKind::Other,
-    });
+    let api_error = is_error.then(|| ApiErrorKind::from_error(record.get("error"), record));
+    log::debug!("[provider-access] Claude record error={api_error:?}");
     let clears_api_error = record.get("type").and_then(Value::as_str) == Some("assistant")
         && !is_error
         && record.get("message").is_some_and(Value::is_object);
