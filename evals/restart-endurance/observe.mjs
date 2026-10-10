@@ -6,6 +6,7 @@ import { exactReply, firstTurnPolicy, kind, probeReady } from "./oracle.mjs";
 import { digest, logLines, newEvidence } from "./logs.mjs";
 import { recordBoundary, nextTurnModel } from "./records.mjs";
 import { snapshotAfterEvent } from "./snapshots.mjs";
+import { restoreReady, reconcileReadiness } from "./readiness.mjs";
 
 const script = fileURLToPath(import.meta.url);
 const root = resolve(dirname(script), "../..");
@@ -171,12 +172,12 @@ function failure(record) {
   if (terminalStages.has(record.boot_stage)) return `${record.boot_stage}: ${record.boot_failure_reason ?? JSON.stringify(record.pending_prompt ?? null)}`;
   return null;
 }
-async function waitReady(events, id, signal, policy, requireSession = false) {
+async function waitReady(events, id, signal, policy, requireSession = false, requireLaunch = false) {
   for (;;) {
     const record = await snapshotAfterEvent(events, () => tab(id, signal));
     const reason = failure(record);
     if (reason) throw new Error(reason);
-    if (probeReady(record, policy, requireSession)) return record;
+    if (probeReady(record, policy, requireSession) && (!requireLaunch || record.boot_stage === "agent_ready")) return record;
     let event;
     do { event = await events.next(); } while (!touches(event, id));
   }
@@ -188,8 +189,9 @@ async function observeFresh(fixture) {
     await events.open();
     row.before_probe = await waitReady(events, fixture.id, signal, fixture.first_turn_policy);
     row.transcript = await snapshotAfterEvent(events, () => transcript(fixture.id, signal));
-    fixture.last_session = row.before_probe.agent_session_id;
     row.pass = !row.transcript.messages.some((message) => ["user", "assistant"].includes(kind(message)));
+    fixture.empty_session_id = row.pass ? row.before_probe.agent_session_id : null;
+    fixture.last_session = row.pass ? null : row.before_probe.agent_session_id;
     row.reason = row.pass ? "No user or assistant turn before restart" : "Fresh fixture already has turns";
   } catch (error) {
     row.reason = error.message;
@@ -212,7 +214,8 @@ async function paddedPrompt(id, marker) {
 
 async function probe(fixture, n, observeOnly = false) {
   const row = { id: fixture.id, cohort: fixture.cohort, provider: fixture.provider,
-    previous_session: fixture.last_session ?? null, pass: false, observed_only: observeOnly };
+    previous_session: fixture.last_session ?? null, pass: false, observed_only: observeOnly,
+    started_at: new Date().toISOString() };
   if (!fixture.id) { row.reason = fixture.spawn_error; return row; }
   const start = performance.now();
   const signal = AbortSignal.timeout(deadlineMs);
@@ -296,10 +299,13 @@ async function probe(fixture, n, observeOnly = false) {
     row.reason = error.message;
   } finally {
     row.elapsed_ms = Math.round(performance.now() - start);
+    row.finished_at = new Date().toISOString();
     events.close();
     row.after_probe ??= await tab(fixture.id).catch(() => null);
     row.before_probe ??= row.initial ?? row.after_probe;
-    row.lifecycle = await dcJson("tab", "inspect", "--tab", fixture.id, "--lifecycle").catch((error) => ({ error: error.message }));
+    if (!observeOnly || failure(row.initial)) {
+      row.lifecycle = await dcJson("tab", "inspect", "--tab", fixture.id, "--lifecycle").catch((error) => ({ error: error.message }));
+    }
     if (subscribed) await api(`/api/tabs/${fixture.id}/chat-raw/stop`, "POST", { subscriptionId: `endure-${fixture.id}-${n}` }).catch((error) => { row.subscription_stop_error = error.message; });
     console.log(`${observeOnly ? "OBSERVED" : row.pass ? "PASS" : "FAIL"} round=${n} tab=${fixture.id} provider=${fixture.provider} ${row.reason ?? row.answer ?? ""}`);
   }
@@ -321,6 +327,9 @@ async function checkHealth() {
 
 async function setup() {
   result.health = await checkHealth();
+  const modelOverrides = { ...(instance ? { opencode: "deepseek/deepseek-flash" } : {}),
+    ...JSON.parse(process.env.ENDURE_MODEL_OVERRIDES ?? "{}") };
+  result.model_overrides = modelOverrides;
   const providers = await dcJson("agent", "providers");
   result.provider_descriptors = providers;
   const inventory = await dcJson("plugin", "list");
@@ -364,14 +373,14 @@ async function setup() {
         continue;
       }
       result.coverage.push({ provider, cohort, status: "launch requested" });
-      const fixture = { provider, cohort, first_turn_policy: policies.get(provider) ?? firstTurnPolicy(null) };
+      const fixture = { provider, cohort, requested_model: modelOverrides[provider], first_turn_policy: policies.get(provider) ?? firstTurnPolicy(null) };
       result.fixtures.push(fixture);
       save();
       try {
         const spawned = await dcJson("agent", "spawn", provider, "--workspace", workspace.id,
           "--cwd", workspace.cwd, "--title", `${provider}${cohort === "fresh" ? "F" : "U"}`,
           "--description", `Restart endurance ${cohort} fixture`, "--non-user-facing",
-          ...(provider === "opencode" ? ["--model", "deepseek/deepseek-flash"] : []));
+          ...(fixture.requested_model ? ["--model", fixture.requested_model] : []));
         fixture.id = spawned.tab_id;
         if (!fixture.id) throw new Error(`Spawn did not return tab_id: ${JSON.stringify(spawned)}`);
       } catch (error) { fixture.spawn_error = error.message; }
@@ -405,8 +414,10 @@ async function setup() {
         await events.open();
         record = await waitReady(events, fixture.id, signal, fixture.first_turn_policy);
         snapshot = await snapshotAfterEvent(events, () => transcript(fixture.id, signal));
-        if (snapshot.messages.some((message) => ["user", "assistant"].includes(kind(message)))) reason = "Fresh fixture has conversation turns before any eval probe";
-        fixture.last_session = record.agent_session_id;
+        const hasTurns = snapshot.messages.some((message) => ["user", "assistant"].includes(kind(message)));
+        if (hasTurns) reason = "Fresh fixture has conversation turns before any eval probe";
+        fixture.empty_session_id = hasTurns ? null : record.agent_session_id;
+        fixture.last_session = hasTurns ? record.agent_session_id : null;
       } catch (error) { reason = error.message; }
       finally { events.close(); }
       entry.rows.push({ ...fixture, before_probe: record, transcript: snapshot, pass: !reason, reason: reason ?? "No user or assistant turn before restart" });
@@ -425,27 +436,44 @@ function captureLogs(n) {
 
 async function runRound(n) {
   const health = await checkHealth();
-  const entry = { round: n, health, rows: [], started_at: result.round_started_at };
+  const entry = { round: n, health, rows: [], started_at: result.round_started_at,
+    health_observed_at: new Date().toISOString() };
   result.rounds.push(entry);
   save();
-  entry.health_observed_at = new Date().toISOString();
+  let workspace;
+  const readiness = [];
+  for (const fixture of result.fixtures.filter((fixture) => fixture.id)) {
+    const signal = AbortSignal.timeout(deadlineMs);
+    const events = new Events(signal);
+    try {
+      await events.open();
+      const record = await snapshotAfterEvent(events, () => tab(fixture.id, signal));
+      if (record && workspace !== record.workspace_id) {
+        await dc("workspace", "focus", record.workspace_id);
+        workspace = record.workspace_id;
+      }
+      await dc("tab", "focus", "--tab", fixture.id);
+      readiness.push(await waitReady(events, fixture.id, signal, fixture.first_turn_policy, Boolean(fixture.has_answer), true));
+    } catch (error) {
+      readiness.push({ id: fixture.id, readiness_error: error.message });
+    } finally { events.close(); }
+  }
+  entry.initial_readiness = readiness.map((record) => ({ ...record }));
   const signal = AbortSignal.timeout(deadlineMs);
   const events = new Events(signal);
   try {
     await events.open();
-    for (;;) {
-      const records = await snapshotAfterEvent(events, () => tabs(signal));
-      const pending = result.fixtures.filter((fixture) => fixture.id).filter((fixture) => {
-        const record = records.find((candidate) => candidate.id === fixture.id);
-        const reason = failure(record);
-        if (reason) throw new Error(`Restore barrier ${fixture.id}: ${reason}`);
-        return record.boot_stage !== "agent_ready" || !probeReady(record, fixture.first_turn_policy, Boolean(fixture.has_answer));
-      });
-      if (!pending.length) break;
-      console.log(`Restore barrier: ${pending.map((fixture) => fixture.id).join(", ")}`);
-      await events.next();
-    }
-    entry.all_ready_at = new Date().toISOString();
+    const settled = await snapshotAfterEvent(events, () => tabs(signal));
+    entry.restore_readiness = reconcileReadiness(readiness, settled, result.fixtures);
+    entry.materialized_pty_count = settled.filter((record) => record.pty_id).length;
+    entry.restore_ready_at = new Date().toISOString();
+    const unresolved = result.fixtures.filter((fixture) => fixture.id).filter((fixture) => {
+      const observed = entry.restore_readiness.find((record) => record.id === fixture.id);
+      const current = settled.find((record) => record.id === fixture.id);
+      return observed?.readiness_error || failure(current) || !restoreReady(current, fixture);
+    });
+    if (unresolved.length) throw new Error(`Restore barrier unresolved: ${unresolved.map((fixture) => fixture.id).join(", ")}`);
+    entry.all_ready_at = entry.restore_ready_at;
     entry.stop_to_health_ms = Date.parse(entry.health_observed_at) - Date.parse(entry.started_at);
     entry.stop_to_all_ready_ms = Date.parse(entry.all_ready_at) - Date.parse(entry.started_at);
     save();
@@ -454,19 +482,23 @@ async function runRound(n) {
     const lines = captureLogs(n);
     for (const fixture of result.fixtures) {
       const record = fixture.id ? await tab(fixture.id).catch(() => null) : null;
+      const observed = entry.restore_readiness?.find((record) => record.id === fixture.id);
       entry.rows.push({ ...fixture, pass: false, previous_session: fixture.last_session,
-        before_probe: record, reason: failure(record) || `Not probed: restore barrier failed: ${error.message}`,
+        phase: "restore_readiness_failed", before_probe: record,
+        reason: observed?.readiness_error || failure(record) || `Not probed: restore barrier failed: ${error.message}`,
         lifecycle: fixture.id ? await dcJson("tab", "inspect", "--tab", fixture.id, "--lifecycle").catch(() => null) : null,
         log_evidence: fixture.id ? lines.filter((line) => line.includes(fixture.id)) : [] });
     }
     save();
     throw error;
   } finally { events.close(); }
-  await Promise.all(result.fixtures.map(async (fixture) => {
+  const probeFixture = async (fixture) => {
     entry.rows.push(await probe(fixture, n));
     save();
-  }));
-  for (const row of entry.rows.filter((row) => !row.pass && row.id)) {
+  };
+  if (instance) await Promise.all(result.fixtures.map(probeFixture));
+  else for (const fixture of result.fixtures) await probeFixture(fixture);
+  for (const row of entry.rows.filter((row) => instance && !row.pass && row.id)) {
     const began = performance.now();
     row.failure_health = await checkHealth().catch((error) => ({ error: error.message }));
     row.failure_health_ms = Math.round(performance.now() - began);
@@ -514,7 +546,7 @@ async function main() {
     for (const cohort of ["fresh", "used"]) {
       let fixture = result.fixtures.find((candidate) => candidate.provider === provider && candidate.cohort === cohort);
       if (!fixture) {
-        fixture = { provider, cohort };
+        fixture = { provider, cohort, requested_model: result.model_overrides?.[provider] };
         result.fixtures.push(fixture);
       }
       fixture.first_turn_policy = policy;
@@ -530,7 +562,7 @@ async function main() {
           const spawned = await dcJson("agent", "spawn", provider, "--workspace", result.workspace.id,
             "--cwd", result.workspace.cwd, "--title", `${provider}${cohort === "fresh" ? "F" : "U"}`,
             "--description", `Restart endurance ${cohort} fixture`, "--non-user-facing",
-            ...(provider === "opencode" ? ["--model", "deepseek/deepseek-flash"] : []));
+            ...(fixture.requested_model ? ["--model", fixture.requested_model] : []));
           fixture.id = spawned.tab_id;
           if (!fixture.id) throw new Error("Spawn did not return tab_id");
           delete fixture.spawn_error;
