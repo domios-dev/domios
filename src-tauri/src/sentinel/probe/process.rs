@@ -154,7 +154,7 @@ pub(super) struct Deadlines {
 
 #[cfg(test)]
 #[derive(Clone, Copy, Debug)]
-pub(super) struct DeadlineReceipt {
+pub(in crate::sentinel) struct DeadlineReceipt {
     pub admitted: Instant,
     pub operation: Instant,
     pub hard: Instant,

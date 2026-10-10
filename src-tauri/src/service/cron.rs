@@ -772,7 +772,7 @@ impl ServiceContext {
         Ok(run_info)
     }
 
-    pub fn cron_complete(
+    pub(crate) fn cron_complete(
         &self,
         cron: &CronState,
         wake: &CronWake,

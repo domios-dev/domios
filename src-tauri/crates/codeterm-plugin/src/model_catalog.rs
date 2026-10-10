@@ -1029,7 +1029,7 @@ fn non_empty(value: &str) -> Option<String> {
 
 mod readme;
 #[cfg(test)]
-pub(crate) use readme::render_example;
+use readme::render_example;
 pub use readme::{ensure_readme_installed, refresh_example_files};
 
 #[cfg(test)]
