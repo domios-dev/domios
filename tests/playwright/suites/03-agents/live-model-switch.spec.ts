@@ -312,7 +312,11 @@ for (let run = startRun; run < startRun + repeats; run++) {
             finally { signal.removeEventListener("abort", expired); }
           } : undefined;
           let rawBusy;
-          try { rawBusy = await waitForCompletedTurn(providerId, startedRecords, marker, 240_000, probeRenderer); }
+          const subscribeWake = (wake: () => void) => target.events.subscribe(event => {
+            if (event.data.tab_id === target.tabId && ["tab-status-changed", `tab-chat-${target.tabId}`,
+              `tab-chat-msg-${target.tabId}`].includes(event.event_type)) wake();
+          });
+          try { rawBusy = await waitForCompletedTurn(providerId, startedRecords, marker, 240_000, probeRenderer, subscribeWake); }
           finally {
             if (cdp) {
               writeFileSync(info.outputPath(`${providerId}-${step}-cdp-responsiveness.json`), JSON.stringify(responsiveness, null, 2));

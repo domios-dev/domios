@@ -106,6 +106,7 @@ export function withSpawnMetrics(
 }
 
 export class TabEvents {
+  private readonly subscribers = new Set<(event: ApiEvent) => void>();
   private readonly controller = new AbortController();
   private readonly frames: ApiEvent[] = [];
   private readonly waiters: Array<{
@@ -134,6 +135,7 @@ export class TabEvents {
   }
 
   async close(): Promise<void> {
+    this.subscribers.clear();
     this.controller.abort();
     await this.reader?.cancel().catch(() => {});
   }
@@ -174,6 +176,11 @@ export class TabEvents {
 
   latestSequence(): number {
     return this.sequence;
+  }
+
+  subscribe(listener: (event: ApiEvent) => void): () => void {
+    this.subscribers.add(listener);
+    return () => { this.subscribers.delete(listener); };
   }
 
   private async read(): Promise<void> {
@@ -239,6 +246,7 @@ export class TabEvents {
 
   private publish(event: ApiEvent): void {
     this.frames.push(event);
+    for (const listener of this.subscribers) listener(event);
     for (const waiter of [...this.waiters]) {
       if (waiter.predicate(event)) {
         waiter.signal.removeEventListener("abort", waiter.onAbort);

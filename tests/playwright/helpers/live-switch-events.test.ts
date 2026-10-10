@@ -58,3 +58,20 @@ test("unexpected DEV boot change remains a failure", async () => {
     assert.deepEqual(fixture.requests, []);
   } finally { await events.close(); }
 });
+
+test("record observers receive own stream wakeups and detach after completion", async () => {
+  const fixture = streamFixture("idle");
+  const events = await TabEvents.open(fixture.api, "owned");
+  const received: number[] = [];
+  const detach = events.subscribe(event => { received.push(event.seq); });
+  try {
+    const first = events.waitFor(event => event.seq === 1, 1000, "first wake");
+    fixture.emit({ seq: 1, event_type: "tab-status-changed", data: { tab_id: "owned", status: "Idle" } });
+    await first;
+    detach();
+    const second = events.waitFor(event => event.seq === 2, 1000, "detached wake");
+    fixture.emit({ seq: 2, event_type: "tab-status-changed", data: { tab_id: "owned", status: "Working" } });
+    await second;
+    assert.deepEqual(received, [1]);
+  } finally { await events.close(); }
+});
