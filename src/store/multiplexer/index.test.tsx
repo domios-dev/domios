@@ -96,14 +96,17 @@ function sampleState(wsId: string) {
 interface Deferred<T> {
   promise: Promise<T>;
   resolve: (value: T) => void;
+  reject: (error: unknown) => void;
 }
 
 function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((r) => {
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((r, fail) => {
     resolve = r;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 /** `mux_get_state` responses stay pending until explicitly resolved; calls
@@ -221,6 +224,9 @@ async function mountProvider(options: {
       return intervalCalls;
     },
     settleMuxGetState,
+    rejectMuxGetState(error: unknown) {
+      for (const pending of pendingMuxGetState.splice(0)) pending.reject(error);
+    },
     emit(event: string, payload: unknown = null) {
       for (const handler of eventListeners.get(event) ?? []) handler({ payload });
     },
@@ -231,6 +237,47 @@ async function mountProvider(options: {
     },
   };
 }
+
+test("a cancelled rebind waits for the next accepted peer snapshot", async () => {
+  const harness = await mountProvider();
+  const receipts: Array<{ success: boolean }> = [];
+  const onReady = (event: Event) => receipts.push((event as CustomEvent).detail);
+  window.addEventListener("codeterm-peer-switch-ready", onReady);
+  try {
+    await harness.act(async () => {
+      window.dispatchEvent(new CustomEvent("codeterm-peer-switch-reset", { detail: { switchId: 18 } }));
+      window.dispatchEvent(new CustomEvent("codeterm-peer-switch-rebind", { detail: { switchId: 18 } }));
+      harness.rejectMuxGetState(new DOMException("Peer context changed", "AbortError"));
+    });
+    assert(receipts.length === 0, "cancellation must not announce a failed peer");
+    await harness.act(async () => harness.emit("mux-state-changed", sampleState("ready-shell")));
+    assert(Number(receipts.length) === 1 && receipts[0].success, "accepted snapshot must settle the rebind");
+  } finally {
+    window.removeEventListener("codeterm-peer-switch-ready", onReady);
+    await harness.unmount();
+  }
+});
+
+test("a peer snapshot pushed during rebind announces success before the refresh settles", async () => {
+  const harness = await mountProvider();
+  const receipts: Array<{ switchId: number; success: boolean }> = [];
+  const onReady = (event: Event) => receipts.push((event as CustomEvent).detail);
+  window.addEventListener("codeterm-peer-switch-ready", onReady);
+  try {
+    await harness.act(async () => {
+      window.dispatchEvent(new CustomEvent("codeterm-peer-switch-reset", { detail: { switchId: 19 } }));
+      window.dispatchEvent(new CustomEvent("codeterm-peer-switch-rebind", { detail: { switchId: 19 } }));
+      harness.emit("mux-state-changed", sampleState("ready-shell"));
+    });
+    assert(receipts.length === 1 && receipts[0].switchId === 19 && receipts[0].success,
+      "an accepted current-peer snapshot must announce successful readiness");
+    await harness.settleMuxGetState();
+    assert(receipts.length === 1, "refresh completion must not announce readiness twice");
+  } finally {
+    window.removeEventListener("codeterm-peer-switch-ready", onReady);
+    await harness.unmount();
+  }
+});
 
 test("Storage unavailable snapshot exposes its preservation status to the UI", async () => {
   const harness = await mountProvider({ storageUnavailableInitialMux: true });

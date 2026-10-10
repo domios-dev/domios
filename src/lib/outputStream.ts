@@ -110,7 +110,11 @@ export function outputStreamEnabled(): boolean {
 }
 
 export function webOutputStreamActive(): boolean {
-  return IS_WEB && outputStreamEnabled();
+  return webOutputTransportActive(IS_WEB, IS_WEB ? relayTarget()?.id ?? null : null, outputStreamEnabled());
+}
+
+export function webOutputTransportActive(isWeb: boolean, relayPeerId: string | null, enabled: boolean): boolean {
+  return isWeb && (relayPeerId !== null || enabled);
 }
 
 function sinceCursor(): string {
