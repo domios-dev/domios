@@ -78,7 +78,7 @@ export async function selectTab(page, tabId, {mode = 'chat', workspaceId} = {}) 
   return tab;
 }
 export const terminalObserver = Object.fromEntries(Object.entries(rawTerminal).map(([key, fn]) => [key,
-  key === 'readTerminalState' ? fn : (...args) => deadline(fn(...args), `B3 ${key}`)]));
+  ['readTerminalState', 'captureTerminal'].includes(key) ? fn : (...args) => deadline(fn(...args), `B3 ${key}`)]));
 export async function captureTerminalView(page, tabId, label) {
   await selectTab(page, tabId, {mode:'terminal'});
   const provenance = (await capture(page, label+'-provenance', {tabId})).metadata;

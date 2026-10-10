@@ -104,8 +104,20 @@ function readProbeEvents(id) {
 
 export async function captureTerminal(page, { tabId, probeId, directory, provenance }) {
   const out = resolve(directory);
-  await mkdir(out, { recursive: false });
   const expiresAt = Date.now() + 30000;
+  const signal = AbortSignal.timeout(30000);
+  const within = async promise => {
+    let expired;
+    const failure = new Error('FAIL unstable surface: capture deadline exhausted');
+    if (signal.aborted) throw failure;
+    const timeout = new Promise((_, reject) => {
+      expired = () => reject(failure);
+      signal.addEventListener('abort', expired, { once: true });
+    });
+    try { return await Promise.race([promise, timeout]); }
+    finally { signal.removeEventListener('abort', expired); }
+  };
+  await within(mkdir(out, { recursive: false }));
   const remaining = () => {
     const value = expiresAt - Date.now();
     if (value <= 0) throw new Error('FAIL unstable surface: capture deadline exhausted');
@@ -116,20 +128,20 @@ export async function captureTerminal(page, { tabId, probeId, directory, provena
   let failure = 'FAIL unstable surface: three capture attempts exhausted';
   for (let number = 1; number <= 3; number++) {
     remaining();
-    const startRevision = await page.evaluate(readProbeRevision, probeId);
-    const before = await page.evaluate(readTerminalState, { tabId });
-    const middleRevision = await page.evaluate(readProbeRevision, probeId);
-    const candidate = await page.evaluate(readTerminalState, { tabId });
-    const screenshotRevision = await page.evaluate(readProbeRevision, probeId);
+    const startRevision = await within(page.evaluate(readProbeRevision, probeId));
+    const before = await within(page.evaluate(readTerminalState, { tabId }));
+    const middleRevision = await within(page.evaluate(readProbeRevision, probeId));
+    const candidate = await within(page.evaluate(readTerminalState, { tabId }));
+    const screenshotRevision = await within(page.evaluate(readProbeRevision, probeId));
     const ready = startRevision === middleRevision && middleRevision === screenshotRevision
       && JSON.stringify(before) === JSON.stringify(candidate);
     const screenshot = ready ? `screen-attempt-${number}.png` : null;
-    if (screenshot) await page.screenshot({ path: resolve(out, screenshot), timeout: remaining() });
-    const after = screenshot ? await page.evaluate(readTerminalState, { tabId }) : candidate;
-    const endRevision = await page.evaluate(readProbeRevision, probeId);
+    if (screenshot) await within(page.screenshot({ path: resolve(out, screenshot), timeout: remaining() }));
+    const after = screenshot ? await within(page.evaluate(readTerminalState, { tabId })) : candidate;
+    const endRevision = await within(page.evaluate(readProbeRevision, probeId));
     const unchanged = ready && screenshotRevision === endRevision
       && JSON.stringify(candidate) === JSON.stringify(after);
-    const events = await page.evaluate(readProbeEvents, probeId);
+    const events = await within(page.evaluate(readProbeEvents, probeId));
     const attempt = { number, before, candidate, after, startRevision, middleRevision,
       screenshotRevision, endRevision, screenshot, unchanged, events };
     attempts.push(attempt);
@@ -145,9 +157,9 @@ export async function captureTerminal(page, { tabId, probeId, directory, provena
     }
     if (number < 3) {
       try {
-        attempt.resumeEvent = await waitTerminalEvent(page, probeId, {
+        attempt.resumeEvent = await within(waitTerminalEvent(page, probeId, {
           types: ['write-parsed', 'render'], after: startRevision, deadlineMs: remaining(),
-        });
+        }));
       } catch (error) {
         attempt.waitError = error.message;
         failure = `FAIL unstable surface: ${error.message}`;
