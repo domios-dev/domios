@@ -275,7 +275,7 @@ for (let run = startRun; run < startRun + repeats; run++) {
           await expect(capsule).not.toHaveAttribute("aria-label", /after this turn/, { timeout: 15_000 });
           const floor = target.events.latestSequence();
           const marker = `SWITCH_BUSY_${run}_${providerId}_${Date.now()}`;
-          await send(`Write 600 numbered sentences about trees, one per line, starting with ${marker}. Do not use tools.`);
+          await send(`Write 120 numbered sentences about trees, one per line, starting with ${marker}. Do not use tools.`);
           await expect(target.chat.getByRole("article", { name: "user message" }).filter({ hasText: marker })).toHaveCount(1);
           await target.events.waitFor(e => e.seq > floor && e.event_type === "tab-status-changed" && e.data.tab_id === target.tabId && e.data.status === "Working", 60_000, "long turn starts");
           const startedRecords = await records(providerId, baseline.agent_session_id);

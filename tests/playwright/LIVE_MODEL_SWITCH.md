@@ -24,7 +24,7 @@ $env:PW_SWITCH_KEEP = '1'
 pnpm exec playwright test -c tests/playwright --project=live-model-switch
 ```
 
-Include `opencode` only after the Orchestrator confirms hook v7 is on DEV.
+Include `opencode` only after the Orchestrator confirms its current hook is on DEV.
 For a coordinated single run, set `PW_SWITCH_RUNS=1` and
 `PW_SWITCH_RUN_NUMBER` to its stability index (1..3). Optional
 `PW_SWITCH_WORKSPACE` must name an empty provisioned `SwitchQA-*` workspace;
@@ -38,6 +38,10 @@ the provider default when it belongs to that pair. Otherwise they use the defaul
 and a different primary model, or another catalogue model. No model
 ids are hardcoded. Restart/resume modes fail with their explicit descriptor
 value; this acceptance path requires live or next-turn switching.
+
+The busy payload requests 120 numbered sentences to limit provider time and quota.
+Apply must still happen while the exact marked turn is working; payload length
+and elapsed time never substitute for that observation or completed-record proof.
 
 Each matrix creates a provisioned `SwitchQA-*` workspace and one fresh tab per
 provider through `evals/_lib/lib.sh` and `dc`. Composer sends and status-line
@@ -72,8 +76,8 @@ Scoped SSE `lagged` frames trigger exact own-tab status and delivery-ledger
 resync, adopt the supplied replay cursor and continue live frames. Resyncs are
 recorded; a current Idle snapshot cannot manufacture a past Working transition.
 Unexpected DEV boot changes remain failures outside the explicit restored leg.
-Busy completion waits on filesystem changes to the exact session record store,
-bounded at 240 seconds. Claude requires the marked assistant's `end_turn`;
+Busy completion re-reads exact session records on filesystem changes and own-tab
+status/chat SSE notifications, bounded at 240 seconds. Claude requires the marked assistant's `end_turn`;
 Codex requires the exact turn's marked `task_complete`; Grok and OpenCode retain
 their completed-record oracles. A transient Idle never proves completion.
 
