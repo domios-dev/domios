@@ -123,36 +123,41 @@ impl ServiceContext {
         } else {
             None
         };
-        let classified = {
+        let (classified, existing) = {
             let mux = self.mux.read();
             let prepared = prepare_team_member_spawn(&mux, team_id, caller_tab_id, params.clone())?;
-            if is_cartographer {
-                if let Some(existing) = staffing::existing_cartographer_attachment(&mux, team_id) {
-                    return Ok(existing);
-                }
-            }
-            prepared
+            let existing = is_cartographer
+                .then(|| staffing::existing_cartographer_attachment(&mux, team_id))
+                .flatten();
+            (prepared, existing)
         };
+        if let Some(existing) = existing {
+            return self
+                .reuse_cartographer_with_brief(existing, params.task)
+                .await;
+        }
         self.classify_spawn_target_for_params(
             classified.spawn_params.agent.as_deref().unwrap_or_default(),
             &classified.spawn_params,
         )?;
-        let (prepared, detached_failed_anchor) = {
+        let brief = params.task.clone();
+        let (prepared, detached_failed_anchor, existing) = {
             let mut mux = self.mux.write();
             let prepared = prepare_team_member_spawn(&mux, team_id, caller_tab_id, params)?;
-            if is_cartographer {
-                if let Some(existing) = staffing::existing_cartographer_attachment(&mux, team_id) {
-                    return Ok(existing);
-                }
-            }
+            let existing = is_cartographer
+                .then(|| staffing::existing_cartographer_attachment(&mux, team_id))
+                .flatten();
             let anchors = staffing::role_anchors_team(
                 &prepared.expected_role,
                 prepared.expected_profile.as_deref(),
             );
             let detached =
                 anchors && staffing::detach_spawn_failed_team_orchestrators(&mut mux, team_id);
-            (prepared, detached)
+            (prepared, detached, existing)
         };
+        if let Some(existing) = existing {
+            return self.reuse_cartographer_with_brief(existing, brief).await;
+        }
         if detached_failed_anchor {
             crate::service::publish_mux_state_changed(&self.events);
             crate::service::session_persist::persist_session_after_close(self);
@@ -1139,8 +1144,9 @@ mod staffing;
 #[cfg(test)]
 pub(crate) use staffing::prepare_team_member_spawn_with_provider_validation;
 pub(crate) use staffing::{
-    commit_team_member_spawn, prepare_team_member_spawn, take_over_team_plan, AddTeamMemberParams,
-    AddTeamMemberResult, TeamCartographerAttachLocks, TeamOrchestratorAttachLocks,
+    commit_team_member_spawn, prepare_team_member_spawn, take_over_team_plan, team_member_brief,
+    AddTeamMemberParams, AddTeamMemberResult, TeamCartographerAttachLocks,
+    TeamOrchestratorAttachLocks,
 };
 
 #[cfg(test)]

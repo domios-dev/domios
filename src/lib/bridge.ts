@@ -283,6 +283,7 @@ const HTTP_MAP: Record<string, Mapper> = {
         title: a.title,
         task: a.task,
         model: a.model,
+        brief: a.brief,
       },
       a.callerTabId,
     ),

@@ -17,6 +17,7 @@ pub(crate) struct AddTeamMemberBody {
     provider: String,
     role: String,
     title: Option<String>,
+    #[serde(alias = "brief")]
     task: Option<String>,
     model: Option<String>,
 }
@@ -210,6 +211,19 @@ mod tests {
 
     use crate::multiplexer::state::MultiplexerState;
     use crate::multiplexer::types::AgentRole;
+
+    #[test]
+    fn staffing_brief_alias_preserves_data_and_rejects_duplicate_inputs() {
+        let token = "opaque-brief\n`$()`";
+        let body: AddTeamMemberBody = serde_json::from_value(serde_json::json!({
+            "provider": "fixture-provider", "role": "cartographer", "brief": token,
+        }))
+        .unwrap();
+        assert_eq!(body.task.as_deref(), Some(token));
+        assert!(serde_json::from_value::<AddTeamMemberBody>(serde_json::json!({
+            "provider": "fixture-provider", "role": "cartographer", "task": "old", "brief": "new",
+        })).is_err());
+    }
 
     fn team_members() -> (MultiplexerState, String, String, String) {
         let (mut mux, orchestrator) = MultiplexerState::new();
