@@ -242,7 +242,7 @@ async function main() {
   // An in-flight turn is not interrupted, and the user is told why.
   {
     setAgentDescriptors([descriptor()]);
-    const view = await mount(agentTab(), "Working");
+    const view = await mount(agentTab({ agent_session_id: "bound-session", agent_state: { state: "working" } }), "Working");
     const menu = await openMenu(view.host);
     const entry = menu.querySelector('[data-testid="tab-menu-model"]');
     assert(entry, "model entry vanished while the agent was working");

@@ -159,6 +159,7 @@ function GroupCollapseChevron({
 }
 
 function TabWorkingActivity({ activity, label }: { activity: TabActivity; label?: string }) {
+  if (!activity.active) return null;
   return (
     <span
       data-testid="tab-working-activity"

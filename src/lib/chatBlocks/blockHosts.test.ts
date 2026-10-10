@@ -29,7 +29,7 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 function tab(id: string, extra: Partial<Tab> = {}): Tab {
-  return { id, title: `Tab ${id}`, pty_id: `pty-${id}`, tab_type: "Terminal", cwd: null, agent_type: "claude", ...extra } as Tab;
+  return { id, title: `Tab ${id}`, pty_id: `pty-${id}`, tab_type: "Terminal", cwd: null, agent_type: "claude", agent_session_id: `session-${id}`, ...extra } as Tab;
 }
 
 function task(id: string, key: string, status: Task["status"], extra: Partial<Task> = {}): Task {
@@ -106,7 +106,7 @@ test("agent_host_invalidates_activity_when_only_tab_status_changes", () => {
     interrupt: async () => {},
   });
   for (const [status, expected, canStop] of [
-    ["Idle", "idle", false], ["Working", "working", true], ["Waiting", "waiting", false],
+    ["Idle", "working", true], ["Working", "working", true], ["Waiting", "waiting", false],
   ] as const) {
     tabStatuses = { "e3ec9ee9-1111": status };
     const result = host.binding.read("e3ec9ee9");

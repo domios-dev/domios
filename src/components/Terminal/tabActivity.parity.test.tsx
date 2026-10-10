@@ -40,11 +40,11 @@ const root = createRoot(host);
 async function main() {
   try {
     const cases: Array<[Tab, TabStatus | null, boolean, boolean]> = [
-      [agent, "Working", true, true],
-      [{ ...agent, agent_state: { state: "idle" } }, "Working", true, true],
-      [{ ...agent, agent_state: { state: "working" } }, "Idle", false, false],
+      [agent, "Working", false, false],
+      [{ ...agent, agent_state: { state: "idle" } }, "Working", false, false],
+      [{ ...agent, agent_state: { state: "working" } }, "Idle", true, true],
       [{ ...agent, agent_state: { state: "question", subtype: "permission" } }, "Waiting", false, false],
-      [{ ...agent, boot_stage: "agent_launching" }, "Idle", true, false],
+      [{ ...agent, boot_stage: "agent_launching" }, "Working", false, false],
       [{ ...agent, boot_stage: "agent_ready", agent_state: { state: "idle" } }, "Idle", false, false],
     ];
     for (const [tab, status, active, canStop] of cases) {
@@ -56,11 +56,10 @@ async function main() {
         </MuxStateStoreContext.Provider>);
         store.notify();
       });
-      const sidebar = host.querySelector('[data-testid="tab-working-activity"] [data-active]');
-      const chat = host.querySelector('[data-testid="agent-state"] [data-active]');
-      assert.ok(sidebar && chat, "both activity indicators remain mounted");
-      assert.equal(sidebar.getAttribute("data-active"), String(active), "sidebar animation follows the model");
-      assert.equal(chat.getAttribute("data-active"), String(active), "Grok chat animation agrees with sidebar");
+      const sidebar = host.querySelector('[data-testid="tab-working-activity"]');
+      const chat = host.querySelector('[data-testid="agent-activity-dots"]');
+      assert.equal(Boolean(sidebar), active, "sidebar shows dots only for a working turn");
+      assert.equal(Boolean(chat), active, "chat agrees with sidebar about actual work");
       assert.equal(
         host.querySelector('[data-testid="tab-item"]')?.getAttribute("data-tab-activity"),
         host.querySelector('[data-testid="agent-state"]')?.getAttribute("data-tab-activity"),

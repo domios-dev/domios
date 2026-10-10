@@ -1,19 +1,22 @@
 import assert from "node:assert/strict";
 import { tabActivity, type TabActivityInput, type TabActivity } from "./tabActivity";
-import type { TabStatus } from "./types";
+import type { BootStage, TabStatus } from "./types";
+import { aggregateTabStatuses } from "../components/Sidebar/tabStatuses";
+import type { Tab } from "./types";
 
-const agent: TabActivityInput = { tab_type: "Terminal", agent_type: "fixture" };
+const agent: TabActivityInput = { tab_type: "Terminal", agent_type: "fixture", agent_session_id: "bound-session" };
 const cases: Array<[string, TabActivityInput | null, TabStatus | null, TabActivity["kind"], boolean, boolean]> = [
   ["unknown", null, null, "idle", false, false],
-  ["tracker working without classifier", agent, "Working", "working", true, true],
-  ["tracker working overrides stale idle", { ...agent, agent_state: { state: "idle" } }, "Working", "working", true, true],
-  ["tracker idle overrides stale working", { ...agent, agent_state: { state: "working" } }, "Idle", "idle", false, false],
+  ["tracker output without classifier", agent, "Working", "idle", false, false],
+  ["tracker output with idle classifier", { ...agent, agent_state: { state: "idle" } }, "Working", "idle", false, false],
+  ["bound live work overrides stale tracker", { ...agent, agent_state: { state: "working" } }, "Idle", "working", true, true],
   ["tracker waiting", agent, "Waiting", "waiting-on-user", false, false],
-  ["provider working without tracker", { ...agent, agent_state: { state: "working" } }, null, "working", true, true],
-  ["provider working during launch", { ...agent, boot_stage: "launch_written", agent_state: { state: "working" } }, null, "working", true, true],
+  ["bound provider working", { ...agent, agent_state: { state: "working" } }, null, "working", true, true],
+  ["unbound provider working", { ...agent, agent_session_id: null, agent_state: { state: "working" } }, "Working", "starting", false, false],
+  ["provider work during launch", { ...agent, boot_stage: "launch_written", agent_state: { state: "working" } }, "Working", "starting", false, false],
   ["provider question", { ...agent, agent_state: { state: "question" } }, null, "waiting-on-user", false, false],
-  ["booting", { ...agent, agent_booting: true }, "Idle", "starting", true, false],
-  ["launch written", { ...agent, boot_stage: "launch_written" }, null, "starting", true, false],
+  ["booting", { ...agent, agent_booting: true }, "Working", "starting", false, false],
+  ["launch written", { ...agent, boot_stage: "launch_written" }, null, "starting", false, false],
   ["ready stage stays idle", { ...agent, boot_stage: "agent_ready" }, "Idle", "idle", false, false],
   ["reattached stage stays idle", { ...agent, boot_stage: "pty_reattached" }, null, "idle", false, false],
   ["owner prompt", { ...agent, boot_stage: "awaiting_owner_prompt" }, "Working", "waiting-on-user", false, false],
@@ -21,7 +24,9 @@ const cases: Array<[string, TabActivityInput | null, TabStatus | null, TabActivi
   ["dead outranks prompt", { ...agent, boot_stage: "awaiting_owner_prompt" }, "Dead", "failed", false, false],
   ["tracker error", agent, "Error", "failed", false, false],
   ["shell running", { tab_type: "Terminal", shell_command_state: { activity: "running", last_exit_code: null } }, "Idle", "working", true, true],
+  ["ready shell command", { tab_type: "Terminal", boot_stage: "shell_ready", shell_command_state: { activity: "running", last_exit_code: null } }, "Working", "working", true, true],
   ["shell idle ignores output churn", { tab_type: "Terminal", shell_command_state: { activity: "idle", last_exit_code: 0 } }, "Working", "idle", false, false],
+  ["bound chat backend", { backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "chat-session" }, agent_state: { state: "working" } }, null, "working", true, true],
 ];
 
 for (const [name, tab, status, kind, active, canStop] of cases) {
@@ -29,12 +34,27 @@ for (const [name, tab, status, kind, active, canStop] of cases) {
   assert.equal(result.kind, kind, name);
   assert.equal(result.active, active, name);
   assert.equal(result.canStop, canStop, name);
+  assert.equal(result.status === "Working", kind === "working", name);
 }
 
-assert.equal(tabActivity({ ...agent, agent_state: { state: "question", subtype: "permission" } }).label, "Permission needed");
-assert.equal(tabActivity({ ...agent, pending_prompt: { question: "Opaque question?", options: [] } }, "Waiting").label, "Opaque question?");
-assert.equal(tabActivity({ ...agent, agent_state: { state: "idle", status_line: "Stale", phase: "thinking" } }, "Working").label, "Working");
+const startingStages: BootStage[] = ["pty_starting", "pty_spawned", "reader_ready", "shell_ready", "agent_launching", "launch_written", "provider_ready", "preparing_role_instructions", "delivering_instructions", "launch_deadline_elapsed", "launch_binding_unconfirmed"];
+for (const boot_stage of startingStages) {
+  const activity = tabActivity({ ...agent, boot_stage, agent_state: { state: "working" } }, "Working");
+  assert.equal(activity.kind, "starting", boot_stage);
+  assert.equal(activity.active, false, boot_stage);
+  assert.equal(activity.status, "Idle", boot_stage);
+  assert.equal(activity.canStop, false, boot_stage);
+}
+const tabs = Object.fromEntries(startingStages.map((boot_stage) => [boot_stage, { ...agent, id: boot_stage, boot_stage } as Tab]));
+const statuses = Object.fromEntries(startingStages.map((stage) => [stage, "Working" as const]));
+assert.equal(aggregateTabStatuses(startingStages, statuses, tabs), "Idle");
+assert.equal(Object.values(tabs).filter((tab) => tabActivity(tab, "Working").active).length, 0);
+assert.equal(Object.values(tabs).filter((tab) => tabActivity(tab, "Working").status === "Working").length, 0);
+
+assert.equal(tabActivity({ ...agent, agent_state: { state: "question", subtype: "permission" } }).subtype, "permission");
+const pending = { question: "question-token", options: [] };
+assert.equal(tabActivity({ ...agent, pending_prompt: pending }, "Waiting").label, pending.question);
 assert.equal(tabActivity({ ...agent, agent_state: { state: "idle", phase: "thinking" } }, "Working").phase, "work");
 assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "streaming", status_line: " Writing " } }).label, "Writing");
 assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "streaming" } }).phase, "streaming");
-console.log(`tab activity: ${cases.length} table cases passed`);
+console.log(`tab activity: ${cases.length} table cases, ${startingStages.length} boot stages and working-count checks passed`);

@@ -33,14 +33,13 @@ async function main(): Promise<void> {
     />,
   );
   assert(idle.host.querySelectorAll('[data-testid="agent-state"]').length === 1, "idle keeps exactly one status row mounted");
-  assert(idle.host.querySelectorAll(".activity-dots i").length === 3, "idle row keeps three dots");
-  assert(idle.host.querySelector(".activity-dots")?.classList.contains("activity-dots--muted"), "idle dots are gray");
+  assert(!idle.host.querySelector('[data-testid="agent-activity-dots"]'), "idle row has no working indicator");
   assert(idle.host.querySelector(".ct-agent-msg")?.textContent === "Codex · gpt-5.6-sol · high", "idle row includes session-owned actual effort");
 
   let stopCalls = 0;
   await act(async () => idle.root.render(
     <AgentStateIndicator
-      activity={tabActivity({ agent_state: { state: "working", status_line: "Editing files", phase: "thinking" } })}
+      activity={tabActivity({ agent_session_id: "bound-session", agent_state: { state: "working", status_line: "Editing files", phase: "thinking" } })}
       providerName="Codex"
       model="gpt-5.6-sol"
       onStop={() => { stopCalls += 1; }}
@@ -69,7 +68,7 @@ async function main(): Promise<void> {
 
   await act(async () => idle.root.render(
     <AgentStateIndicator
-      activity={tabActivity({ agent_state: { state: "working", status_line: "Editing files" } })}
+      activity={tabActivity({ agent_session_id: "bound-session", agent_state: { state: "working", status_line: "Editing files" } })}
       providerName="Codex"
       model="gpt-5.6-sol"
       reasoningEffort={{ actual: "high", actual_source: "provider-default-unverified" }}
@@ -100,7 +99,7 @@ async function main(): Promise<void> {
   await act(async () => idle.root.render(
     <div style={{ width: 390 }}>
       <AgentStateIndicator
-        activity={tabActivity({ agent_state: { state: "working", status_line: "A deliberately long status suffix that must remain in the compact row" } })}
+        activity={tabActivity({ agent_session_id: "bound-session", agent_state: { state: "working", status_line: "A deliberately long status suffix that must remain in the compact row" } })}
         providerName="Codex"
         model="gpt-5.6-sol"
         reasoningEffort={{ actual: "high", actual_source: "session-owned" }}

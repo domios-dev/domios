@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Square, Terminal, X } from "lucide-react";
+import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
 import { ActivityDots } from "../shared/ActivityDots";
 import type { Tab } from "../../lib/types";
 
@@ -25,6 +26,7 @@ export function AgentStateIndicator({
   onOpenTerminal,
   onRebind,
   renderIdentity,
+  showActivity = true,
 }: {
   activity: TabActivity;
   providerName?: string | null;
@@ -36,6 +38,7 @@ export function AgentStateIndicator({
   onOpenTerminal?: () => void;
   onRebind?: () => void;
   renderIdentity?: (label: string) => ReactNode;
+  showActivity?: boolean;
 }) {
   const isWorking = activity.canStop;
   const isQuiet = activity.quiet;
@@ -47,14 +50,15 @@ export function AgentStateIndicator({
     : null;
   const identity = [providerName?.trim(), model?.trim(), actualEffort].filter(Boolean).join(" · ");
   const text = [identity, status].filter(Boolean).join(" · ");
-  const dots = (
+  const dots = !showActivity ? null : activity.kind === "starting" ? <TabLoadingIndicator label={text || "Agent starting"} compact /> : activity.active ? (
     <ActivityDots
+      data-testid="agent-activity-dots"
       size="small"
       tone={isWorking ? (phase === "thinking" ? "thinking" : "accent") : "muted"}
       rhythm={phase}
       active={activity.active}
     />
-  );
+  ) : null;
 
   return (
     <div
