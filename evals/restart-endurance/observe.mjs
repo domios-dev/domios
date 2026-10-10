@@ -189,7 +189,8 @@ async function paddedPrompt(id, marker) {
 
 async function probe(fixture, n, observeOnly = false) {
   const row = { id: fixture.id, cohort: fixture.cohort, provider: fixture.provider,
-    previous_session: fixture.last_session ?? null, pass: false, observed_only: observeOnly };
+    previous_session: fixture.last_session ?? null, pass: false, observed_only: observeOnly,
+    started_at: new Date().toISOString() };
   if (!fixture.id) { row.reason = fixture.spawn_error; return row; }
   const start = performance.now();
   const signal = AbortSignal.timeout(deadlineMs);
@@ -250,10 +251,13 @@ async function probe(fixture, n, observeOnly = false) {
     row.reason = error.message;
   } finally {
     row.elapsed_ms = Math.round(performance.now() - start);
+    row.finished_at = new Date().toISOString();
     events.close();
     row.after_probe ??= await tab(fixture.id).catch(() => null);
     row.before_probe ??= row.initial ?? row.after_probe;
-    row.lifecycle = await dcJson("tab", "inspect", "--tab", fixture.id, "--lifecycle").catch((error) => ({ error: error.message }));
+    if (!observeOnly || failure(row.initial)) {
+      row.lifecycle = await dcJson("tab", "inspect", "--tab", fixture.id, "--lifecycle").catch((error) => ({ error: error.message }));
+    }
     if (subscribed) await api(`/api/tabs/${fixture.id}/chat-raw/stop`, "POST", { subscriptionId: `endure-${fixture.id}-${n}` }).catch((error) => { row.subscription_stop_error = error.message; });
     console.log(`${observeOnly ? "OBSERVED" : row.pass ? "PASS" : "FAIL"} round=${n} tab=${fixture.id} provider=${fixture.provider} ${row.reason ?? row.answer ?? ""}`);
   }
