@@ -1,4 +1,5 @@
 import {createRequire} from 'node:module';
+import {armBrowserDiagnostics} from './browser-diagnostics.mjs';
 import {readFile, mkdir, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {validateManifest,validateOutput} from './model.mjs';
@@ -131,7 +132,7 @@ export async function createHarness(manifest, outDir) {
   const {chromium} = require('@playwright/test');
   const browser = await chromium.launch({headless:true,timeout:STEP_MS});
   const contexts = [];
-  return {browser, async openGateway(machineKey) {
+  return {browser, async openGateway(machineKey, { diagnosticsDirectory } = {}) {
     const machine = manifest[machineKey];
     if (!machine || !['mac','windows'].includes(machineKey)) throw new Error('Unknown gateway');
     const token = await gatewayToken(machine);
@@ -148,14 +149,21 @@ export async function createHarness(manifest, outDir) {
       if (location.origin === origin) localStorage.setItem('codeterm-web-token:'+origin,token);
     }, {origin:machine.origin,token});
     const page = await context.newPage();
+    const diagnostics = diagnosticsDirectory ? armBrowserDiagnostics(page, diagnosticsDirectory, { secrets: [token] }) : null;
     const evaluate = page.evaluate.bind(page);
     page.evaluate = (...args) => deadline(evaluate(...args), 'Browser protocol evaluate');
     page.__b2Out = outDir;
     page.__b2Manifest = manifest;
     page.__b2Gateway = machineKey;
-    await page.goto(machine.origin, {waitUntil:'domcontentloaded'});
-    await page.getByTestId('peer-picker-button').waitFor({state:'visible'});
-    return {page,context,provenance:{gateway:machineKey,origin:machine.origin}};
+    try {
+      await page.goto(machine.origin, {waitUntil:'domcontentloaded'});
+      await page.getByTestId('peer-picker-button').waitFor({state:'visible'});
+      return {page,context,diagnostics,provenance:{gateway:machineKey,origin:machine.origin}};
+    } catch (error) {
+      try { await diagnostics?.finish('gateway-open-failed'); }
+      finally { await deadline(context.close(), 'Failed gateway context close'); }
+      throw error;
+    }
   }, async close() {
     for (const context of contexts) await deadline(context.close(),'Context close');
     await deadline(browser.close(),'Browser close');

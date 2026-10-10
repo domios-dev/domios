@@ -26,30 +26,36 @@ for (const item of cases) {
 const harness = await createHarness(manifest, out);
 try {
   for (const item of cases) {
-    const { page } = await harness.openGateway(item.gateway);
-    const intendedPeer = item.gateway === item.home ? null : manifest[item.home].peerId;
-    const current = await page.evaluate(() => localStorage.getItem(`codeterm-web-relay-peer:${location.origin}`));
-    if ((current || null) !== intendedPeer) await switchPeer(page, intendedPeer);
-    await selectTab(page, item.tabId, { mode: 'terminal' });
-    const base = await capture(page, item.id + '-provenance', { tabId: item.tabId });
-    const probeId = await terminalObserver.armTerminalEvents(page, item.tabId);
+    const { page, diagnostics } = await harness.openGateway(item.gateway, { diagnosticsDirectory: path.join(out, item.id) });
+    let complete = false;
     try {
-      await terminalObserver.captureTerminal(page, {
-        tabId: item.tabId, probeId, directory: path.join(out, item.id),
-        provenance: { ...base.metadata, home: item.home, view: 'web', fixtureTabId: item.tabId },
-      });
-    } catch (error) {
-      await writeFile(path.join(out, item.id + '-capture-failure.json'), JSON.stringify({
-        id: item.id, tabId: item.tabId, home: item.home, gateway: item.gateway,
-        error: error.message, verdict: 'capture failure; product verdict requires step repro',
-      }, null, 2), { flag: 'wx' });
-      throw error;
+      const intendedPeer = item.gateway === item.home ? null : manifest[item.home].peerId;
+      const current = await page.evaluate(() => localStorage.getItem(`codeterm-web-relay-peer:${location.origin}`));
+      if ((current || null) !== intendedPeer) await switchPeer(page, intendedPeer);
+      await selectTab(page, item.tabId, { mode: 'terminal' });
+      const base = await capture(page, item.id + '-provenance', { tabId: item.tabId });
+      const probeId = await terminalObserver.armTerminalEvents(page, item.tabId);
+      try {
+        await terminalObserver.captureTerminal(page, {
+          tabId: item.tabId, probeId, directory: path.join(out, item.id),
+          provenance: { ...base.metadata, home: item.home, view: 'web', fixtureTabId: item.tabId },
+        });
+      } catch (error) {
+        await writeFile(path.join(out, item.id + '-capture-failure.json'), JSON.stringify({
+          id: item.id, tabId: item.tabId, home: item.home, gateway: item.gateway,
+          error: error.message, verdict: 'capture failure; product verdict requires step repro',
+        }, null, 2), { flag: 'wx' });
+        throw error;
+      } finally {
+        await terminalObserver.releaseTerminalEvents(page, probeId);
+      }
+      if (intendedPeer !== null) await switchPeer(page, null);
+      await capture(page, item.id + '-gateway-return');
+      complete = true;
     } finally {
-      await terminalObserver.releaseTerminalEvents(page, probeId);
+      try { await diagnostics.finish(complete ? 'case-complete' : 'case-failed'); }
+      finally { await deadline(page.context().close(), 'B3 context close'); }
     }
-    if (intendedPeer !== null) await switchPeer(page, null);
-    await capture(page, item.id + '-gateway-return');
-    await deadline(page.context().close(), 'B3 context close');
   }
 } finally {
   await harness.close();
