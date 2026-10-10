@@ -4,6 +4,7 @@ import path from 'node:path';
 import {validateManifest,validateOutput} from './model.mjs';
 import {gatewayToken} from './secrets.mjs';
 import * as rawTerminal from './terminal-capture.mjs';
+import {readSelectedTab} from './provenance.mjs';
 const rc = '/Users/dev/Developer/codeterm-worktrees/rc-mac';
 const require = createRequire(path.join(rc, 'package.json'));
 export const STEP_MS = 30_000;
@@ -56,6 +57,7 @@ export async function switchPeer(page, peerIdOrNull) {
   if (!receipt.success) throw new Error('Peer switch ready reported success=false');
   const current = await page.evaluate(() => localStorage.getItem(`codeterm-web-relay-peer:${location.origin}`));
   if ((current || null) !== peerIdOrNull) throw new Error('Selected peer differs from intended target');
+  delete page.__b2SelectedTabId;
   return receipt;
 }
 export async function selectTab(page, tabId, {mode = 'chat'} = {}) {
@@ -68,13 +70,14 @@ export async function selectTab(page, tabId, {mode = 'chat'} = {}) {
     ? `[data-testid="terminal-tab"][data-tab-id="${tabId}"] [data-testid="terminal-frame"][data-terminal-visible="true"]`
     : `[data-testid="tab-session-chat"][data-tab-id="${tabId}"]`;
   await waitDom(page, {selector});
+  page.__b2SelectedTabId = tabId;
   return tab;
 }
 export const terminalObserver = Object.fromEntries(Object.entries(rawTerminal).map(([key, fn]) => [key,
   key === 'readTerminalState' ? fn : (...args) => deadline(fn(...args), `B3 ${key}`)]));
 export async function captureTerminalView(page, tabId, label) {
   await selectTab(page, tabId, {mode:'terminal'});
-  const provenance = (await capture(page, label+'-provenance')).metadata;
+  const provenance = (await capture(page, label+'-provenance', {tabId})).metadata;
   const probeId = await terminalObserver.armTerminalEvents(page, tabId);
   try {
     return await terminalObserver.captureTerminal(page, {tabId,probeId,
@@ -104,15 +107,14 @@ export async function observe(page) {
   });
 }
 export async function activity(page) { return page.evaluate(() => window.__b2Activity?.events ?? []); }
-export async function capture(page, label) {
+export async function capture(page, label, {tabId = page.__b2SelectedTabId} = {}) {
   if (!page.__b2Out) throw new Error('Page must come from shared harness');
   const name = label.replace(/[^a-zA-Z0-9_.-]/g,'_');
-  const metadata = await page.evaluate(() => ({at:Date.now(),origin:location.origin,
+  const selected = await page.evaluate(readSelectedTab, {tabId});
+  const metadata = {...selected, ...await page.evaluate(() => ({at:Date.now(),origin:location.origin,
     peerId:localStorage.getItem(`codeterm-web-relay-peer:${location.origin}`),
     tabIds:[...document.querySelectorAll('[data-testid="tab-item"]')].map(e => e.getAttribute('data-tab-id')),
-    selectedTabId:[...document.querySelectorAll('[data-testid="terminal-tab"]')].find(e => e.getClientRects().length)?.getAttribute('data-tab-id'),
-    terminalVisible:[...document.querySelectorAll('[data-testid="terminal-tab"]')].find(e => e.getClientRects().length)?.querySelector('[data-testid="terminal-frame"]')?.getAttribute('data-terminal-visible'),
-    bodyText:document.body.innerText, activities:window.__b2Activity?.events ?? []}));
+    bodyText:document.body.innerText, activities:window.__b2Activity?.events ?? []}))};
   await page.screenshot({path:path.join(page.__b2Out, name+'.png'),fullPage:true,timeout:STEP_MS});
   await writeFile(path.join(page.__b2Out, name+'.json'), JSON.stringify(metadata,null,2));
   return {evidence:name+'.json',screenshot:name+'.png',metadata};
