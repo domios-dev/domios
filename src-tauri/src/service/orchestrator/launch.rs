@@ -590,6 +590,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                 &agent_cmd,
                 origin,
                 has_startup_task_turn || fallback_spec.is_some(),
+                resume_session_id.as_deref(),
             )
         };
         let binding_turn_planned = binding_turn.is_some();
@@ -960,6 +961,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             );
         }
         let startup_binding_deadline = crate::service::worker_ack::STARTUP_BINDING_DEADLINE;
+        let binding_deadline = std::time::Instant::now() + startup_binding_deadline;
         let readiness_receiver = (!structured).then(|| {
             svc.observe_launch_readiness(
                 readiness_attempt.clone(),
@@ -1047,10 +1049,7 @@ pub(crate) fn launch_agent_in_background_with_env(
         delivery_gate.mark_provider_ready();
 
         let fallback_spec = fallback_spec.filter(|_| {
-            resume_binding::fallback_still_required(
-                binding_turn_planned,
-                launch.await_provider_ack(std::time::Duration::ZERO),
-            )
+            resume_binding::await_fallback_required(&launch, binding_turn_planned, binding_deadline)
         });
         let mut bootstrap_consumed = fallback_spec.is_none();
         let bootstrap_draft = fallback_spec.as_ref().map(|spec| spec.payload.clone());

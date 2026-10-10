@@ -4,8 +4,13 @@ use crate::service::launch_delivery::FallbackDeliverySpec;
 use crate::service::launch_diagnostics::AgentLaunchOrigin;
 use crate::service::{boot_stage::BootStage, ServiceContext};
 
-fn binding_turn_required(relaunch: bool, lazy_session: bool, first_turn_planned: bool) -> bool {
-    relaunch && lazy_session && !first_turn_planned
+fn binding_turn_required(
+    relaunch: bool,
+    lazy_session: bool,
+    first_turn_planned: bool,
+    resume_target: Option<&str>,
+) -> bool {
+    relaunch && lazy_session && !first_turn_planned && resume_target.is_none()
 }
 
 pub(super) fn for_launch(
@@ -14,6 +19,7 @@ pub(super) fn for_launch(
     provider_id: &str,
     origin: AgentLaunchOrigin,
     first_turn_planned: bool,
+    resume_target: Option<&str>,
 ) -> Option<FallbackDeliverySpec> {
     let lazy_session = svc
         .agent_registry
@@ -30,6 +36,7 @@ pub(super) fn for_launch(
         matches!(origin, AgentLaunchOrigin::RestoredSnapshot),
         lazy_session,
         first_turn_planned,
+        resume_target,
         pending,
     )
 }
@@ -38,9 +45,10 @@ pub(super) fn binding_turn(
     relaunch: bool,
     lazy_session: bool,
     first_turn_planned: bool,
+    resume_target: Option<&str>,
     pending: Option<PendingDeliveryState>,
 ) -> Option<FallbackDeliverySpec> {
-    (binding_turn_required(relaunch, lazy_session, first_turn_planned)
+    (binding_turn_required(relaunch, lazy_session, first_turn_planned, resume_target)
         && pending.is_none_or(|state| state.is_accepted())).then(|| FallbackDeliverySpec {
         channel: PendingDeliveryChannel::FallbackBootstrap,
         payload: "This agent session has been restored. Run `codeterm identify` to verify your connection, then resume your interrupted work. If there is no pending work, wait for the next instruction.".into(),
@@ -65,6 +73,28 @@ fn recovery_required(relaunch: bool, authenticated: bool, current: bool) -> bool
 
 pub(super) fn fallback_still_required(binding_only: bool, authenticated: bool) -> bool {
     !binding_only || !authenticated
+}
+
+pub(super) fn await_fallback_required(
+    launch: &LaunchGeneration,
+    binding_only: bool,
+    deadline: std::time::Instant,
+) -> bool {
+    if !binding_only {
+        return true;
+    }
+    let mut authenticated = launch.provider_ack.ready.lock();
+    while fallback_still_required(binding_only, *authenticated) {
+        if launch
+            .provider_ack
+            .changed
+            .wait_until(&mut authenticated, deadline)
+            .timed_out()
+        {
+            break;
+        }
+    }
+    fallback_still_required(binding_only, *authenticated)
 }
 
 pub(super) fn finish_unbound_relaunch(
