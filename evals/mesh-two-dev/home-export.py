@@ -3,6 +3,7 @@ import hashlib
 import json
 import pathlib
 import sqlite3
+import urllib.parse
 
 MAX_BYTES = 16 * 1024 * 1024
 MAX_RECORDS = 10000
@@ -18,11 +19,27 @@ def validate_binding(binding):
     if tab.get("id") != binding["tab_id"] or tab.get("agent_session_id") != binding["session_id"] or tab.get("agent_type") != binding.get("provider"):
         raise ValueError("Home tab snapshot does not own this provider session")
     meta = binding.get("metadata", {})
-    if meta.get("session_id") != binding["session_id"] or meta.get("provider") != binding.get("provider"):
-        raise ValueError("Provider metadata does not match the bound tab")
-    source = pathlib.Path(meta.get("file_path", ""))
-    if not source.is_absolute() or not source.is_file():
-        raise ValueError("Existing absolute provider-owned source required")
+    if binding.get("format") == "grok":
+        cwd = tab.get("cwd")
+        if binding.get("provider") != "grok" or not cwd:
+            raise ValueError("Grok provider and bound tab cwd required")
+        if meta and (meta.get("session_id") != binding["session_id"] or meta.get("provider") != "grok"):
+            raise ValueError("Provider metadata does not match the bound Grok tab")
+        encoded_cwd = urllib.parse.quote(cwd, safe="~!*'()")
+        expected_source = pathlib.Path.home() / ".grok" / "sessions" / encoded_cwd / binding["session_id"] / "updates.jsonl"
+        source = pathlib.Path(binding.get("source_path") or meta.get("file_path") or expected_source)
+        if not source.is_absolute() or not source.is_file():
+            raise ValueError("Existing absolute provider-owned source required")
+        if len(source.parents) < 4 or source.parents[3] != pathlib.Path.home() / ".grok" or source.parents[2].name != "sessions":
+            raise ValueError("Grok source is outside its home sessions store")
+        if source.name != "updates.jsonl" or source.parent.name != binding["session_id"] or urllib.parse.unquote(source.parents[1].name, errors="strict") != cwd:
+            raise ValueError("Grok source does not belong to this tab cwd/session")
+    else:
+        if meta.get("session_id") != binding["session_id"] or meta.get("provider") != binding.get("provider"):
+            raise ValueError("Provider metadata does not match the bound tab")
+        source = pathlib.Path(meta.get("file_path", ""))
+        if not source.is_absolute() or not source.is_file():
+            raise ValueError("Existing absolute provider-owned source required")
     return source
 
 
@@ -40,6 +57,9 @@ def read_jsonl(path, session_id, kind, schema=None):
         bound = [r.get("sessionId") for r in records if r.get("sessionId")]
         if not bound or any(value != session_id for value in bound):
             raise ValueError("Claude record belongs to another session or is missing")
+    elif kind == "grok":
+        if not records or any(r.get("params", {}).get("sessionId") != session_id for r in records):
+            raise ValueError("Grok record belongs to another session or is missing")
     elif kind == "session-jsonl":
         if not schema or not schema.get("sessionPath"):
             raise ValueError("Unrecognized provider requires explicit session schema")
@@ -99,10 +119,10 @@ def export(binding):
         raw = b"".join((json.dumps(row, ensure_ascii=False) + "\n").encode() for row in records)
     else:
         raw, records = read_jsonl(source, session_id, binding.get("format"), binding.get("schema"))
-        if binding["format"] in ("claude", "codex") and binding["format"] != binding["provider"]:
+        if binding["format"] in ("claude", "codex", "grok") and binding["format"] != binding["provider"]:
             raise ValueError("Record format does not match provider")
     provenance = {"home": binding["home"], "port": binding["port"], "tab_id": binding["tab_id"], "session_id": session_id,
-                  "provider": binding["provider"], "original_path": str(source), "format": binding["format"],
+                  "provider": binding["provider"], "cwd": binding["tab_snapshot"].get("cwd"), "original_path": str(source), "format": binding["format"],
                   "sha256": hashlib.sha256(raw).hexdigest(), "records": len(records), "read_only": True}
     return raw, provenance
 

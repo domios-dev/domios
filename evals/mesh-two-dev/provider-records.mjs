@@ -1,3 +1,4 @@
+import { summarizeGrok } from './grok-records.mjs';
 import { at, lineAt } from './records.mjs';
 export function summarizeRecords(records, binding, schema) {
   const { provider, sessionId } = binding;
@@ -10,6 +11,7 @@ export function summarizeRecords(records, binding, schema) {
       turns.push({ id, line });
     }
   };
+  if (provider === 'grok') return summarizeGrok(records, binding);
   if (provider === 'codex') {
     const headers = records.filter(row => row.type === 'session_meta');
     if (!headers.length || headers.some(row => row.payload?.id !== sessionId)) throw new Error('Foreign or missing Codex session_meta');
