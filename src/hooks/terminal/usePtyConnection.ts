@@ -427,6 +427,9 @@ export function usePtyConnection({
           onEnded: () => {
             void respawnStalePty();
           },
+          onStreamError: () => {
+            term.writeln("\r\n\x1b[31m[Failed to connect to output stream]\x1b[0m");
+          },
         };
         unsubscribeOutputStream = subscribeTabOutput(tabId, sink);
       } else {

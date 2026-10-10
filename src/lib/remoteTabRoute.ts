@@ -1,5 +1,6 @@
 import type { Tab } from "./types";
 import { invoke } from "./bridge";
+import { classifyTabTarget, parseCompositeTabId } from "./remoteTabTransport";
 
 export interface RemoteTabRoute {
   peerId: string;
@@ -45,7 +46,20 @@ export function remoteTabActionRequest(
   };
 }
 
-export function remoteTabStreamPath(route: RemoteTabRoute): string {
+export function tabOutputRoute(tabId: string, relayPeerId: string | null): RemoteTabRoute | null {
+  if (classifyTabTarget(tabId).kind === "invalid-remote") {
+    throw new Error(`Invalid remote tab id "${tabId}"; local output fallback is forbidden`);
+  }
+  const identity = parseCompositeTabId(tabId);
+  if (identity) return { peerId: identity.peerId, tabId: identity.remoteTabId };
+  if (!relayPeerId) return null;
+  const scopedId = `mesh:${relayPeerId}/${tabId}`;
+  if (!parseCompositeTabId(scopedId)) throw new Error(`Invalid remote tab id "${scopedId}"`);
+  return { peerId: relayPeerId, tabId };
+}
+
+export function remoteTabStreamPath(route: RemoteTabRoute, since?: string): string {
   const ordinary = `mesh:${route.peerId}/${route.tabId}`;
-  return `/api/mesh/relay-stream?peer=${encodeURIComponent(route.peerId)}&path=${encodeURIComponent("/api/output/stream")}&tab=${encodeURIComponent(ordinary)}`;
+  const path = `/api/mesh/relay-stream?peer=${encodeURIComponent(route.peerId)}&path=${encodeURIComponent("/api/output/stream")}&tab=${encodeURIComponent(ordinary)}`;
+  return since ? `${path}&since=${encodeURIComponent(since)}` : path;
 }
