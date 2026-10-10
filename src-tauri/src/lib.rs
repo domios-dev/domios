@@ -974,3 +974,7 @@ pub fn run() {
         });
     log::info!("[shutdown] Tauri event loop returned");
 }
+
+#[cfg(test)]
+#[path = "../vendor/tauri-runtime-wry/src/owner_thread.rs"]
+mod windows_rc_ownership_regression;
