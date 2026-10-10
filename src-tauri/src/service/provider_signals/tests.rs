@@ -94,6 +94,10 @@ fn provider_access_incident_transition_notifies_once_routes_roles_and_recovers()
     );
     assert_eq!(
         parent_target(false, Some("parent".into()), Some("owner".into()), "own"),
+        Some("parent".into())
+    );
+    assert_eq!(
+        parent_target(false, None, Some("owner".into()), "own"),
         None
     );
     assert_eq!(parent_target(true, None, Some("own".into()), "own"), None);

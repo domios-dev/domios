@@ -27,10 +27,9 @@ pub(super) fn parent_target(
     owner: Option<String>,
     tab: &str,
 ) -> Option<String> {
-    if !role {
-        return None;
-    }
-    parent.or(owner).filter(|target| target != tab)
+    // A roleless child still belongs to the tab that spawned it; only role tabs fall back to the plan owner.
+    let target = if role { parent.or(owner) } else { parent };
+    target.filter(|target| target != tab)
 }
 
 pub(super) fn intent(tab: &str, nonce: &str) -> PushIntent {
