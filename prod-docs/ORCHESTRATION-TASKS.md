@@ -95,4 +95,10 @@ Pause only when an owner decision blocks all tasks. Ask once with
 Paused plans have no heartbeat or reminders. Resume with
 `codeterm plan resume <plan_id>` and continue the frontier.
 
-<!-- revision: 6 -->
+## Provider access loss and archive advisories
+
+A provider access-loss incident sends a `[provider access lost]` system notice to the tab's parent (a roleless spawned child included); a role tab without a parent falls back to its plan's Orchestrator. A top-level Orchestrator escalates through the owner notification. The `provider-access-lost` event identifies the affected tab, provider, bound session, notification and target. The work owner can recover login or respawn the work on another provider; an access refusal never means a completed task.
+
+Archive succeeds without a retrospective and reports the optional `plan.retrospective_unrecorded` advisory; record a durable note at wrap-up with `codeterm plan retrospective <plan> --body-file <pad-relative-path>`.
+
+<!-- revision: 7 -->
