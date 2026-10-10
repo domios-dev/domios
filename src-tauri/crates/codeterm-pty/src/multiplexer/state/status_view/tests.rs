@@ -79,3 +79,37 @@ fn snapshot_projects_agent_state_without_mutating_classifier() {
         TimelineState::Idle
     );
 }
+
+#[test]
+fn provider_access_loss_overrides_idle_status_and_recovers() {
+    use codeterm_types::agent::provider_signals::{ApiErrorKind, SessionObservations};
+    use codeterm_types::pty::QuestionSubtype;
+    let (mut mux, tab_id) = MultiplexerState::new();
+    mux.link_pty(&tab_id, "access-pty".into());
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("fixture".into());
+    tab.provider_signals.observe(&SessionObservations {
+        api_error: Some(ApiErrorKind::Authentication),
+        ..Default::default()
+    });
+    assert_eq!(
+        effective_tab_status(tab, Some(TabStatus::Idle)),
+        TabStatus::Waiting
+    );
+    let tracker = TabStatusTracker::new();
+    let snapshot = mux.snapshot_with_status_resolver(&tracker, |_, raw| raw);
+    let state = snapshot.tabs[&tab_id].agent_state.as_ref().unwrap();
+    assert_eq!(state.state, TimelineState::Question);
+    assert_eq!(state.subtype, Some(QuestionSubtype::Auth));
+    mux.get_tab_mut(&tab_id)
+        .unwrap()
+        .provider_signals
+        .observe(&SessionObservations {
+            clears_api_error: true,
+            ..Default::default()
+        });
+    assert_eq!(
+        effective_tab_status(mux.get_tab(&tab_id).unwrap(), Some(TabStatus::Idle)),
+        TabStatus::Idle
+    );
+}

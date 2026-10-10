@@ -26,9 +26,9 @@ case "$mode" in
       windows) route=(--mesh "$peer");;
       *) exit 2;;
     esac
-    dc tab inspect "$tab" --json "${route[@]}" > "$out/tab.json"
-    dc tab get-text --tab "$tab" --formatted "${route[@]}" > "$out/daemon-formatted.ansi"
-    dc tab get-text --tab "$tab" "${route[@]}" > "$out/daemon-plain.txt"
+    dc tab inspect "$tab" --json ${route[@]+"${route[@]}"} > "$out/tab.json"
+    dc tab get-text --tab "$tab" --formatted ${route[@]+"${route[@]}"} > "$out/daemon-formatted.ansi"
+    dc tab get-text --tab "$tab" ${route[@]+"${route[@]}"} > "$out/daemon-plain.txt"
     ;;
   *) exit 2;;
 esac

@@ -1,0 +1,341 @@
+[
+  {
+    "claude": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "error": "authentication_error",
+      "sessionId": "own"
+    },
+    "codex": {
+      "type": "event_msg",
+      "payload": {
+        "type": "error",
+        "error": "authentication_error"
+      }
+    },
+    "expected": "authentication"
+  },
+  {
+    "claude": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "error": {
+        "type": "permission_error"
+      },
+      "sessionId": "own"
+    },
+    "codex": {
+      "type": "event_msg",
+      "payload": {
+        "type": "error",
+        "error": {
+          "type": "permission_error"
+        }
+      }
+    },
+    "expected": "authentication"
+  },
+  {
+    "claude": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "error": {
+        "type": "opaque",
+        "code": "subscription_disabled"
+      },
+      "sessionId": "own"
+    },
+    "codex": {
+      "type": "event_msg",
+      "payload": {
+        "type": "error",
+        "error": {
+          "type": "opaque",
+          "code": "subscription_disabled"
+        }
+      }
+    },
+    "expected": "authentication"
+  },
+  {
+    "claude": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "error": {
+        "status_code": 403
+      },
+      "sessionId": "own"
+    },
+    "codex": {
+      "type": "event_msg",
+      "payload": {
+        "type": "error",
+        "error": {
+          "status_code": 403
+        }
+      }
+    },
+    "expected": "authentication"
+  },
+  {
+    "claude": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "error": {
+        "code": "refresh_token_reused"
+      },
+      "sessionId": "own"
+    },
+    "codex": {
+      "type": "event_msg",
+      "payload": {
+        "type": "error",
+        "error": {
+          "code": "refresh_token_reused"
+        }
+      }
+    },
+    "expected": "authentication"
+  },
+  {
+    "claude": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "error": "logged_out",
+      "sessionId": "own"
+    },
+    "codex": {
+      "type": "event_msg",
+      "payload": {
+        "type": "error",
+        "error": "logged_out"
+      }
+    },
+    "expected": "authentication"
+  },
+  {
+    "claude": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "error": "rate_limit_error",
+      "sessionId": "own"
+    },
+    "codex": {
+      "type": "event_msg",
+      "payload": {
+        "type": "error",
+        "error": "rate_limit_error"
+      }
+    },
+    "expected": "rate_limit"
+  },
+  {
+    "claude": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "error": {
+        "status": 429
+      },
+      "sessionId": "own"
+    },
+    "codex": {
+      "type": "event_msg",
+      "payload": {
+        "type": "error",
+        "error": {
+          "status": 429
+        }
+      }
+    },
+    "expected": "rate_limit"
+  },
+  {
+    "claude": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "error": "unknown_error",
+      "sessionId": "own"
+    },
+    "codex": {
+      "type": "event_msg",
+      "payload": {
+        "type": "error",
+        "error": "unknown_error"
+      }
+    },
+    "expected": "other"
+  },
+  {
+    "claude": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "error": {
+        "message": "authentication_error"
+      },
+      "sessionId": "own"
+    },
+    "codex": {
+      "type": "event_msg",
+      "payload": {
+        "type": "error",
+        "error": {
+          "message": "authentication_error"
+        }
+      }
+    },
+    "expected": "other"
+  },
+  {
+    "claude": {
+      "type": "assistant",
+      "message": {}
+    },
+    "codex": {
+      "type": "event_msg",
+      "payload": {
+        "type": "task_complete"
+      }
+    },
+    "expected": null,
+    "clears": true
+  },
+  {
+    "claude": {
+      "type": "user",
+      "message": {
+        "content": "authentication_error"
+      }
+    },
+    "codex": {
+      "type": "response_item",
+      "payload": {
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "authentication_error"
+          }
+        ]
+      }
+    },
+    "expected": null,
+    "absent": true
+  },
+  {
+    "claude": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "error": "oauth_org_not_allowed"
+    },
+    "codex": {
+      "type": "event_msg",
+      "payload": {
+        "type": "error",
+        "error": "oauth_org_not_allowed"
+      }
+    },
+    "expected": "authentication"
+  },
+  {
+    "claude": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "error": "oauth_refresh_failed"
+    },
+    "codex": {
+      "type": "event_msg",
+      "payload": {
+        "type": "error",
+        "error": "oauth_refresh_failed"
+      }
+    },
+    "expected": "authentication"
+  },
+  {
+    "claude": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "error": "authentication_required"
+    },
+    "codex": {
+      "type": "event_msg",
+      "payload": {
+        "type": "error",
+        "error": "authentication_required"
+      }
+    },
+    "expected": "authentication"
+  },
+  {
+    "claude": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "error": {
+        "codexErrorInfo": {
+          "httpConnectionFailed": {
+            "httpStatusCode": 401
+          }
+        }
+      }
+    },
+    "codex": {
+      "type": "event_msg",
+      "payload": {
+        "type": "error",
+        "error": {
+          "codexErrorInfo": {
+            "httpConnectionFailed": {
+              "httpStatusCode": 401
+            }
+          }
+        }
+      }
+    },
+    "expected": "authentication"
+  },
+  {
+    "claude": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "error": {
+        "codexErrorInfo": "usageLimitExceeded"
+      }
+    },
+    "codex": {
+      "type": "event_msg",
+      "payload": {
+        "type": "error",
+        "error": {
+          "codexErrorInfo": "usageLimitExceeded"
+        }
+      }
+    },
+    "expected": "rate_limit"
+  },
+  {
+    "claude": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "error": {
+        "codexErrorInfo": {
+          "usageLimitExceeded": null
+        },
+        "status": 403
+      }
+    },
+    "codex": {
+      "type": "event_msg",
+      "payload": {
+        "type": "error",
+        "error": {
+          "codexErrorInfo": {
+            "usageLimitExceeded": null
+          },
+          "status": 403
+        }
+      }
+    },
+    "expected": "authentication"
+  }
+]

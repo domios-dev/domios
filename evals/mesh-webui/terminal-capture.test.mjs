@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { runInNewContext } from 'node:vm';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { captureTerminal, readTerminalState } from './terminal-capture.mjs';
+import { armTerminalEvents, captureTerminal, readTerminalState, waitTerminalEvent, releaseTerminalEvents } from './terminal-capture.mjs';
 
 function fixture({ visible = true, count = 1, bufferType = 'normal' } = {}) {
   const cell = {
@@ -46,23 +47,156 @@ test('hidden chat terminal and duplicate tab roots cannot supply renderer proof'
   } finally { globalThis.document = original; }
 });
 
-test('changing screenshot capture retains before and after state as failure evidence', async () => {
+function capturePage(revisions, { failWait = false, truncated = false, texts } = {}) {
+  let index = 0;
+  let shots = 0;
+  let reads = 0;
+  const waits = [];
+  const state = { truncated, viewportY: 0, rows: 1, lines: [{ y: 0, text: 'fixed' }] };
+  return { waits, get shots() { return shots; },
+    evaluate: async (fn, args) => {
+      if (fn === readTerminalState) {
+        const result = structuredClone(state);
+        if (texts) result.lines[0].text = texts[reads++];
+        return result;
+      }
+      if (fn.name === 'readProbeRevision') return revisions[index++];
+      if (fn.name === 'readProbeEvents') return [{ type: 'render', revision: revisions[index - 1] }];
+      waits.push(args);
+      if (failWait) throw new Error('event failure deadline');
+      return { type: 'write-parsed', revision: args.after + 1 };
+    },
+    screenshot: async ({ path }) => { shots++; await writeFile(path, 'fake image'); },
+  };
+}
+
+async function withCaptureDirectory(run) {
   const temp = await mkdtemp(join(tmpdir(), 'b3-capture-'));
-  try {
-    let call = 0;
-    const states = [
-      { truncated: false, viewportY: 0, rows: 1, lines: [{ y: 0, text: 'before' }] },
-      { truncated: false, viewportY: 0, rows: 1, lines: [{ y: 0, text: 'after' }] },
-    ];
-    const page = {
-      evaluate: async fn => fn === readTerminalState ? states[call++ ? 1 : 0] : (call === 1 ? 1 : [{ type: 'render', revision: 2 }]),
-      screenshot: async () => {},
-    };
-    const directory = join(temp, 'capture');
-    await assert.rejects(captureTerminal(page, { tabId: 'fixture', probeId: 'probe', directory, provenance: { fixture: true } }), /changing capture/);
+  try { await run(join(temp, 'capture')); }
+  finally { await rm(temp, { recursive: true, force: true }); }
+}
+
+test('revision changes with identical text require an event before a stable second attempt', async () => {
+  await withCaptureDirectory(async directory => {
+    const page = capturePage([0, 0, 0, 1, 2, 2, 2, 2]);
+    const result = await captureTerminal(page, { tabId: 'fixture', probeId: 'probe', directory, provenance: {} });
+    assert.equal(result.revision, 2);
+    assert.equal(page.shots, 2);
+    assert.equal(page.waits.length, 1);
+    assert.deepEqual(page.waits[0].types, ['write-parsed', 'render']);
+    assert.equal(page.waits[0].after, 0);
+    assert.ok(page.waits[0].deadlineMs > 0 && page.waits[0].deadlineMs <= 30000);
+    const saved = JSON.parse(await readFile(join(directory, 'state.json'), 'utf8'));
+    assert.equal(saved.attempts.length, 2);
+    assert.equal(saved.attempts[0].unchanged, false);
+    assert.equal(saved.attempts[1].unchanged, true);
+    assert.equal(await readFile(join(directory, 'screen-attempt-1.png'), 'utf8'), 'fake image');
+  });
+});
+
+test('three unstable attempts preserve evidence and fail without a fourth screenshot', async () => {
+  await withCaptureDirectory(async directory => {
+    const page = capturePage([0, 0, 0, 1, 2, 2, 2, 3, 4, 4, 4, 5]);
+    await assert.rejects(captureTerminal(page, { tabId: 'fixture', probeId: 'probe', directory, provenance: {} }), /unstable surface/);
+    assert.equal(page.shots, 3);
+    assert.equal(page.waits.length, 2);
     const saved = JSON.parse(await readFile(join(directory, 'state.json'), 'utf8'));
     assert.equal(saved.unchanged, false);
+    assert.equal(saved.attempts.length, 3);
+    await assert.rejects(readFile(join(directory, 'screen.png')), { code: 'ENOENT' });
+  });
+});
+
+test('a changing pre-screenshot revision skips screenshot until an event advances the probe', async () => {
+  await withCaptureDirectory(async directory => {
+    const page = capturePage([0, 1, 1, 1, 2, 2, 2, 2]);
+    await captureTerminal(page, { tabId: 'fixture', probeId: 'probe', directory, provenance: {} });
+    assert.equal(page.shots, 1);
+    const first = JSON.parse(await readFile(join(directory, 'attempt-1.json'), 'utf8'));
+    assert.equal(first.screenshot, null);
+  });
+});
+
+test('event deadline failure remains unstable and preserves the attempt', async () => {
+  await withCaptureDirectory(async directory => {
+    const page = capturePage([0, 0, 0, 1], { failWait: true });
+    await assert.rejects(captureTerminal(page, { tabId: 'fixture', probeId: 'probe', directory, provenance: {} }), /unstable surface/);
+    assert.equal(page.shots, 1);
+    const saved = JSON.parse(await readFile(join(directory, 'state.json'), 'utf8'));
+    assert.equal(saved.attempts.length, 1);
+    assert.equal(saved.attempts[0].waitError, 'event failure deadline');
+  });
+});
+
+test('probe arming works on an HTTP browser without crypto.randomUUID', async () => {
+  const window = {};
+  const listener = () => ({ dispose() {} });
+  const term = { onRender: listener, onResize: listener, onScroll: listener,
+    onCursorMove: listener, onWriteParsed: listener, buffer: { onBufferChange: listener } };
+  const root = { dataset: { tabId: 'fixture' }, getClientRects: () => [1],
+    querySelector: () => ({ __codetermTerminal: term }) };
+  const page = { evaluate: async (fn, args) => runInNewContext(`(${fn.toString()})(args)`, {
+    args, window, crypto: {}, document: { querySelectorAll: () => [root] },
+  }) };
+  const id = await armTerminalEvents(page, 'fixture');
+  assert.match(id, /^[0-9a-f-]{36}$/);
+  assert.equal(window.__b3TerminalProbes.get(id).tabId, 'fixture');
+  assert.equal(window.__b3TerminalProbes.get(id).handles.length, 6);
+});
+
+
+test('changed terminal text cannot pass with an unchanged probe revision', async () => {
+  await withCaptureDirectory(async directory => {
+    const page = capturePage([0, 0, 0, 0], { failWait: true, texts: ['before', 'after'] });
+    await assert.rejects(captureTerminal(page, { tabId: 'fixture', probeId: 'probe', directory, provenance: {} }), /unstable surface/);
+    assert.equal(page.shots, 0);
+    const saved = JSON.parse(await readFile(join(directory, 'state.json'), 'utf8'));
     assert.equal(saved.before.lines[0].text, 'before');
     assert.equal(saved.after.lines[0].text, 'after');
-  } finally { await rm(temp, { recursive: true, force: true }); }
+  });
+});
+
+test('truncated state cannot become a successful stable capture', async () => {
+  await withCaptureDirectory(async directory => {
+    const page = capturePage([0, 0, 0, 0], { truncated: true });
+    await assert.rejects(captureTerminal(page, { tabId: 'fixture', probeId: 'probe', directory, provenance: {} }), /incomplete capture/);
+    assert.equal(page.waits.length, 0);
+    const saved = JSON.parse(await readFile(join(directory, 'state.json'), 'utf8'));
+    assert.equal(saved.unchanged, false);
+    await assert.rejects(readFile(join(directory, 'screen.png')), { code: 'ENOENT' });
+  });
+});
+
+
+test('transition completion already observed during reads satisfies the event wait', async () => {
+  const probe = { tabId: 'fixture', revision: 7,
+    events: [{ type: 'write-parsed', revision: 4 }, { type: 'render', revision: 7 }],
+    waiters: new Set() };
+  const window = { __b3TerminalProbes: new Map([['probe', probe]]) };
+  const page = { evaluate: (fn, args) => runInNewContext(`(${fn.toString()})(args)`, {
+    args, window, AbortSignal,
+  }) };
+  const event = await waitTerminalEvent(page, 'probe', {
+    types: ['write-parsed', 'render'], after: 0,
+  });
+  assert.equal(event.revision, 4);
+  assert.equal(probe.waiters.size, 0);
+});
+
+test('probe release cancels a pending event wait and disposes observers', async () => {
+  let disposed = 0;
+  const probe = { tabId: 'fixture', events: [], waiters: new Set(),
+    handles: [{ dispose() { disposed++; } }] };
+  const window = { __b3TerminalProbes: new Map([['probe', probe]]) };
+  const page = { evaluate: (fn, args) => runInNewContext(`(${fn.toString()})(args)`, {
+    args, window, AbortSignal,
+  }) };
+  const pending = waitTerminalEvent(page, 'probe', { type: 'render', after: 0 });
+  const rejected = assert.rejects(pending, /Terminal wait cancelled/);
+  assert.equal(probe.waiters.size, 1);
+  await releaseTerminalEvents(page, 'probe');
+  await rejected;
+  assert.equal(probe.waiters.size, 0);
+  assert.equal(window.__b3TerminalProbes.has('probe'), false);
+  assert.equal(disposed, 1);
 });

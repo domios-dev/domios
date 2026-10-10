@@ -1,7 +1,11 @@
 import type { RemoteTransportAvailability, RemoteTransportChannel } from "./remoteTabTransportState";
 
-export type StreamEndReason = "eof" | "error";
+export type StreamEndReason = "eof" | "error" | "refused";
 export type RecoveryDecision = "reconnect" | "wait" | "stale";
+
+export function streamResponseFailureReason(status: number): StreamEndReason {
+  return status >= 400 && status < 500 ? "refused" : "error";
+}
 
 export interface RemoteChannelRecoveryOptions<C> {
   channel: RemoteTransportChannel;
@@ -71,10 +75,9 @@ export function createRemoteChannelRecovery<C>(
       // D1: a clean EOF reconnects immediately from the cursor ONLY when the stream
       // made progress. Re-arms on every such end — never one-shot.
       if (reason === "eof" && progressInActive) return "reconnect";
-      // Zero-progress EOF or any connection error: go 'reconnecting' and wait for an
-      // explicit signal (mesh-state-changed/resync). This is the no-busy-loop guard.
+      // Refusal and zero-progress endings park until an explicit recovery signal.
       awaitingSignal = true;
-      emit("reconnecting");
+      emit(reason === "refused" ? "unavailable" : "reconnecting");
       return "wait";
     },
     signal() {

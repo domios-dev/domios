@@ -8,6 +8,7 @@
       {
         "provider": "claude",
         "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
         "sessionId": "REPLACE_CLAIMED_SESSION_ID",
         "title": "REPLACE_ONE_WORD_TITLE",
         "testOwned": true,
@@ -23,6 +24,7 @@
       {
         "provider": "codex",
         "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
         "sessionId": "REPLACE_CLAIMED_SESSION_ID",
         "title": "REPLACE_ONE_WORD_TITLE",
         "testOwned": true,
@@ -38,6 +40,7 @@
       {
         "provider": "opencode",
         "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
         "sessionId": "REPLACE_CLAIMED_SESSION_ID",
         "title": "REPLACE_ONE_WORD_TITLE",
         "testOwned": true,
@@ -53,6 +56,7 @@
       {
         "provider": "grok",
         "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
         "sessionId": "REPLACE_CLAIMED_SESSION_ID",
         "title": "REPLACE_ONE_WORD_TITLE",
         "testOwned": true,
@@ -76,6 +80,7 @@
       {
         "provider": "claude",
         "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
         "sessionId": "REPLACE_CLAIMED_SESSION_ID",
         "title": "REPLACE_ONE_WORD_TITLE",
         "testOwned": true,
@@ -91,6 +96,7 @@
       {
         "provider": "codex",
         "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
         "sessionId": "REPLACE_CLAIMED_SESSION_ID",
         "title": "REPLACE_ONE_WORD_TITLE",
         "testOwned": true,
@@ -106,6 +112,7 @@
       {
         "provider": "opencode",
         "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
         "sessionId": "REPLACE_CLAIMED_SESSION_ID",
         "title": "REPLACE_ONE_WORD_TITLE",
         "testOwned": true,
@@ -121,6 +128,7 @@
       {
         "provider": "grok",
         "tabId": "REPLACE_TEST_TAB_ID",
+        "workspaceId": "REPLACE_FIXTURE_WORKSPACE_ID_FROM_INVENTORY",
         "sessionId": "REPLACE_CLAIMED_SESSION_ID",
         "title": "REPLACE_ONE_WORD_TITLE",
         "testOwned": true,
