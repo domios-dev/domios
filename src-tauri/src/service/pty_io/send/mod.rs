@@ -417,6 +417,11 @@ impl ServiceContext {
         entry: super::submit_transaction::PtySubmitEntry,
         verify_submit: bool,
     ) -> Result<(), String> {
+        log::debug!(
+            "[agent-delivery] branch=send_authenticated_delivery_with_options provider={} pty={}",
+            delivery.provider_id,
+            delivery.pty_id
+        );
         crate::service::codex_rpc::send::route_or_pty(
             crate::service::codex_rpc::send::try_send_to_pty(self, &delivery.pty_id, text)
                 .map(|result| result.map_err(|error| error.ledger_message())),
@@ -466,6 +471,7 @@ impl ServiceContext {
         delivery: AuthenticatedPtyDelivery,
         frame: codeterm_types::domios::DomiosFrame,
     ) -> Result<(), String> {
+        log::debug!("[agent-delivery] branch=send_authenticated_delivery_with_routed_frame provider={} pty={}", delivery.provider_id, delivery.pty_id);
         crate::service::codex_rpc::send::route_or_pty(
             crate::service::codex_rpc::send::try_send_to_pty(
                 self,
