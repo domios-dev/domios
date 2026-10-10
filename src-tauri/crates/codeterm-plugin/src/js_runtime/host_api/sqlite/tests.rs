@@ -196,3 +196,16 @@ fn host_sqlite_bound_breach_throws_range_error() {
     .unwrap();
     assert_eq!(r, "returned");
 }
+
+#[test]
+fn row_read_error_never_returns_partial_success() {
+    let (_directory, db) =
+        fixture_db("CREATE TABLE fixture(value INTEGER); INSERT INTO fixture VALUES (1), (2);");
+    let result = query_all_json(
+        &db,
+        "SELECT CASE WHEN value = 2 THEN json_extract('invalid-json', '$') ELSE value END AS value FROM fixture",
+        None,
+        SQLITE_RESULT_MAX_BYTES,
+    ).unwrap();
+    assert_eq!(result, None);
+}

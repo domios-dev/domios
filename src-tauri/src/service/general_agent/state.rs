@@ -30,7 +30,9 @@ pub(super) fn load_session_id(
         return None;
     }
     let valid = registry
-        .with_provider(provider_name, |p| p.session_exists(cwd, &state.session_id))
+        .with_provider(provider_name, |p| {
+            p.session_exists(cwd, &state.session_id) == Some(true)
+        })
         .unwrap_or(false);
     valid.then_some(state.session_id)
 }

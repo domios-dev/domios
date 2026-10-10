@@ -45,8 +45,8 @@ impl AgentProvider for RosterProvider {
         None
     }
 
-    fn session_exists(&self, _: &str, _: &str) -> bool {
-        true
+    fn session_exists(&self, _: &str, _: &str) -> Option<bool> {
+        Some(true)
     }
 
     fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {

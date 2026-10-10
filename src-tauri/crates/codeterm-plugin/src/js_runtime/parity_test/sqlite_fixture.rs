@@ -38,8 +38,11 @@ fn opencode_declared_sqlite_version_resumes_exact_session_with_history() {
             .verdict,
         crate::provider_compat::CompatibilityVerdict::Supported
     );
-    assert!(provider.session_exists("/fixture", "ses_fixture_owned"));
-    assert!(!provider.session_exists("/fixture", "ses_missing"));
+    assert!(provider.session_exists("/fixture", "ses_fixture_owned") == Some(true));
+    assert_eq!(
+        provider.session_exists("/fixture", "ses_missing"),
+        Some(false)
+    );
     let command = provider
         .build_resume_command("ses_fixture_owned", false)
         .unwrap();
@@ -59,10 +62,26 @@ fn opencode_declared_sqlite_version_resumes_exact_session_with_history() {
         let blocked = super::super::provider_observation::with_fixture_version(version, || {
             load_js("opencode")
         });
-        assert!(!blocked.session_exists("/fixture", "ses_fixture_owned"));
+        assert_eq!(
+            blocked.session_exists("/fixture", "ses_fixture_owned"),
+            None
+        );
         assert!(blocked
             .read_structured_chat("/fixture", "ses_fixture_owned", None)
             .messages
             .is_empty());
     }
+}
+
+#[test]
+fn opencode_unreadable_store_is_unknown_instead_of_absent() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("opencode.db");
+    std::fs::write(&db, "unreadable-store-fixture").unwrap();
+    let _env = EnvGuard::new(&[("OPENCODE_DB", db.to_str().unwrap())]);
+    let provider = load_sqlite_fixture_js("opencode");
+    assert_eq!(
+        provider.session_exists("/fixture", "ses_fixture_owned"),
+        None
+    );
 }

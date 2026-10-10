@@ -88,7 +88,7 @@ pub(crate) fn provider_for_claimed_session(
     let mut owners = registry.provider_ids().into_iter().filter(|provider_id| {
         registry
             .with_provider(provider_id, |provider| {
-                provider.session_exists(cwd, session_id)
+                provider.session_exists(cwd, session_id) == Some(true)
             })
             .unwrap_or(false)
     });

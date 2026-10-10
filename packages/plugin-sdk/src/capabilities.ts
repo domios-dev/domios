@@ -324,7 +324,7 @@ export interface AgentProvider {
   sessionUsageSources?(sessionFilePath: string, sessionId: string): string[];
   /** Every usage log this provider owns for the session; `sessionId` scopes a log shared by many sessions. */
   usageSources?(cwd: string, sessionId: string): { path: string; sessionId?: string }[];
-  sessionExists?(cwd: string, sessionId: string): boolean;
+  sessionExists?(cwd: string, sessionId: string): boolean | null;
   sessionCreatedMs?(cwd: string, sessionId: string): number | null;
   /** Each returned row carries `recordIndex`, the chunk line it was parsed from. */
   parseSessionDelta?(chunk: string, context?: SessionDeltaContext): unknown;

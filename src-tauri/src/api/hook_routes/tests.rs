@@ -95,10 +95,12 @@ impl AgentProvider for HookProvider {
         None
     }
 
-    fn session_exists(&self, _: &str, session_id: &str) -> bool {
-        self.session_file_path("", session_id)
-            .is_some_and(|path| path.is_file())
-            || self.sessions.contains(session_id)
+    fn session_exists(&self, _: &str, session_id: &str) -> Option<bool> {
+        Some({
+            self.session_file_path("", session_id)
+                .is_some_and(|path| path.is_file())
+                || self.sessions.contains(session_id)
+        })
     }
 
     fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
@@ -909,7 +911,7 @@ impl AgentProvider for LockProbeProvider {
     fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
         None
     }
-    fn session_exists(&self, _: &str, session_id: &str) -> bool {
+    fn session_exists(&self, _: &str, session_id: &str) -> Option<bool> {
         self.probe_calls.fetch_add(1, Ordering::SeqCst);
         // If the bind path still holds the mux lock while probing, no writer
         // can acquire it — record that as the violation this test guards.
@@ -918,7 +920,7 @@ impl AgentProvider for LockProbeProvider {
                 self.lock_held_during_probe.store(true, Ordering::SeqCst);
             }
         }
-        self.sessions.contains(session_id)
+        Some(self.sessions.contains(session_id))
     }
     fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
         None
