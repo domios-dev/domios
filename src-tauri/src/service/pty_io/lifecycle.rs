@@ -9,6 +9,7 @@ use crate::service::boot_stage::BootStage;
 use crate::service::ServiceContext;
 
 mod empty_session;
+mod restore_payload;
 
 #[derive(Clone)]
 pub(crate) struct RestoredLaunch {
@@ -200,6 +201,17 @@ pub(crate) fn claim_restored_pty_boot(
     Ok(Some(restored_launch(tab, provider_id)))
 }
 
+fn matches_restore_observation(
+    tab: &crate::multiplexer::types::Tab,
+    provider_id: &str,
+    session_id: Option<&str>,
+    cwd: Option<&str>,
+) -> bool {
+    tab.agent_type.as_deref() == Some(provider_id)
+        && tab.agent_session_id.as_deref() == session_id
+        && tab.cwd.as_deref() == cwd
+}
+
 pub(crate) fn claim_restored_launch(
     mux: &MuxState,
     tab_id: &str,
@@ -215,10 +227,7 @@ pub(crate) fn claim_restored_launch(
     let Some(provider_id) = tab.agent_type.clone() else {
         return Ok(None);
     };
-    if provider_id != observed_provider_id
-        || tab.agent_session_id.as_deref() != observed_session_id
-        || tab.cwd.as_deref() != observed_cwd
-    {
+    if !matches_restore_observation(tab, observed_provider_id, observed_session_id, observed_cwd) {
         return Ok(None);
     }
     if tab.restored_from_snapshot
@@ -279,12 +288,6 @@ where
     Ok(Some(launch))
 }
 
-/// A restore fault is a spawn failure only when the tab has no live PTY. With
-/// a live PTY the process exists, so latching SpawnFailed would lie about it.
-pub(crate) fn restore_failure_boot_stage(pty_live: bool) -> Option<BootStage> {
-    (!pty_live).then_some(BootStage::SpawnFailed)
-}
-
 /// Reattach clears stale launch failures but preserves restore failures that explain an unavailable agent.
 pub(crate) fn reattach_boot_stage(
     current: Option<BootStage>,
@@ -294,6 +297,7 @@ pub(crate) fn reattach_boot_stage(
         reason.starts_with("restored_provider_unresolved:")
             || reason.starts_with("restored_role_without_provider:")
             || reason.starts_with("restored_session_unavailable:")
+            || reason.starts_with("restored_input_pending:")
     });
     (current == Some(BootStage::SpawnFailed) && !restore_failure)
         .then_some(BootStage::PtyReattached)
@@ -307,7 +311,6 @@ pub(crate) fn restore_materialization_core<R, B, L>(
     session_id: Option<&str>,
     cwd: Option<&str>,
     session_valid: bool,
-    pty_live: bool,
     resolve_payload: R,
     boot_stage: B,
     launcher: L,
@@ -317,12 +320,23 @@ where
     B: FnOnce(BootStage, &str),
     L: FnOnce(RestoredLaunch, Option<String>),
 {
+    let eligible = {
+        let mux = mux.read();
+        let tab = mux
+            .get_tab(tab_id)
+            .ok_or_else(|| format!("Tab {tab_id} not found or has no PTY"))?;
+        tab.restored_from_snapshot
+            && !tab.agent_booting
+            && !tab.protected
+            && matches_restore_observation(tab, provider_id, session_id, cwd)
+    };
+    if !eligible {
+        return Ok(None);
+    }
     let payload = match resolve_payload() {
         Ok(payload) => payload,
         Err(error) => {
-            if let Some(stage) = restore_failure_boot_stage(pty_live) {
-                boot_stage(stage, &error);
-            }
+            boot_stage(BootStage::SpawnFailed, &error);
             return Err(error);
         }
     };
@@ -636,14 +650,18 @@ impl ServiceContext {
             session_id.as_deref(),
             cwd.as_deref(),
             session_valid,
-            self.resolve_pty_id(tab_id).is_ok(),
             || {
-                self.resolve_pending_delivery(tab_id)
-                    .map_err(|error| error.to_string())
+                let pending = self
+                    .mux
+                    .read()
+                    .get_tab(tab_id)
+                    .and_then(|tab| tab.pending_delivery.clone());
+                restore_payload::resolve_restored_payload(pending.as_ref(), || {
+                    self.resolve_pending_delivery(tab_id)
+                        .map_err(|error| error.to_string())
+                })
             },
             |stage, error| {
-                // Reached only with a dead PTY, so a nonce echoed by the
-                // snapshot's agent proves nothing about this tab now.
                 self.void_launch_session_proof(tab_id);
                 self.emit_boot_stage(tab_id, stage, Some(error));
             },
@@ -874,7 +892,7 @@ pub(crate) fn kill_live_tab_pty(
 
 #[cfg(test)]
 mod restore_boot_stage_tests {
-    use super::{reattach_boot_stage, restore_failure_boot_stage, restore_materialization_core};
+    use super::{reattach_boot_stage, restore_materialization_core};
     use crate::multiplexer::commands::MuxState;
     use crate::multiplexer::state::MultiplexerState;
     use crate::multiplexer::types::{PendingDeliveryChannel, PendingDeliveryRecord};
@@ -925,7 +943,6 @@ mod restore_boot_stage_tests {
 
     fn restore_with_failing_resolve(
         fixture: &RestoreFixture,
-        pty_live: bool,
     ) -> (Result<(), String>, Vec<(BootStage, String)>, bool) {
         let emitted = parking_lot::Mutex::new(Vec::new());
         let launched = parking_lot::Mutex::new(false);
@@ -936,7 +953,6 @@ mod restore_boot_stage_tests {
             None,
             Some("fixture-cwd"),
             false,
-            pty_live,
             || {
                 fixture
                     .store
@@ -953,18 +969,21 @@ mod restore_boot_stage_tests {
     }
 
     #[test]
-    fn restore_binding_failure_on_live_pty_never_latches_spawn_failed() {
+    fn restore_failure_on_live_shell_reports_agent_spawn_failed() {
         let fixture = unresolvable_restored_tab(true);
-        let (result, stages, launched) = restore_with_failing_resolve(&fixture, true);
+        let (result, stages, launched) = restore_with_failing_resolve(&fixture);
 
         assert_eq!(
             result.unwrap_err(),
             format!("RestorePayloadMissing: {}", fixture.digest),
             "the resolve error must still surface to the caller"
         );
-        assert!(
-            stages.is_empty(),
-            "a binding failure over a live PTY must emit no boot-stage failure: {stages:?}"
+        assert_eq!(
+            stages,
+            [(
+                BootStage::SpawnFailed,
+                format!("RestorePayloadMissing: {}", fixture.digest)
+            )]
         );
         assert!(!launched, "a failed resolve must not launch an agent");
     }
@@ -972,7 +991,7 @@ mod restore_boot_stage_tests {
     #[test]
     fn restore_failure_without_live_pty_still_reports_spawn_failed() {
         let fixture = unresolvable_restored_tab(false);
-        let (result, stages, launched) = restore_with_failing_resolve(&fixture, false);
+        let (result, stages, launched) = restore_with_failing_resolve(&fixture);
 
         assert!(result.is_err());
         assert_eq!(
@@ -1029,6 +1048,7 @@ mod restore_boot_stage_tests {
         for reason in [
             "restored_provider_unresolved: no unique owner",
             "restored_role_without_provider: no provider or session",
+            "restored_input_pending: pending input retained",
         ] {
             assert_eq!(
                 reattach_boot_stage(Some(BootStage::SpawnFailed), Some(reason)),
@@ -1053,15 +1073,6 @@ mod restore_boot_stage_tests {
                 "reattach must not stomp an in-flight or ready boot: {stage:?}"
             );
         }
-    }
-
-    #[test]
-    fn spawn_failure_taxonomy_keys_off_pty_liveness() {
-        assert_eq!(
-            restore_failure_boot_stage(false),
-            Some(BootStage::SpawnFailed)
-        );
-        assert_eq!(restore_failure_boot_stage(true), None);
     }
 }
 

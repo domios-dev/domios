@@ -90,7 +90,6 @@ impl RestoreReplayFixture {
             None,
             Some("fixture-cwd"),
             false,
-            false,
             move || match pending {
                 Some(record)
                     if record.state().needs_delivery()
