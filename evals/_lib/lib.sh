@@ -492,12 +492,14 @@ dc() {
   dev_assert_cached_identity || return 7
   if [ -n "$caller_tab_id" ]; then
     # Plan mutations authenticate the live bound session, not just the tab id.
-    local inspect session nonce
-    inspect="$(dev_run "$cli" tab inspect "$caller_tab_id" --json 2>/dev/null)"
-    session="$(printf '%s' "$inspect" | grep -m1 -oE '"agent_session_id": *"[^"]+"' | sed -E 's/.*"([^"]+)"$/\1/')"
-    nonce="$(printf '%s' "$inspect" | grep -m1 -oE '"session_binding_nonce": *"[^"]+"' | sed -E 's/.*"([^"]+)"$/\1/')"
-    dev_run --as-tab "$caller_tab_id" env \
-      "CODETERM_SESSION_ID=$session" "CODETERM_SESSION_BINDING_NONCE=$nonce" "$cli" "$@"
+    # A plain shell tab has no bound session; under the caller's pipefail a missing match must not abort.
+    local inspect session nonce binding=()
+    inspect="$(dev_run "$cli" tab inspect "$caller_tab_id" --json 2>/dev/null)" || true
+    session="$(printf '%s' "$inspect" | { grep -m1 -oE '"agent_session_id": *"[^"]+"' || true; } | sed -E 's/.*"([^"]+)"$/\1/')"
+    nonce="$(printf '%s' "$inspect" | { grep -m1 -oE '"session_binding_nonce": *"[^"]+"' || true; } | sed -E 's/.*"([^"]+)"$/\1/')"
+    [ -z "$session" ] || binding+=("CODETERM_SESSION_ID=$session")
+    [ -z "$nonce" ] || binding+=("CODETERM_SESSION_BINDING_NONCE=$nonce")
+    dev_run --as-tab "$caller_tab_id" env ${binding[@]+"${binding[@]}"} "$cli" "$@"
   else
     dev_run "$cli" "$@"
   fi
