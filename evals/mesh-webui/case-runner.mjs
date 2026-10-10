@@ -90,7 +90,7 @@ async function provider(page,home,direction,machine,tab) {
   const initial=await native(machine,tab,'initial-'+direction+'-'+tab.provider);
   const actual=[...initial.proof.records].reverse().find(r=>r.role==='assistant'&&r.model)?.model ?? initial.proof.session_model;
   assert.ok(cheap(tab.provider,actual),'Initial provider-owned actual model must be cheap before traffic');
-  page.__b2Steps=[{action:'titlebar peer switch',target:manifest[machine].peerId}, {action:'select tab',tabId:uiId,sessionId:tab.sessionId}];
+  page.__b2Steps=[{action:desktopView ? 'desktop sidebar selection' : 'titlebar peer switch',target:manifest[machine].peerId}, {action:'select tab',tabId:uiId,sessionId:tab.sessionId}];
   page.__b2Errors=[];
   await check(page,direction,tab,'tab-list',async()=>{
     assert.ok(await page.locator(`[data-testid="tab-item"][data-tab-id="${uiId}"]`).isVisible());
@@ -280,11 +280,12 @@ async function policyReceipt(tab, name, status, reason) {
       page.on('pageerror',error=>page.__b2Errors.push({at:Date.now(),error:String(error)}));
       const shell=manifest.windows.shells.find(t=>!t.doNotTouch);
       await selectTab(page,shell.tabId,{mode:'terminal',workspaceId:manifest.windows.desktopWorkspaceId});
-      await check(page,directionFilter,tab,'peer-switch',async()=>{
+      const selected=await check(page,directionFilter,tab,'peer-switch',async()=>{
         const id=await resolvedId(page,tab,manifest[machine].peerId);
         await selectTab(page,id,{workspaceId:manifest.windows.desktopWorkspaceId});
         return {selection:'desktop sidebar',origin:page.url(),tabId:id,homePeer:manifest[machine].peerId};
       });
+      if (!selected) return;
       try {await provider(page,null,directionFilter,machine,tab);}
       catch(error) {await check(page,directionFilter,tab,'chat-render',async()=>{throw error;});}
       await check(page,directionFilter,tab,'gateway-return',async()=>{
