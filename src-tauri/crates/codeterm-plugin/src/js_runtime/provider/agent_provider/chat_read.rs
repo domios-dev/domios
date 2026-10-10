@@ -47,10 +47,7 @@ impl JsProvider {
                 .native()
                 .and_then(|n| n.session_jsonl_path(cwd, session_id));
         }
-        let resolved = match self.manifest.sessions.as_ref().map(|s| s.cwd_encoding) {
-            Some(super::super::CwdEncoding::DashEncoded) => codeterm_paths::canonical_cwd(cwd),
-            _ => cwd.to_string(),
-        };
+        let resolved = self.session_cwd(cwd);
         self.try_call::<Option<String>>(
             "sessionJsonlPath",
             &[serde_json::json!(resolved), serde_json::json!(session_id)],
@@ -58,6 +55,13 @@ impl JsProvider {
         .flatten()
         .filter(|path| !path.is_empty())
         .map(std::path::PathBuf::from)
+    }
+
+    pub(super) fn session_cwd(&self, cwd: &str) -> String {
+        match self.manifest.sessions.as_ref().map(|s| s.cwd_encoding) {
+            Some(super::super::CwdEncoding::DashEncoded) => codeterm_paths::canonical_cwd(cwd),
+            _ => cwd.to_string(),
+        }
     }
 
     pub(super) fn js_read_structured_chat(
