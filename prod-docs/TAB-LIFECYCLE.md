@@ -178,6 +178,8 @@ Automatic model recovery remains disabled until a separate human-labelled held-o
 
 UI-created tabs suppress trust, permission and login owner notifications unless parent/spawner, team, cron, hidden-worker or General Agent ownership applies. The journal still records observations. Restored-tab notices are held for restore-wave settlement and grouped by state. Durable tab/state/launch keys prevent repeated notices across application restarts; a new launch can notify again.
 
+Structural access refusals from the tab's bound provider session are always incidents, including UI-created tabs. They immediately open one `error` / `action_needed` notification per access-loss transition and keep the tab waiting on authentication. A successful provider turn clears the state and resolves the notice. See `codeterm docs NOTIFICATIONS`; role-tab escalation is documented in `codeterm docs ORCHESTRATION`.
+
 ## Unattended launch prompts
 
 Agent-, Team-, worker- and cron-owned tabs may encounter prompts while visible or hidden. Tabs launched directly by the owner without agent or Team ownership keep owner-facing prompts.
@@ -218,4 +220,4 @@ The summary reports restarted, pending and failed restart counts, and updates
 in place as pending tabs finish. Update runs, safe prompt answers and individual
 restart outcomes enter the Supporter journal.
 
-<!-- revision: 46 -->
+<!-- revision: 47 -->

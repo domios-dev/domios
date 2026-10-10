@@ -30,6 +30,72 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-shared/accessError.ts
+function object(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function classifyAccessError(error, record4) {
+  const detail = object(error);
+  const info = object(detail?.codexErrorInfo);
+  const fields = [
+    typeof error === "string" ? error : null,
+    detail?.type,
+    detail?.code,
+    detail?.status,
+    detail?.statusCode,
+    detail?.status_code,
+    detail?.httpStatusCode,
+    detail?.codexErrorInfo,
+    ...Object.keys(info ?? {}),
+    ...Object.values(info ?? {}).map((value) => object(value)?.httpStatusCode),
+    record4.status,
+    record4.statusCode,
+    record4.status_code,
+    record4.apiErrorStatus,
+    record4.apiErrorCode
+  ];
+  if (fields.some((value) => typeof value === "string" && (value.startsWith("oauth_") || value.startsWith("authentication_")))) return "authentication";
+  if (fields.some((value) => value === 401 || value === 403 || typeof value === "string" && [
+    "401",
+    "403",
+    "authentication_error",
+    "auth",
+    "unauthorized",
+    "permission_error",
+    "permission_denied",
+    "forbidden",
+    "subscription_disabled",
+    "organization_disabled",
+    "oauth_refresh_failed",
+    "token_expired",
+    "token_revoked",
+    "refresh_token_reused",
+    "refresh_token_expired",
+    "refresh_token_invalidated",
+    "logged_out",
+    "signed_out",
+    "unauthenticated",
+    "authError"
+  ].includes(value))) return "authentication";
+  if (fields.some((value) => value === 429 || value === "429" || value === "rate_limit" || value === "rate_limit_error" || value === "usageLimitExceeded")) return "rate_limit";
+  return "other";
+}
+
+// plugins/provider-codex/src/signals.ts
+function parseSessionObservations(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record4 = value;
+  if (record4.type !== "event_msg" || !record4.payload || typeof record4.payload !== "object" || Array.isArray(record4.payload)) return null;
+  const payload = record4.payload;
+  if (payload.type === "error") return {
+    api_error: classifyAccessError(payload.error ?? payload, payload),
+    permission_mode: null,
+    clears_api_error: false
+  };
+  if (payload.type === "task_complete") return { api_error: null, permission_mode: null, clears_api_error: true };
+  return null;
+}
+
 // plugins/provider-shared/updatePrompt.ts
 function updatePromptSafeChoice(prompt) {
   if (prompt.options.length < 2 || !prompt.options.some(([label2]) => /\bupdate\b/i.test(label2))) {
@@ -3857,6 +3923,7 @@ var plugin = {
     return this.sessionFilePath(cwd, sessionId);
   },
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts.
+  parseSessionObservations,
   parseSessionDelta(chunk, context) {
     const out = [];
     const commandPairing = commandPairingState(context);
