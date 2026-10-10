@@ -24,6 +24,7 @@ fn fixture() -> (SwitchRequest, Tab) {
         mechanism: ModelSwitchMode::Live,
         deadline: Instant::now() + STAGING_DEADLINE,
         completion_generation: 0,
+        completion_epoch: 0,
     };
     (request, tab.clone())
 }
@@ -285,4 +286,101 @@ fn unwritten_readiness_refusal_releases_claim_and_next_event_can_retry() {
     assert!(queue.completed(&request));
     queue.finish(&request);
     assert!(!queue.claim(&request));
+}
+
+fn completion_anchor(session: &str) -> crate::service::chat_send_transaction::SendEvidenceAnchor {
+    crate::service::chat_send_transaction::SendEvidenceAnchor {
+        provider_id: "provider".into(),
+        cwd: "own-cwd".into(),
+        session_id: session.into(),
+        window: crate::service::chat_send_transaction::EvidenceWindow::Jsonl {
+            transcript_offset: 42,
+        },
+        turn_normalization: Default::default(),
+    }
+}
+
+#[test]
+fn switch_during_accepted_stop_uses_completion_until_a_new_turn_starts() {
+    let (mut request, _) = fixture();
+    let mut queue = PendingSwitches::default();
+    queue.signal_started(&request.tab_id);
+    let epoch = queue.start_epoch(&request.tab_id);
+    request.completion_epoch = epoch;
+    queue.signal_completed(&request.tab_id, &request.session_id, &request.nonce);
+    queue.latch_completed(
+        &request.tab_id,
+        &request.nonce,
+        epoch,
+        completion_anchor(&request.session_id),
+    );
+    request.completion_generation =
+        queue.boundary_generation(&request.tab_id, &request.session_id, &request.nonce, true);
+    let (tx, rx) = channel();
+    queue.replace_at_idle(request.clone(), tx, false);
+    assert_eq!(rx.try_recv(), Ok(()));
+    assert!(queue.completed(&request));
+    queue.signal_started(&request.tab_id);
+    assert!(!queue.completed(&request));
+    assert_eq!(
+        queue.boundary_generation(&request.tab_id, &request.session_id, &request.nonce, true),
+        1
+    );
+}
+
+#[test]
+fn intervening_turn_foreign_authority_and_late_anchor_cannot_reuse_stop() {
+    let (request, _) = fixture();
+    let mut queue = PendingSwitches::default();
+    let epoch = queue.start_epoch(&request.tab_id);
+    queue.signal_completed(&request.tab_id, &request.session_id, &request.nonce);
+    queue.latch_completed(
+        &request.tab_id,
+        &request.nonce,
+        epoch,
+        completion_anchor(&request.session_id),
+    );
+    assert_eq!(
+        queue.boundary_generation(&request.tab_id, &request.session_id, &request.nonce, false),
+        1
+    );
+    assert_eq!(
+        queue.boundary_generation(&request.tab_id, "foreign", &request.nonce, true),
+        0
+    );
+    assert_eq!(
+        queue.boundary_generation(&request.tab_id, &request.session_id, "foreign", true),
+        0
+    );
+    queue.signal_started(&request.tab_id);
+    queue.latch_completed(
+        &request.tab_id,
+        &request.nonce,
+        epoch,
+        completion_anchor(&request.session_id),
+    );
+    assert_eq!(
+        queue.boundary_generation(&request.tab_id, &request.session_id, &request.nonce, true),
+        1
+    );
+    let (tx, _) = channel();
+    queue.replace(request.clone(), tx);
+    assert!(!queue.completed(&request));
+}
+
+#[test]
+fn completion_after_capture_is_retained_but_a_new_start_invalidates_capture() {
+    let (request, _) = fixture();
+    let mut queue = PendingSwitches::default();
+    queue.signal_completed(&request.tab_id, &request.session_id, &request.nonce);
+    let (tx, rx) = channel();
+    queue.replace_at_idle(request.clone(), tx, false);
+    assert_eq!(rx.try_recv(), Ok(()));
+    assert!(queue.completed(&request));
+    queue.cancel(&request.tab_id);
+    queue.signal_started(&request.tab_id);
+    let (tx, rx) = channel();
+    queue.replace_at_idle(request.clone(), tx, false);
+    assert!(rx.try_recv().is_err());
+    assert!(!queue.completed(&request));
 }
