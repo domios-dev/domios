@@ -66,7 +66,8 @@ test("foreign tab, session, or stale binding cannot override a turn", async () =
   ]) {
     const runtime = await binding(async () => ({ ...controls, ...mismatch }));
     const message = { model: "unchanged", variant: "unchanged" };
-    await assert.rejects(runtime.hooks["chat.message"]({ sessionID: "ses_owned" }, { message }), /binding is not current/);
+    await runtime.hooks["chat.message"]({ sessionID: "ses_owned" }, { message });
+    assert.equal(runtime.warnings.length, 1);
     assert.deepEqual(message, { model: "unchanged", variant: "unchanged" });
   }
 });
@@ -75,16 +76,28 @@ test("turn controls reject missing or unrelated envelopes", async () => {
   for (const envelope of [() => null, () => [], (value: unknown) => [value, value]]) {
     const runtime = await binding(async () => controls, undefined, envelope);
     const message = { model: "unchanged", variant: "unchanged" };
-    await assert.rejects(runtime.hooks["chat.message"]({ sessionID: "ses_owned" }, { message }), /binding is not current/);
+    await runtime.hooks["chat.message"]({ sessionID: "ses_owned" }, { message });
+    assert.equal(runtime.warnings.length, 1);
     assert.deepEqual(message, { model: "unchanged", variant: "unchanged" });
   }
 });
 
-test("unavailable controls refuse instead of silently continuing on the old model", async () => {
-  const runtime = await binding(async () => { throw new Error("timeout"); });
-  const message = { model: "unchanged" };
-  for (let i = 0; i < 2; i++) await assert.rejects(runtime.hooks["chat.message"]({ sessionID: "ses_owned" }, { message }), /timeout/);
-  assert.equal(message.model, "unchanged");
+test("unavailable controls preserve the user message, warn once, and apply retained controls next turn", async () => {
+  let available = false;
+  const runtime = await binding(async () => {
+    if (!available) throw new Error("timeout");
+    return controls;
+  });
+  const message = { model: "unchanged", variant: "low", content: "opaque-user-input" };
+  for (let i = 0; i < 2; i++) await runtime.hooks["chat.message"]({ sessionID: "ses_owned" }, { message });
+  assert.deepEqual(message, { model: "unchanged", variant: "low", content: "opaque-user-input" });
+  assert.equal(runtime.warnings.length, 1);
+  available = true;
+  await runtime.hooks["chat.message"]({ sessionID: "ses_owned" }, { message });
+  assert.deepEqual(JSON.parse(JSON.stringify(message)), {
+    model: { providerID: "vendor", modelID: "new/model" }, variant: "high", content: "opaque-user-input",
+  });
+  assert.equal(runtime.warnings.length, 1);
 });
 
 test("binding registration cannot consume the controls request deadline", async () => {

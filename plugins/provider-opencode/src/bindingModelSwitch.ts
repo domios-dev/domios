@@ -1,5 +1,7 @@
 export function bindingModelSwitchSource(): string[] {
   return [
+    "let controlsWarningReported = false;",
+    "",
     "async function applyTurnModel(input, output, signal) {",
     "  if (!output?.message || !normalizeSessionID(input?.sessionID)) return;",
     "  const hookURL = endpoint();",

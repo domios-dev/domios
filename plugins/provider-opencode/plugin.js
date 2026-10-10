@@ -163,6 +163,8 @@ function parseModelVariants(stdout) {
 // plugins/provider-opencode/src/bindingModelSwitch.ts
 function bindingModelSwitchSource() {
   return [
+    "let controlsWarningReported = false;",
+    "",
     "async function applyTurnModel(input, output, signal) {",
     "  if (!output?.message || !normalizeSessionID(input?.sessionID)) return;",
     "  const hookURL = endpoint();",
@@ -962,7 +964,14 @@ function opencodeBindingPluginSource() {
     "    },",
     '    async "chat.message"(input, output) {',
     '      await report(input?.sessionID, "chat.message", directory, AbortSignal.timeout(200));',
-    "      await applyTurnModel(input, output, AbortSignal.timeout(200));",
+    "      try {",
+    "        await applyTurnModel(input, output, AbortSignal.timeout(200));",
+    "      } catch (error) {",
+    "        if (!controlsWarningReported) {",
+    "          controlsWarningReported = true;",
+    '          console.warn("CodeTerm model switch did not apply; continuing on the current model. Pending selection is retained.", error?.message || error);',
+    "        }",
+    "      }",
     "    },",
     '    async "tool.execute.before"(input) {',
     '      await report(input?.sessionID, "tool.execute.before", directory);',
