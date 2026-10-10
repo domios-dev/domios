@@ -60,6 +60,11 @@ async function setupHappyDom() {
     });
   }
 
+  Object.defineProperty(globalThis, "requestAnimationFrame", {
+    configurable: true,
+    value: (callback: FrameRequestCallback) => { callback(0); return 0; },
+  });
+
   return { act, createRoot, React, window };
 }
 
