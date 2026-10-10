@@ -5,6 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {createHarness,switchPeer,selectTab,capture,observe,activity,waitDom,deadline,captureTerminalView} from './browser.mjs';
 import {validateManifest,validateOutput,cheap,claim,matrix,convergence,checks} from './model.mjs';
 import {snapshot} from './records.mjs';
+import {selectedChatSurface} from './chat-selection.mjs';
 const pad = process.env.CODETERM_PAD_DIR;
 assert.ok(pad, 'B2 authored provider prompts require the calling agent pad');
 const manifest = validateManifest(JSON.parse(await readFile(process.argv[2],'utf8')));
@@ -63,8 +64,9 @@ async function promptFile(label,prompt) {
 async function submit(page,prompt,label) {
   const text=await promptFile(label,prompt);
   page.__b2Steps.push({action:'composer send',promptFile:'prompts/'+label+'.txt',at:Date.now()});
-  await page.getByTestId('chat-composer').fill(text);
-  await page.getByTestId('composer-send-button').click();
+  const chat = await selectedChatSurface(page);
+  await chat.getByTestId('chat-composer').fill(text);
+  await chat.getByTestId('composer-send-button').click();
   await capture(page,label+'-submitted');
 }
 async function turn(page,home,machine,tab,uiId,index,direction) {
