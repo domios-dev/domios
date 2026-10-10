@@ -89,6 +89,7 @@ pub mod orchestrator_digests;
 mod orchestrator_onboard;
 mod output;
 mod output_feed;
+mod pty_frame_timing;
 pub(crate) mod output_stream_activity;
 pub(crate) mod pending_delivery_payloads;
 pub(crate) mod permission_auto_confirm;

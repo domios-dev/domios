@@ -858,7 +858,7 @@ const plugin: PluginModule = {
         integration_state: "unreadable",
       };
     }
-    function present(key: string): boolean {
+    function present(key: string, completion: boolean = false): boolean {
       const arr = json!.hooks && json!.hooks[key];
       if (!Array.isArray(arr)) return false;
       for (let i = 0; i < arr.length; i++) {
@@ -870,6 +870,8 @@ const plugin: PluginModule = {
           const command = hook && hook.command;
           // Claude Code rewrites settings.json and its serializer drops `_source`, so requiring it reports a working hook as missing.
           if (typeof command === "string"
+              && (!completion || (command.includes("CODETERM_SESSION_BINDING_NONCE")
+                && command.includes('--data-binary "@-"')))
               && isCurrentHookCommand(command, host.platform())
               && command.indexOf("CODETERM_TAB_ID") !== -1
               && command.indexOf("CODETERM_API_URL") !== -1
@@ -904,7 +906,7 @@ const plugin: PluginModule = {
     }
     const n = present("Notification");
     const pr = present("PermissionRequest");
-    const s = present("Stop");
+    const s = present("Stop", true);
     const pc = Array.isArray(json.hooks?.PreCompact) && json.hooks.PreCompact.some(isCodetermHook);
     const ss = sessionStartCurrent();
     const installed = n && pr && s && ss;
@@ -981,7 +983,7 @@ const plugin: PluginModule = {
     };
     const nonceHeader = '--header "X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE"';
     const notifyCmd = hookCommand("/api/tabs/$CODETERM_TAB_ID/hook/permission", "", nonceHeader, true);
-    const stopCmd = hookCommand("/api/tabs/$CODETERM_TAB_ID/hook/stop", "{}", "", false);
+    const stopCmd = hookCommand("/api/tabs/$CODETERM_TAB_ID/hook/stop", "", nonceHeader, true);
     const sessionStartCmd = hookCommand(
       "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
       "",
