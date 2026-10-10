@@ -83,6 +83,7 @@ pub(crate) use orchestrator::tab_relink_signal::await_relink;
 pub(crate) use orchestrator::{
     build_agent_command_for_service, mark_tab_agent_launch_started, provider_launch_task,
 };
+mod directory_pre_trust;
 pub(crate) mod directory_trust;
 mod folder_trust_carryover;
 pub mod orchestrator_digests;

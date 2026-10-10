@@ -609,6 +609,39 @@ pub(super) fn install(
         codeterm_util::atomic_write::write_atomic(Path::new(&path), contents).is_ok()
     });
     let sb = sandbox.clone();
+    bind!("canonicalPath", move |path: String| -> Option<String> {
+        if !sb.can_read(&path) {
+            return None;
+        }
+        std::fs::canonicalize(&path)
+            .ok()
+            .map(|path| codeterm_paths::strip_verbatim_prefix(&path.to_string_lossy()))
+    });
+    let sb = sandbox.clone();
+    bind!("jsonBooleanRecord", move |path: String,
+                                     keys_json: String,
+                                     grant: bool|
+          -> String {
+        use crate::provider::PreTrustOutcome;
+        let outcome = if !sb.can_read(&path) || (grant && !sb.can_write(&path)) {
+            PreTrustOutcome::Skipped("record access denied".into())
+        } else if let Ok(keys) = serde_json::from_str::<Vec<String>>(&keys_json) {
+            if grant {
+                crate::json_boolean_record::grant(Path::new(&path), &keys)
+            } else {
+                match crate::json_boolean_record::trusted(Path::new(&path), &keys) {
+                    Ok(true) => PreTrustOutcome::AlreadyTrusted,
+                    Ok(false) => PreTrustOutcome::Skipped("not trusted".into()),
+                    Err(reason) => PreTrustOutcome::Skipped(reason),
+                }
+            }
+        } else {
+            PreTrustOutcome::Skipped("invalid key path".into())
+        };
+        serde_json::to_string(&outcome)
+            .unwrap_or_else(|_| r#"{"status":"failed","reason":"encoding failed"}"#.into())
+    });
+    let sb = sandbox.clone();
     bind!("lockFile", move |path: String| -> Option<String> {
         let call_id = current_file_lock_call()?;
         if !sb.can_write(&path) {

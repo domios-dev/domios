@@ -193,6 +193,7 @@ test("qa_report_counts_executed_cargo_targets_without_promoting_empty_runs", () 
     ["bare_empty", "running 0 tests", 1],
     ["ignored_only", "test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out", 1],
     ["other_empty_runner", one + "\nNo test files found", 1],
+    ["npm_banner_version", "> @codeterm/provider-claude@1.14.0 test\n674 passed, 0 failed", 0],
   ];
   try {
     for (const [label, output, expected] of cases) {

@@ -64,6 +64,10 @@ pub(super) fn memory_routes(router: Router<AppState>) -> Router<AppState> {
         .route("/api/mem/items/{id}/archive", post(mem_routes::mem_archive))
         .route("/api/mem/items/{id}/restore", post(mem_routes::mem_restore))
         .route("/api/mem/merge", post(mem_routes::mem_merge))
+        .route(
+            "/api/mem/area/merge",
+            post(mem_routes::area_merge::mem_area_merge),
+        )
         .route("/api/mem/taxonomy", get(mem_routes::mem_taxonomy))
         .route("/api/mem/tail", get(mem_routes::mem_tail))
         .route(

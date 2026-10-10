@@ -58,6 +58,7 @@ pub(super) fn dispatch(
         "mem.pinned" => mem_pinned(params, svc),
         "mem.append" => mem_append(params, svc),
         "mem.restore" => hygiene::mem_restore(params, svc),
+        "mem.area_merge" => hygiene::mem_area_merge(params, svc),
         "mem.merge" => hygiene::mem_merge(params, svc),
         "mem.wake_up" => mem_wake_up(params, svc),
         "mem.learn" => mem_learn(params, svc),

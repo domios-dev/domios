@@ -259,6 +259,7 @@ pub(super) fn dispatch(
                 "mem.append",
                 "mem.restore",
                 "mem.merge",
+                "mem.area_merge",
                 "mem.wake_up",
                 "mem.learn",
                 "mem.learn_promote",

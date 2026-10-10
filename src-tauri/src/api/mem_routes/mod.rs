@@ -7,6 +7,7 @@ pub(super) const WORKER_ID_HEADER: &str = "x-codeterm-worker-id";
 pub(super) const WORKER_INTENT_HEADER: &str = "x-codeterm-worker-intent";
 pub(super) const ACTOR_HEADER: &str = "x-codeterm-actor";
 
+pub mod area_merge;
 pub mod calibration;
 pub mod decision;
 pub mod dream;

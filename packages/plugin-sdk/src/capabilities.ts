@@ -1,3 +1,7 @@
+export type PreTrustOutcome =
+  | { status: "already_trusted" | "granted" }
+  | { status: "skipped" | "failed"; reason: string };
+
 // Plugin-facing capability contracts. Each capability is one Rust trait the host
 // adapts to a `plugin.js` export; shapes mirror how the host consumes them.
 
@@ -291,6 +295,8 @@ export interface AgentProvider {
   buildPromptResponse?(optionIndex: number, screen?: string): string[];
   /** Directory-trust dialog on the live screen: one base64 key, `[]` to hold it, `null` when none is shown. */
   directoryTrustPromptResponse?(screen: string): string[] | null;
+  /** Best-effort persistence for an exact folder already authorized by the host. */
+  preTrustDirectory?(path: string): PreTrustOutcome;
   /** Whether the provider's own config already trusts this exact folder. */
   isDirectoryTrusted?(path: string): boolean;
   /** Effective launch-folder trust, including the provider's trust-root precedence. */
