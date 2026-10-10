@@ -5,6 +5,36 @@ use super::super::*;
 use super::*;
 
 #[test]
+fn completed_numbered_answer_events_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    let captured = include_str!("../../../../../../../../plugins/provider-claude/tests/fixtures/tab-state/completed-numbered-answer-dev67.txt");
+    for (screen, permission) in [
+        (captured, false),
+        (
+            "❯ 1. opaque-a\n  2. opaque-b\nEsc to cancel\n─────\n❯\n─────",
+            false,
+        ),
+        (
+            "opaque-question?\n❯ 1. opaque-a\n  2. opaque-b\nEsc to cancel",
+            true,
+        ),
+    ] {
+        let has_permission = |events: Vec<crate::detector::AgentEvent>| {
+            events.contains(&crate::detector::AgentEvent::PermissionRequest)
+        };
+        assert_eq!(has_permission(native.detect_events(screen)), permission);
+        assert_eq!(has_permission(js.detect_events(screen)), permission);
+        assert_eq!(
+            native.parse_prompt(screen).is_some(),
+            js.parse_prompt(screen).is_some()
+        );
+    }
+}
+
+#[test]
 fn completion_record_source_native_js_parity() {
     if require_plugins().is_none() {
         return;

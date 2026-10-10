@@ -1508,10 +1508,11 @@ function parseClaudeNumberedPrompt(text2) {
   const options = lastNumberedOptionCluster(allOptions);
   if (options.length < 2) return null;
   const lastOption = options[options.length - 1];
+  if (lines.slice(lastOption.line + 1).some((line) => /^\s*[❯›]\s*$/.test(line))) return null;
   const hasActiveFooter = lines.some(
     (line, index) => index > lastOption.line && index <= lastOption.line + 5 && /(?:Esc\s*to\s*(?:cancel|reject|exit)|Enter\s*to\s*(?:confirm|select)|Tab\s*to\s*amend)/i.test(line)
   );
-  const cursorOnOption = options.some((option) => /^\s*❯/.test(lines[option.line] || ""));
+  const cursorOnOption = options.some((option) => option.highlighted);
   if (!hasActiveFooter && !cursorOnOption) return null;
   const before = lines.slice(0, options[0].line).join("\n");
   const question = findQuestion(before) || "Choose an option";
@@ -2218,11 +2219,7 @@ var plugin = {
   detectEvents(text2) {
     const t = String(text2 || "");
     const events = [];
-    if (parseClaudeWizardPrompt(t)) events.push("permission_request");
-    const numLines = (t.match(/^\s*\d+\.\s+/gm) || []).length;
-    const hasEscFooter = t.indexOf("Esc to cancel") !== -1 || t.indexOf("Tab to amend") !== -1;
-    const hasSelector = t.indexOf("\u276F") !== -1;
-    if (numLines >= 2 && (hasEscFooter || hasSelector)) {
+    if (parseClaudeWizardPrompt(t) || parseClaudeNumberedPrompt(t)) {
       events.push("permission_request");
     }
     const lines = t.split("\n");
