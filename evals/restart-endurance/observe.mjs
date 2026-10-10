@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { exactReply, firstTurnPolicy, kind, probeReady } from "./oracle.mjs";
 import { digest, logLines, newEvidence } from "./logs.mjs";
 import { recordBoundary, nextTurnModel } from "./records.mjs";
+import { snapshotAfterEvent } from "./snapshots.mjs";
 
 const script = fileURLToPath(import.meta.url);
 const root = resolve(dirname(script), "../..");
@@ -180,22 +181,13 @@ async function waitReady(events, id, signal, policy, requireSession = false) {
     do { event = await events.next(); } while (!touches(event, id));
   }
 }
-async function snapshotAfterEvent(events, read) {
-  for (;;) {
-    try { return await read(); }
-    catch (error) {
-      if (error.status !== 503) throw error;
-      await events.next();
-    }
-  }
-}
 async function observeFresh(fixture) {
   const signal = AbortSignal.timeout(deadlineMs), events = new Events(signal);
   const row = { ...fixture, pass: false };
   try {
     await events.open();
     row.before_probe = await waitReady(events, fixture.id, signal, fixture.first_turn_policy);
-    row.transcript = await transcript(fixture.id, signal);
+    row.transcript = await snapshotAfterEvent(events, () => transcript(fixture.id, signal));
     fixture.last_session = row.before_probe.agent_session_id;
     row.pass = !row.transcript.messages.some((message) => ["user", "assistant"].includes(kind(message)));
     row.reason = row.pass ? "No user or assistant turn before restart" : "Fresh fixture already has turns";
@@ -228,7 +220,7 @@ async function probe(fixture, n, observeOnly = false) {
   let subscribed = false;
   try {
     await events.open();
-    row.initial = await tab(fixture.id, signal);
+    row.initial = await snapshotAfterEvent(events, () => tab(fixture.id, signal));
     if (observeOnly) {
       row.before_probe = row.initial;
       row.reason = failure(row.initial) ?? "Existing tab inspected; no message authorized outside Endure fixtures";
@@ -239,7 +231,7 @@ async function probe(fixture, n, observeOnly = false) {
     row.before_probe = ready;
     if (ready.agent_type !== fixture.provider) throw new Error(`Provider identity changed: ${fixture.provider} → ${ready.agent_type}`);
     if (fixture.has_answer && fixture.last_session !== ready.agent_session_id) throw new Error(`Session changed before probe: ${fixture.last_session} → ${ready.agent_session_id}`);
-    const before = await transcript(fixture.id, signal);
+    const before = await snapshotAfterEvent(events, () => transcript(fixture.id, signal));
     const baseline = before.messages.length;
     const marker = `ENDURE_${fixture.provider}_${n}`;
     row.expected = marker;
@@ -260,10 +252,10 @@ async function probe(fixture, n, observeOnly = false) {
     subscribed = true;
     row.phase = "waiting_for_exact_reply";
     for (;;) {
-      const snapshot = await transcript(fixture.id, signal);
+      const snapshot = await snapshotAfterEvent(events, () => transcript(fixture.id, signal));
       row.transcript = snapshot;
       const answer = exactReply(snapshot.messages, baseline, row.prompt, marker, fixture.provider === "grok");
-      const current = await tab(fixture.id, signal);
+      const current = await snapshotAfterEvent(events, () => tab(fixture.id, signal));
       if (answer && current?.status === "idle") {
         row.answer = answer;
         row.reply_ms = Math.round(performance.now() - start);
@@ -393,7 +385,7 @@ async function setup() {
       try {
         await events.open();
         record = await waitReady(events, fixture.id, signal, fixture.first_turn_policy);
-        snapshot = await transcript(fixture.id, signal);
+        snapshot = await snapshotAfterEvent(events, () => transcript(fixture.id, signal));
         if (snapshot.messages.some((message) => ["user", "assistant"].includes(kind(message)))) reason = "Fresh fixture has conversation turns before any eval probe";
         fixture.last_session = record.agent_session_id;
       } catch (error) { reason = error.message; }
