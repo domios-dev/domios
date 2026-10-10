@@ -186,6 +186,7 @@ impl PageShared {
                 bound_session: Some(page.session_id().to_string()),
                 ..Default::default()
             };
+            self.update(|state| state.target_id = page.target_id().to_string());
             page.subscribe(PAGE_EVENTS)
         };
         let listener = tokio::spawn(listen(
@@ -209,6 +210,7 @@ impl PageShared {
             listener.abort();
         }
         *session = PageSession::default();
+        self.update(|state| state.target_id.clear());
     }
 
     fn apply(&self, session_id: &str, update: PageUpdate) {
@@ -275,6 +277,16 @@ async fn listen(
             shared.apply(&session_id, update);
         }
     }
+    let session = shared.session.lock();
+    if session.bound_session.as_deref() == Some(session_id.as_str()) {
+        shared.notice(SurfaceNotice::error(
+            "The browser connection stopped. Reopen this surface to continue.",
+        ));
+        shared.update(|state| {
+            state.activity = IDLE.into();
+            state.target_id.clear();
+        });
+    }
 }
 
 #[cfg(test)]
@@ -282,6 +294,41 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[tokio::test]
+    async fn browser_page_connection_loss_notifies_each_bound_surface() {
+        for owner in ["First", "Second"] {
+            let shared = PageShared::new(owner);
+            shared.session.lock().bound_session = Some("session".into());
+            shared.update(|state| state.target_id = "target".into());
+            let mut notices = shared.subscribe_notices();
+            let (sender, receiver) = tokio::sync::mpsc::channel(1);
+            drop(sender);
+            listen(
+                shared.clone(),
+                EventStream::from_receiver(receiver),
+                "session".into(),
+                "target".into(),
+            )
+            .await;
+            assert_eq!(
+                notices.try_recv().unwrap().tone,
+                Some(crate::service::surface::runtime::NoticeTone::Error)
+            );
+            assert_eq!(shared.state().target_id, "");
+            assert_eq!(shared.state().owner, owner);
+            let (sender, receiver) = tokio::sync::mpsc::channel(1);
+            drop(sender);
+            listen(
+                shared.clone(),
+                EventStream::from_receiver(receiver),
+                "stale".into(),
+                "target".into(),
+            )
+            .await;
+            assert!(notices.try_recv().is_err());
+        }
+    }
 
     #[test]
     fn browser_page_main_frame_navigation_updates_url_and_subframes_do_not() {

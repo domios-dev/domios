@@ -1,7 +1,4 @@
-use parking_lot::Mutex;
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 
 pub const MAX_NAME_LEN: usize = 40;
 pub const SESSIONS_DIR: &str = "sessions";
@@ -115,40 +112,27 @@ impl ProfileLayout {
     }
 }
 
-fn leases() -> &'static Mutex<HashSet<PathBuf>> {
-    static LEASES: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
-    LEASES.get_or_init(|| Mutex::new(HashSet::new()))
-}
+pub mod lease_model;
+mod pool;
+pub use pool::ProfileLease;
+pub(crate) use pool::SharedBrowser;
 
-/// A second Chromium on a locked profile hands off to the first and exits, so one lease per dir.
-#[derive(Debug)]
-pub struct ProfileLease {
-    dir: PathBuf,
-}
-
-impl ProfileLease {
-    pub fn acquire(dir: PathBuf) -> Result<Self, String> {
-        if !leases().lock().insert(dir.clone()) {
-            return Err(format!(
-                "profile {} is already in use by another browser",
-                dir.display()
-            ));
-        }
-        Ok(Self { dir })
-    }
-
-    pub fn dir(&self) -> &Path {
-        &self.dir
-    }
-
-    pub fn leased_dirs() -> HashSet<PathBuf> {
-        leases().lock().clone()
-    }
-}
-
-impl Drop for ProfileLease {
-    fn drop(&mut self) {
-        leases().lock().remove(&self.dir);
+pub fn foreign_profile_error(dir: &Path, detail: &str) -> String {
+    if [
+        "SingletonLock",
+        "ProcessSingleton",
+        "Opening in existing browser session",
+        "profile is already in use",
+    ]
+    .iter()
+    .any(|marker| detail.contains(marker))
+    {
+        format!(
+            "profile {} is already in use by a browser process CodeTerm does not own: {detail}",
+            dir.display()
+        )
+    } else {
+        detail.to_string()
     }
 }
 
@@ -230,12 +214,14 @@ mod tests {
     }
 
     #[test]
-    fn browser_profile_lease_is_exclusive_until_dropped() {
-        let dir = PathBuf::from(format!("/lease-test/{}", uuid::Uuid::new_v4().simple()));
-        let lease = ProfileLease::acquire(dir.clone()).unwrap();
-        assert!(ProfileLease::acquire(dir.clone()).is_err());
-        assert!(ProfileLease::leased_dirs().contains(&dir));
-        drop(lease);
-        assert!(ProfileLease::acquire(dir).is_ok());
+    fn foreign_profile_lock_names_the_profile_and_external_owner() {
+        let dir = Path::new("/profiles/work");
+        let error = foreign_profile_error(dir, "ProcessSingleton: failed to create SingletonLock");
+        assert!(error.contains(&dir.display().to_string()));
+        assert!(error.contains("CodeTerm does not own"));
+        assert_eq!(
+            foreign_profile_error(dir, "binary missing"),
+            "binary missing"
+        );
     }
 }
