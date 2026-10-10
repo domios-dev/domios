@@ -328,9 +328,8 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
         ) {
             log::error!("Failed to start socket server: {}", e);
         }
-        let named_dev = cfg!(debug_assertions)
-            && std::env::var("CODETERM_INSTANCE").is_ok_and(|name| !name.trim().is_empty());
-        let remote_bind = super::rest_api::listeners::additional_bind(&api_config, named_dev);
+        let remote_bind =
+            super::rest_api::listeners::additional_bind(&api_config, cfg!(debug_assertions));
         let listener_allowed = match crate::config::validate_api_trust_boundary(&api_config)
             .and_then(|()| remote_bind.as_ref().map(|_| ()).map_err(Clone::clone))
         {
