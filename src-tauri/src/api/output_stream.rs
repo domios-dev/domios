@@ -4,6 +4,7 @@
 //! `OutputBuffer` (the replay ring); `boot_id` is shared with the events stream
 //! so a daemon restart invalidates both cursors consistently.
 
+use crate::api::stream_census::{track, StreamGuard, StreamKind};
 use axum::{
     extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
@@ -191,7 +192,10 @@ pub async fn stream_tab_output(
         Ok(Event::default()
             .data(serde_json::json!({"output": frame.output, "offset": frame.offset}).to_string()))
     });
-    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+    Ok(
+        Sse::new(track(stream, StreamGuard::local(StreamKind::TabOutput)))
+            .keep_alive(KeepAlive::default()),
+    )
 }
 
 fn build_stream_diagnostics(
@@ -542,18 +546,20 @@ pub async fn output_stream(
     let diagnostic_level = configured_level(state.config.lock().diagnostics.terminal_transport);
     let session_id = diagnostic_level.map(|_| uuid::Uuid::new_v4().simple().to_string());
 
+    let mut guard = StreamGuard::local(StreamKind::Output);
+    guard.diagnostics = build_stream_diagnostics(
+        diagnostic_level,
+        session_id,
+        scope,
+        cursor_boot,
+        cursor_offset,
+    );
     let stream = async_stream::stream! {
+        let mut guard = guard;
         let mut activity = svc.output_stream_activity.subscribe();
         let mut dirty_pty_ids = HashSet::new();
         let mut read_all = true;
         let mut sweep_now = true;
-        let mut diagnostics = build_stream_diagnostics(
-            diagnostic_level,
-            session_id,
-            scope,
-            cursor_boot,
-            cursor_offset,
-        );
         let svc0 = svc.clone();
         let (boot_frame, mut tracked, starts) =
             match tokio::task::spawn_blocking({
@@ -562,19 +568,19 @@ pub async fn output_stream(
             }).await {
                 Ok(v) => v,
                 Err(_) => {
-                    if let Some(diagnostics) = diagnostics.as_mut() {
+                    if let Some(diagnostics) = guard.diagnostics.as_mut() {
                         diagnostics.finish("seed_error");
                     }
                     return;
                 },
             };
         for start in starts {
-            if let Some(diagnostics) = diagnostics.as_mut() {
+            if let Some(diagnostics) = guard.diagnostics.as_mut() {
                 diagnostics.attach_tab(start);
             }
         }
         if let Some(bf) = boot_frame {
-            if let Some(diagnostics) = diagnostics.as_mut() {
+            if let Some(diagnostics) = guard.diagnostics.as_mut() {
                 diagnostics.observe_value(&bf);
             }
             yield Ok(data_frame(bf));
@@ -582,7 +588,7 @@ pub async fn output_stream(
         loop {
             if !read_all && !sweep_now && dirty_pty_ids.is_empty() {
                 let Some(wake) = wait_for_activity(&mut activity, None).await else {
-                    if let Some(diagnostics) = diagnostics.as_mut() {
+                    if let Some(diagnostics) = guard.diagnostics.as_mut() {
                         diagnostics.finish("activity_closed");
                     }
                     return;
@@ -610,7 +616,7 @@ pub async fn output_stream(
             let (frames, starts, more_pty_ids, owned) = match result {
                 Ok(v) => v,
                 Err(_) => {
-                    if let Some(diagnostics) = diagnostics.as_mut() {
+                    if let Some(diagnostics) = guard.diagnostics.as_mut() {
                         diagnostics.finish("sweep_error");
                     }
                     return;
@@ -619,12 +625,12 @@ pub async fn output_stream(
             dirty_pty_ids.extend(more_pty_ids);
             tracked = owned;
             for start in starts {
-                if let Some(diagnostics) = diagnostics.as_mut() {
+                if let Some(diagnostics) = guard.diagnostics.as_mut() {
                     diagnostics.attach_tab(start);
                 }
             }
             for f in frames {
-                if let Some(diagnostics) = diagnostics.as_mut() {
+                if let Some(diagnostics) = guard.diagnostics.as_mut() {
                     diagnostics.observe_value(&f);
                 }
                 yield Ok(data_frame(f));

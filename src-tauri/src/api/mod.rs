@@ -51,6 +51,7 @@ pub mod services_routes;
 pub(crate) mod session_binding_routes;
 pub mod session_routes;
 pub mod snapshot_bound;
+pub(crate) mod stream_census;
 pub(crate) mod stream_diagnostics;
 pub(crate) mod surface_routes;
 pub(crate) mod tab_adopt_routes;

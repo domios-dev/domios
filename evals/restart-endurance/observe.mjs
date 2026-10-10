@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 import { exactReply, firstTurnPolicy, kind, probeReady } from "./oracle.mjs";
 import { digest, logLines, newEvidence } from "./logs.mjs";
 import { recordBoundary, nextTurnModel } from "./records.mjs";
-import { snapshotAfterEvent } from "./snapshots.mjs";
+import { snapshotAfterEvent, tabSnapshot } from "./snapshots.mjs";
+import { assertTarget } from "./target.mjs";
+import { restartObserved } from "./restart.mjs";
 import { restoreReady, reconcileReadiness } from "./readiness.mjs";
 
 const script = fileURLToPath(import.meta.url);
@@ -18,7 +20,8 @@ const instance = process.env.CODETERM_INSTANCE || "";
 const API = `http://127.0.0.1:${port}`;
 const deadlineMs = 120_000;
 const dataDir = process.env.CODETERM_DEV_DATA_DIR;
-if (!dataDir || !((port === 7686 && !instance) || (port === 7697 && instance === "aiderqa"))) {
+assertTarget(instance, port);
+if (!dataDir) {
   throw new Error("Run through the selected DEV lib dev_run wrapper");
 }
 const headers = {
@@ -47,6 +50,7 @@ function save() {
       row.before_probe?.agent_type, `${row.previous_session ?? "—"} → ${row.after_probe?.agent_session_id ?? row.before_probe?.agent_session_id ?? "—"}`,
       row.answer ?? "—", row.elapsed_ms, `${row.pass ? "PASS" : row.observed_only ? "OBSERVED" : "FAIL"}: ${row.reason ?? ""}`,
     ].map(cell).join(" | ")} |`);
+    if (entry.restart) lines.push("", `Restart: ${entry.restart.pass ? "PASS" : "FAIL"}; listener ${entry.restart.before?.pid ?? "unknown"} → ${entry.restart.after?.pid ?? "unknown"}; process start (epoch microseconds) ${entry.restart.before?.started_us ?? "unknown"} → ${entry.restart.after?.started_us ?? "unknown"}.`);
     lines.push("", `Log evidence: [round-${entry.round}.log](round-${entry.round}.log). Full tab records, lifecycle and transcripts are in results.json.`, "");
     for (const row of entry.rows.filter((row) => !row.pass && !row.observed_only)) {
       lines.push(`### ${cell(row.id ?? row.provider)} failure`, "", `${cell(row.reason)}`, "", "```text");
@@ -158,15 +162,13 @@ class Events {
 
 const touches = (event, id) => event.data?.tab_id === id || event.event_type?.includes(id) || event.event_type === "mux-state-changed";
 const terminalStages = new Set(["spawn_failed", "launch_deadline_elapsed", "launch_binding_unconfirmed", "awaiting_owner_prompt"]);
-async function tabs(signal) {
-  const [summaries, state] = await Promise.all([
-    api("/api/tabs?local_only=true&all_workspaces=true", "GET", undefined, signal),
-    api("/api/mux/state", "GET", undefined, signal),
-  ]);
-  const full = Object.fromEntries(Object.values(state.tabs ?? {}).map((record) => [record.id, record]));
-  return summaries.map((summary) => ({ ...summary, ...full[summary.id] }));
+async function tabs(signal = AbortSignal.timeout(deadlineMs), events) {
+  return tabSnapshot({ events, createEvents: () => new Events(signal),
+    summaries: () => api("/api/tabs?local_only=true&all_workspaces=true", "GET", undefined, signal),
+    state: () => api("/api/mux/state", "GET", undefined, signal),
+  });
 }
-async function tab(id, signal) { return (await tabs(signal)).find((record) => record.id === id); }
+async function tab(id, signal, events) { return (await tabs(signal, events)).find((record) => record.id === id); }
 function failure(record) {
   if (!record) return "Tab absent from the all-tabs projection";
   if (terminalStages.has(record.boot_stage)) return `${record.boot_stage}: ${record.boot_failure_reason ?? JSON.stringify(record.pending_prompt ?? null)}`;
@@ -174,7 +176,7 @@ function failure(record) {
 }
 async function waitReady(events, id, signal, policy, requireSession = false, requireLaunch = false) {
   for (;;) {
-    const record = await snapshotAfterEvent(events, () => tab(id, signal));
+    const record = await tab(id, signal, events);
     const reason = failure(record);
     if (reason) throw new Error(reason);
     if (probeReady(record, policy, requireSession) && (!requireLaunch || record.boot_stage === "agent_ready")) return record;
@@ -223,7 +225,7 @@ async function probe(fixture, n, observeOnly = false) {
   let subscribed = false;
   try {
     await events.open();
-    row.initial = await snapshotAfterEvent(events, () => tab(fixture.id, signal));
+    row.initial = await tab(fixture.id, signal, events);
     if (observeOnly) {
       row.before_probe = row.initial;
       row.reason = failure(row.initial) ?? "Existing tab inspected; no message authorized outside Endure fixtures";
@@ -270,7 +272,7 @@ async function probe(fixture, n, observeOnly = false) {
       const snapshot = await snapshotAfterEvent(events, () => transcript(fixture.id, signal));
       row.transcript = snapshot;
       const answer = exactReply(snapshot.messages, baseline, row.prompt, marker, fixture.provider === "grok");
-      const current = await snapshotAfterEvent(events, () => tab(fixture.id, signal));
+      const current = await tab(fixture.id, signal, events);
       let completedRecord;
       if (answer && row.record_boundary) {
         try { completedRecord = nextTurnModel(row.record_boundary, marker); }
@@ -436,7 +438,9 @@ function captureLogs(n) {
 
 async function runRound(n) {
   const health = await checkHealth();
-  const entry = { round: n, health, rows: [], started_at: result.round_started_at,
+  const restart = JSON.parse(readFileSync(join(out, `restart-${n}.json`), "utf8"));
+  if (!restart.pass || !restartObserved(restart.before, restart.after)) throw new Error("restart_not_observed");
+  const entry = { round: n, health, restart, rows: [], started_at: result.round_started_at,
     health_observed_at: new Date().toISOString() };
   result.rounds.push(entry);
   save();
@@ -447,7 +451,7 @@ async function runRound(n) {
     const events = new Events(signal);
     try {
       await events.open();
-      const record = await snapshotAfterEvent(events, () => tab(fixture.id, signal));
+      const record = await tab(fixture.id, signal, events);
       if (record && workspace !== record.workspace_id) {
         await dc("workspace", "focus", record.workspace_id);
         workspace = record.workspace_id;
@@ -463,7 +467,7 @@ async function runRound(n) {
   const events = new Events(signal);
   try {
     await events.open();
-    const settled = await snapshotAfterEvent(events, () => tabs(signal));
+    const settled = await tabs(signal, events);
     entry.restore_readiness = reconcileReadiness(readiness, settled, result.fixtures);
     entry.materialized_pty_count = settled.filter((record) => record.pty_id).length;
     entry.restore_ready_at = new Date().toISOString();
@@ -613,13 +617,21 @@ async function main() {
     save();
   } else if (mode === "round") await runRound(round);
   else if (mode === "abort") {
-    result.fatal = `DEV restart ${round} failed; see restart-${round}.log`;
-    captureLogs(round);
+    const evidencePath = join(out, `restart-${round}.json`);
+    const restart = existsSync(evidencePath) ? JSON.parse(readFileSync(evidencePath, "utf8")) : null;
+    result.fatal = `restart_not_observed: DEV restart ${round} failed; see restart-${round}.log`;
+    const lines = captureLogs(round);
+    result.rounds.push({ round, restart, started_at: result.round_started_at, rows: result.fixtures.map((fixture) => ({
+      ...fixture, pass: false, phase: "restart_not_observed", reason: result.fatal,
+      log_evidence: lines.filter((line) => line.includes(fixture.id)),
+    })) });
     save();
+    writeFileSync(join(out, "complete"), "1\n");
   } else if (mode === "finish") {
     const failed = result.coverage.some((entry) => entry.status === "required unavailable") ||
       result.rounds.some((entry) => entry.rows.some((row) => !row.pass && !row.observed_only)) ||
-      result.rounds.filter((entry) => entry.round > 0).length !== 3;
+      result.rounds.filter((entry) => entry.round > 0).length !== 3 ||
+      result.rounds.filter((entry) => entry.round > 0).some((entry) => !entry.restart?.pass || !restartObserved(entry.restart.before, entry.restart.after));
     result.finished_at = new Date().toISOString();
     result.pass = !failed;
     save();

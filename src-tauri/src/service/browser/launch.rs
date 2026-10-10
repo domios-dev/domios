@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 use std::path::Path;
 
+pub const OWNERSHIP_FLAG: &str = "--codeterm-owned-browser";
+
 const DEVTOOLS_MARKER: &str = "DevTools listening on ";
 const MAX_PENDING_LINE: usize = 64 * 1024;
 const TAIL_LINES: usize = 8;
@@ -15,6 +17,7 @@ pub struct LaunchSpec<'a> {
 
 pub fn launch_args(spec: &LaunchSpec<'_>) -> Vec<String> {
     vec![
+        OWNERSHIP_FLAG.into(),
         "--headless=new".into(),
         "--remote-debugging-port=0".into(),
         format!("--user-data-dir={}", spec.profile_dir.display()),
