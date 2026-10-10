@@ -28,6 +28,7 @@ test('record proof refuses another session and malformed records', () => {
   const records = jsonLines('{"session":"own","model":"cheap"}\n{"session":"foreign","model":"expensive"}\n');
   const claim = { sessionId: 'own', tabId: 'tab', sourcePath: 'raw.jsonl', sessionPath: ['session'], valuePath: ['model'], expected: 'cheap' };
   assert.deepEqual(proveRecord(records, claim).lines, [1]);
+  assert.deepEqual(proveRecord(jsonLines('\n{"session":"own","model":"cheap"}'), claim).lines, [2]);
   assert.throws(() => proveRecord(records, { ...claim, expected: 'expensive' }), /No claim/);
   assert.throws(() => jsonLines('{}\npartial'), /line 2/);
   assert.throws(() => proveRecord(records, { ...claim, sessionId: '' }), /Bound session/);
