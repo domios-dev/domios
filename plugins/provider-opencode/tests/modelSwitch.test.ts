@@ -7,11 +7,10 @@ import { opencodeBindingPluginSource } from "../src/helpers";
 
 const controls = {
   id: "tab-owned", agent_session_id: "ses_owned", session_binding_nonce: "nonce",
-  reported_session_binding_nonce: "nonce", agent_provider_resolved_model: "vendor/new/model",
-  reasoning_effort_identity: { resolved: "high" },
+  reported_session_binding_nonce: "nonce", model: "vendor/new/model", effort: "high",
 };
 
-async function binding(read: () => Promise<unknown>, sessionGet?: () => Promise<unknown>, envelope = (value: unknown): unknown => [value]) {
+async function binding(read: () => Promise<unknown>, sessionGet?: () => Promise<unknown>, envelope = (value: unknown): unknown => value, consumeReportSignal = false) {
   const gets: Array<{ url: string; headers: unknown }> = [];
   const warnings: unknown[] = [];
   const deadlines: number[] = [];
@@ -21,12 +20,13 @@ async function binding(read: () => Promise<unknown>, sessionGet?: () => Promise<
       CODETERM_SESSION_BINDING_NONCE: "nonce",
       CODETERM_RESUME_SESSION_ID: sessionGet ? "ses_owned" : undefined,
     } },
-    AbortSignal: { timeout: (deadline: number) => { deadlines.push(deadline); return {}; } },
+    AbortSignal: { timeout: (deadline: number) => { deadlines.push(deadline); return { aborted: false }; } },
     console: { warn: (message: unknown) => warnings.push(message) },
-    fetch: async (url: string, options: { body?: string; headers: unknown }) => {
-      if (options.body) return { ok: true };
+    fetch: async (url: string, options: { body?: string; headers: unknown; signal: {aborted: boolean} }) => {
+      if (options.body) { if (consumeReportSignal) options.signal.aborted = true; return { ok: true }; }
+      assert.equal(options.signal.aborted, false);
       gets.push({ url, headers: options.headers });
-      assert.equal(url, "http://instance/api/tabs/inspect?tab_ids=tab-owned");
+      assert.equal(url, "http://instance/api/tabs/tab-owned/turn-controls?session_id=ses_owned");
       return { ok: true, json: async () => envelope(await read()) };
     },
     module: { exports: undefined as unknown },
@@ -52,11 +52,11 @@ test("typed and API prompts use exact-tab model and effort before message persis
   const message: Record<string, unknown> = { model: { providerID: "old", modelID: "old" }, variant: "low" };
   await runtime.hooks["chat.message"]({ sessionID: "ses_owned" }, { message });
   assert.deepEqual(JSON.parse(JSON.stringify(message)), { model: { providerID: "vendor", modelID: "new/model" }, variant: "high" });
-  current = { ...controls, agent_provider_resolved_model: "vendor/old", reasoning_effort_identity: { resolved: "default" } };
+  current = { ...controls, model: "vendor/old", effort: "default" };
   await runtime.hooks["chat.message"]({ sessionID: "ses_owned" }, { message });
   assert.deepEqual(JSON.parse(JSON.stringify(message)), { model: { providerID: "vendor", modelID: "old" } });
-  assert.deepEqual(JSON.parse(JSON.stringify(runtime.gets)), [0, 1].map(() => ({ url: "http://instance/api/tabs/inspect?tab_ids=tab-owned", headers: { authorization: "Bearer secret" } })));
-  assert.deepEqual(runtime.deadlines, [200, 200]);
+  assert.deepEqual(JSON.parse(JSON.stringify(runtime.gets)), [0, 1].map(() => ({ url: "http://instance/api/tabs/tab-owned/turn-controls?session_id=ses_owned", headers: { authorization: "Bearer secret", "x-codeterm-binding-nonce": "nonce" } })));
+  assert.deepEqual(runtime.deadlines, [200, 200, 200, 200]);
 });
 
 test("foreign tab, session, or stale binding cannot override a turn", async () => {
@@ -66,27 +66,32 @@ test("foreign tab, session, or stale binding cannot override a turn", async () =
   ]) {
     const runtime = await binding(async () => ({ ...controls, ...mismatch }));
     const message = { model: "unchanged", variant: "unchanged" };
-    await runtime.hooks["chat.message"]({ sessionID: "ses_owned" }, { message });
+    await assert.rejects(runtime.hooks["chat.message"]({ sessionID: "ses_owned" }, { message }), /binding is not current/);
     assert.deepEqual(message, { model: "unchanged", variant: "unchanged" });
   }
 });
 
-test("turn controls require the inspection endpoint's single-tab array envelope", async () => {
-  for (const envelope of [(value: unknown) => value, () => [], (value: unknown) => [value, value]]) {
+test("turn controls reject missing or unrelated envelopes", async () => {
+  for (const envelope of [() => null, () => [], (value: unknown) => [value, value]]) {
     const runtime = await binding(async () => controls, undefined, envelope);
     const message = { model: "unchanged", variant: "unchanged" };
-    await runtime.hooks["chat.message"]({ sessionID: "ses_owned" }, { message });
+    await assert.rejects(runtime.hooks["chat.message"]({ sessionID: "ses_owned" }, { message }), /binding is not current/);
     assert.deepEqual(message, { model: "unchanged", variant: "unchanged" });
-    assert.equal(runtime.warnings.length, 1);
   }
 });
 
-test("unavailable or timed-out CodeTerm skips override and warns only once", async () => {
+test("unavailable controls refuse instead of silently continuing on the old model", async () => {
   const runtime = await binding(async () => { throw new Error("timeout"); });
   const message = { model: "unchanged" };
-  for (let i = 0; i < 2; i++) await runtime.hooks["chat.message"]({ sessionID: "ses_owned" }, { message });
+  for (let i = 0; i < 2; i++) await assert.rejects(runtime.hooks["chat.message"]({ sessionID: "ses_owned" }, { message }), /timeout/);
   assert.equal(message.model, "unchanged");
-  assert.equal(runtime.warnings.length, 1);
+});
+
+test("binding registration cannot consume the controls request deadline", async () => {
+  const runtime = await binding(async () => controls, undefined, undefined, true);
+  const message: Record<string, unknown> = {};
+  await runtime.hooks["chat.message"]({ sessionID: "ses_owned" }, { message });
+  assert.deepEqual(JSON.parse(JSON.stringify(message.model)), { providerID: "vendor", modelID: "new/model" });
 });
 
 test("confirmation reads first new assistant model in the claimed SQLite session", () => {

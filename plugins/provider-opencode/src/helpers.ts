@@ -5,7 +5,7 @@ import { opencodeFileDiffs } from "./fileDiffs";
 import { fileDiffFromEdit, type FileDiff } from "@codeterm/chat-core";
 
 // Constants and regexes
-export const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v7";
+export const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v8";
 export const CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-session-binding-v";
 export const QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 export const QUESTION_MENU_SELECTORS = [">", "❯", "▶", "➤", "→", "●"];
@@ -803,9 +803,8 @@ export function opencodeBindingPluginSource(): string {
     "      }",
     "    },",
     "    async \"chat.message\"(input, output) {",
-    "      const signal = AbortSignal.timeout(200);",
-    "      await report(input?.sessionID, \"chat.message\", directory, signal);",
-    "      await applyTurnModel(input, output, signal);",
+    "      await report(input?.sessionID, \"chat.message\", directory, AbortSignal.timeout(200));",
+    "      await applyTurnModel(input, output, AbortSignal.timeout(200));",
     "    },",
     "    async \"tool.execute.before\"(input) {",
     "      await report(input?.sessionID, \"tool.execute.before\", directory);",

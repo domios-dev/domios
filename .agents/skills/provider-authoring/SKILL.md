@@ -242,6 +242,13 @@ and matches the completed turn id against the latest provider-authored active
 turn id. A new user record invalidates prior completion evidence. Missing,
 foreign, partial or pre-boundary records cannot release the staged operation.
 
+Next-turn hooks read `GET /api/tabs/{id}/turn-controls?session_id=...` with the
+instance token and `x-codeterm-binding-nonce`. The exact-session response contains
+`model` and `effort`, preferring a staged selection over resolved launch values.
+It does not change actual identity or confirm a switch. Binding and controls
+requests need independent failure deadlines; a controls failure must refuse the
+hook rather than silently persist a turn on the previous model.
+
 `parseUsage` snapshots carry `billing_mode` (`subscription`, `api`, `unknown`)
 and `limits_reported` (boolean). Unknown is the default. Subscription snapshots
 with no reported metrics display that limits were not reported, without guessed
