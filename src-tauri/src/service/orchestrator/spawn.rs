@@ -707,6 +707,24 @@ impl ServiceContext {
         }
         let fallback_bootstrap =
             fallback_bootstrap.map(|body| team_bootstrap_payload(system_prompt_capable, body));
+        let input_provider = self.agent_registry.provider_arc(&agent_cmd);
+        let spawn_input = {
+            let handshake = (params.starter_prompt
+                == crate::agent::provider::StarterPrompt::StartupHandshake)
+                .then_some(params.starter_prompt);
+            crate::service::launch_delivery::prepare_spawn_input(
+                input_provider.as_deref(),
+                params.role.as_deref(),
+                params.task.as_deref(),
+                params.starter_prompt,
+                handshake,
+                |task| {
+                    self.spawn_task_message(&tab_id, task)
+                        .unwrap_or_else(|| task.to_string())
+                },
+            )
+        };
+        params.starter_prompt = spawn_input.starter_prompt;
         let bg_task = if params.manager_bootstrap.is_some() {
             if system_prompt_capable {
                 Some(agent_system_prompt(params.task.as_deref()))
@@ -714,7 +732,13 @@ impl ServiceContext {
                 params.task.clone()
             }
         } else {
-            spawn_launch_task_for_provider(&self.agent_registry, &params, system_prompt_capable)
+            let mut launch_params = params.clone();
+            launch_params.task = spawn_input.provider_task.map(str::to_string);
+            spawn_launch_task_for_provider(
+                &self.agent_registry,
+                &launch_params,
+                system_prompt_capable,
+            )
         };
         // Planner gets a short display hint plus its full onboarding as launch input.
         let is_planner = params.role_kind() == Some(builtins::PLANNER);
@@ -777,36 +801,16 @@ impl ServiceContext {
             launch_session_id.as_deref(),
         )?;
         self.bind_worker_plan_task_or_rollback_tab(&params, &tab_id)?;
-        let fallback_delivery = self
-            .agent_registry
-            .with_provider(&agent_cmd, |provider| {
-                let external = matches!(
-                    crate::service::launch_delivery::mode_for_descriptor(
-                        &provider.system_prompt_delivery(),
-                    ),
-                    crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback
-                );
-                external
-                    && matches!(
-                        provider.task_delivery(),
-                        crate::agent::provider::TaskDelivery::PtyInput
-                    )
-            })
-            .unwrap_or(true);
-        let fallback_spec = fallback_delivery
-            .then(|| {
-                crate::service::launch_delivery::fallback_delivery_spec(
-                    fallback_bootstrap.as_deref(),
-                    bg_task.as_deref(),
-                    self.agent_registry
-                        .with_provider(&agent_cmd, |provider| {
-                            provider.starter_prompt_text(params.starter_prompt)
-                        })
-                        .flatten()
-                        .as_deref(),
-                )
-            })
-            .flatten();
+        let fallback_spec = spawn_input.fallback_spec(
+            fallback_bootstrap.as_deref(),
+            bg_task.as_deref(),
+            self.agent_registry
+                .with_provider(&agent_cmd, |provider| {
+                    provider.starter_prompt_text(params.starter_prompt)
+                })
+                .flatten()
+                .as_deref(),
+        );
         if let Some(spec) = fallback_spec.as_ref() {
             create_pending_delivery_or_rollback_dispatch(self, &params, &tab_id, spec)?;
         }
@@ -817,7 +821,7 @@ impl ServiceContext {
             fallback_spec.as_ref(),
             bg_task.as_deref(),
             true,
-            None,
+            spawn_input.confirmed_first_turn.as_deref(),
         );
         launch_agent_in_background_with_task_turn(
             self.clone(),
@@ -999,31 +1003,6 @@ impl ServiceContext {
                 serde_json::json!({ "plan_id": plan_id }),
             ),
             Err(e) => log::warn!("[spawn] failed to bind planner ref for plan {plan_id}: {e}"),
-        }
-    }
-
-    pub(crate) fn confirmed_spawn_first_turn(
-        &self,
-        target: &str,
-        provider: &str,
-        turn: crate::service::launch_delivery::VisibleSpawnFirstTurn<'_>,
-    ) -> String {
-        use crate::service::launch_delivery::{self, VisibleSpawnFirstTurn};
-        match turn {
-            VisibleSpawnFirstTurn::AssignedTaskStarter => {
-                let prompt = crate::agent::provider::StarterPrompt::AssignedTask;
-                let text = self
-                    .agent_registry
-                    .with_provider(provider, |provider| provider.starter_prompt_text(prompt))
-                    .flatten();
-                launch_delivery::mark_starter_prompt(
-                    prompt,
-                    launch_delivery::assigned_task_starter(text.as_deref()),
-                )
-            }
-            VisibleSpawnFirstTurn::Task(task) => self
-                .spawn_task_message(target, task)
-                .unwrap_or_else(|| task.to_string()),
         }
     }
 
