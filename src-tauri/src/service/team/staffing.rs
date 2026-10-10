@@ -62,11 +62,15 @@ pub(crate) fn team_member_brief(
     }
 }
 
-pub(crate) async fn deliver_reused_cartographer(
+pub(crate) async fn deliver_reused_cartographer<F, Fut>(
     attachment: AddTeamMemberResult,
     brief: Option<String>,
-    send: impl AsyncFnOnce(String, String) -> Result<(), String>,
-) -> Result<AddTeamMemberResult, String> {
+    send: F,
+) -> Result<AddTeamMemberResult, String>
+where
+    F: FnOnce(String, String) -> Fut,
+    Fut: std::future::Future<Output = Result<(), String>>,
+{
     if let Some(brief) = brief.filter(|brief| !brief.trim().is_empty()) {
         send(attachment.tab_id.clone(), brief).await?;
     }
@@ -79,7 +83,7 @@ impl ServiceContext {
         attachment: AddTeamMemberResult,
         brief: Option<String>,
     ) -> Result<AddTeamMemberResult, String> {
-        deliver_reused_cartographer(attachment, brief, |tab, brief| async move {
+        deliver_reused_cartographer(attachment, brief, |tab: String, brief: String| async move {
             self.send_text_when_ready(&tab, &brief)
                 .await
                 .map_err(|error| error.to_string())

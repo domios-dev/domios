@@ -141,7 +141,7 @@ pub(super) fn dispatch(
                         provider,
                         role,
                         title: opt_string_param(params, "title"),
-                        task: crate::service::team::team_member_brief(
+                        task: crate::service::team_member_brief(
                             opt_string_param(params, "task"),
                             opt_string_param(params, "brief"),
                         )
