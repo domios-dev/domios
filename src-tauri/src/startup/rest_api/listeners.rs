@@ -202,9 +202,10 @@ pub(super) async fn prove_set(
     primary: SocketAddr,
     remote: Option<SocketAddr>,
 ) -> Result<(), String> {
-    prove_health(primary).await?;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    prove_health(primary, deadline).await?;
     if let Some(remote) = remote {
-        prove_health(remote).await?;
+        prove_health(remote, deadline).await?;
     }
     Ok(())
 }

@@ -192,7 +192,7 @@ async fn mesh_reachability_startup_remote_exit_fails_closed() {
 }
 
 #[tokio::test]
-async fn mesh_reachability_two_real_listeners_serve_the_same_health_router() {
+async fn mesh_tailnet_two_listeners_are_health_proven_and_published() {
     let primary = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let (primary, remote) = bind_remote(primary, Some("127.0.0.1:0".parse().unwrap()))
         .await
@@ -211,14 +211,78 @@ async fn mesh_reachability_two_real_listeners_serve_the_same_health_router() {
         let _ = stop_rx.await;
     })
     .into_future();
-    let publication = ListenerPublication::default();
-    let running = tokio::spawn(serve(primary, remote, router, publication.clone()));
-    prove_set(primary_address, Some(remote_address))
-        .await
+    let control = RestApiControl::new();
+    let generation = control.begin_generation();
+    control.listener_bound(generation, primary_address);
+    let server = serve(primary, remote, router, control.listeners.clone());
+    tokio::pin!(server);
+    tokio::select! {
+        result = &mut server => panic!("listeners exited before proof: {result:?}"),
+        result = prove_set(primary_address, Some(remote_address)) => result.unwrap(),
+    }
+    assert!(control.listeners.ready().is_empty());
+    let status = control
+        .mark_listening(generation, vec![primary_address, remote_address])
         .unwrap();
-    assert!(publication.ready().is_empty());
-    publication.publish(vec![primary_address, remote_address]);
-    assert_eq!(publication.ready().len(), 2);
+    assert_eq!(status.phase, RestApiPhase::Listening);
+    assert_eq!(
+        control.listeners.ready(),
+        vec![primary_address, remote_address]
+    );
+    let request = async {
+        reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .get(format!("http://{remote_address}/api/health"))
+            .header(reqwest::header::CONNECTION, "close")
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap()
+    };
+    tokio::select! {
+        result = &mut server => panic!("listeners exited after publication: {result:?}"),
+        result = tokio::time::timeout(Duration::from_secs(5), request) => {
+            assert_eq!(result.unwrap(), "ok");
+        },
+    }
     stop_tx.send(()).unwrap();
-    running.await.unwrap().unwrap();
+    server.await.unwrap();
+    assert!(control.listeners.ready().is_empty());
+}
+
+#[tokio::test]
+async fn mesh_tailnet_health_proof_deadline_bounds_an_incomplete_response_body() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let (headers_tx, mut headers_rx) = oneshot::channel();
+    let stalled_response = async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        while !request.ends_with(b"\r\n\r\n") {
+            request.push(stream.read_u8().await.unwrap());
+        }
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\n")
+            .await
+            .unwrap();
+        headers_tx.send(()).unwrap();
+        std::future::pending::<()>().await;
+    };
+    tokio::pin!(stalled_response);
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(250);
+    let error = tokio::select! {
+        _ = &mut stalled_response => panic!("stalled response unexpectedly completed"),
+        result = prove_health(address, deadline) => result.unwrap_err(),
+    };
+    headers_rx
+        .try_recv()
+        .expect("the client must have received response headers");
+    assert!(error.contains(&address.to_string()), "{error}");
+    assert!(error.contains("failure deadline"), "{error}");
 }
