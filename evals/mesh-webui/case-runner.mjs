@@ -5,6 +5,7 @@ import {createHarness,switchPeer,selectTab,capture,observe,activity,waitDom,dead
 import {validateManifest,validateOutput,cheap,claim,matrix,convergence,checks} from './model.mjs';
 import {snapshot} from './records.mjs';
 import {selectedChatSurface} from './chat-selection.mjs';
+import {completeTurn,runScopedIdentity} from './turn-completion.mjs';
 export function createCaseRunner({manifest,out,directionFilter,providerFilter,promptPad,desktopView=null,snapshotRecord=snapshot,homeWeb=false}) {
   const pad = promptPad;
   assert.ok(pad, 'Authored provider prompts require the calling agent pad');
@@ -65,23 +66,24 @@ async function submit(page,prompt,label) {
 }
 async function turn(page,home,machine,tab,uiId,index,direction) {
   const before=await native(machine,tab,'before-turn-'+direction+'-'+index);
-  const token=`B2_${path.basename(out)}_${direction}_${tab.provider}_${index}`;
+  const token=runScopedIdentity(out,direction,tab.provider,String(index));
   const prompt=index===0
     ? `${token}\nUse one read-only directory-listing tool in your current test folder, then respond with ${token} and a short fenced JavaScript code block. Do not edit files or invoke CodeTerm.`
     : `${token}\nReply with exactly ${token}.`;
   await observe(page); if (home) await observe(home);
   await submit(page,prompt,token);
-  await waitDom(page,{selector:`[data-testid="tab-session-chat"][data-tab-id="${uiId}"] [data-testid="agent-state"]`,attr:'data-agent-state',value:'working'});
-  await capture(page,token+'-working');
-  await waitDom(page,{selector:`[data-testid="tab-session-chat"][data-tab-id="${uiId}"] [data-testid="agent-state"]`,attr:'data-agent-state',value:'idle'});
-  const after=await native(machine,tab,'after-turn-'+direction+'-'+index);
-  const receipt=claim(after.proof,tab,prompt,before.proof.records.length);
-  const assistant=receipt.assistant.map(r=>r.text).join('');
-  assert.ok(assistant.includes(token),'Persisted assistant must answer supplied marker');
-  await waitDom(page,{selector:'[data-testid="chat-message"][data-message-role="assistant"]',text:token});
+  const {after,receipt,working}=await completeTurn({
+    waitReply:async()=>{
+      const surface=`[data-testid="tab-session-chat"][data-tab-id="${uiId}"]`;
+      await waitDom(page,{selector:`${surface} [data-testid="chat-message"][data-message-role="assistant"]`,text:token});
+      await waitDom(page,{selector:`${surface} [data-testid="agent-state"]`,attr:'data-agent-state',value:'idle'});
+    },
+    snapshot:()=>native(machine,tab,'after-turn-'+direction+'-'+index),
+    readActivity:()=>activity(page),tab,prompt,token,boundary:before.proof.records.length,
+  });
   const evidence=await capture(page,token+'-done');
   return {token,prompt,provider_record:after.evidence,user:receipt.user,
-    assistant:receipt.assistant,screen:evidence,web:await activity(page),home:home ? await activity(home) : [],
+    assistant:receipt.assistant,working,screen:evidence,web:await activity(page),home:home ? await activity(home) : [],
     newRecords:after.proof.records.slice(before.proof.records.length)};
 }
 async function provider(page,home,direction,machine,tab) {
@@ -117,7 +119,8 @@ async function provider(page,home,direction,machine,tab) {
     return {markers:turns.map(t=>t.token),providerRecords:turns.map(t=>t.provider_record)};
   });
   await check(page,direction,tab,'status-working',async()=>{
-    assert.ok(turns.every(t=>t.web.some(e=>e.state==='working')));return turns.map(t=>t.web);
+    assert.ok(turns.every(t=>t.working.status==='PASS'),'Remote Working was not observed for every proved turn');
+    return turns.map(t=>({token:t.token,...t.working}));
   });
   await check(page,direction,tab,'status-done',async()=>{
     assert.ok(turns.every(t=>t.web.at(-1)?.state==='idle'));return turns.map(t=>t.web);
@@ -141,14 +144,14 @@ async function provider(page,home,direction,machine,tab) {
     await waitDom(page,{selector:'[data-testid="chat-code-block"]'});return {providerRecord:turns[0].provider_record};
   });
   await check(page,direction,tab,'attachments',async()=>{
-    const token=`B2_attachment_${path.basename(out)}_${direction}_${tab.provider}`;
+    const token=runScopedIdentity(out,direction,tab.provider,'attachment');
     const file=path.join(pad,'prompts',token+'.txt');
     await writeFile(file,token,{flag:'wx'});
     const before=await native(machine,tab,'before-attachment');
     const chat = await selectedChatSurface(page);
     await chat.getByTestId('composer-attach-input').setInputFiles(file);
     await waitDom(page,{selector:'[data-testid="attachment-chip"]',text:token});
-    await submit(page,`Read the attached text and reply with its exact contents.`,token+'-prompt');
+    await submit(page,`${token}\nRead the attached text and reply with its exact contents.`,token+'-prompt');
     await waitDom(page,{selector:'[data-testid="chat-message"][data-message-role="assistant"]',text:token});
     await waitDom(page,{selector:'[data-testid="agent-state"]',attr:'data-agent-state',value:'idle'});
     const after=await native(machine,tab,'after-attachment');
@@ -160,7 +163,7 @@ async function provider(page,home,direction,machine,tab) {
   });
   await check(page,direction,tab,'stop',async()=>{
     const before=await native(machine,tab,'before-stop');
-    const token=`B2_stop_${path.basename(out)}_${direction}_${tab.provider}`;
+    const token=runScopedIdentity(out,direction,tab.provider,'stop');
     await submit(page,`${token}\nGenerate 1500 numbered unique short lines beginning with ${token}.`,token);
     await waitDom(page,{selector:'[data-testid="agent-state"]',attr:'data-agent-state',value:'working'});
     await capture(page,token+'-before-stop');
