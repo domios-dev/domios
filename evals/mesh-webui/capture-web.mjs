@@ -1,5 +1,10 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import {fileURLToPath} from 'node:url';
+const execute = promisify(execFile);
+const dcPath = fileURLToPath(new URL('./dc.sh', import.meta.url));
 import { validateOutput } from './model.mjs';
 import { createHarness, switchPeer, capture, selectTab, terminalObserver, deadline } from './browser.mjs';
 
@@ -23,16 +28,22 @@ for (const item of cases) {
   const fixtures = [...manifest[item.home].tabs, ...(manifest[item.home].shells ?? [])];
   if (!fixtures.some(tab => tab.tabId === item.tabId)) throw new Error('Capture target must be a manifest-owned fixture');
 }
+const readinessFailures = [];
 const harness = await createHarness(manifest, out);
 try {
   for (const item of cases) {
-    const { page, diagnostics } = await harness.openGateway(item.gateway, { diagnosticsDirectory: path.join(out, item.id) });
+    const { page, diagnostics } = await harness.openGateway(item.gateway, { diagnosticsDirectory: path.join(out, item.id), outputTabId: item.tabId });
     let complete = false;
     try {
       const intendedPeer = item.gateway === item.home ? null : manifest[item.home].peerId;
       const current = await page.evaluate(() => localStorage.getItem(`codeterm-web-relay-peer:${location.origin}`));
       if ((current || null) !== intendedPeer) await switchPeer(page, intendedPeer);
       await selectTab(page, item.tabId, { mode: 'terminal' });
+      const remote = item.home === 'windows' ? ['--mesh', manifest.windows.peerId] : [];
+      const home = await execute('bash', [dcPath, 'tab', 'get-text', '--tab', item.tabId, '--json', ...remote],
+        { timeout: 30000, maxBuffer: 4000000 });
+      await diagnostics.waitForOutput({ origin: manifest[item.gateway].origin, peerId: intendedPeer,
+        tabId: item.tabId, homePeerId: manifest[item.home].peerId }, JSON.parse(home.stdout));
       const base = await capture(page, item.id + '-provenance', { tabId: item.tabId });
       const probeId = await terminalObserver.armTerminalEvents(page, item.tabId);
       try {
@@ -52,11 +63,20 @@ try {
       if (intendedPeer !== null) await switchPeer(page, null);
       await capture(page, item.id + '-gateway-return');
       complete = true;
+    } catch (error) {
+      if (!error.outputState) throw error;
+      readinessFailures.push({ id: item.id, tabId: item.tabId, verdict: error.message });
+      await writeFile(path.join(out, item.id + '-capture-failure.json'), JSON.stringify({
+        id: item.id, tabId: item.tabId, home: item.home, gateway: item.gateway,
+        error: error.message, verdict: 'FAIL no output within 30 s',
+        evidence: item.id + '/output-readiness.json',
+      }, null, 2), { flag: 'wx' });
     } finally {
       try { await diagnostics.finish(complete ? 'case-complete' : 'case-failed'); }
       finally { await deadline(page.context().close(), 'B3 context close'); }
     }
   }
+  if (readinessFailures.length) throw new Error('B3 output readiness failures: ' + JSON.stringify(readinessFailures));
 } finally {
   await harness.close();
 }

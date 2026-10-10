@@ -132,7 +132,7 @@ export async function createHarness(manifest, outDir) {
   const {chromium} = require('@playwright/test');
   const browser = await chromium.launch({headless:true,timeout:STEP_MS});
   const contexts = [];
-  return {browser, async openGateway(machineKey, { diagnosticsDirectory } = {}) {
+  return {browser, async openGateway(machineKey, { diagnosticsDirectory, outputTabId } = {}) {
     const machine = manifest[machineKey];
     if (!machine || !['mac','windows'].includes(machineKey)) throw new Error('Unknown gateway');
     const token = await gatewayToken(machine);
@@ -149,7 +149,7 @@ export async function createHarness(manifest, outDir) {
       if (location.origin === origin) localStorage.setItem('codeterm-web-token:'+origin,token);
     }, {origin:machine.origin,token});
     const page = await context.newPage();
-    const diagnostics = diagnosticsDirectory ? armBrowserDiagnostics(page, diagnosticsDirectory, { secrets: [token] }) : null;
+    const diagnostics = diagnosticsDirectory ? await deadline(armBrowserDiagnostics(page, diagnosticsDirectory, { secrets: [token], outputTabId }), 'Arm browser diagnostics') : null;
     const evaluate = page.evaluate.bind(page);
     page.evaluate = (...args) => deadline(evaluate(...args), 'Browser protocol evaluate');
     page.__b2Out = outDir;
